@@ -11,8 +11,10 @@ use std::{
 mod budget;
 pub(crate) use budget::PacketReturnTotals;
 mod delivery;
+mod limits;
 mod maintenance;
 mod registration;
+mod translated;
 
 use tokio::sync::mpsc;
 use zero_stack::packet;
@@ -40,6 +42,7 @@ struct ReturnObservation {
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
     touched: Instant,
 }
+#[derive(Clone)]
 struct TranslatedReturn {
     replies: zero_stack::packet_output::PacketSender,
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
@@ -83,8 +86,16 @@ impl NativePacket<'_> {
 }
 
 impl PacketReturns {
+    pub(crate) fn defer_notifications(&self) -> zero_tun::packet_memory::PacketRootNotifications {
+        self.budget.defer_notifications()
+    }
     pub(crate) fn quiescent(&self) -> bool {
         self.budget.quiescent()
+            && self
+                .translated
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .is_empty()
     }
 
     /// Preserve forwarding when the correlated boundary cannot account for
@@ -114,20 +125,33 @@ impl PacketReturns {
             ..Self::default()
         }
     }
-    pub(crate) fn with_limits(
-        mut self,
-        options: &super::super::RawIpStackOptions,
-    ) -> std::io::Result<Self> {
-        options.packet_return_totals.install(
-            options.packet_return_total_max_frames,
-            options.packet_return_total_max_bytes,
-        )?;
-        self.budget = budget::ReturnBudget::with_totals(
-            options.packet_return_max_frames,
-            options.packet_return_max_bytes,
-            options.packet_return_totals.clone(),
-        );
-        Ok(self)
+    pub(crate) fn retain_transmit_reply_for(
+        &self,
+        packet: zero_traits::PacketBuffer,
+        mtu: u16,
+        layout: zero_stack::packet_output::memory::PacketWireMemory,
+    ) -> Result<zero_traits::PacketBuffer, zero_traits::PacketBuffer> {
+        self.budget
+            .retain_transmit_return(packet, mtu, layout)
+            .map_err(|failure| failure.original)
+    }
+    pub(crate) async fn retain_transmit_reply_wait(
+        &self,
+        packet: zero_traits::PacketBuffer,
+        mtu: u16,
+        layout: zero_stack::packet_output::memory::PacketWireMemory,
+    ) -> Result<zero_traits::PacketBuffer, zero_platform_tokio::contract::ChannelError> {
+        self.budget
+            .retain_transmit_return_wait(packet, mtu, layout)
+            .await
+            .map_err(|failure| {
+                zero_platform_tokio::contract::ChannelError::new(
+                    zero_platform_tokio::contract::Stage::Receive,
+                    zero_platform_tokio::contract::Reason::Capacity,
+                    zero_platform_tokio::contract::Impact::Packet,
+                )
+                .with_source(failure)
+            })
     }
     pub(crate) fn retain_reply_buffer_for(
         &self,
@@ -230,48 +254,10 @@ impl PacketReturns {
         packet: zero_traits::PacketBuffer,
     ) -> Result<Option<zero_traits::PacketBuffer>, zero_platform_tokio::contract::ChannelError>
     {
-        if self.deliver_correlated(&packet) {
+        let Some(packet) = self.deliver_correlated_owned_wait(packet).await? else {
             return Ok(None);
-        }
+        };
         self.deliver_native_wait(packet).await
-    }
-
-    pub(crate) fn deliver_correlated(&self, packet: &[u8]) -> bool {
-        if let Some((TranslatedReturn { replies, observer }, mut restored)) = self
-            .translated
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .response(packet, Instant::now())
-        {
-            if let Some(observer) = &observer {
-                observer.received(packet.len());
-            }
-            if packet::advance_ip_hop(&mut restored) {
-                self.send_reply(&replies, restored.into(), observer.as_deref());
-            } else {
-                self.discard(observer.as_deref(), zero_traits::PacketDropReason::HopLimit);
-            }
-            return true;
-        }
-        false
-    }
-
-    pub(crate) fn translate(
-        &self,
-        packet: &[u8],
-        local: IpAddr,
-        replies: zero_stack::packet_output::PacketSender,
-        observer: Option<Arc<dyn zero_traits::IoObserver>>,
-    ) -> io::Result<Vec<u8>> {
-        self.translated
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .request(
-                packet,
-                local,
-                TranslatedReturn { replies, observer },
-                Instant::now(),
-            )
     }
 }
 

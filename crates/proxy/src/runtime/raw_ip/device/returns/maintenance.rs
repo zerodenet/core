@@ -11,6 +11,7 @@ fn reclaim<K: Eq + std::hash::Hash, V>(table: &mut HashMap<K, V>) {
 
 impl PacketReturns {
     pub(crate) fn clear(&self) {
+        let _notifications = self.budget.defer_notifications();
         *self.conversations.lock().unwrap_or_else(|e| e.into_inner()) = HashMap::new();
         *self.observations.lock().unwrap_or_else(|e| e.into_inner()) = HashMap::new();
         self.translated
@@ -21,6 +22,7 @@ impl PacketReturns {
     }
 
     pub(crate) fn expire(&self) {
+        let _notifications = self.budget.defer_notifications();
         let now = Instant::now();
         {
             let mut routes = self.routes.lock().unwrap_or_else(|e| e.into_inner());

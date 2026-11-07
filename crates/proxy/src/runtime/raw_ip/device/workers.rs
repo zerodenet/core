@@ -31,6 +31,9 @@ struct ScopeBinding {
     closed: bool,
 }
 impl DeviceWorkers {
+    pub(super) fn requires_packet_memory(&self) -> bool {
+        self.tasks.is_none()
+    }
     pub(super) fn driver_witness(
         &self,
     ) -> Option<zero_platform_tokio::contract::scope::TaskJoinWitness> {

@@ -11,6 +11,7 @@ use tokio::{
 };
 use zero_core::packet::{PacketIngress, ReturnAssociation};
 use zero_platform_tokio::PollSender;
+mod admission;
 
 pub(super) async fn run(
     shared: Arc<Shared>,
@@ -72,11 +73,16 @@ pub(super) async fn run(
         .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
     #[cfg(windows)]
     let sdk_control = grant.sdk_read_control;
+    let memory = grant
+        .native_read
+        .memory_view()
+        .map_err(|source| error(Stage::Prepare, Reason::Revoked).with_source(source))?;
     let read_credit = NativeReadCredit(grant.native_read);
     let (mut read, mut write) = tokio::io::split(grant.io);
     let same_incoming = incoming.clone();
     let mut received = PollSender::new(incoming);
     let mut bytes: Option<zero_tun::packet_memory::NativeReadBuffer> = None;
+    let mut memory_wait = None;
     observer.peers(&[]);
     loop {
         if shared.cancel.is_cancelled() {
@@ -151,8 +157,11 @@ pub(super) async fn run(
                     Err(_) => dropped(&observer, zero_traits::PacketDropReason::InvalidPacket, 1),
                 }
             }
-            result = poll_fn(|cx| received.poll_reserve(cx)), if !receiving => {
-                result.map_err(|source| error(Stage::Receive, Reason::Io).with_source(source))?;
+            result = poll_fn(|cx| {
+                std::task::ready!(admission::poll(&shared,&memory,&mut memory_wait,cx))?;
+                received.poll_reserve(cx).map_err(|source|error(Stage::Receive,Reason::Io).with_source(source))
+            }), if !receiving => {
+                result?;
                 let packet = shared.incoming.lock().unwrap().take().ok_or_else(|| error(Stage::Receive, Reason::Internal))?;
                 if let Err(returned) = received.send_item(packet) {
                     *shared.incoming.lock().unwrap() = returned.into_inner();
@@ -180,7 +189,8 @@ pub(super) async fn run(
                 if written != expected {
                     return Err(error(Stage::Send, Reason::Io).with_source(io::Error::new(io::ErrorKind::WriteZero, "original TUN packet write was partial")));
                 }
-                shared.outgoing.lock().unwrap().take();
+                let retired = { shared.outgoing.lock().unwrap().take() };
+        drop(retired);
                 observer.event(PacketPlane::Inner, None, PacketEvent::Sent { bytes: written });
                 observer.event(PacketPlane::Inner, None, PacketEvent::Responded { bytes: written });
             }

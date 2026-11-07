@@ -86,7 +86,7 @@ async fn run_device_inner(
                 let Some(zero_stack::packet_output::ObservedPacket { packet, observer }) = packet else { return Ok(()); };
                 tracing::trace!(ip_bytes = packet.len(), "raw-IP outbound stack packet");
                 let packets = if packet::ip_protocol(&packet) == Some(packet::IPPROTO_TCP) {
-                    device.tcp.fragment_outbound_packet_owned(packet).await
+                    device.tcp.fragment_outbound_packet_buffer(packet).await.map_err(std::io::Error::other)?
                 } else {
                     vec![packet]
                 };

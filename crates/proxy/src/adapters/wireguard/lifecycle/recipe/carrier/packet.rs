@@ -27,6 +27,10 @@ impl DynPacketOutbound for Carrier {
                 .return_mtu
                 .filter(|mtu| *mtu != 0)
                 .ok_or_else(|| error(Stage::Prepare, Reason::InvalidConfig))?;
+            let return_memory = request
+                .return_memory_layout
+                .map(crate::runtime::raw_ip::memory::wire_layout)
+                .ok_or_else(|| error(Stage::Prepare, Reason::InvalidConfig))?;
             let facts = context.packet_facts()?.clone();
             if request.endpoint != facts.endpoint {
                 return Err(error(Stage::Prepare, Reason::InvalidConfig));
@@ -41,6 +45,7 @@ impl DynPacketOutbound for Carrier {
                 carrier,
                 facts,
                 return_mtu,
+                return_memory,
                 observer: context.observer,
                 translate: request.limits.source_adaptation
                     == SourceAdaptation::ValidatedTranslation,

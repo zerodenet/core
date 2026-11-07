@@ -2,6 +2,7 @@
 use std::sync::{Arc, Mutex};
 use zero_traits::{PacketBuffer, PacketStorage};
 mod derived;
+mod transmit;
 
 #[derive(Clone)]
 pub(super) struct ReturnBudget(Arc<Inner>);
@@ -18,6 +19,14 @@ impl Default for ReturnBudget {
     }
 }
 impl ReturnBudget {
+    pub(super) async fn changed(&self) {
+        let local = self.0.changed.notified();
+        let total = self.0.totals.notified();
+        tokio::select! { _=local=>{}, _=total=>{} }
+    }
+    pub(super) fn defer_notifications(&self) -> zero_tun::packet_memory::PacketRootNotifications {
+        self.0.totals.defer_notifications()
+    }
     pub(super) fn quiescent(&self) -> bool {
         *self
             .0
@@ -64,6 +73,7 @@ impl ReturnBudget {
             },
             derived: Mutex::new(None),
             derivation_reserved: false,
+            transmitting: false,
         }))
     }
 }
@@ -91,6 +101,7 @@ struct Charged {
     credit: Credit,
     derived: Mutex<Option<derived::Prepared>>,
     derivation_reserved: bool,
+    transmitting: bool,
 }
 impl AsRef<[u8]> for Charged {
     fn as_ref(&self) -> &[u8] {
@@ -103,11 +114,37 @@ impl AsMut<[u8]> for Charged {
     }
 }
 impl PacketStorage for Charged {
+    fn prepare_transmit(
+        &mut self,
+        frames: usize,
+        bytes: usize,
+    ) -> Result<(), zero_traits::PacketDeriveError> {
+        self.packet.prepare_transmit(frames, bytes)?;
+        self.transmitting = true;
+        Ok(())
+    }
+    fn take_vec_allocation(&mut self) -> Option<Vec<u8>> {
+        self.packet.take_vec_allocation()
+    }
+    fn try_derive_zeroed(
+        &self,
+        lengths: &[usize],
+    ) -> Result<Vec<PacketBuffer>, zero_traits::PacketDeriveError> {
+        if self.transmitting {
+            self.packet.try_derive_zeroed(lengths)
+        } else {
+            derived::claim(self, lengths)
+        }
+    }
     fn allocation_bytes(&self) -> usize {
         self.packet.allocation_bytes()
     }
     fn derive_zeroed<'a>(&'a self, lengths: &'a [usize]) -> zero_traits::PacketDerivation<'a> {
-        Box::pin(async move { derived::claim(self, lengths) })
+        if self.transmitting {
+            self.packet.derive_zeroed(lengths)
+        } else {
+            Box::pin(async move { derived::claim(self, lengths) })
+        }
     }
     fn into_vec(self: Box<Self>) -> Vec<u8> {
         let Self {
@@ -115,6 +152,7 @@ impl PacketStorage for Charged {
             credit,
             derived,
             derivation_reserved: _,
+            transmitting: _,
         } = *self;
         // An explicit Vec-only consumer ends this owned view here. Standard
         // Packet queues preserve PacketBuffer through the real RX consumer.

@@ -1,3 +1,4 @@
+mod local;
 use super::*;
 use zero_platform_tokio::contract::packet::PacketTx;
 impl PacketTx for Tx {
@@ -56,44 +57,22 @@ impl PacketTx for Tx {
             let local = if original.payload().len() > parent.mtu
                 && !zero_stack::packet::ipv4_fragmentation_allowed(original.payload())
             {
-                Some(router.and_then(|router| {
-                    zero_stack::packet::build_icmp_mtu_error_response(
-                        original.payload(),
-                        *router,
-                        parent.mtu,
-                    )
-                }))
+                Some(local::Kind::Mtu)
             } else if zero_stack::packet::ip_hop_limit(original.payload())
                 .is_some_and(|hop| hop <= 1)
             {
-                Some(router.and_then(|router| {
-                    zero_stack::packet::build_icmp_time_exceeded_response(
-                        original.payload(),
-                        *router,
-                        parent.mtu,
-                    )
-                }))
+                Some(local::Kind::Hop)
             } else {
                 None
             };
-            if let Some(local) = local {
-                if let Some(local) = local {
-                    let response = IpPacket::new(local.into(), original.return_association.clone())
-                        .expect("stack generated ICMP envelope");
-                    if !this.session.deliver(response, false) {
-                        return Poll::Ready(Err(failure(
-                            Reason::Capacity,
-                            "same Packet reply budget full",
-                            DeliveryState::NotSubmitted,
-                        )));
-                    }
-                }
-                let bytes = packet
-                    .take()
-                    .expect("same admitted original")
-                    .payload()
-                    .len();
-                return Poll::Ready(Ok(SendReceipt::accepted(bytes)));
+            if let Some(kind) = local {
+                return Poll::Ready(local::respond(
+                    &this.session,
+                    packet,
+                    kind,
+                    router.copied(),
+                    parent.mtu,
+                ));
             }
             let permit = match this.writes.try_reserve() {
                 Ok(permit) => permit,
@@ -115,11 +94,46 @@ impl PacketTx for Tx {
             if let Err(error) = parent.returns.register(original, &this.session) {
                 return Poll::Ready(Err(SendFailure::new(error, DeliveryState::NotSubmitted)));
             }
+            let original = packet.as_mut().expect("same original before FIFO custody");
+            let lengths =
+                match zero_stack::packet::fragment_packet_lengths(original.payload(), parent.mtu) {
+                    Ok(lengths) => lengths,
+                    Err(source) => return Poll::Ready(Err(memory_failure(source))),
+                };
+            let Some(derived_bytes) = lengths
+                .iter()
+                .try_fold(0usize, |sum, length| sum.checked_add(*length))
+            else {
+                return Poll::Ready(Err(memory_failure(
+                    zero_traits::PacketDeriveError::Overflow,
+                )));
+            };
+            if let Err(source) = original.prepare_transmit_buffers(lengths.len(), derived_bytes) {
+                return Poll::Ready(Err(memory_failure(source)));
+            }
+            let fragments = match original.try_derive_payload_buffers(&lengths) {
+                Ok(fragments)
+                    if fragments.len() == lengths.len()
+                        && fragments
+                            .iter()
+                            .zip(&lengths)
+                            .all(|(packet, length)| packet.len() == *length) =>
+                {
+                    fragments
+                }
+                Ok(_) => {
+                    return Poll::Ready(Err(memory_failure(
+                        zero_traits::PacketDeriveError::LayoutMismatch,
+                    )))
+                }
+                Err(source) => return Poll::Ready(Err(memory_failure(source))),
+            };
             let (result, received) = oneshot::channel();
             this.session.pending.fetch_add(1, Ordering::AcqRel);
             let original = packet.take().expect("same admitted owned Packet");
             permit.send(Write::Owned(OwnedWrite {
                 packet: original,
+                fragments,
                 session: this.session.clone(),
                 result,
                 _pending: PendingWrite(this.session.clone()),
@@ -157,4 +171,20 @@ impl PacketTx for Tx {
             }
         }
     }
+}
+
+fn memory_failure(source: zero_traits::PacketDeriveError) -> SendFailure {
+    use zero_traits::PacketDeriveError;
+    let reason = match source {
+        PacketDeriveError::Busy | PacketDeriveError::Capacity | PacketDeriveError::Overflow => {
+            Reason::Capacity
+        }
+        PacketDeriveError::Revoked => Reason::Revoked,
+        PacketDeriveError::Unreserved => Reason::Unsupported,
+        PacketDeriveError::AlreadyDerived | PacketDeriveError::LayoutMismatch => Reason::Protocol,
+    };
+    SendFailure::new(
+        error(reason, "original Packet transmit storage was not admitted").with_source(source),
+        DeliveryState::NotSubmitted,
+    )
 }

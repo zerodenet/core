@@ -38,6 +38,12 @@ impl EndpointStackRecipe {
     pub(crate) fn set_traffic(&mut self, traffic: super::super::super::RawIpTraffic) {
         self.options.traffic = traffic;
     }
+    pub(crate) fn set_packet_memory_cell(
+        &mut self,
+        cell: Arc<std::sync::OnceLock<zero_tun::packet_memory::PacketMemoryView>>,
+    ) {
+        self.options = self.options.clone().with_packet_memory_cell(cell);
+    }
     /// BuildNew is the only phase allowed to consume this recipe.
     /// This does not certify old resources closed; the host must hold that proof.
     pub(crate) fn start(self) -> Result<Arc<SharedRawIpDevice>, EngineError> {

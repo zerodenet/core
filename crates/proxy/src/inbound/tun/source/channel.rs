@@ -119,9 +119,12 @@ impl ChannelControl for Control {
         let joined = timeout_at(deadline, self.driver.wait())
             .await
             .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?;
-        self.shared.pending_tx.lock().unwrap().take();
-        self.shared.incoming.lock().unwrap().take();
-        self.shared.outgoing.lock().unwrap().take();
+        let retired = { self.shared.pending_tx.lock().unwrap().take() };
+        drop(retired);
+        let retired = { self.shared.incoming.lock().unwrap().take() };
+        drop(retired);
+        let retired = { self.shared.outgoing.lock().unwrap().take() };
+        drop(retired);
         if let Err(source) = joined.result() {
             return Err(crate::component::instance::retained(source));
         }

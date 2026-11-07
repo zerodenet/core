@@ -6,6 +6,16 @@ pub(in crate::runtime::raw_ip::device::returns) struct ReturnAdmissionFailure {
     pub(in crate::runtime::raw_ip::device::returns) original: PacketBuffer,
     pub(in crate::runtime::raw_ip::device::returns) cause: Option<PacketDeriveError>,
 }
+impl std::fmt::Display for ReturnAdmissionFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "original return allocation admission: {:?}", self.cause)
+    }
+}
+impl std::error::Error for ReturnAdmissionFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.cause.as_ref().map(|cause| cause as _)
+    }
+}
 pub(super) struct Prepared {
     lengths: Vec<usize>,
     credits: Vec<Credit>,
@@ -25,12 +35,13 @@ impl ReturnBudget {
                 })
             }
         };
-        self.retain_planned(packet, lengths)
+        self.retain_planned(packet, lengths, false)
     }
-    fn retain_planned(
+    pub(super) fn retain_planned(
         &self,
         packet: PacketBuffer,
         lengths: Vec<usize>,
+        transmitting: bool,
     ) -> Result<PacketBuffer, ReturnAdmissionFailure> {
         let Some(frames) = lengths.len().checked_add(1) else {
             return Err(ReturnAdmissionFailure {
@@ -106,6 +117,7 @@ impl ReturnBudget {
             credit: original,
             derived: Mutex::new(Some(Prepared { lengths, credits })),
             derivation_reserved: true,
+            transmitting,
         }))
     }
     /// The original producing driver owns this pending admission. Once this

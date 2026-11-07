@@ -14,7 +14,11 @@ impl Session {
         let received = async {
             let storage = parent
                 .budget
-                .retain_reply_buffer_wait(packet.into_payload(), self.return_mtu)
+                .retain_transmit_reply_wait(
+                    packet.into_payload(),
+                    self.return_mtu,
+                    self.return_memory,
+                )
                 .await
                 .map_err(|source| {
                     error(
@@ -51,10 +55,11 @@ impl Session {
         };
         let association = packet.return_association.clone();
         let bytes = packet.payload().len();
-        let storage = match parent
-            .budget
-            .retain_reply_buffer_for(packet.into_payload(), self.return_mtu)
-        {
+        let storage = match parent.budget.retain_transmit_reply_for(
+            packet.into_payload(),
+            self.return_mtu,
+            self.return_memory,
+        ) {
             Ok(storage) => storage,
             Err(_) => {
                 if let Some(observer) = &self.observer {

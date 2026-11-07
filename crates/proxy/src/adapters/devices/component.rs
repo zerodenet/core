@@ -7,6 +7,26 @@ use zero_platform_tokio::contract::{ChannelError, Impact, Reason, Stage};
 pub(crate) type SourceComponentDependencies =
     std::collections::BTreeMap<String, ([u8; 32], BTreeSet<ComponentId>)>;
 impl Devices {
+    pub(crate) fn install_packet_source_memory(
+        &self,
+        config: &RuntimeConfig,
+        tag: &str,
+        memory: zero_tun::packet_memory::PacketMemoryView,
+    ) -> Result<(), EngineError> {
+        if !self.packet_return_totals.owns_view(&memory) {
+            return Err(std::io::Error::other(
+                "Packet Source memory belongs to another actual Kernel Root",
+            )
+            .into());
+        }
+        #[cfg(feature = "wireguard")]
+        if let Some(owner) = &self.wireguard {
+            owner.install_source_memory(config, tag, memory)?;
+        }
+        #[cfg(not(feature = "wireguard"))]
+        let _ = (config, tag, memory);
+        Ok(())
+    }
     pub(crate) fn source_component_dependencies(
         &self,
         config: &Arc<RuntimeConfig>,

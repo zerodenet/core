@@ -162,24 +162,28 @@ impl SharedRawIpDevice {
                 (input.carrier.clone(), Some(input))
             }
         };
-        let returns = Arc::new(
-            PacketReturns::with_drop_observer(Some(Arc::new(options.traffic.clone())))
-                .with_limits(&options)?,
-        );
-        let traffic = options.traffic;
+        let returns = PacketReturns::with_drop_observer(Some(Arc::new(options.traffic.clone())));
+        let returns = Arc::new(if task.requires_packet_memory() {
+            returns.with_host_limits(&options)?
+        } else {
+            returns.with_limits(&options)?
+        });
+        let traffic = options.traffic.clone();
         let (outbound, raw_packets) =
             mpsc::channel::<zero_stack::packet_output::ObservedPacket>(128);
         let (forwarded_packets, forwarded_rx) = mpsc::channel(128);
+        let outbound = options.packet_output(outbound, task.requires_packet_memory())?;
+
         let udp = ClientUdpStack::new_with_queue(
             local_addresses.clone(),
-            outbound.clone().into(),
+            outbound.clone(),
             mtu,
             Some(Arc::new(traffic.clone())),
             options.udp_receive_queue,
         )
         .map_err(stack_udp_error)?;
         let tcp = Arc::new(
-            ClientTcpStack::new_observed_with_task_owner(
+            ClientTcpStack::new_output_with_task_owner(
                 local_addresses,
                 outbound.clone(),
                 mtu,
@@ -219,6 +223,7 @@ impl SharedRawIpDevice {
             ready,
             task,
             carrier: Some(carrier),
+            packet_wire_memory: options.packet_wire_memory,
         }))
     }
 }

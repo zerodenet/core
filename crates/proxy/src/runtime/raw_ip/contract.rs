@@ -1,3 +1,5 @@
+mod owned;
+pub(crate) use owned::{OwnedWireFailure, OwnedWireResult};
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
@@ -12,6 +14,38 @@ pub(crate) enum RawIpAction {
 }
 
 pub(crate) trait RawIpTunnel: Send {
+    fn initiate_handshake_owned(
+        &mut self,
+        control: zero_traits::PacketBuffer,
+        _memory: &zero_tun::packet_memory::PacketDatagramWorkspaces,
+    ) -> OwnedWireResult<Vec<RawIpAction>> {
+        OwnedWireResult::unsupported(None, control)
+    }
+    fn send_ip_packet_owned(
+        &mut self,
+        packet: zero_traits::PacketBuffer,
+        control: zero_traits::PacketBuffer,
+        _memory: &zero_tun::packet_memory::PacketDatagramWorkspaces,
+    ) -> OwnedWireResult<Vec<RawIpAction>> {
+        OwnedWireResult::unsupported(Some(packet), control)
+    }
+    fn receive_datagram_owned(
+        &mut self,
+        _source: Option<SocketAddr>,
+        datagram: zero_traits::PacketBuffer,
+        _decode: zero_tun::packet_memory::NativeReadBuffer,
+        control: zero_traits::PacketBuffer,
+        _memory: &zero_tun::packet_memory::PacketDatagramWorkspaces,
+    ) -> OwnedWireResult<(Vec<RawIpAction>, bool)> {
+        OwnedWireResult::unsupported(Some(datagram), control)
+    }
+    fn tick_owned(
+        &mut self,
+        control: zero_traits::PacketBuffer,
+        _memory: &zero_tun::packet_memory::PacketDatagramWorkspaces,
+    ) -> OwnedWireResult<Vec<RawIpAction>> {
+        OwnedWireResult::unsupported(None, control)
+    }
     /// The actual protocol queue only; unknown legacy tunnels cannot ACK idle.
     fn quiescent(&self) -> bool {
         false

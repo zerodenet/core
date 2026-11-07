@@ -14,6 +14,7 @@ pub(super) struct Shared {
     pub(super) users: std::sync::Weak<ViewUsers>,
     pub(super) facts: PacketFacts,
     pub(super) return_mtu: u16,
+    pub(super) return_memory: zero_stack::packet_output::memory::PacketWireMemory,
     pub(super) observer: Option<Arc<dyn ConnectObserver>>,
     pub(super) translate: bool,
     pub(super) cancel: CancellationToken,
@@ -135,7 +136,9 @@ impl Shared {
             }
         };
         let sender = zero_stack::packet_output::PacketSender::from(state.peers[index].tx.clone())
-            .with_return_mtu(self.return_mtu);
+            .with_return_mtu(self.return_mtu)
+            .with_packet_transmit_layout(self.return_memory)
+            .map_err(|source| error(Stage::Prepare, Reason::InvalidConfig).with_source(source))?;
         let receiver = state.receiver.take();
         drop(state);
         if let Some(receiver) = receiver {

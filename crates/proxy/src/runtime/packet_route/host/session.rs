@@ -36,6 +36,7 @@ pub(super) struct Session {
     parent: Weak<Sessions>,
     facts: PacketFacts,
     return_mtu: u16,
+    return_memory: zero_stack::packet_output::memory::PacketWireMemory,
     source: zero_platform_tokio::contract::scope::TaskJoinWitness,
     cancel: CancellationToken,
     pending: AtomicUsize,
@@ -78,6 +79,15 @@ impl Sessions {
             )
         })?;
         let facts = context.packet_facts()?.clone();
+        let return_memory = request
+            .return_memory_layout
+            .map(crate::runtime::raw_ip::memory::wire_layout)
+            .ok_or_else(|| {
+                error(
+                    Reason::InvalidConfig,
+                    "Packet Source omitted its actual return memory layout",
+                )
+            })?;
         if request.endpoint != facts.endpoint
             || context.cancel.is_cancelled()
             || self.stopped.load(Ordering::Acquire)
@@ -109,6 +119,7 @@ impl Sessions {
             parent: Arc::downgrade(self),
             facts: facts.clone(),
             return_mtu,
+            return_memory,
             source,
             cancel: context.cancel.child_token(),
             pending: AtomicUsize::new(0),

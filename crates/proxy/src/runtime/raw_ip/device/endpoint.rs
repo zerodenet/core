@@ -1,5 +1,7 @@
 //! Active client stacks attached to a neutral bidirectional IP endpoint.
+mod driver;
 mod readiness;
+use driver::run_endpoint_stack;
 
 #[cfg_attr(
     not(test),
@@ -94,20 +96,27 @@ impl SharedRawIpDevice {
         options: super::super::RawIpStackOptions,
         task: Arc<super::workers::DeviceWorkers>,
     ) -> Result<Arc<Self>, EngineError> {
-        let returns = Arc::new(PacketReturns::default().with_limits(&options)?);
+        let returns = PacketReturns::default();
+        let returns = Arc::new(if task.requires_packet_memory() {
+            returns.with_host_limits(&options)?
+        } else {
+            returns.with_limits(&options)?
+        });
         let (outbound, raw_packets) =
             mpsc::channel::<zero_stack::packet_output::ObservedPacket>(128);
         let (forwarded_packets, forwarded_rx) = mpsc::channel(128);
+        let outbound = options.packet_output(outbound, task.requires_packet_memory())?;
+
         let udp = ClientUdpStack::new_with_queue(
             local_addresses.clone(),
-            outbound.clone().into(),
+            outbound.clone(),
             mtu,
             Some(Arc::new(options.traffic)),
             options.udp_receive_queue,
         )
         .map_err(stack_udp_error)?;
         let tcp = Arc::new(
-            ClientTcpStack::new_observed_with_task_owner(
+            ClientTcpStack::new_output_with_task_owner(
                 local_addresses,
                 outbound,
                 mtu,
@@ -141,6 +150,7 @@ impl SharedRawIpDevice {
             ready,
             task,
             carrier: None,
+            packet_wire_memory: options.packet_wire_memory,
         }))
     }
 
@@ -162,7 +172,15 @@ impl SharedRawIpDevice {
                 Some(packet) => packet,
             }
         } else {
-            packet
+            match self
+                .returns
+                .deliver_correlated_owned_wait(packet)
+                .await
+                .map_err(std::io::Error::other)?
+            {
+                None => return Ok(None),
+                Some(packet) => packet,
+            }
         };
         match self.deliver_decrypted_owned(packet, false).await {
             Ok(()) => Ok(None),
@@ -224,67 +242,4 @@ struct EndpointStack {
     forwarded_packets: mpsc::Receiver<ForwardedPackets>,
     closed: Arc<AtomicBool>,
     returns: Arc<PacketReturns>,
-}
-
-async fn run_endpoint_stack(stack: EndpointStack) -> Result<(), EngineError> {
-    let EndpointStack {
-        peer,
-        mut endpoint,
-        tcp,
-        udp,
-        mut raw_packets,
-        mut forwarded_packets,
-        closed,
-        returns,
-    } = stack;
-    let mut sweep = tokio::time::interval(Duration::from_secs(5));
-    sweep.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    loop {
-        tokio::select! {
-            _ = sweep.tick() => {
-                returns.expire();
-                udp.cleanup_expired(std::time::Instant::now());
-            },
-            packet = raw_packets.recv() => {
-                let Some(zero_stack::packet_output::ObservedPacket { packet, observer }) = packet else { break; };
-                let packets = if packet::ip_protocol(&packet) == Some(packet::IPPROTO_TCP) {
-                    tcp.fragment_outbound_packet_owned(packet).await
-                } else { vec![packet] };
-                for packet in packets {
-                    if !send_endpoint_packet(&mut endpoint, EndpointPacket { peer, packet: packet.into(), observer: observer.clone(), closed: closed.clone(), return_channel: None }).await {
-                        closed.store(true, Ordering::Release);
-                        return Ok(());
-                    }
-                }
-            }
-            packets = forwarded_packets.recv() => {
-                let Some(ForwardedPackets { packets, observer, return_channel }) = packets else { break; };
-                for packet in packets {
-                    if return_channel.is_closed() { if let Some(observer) = &observer { observer.dropped_reason(zero_traits::PacketDropReason::QueueClosed); } continue; }
-                    if !send_endpoint_packet(&mut endpoint, EndpointPacket { peer, packet, observer: observer.clone(), closed: closed.clone(), return_channel: Some(return_channel.clone()) }).await {
-                        closed.store(true, Ordering::Release);
-                        return Ok(());
-                    }
-                }
-            }
-        }
-    }
-    closed.store(true, Ordering::Release);
-    Ok(())
-}
-
-async fn send_endpoint_packet(
-    endpoint: &mut watch::Receiver<mpsc::Sender<EndpointPacket>>,
-    mut packet: EndpointPacket,
-) -> bool {
-    loop {
-        let sender = endpoint.borrow().clone();
-        match sender.send(packet).await {
-            Ok(()) => return true,
-            Err(error) => packet = error.0,
-        }
-        if endpoint.changed().await.is_err() {
-            return false;
-        }
-    }
 }
