@@ -93,6 +93,7 @@ jobs:
         run: |
           python3 scripts/tests/test-test-layout.py
           bash scripts/tests/test-workspace.sh
+          node --test .github/scripts/collect-round2-evidence.test.cjs
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features --no-deps -- -D warnings
@@ -442,8 +443,43 @@ jobs:
     needs: [scope, static, check-and-test, tun-platform-check, linux-musl-compat, proxy-feature-compat, optional-surface-compat]
     runs-on: ubuntu-22.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     steps:
+      - uses: actions/checkout@v5
+        if: always() && env.ZERO_ROUND2 == 'true'
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Collect this exact round2 run's input artifacts
+        if: always() && env.ZERO_ROUND2 == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: round2-inputs-*
+          path: .round2-evidence/collected/inputs
+
+      - name: Collect original completed job logs and scheduled results
+        if: always() && env.ZERO_ROUND2 == 'true'
+        uses: actions/github-script@v7
+        env:
+          ROUND2_CHECK_RESULTS: ${{ toJSON(needs) }}
+        with:
+          script: |
+            const collect = require('./.github/scripts/collect-round2-evidence.cjs');
+            await collect({ github, context, core });
+
+      - name: Retain downloadable exact round2 evidence
+        if: always() && env.ZERO_ROUND2 == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: round2-candidate-evidence-${{ github.event.pull_request.head.sha || github.sha }}
+          path: .round2-evidence/collected/
+          include-hidden-files: true
+          if-no-files-found: error
+
       - name: Require successful selected checks
+        if: always()
         env:
           CHECK_RESULTS: ${{ toJSON(needs) }}
         run: |
