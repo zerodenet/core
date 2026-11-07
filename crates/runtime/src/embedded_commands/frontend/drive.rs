@@ -93,6 +93,17 @@ impl EmbeddedCommandOwner {
                 }
             }
         }
+        self.release_returned_frontends();
+        if progress {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }
+    // Called after the actual join receiver as well as by the existing monitor.
+    // This only settles already completed originals; it never polls a task or
+    // turns a body return into its join/ACK.
+    pub(in crate::embedded_commands) fn release_returned_frontends(&self) {
         let mut returned = Vec::new();
         let mut returned_bytes = Vec::new();
         let mut removed = Vec::new();
@@ -133,10 +144,5 @@ impl EmbeddedCommandOwner {
         drop(removed);
         drop(returned_bytes);
         drop(returned);
-        if progress {
-            Poll::Ready(())
-        } else {
-            Poll::Pending
-        }
     }
 }

@@ -54,6 +54,9 @@ impl FrontendCommand {
             return false;
         }
         self.0.caller_returned.store(true, Ordering::Release);
+        if let Some(owner) = self.0.owner.upgrade() {
+            owner.release_returned_frontends();
+        }
         self.0.notify();
         true
     }
