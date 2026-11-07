@@ -578,3 +578,61 @@ fn inbound_resource_zero_and_actual_defaults_preserve_original_admission_meaning
     assert!(parse("inbound_max_resources_per_carrier", 65536).is_ok());
     assert!(parse("inbound_max_resources_per_carrier", 65537).is_err());
 }
+
+#[test]
+fn windows_ring_requested_bytes_preserve_omission_and_the_original_sdk_constraints() {
+    let defaults = RuntimeOptionsConfig::default();
+    assert_eq!(defaults.effective_packet_windows_ring_capacity(), 67108864);
+    assert_eq!(
+        defaults.effective_packet_windows_ring_total_max_bytes(),
+        134217728
+    );
+    let absent = serde_json::to_value(defaults).unwrap();
+    for field in [
+        "packet_windows_ring_capacity",
+        "packet_windows_ring_total_max_bytes",
+    ] {
+        assert!(absent.get(field).is_none());
+    }
+    for (field, values) in [
+        (
+            "packet_windows_ring_capacity",
+            &[131072, 262144, 67108864][..],
+        ),
+        (
+            "packet_windows_ring_total_max_bytes",
+            &[131072, 131073, 134217728, 1073741824][..],
+        ),
+    ] {
+        for &value in values {
+            let config = parse(field, value).unwrap();
+            let encoded = serde_json::to_string(&config).unwrap();
+            let restored = RuntimeConfig::parse(&encoded).unwrap();
+            assert_eq!(
+                serde_json::to_value(restored).unwrap()["runtime"][field],
+                value
+            );
+        }
+    }
+    for value in [0, 1, 131071, 131073, 67108863, 67108865, usize::MAX] {
+        assert!(parse("packet_windows_ring_capacity", value)
+            .unwrap_err()
+            .to_string()
+            .contains("packet_windows_ring_capacity"));
+    }
+    for value in [0, 131071, 1073741825, usize::MAX] {
+        assert!(parse("packet_windows_ring_total_max_bytes", value)
+            .unwrap_err()
+            .to_string()
+            .contains("packet_windows_ring_total_max_bytes"));
+    }
+    // On-demand shortage is handled by the real owner before StartSession;
+    // validation neither allocates a session nor rejects this legal policy.
+    let config = parse("packet_windows_ring_total_max_bytes", 131072).unwrap();
+    assert!(
+        config
+            .runtime
+            .effective_packet_windows_ring_total_max_bytes()
+            < config.runtime.effective_packet_windows_ring_capacity()
+    );
+}

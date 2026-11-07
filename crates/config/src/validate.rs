@@ -854,6 +854,21 @@ fn validate_runtime(
             )));
         }
     }
+    // These are the current SDK's actual StartSession constraints, validated
+    // independently of platform so a saved V1 document has one meaning.
+    let ring = runtime.effective_packet_windows_ring_capacity();
+    if !(131072..=67108864).contains(&ring) || !ring.is_power_of_two() {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.packet_windows_ring_capacity must be a power of two between 131072 and 67108864".into(),
+        ));
+    }
+    let rings = runtime.effective_packet_windows_ring_total_max_bytes();
+    if !(131072..=1073741824).contains(&rings) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.packet_windows_ring_total_max_bytes must be between 131072 and 1073741824".into(),
+        ));
+    }
+    // Total below one request is a real admission failure, not invalid syntax.
     if runtime.event_log_capacity == 0 {
         return Err(ConfigError::InvalidRuntime(
             "`runtime.event_log_capacity` must be greater than 0".to_owned(),

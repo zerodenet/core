@@ -2,6 +2,14 @@
 use super::*;
 
 impl RuntimeOptionsConfig {
+    pub fn effective_packet_windows_ring_capacity(&self) -> usize {
+        self.packet_windows_ring_capacity
+            .unwrap_or(64 * 1024 * 1024)
+    }
+    pub fn effective_packet_windows_ring_total_max_bytes(&self) -> usize {
+        self.packet_windows_ring_total_max_bytes
+            .unwrap_or(128 * 1024 * 1024)
+    }
     pub fn effective_control_max_in_flight_request_bytes(&self) -> usize {
         self.control_max_in_flight_request_bytes.unwrap_or(67108864)
     }

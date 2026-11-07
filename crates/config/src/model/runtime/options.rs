@@ -3,6 +3,15 @@ use super::*;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuntimeOptionsConfig {
+    /// Bytes requested from Wintun for each actual newly owned SDK Session.
+    /// Default64MiB, unchanged; this is neither SDK mapping size nor RSS.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_windows_ring_capacity: Option<usize>,
+    /// Same Host total requested Wintun ring bytes, including pending/failed/
+    /// retiring sessions until original EndSession and reader join/ACK.
+    /// Default128MiB; capacity is allocated only for a real Session request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_windows_ring_total_max_bytes: Option<usize>,
     /// Actual Source accepted sockets; None preserves the producer default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inbound_max_accepted_sockets: Option<usize>,

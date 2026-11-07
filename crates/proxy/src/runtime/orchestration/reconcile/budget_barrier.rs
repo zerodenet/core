@@ -156,6 +156,21 @@ pub(in crate::runtime) fn packet_budget_changed(old: &RuntimeConfig, next: &Runt
             != next.runtime.effective_packet_native_read_total_max_frames()
         || old.runtime.effective_packet_native_read_total_max_bytes()
             != next.runtime.effective_packet_native_read_total_max_bytes()
+        || windows_ring_budget_changed(old, next)
+}
+fn windows_ring_budget_changed(old: &RuntimeConfig, next: &RuntimeConfig) -> bool {
+    #[cfg(windows)]
+    {
+        old.runtime.effective_packet_windows_ring_capacity()
+            != next.runtime.effective_packet_windows_ring_capacity()
+            || old.runtime.effective_packet_windows_ring_total_max_bytes()
+                != next.runtime.effective_packet_windows_ring_total_max_bytes()
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (old, next);
+        false
+    }
 }
 pub(super) struct SourceBudgetPauses {
     // Same old roots remain fenced until the actual publication finishes.

@@ -136,3 +136,24 @@ impl ComponentRecipe {
         self.preparation_limits
     }
 }
+
+/// Original SDK request and shared requested bytes; not mapped memory or RSS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(in crate::component) struct PacketWindowsRingLimits {
+    pub capacity: usize,
+    pub total_requested_bytes: usize,
+}
+impl ComponentRecipe {
+    pub(in crate::component) fn with_packet_windows_ring_limits(
+        mut self,
+        limits: Option<PacketWindowsRingLimits>,
+    ) -> Self {
+        self.packet_windows_ring_limits = limits;
+        self
+    }
+    pub(in crate::component) fn packet_windows_ring_limits(
+        &self,
+    ) -> Option<PacketWindowsRingLimits> {
+        self.packet_windows_ring_limits
+    }
+}

@@ -29,6 +29,7 @@ struct Key {
     preparation_limits: Option<super::recipe::accounting::PreparationLimits>,
     buffer_limits: Option<zero_platform_tokio::controlled_carrier::CarrierBufferLimits>,
     component_task_total: Option<usize>,
+    packet_windows_ring_limits: Option<super::recipe::accounting::PacketWindowsRingLimits>,
 }
 
 /// A real host-assigned identity and its state-only resource recipe.
@@ -170,6 +171,7 @@ impl<'a> ResourcePreparation<'a> {
                 || recipe.preparation_limits() != old.recipe.preparation_limits()
                 || recipe.buffer_limits() != old.recipe.buffer_limits()
                 || recipe.component_task_total() != old.recipe.component_task_total()
+                || recipe.packet_windows_ring_limits() != old.recipe.packet_windows_ring_limits()
             {
                 return None;
             }
@@ -221,6 +223,9 @@ impl<'a> ResourcePreparation<'a> {
         let Ok(component_task_total) = self.component_task_total_for(spec) else {
             return false;
         };
+        let Ok(packet_windows_ring_limits) = self.packet_windows_ring_limits_for(spec) else {
+            return false;
+        };
         let key = Key {
             namespace,
             accounting_limit,
@@ -228,6 +233,7 @@ impl<'a> ResourcePreparation<'a> {
             preparation_limits,
             buffer_limits,
             component_task_total,
+            packet_windows_ring_limits,
             identity: spec.static_identity.clone(),
         };
         if self
@@ -250,6 +256,7 @@ impl<'a> ResourcePreparation<'a> {
             || old.recipe.preparation_limits() != preparation_limits
             || old.recipe.buffer_limits() != buffer_limits
             || old.recipe.component_task_total() != component_task_total
+            || old.recipe.packet_windows_ring_limits() != packet_windows_ring_limits
             || !old.matches_scope_identity(scope)
         {
             return false;
@@ -483,6 +490,7 @@ impl<'a> ResourcePreparation<'a> {
             preparation_limits: recipe.preparation_limits(),
             buffer_limits: recipe.buffer_limits(),
             component_task_total: recipe.component_task_total(),
+            packet_windows_ring_limits: recipe.packet_windows_ring_limits(),
             identity: recipe.spec().static_identity.clone(),
         };
         if let Some(existing) = self.resources.get(&key) {

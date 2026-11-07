@@ -984,3 +984,19 @@ control worker and process-job books retain their separate units. Omission keeps
 the existing serialized configuration shape. Policy changes enter the existing
 source/component stop-before-start barrier; source-specific worker projections
 and the paired Packet implementation still require activation and qualification.
+
+
+Optional `packet_windows_ring_capacity` retains the original 64MiB Wintun
+StartSession request. The existing SDK requires a power of two from 128KiB
+through 64MiB. `packet_windows_ring_total_max_bytes` defaults to 128MiB for the
+same Host and accepts 128KiB through 1GiB independently of one request. A total
+smaller than one request is a valid policy: the actual provider must refuse
+admission before StartSession. These units describe requested capacity, not SDK
+mapping bytes, opaque allocations or RSS. Omission preserves the old export
+shape. Windows device recipes include both cold facts; request changes must
+retire the original session, real reader and original registration before a new
+session starts. Shared credits include pending/failed/retiring sessions until
+matching EndSession and actual reader join/ACK. Borrowed views reuse their
+session's existing request. This schema/cold projection predecessor does not
+complete the fifth Root lane or actual SDK consumer; C's paired implementation
+and appropriate Windows qualification are still required.

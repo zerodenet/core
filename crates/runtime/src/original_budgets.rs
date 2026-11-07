@@ -55,6 +55,14 @@ impl HostOriginalBudgets {
         {
             return true;
         }
+        #[cfg(all(feature = "raw-ip-runtime", windows))]
+        if current.effective_packet_windows_ring_capacity()
+            != target.effective_packet_windows_ring_capacity()
+            || current.effective_packet_windows_ring_total_max_bytes()
+                != target.effective_packet_windows_ring_total_max_bytes()
+        {
+            return true;
+        }
         false
     }
     pub(crate) fn install_original_limits(

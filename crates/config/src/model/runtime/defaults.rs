@@ -4,6 +4,8 @@ use super::*;
 impl Default for RuntimeOptionsConfig {
     fn default() -> Self {
         Self {
+            packet_windows_ring_capacity: None,
+            packet_windows_ring_total_max_bytes: None,
             inbound_max_accepted_sockets: None,
             inbound_max_datagram_associations: None,
             inbound_max_datagram_peers: None,

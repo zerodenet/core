@@ -11,12 +11,14 @@ impl ResourcePreparation<'_> {
         let preparation = self.preparation_limits_for(recipe.spec())?;
         let buffers = self.buffer_limits_for(recipe.spec())?;
         let tasks = self.component_task_total_for(recipe.spec())?;
+        let rings = self.packet_windows_ring_limits_for(recipe.spec())?;
         Ok(recipe
             .with_carrier_total_limit(limit)
             .with_process_limits(process)
             .with_preparation_limits(preparation)
             .with_buffer_limits(buffers)
-            .with_component_task_total(tasks))
+            .with_component_task_total(tasks)
+            .with_packet_windows_ring_limits(rings))
     }
     pub(super) fn carrier_total_limit_for(
         &self,
@@ -33,6 +35,47 @@ impl ResourcePreparation<'_> {
             ));
         }
         Ok(crate::component::recipe::accounting::owns_carrier_custody(spec).then_some(limit))
+    }
+    pub(super) fn packet_windows_ring_limits_for(
+        &self,
+        spec: &ComponentSpec,
+    ) -> Result<Option<super::super::recipe::accounting::PacketWindowsRingLimits>, BuildError> {
+        #[cfg(windows)]
+        {
+            use zero_platform_tokio::contract::component::ResourceDeclaration;
+            let Some(candidate) = self.candidate() else {
+                return Ok(None);
+            };
+            if !spec.resources.iter().any(|resource| {
+                matches!(resource, ResourceDeclaration::ControlledPacketDevice { .. })
+            }) {
+                return Ok(None);
+            }
+            let capacity = candidate.runtime.effective_packet_windows_ring_capacity();
+            let total_requested_bytes = candidate
+                .runtime
+                .effective_packet_windows_ring_total_max_bytes();
+            if !(131072..=67108864).contains(&capacity)
+                || !capacity.is_power_of_two()
+                || !(131072..=1073741824).contains(&total_requested_bytes)
+            {
+                return Err(invalid(
+                    Reason::InvalidConfig,
+                    "invalid actual SDK requested-ring capacities",
+                ));
+            }
+            Ok(Some(
+                super::super::recipe::accounting::PacketWindowsRingLimits {
+                    capacity,
+                    total_requested_bytes,
+                },
+            ))
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = spec;
+            Ok(None)
+        }
     }
     pub(super) fn component_task_total_for(
         &self,
