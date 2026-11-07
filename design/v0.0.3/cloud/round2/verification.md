@@ -1,5 +1,45 @@
 # 第二轮候选统一资格索引
 
+## 开发接续检查点 2026-11-07 00:10 UTC
+
+远端 integration 实际完整 SHA 仍为 `59615e69ea5a413d657a873157ea4adf8f204a90`，
+remote 为 `https://github.com/zerodenet/core.git`。普通接续，无 reset/强推/覆盖 dirty。
+最新冻结构建输入 `f7af2259`（原始 input 保存完整 SHA）仍在必要定向构建；
+不是最终候选，五个职责域均未获完整关闭资格。
+
+当前实际 `Cargo.lock` 和受版控 `.github/round2/candidate.Cargo.lock` SHA-256 均为
+`402d67cc184df4d4bc306d50e0badb8a57ccf43f2807b490502eca3b480dd698`。
+变化来自 inspect 消费既有 ConfigurationSource 的实际依赖；先前 `9026e325…`
+测试继续按原锁单列，绝不跨输入借资格。
+
+| 实际被测输入 | 本次真实定向结果与边界 |
+| --- | --- |
+| `91beda0531c7e03cbc31db2ac19e3771fe8d5ad1` | 九包 all-features lib/bin/web no-run exit0，769.43s，原始日志 SHA-256 `338cc81c8963d0c4e2f2ad83ef0e5f467890f46dbf432af6bf6bca68d4aae847`；同产物 Source 全局真实预算1、普通 H2/Upgrade Business Domain1、SIP1、Runtime cold13/late10/实际 policy phases2、独立 inspect1、quota 真 worker4、控制资源退休29、DoQ6、DoH callback1、staged N1 deadline3、ALPS2、software firstPending/真实 Scope1 PASS。Echo3 PASS/1 ignored（保原忽略原因） |
+| 同 `91beda…` | H2 原1字节窗口/256KiB/8秒：5 PASS/1 FAIL，收到224397字节 phase1；linked WG 3 standalone PASS/5 linked FAIL 于初始 apply；Packet budget1 FAIL 于初始 apply；DNS stateless10 PASS/新 cached gRPC→MUX1 FAIL Revoked；ordinary MUX4 PASS/2 FAIL；DoH故障恢复1 FAIL 原 panic 未交清。全部失败原始记录保留，不称环境待验或完成率 |
+| `1e96a503`（完整 SHA 在原始 input） | Runtime/Engine no-run exit0/90.51s；完整 network restart 实际旧 Business Busy/原 TCP 连续/停旧后刷新 cold 集合3 PASS；统计 byte 同 owner原子配置/真实held Busy9 PASS；实际carrier/process policy phase2 PASS。尚非 TUN 生产装配资格 |
+| `6c7511ac746b62fdff67f312dfba44768ac20573` | 组合 no-run exit101/32.39s，新 Service 回归误用不存在的 adoption getter；`f7af2259` 修为实际 retained LoanObservation。没有生成该输入新测试资格 |
+
+本次实际实现推进（均待各自新输入回归，不当作整域完成）：
+
+- A DNS：保原 Query/持久池；`9b82a195` 将原 DoH native close 与同故障 canonical receiver/真实 Host ACK 分开，保原错误；待复验。完整 donor 集合、设备/TEMP 调用者及旧 DNS bridge/Session/prepare_datagram_exchange 删除仍未完成。
+- B/M：普通 VMess/VLESS/Trojan 完整既有 MUX transport 材料进入同池，原 H2最后 DATA/END真实flush修复通过 Business/scoped 原件回归；`1e96a503` 修原 pooled preparation strong owner 提前 Drop，`0623919a` 修原 VMess MUX END→正常 upload EOF 后继续 downlink，待复验。Relay/Service、REALITY navigation、QUIC/XHTTP/mixed及全旧执行器删除继续。
+- C/M：删除不可达 TUN legacy executor；`e4808629` 修 Source host拒已校验 PacketDatagramReads 的真实初启缺口，待 linked/Packet 回归。`5852c659` 接实际 System TUN 停旧→同 Root target policy→明确 candidate Arc Source Ready/真实网络代次→同 immutable材料 cold refresh→BuildNew→Source binding；失败恢复全链、完整 TX/SDK/8项实际Root、TEMP软件root/provider、macOS受控helper仍须继续。
+- G8：独立 inspect 已消费同 ConfigurationSource/真实FileClose与既有scratch；quota未接最终worker fault保同Source且新原件前交接，4真worker回归通过。Windows NamedPipe/raw handle与订阅、真实跨平台恢复仍要适用环境资格。
+- 预算：新增统计历史/每订阅可选生产字段已消费实际同账，缩额不驱逐held事件；9项通过。其余 Metadata/QUIC、Packet/TUN/transport/process及SS replay完整投影继续；固定常量不当作生产配置已完成。
+
+所有定向原始 input/result/命令/工具版本/日志/产物摘要保存在 Git 外。
+`m-91beda-engine-final-quota-worker-fault` 误筛选0项不计通过，正确后续
+`m-91beda-quota-actual-four-worker-lifecycles` 4 PASS；一次software诊断从dirty主树
+发起，保留并排除输入资格，正式 frozen91beda 记录另列。Callgrind诊断保原8秒，
+受插桩影响的失败只作归因，不作运行资格。
+
+尚无统一最终同 head CI，也尚无确认可下载的云端原始归档；Pages先前上传
+outcome unknown，未伪造 FileID/下载链接。唯一 TEMP 仍严格为
+TEMP-WG-OUTER-UDP-01 原 outer_udp_proxy/reconnect 范围。Darwin任意SIP003
+缺少可用whole-job原生provider/权限与普通跨平台运行待验分列；其他可做内核实现不停。
+不合 develop/main，不发布部署。下方先前内容均为历史输入。
+
+
 
 ## 当前续作输入与未获资格
 
