@@ -196,6 +196,18 @@ impl MetadataPoolOwner {
                     .load(std::sync::atomic::Ordering::Acquire),
             );
         }
+        if !self
+            .shared
+            .state
+            .lock()
+            .expect("metadata pool poisoned")
+            .slots
+            .is_empty()
+        {
+            report.unfinished.push(Unfinished::Resource(
+                "metadata original registration ACK remains retained".into(),
+            ));
+        }
         failure.map_or(Ok(report), Err)
     }
 }
@@ -217,6 +229,27 @@ impl MetadataPoolGrants {
             .ok_or_else(|| error(Reason::Revoked, "metadata owner dropped"))?;
         if let Some(totals) = owner.totals.get() {
             totals.reconcile();
+        }
+        // A fixed library owner may have no Host Root. Scan only the ordinal
+        // range present at entry, taking one actual Arc outside the owner lock.
+        // Concurrent later reservations cannot extend this finite traversal.
+        let end = owner.state.lock().expect("metadata pool poisoned").next;
+        let mut previous = 0;
+        loop {
+            use std::ops::Bound::{Excluded, Included};
+            let next = owner
+                .state
+                .lock()
+                .expect("metadata pool poisoned")
+                .slots
+                .range((Excluded(previous), Included(end)))
+                .next()
+                .map(|(ordinal, slot)| (*ordinal, slot.clone()));
+            let Some((ordinal, slot)) = next else {
+                break;
+            };
+            previous = ordinal;
+            MetadataPoolPermit(slot).release_registration_credit();
         }
         let authority = owner
             .state

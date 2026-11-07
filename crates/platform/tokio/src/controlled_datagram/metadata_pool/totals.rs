@@ -27,13 +27,14 @@ impl MetadataTotalsOriginal {
     pub(crate) fn instance(&self) -> ComponentInstanceId {
         self.slot.instance
     }
-    fn witnesses(&self) -> Option<Vec<TaskJoinWitness>> {
+    fn witnesses(
+        &self,
+    ) -> Option<(
+        TaskJoinWitness,
+        Option<super::super::metadata::users::MetadataUsersClosedReceipt>,
+    )> {
         let native = self.slot.native().ok()?;
-        let mut witnesses = vec![self.slot.caller.clone()];
-        if let Some(receipt) = &native.confirmed {
-            witnesses.extend_from_slice(receipt.registrations());
-        }
-        Some(witnesses)
+        Some((self.slot.caller.clone(), native.confirmed.clone()))
     }
     pub(crate) fn released(&self) -> bool {
         // Only close_stored publishes this after exact original main+probe
@@ -41,13 +42,7 @@ impl MetadataTotalsOriginal {
         if self.slot.closed.get().is_none() {
             return false;
         }
-        self.witnesses().is_some_and(|witnesses| {
-            witnesses.iter().all(|witness| {
-                witness.try_joined().is_some_and(|joined| {
-                    witness.matches_joined(&joined) && joined.registration_released()
-                })
-            })
-        })
+        MetadataPoolPermit(self.slot.clone()).release_registration_credit()
     }
     pub(crate) fn poll_retirement(&self, cx: &mut Context<'_>) -> bool {
         let mut changed = false;
@@ -81,10 +76,13 @@ impl MetadataTotalsOriginal {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take();
         let mut waiting = waiting.or_else(|| {
-            self.witnesses().map(|witnesses| {
+            self.witnesses().map(|(caller, users)| {
                 Box::pin(async move {
-                    for witness in witnesses {
-                        witness.wait_registration_released().await;
+                    caller.wait_registration_released().await;
+                    if let Some(users) = users {
+                        for witness in users.registrations() {
+                            witness.wait_registration_released().await;
+                        }
                     }
                 }) as BoxFuture<'static, ()>
             })

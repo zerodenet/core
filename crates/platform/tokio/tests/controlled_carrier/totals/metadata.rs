@@ -4,8 +4,8 @@ use crate::controlled_datagram::{
     metadata_pool::MetadataPoolOwner,
 };
 #[tokio::test]
-async fn actual_metadata_query_main_probes_and_carrier_share_one_custody_total_and_original_query_ack()
- {
+async fn actual_metadata_query_main_probes_and_carrier_share_one_custody_total_and_original_query_ack(
+) {
     timeout(Duration::from_secs(3), async {
         let n = NonZeroUsize::new(1).unwrap();
         let totals = CarrierOriginalTotals::new(n);
@@ -75,15 +75,13 @@ async fn actual_metadata_query_main_probes_and_carrier_share_one_custody_total_a
                     segment_size: None,
                 };
                 let mut writable = grant.tx.create_write_poller().unwrap();
-                let sent = std::future::poll_fn(|cx| {
-                    loop {
-                        std::task::ready!(writable.poll_writable(cx)).unwrap();
-                        match grant.tx.try_send(&message) {
-                            Err(source) if source.kind() == std::io::ErrorKind::WouldBlock => {
-                                continue;
-                            }
-                            actual => return Poll::Ready(actual.unwrap()),
+                let sent = std::future::poll_fn(|cx| loop {
+                    std::task::ready!(writable.poll_writable(cx)).unwrap();
+                    match grant.tx.try_send(&message) {
+                        Err(source) if source.kind() == std::io::ErrorKind::WouldBlock => {
+                            continue;
                         }
+                        actual => return Poll::Ready(actual.unwrap()),
                     }
                 })
                 .await;
@@ -135,17 +133,17 @@ async fn actual_metadata_query_main_probes_and_carrier_share_one_custody_total_a
         assert_eq!(totals.snapshot().charged, 0);
         drop(carrier.grants.reserve().unwrap());
         assert_eq!(totals.snapshot().charged, 0);
-        assert!(
-            carrier
-                .owner
-                .shutdown(deadline())
-                .await
-                .unwrap()
-                .is_complete()
-        );
+        assert!(carrier
+            .owner
+            .shutdown(deadline())
+            .await
+            .unwrap()
+            .is_complete());
         scope.begin_shutdown();
         assert!(scope.is_drained());
     })
     .await
     .unwrap();
 }
+
+mod local_credit;
