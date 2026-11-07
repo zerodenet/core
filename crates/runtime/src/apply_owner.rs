@@ -18,7 +18,10 @@ use zero_platform_tokio::contract::{
 };
 
 mod observation;
-pub use observation::{ApplyObservation, ApplyObservationGuard};
+pub use observation::{
+    ApplyObservation, ApplyObservationGuard, BlockingCommandOutcome, CommandCleanupAccepted,
+    CommandCleanupKind, CommandInvocationFault, CommandInvocationFaults,
+};
 
 #[derive(Default)]
 pub struct ApplyOwner {

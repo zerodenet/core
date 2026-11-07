@@ -60,14 +60,7 @@ impl OutboundProbeRuntime {
             },
         )
         .await
-        .map_err(|source| {
-            let kind = if source.reason == zero_platform_tokio::contract::Reason::Timeout {
-                std::io::ErrorKind::TimedOut
-            } else {
-                std::io::ErrorKind::Other
-            };
-            OutboundProbeError::from_engine(std::io::Error::new(kind, source).into())
-        })?
+        .map_err(OutboundProbeError::from_probe_failure)?
     }
 
     async fn probe_resolved_outbound(

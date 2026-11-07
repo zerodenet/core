@@ -41,8 +41,10 @@ impl ProbeOwner {
             witness: OnceLock::new(),
             pending: Mutex::new(Vec::new()),
             cleanup_started: AtomicBool::new(false),
+            cleanup_end: OnceLock::new(),
             cleanup: Mutex::new(None),
             fault: OnceLock::new(),
+            fault_received: AtomicBool::new(false),
             complete: AtomicBool::new(false),
             changed: Notify::new(),
             credit: Mutex::new(Some(credit)),
@@ -58,11 +60,15 @@ impl ProbeOwner {
                 return Err(failure(Reason::Capacity));
             }
             let running = call.clone();
-            let (_,witness)=registrar.spawn_tracked(TaskClass::Auxiliary,async move {
+            let (_,witness)=registrar.spawn_tracked(TaskClass::Critical,async move {
                 if started.await.is_err() {return Ok(());}
                 let result=tokio::select! {biased;_=running.0.stop.cancelled()=>None,result=work(running.clone())=>Some(result)};
                 if let Some(result)=result {let _=send.send(result);}
-                Ok(())
+                // Business IO errors remain T. Only ownership/native cleanup
+                // errors fail this same real task and reach its TaskMonitor.
+                let originals=lock(&running.0.pending).iter().map(|claim|claim.adoption.clone()).collect();
+                let end=*running.0.cleanup_end.get_or_init(||Instant::now()+std::time::Duration::from_secs(5));
+                pending::close_native(originals,end).await
             }).map_err(|source|failure(Reason::Capacity).with_source(source))?;
             entry
                 .witness
@@ -82,7 +88,7 @@ impl ProbeOwner {
             tokio::pin!(changed);
             changed.as_mut().enable();
             if let Some(error) = entry.fault.get() {
-                return Err(retained(error));
+                return Err(retained_probe(error, &entry));
             }
             if entry.complete.load(Ordering::Acquire) {
                 return result.map_err(|source| failure(Reason::Cancelled).with_source(source));

@@ -139,17 +139,28 @@ impl zero_api::CommandService for ProxyHandle {
             // Capture before spawn: a lost waiter cannot certify the original
             // unstarted/running worker as KnownNoAcceptedWork.
             let observation = zero_runtime::ApplyObservation::capture();
-            tokio::task::spawn_blocking(move || match observation {
+            let original = tokio::task::spawn_blocking(move || match observation {
                 Some(observation) => observation.run_sync(|| handle.execute(command)),
                 None => handle.execute(command),
-            })
-            .await
-            .map_err(|error| {
-                zero_api::ApiError::new(
-                    zero_api::ApiErrorCode::Internal,
-                    format!("command execution task failed: {error}"),
-                )
-            })?
+            });
+            let id = original.id();
+            match original.await {
+                Ok(result) => {
+                    let _ = zero_runtime::ApplyObservation::record_blocking_outcome(id, None);
+                    result
+                }
+                Err(error) => {
+                    let error = std::sync::Arc::new(error);
+                    let _ = zero_runtime::ApplyObservation::record_blocking_outcome(
+                        id,
+                        Some(error.clone()),
+                    );
+                    Err(zero_api::ApiError::new(
+                        zero_api::ApiErrorCode::Internal,
+                        format!("command execution task failed: {error}"),
+                    ))
+                }
+            }
         })
     }
 }

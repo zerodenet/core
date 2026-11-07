@@ -53,3 +53,29 @@ fn establishment_metadata_preserves_typed_failure_classification_and_diagnostics
         assert!(error.message().contains("stage=connect_socket"));
     }
 }
+
+#[test]
+fn standalone_probe_error_retains_original_engine_io_source_without_changing_wire_code() {
+    use std::{error::Error, sync::Arc};
+    let source = Arc::new(io::Error::new(
+        io::ErrorKind::ConnectionRefused,
+        "actual standalone probe source",
+    ));
+    let original = EngineError::Io(io::Error::new(source.kind(), source.clone()));
+    let error = OutboundProbeError::from_engine(original);
+    assert_eq!(error.code(), "connection_failed");
+    let EngineError::Io(io) = error
+        .source()
+        .unwrap()
+        .downcast_ref::<EngineError>()
+        .unwrap()
+    else {
+        panic!("original EngineError lost")
+    };
+    let retained = io
+        .get_ref()
+        .unwrap()
+        .downcast_ref::<Arc<io::Error>>()
+        .unwrap();
+    assert!(Arc::ptr_eq(retained, &source));
+}

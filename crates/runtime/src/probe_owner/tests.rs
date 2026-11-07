@@ -62,3 +62,6 @@ async fn body_and_actual_join_do_not_refund_the_same_probe_before_host_ack() {
     .await
     .unwrap();
 }
+
+#[path = "tests/fault.rs"]
+mod fault;

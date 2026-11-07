@@ -80,14 +80,74 @@ pub(super) async fn close(
     originals: Vec<CarrierAdoption>,
     deadline: Instant,
 ) -> Result<(), ChannelError> {
+    let mut faults = Vec::new();
     for original in &originals {
         if complete(original) || handed_off(original, &originals) {
             continue;
         }
-        let report = original.retire(deadline).await?;
-        if !report.is_complete() || !complete(original) {
-            return Err(failure(Reason::Timeout));
+        match original.retire(deadline).await {
+            Ok(report) if report.is_complete() && complete(original) => {}
+            Ok(report) => faults.push(Arc::new(
+                failure(Reason::Timeout).with_source(NativeUnfinished(report)),
+            )),
+            Err(source) => faults.push(Arc::new(source)),
         }
     }
-    Ok(())
+    combine(faults)
+}
+
+/// This phase never waits for the executing caller's own join or Host ACK.
+/// All claims progress even if an earlier native control fails/retains unknown.
+pub(super) async fn close_native(
+    originals: Vec<CarrierAdoption>,
+    end: Instant,
+) -> Result<(), ChannelError> {
+    let mut faults = Vec::new();
+    for original in &originals {
+        if handed_off(original, &originals) {
+            continue;
+        }
+        match original.retire_native(end).await {
+            Ok(closed)
+                if closed.report().is_complete()
+                    && closed
+                        .closed()
+                        .is_some_and(|receipt| receipt.matches(original)) => {}
+            Ok(closed) => faults.push(Arc::new(
+                failure(Reason::Timeout).with_source(NativeUnfinished(closed.into_report())),
+            )),
+            Err(source) => faults.push(Arc::new(source)),
+        }
+    }
+    combine(faults)
+}
+pub(super) fn combine(faults: Vec<Arc<ChannelError>>) -> Result<(), ChannelError> {
+    if faults.is_empty() {
+        Ok(())
+    } else {
+        Err(retained(&faults[0]).with_source(NativeFaults(faults)))
+    }
+}
+#[derive(Debug)]
+struct NativeUnfinished(zero_platform_tokio::contract::lifecycle::CloseReport);
+impl std::fmt::Display for NativeUnfinished {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "actual native probe cleanup unfinished: {:?}", self.0)
+    }
+}
+impl std::error::Error for NativeUnfinished {}
+#[derive(Debug)]
+struct NativeFaults(Vec<Arc<ChannelError>>);
+impl std::fmt::Display for NativeFaults {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for error in &self.0 {
+            write!(f, "; {error}")?;
+        }
+        Ok(())
+    }
+}
+impl std::error::Error for NativeFaults {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.0.first().map(|e| e.as_ref() as _)
+    }
 }

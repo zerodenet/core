@@ -14,10 +14,11 @@ tokio::task_local! { static CURRENT: Invocation; }
 /// Keep in the actual request record outside its work/panic boundary. This
 /// contains no executor, IO/admission authority, cancellation or replacement
 /// permission. Only ApplyOwner installs an actual accepted registration.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct ApplyObservation(Arc<Observed>);
 #[derive(Default)]
 struct Observed {
+    receives_faults: bool,
     state: std::sync::Mutex<State>,
     changed: Notify,
 }
@@ -25,6 +26,7 @@ struct Observed {
 struct State {
     producers: usize,
     original: Option<Original>,
+    faults: faults::FaultState,
 }
 enum Original {
     Registering(Arc<ApplyOwner>),
@@ -34,6 +36,11 @@ enum Original {
 /// Metadata held by the already existing original blocking worker, not a task
 /// or permission to create one. Dropping it never certifies a task joined.
 pub struct ApplyObservationGuard(ApplyObservation, Option<CancellationToken>);
+impl Default for ApplyObservation {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl std::fmt::Debug for ApplyObservation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ApplyObservation").finish_non_exhaustive()
@@ -41,7 +48,10 @@ impl std::fmt::Debug for ApplyObservation {
 }
 impl ApplyObservation {
     pub fn new() -> Self {
-        Self::default()
+        Self(Arc::new(Observed {
+            receives_faults: true,
+            ..Default::default()
+        }))
     }
     pub(super) fn current() -> Option<Self> {
         CURRENT.try_with(|current| current.observation.clone()).ok()
@@ -81,7 +91,7 @@ impl ApplyObservation {
     /// a standalone caller only creates observation metadata, never an owner.
     pub async fn with_caller_stop<T>(stop: CancellationToken, work: impl Future<Output = T>) -> T {
         Self::current()
-            .unwrap_or_default()
+            .unwrap_or_else(|| Self(Arc::new(Observed::default())))
             .scope_with_stop(stop, work)
             .await
     }
@@ -238,3 +248,9 @@ impl Drop for ApplyObservationGuard {
 #[cfg(test)]
 #[path = "../tests/apply_owner/observation.rs"]
 mod tests;
+
+mod faults;
+pub use faults::{
+    BlockingCommandOutcome, CommandCleanupAccepted, CommandCleanupKind, CommandInvocationFault,
+    CommandInvocationFaults,
+};

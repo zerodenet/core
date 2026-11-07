@@ -12,6 +12,10 @@ pub struct CarrierNativeSettlement {
     closed: Option<CarrierClosed>,
 }
 impl CarrierNativeSettlement {
+    /// Consume diagnostics only; this returns no NativeClosed or UsersClosed permission.
+    pub fn into_report(self) -> CloseReport {
+        self.report
+    }
     pub fn report(&self) -> &CloseReport {
         &self.report
     }

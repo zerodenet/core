@@ -2,7 +2,7 @@
 use super::*;
 use crate::component::instance::{ComponentTaskFault, WaitTarget};
 use std::{
-    future::{Future, poll_fn},
+    future::{poll_fn, Future},
     task::Poll,
 };
 
@@ -117,6 +117,16 @@ impl ComponentCatalog {
             let changed = self.admission.signal().notified();
             tokio::pin!(changed);
             changed.as_mut().enable();
+            // Same existing ProbeOwner ledger and this actual supervisor; no
+            // new task, registry or synthetic TaskFailure for post-join IO.
+            if let Some(fault) = self
+                .probes
+                .get()
+                .and_then(std::sync::Weak::upgrade)
+                .and_then(|owner| owner.original_failure())
+            {
+                return fault;
+            }
             if let Some(fault) = self.first_task_fault() {
                 return fault.error();
             }
