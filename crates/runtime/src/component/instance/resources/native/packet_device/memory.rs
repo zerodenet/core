@@ -102,23 +102,33 @@ impl Memory {
             })?;
         #[cfg(target_os = "windows")]
         if let Some(grant) = sdk {
+            // The actual SDK reader needs its local AND Host-global launch
+            // before prepare_reader creates the original native event. This
+            // reserves no task/witness and cannot bypass the Host start fence.
+            let launch = self
+                .tasks
+                .as_ref()
+                .expect("hosted SDK reader has actual registrar")
+                .reserve_launch(zero_platform_tokio::contract::scope::TaskClass::Critical)
+                .map_err(|source| {
+                    error(
+                        component,
+                        Reason::Capacity,
+                        "same Scope rejected SDK reader before native preparation",
+                    )
+                    .with_source(source)
+                })?;
             let work = original.prepare_reader(grant).map_err(|source| {
                 error(component, Reason::Io, "same SDK reader preparation failed")
                     .with_source(source)
             })?;
-            let (_, witness) = self
-                .tasks
-                .as_ref()
-                .expect("hosted SDK reader has actual registrar")
-                .spawn_blocking_tracked(
-                    zero_platform_tokio::contract::scope::TaskClass::Critical,
-                    move || {
-                        work.run().map_err(|source| {
-                            error(component, Reason::Io, "actual Wintun reader failed")
-                                .with_source(source)
-                        })
-                    },
-                )
+            let (_, witness) = launch
+                .spawn_blocking_tracked(move || {
+                    work.run().map_err(|source| {
+                        error(component, Reason::Io, "actual Wintun reader failed")
+                            .with_source(source)
+                    })
+                })
                 .map_err(|source| {
                     error(
                         component,
