@@ -10,6 +10,7 @@ pub(super) fn prepare_stream(
     sender: h2::SendStream<Bytes>,
     response: h2::client::ResponseFuture,
     multi: bool,
+    flush: std::sync::Arc<crate::native_flush::Flushed>,
 ) -> PreparedStream {
     let (write_tx, write_rx) = mpsc::channel::<Vec<u8>>(16);
     let (read_tx, read_rx) = mpsc::channel::<io::Result<Vec<u8>>>(64);
@@ -21,6 +22,7 @@ pub(super) fn prepare_stream(
         progress.clone(),
         false,
         Some(response.downgrade()),
+        flush,
     ));
     let read = Box::pin(read_response(response, read_tx, multi));
     let stream = GrpcStream::new(

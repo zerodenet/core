@@ -61,6 +61,7 @@ async fn prepared_h2_connection_runs_its_original_driver_inline_and_preserves_re
             sender,
             driver,
             active: _,
+            flush: _,
         } = connection;
         let operation = async move {
             let mut sender = sender.ready().await.unwrap();

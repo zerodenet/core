@@ -5,13 +5,12 @@ mod flush;
 mod read;
 pub(super) use driver::OriginalDriver;
 pub(super) use flush::{FlushIo, Flushed};
-use futures_util::task::AtomicWaker;
 use std::{
     error::Error,
     fmt,
     future::Future,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
 };
@@ -32,7 +31,7 @@ where
     let read = Arc::new(read::ReadSignal::default());
     let io = FlushIo {
         io: stream,
-        flush: flush.clone(),
+        flush: crate::native_flush::NativeFlush::new(flush.clone()),
         read: Some(read.clone()),
     };
     let mut builder = h2::client::Builder::new();
@@ -66,7 +65,7 @@ where
             requested_remaining: 0,
             ended: false,
             flush,
-            target: 0,
+            target: None,
             failure,
             read_failure: None,
             driver_ended,
@@ -105,7 +104,7 @@ struct State {
     requested_remaining: usize,
     ended: bool,
     flush: Arc<Flushed>,
-    target: u64,
+    target: Option<u64>,
     failure: Arc<Mutex<Option<Arc<io::Error>>>>,
     read_failure: Option<Arc<io::Error>>,
     // This observes the original future; it is never a native/user/join receipt.
@@ -131,7 +130,7 @@ impl State {
         }
     }
     fn queued(&mut self) {
-        self.target = self.flush.count.load(Ordering::Acquire).saturating_add(1);
+        self.target = None;
     }
     fn failure(&self) -> Option<io::Error> {
         // Only this original driver's terminal branch writes failure. Its
@@ -257,23 +256,23 @@ impl AsyncWrite for OwnedH2Client {
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut().0.get_mut().expect("exclusive H2 stream");
         this.poll_reset(cx)?;
-        this.flush.writer.register(cx.waker());
-        this.flush.waiting.store(true, Ordering::Release);
+        // This sender's actual queue, including empty END, must leave h2
+        // before requesting a new native flush epoch.
+        std::task::ready!(this.send.poll_send_drained(cx)).map_err(io::Error::other)?;
         if let Some(error) = this.failure() {
             return Poll::Ready(Err(error));
         }
-        if this.flush.count.load(Ordering::Acquire) >= this.target {
-            this.flush.waiting.store(false, Ordering::Release);
-            Poll::Ready(Ok(()))
-        } else if this.driver_ended.load(Ordering::Acquire) {
-            Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "original H2 connection ended before flush",
-            )))
-        } else {
-            Poll::Pending
-        }
+        let target = match this.target {
+            Some(target) => target,
+            None => {
+                let target = this.flush.request()?;
+                this.target = Some(target);
+                target
+            }
+        };
+        this.flush.poll(cx, target)
     }
+
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self
             .as_mut()

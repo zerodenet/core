@@ -2,7 +2,7 @@
 use super::*;
 use futures_util::task::{ArcWake, AtomicWaker};
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Mutex, MutexGuard,
 };
 pub(super) struct Deferred {
@@ -42,8 +42,6 @@ pub(super) struct Progress {
     pub(super) writer: Arc<Deferred>,
     pub(super) reader: Arc<Deferred>,
     pub(super) flushed: Arc<super::super::owned::Flushed>,
-    pub(super) ended: AtomicBool,
-    pub(super) completed: AtomicBool,
     pub(super) failure: Mutex<Option<Arc<io::Error>>>,
 }
 impl Default for Progress {
@@ -56,8 +54,6 @@ impl Default for Progress {
             gate: Mutex::new(()),
             entered,
             flushed: Arc::default(),
-            ended: AtomicBool::new(false),
-            completed: AtomicBool::new(false),
             failure: Mutex::new(None),
         }
     }
@@ -93,7 +89,7 @@ impl Drop for Gate<'_> {
 pub(super) struct Ended(pub(super) Arc<Progress>);
 impl Drop for Ended {
     fn drop(&mut self) {
-        self.0.ended.store(true, Ordering::Release);
+        self.0.flushed.interrupt();
         futures_util::task::ArcWake::wake_by_ref(&self.0.writer);
         futures_util::task::ArcWake::wake_by_ref(&self.0.reader);
     }

@@ -129,6 +129,7 @@ async fn run(configured: u32) {
         sender,
         driver,
         active: _,
+        flush: _,
     } = crate::grpc::prepared::prepare_connection(
         Observed {
             io,

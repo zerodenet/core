@@ -10,6 +10,7 @@ use std::{
 pub(super) struct PreparedConnection {
     pub(super) sender: h2::client::SendRequest<Bytes>,
     pub(super) active: Arc<AtomicUsize>,
+    pub(super) flush: Arc<crate::native_flush::Flushed>,
     pub(super) driver: Pin<Box<dyn Future<Output = io::Result<()>> + Send>>,
 }
 
@@ -21,10 +22,12 @@ pub(super) async fn prepare_connection<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    let flush = Arc::new(crate::native_flush::Flushed::default());
     let activity = keepalive::Activity::new();
     let stream = keepalive::ObservedIo {
         io: stream,
         activity: activity.clone(),
+        flush: crate::native_flush::NativeFlush::new(flush.clone()),
     };
     let mut builder = h2::client::Builder::new();
     if let Some(settings) = settings {
@@ -37,15 +40,20 @@ where
     let ping = connection.ping_pong().expect("first ping handle");
     let active = Arc::new(AtomicUsize::new(0));
     let observed = active.clone();
+    let observed_flush = flush.clone();
+    let guard = crate::native_flush::DriverGuard(observed_flush.clone());
     let driver = Box::pin(async move {
-        tokio::select! {
+        let _guard = guard;
+        let result = tokio::select! {
             result=connection=>result.map_err(io::Error::other),
             result=keepalive::run(ping,profile,activity,false,observed)=>result,
-        }
+        };
+        observed_flush.finish(result)
     });
     Ok(PreparedConnection {
         sender,
         active,
+        flush,
         driver,
     })
 }

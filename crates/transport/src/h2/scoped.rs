@@ -4,10 +4,7 @@ mod progress;
 mod write;
 use futures_util::task::waker_ref;
 use progress::Progress;
-use std::{
-    sync::{atomic::Ordering, Arc},
-    task::Context,
-};
+use std::{sync::Arc, task::Context};
 use zero_platform_tokio::{
     contract::{scope::TaskClass, CancellationToken, ChannelError, Impact, Reason, Stage},
     AcceptedCaller,
@@ -38,7 +35,7 @@ where
     let progress = Arc::new(Progress::default());
     let io = super::owned::FlushIo {
         io: stream,
-        flush: progress.flushed.clone(),
+        flush: crate::native_flush::NativeFlush::new(progress.flushed.clone()),
         read: None,
     };
     let mut conn = h2::server::handshake(io).await.map_err(io::Error::other)?;
@@ -106,10 +103,7 @@ where
                     })=>next,
                 };
                 match next {
-                    None => {
-                        actual.completed.store(true, Ordering::Release);
-                        return Ok(());
-                    }
+                    None => return Ok(()),
                     Some(Err(error)) => {
                         let source = Arc::new(io::Error::other(error));
                         *actual.failure.lock().unwrap() = Some(source.clone());

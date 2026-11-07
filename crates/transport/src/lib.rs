@@ -13,6 +13,8 @@ pub mod http_upgrade;
 #[cfg(feature = "tls")]
 pub mod inbound_stack;
 pub mod metered;
+#[cfg(any(feature = "grpc", feature = "h2"))]
+mod native_flush;
 pub mod observed;
 mod observed_datagram;
 pub mod outbound_datagram;

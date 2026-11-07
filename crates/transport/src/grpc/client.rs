@@ -7,6 +7,7 @@ pub(super) struct Client {
     sender: h2::client::SendRequest<Bytes>,
     driver: Arc<server::Driver>,
     active: Arc<AtomicUsize>,
+    flush: Arc<crate::native_flush::Flushed>,
 }
 impl Client {
     pub async fn new_with_settings<S>(
@@ -20,6 +21,7 @@ impl Client {
         let prepared::PreparedConnection {
             sender,
             active,
+            flush,
             driver,
         } = prepared::prepare_connection(stream, profile, settings).await?;
         let driver = tokio::spawn(async move {
@@ -31,6 +33,7 @@ impl Client {
             sender,
             driver: Arc::new(server::Driver(driver.abort_handle())),
             active,
+            flush,
         })
     }
     pub fn closed(&self) -> bool {
@@ -51,7 +54,8 @@ impl Client {
         let (response, send) = sender
             .send_request(request, false)
             .map_err(io::Error::other)?;
-        let mut stream = build_grpc_client_stream(send, response, profile.multi_mode);
+        let mut stream =
+            build_grpc_client_stream(send, response, profile.multi_mode, self.flush.clone());
         self.active
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         stream.active = Some(self.active.clone());
