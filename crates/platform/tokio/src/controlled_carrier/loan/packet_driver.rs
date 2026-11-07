@@ -17,7 +17,7 @@ impl LoanOwner {
         call: crate::contract::component::packet_driver::streams::StreamCancellation,
     ) -> Self {
         let mut view = Self::new(
-            Box::new(Control { owner, call }),
+            Box::new(Control { owner, call }).into(),
             self.original().clone(),
             self.packet_driver_state(),
         );
