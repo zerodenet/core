@@ -71,7 +71,7 @@ fn capture(client: &fixture::Running) -> Vec<Original> {
     originals
 }
 async fn returned(originals: &[Original]) {
-    tokio::time::timeout(Duration::from_secs(3), async {
+    let result = tokio::time::timeout(Duration::from_secs(3), async {
         loop {
             if originals.iter().all(|original| {
                 original.original.closed().is_some()
@@ -89,8 +89,15 @@ async fn returned(originals: &[Original]) {
             tokio::task::yield_now().await;
         }
     })
-    .await
-    .unwrap();
+    .await;
+    assert!(
+        result.is_ok(),
+        "same actual Relay originals failed retirement: {:?}",
+        originals
+            .iter()
+            .map(|original| fixture::retirement_facts(&original.owner))
+            .collect::<Vec<_>>()
+    );
     for original in originals {
         let closed = original.original.closed().unwrap();
         assert!(original.original.matches_closed(&closed));

@@ -131,7 +131,7 @@ pub(crate) async fn wait_returned(
     owner: &CarrierOwnerRegistration,
     original: &CarrierOriginObservation,
 ) {
-    timeout(Duration::from_secs(3), async {
+    let result = timeout(Duration::from_secs(3), async {
         loop {
             if original.closed().is_some()
                 && owner
@@ -143,8 +143,27 @@ pub(crate) async fn wait_returned(
             tokio::task::yield_now().await;
         }
     })
-    .await
-    .unwrap();
+    .await;
+    assert!(
+        result.is_ok(),
+        "same actual original failed retirement: {:?}",
+        retirement_facts(owner)
+    );
     let closed = original.closed().unwrap();
     assert!(original.matches_closed(&closed) && closed.had_native_acquisition());
+}
+
+pub(crate) fn retirement_facts(owner: &CarrierOwnerRegistration) -> Vec<String> {
+    owner.observe().map_or_else(Vec::new, |actual| actual.slots().iter().map(|slot| {
+        let witness = |actual: &zero_platform_tokio::contract::scope::TaskJoinWitness| {
+            let joined = actual.try_joined();
+            (actual.task_id(), actual.is_joined(), joined.as_ref().map(|joined| joined.registration_released()),
+                joined.as_ref().map(|joined| joined.failure_accepted()), joined.as_ref().map(|joined| joined.result().is_ok()))
+        };
+        format!("instance={:?} ordinal={} opening={} spawning={} physicalViewLive={} driver={:?} auxiliary={:?} nativeClosed={:?} nativePending={:?} nativeFault={:?} acquisitionUnknown={}",
+            owner.instance(), slot.ordinal(), slot.is_opening(), slot.is_spawning(), slot.physical_view_live(),
+            slot.driver().map(|(_, task)| witness(task)), slot.auxiliary().map(witness),
+            slot.native().map(|native| native.is_closed()), slot.native().map(|native| native.operation_pending()),
+            slot.native().and_then(|native| native.first_fault()).map(|source| source.kind()), slot.acquisition_unknown().is_some())
+    }).collect())
 }
