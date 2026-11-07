@@ -21,6 +21,15 @@ impl DatagramTx for Tx {
                 DeliveryState::NotSubmitted,
             )));
         }
+        let notifications = shared
+            .original
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .socket
+            .sender();
+        // Declared before the pending-state guard: every credit return and
+        // synchronous memory wake observes the actual owner locks released.
+        let _notifications = notifications.defer_memory_notifications();
         {
             let mut state = shared
                 .state
@@ -53,10 +62,28 @@ impl DatagramTx for Tx {
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .socket
                     .sender();
+                // This retained future needs an independent allocation. Pay
+                // before copying; the later IP/fragment/cipher envelope has its
+                // own credit and cannot account for this pending payload.
+                let payload = match sender.copy_pending_payload(&frame.payload) {
+                    Ok(payload) => payload,
+                    Err(source) => {
+                        let reason = match source {
+                            zero_traits::PacketDeriveError::Capacity
+                            | zero_traits::PacketDeriveError::Busy => Reason::Capacity,
+                            zero_traits::PacketDeriveError::Revoked => Reason::Revoked,
+                            _ => Reason::InvalidConfig,
+                        };
+                        return Poll::Ready(Err(SendFailure::new(
+                            failure(Stage::Send, reason).with_source(source),
+                            DeliveryState::NotSubmitted,
+                        )));
+                    }
+                };
                 let frame = Arc::new(Datagram {
                     address: frame.address.clone(),
                     association: frame.association,
-                    payload: frame.payload.to_vec().into(),
+                    payload,
                 });
                 let bytes = frame.clone();
                 let peer = shared.peer;
