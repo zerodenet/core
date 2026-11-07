@@ -27,6 +27,7 @@ mod connection;
 mod handle;
 mod masks;
 mod native;
+mod retirement;
 use native::Native;
 mod stream;
 mod users;
@@ -264,23 +265,6 @@ impl OwnedEndpointOwner {
             confirmed_probes: self.confirmed_probes,
             native_count_overflow: self.native_count_overflow,
             original_native_failures: self.native_failures.values().cloned().collect(),
-            observer_faulted: self.native.callbacks().failed(),
-            suppressed_observer_panics: self.native.suppressed(),
-        })
-    }
-    /// Complete only actual sealed users and driver joins. This never closes
-    /// or acknowledges the granting host's native main/probe originals.
-    pub async fn shutdown_users(
-        &self,
-        deadline: Instant,
-    ) -> Result<OwnedEndpointUsersReport, ChannelError> {
-        self.begin_shutdown();
-        self.shared.users.wait_empty(deadline).await?;
-        let joined = self.drivers.wait_joined(deadline).await?;
-        Ok(OwnedEndpointUsersReport {
-            active_users: self.active_users(),
-            drivers: self.drivers.task_status(),
-            joined,
             observer_faulted: self.native.callbacks().failed(),
             suppressed_observer_panics: self.native.suppressed(),
         })

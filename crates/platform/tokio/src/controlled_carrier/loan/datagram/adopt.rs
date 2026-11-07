@@ -194,7 +194,7 @@ impl CarrierGrant {
             || context
                 .deadline
                 .is_some_and(|end| tokio::time::Instant::now() >= end)
-            || self.slot.cancel.is_cancelled()
+            || self.slot.acquisition_sealed()
             || original.is_retired()
             || bound.is_none_or(|bound| {
                 let related = self

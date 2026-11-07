@@ -24,65 +24,94 @@ impl CarrierGrants {
         self.0.instance
     }
     pub fn reserve(&self) -> Result<CarrierGrant, ChannelError> {
-        // Real ACK observation can wake external code, before the owner lock.
-        if let Some(totals) = self.0.totals.get() {
-            totals.reconcile();
-        }
-        let mut state = self.0.state();
-        if !state.live
-            || state.stopped
-            || self.0.cancel.is_cancelled()
-            || state
-                .binding
-                .as_ref()
-                .is_some_and(|bound| bound.host_cancelled())
-        {
-            return Err(error(
-                self.0.instance,
-                Stage::Prepare,
-                Reason::Revoked,
-                DeliveryState::NotSubmitted,
-            ));
-        }
-        if state.slots.len() >= self.0.limit.get() {
-            return Err(error(
-                self.0.instance,
-                Stage::Prepare,
-                Reason::Capacity,
-                DeliveryState::NotSubmitted,
-            ));
-        }
-        let next = state.next.checked_add(1).ok_or_else(|| {
-            error(
-                self.0.instance,
-                Stage::Prepare,
-                Reason::Capacity,
-                DeliveryState::NotSubmitted,
-            )
-        })?;
-        state.next = next;
-        let slot = Arc::new(Slot {
-            preparation_usage: Arc::default(),
-            completion: Default::default(),
-            removed: Default::default(),
-            instance: self.0.instance,
-            ordinal: next,
-            owner: Arc::downgrade(&self.0),
-            cancel: self.0.cancel.child_token(),
-            state: Mutex::new(State::default()),
-            changed: Notify::new(),
-            closing: tokio::sync::Mutex::new(()),
-            retirement: Mutex::default(),
-        });
-        // Both finite books own the exact same original before any IO/await.
-        if let Some(totals) = self.0.totals.get() {
-            totals.reserve(&self.0, &slot)?;
-        }
-        state.slots.push(slot.clone());
-        Ok(CarrierGrant {
-            slot,
-            transferred: false,
-        })
+        self.reserve_with_protocol(None)
+            .map_err(|(error, returned)| {
+                drop(returned);
+                error
+            })
+    }
+    pub(in crate::controlled_carrier) fn reserve_with_protocol(
+        &self,
+        mut protocol: Option<crate::contract::lifecycle::BoxChannelControl>,
+    ) -> Result<
+        CarrierGrant,
+        (
+            ChannelError,
+            Option<crate::contract::lifecycle::BoxChannelControl>,
+        ),
+    > {
+        // Error return happens after every original/owner/Root guard is gone.
+        // The caller receives the still-inert unique control outside locks.
+        let reserved = (|| {
+            // Real ACK observation can wake external code, before the owner lock.
+            if let Some(totals) = self.0.totals.get() {
+                totals.reconcile();
+            }
+            let mut state = self.0.state();
+            if !state.live
+                || state.stopped
+                || self.0.cancel.is_cancelled()
+                || state
+                    .binding
+                    .as_ref()
+                    .is_some_and(|bound| bound.host_cancelled())
+            {
+                return Err(error(
+                    self.0.instance,
+                    Stage::Prepare,
+                    Reason::Revoked,
+                    DeliveryState::NotSubmitted,
+                ));
+            }
+            if state.slots.len() >= self.0.limit.get() {
+                return Err(error(
+                    self.0.instance,
+                    Stage::Prepare,
+                    Reason::Capacity,
+                    DeliveryState::NotSubmitted,
+                ));
+            }
+            let next = state.next.checked_add(1).ok_or_else(|| {
+                error(
+                    self.0.instance,
+                    Stage::Prepare,
+                    Reason::Capacity,
+                    DeliveryState::NotSubmitted,
+                )
+            })?;
+            state.next = next;
+            let slot = Arc::new(Slot {
+                preparation_usage: Arc::default(),
+                completion: Default::default(),
+                removed: Default::default(),
+                instance: self.0.instance,
+                ordinal: next,
+                owner: Arc::downgrade(&self.0),
+                cancel: self.0.cancel.child_token(),
+                protocol_stop: Default::default(),
+                state: Mutex::new(State::default()),
+                changed: Notify::new(),
+                closing: tokio::sync::Mutex::new(()),
+                retirement: Mutex::default(),
+            });
+            // Both finite books own the exact same original before any IO/await.
+            if let Some(totals) = self.0.totals.get() {
+                totals.reserve(&self.0, &slot)?;
+            }
+            // The same local declaration and Root original N are now paid. No
+            // phase allocation occurs on a refused local or Root reservation.
+            if let Some(control) = protocol.take() {
+                let phase = crate::original_protocol::Phase::new(control);
+                assert!(slot.protocol_stop.set(phase.cancellation()).is_ok());
+                slot.state().protocol = Some(phase);
+            }
+            state.slots.push(slot.clone());
+            Ok(CarrierGrant {
+                slot,
+                transferred: false,
+            })
+        })();
+        reserved.map_err(|error| (error, protocol))
     }
 }
 impl CarrierGrant {
@@ -104,7 +133,7 @@ impl CarrierGrant {
         }
     }
     pub(super) fn check(&self) -> Result<(), ChannelError> {
-        if self.slot.cancel.is_cancelled() {
+        if self.slot.acquisition_sealed() {
             Err(error(
                 self.slot.instance,
                 Stage::Prepare,

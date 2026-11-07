@@ -17,6 +17,20 @@ async fn close_slot_until(
     wait_users: bool,
 ) -> Result<CloseReport, BuildError> {
     crate::controlled_carrier::preparation::cancel_staged(slot);
+    // The exact Endpoint returns its unique IO and accepted queue worker before
+    // ordinary native/LoanOwner closure. Never recurse into adoption.retire
+    // from this installed controller or wait the actor from its own body.
+    let protocol = { slot.state().protocol.clone() };
+    if let Some(protocol) = &protocol {
+        if !protocol.wait(deadline).await {
+            return Ok(CloseReport {
+                unfinished: vec![Unfinished::Resource(
+                    "original protocol cleanup remains retained".into(),
+                )],
+                ..Default::default()
+            });
+        }
+    }
     // Cleanup is the persistent local receiver even when the original
     // request was cancelled before observing its auxiliary result.
     match timeout_at(
@@ -136,6 +150,7 @@ async fn close_slot_until(
                 });
             }
             let report = slot.state().pending_close.take().unwrap_or_default();
+            drop(_closing);
             slot.remove();
             slot.notify();
             return Ok(report);
@@ -239,6 +254,9 @@ async fn close_slot_until(
             CloseReport::default()
         };
         if report.is_complete() {
+            if let Some(protocol) = &protocol {
+                report.append(protocol.take_report());
+            }
             report.released_resources.push(slot.label());
             {
                 let mut state = slot.state();

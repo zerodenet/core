@@ -54,4 +54,17 @@ impl OwnedEndpointOwner {
         }
         Ok(())
     }
+    /// Stop this actual mask only after its original consumers return.
+    pub async fn stop_mask_driver_original(
+        &self,
+        id: zero_core::component::TaskId,
+    ) -> Result<(), ChannelError> {
+        if let Some(OwnedDriverOrigin::Mask { ordinal, .. }) = self.drivers.origin(id) {
+            self.shared.users.wait_empty_original().await?;
+            if let Some((_, stop)) = self.masks.iter().find(|(index, _)| *index == ordinal) {
+                stop.cancel();
+            }
+        }
+        Ok(())
+    }
 }

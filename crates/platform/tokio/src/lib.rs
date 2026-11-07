@@ -46,6 +46,7 @@ mod controlled_pipe;
 mod controlled_tcp;
 mod datagram;
 mod original_poll;
+mod original_protocol;
 #[cfg(windows)]
 mod windows_socket;
 #[cfg(windows)]

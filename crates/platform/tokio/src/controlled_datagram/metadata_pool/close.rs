@@ -38,10 +38,12 @@ impl MetadataPoolOwner {
             }
             let (caller, users) = {
                 let native = slot.native()?;
-                (slot.caller.clone(), native.confirmed.clone())
+                (slot.caller.get().cloned(), native.confirmed.clone())
             };
             let wait = async {
-                caller.wait_registration_released().await;
+                if let Some(caller) = caller {
+                    caller.wait_registration_released().await;
+                }
                 if let Some(users) = users {
                     for registration in users
                         .registrations()

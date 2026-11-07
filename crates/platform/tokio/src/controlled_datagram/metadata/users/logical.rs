@@ -129,6 +129,12 @@ impl<A: UserAdmission> LogicalUsers<A> {
         self.active.load(Ordering::Acquire)
     }
     pub async fn wait_empty(&self, deadline: Instant) -> Result<(), ChannelError> {
+        timeout_at(deadline, self.wait_empty_original())
+            .await
+            .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?
+    }
+    /// Same actual users, kept by their existing original cleanup continuation.
+    pub async fn wait_empty_original(&self) -> Result<(), ChannelError> {
         loop {
             let changed = self.changed.notified();
             tokio::pin!(changed);
@@ -136,9 +142,7 @@ impl<A: UserAdmission> LogicalUsers<A> {
             if self.active() == 0 {
                 return Ok(());
             }
-            timeout_at(deadline, changed)
-                .await
-                .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?;
+            changed.await;
         }
     }
 }

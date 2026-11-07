@@ -15,6 +15,7 @@ pub(super) struct Slot {
     pub(super) ordinal: u64,
     pub(super) owner: Weak<Shared>,
     pub(super) cancel: CancellationToken,
+    pub(super) protocol_stop: std::sync::OnceLock<CancellationToken>,
     pub(super) state: Mutex<State>,
     pub(super) changed: Notify,
     pub(super) closing: AsyncMutex<()>,
@@ -22,6 +23,7 @@ pub(super) struct Slot {
 }
 #[derive(Default)]
 pub(super) struct State {
+    pub(super) protocol: Option<Arc<crate::original_protocol::Phase>>,
     #[cfg(any(target_os = "linux", windows))]
     pub(super) process_endpoint: Option<crate::owned_process::ProcessEndpointFence>,
     pub(super) related_parent: Option<Weak<Slot>>,
@@ -58,6 +60,16 @@ pub(super) struct State {
     pub(super) closed: bool,
 }
 impl Slot {
+    /// Seal new acquisition/registration while the existing unique packet
+    /// cleanup views retain their original donor/related cancellation fences.
+    pub(super) fn acquisition_sealed(&self) -> bool {
+        self.cancel.is_cancelled()
+            || self
+                .protocol_stop
+                .get()
+                .is_some_and(CancellationToken::is_cancelled)
+    }
+
     pub(super) fn check_process_endpoint(&self) -> std::io::Result<()> {
         #[cfg(any(target_os = "linux", windows))]
         {
@@ -109,14 +121,24 @@ impl Slot {
             "only confirmed original retirement removes a slot"
         );
         drop(state);
-        if let Some(owner) = self.owner.upgrade() {
-            owner
-                .state()
+        let removed = self.owner.upgrade().and_then(|owner| {
+            let mut state = owner.state();
+            state
                 .slots
-                .retain(|stored| !Arc::ptr_eq(stored, self));
-        }
+                .iter()
+                .position(|stored| Arc::ptr_eq(stored, self))
+                .map(|index| state.slots.remove(index))
+        });
+        let actually_removed = removed.is_some();
+        drop(removed);
         self.removed
             .store(true, std::sync::atomic::Ordering::Release);
+        let protocol = self.state().protocol.clone();
+        if actually_removed {
+            if let Some(protocol) = protocol {
+                protocol.settle();
+            }
+        }
         // An explicit close may win while its inline continuation is waiting
         // for the original close gate. Positive settlement breaks that exact
         // continuation's custody cycle outside all metadata locks.
@@ -130,7 +152,8 @@ impl Slot {
     pub(super) fn unused(self: &Arc<Self>) {
         let unused = {
             let mut state = self.state();
-            if state.control.is_none()
+            if state.protocol.is_none()
+                && state.control.is_none()
                 && state.loan.is_none()
                 && state.packet.is_none()
                 && state.unknown.is_none()

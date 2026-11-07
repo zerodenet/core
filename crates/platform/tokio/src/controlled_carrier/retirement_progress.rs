@@ -18,14 +18,14 @@ pub(super) struct Retirement {
     first_fault: Option<Arc<ChannelError>>,
     // Same original slot's one read-only credit waiter survives its immutable
     // cleanup deadline. A late real ACK still wakes the existing Host driver.
-    credit: Option<BoxFuture<'static, crate::contract::scope::TaskJoined>>,
+    credit: Option<BoxFuture<'static, bool>>,
 }
 impl Retirement {
     pub(super) fn take_closed_work(
         &mut self,
     ) -> (
         Option<BoxFuture<'static, Result<CloseReport, ChannelError>>>,
-        Option<BoxFuture<'static, crate::contract::scope::TaskJoined>>,
+        Option<BoxFuture<'static, bool>>,
     ) {
         self.removed = true;
         (self.work.take(), self.credit.take())
@@ -47,10 +47,27 @@ impl CarrierOwnerRegistration {
         let mut progressed = false;
         let mut first_fault = None;
         for slot in slots {
-            if !slot.cancel.is_cancelled() {
+            let protocol = { slot.state().protocol.clone() };
+            if let Some(protocol) = &protocol {
+                protocol.register_waker(cx.waker());
+            }
+            if !slot.cancel.is_cancelled()
+                && !protocol
+                    .as_ref()
+                    .is_some_and(|protocol| protocol.requested())
+            {
                 continue;
             }
-            let caller = super::caller_credit::caller(&slot);
+            if let Some(phase) = &protocol {
+                let end = *lock(&slot.retirement)
+                    .deadline
+                    .get_or_insert_with(|| Instant::now() + budget);
+                let _ = phase.poll_operation(cx, end);
+                if let Some(source) = phase.failure() {
+                    lock(&slot.retirement).first_fault.get_or_insert(source);
+                }
+            }
+            let mut observed_credit = super::caller_credit::observe(&slot);
             let (work, credit) = {
                 let mut state = lock(&slot.retirement);
                 if state.polling || state.removed {
@@ -64,20 +81,22 @@ impl CarrierOwnerRegistration {
                     let original = slot.clone();
                     Box::pin(async move { close_slot(&original, deadline).await })
                 });
-                let credit = state.credit.take().or_else(|| {
-                    caller.map(|caller| {
-                        Box::pin(async move { caller.wait_registration_released().await })
-                            as BoxFuture<'static, crate::contract::scope::TaskJoined>
-                    })
-                });
+                let credit = state.credit.take().or_else(|| observed_credit.take());
                 (work, credit)
             };
+            drop(observed_credit);
             let mut credit = credit;
-            let credit_released = credit
-                .as_mut()
-                .is_none_or(|credit| credit.as_mut().poll(cx).is_ready());
             let mut work = work;
             let result = work.as_mut().poll(cx);
+            // Endpoint completion may have been strongly installed while that
+            // real close advanced. Keep its original ACK waker even when the
+            // immutable close deadline elapsed in this same poll.
+            if credit.is_none() {
+                credit = super::caller_credit::observe(&slot);
+            }
+            let credit_released = credit
+                .as_mut()
+                .is_none_or(|credit| matches!(credit.as_mut().poll(cx), Poll::Ready(true)));
             let mut retired_work = None;
             let mut retired_credit = None;
             let mut complete = None;

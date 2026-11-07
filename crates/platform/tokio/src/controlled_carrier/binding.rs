@@ -403,6 +403,15 @@ impl BoundAuthority {
     pub(super) fn host_cancelled(&self) -> bool {
         self.host_cancel.is_cancelled()
     }
+    pub(super) fn permits_datagram_protocol_control(&self, tasks: &TaskRegistrar) -> bool {
+        matches!(
+            &self.declaration,
+            ResourceDeclaration::ControlledServiceDatagram { .. }
+        ) && self.scope.matches(tasks)
+            && self.scope.resource_open()
+            && self.scope.registration_open()
+            && !self.host_cancel.is_cancelled()
+    }
     pub(super) fn cancellation(&self) -> CancellationToken {
         self.host_cancel.as_ref().clone()
     }

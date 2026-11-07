@@ -229,7 +229,7 @@ impl CarrierServiceGrant {
                 .same_scope(&self.demand.caller.scope_identity())
             || !self.binding.scope_identity().resource_open()
             || self.binding.host_cancelled()
-            || slot.cancel.is_cancelled()
+            || slot.acquisition_sealed()
             || self.demand.caller.is_joined()
             || self.demand.cancel.is_cancelled()
         {

@@ -126,3 +126,6 @@ pub fn original_connect_error(error: &ChannelError) -> Option<&crate::TcpConnect
 mod related;
 
 mod retirement_progress;
+
+pub use crate::original_protocol::{CarrierProtocolRetirement, RejectedOriginalProtocolControl};
+mod protocol_control;

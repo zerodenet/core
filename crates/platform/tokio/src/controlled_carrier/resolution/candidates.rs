@@ -88,6 +88,25 @@ impl CarrierCandidates {
         ),
         ChannelError,
     > {
+        self.open_metadata_with_deadline(index, port, permit, query, Some(end))
+    }
+    /// Preserve the caller's optional absolute bound. Original native checks,
+    /// sealed candidate and declared permit remain identical; None does not
+    /// invent a handshake/cleanup timer for a caller without a total deadline.
+    pub fn open_metadata_with_deadline(
+        &self,
+        index: usize,
+        port: Option<u16>,
+        permit: &crate::controlled_datagram::metadata_pool::MetadataPoolPermit,
+        query: &crate::contract::scope::TaskJoinWitness,
+        end: Option<tokio::time::Instant>,
+    ) -> Result<
+        (
+            SocketAddr,
+            crate::contract::component::GrantedMetadataListener,
+        ),
+        ChannelError,
+    > {
         self.opener(index)?;
         let mut peer = self.peers[index];
         if let Some(port) = port {

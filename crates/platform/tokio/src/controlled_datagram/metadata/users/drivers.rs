@@ -16,6 +16,7 @@ use std::{
 use zero_core::component::TaskId;
 mod body;
 mod completion;
+mod join;
 mod reception;
 pub(in crate::controlled_datagram::metadata::users) use completion::RegistrationSequence;
 pub use completion::{DriverRegistrationsClosed, RegistrationIter};
@@ -129,56 +130,6 @@ impl<O: DriverKind, B: Send + Sync + 'static> DriverOwner<O, B> {
     }
     pub fn admission(&self) -> Admission<O, B> {
         Admission(Arc::downgrade(&self.shared))
-    }
-    pub async fn wait_joined(
-        &self,
-        deadline: tokio::time::Instant,
-    ) -> Result<Vec<TaskJoined>, ChannelError> {
-        loop {
-            let changed = self.shared.changed.notified();
-            tokio::pin!(changed);
-            changed.as_mut().enable();
-            let (pending, witnesses) = {
-                let state = self.shared.state.lock().unwrap();
-                (
-                    state.pending,
-                    state
-                        .records
-                        .values()
-                        .map(|record| {
-                            record
-                                .registration
-                                .lock()
-                                .unwrap()
-                                .as_ref()
-                                .unwrap()
-                                .1
-                                .clone()
-                        })
-                        .collect::<Vec<_>>(),
-                )
-            };
-            let mut joined = Vec::with_capacity(witnesses.len());
-            for witness in witnesses {
-                joined.push(
-                    tokio::time::timeout_at(deadline, witness.wait())
-                        .await
-                        .map_err(|source| {
-                            ChannelError::new(Stage::Close, Reason::Timeout, Impact::Component)
-                                .with_source(source)
-                        })?,
-                );
-            }
-            if pending == 0 {
-                return Ok(joined);
-            }
-            tokio::time::timeout_at(deadline, changed)
-                .await
-                .map_err(|source| {
-                    ChannelError::new(Stage::Close, Reason::Timeout, Impact::Component)
-                        .with_source(source)
-                })?;
-        }
     }
     pub fn task_status(&self) -> DriverTaskStatus<O> {
         let state = self.shared.state.lock().unwrap();

@@ -10,6 +10,13 @@ pub(in crate::controlled_carrier) fn try_close_native_slot(
     // Local failure acceptance invokes Host wakers: receive the exact job
     // outside this original's close gate and all Slot/Owner state locks.
     crate::controlled_carrier::preparation::try_accept_job_exit(slot)?;
+    let protocol = { slot.state().protocol.clone() };
+    if protocol
+        .as_ref()
+        .is_some_and(|protocol| !protocol.complete())
+    {
+        return Ok(pending());
+    }
     let Ok(_closing) = slot.closing.try_lock() else {
         return Ok(pending());
     };
@@ -112,6 +119,9 @@ pub(in crate::controlled_carrier) fn try_close_native_slot(
         CloseReport::default()
     };
     if report.is_complete() {
+        if let Some(protocol) = &protocol {
+            report.append(protocol.take_report());
+        }
         report.released_resources.push(slot.label());
         let mut state = slot.state();
         state.closed = true;
@@ -185,6 +195,7 @@ pub(in crate::controlled_carrier) fn try_close_slot(
         });
     }
     let report = slot.state().pending_close.take().unwrap_or_default();
+    drop(_closing);
     slot.remove();
     slot.notify();
     Ok(report)

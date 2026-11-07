@@ -1,3 +1,4 @@
+mod credit;
 mod open;
 use super::super::metadata::users::MetadataUsersClosedReceipt;
 use super::*;
@@ -78,6 +79,28 @@ impl MetadataPoolPermit {
         receipt: Option<&MetadataUsersClosedReceipt>,
         tasks: &TaskRegistrar,
     ) -> Result<MetadataPoolClosed, ChannelError> {
+        self.retain_users_inner(receipt, tasks)?;
+        self.close_stored()?.ok_or_else(|| {
+            error(
+                Reason::Timeout,
+                "metadata users or native original remains unconfirmed",
+            )
+        })
+    }
+    /// Retain only the same actual users/driver graph receipt. The persistent
+    /// Root still closes the original native main/probes and checks real ACKs.
+    pub fn retain_users_receipt(
+        &self,
+        receipt: &MetadataUsersClosedReceipt,
+        tasks: &TaskRegistrar,
+    ) -> Result<(), ChannelError> {
+        self.retain_users_inner(Some(receipt), tasks)
+    }
+    fn retain_users_inner(
+        &self,
+        receipt: Option<&MetadataUsersClosedReceipt>,
+        tasks: &TaskRegistrar,
+    ) -> Result<(), ChannelError> {
         let owner = self
             .0
             .owner
@@ -107,61 +130,23 @@ impl MetadataPoolPermit {
             }
             native.confirmed.get_or_insert_with(|| receipt.clone());
         }
-        self.close_stored()?.ok_or_else(|| {
-            error(
-                Reason::Timeout,
-                "metadata users or native original remains unconfirmed",
-            )
-        })
-    }
-    /// Native/users close remains independently observable. Only this owner's
-    /// local reservation credit waits for every actual registration's Host ACK.
-    pub(super) fn release_registration_credit(&self) -> bool {
-        if self.0.closed.get().is_none() {
-            return false;
-        }
-        let (caller, users) = {
-            let Ok(native) = self.0.native() else {
-                return false;
-            };
-            (self.0.caller.clone(), native.confirmed.clone())
-        };
-        // Kernel receipts clone only the same sealed original record storage.
-        // Iterate its real witnesses outside this owner's/native locks.
-        let released = |witness: &TaskJoinWitness| {
-            witness.try_joined().is_some_and(|joined| {
-                witness.matches_joined(&joined) && joined.registration_released()
-            })
-        };
-        if !released(&caller)
-            || users.as_ref().is_some_and(|users| {
-                !users
-                    .registrations()
-                    .iter()
-                    .chain(users.related_registrations())
-                    .all(|witness| released(&witness))
-            })
-        {
-            return false;
-        }
-        if let Some(owner) = self.0.owner.upgrade() {
-            let removed = {
-                let mut state = owner.state.lock().expect("metadata pool poisoned");
-                if state
-                    .slots
-                    .get(&self.0.ordinal)
-                    .is_some_and(|actual| Arc::ptr_eq(actual, &self.0))
-                {
-                    state.slots.remove(&self.0.ordinal)
-                } else {
-                    None
-                }
-            };
-            drop(removed);
-        }
-        true
+        Ok(())
     }
     pub(super) fn close_stored(&self) -> Result<Option<MetadataPoolClosed>, ChannelError> {
+        let phase = self
+            .0
+            .protocol
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        if phase.as_ref().is_some_and(|phase| !phase.complete()) {
+            return Ok(None);
+        }
+        // A real gated initializer must either install its actual witness or
+        // abandon its unstarted reservation before native close may settle it.
+        if self.0.preparing.load(std::sync::atomic::Ordering::Acquire) {
+            return Ok(None);
+        }
         if let Some(receipt) = self.origin().closed() {
             self.release_registration_credit();
             return Ok(Some(receipt));

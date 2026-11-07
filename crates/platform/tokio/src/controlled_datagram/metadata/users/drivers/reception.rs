@@ -14,12 +14,70 @@ pub struct DriverDelivery<B> {
     pub(super) original: Arc<dyn std::any::Any + Send + Sync>,
 }
 impl<O: DriverKind, B: Send + Sync + 'static> DriverExitReceiver<O, B> {
+    /// Passive observation of the same received original registration. This
+    /// consumes no exit and acknowledges neither local failure nor Host credit.
+    pub async fn wait_registration_released(
+        &self,
+        id: TaskId,
+        deadline: Instant,
+    ) -> Result<TaskJoined, ChannelError> {
+        let record = self
+            .shared
+            .state
+            .lock()
+            .unwrap()
+            .records
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| ChannelError::new(Stage::Close, Reason::StalePlan, Impact::Component))?;
+        if !record.delivered.load(Ordering::Acquire) {
+            return Err(ChannelError::new(
+                Stage::Close,
+                Reason::StalePlan,
+                Impact::Component,
+            ));
+        }
+        let witness = record
+            .registration
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|(_, witness)| witness.clone())
+            .ok_or_else(|| ChannelError::new(Stage::Close, Reason::Internal, Impact::Component))?;
+        let joined = timeout_at(deadline, witness.wait_registration_released())
+            .await
+            .map_err(|source| {
+                ChannelError::new(Stage::Close, Reason::Timeout, Impact::Component)
+                    .with_source(source)
+            })?;
+        if !witness.matches_joined(&joined) || !joined.registration_released() {
+            return Err(ChannelError::new(
+                Stage::Close,
+                Reason::Internal,
+                Impact::Component,
+            ));
+        }
+        Ok(joined)
+    }
     /// Invoke when this real owning receiver accepts this driver's outcome.
     /// Deadline/cancellation keeps the original record and performs no ACK.
     pub async fn receive(
         &mut self,
         id: TaskId,
         deadline: Instant,
+    ) -> Result<DriverDelivery<B>, ChannelError> {
+        timeout_at(deadline, self.receive_original(id))
+            .await
+            .map_err(|source| {
+                ChannelError::new(Stage::Close, Reason::Timeout, Impact::Component)
+                    .with_source(source)
+            })?
+    }
+    /// Same owning reception, retained by the original cleanup operation.
+    /// An observer timeout cannot cancel this actual outcome receiver.
+    pub async fn receive_original(
+        &mut self,
+        id: TaskId,
     ) -> Result<DriverDelivery<B>, ChannelError> {
         let record = self
             .shared
@@ -39,12 +97,7 @@ impl<O: DriverKind, B: Send + Sync + 'static> DriverExitReceiver<O, B> {
             .as_ref()
             .map(|(_, witness)| witness.clone())
             .ok_or_else(|| ChannelError::new(Stage::Close, Reason::Internal, Impact::Component))?;
-        let joined = timeout_at(deadline, witness.wait())
-            .await
-            .map_err(|source| {
-                ChannelError::new(Stage::Close, Reason::Timeout, Impact::Component)
-                    .with_source(source)
-            })?;
+        let joined = witness.wait().await;
         // Retain the exact native joined receipt and original error Arc before
         // telling the hosted owner that this receiver accepted that failure.
         let received = record

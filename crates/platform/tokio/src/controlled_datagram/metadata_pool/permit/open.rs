@@ -65,7 +65,7 @@ impl MetadataPoolPermit {
                 egress,
                 observer: None,
             },
-            end,
+            Some(end),
             || Ok(()),
         )
     }
@@ -74,7 +74,7 @@ impl MetadataPoolPermit {
         &self,
         query: &TaskJoinWitness,
         target: MetadataCandidate<'_>,
-        end: tokio::time::Instant,
+        end: Option<tokio::time::Instant>,
         validate: impl Fn() -> Result<(), ChannelError>,
     ) -> Result<GrantedMetadataListener, ChannelError> {
         let owner = self
@@ -90,7 +90,11 @@ impl MetadataPoolPermit {
             .clone()
             .ok_or_else(|| error(Reason::InvalidConfig, "unregistered metadata pool"))?;
         bound.check(&owner, query)?;
-        if !query.same_registration(&self.0.caller)
+        if !self
+            .0
+            .caller
+            .get()
+            .is_some_and(|caller| query.same_registration(caller))
             || target.instance != self.0.instance
             || !target.binding.prefix.is_empty()
         {
@@ -126,7 +130,7 @@ impl MetadataPoolPermit {
             ));
         }
         validate()?;
-        if tokio::time::Instant::now() >= end {
+        if end.is_some_and(|end| tokio::time::Instant::now() >= end) {
             return Err(error(
                 Reason::Timeout,
                 "metadata operation deadline elapsed",
@@ -142,7 +146,14 @@ impl MetadataPoolPermit {
             return Err(error(Reason::StalePlan, "metadata network changed"));
         }
         let mut native = self.0.native()?;
-        if native.attempted || self.0.closed.get().is_some() {
+        if native.attempted
+            || self.0.closed.get().is_some()
+            || self
+                .0
+                .protocol_stop
+                .get()
+                .is_some_and(CancellationToken::is_cancelled)
+        {
             return Err(error(
                 Reason::Revoked,
                 "metadata original was already attempted",
@@ -193,7 +204,7 @@ impl MetadataPoolPermit {
         ));
         bound.check(&owner, query)?;
         validate()?;
-        if tokio::time::Instant::now() >= end {
+        if end.is_some_and(|end| tokio::time::Instant::now() >= end) {
             return Err(error(
                 Reason::Timeout,
                 "metadata operation deadline elapsed during acquisition",
@@ -203,6 +214,17 @@ impl MetadataPoolPermit {
             return Err(error(
                 Reason::StalePlan,
                 "metadata network changed during acquisition",
+            ));
+        }
+        if self
+            .0
+            .protocol_stop
+            .get()
+            .is_some_and(CancellationToken::is_cancelled)
+        {
+            return Err(error(
+                Reason::Revoked,
+                "original protocol retired during acquisition",
             ));
         }
         native.transferred = true;

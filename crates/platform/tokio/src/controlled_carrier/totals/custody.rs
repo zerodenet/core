@@ -77,5 +77,12 @@ impl CarrierCustody for Original {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
+            .or_else(|| {
+                self.slot
+                    .state()
+                    .protocol
+                    .as_ref()
+                    .and_then(|phase| phase.failure())
+            })
     }
 }

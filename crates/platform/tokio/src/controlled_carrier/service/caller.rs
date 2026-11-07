@@ -11,7 +11,7 @@ impl CarrierServiceGrant {
         let identity = Arc::downgrade(&self.demand);
         let cancel = self.demand.cancel.clone();
         let mut state = slot.state();
-        if state.closed || slot.cancel.is_cancelled() || state.business_identity.is_some() {
+        if state.closed || slot.acquisition_sealed() || state.business_identity.is_some() {
             return Err(failure(slot.instance, Reason::Revoked));
         }
         if state

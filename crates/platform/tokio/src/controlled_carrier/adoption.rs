@@ -25,7 +25,11 @@ pub struct CarrierClosed {
 impl CarrierAdoption {
     /// Request stop only; this supplies no close/user/join receipt.
     pub fn request_retirement(&self) {
-        self.slot.cancel.cancel();
+        let protocol = { self.slot.state().protocol.clone() };
+        match protocol {
+            Some(protocol) => protocol.request(),
+            None => self.slot.cancel.cancel(),
+        }
         self.slot.notify();
     }
     /// Same original reservation identity; observation grants no native I/O,
@@ -68,7 +72,11 @@ impl CarrierAdoption {
         &self,
         deadline: Instant,
     ) -> Result<crate::contract::lifecycle::CloseReport, ChannelError> {
-        self.slot.cancel.cancel();
+        let protocol = { self.slot.state().protocol.clone() };
+        match protocol {
+            Some(protocol) => protocol.request(),
+            None => self.slot.cancel.cancel(),
+        }
         self.slot.notify();
         super::owner::close_slot(&self.slot, deadline).await
     }
@@ -151,7 +159,7 @@ impl CarrierAdoption {
         }
         {
             let mut state = self.slot.state();
-            if self.slot.cancel.is_cancelled() || state.closed {
+            if self.slot.acquisition_sealed() || state.closed {
                 return Err(error(
                     self.instance(),
                     Stage::Prepare,
