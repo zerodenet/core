@@ -12,7 +12,7 @@ pub(in crate::runtime::handle::command) fn execute_diagnostics_probe_outbound(
 }
 
 impl ProxyHandle {
-    async fn execute_started_outbound_probe(
+    pub(super) async fn execute_started_outbound_probe(
         &self,
         cmd: zero_api::command::DiagnosticsProbeOutboundCommand,
         stop: Option<zero_platform_tokio::contract::CancellationToken>,

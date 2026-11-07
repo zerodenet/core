@@ -72,6 +72,25 @@ impl UpstreamOpener for Target {
                 })
         })
     }
+    fn open_datagram(
+        &self,
+        _: &UpstreamBinding,
+        _: zero_platform_tokio::contract::datagram::DatagramRequest,
+        _: CarrierContext,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::contract::datagram::BoxDatagramSession, ChannelError>,
+    > {
+        // This private connect-only helper advertises only controlled Stream.
+        // No Datagram role or native grant is created/published by this path.
+        Box::pin(async {
+            Err(invalid(
+                Reason::Internal,
+                "fixed TCP target diagnostic has no declared datagram role",
+            ))
+        })
+    }
+
     fn open_stream(
         &self,
         _: &UpstreamBinding,
