@@ -21,6 +21,7 @@ async fn ordinary_raw_ws_and_grpc_keep_exact_material_native_users_and_ack_throu
                 let (owner, first) = echo(&client).await;
                 wait_returned(&owner, &first).await;
                 std::fs::remove_file(&ca_path).unwrap();
+                eprintln!("actual MUX mode={kind} backend={backend} phase=network epoch");
                 client.proxy.egress_interface.invalidate_network();
                 let (same, second) = echo(&client).await;
                 assert!(!first.same_original(&second));
@@ -39,6 +40,7 @@ async fn ordinary_raw_ws_and_grpc_keep_exact_material_native_users_and_ack_throu
                 );
                 let (restored, third) = echo(&client).await;
                 wait_returned(&restored, &third).await;
+                eprintln!("actual MUX mode={kind} backend={backend} phase=actual host shutdown");
                 client.close().await;
                 for owner in [owner, same, restored] {
                     assert!(owner.closed().unwrap().matches(&owner));
@@ -68,7 +70,9 @@ async fn ordinary_mux_full_tls_transports_use_same_protocol_file_material_and_ca
                 std::fs::write(&ca, cert.cert.pem()).unwrap();
                 let remote = server(kind, &certificate, &key).await;
                 let client = client(kind, backend, remote.address, &ca).await;
+                eprintln!("actual MUX mode={kind} backend={backend} phase=first TCP");
                 let (owner, original) = echo(&client).await;
+                eprintln!("actual MUX mode={kind} backend={backend} phase=first TCP complete");
                 let first_driver = cached_driver(&owner, &original);
                 udp_echo(&client).await;
                 let (same, reused) = echo(&client).await;
@@ -76,6 +80,7 @@ async fn ordinary_mux_full_tls_transports_use_same_protocol_file_material_and_ca
                 assert!(original.closed().is_none());
                 assert_eq!(owner.observe().unwrap().retained(), 1);
                 std::fs::remove_file(&ca).unwrap();
+                eprintln!("actual MUX mode={kind} backend={backend} phase=network epoch");
                 client.proxy.egress_interface.invalidate_network();
                 let (next_owner, next) = echo(&client).await;
                 let next_driver = cached_driver(&next_owner, &next);
@@ -90,6 +95,7 @@ async fn ordinary_mux_full_tls_transports_use_same_protocol_file_material_and_ca
                     .is_err());
                 let (restored, fresh) = echo(&client).await;
                 let fresh_driver = cached_driver(&restored, &fresh);
+                eprintln!("actual MUX mode={kind} backend={backend} phase=actual host shutdown");
                 client.close().await;
                 for driver in [first_driver, next_driver, fresh_driver] {
                     let joined = driver.try_joined().unwrap();

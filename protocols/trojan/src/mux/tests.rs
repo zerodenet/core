@@ -106,3 +106,6 @@ async fn eviction_through_a_clone_removes_cached_connections() {
     bridge.evict_all();
     assert!(pool.pool.lock().expect("pool lock").is_empty());
 }
+
+#[path = "tests/half_close.rs"]
+mod half_close;
