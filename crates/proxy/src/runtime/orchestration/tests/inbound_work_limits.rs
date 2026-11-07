@@ -59,7 +59,7 @@ async fn all_actual_inbound_accepted_and_peer_budgets_are_cold_frozen_and_preser
         let prepared = proxy
             .protocols
             .prepare_inbound_bind_in_config(config.inbounds[0].clone(), &config)
-            .unwrap()
+            .unwrap_or_else(|source| panic!("actual cold {} Source: {source}", protocol["type"]))
             .unwrap();
         let mut covered = 0;
         for declaration in prepared.resources() {
@@ -143,11 +143,22 @@ async fn actual_mieru_carrier_task_pressure_refuses_only_new_request_and_retains
     timeout(Duration::from_secs(25),async {
         let config=RuntimeConfig::parse(&serde_json::json!({"runtime":{"inbound_max_tasks_per_carrier":3,"inbound_max_resources_per_carrier":4,"inbound_max_in_flight_requests":4},"inbounds":[{"tag":"source","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"mieru","users":[{"username":"u","password":"p"}]}}],"route":{"final":{"type":"direct"}}}).to_string()).unwrap();
         let remote=Proxy::new(config).unwrap();let remote_running:RunningProxy=remote.spawn();let remote_owner=owner(&remote,"source").await;let endpoint=*remote_owner.original_listener_address.get().unwrap();
-        let config=RuntimeConfig::parse(&serde_json::json!({"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"outbounds":[{"tag":"pool","protocol":{"type":"mieru","server":"127.0.0.1","port":endpoint.port(),"username":"u","password":"p"}}],"route":{"final":{"type":"route","outbound":"pool"}}}).to_string()).unwrap();
+        let config=RuntimeConfig::parse(&serde_json::json!({"runtime":{"mieru_max_carriers":1},"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"outbounds":[{"tag":"pool","protocol":{"type":"mieru","server":"127.0.0.1","port":endpoint.port(),"username":"u","password":"p"}}],"route":{"final":{"type":"route","outbound":"pool"}}}).to_string()).unwrap();
         let client=Proxy::new(config).unwrap();let running=client.spawn();let client_owner=owner(&client,"entry").await;let address=*client_owner.original_listener_address.get().unwrap();
         let echo=TcpListener::bind("127.0.0.1:0").await.unwrap();let port=echo.local_addr().unwrap().port();
         let (first,back)=tokio::join!(socks(address,port),echo.accept());let mut first=first.unwrap();let mut back=back.unwrap().0;live(&mut first,&mut back).await;
-        let denied=timeout(Duration::from_secs(3),socks(address,port)).await.unwrap();assert!(denied.is_err(),"the real source task book cannot allocate a second logical request");
+        // The SOCKS local Ready response does not prove the remote Mieru
+        // Source admitted a logical request. Drive actual payload and observe
+        // its failed delivery on the same N1 physical carrier instead.
+        let denied=timeout(Duration::from_secs(3),async {
+            let mut next=socks(address,port).await?;
+            next.write_all(b"must not allocate").await?;
+            let mut byte=[0];next.read_exact(&mut byte).await.map(|_|())
+        }).await.unwrap();
+        assert!(denied.is_err(),"the real source task book cannot allocate a second logical request");
+        let mut unallocated=Box::pin(echo.accept());
+        std::future::poll_fn(|cx|{assert!(std::future::Future::poll(unallocated.as_mut(),cx).is_pending(),"no second original destination socket was created");std::task::Poll::Ready(())}).await;
+        drop(unallocated);
         assert_eq!(remote.engine().active_sessions().len(),1);live(&mut first,&mut back).await;
         drop(first);drop(back);running.shutdown().await.unwrap();closed(&client_owner);
         remote_running.shutdown().await.unwrap();closed(&remote_owner);
