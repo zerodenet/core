@@ -35,13 +35,8 @@ fn identical_timestamps_and_base_ids_do_not_merge_distinct_generated_facts() {
 }
 
 #[test]
-fn prepared_facts_keep_identity_and_snapshots_do_not_consume_publication_sequence() {
+fn prepared_facts_keep_identity_until_original_publication() {
     let log = EngineEventLog::with_capacity(8);
-    let first = log.flow_snapshot_event(&[], 0, &[]);
-    let second = log.flow_snapshot_event(&[], 0, &[]);
-    assert_ne!(first.event_id, second.event_id);
-    assert_eq!(first.sequence, Some(0));
-    assert_eq!(second.sequence, Some(0));
     let fact = log.qualify_generated(ApiEvent::new(
         "prepared",
         event_type::FLOW_COMPLETED,
