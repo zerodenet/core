@@ -10,7 +10,8 @@ pub use endpoint::h3;
 pub use endpoint::{
     MetadataUsersCompletion, OwnedBiStream, OwnedConnection, OwnedEndpointHandle,
     OwnedEndpointLimits, OwnedEndpointOwner, OwnedEndpointReport, OwnedEndpointUsersReport,
-    OwnedIncoming, OwnedNativeFailure, OwnedRecvStream, OwnedSendStream, RejectedClaimedEndpoint,
+    OwnedIncoming, OwnedNativeFailure, OwnedRecvStream, OwnedSendStream, RejectedBorrowedEndpoint,
+    RejectedClaimedEndpoint,
 };
 mod socket;
 pub use drivers::{
