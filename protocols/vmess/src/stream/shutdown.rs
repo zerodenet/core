@@ -1,4 +1,5 @@
-//! A VMess empty chunk ends one logical direction, not the TLS/H2 carrier.
+//! VMess EOF preserves raw/TLS reverse traffic; an actual gRPC carrier also
+//! needs its independent request END while its response remains readable.
 use super::*;
 use std::{
     fmt,
@@ -8,6 +9,7 @@ use std::{
 #[derive(Default)]
 pub(super) struct NativeShutdown {
     requested: bool,
+    grpc_request_end: bool,
     result: Option<Result<(), Arc<io::Error>>>,
     wake: Arc<WakeBoth>,
 }
@@ -61,6 +63,14 @@ impl std::error::Error for OriginalFailure {
         Some(self.0.as_ref())
     }
 }
+impl<S> VmessAeadStream<S> {
+    /// Called only by the actual protocol-owned gRPC recipe. END_STREAM closes
+    /// its request body; unlike raw TLS shutdown it leaves the response live.
+    pub(crate) fn with_grpc_request_end(mut self) -> Self {
+        self.native_shutdown.grpc_request_end = true;
+        self
+    }
+}
 impl<S: AsyncRead + AsyncWrite + Unpin> VmessAeadStream<S> {
     pub(super) fn poll_framed_read_end(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         if !self.native_shutdown.requested {
@@ -96,7 +106,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> VmessAeadStream<S> {
             }
             self.write_shutdown_flushed = true;
         }
-        if !matches!(self.read_state, ReadState::Eof) {
+        if !self.native_shutdown.grpc_request_end && !matches!(self.read_state, ReadState::Eof) {
             return Poll::Ready(Ok(false));
         }
         Pin::new(&mut self.inner)
@@ -142,3 +152,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> VmessAeadStream<S> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/tcp_stream/grpc_half_close.rs"]
+mod grpc_half_close;

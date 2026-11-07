@@ -308,7 +308,12 @@ impl PreparedVmessOutboundRequestBundle {
     {
         self.requests
             .tcp_connect_request()
-            .establish_tcp_outbound_stream(stream, session)
+            .config()
+            .establish_tcp_outbound_stream(
+                stream,
+                session,
+                self.mux_transport_profile.as_borrowed().is_grpc(),
+            )
             .await
     }
 
@@ -325,7 +330,11 @@ impl PreparedVmessOutboundRequestBundle {
     {
         self.requests
             .tcp_connect_request()
-            .open_tcp_relay_hop_with_transport(session, open_transport)
+            .open_tcp_relay_hop_with_transport(
+                session,
+                open_transport,
+                self.mux_transport_profile.as_borrowed().is_grpc(),
+            )
             .await
     }
 
@@ -411,7 +420,7 @@ impl VmessTcpConnectRequest {
             + 'static,
     {
         self.config()
-            .establish_tcp_outbound_stream(stream, session)
+            .establish_tcp_outbound_stream(stream, session, false)
             .await
     }
 
@@ -459,7 +468,7 @@ impl VmessTcpConnectRequest {
 
         let stream = open_stream().await?;
         let (stream, handshake_written_bytes) = config
-            .establish_tcp_outbound_stream(stream, session)
+            .establish_tcp_outbound_stream(stream, session, profile.is_grpc())
             .await
             .map_err(E::from)?;
         Ok(VmessTcpStreamOpen::new(
@@ -472,6 +481,7 @@ impl VmessTcpConnectRequest {
         &self,
         session: &Session,
         open_transport: OpenTransport,
+        grpc_request_end: bool,
     ) -> Result<Box<dyn VmessTcpStreamIo>, E>
     where
         S: AsyncSocket + AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static,
@@ -482,7 +492,7 @@ impl VmessTcpConnectRequest {
         let stream = open_transport().await?;
         let (stream, _handshake_written_bytes) = self
             .config()
-            .establish_tcp_outbound_stream(stream, session)
+            .establish_tcp_outbound_stream(stream, session, grpc_request_end)
             .await
             .map_err(E::from)?;
         Ok(Box::new(stream))
@@ -545,6 +555,7 @@ impl VmessTcpConnectConfig {
         &self,
         mut stream: S,
         session: &Session,
+        grpc_request_end: bool,
     ) -> Result<
         (
             impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + Unpin + 'static,
@@ -565,7 +576,7 @@ impl VmessTcpConnectConfig {
             .establish_tcp_outbound_session_with_request_len(&mut stream, session)
             .await?;
         Ok((
-            self.wrap_tcp_outbound_stream(stream, vmess_session)?,
+            self.wrap_tcp_outbound_stream(stream, vmess_session, grpc_request_end)?,
             request_len as u64,
         ))
     }
@@ -574,6 +585,7 @@ impl VmessTcpConnectConfig {
         &self,
         stream: S,
         session: VmessOutboundSession,
+        grpc_request_end: bool,
     ) -> Result<
         impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + Unpin + 'static,
         Error,
@@ -581,6 +593,11 @@ impl VmessTcpConnectConfig {
     where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + Unpin + 'static,
     {
-        VmessAeadStream::outbound(stream, session)
+        let stream = VmessAeadStream::outbound(stream, session)?;
+        Ok(if grpc_request_end {
+            stream.with_grpc_request_end()
+        } else {
+            stream
+        })
     }
 }
