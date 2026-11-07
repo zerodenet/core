@@ -224,6 +224,8 @@ impl BoundAuthority {
             && matches!(
                 self.declaration,
                 ResourceDeclaration::ControlledNodeCarrier { .. }
+                    | ResourceDeclaration::ControlledNodeStream { .. }
+                    | ResourceDeclaration::ControlledServiceStream { .. }
             )
     }
     pub(super) fn service_candidates_available(&self) -> bool {
