@@ -1,4 +1,5 @@
 use super::*;
+mod encoded;
 fn limits() -> ControlBudgetLimits {
     ControlBudgetLimits {
         connections: 1,

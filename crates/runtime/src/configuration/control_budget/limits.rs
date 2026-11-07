@@ -1,5 +1,4 @@
 //! Typed limits describe the existing root control owner, never an allocator.
-use super::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ControlBudgetLimits {
     pub connections: usize,

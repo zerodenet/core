@@ -352,3 +352,14 @@ ceiling，默认真实held额度不变，另受原根字节上限约束。pendin
 缩额检查真实held/retiring原件；队列或Tonic交接不是native写入/关闭凭据。
 当前仍在完成命令最终ACK、gRPC编码存储与Engine DTO首次物化前的实际计额；新增字段
 或消费者接线不代表控制和预算职责域已完成。无需修改客户端或面板。
+
+本次 gRPC 内部接线复用原 Hyper H2 stream 的 AcceptedTasks/TaskJoinWitness；先保存同原件
+再执行IO，真实join/registration ACK后才移除Root请求行。默认请求解码上限仍4MiB、物理
+H2并发32及send buffer32KiB不变；可选已验证上限由原body长度观察器在Tonic首次增长前
+执行。Pinned Tonic 0.12.3的8192/32768是其原codec几何，不是新增生产额度或扩大缓冲。
+请求/JSON/Prost/保留的encoder workspace和实际Wire Bytes分别预付；这是字节存储上界，
+不宣称测量allocator/RSS。Bytes克隆/切片持有同原计额，交接不声称实际写入。
+同Root的reserve_encoded_response只原子接纳该次输出的三个存储责任，失败不产生部分
+退款或自唤醒；没有新调度器、任务或池。已受理命令future在断开后由原H2任务inline续驱动，
+不另开清理任务；真正Apply原操作超时后的join观察和Engine DTO物化前计额仍待完整接入，
+不能把此局部接线当作控制/G8或预算职责完成。
