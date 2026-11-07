@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use zero_api::{ApiError, ApiResponse, CommandResponse, QueryResponse, RawApiEvent};
 
 pub enum HttpBody {
-    Query(Result<QueryResponse, ApiError>),
+    Query(Result<Box<QueryResponse>, ApiError>),
     Command(ApiResponse<CommandResponse>),
     Events(ApiResponse<Vec<RawApiEvent>>),
     Error(ApiError),
@@ -12,6 +12,9 @@ pub enum HttpBody {
     Text(String),
 }
 impl HttpBody {
+    pub(super) fn query(response: Result<QueryResponse, ApiError>) -> Self {
+        Self::Query(response.map(Box::new))
+    }
     pub(super) fn write_json(&self, writer: &mut impl Write) -> io::Result<()> {
         match self {
             Self::Query(Ok(query)) => {

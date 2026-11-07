@@ -6,7 +6,7 @@ async fn actual_pending_http_write_holds_exact_wire_envelope_and_shrink_is_busy(
     let limits = ControlBudgetLimits::from_runtime(&zero_config::RuntimeOptionsConfig::default());
     let budget = ControlBudget::new(limits);
     let (mut server, mut client) = tokio::io::duplex(1);
-    let body = body::HttpBody::Query(Ok(zero_api::QueryResponse::Unknown(
+    let body = body::HttpBody::query(Ok(zero_api::QueryResponse::Unknown(
         serde_json::json!({"actual":"same original DTO"}),
     )));
     let length = body.len().unwrap();
