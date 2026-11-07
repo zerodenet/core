@@ -65,7 +65,10 @@ fn closed(engine: &Engine) -> usize {
 async fn cancelled_ack_keeps_the_actual_two_part_receipt_and_releases_apply_lock_after_timeout() {
     let engine = engine();
     let (lease, control, request) = route(&engine);
-    let owner = Arc::new(PacketCloseOwner::new(engine.packet_route_capacity()));
+    let owner = Arc::new(PacketCloseOwner::new(
+        engine.packet_route_capacity(),
+        Arc::default(),
+    ));
     let serial = Arc::new(Mutex::new(()));
     let caller = {
         let (owner, engine, serial) = (owner.clone(), engine.clone(), serial.clone());
@@ -112,7 +115,10 @@ async fn cancelled_ack_keeps_the_actual_two_part_receipt_and_releases_apply_lock
 async fn full_receipt_scope_rejects_before_claiming_another_real_route() {
     let engine = engine();
     let (first, first_control, request) = route(&engine);
-    let owner = Arc::new(PacketCloseOwner::new(NonZeroUsize::new(1).unwrap()));
+    let owner = Arc::new(PacketCloseOwner::new(
+        NonZeroUsize::new(1).unwrap(),
+        Arc::default(),
+    ));
     let serial = Arc::new(Mutex::new(()));
     assert!(owner
         .close(
@@ -170,7 +176,10 @@ async fn full_receipt_scope_rejects_before_claiming_another_real_route() {
 #[tokio::test]
 async fn cancelled_failure_poll_keeps_both_actual_task_ids_and_sources() {
     use std::future::Future;
-    let owner = Arc::new(PacketCloseOwner::new(NonZeroUsize::new(2).unwrap()));
+    let owner = Arc::new(PacketCloseOwner::new(
+        NonZeroUsize::new(2).unwrap(),
+        Arc::default(),
+    ));
     let mut state = owner.owner.lock().await;
     state.scope = Some(TaskScope::new(
         tokio::runtime::Handle::current(),
@@ -231,4 +240,81 @@ async fn cancelled_failure_poll_keeps_both_actual_task_ids_and_sources() {
         .shutdown(Instant::now() + Duration::from_secs(2))
         .await
         .is_err());
+}
+
+#[tokio::test]
+async fn separate_actual_close_owners_share_total_and_refund_only_after_both_route_parts_and_join()
+{
+    tokio::time::timeout(Duration::from_secs(2), async {
+        let engine = engine();
+        let book = TaskRegistrationBudget::new(NonZeroUsize::new(1).unwrap());
+        let first = Arc::new(PacketCloseOwner::new(
+            NonZeroUsize::new(2).unwrap(),
+            book.clone(),
+        ));
+        let second = Arc::new(PacketCloseOwner::new(
+            NonZeroUsize::new(2).unwrap(),
+            book.clone(),
+        ));
+        let serial = Arc::new(Mutex::new(()));
+        let (lease, control, request) = route(&engine);
+        assert!(first
+            .close(
+                engine.clone(),
+                request,
+                serial.clone(),
+                Duration::from_millis(5)
+            )
+            .await
+            .is_err());
+        assert_eq!(book.usage().charged, 1);
+        let (next_lease, next_control, next_request) = route(&engine);
+        assert!(second
+            .close(
+                engine.clone(),
+                next_request.clone(),
+                serial.clone(),
+                Duration::from_millis(5)
+            )
+            .await
+            .is_err());
+        assert!(
+            !next_control.is_closed(),
+            "total rejection precedes the second actual claim"
+        );
+        assert_eq!(second.owner.lock().await.active, 0);
+        drop(lease);
+        assert_eq!(
+            book.usage().charged,
+            1,
+            "route lease alone cannot refund retained worker"
+        );
+        control.responses_stopped();
+        first
+            .shutdown(Instant::now() + Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert_eq!(book.usage().charged, 0);
+        assert!(second
+            .close(
+                engine.clone(),
+                next_request,
+                serial,
+                Duration::from_millis(5)
+            )
+            .await
+            .is_err());
+        assert!(next_control.is_closed());
+        assert_eq!(book.usage().charged, 1);
+        drop(next_lease);
+        next_control.responses_stopped();
+        second
+            .shutdown(Instant::now() + Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert_eq!(book.usage().charged, 0);
+        assert_eq!(closed(&engine), 2);
+    })
+    .await
+    .unwrap();
 }

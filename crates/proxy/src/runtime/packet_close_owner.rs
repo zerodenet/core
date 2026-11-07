@@ -14,13 +14,14 @@ use zero_api::{ApiError, ApiErrorCode, ApiResult, CommandResponse, PacketRouteCl
 use zero_engine::Engine;
 use zero_platform_tokio::contract::{
     lifecycle::TaskFailure,
-    scope::{TaskClass, TaskExit, TaskScope},
+    scope::{TaskClass, TaskExit, TaskRegistrationBudget, TaskScope},
 };
 mod lifecycle;
 #[cfg(test)]
 mod tests;
 
 pub(super) struct PacketCloseOwner {
+    task_budget: Arc<TaskRegistrationBudget>,
     closing: AtomicBool,
     completed: AtomicUsize,
     changed: Notify,
@@ -69,8 +70,9 @@ impl Owner {
     }
 }
 impl PacketCloseOwner {
-    pub(super) fn new(limit: NonZeroUsize) -> Self {
+    pub(super) fn new(limit: NonZeroUsize, task_budget: Arc<TaskRegistrationBudget>) -> Self {
         Self {
+            task_budget,
             closing: AtomicBool::new(false),
             completed: AtomicUsize::new(0),
             changed: Notify::new(),
@@ -109,9 +111,19 @@ impl PacketCloseOwner {
             // Scope capacity is checked before the future can claim the actual
             // route. A rejected future contains no acquired PacketRouteControl.
             let limit = owner.limit;
+            if owner.scope.is_none() {
+                let mut scope = TaskScope::new(tokio::runtime::Handle::current(), limit);
+                scope
+                    .bind_task_budget(self.task_budget.clone())
+                    .map_err(|source| {
+                        internal(format!("packet close task-root binding failed: {source}"))
+                    })?;
+                owner.scope = Some(scope);
+            }
             owner
                 .scope
-                .get_or_insert_with(|| TaskScope::new(tokio::runtime::Handle::current(), limit))
+                .as_ref()
+                .expect("same admitted packet close Scope")
                 .registrar()
                 .spawn(TaskClass::Critical, async move {
                     let _completion = Completion(completion_owner);

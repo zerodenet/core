@@ -234,8 +234,14 @@ impl Proxy {
                 std::num::NonZeroUsize::new(RETIRED_DATAGRAM_LIMIT).unwrap(),
             ),
         );
+        let component_tasks = protocols
+            .runtime_host()
+            .original_budgets()
+            .component_tasks
+            .clone();
         let packet_close_owner = Arc::new(packet_close_owner::PacketCloseOwner::new(
             engine.packet_route_capacity(),
+            component_tasks.clone(),
         ));
         let current_services = Arc::new(current_services::CurrentServiceSource::new(
             engine.clone(),
@@ -260,7 +266,9 @@ impl Proxy {
             configured_tun_failures,
             orchestration_ready,
             packet_close_owner,
-            statistics: Arc::default(),
+            statistics: Arc::new(orchestration::statistics::Sampler::with_task_budget(
+                component_tasks,
+            )),
             inbound_owners: Arc::default(),
             retired_datagrams: retired_datagrams.clone(),
             principal_rate_limits: principal_rate_limits.clone(),

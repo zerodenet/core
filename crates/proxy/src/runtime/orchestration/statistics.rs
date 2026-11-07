@@ -10,12 +10,13 @@ use std::{
     time::Duration,
 };
 use zero_platform_tokio::contract::{
-    scope::{TaskClass, TaskJoinWitness, TaskScope},
+    scope::{TaskClass, TaskJoinWitness, TaskRegistrationBudget, TaskScope},
     ChannelError,
 };
 
 #[derive(Default)]
 pub(in crate::runtime) struct Sampler {
+    task_budget: Arc<TaskRegistrationBudget>,
     state: tokio::sync::Mutex<Option<State>>,
     failure: Mutex<Option<Arc<ChannelError>>>,
     changed: tokio::sync::Notify,
@@ -57,6 +58,12 @@ impl State {
     }
 }
 impl Sampler {
+    pub(in crate::runtime) fn with_task_budget(task_budget: Arc<TaskRegistrationBudget>) -> Self {
+        Self {
+            task_budget,
+            ..Self::default()
+        }
+    }
     pub(super) async fn start(&self, engine: zero_engine::Engine) -> io::Result<()> {
         let mut state = self.state.lock().await;
         if state.as_ref().is_some_and(|state| !state.closed) {
@@ -65,14 +72,18 @@ impl Sampler {
                 "statistics sampling already has an original Scope",
             ));
         }
+        let mut scope = TaskScope::new(
+            tokio::runtime::Handle::current(),
+            NonZeroUsize::new(1).unwrap(),
+        );
+        scope
+            .bind_task_budget(self.task_budget.clone())
+            .map_err(io::Error::other)?;
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         *state = Some(State {
             engine,
-            scope: TaskScope::new(
-                tokio::runtime::Handle::current(),
-                NonZeroUsize::new(1).unwrap(),
-            ),
+            scope,
             tick,
             seconds: 0,
             endpoint_offset: Arc::default(),

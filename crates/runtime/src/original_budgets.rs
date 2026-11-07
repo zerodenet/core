@@ -140,6 +140,12 @@ impl HostOriginalBudgets {
         self.packet
             .check_limits(packet_limits[0], packet_limits[1], packet_limits[2])
             .map_err(|source| prepare_error(std::io::Error::other(source)))?;
+        // Auxiliary workers use this same book without source admission.
+        // Its atomic checked install must run before changing any of the
+        // already admission-fenced original-resource policies below.
+        self.component_tasks
+            .install_limit(component_tasks)
+            .map_err(prepare_error)?;
         self.carrier
             .install_preparation_limits_after_retirement(preparation[0], preparation[1])
             .map_err(prepare_error)?;
@@ -178,9 +184,6 @@ impl HostOriginalBudgets {
             .map_err(|source| prepare_error(std::io::Error::other(source)))?;
         #[cfg(not(any(target_os = "linux", windows)))]
         let _ = runtime;
-        self.component_tasks
-            .install_limit(component_tasks)
-            .map_err(prepare_error)?;
         Ok(())
     }
 }

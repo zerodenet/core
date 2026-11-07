@@ -129,7 +129,10 @@ async fn statistics_driver_failure_waits_for_the_original_operation_cleanup() {
 
 #[tokio::test]
 async fn cancelled_statistics_poll_and_shutdown_retain_the_same_original_blocking_join() {
-    let owner = Arc::new(Sampler::default());
+    let book = zero_platform_tokio::contract::scope::TaskRegistrationBudget::new(
+        std::num::NonZeroUsize::new(1).unwrap(),
+    );
+    let owner = Arc::new(Sampler::with_task_budget(book.clone()));
     owner.start(engine()).await.unwrap();
     let (started, running) = tokio::sync::oneshot::channel();
     let (release, released) = std::sync::mpsc::sync_channel(1);
@@ -146,6 +149,7 @@ async fn cancelled_statistics_poll_and_shutdown_retain_the_same_original_blockin
         state.pending.clone().unwrap()
     };
     running.await.unwrap();
+    assert_eq!(book.usage().charged, 1);
     let mut poll = Box::pin(owner.next_sample());
     std::future::poll_fn(|cx| {
         assert!(poll.as_mut().poll(cx).is_pending());
@@ -162,6 +166,11 @@ async fn cancelled_statistics_poll_and_shutdown_retain_the_same_original_blockin
     .await;
     drop(shutdown);
     assert!(!witness.is_joined());
+    assert_eq!(
+        book.usage().charged,
+        1,
+        "cancelled observers do not refund the actual blocking worker"
+    );
     {
         let state = owner.state.lock().await;
         let state = state.as_ref().unwrap();
@@ -176,6 +185,7 @@ async fn cancelled_statistics_poll_and_shutdown_retain_the_same_original_blockin
         .unwrap();
     assert!(witness.wait().await.result().is_ok());
     assert!(owner.state.lock().await.as_ref().unwrap().closed);
+    assert_eq!(book.usage().charged, 0);
 }
 
 #[tokio::test]
