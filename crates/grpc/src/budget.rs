@@ -2,7 +2,6 @@
 //! Production handoff transfers the same lease into the actual encoder/wire
 //! owner; poll_next is never a physical write or native-close receipt.
 use super::*;
-use prost::Message;
 use std::{
     io,
     pin::Pin,
@@ -72,15 +71,32 @@ fn varint_len(mut value: usize) -> usize {
     }
     bytes
 }
-pub(super) fn frame_len(event: &PbEvent, payload: &serde_json::Value) -> io::Result<usize> {
-    let bytes = payload_len(payload)?;
-    // `event.payload` is still empty. Field 4 has a one-byte key; include the
-    // protobuf length prefix and gRPC's five-byte message header before allocate.
-    event
-        .encoded_len()
-        .checked_add(1 + varint_len(bytes))
-        .and_then(|base| base.checked_add(bytes))
-        .and_then(|base| base.checked_add(5))
+/// Measure borrowed original fields before allocating their protobuf copies.
+pub(super) fn original_frame_len(event: &zero_api::RawApiEvent) -> io::Result<usize> {
+    let mut bytes = 5usize;
+    for field in [&event.event_type, &event.event_id] {
+        if !field.is_empty() {
+            bytes = bytes
+                .checked_add(1 + varint_len(field.len()))
+                .and_then(|n| n.checked_add(field.len()))
+                .ok_or_else(|| io::Error::other("gRPC event field length overflow"))?;
+        }
+    }
+    if event.occurred_at_unix_ms != 0 {
+        let mut value = event.occurred_at_unix_ms;
+        let mut length = 1;
+        while value >= 128 {
+            value >>= 7;
+            length += 1;
+        }
+        bytes = bytes
+            .checked_add(1 + length)
+            .ok_or_else(|| io::Error::other("gRPC event timestamp overflow"))?;
+    }
+    let payload = payload_len(&event.payload)?;
+    bytes
+        .checked_add(1 + varint_len(payload))
+        .and_then(|n| n.checked_add(payload))
         .ok_or_else(|| io::Error::other("gRPC event frame length overflow"))
 }
 pub(super) fn reserve(
@@ -137,3 +153,6 @@ pub(super) fn reserve_message(
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

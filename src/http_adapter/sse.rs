@@ -1,6 +1,6 @@
 use std::{io, sync::Arc, time::Duration};
 use tokio::io::AsyncWriteExt;
-use zero_api::{EventStream, EventStreamReceive, RawApiEvent};
+use zero_api::RawApiEvent;
 use zero_platform_tokio::contract::CancellationToken;
 #[cfg(test)]
 use zero_runtime::configuration::ControlBudgetLimits;
@@ -113,17 +113,19 @@ pub async fn run_sse_stream_with_budget(
     let handle = tokio::task::spawn_blocking(move || {
         let mut last_event_at = std::time::Instant::now();
         while !worker_stop.is_cancelled() && !event_tx.is_closed() {
-            let pending = match subscriber.recv_timeout(Duration::from_millis(25)) {
-                EventStreamReceive::Event(event) => {
+            let pending = match subscriber.recv_retained_timeout(Duration::from_millis(25)) {
+                Ok(event) => {
                     last_event_at = std::time::Instant::now();
                     Some(Some(event))
                 }
-                EventStreamReceive::Closed => break,
-                EventStreamReceive::Timeout if last_event_at.elapsed() >= heartbeat_interval => {
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                    if last_event_at.elapsed() >= heartbeat_interval =>
+                {
                     last_event_at = std::time::Instant::now();
                     Some(None)
                 }
-                EventStreamReceive::Timeout => None,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
             };
             let Some(pending) = pending else {
                 continue;

@@ -4,7 +4,7 @@ mod export;
 mod handle;
 mod view;
 
-pub use handle::{EngineHandle, EventSubscriber};
+pub use handle::{EngineHandle, EventSubscriber, RetainedEvent};
 
 use std::sync::OnceLock;
 

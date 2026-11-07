@@ -1,3 +1,4 @@
+mod subscription;
 use super::*;
 use std::{num::NonZeroUsize, time::Duration};
 use zero_api::QueryService;
