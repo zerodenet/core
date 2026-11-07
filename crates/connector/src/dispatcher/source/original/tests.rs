@@ -94,13 +94,17 @@ async fn actual_kernel_bridge_backpressures_original_payload_and_joins_its_same_
     let source = Source::kernel(engine.clone());
     let (live, _) = source.subscribe().unwrap();
     let stop = Arc::new(AtomicBool::new(false));
-    let budget = SourceBudget::new(1, 64);
-    let (mut rx, book, task) = super::super::bridge::spawn(live, stop.clone(), 1, 64, budget);
+    let budget = SourceBudget::new(1, 65_536);
+    let (mut rx, book, task) = super::super::bridge::spawn(live, stop.clone(), 1, 65_536, budget);
     emit(&engine, "first");
     let first = tokio::time::timeout(Duration::from_secs(3), rx.recv())
         .await
         .unwrap()
         .unwrap();
+    assert!(
+        book.snapshot().reserved_bytes * 2 < 65_536,
+        "bytes can fit both originals; the actual event count must backpressure"
+    );
     emit(&engine, "second");
     tokio::time::timeout(Duration::from_secs(3), async {
         while book.snapshot().waiting_event_bytes == 0 {
