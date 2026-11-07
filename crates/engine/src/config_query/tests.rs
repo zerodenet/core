@@ -109,7 +109,7 @@ fn same_view_keeps_its_actual_snapshot_after_a_new_configuration_is_installed() 
         zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap();
     engine.reload_config(next).unwrap();
     let query = snapshot.control_config_query(&request).unwrap().unwrap();
-    assert_eq!(serde_json::to_vec(query).unwrap(), expected);
+    assert_eq!(serde_json::to_vec(&query).unwrap(), expected);
     assert_ne!(
         serde_json::to_vec(&engine.query(request).unwrap()).unwrap(),
         expected
