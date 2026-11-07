@@ -1,15 +1,9 @@
-use std::collections::HashSet;
-use std::io;
-use std::time::Instant;
-
-use zero_traits::IpAddress;
-
-use super::persistence::{unix_time_ms, PersistedRetiredAddress};
-use super::retirement::{
-    expire_mappings, persisted_retired_addresses, prune_retired, retire_domain_in_memory,
-};
-use super::{duration_millis, persisted_mappings, to_std_address, FakeIpAllocator, RetiredAddress};
+use super::persistence::unix_time_ms;
+use super::retirement::{expire_mappings, prune_retired};
+use super::{duration_millis, to_std_address, FakeIpAllocator, RetiredAddress};
 use crate::message::normalize_domain;
+use std::{io, time::Instant};
+use zero_traits::IpAddress;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FakeIpClearTarget {
@@ -32,6 +26,16 @@ impl FakeIpAllocator {
     pub(crate) async fn clear(&self, target: FakeIpClearTarget) -> io::Result<FakeIpClearResult> {
         let clear_all = matches!(&target, FakeIpClearTarget::All);
         let mut state = self.inner.lock().await;
+        if state
+            .persistence
+            .as_ref()
+            .is_some_and(|persistence| persistence.paused())
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "Fake-IP journal mutation is paused",
+            ));
+        }
         let now = Instant::now();
         let now_unix_ms = if state.persistence.is_some() {
             unix_time_ms()?
@@ -40,65 +44,72 @@ impl FakeIpAllocator {
         };
         expire_mappings(&mut state, now, now_unix_ms, self.ttl, &self.stats)?;
         prune_retired(&mut state, now);
-        let domains = match target {
-            FakeIpClearTarget::All => state.forward.keys().cloned().collect::<HashSet<_>>(),
-            FakeIpClearTarget::Domain(domain) => {
-                let domain = normalize_domain(&domain)?;
-                state
-                    .forward
-                    .contains_key(&domain)
-                    .then_some(domain)
-                    .into_iter()
-                    .collect()
-            }
-            FakeIpClearTarget::Address(address) => state
-                .reverse
-                .get(&to_std_address(address))
-                .cloned()
-                .into_iter()
-                .collect(),
+        let selected = match target {
+            FakeIpClearTarget::All => ClearSelection::All,
+            FakeIpClearTarget::Domain(domain) => ClearSelection::Domain(normalize_domain(&domain)?),
+            FakeIpClearTarget::Address(address) => ClearSelection::Address(to_std_address(address)),
         };
-        let removed_addresses = domains
+        let removed_mappings = state
+            .forward
             .iter()
-            .filter_map(|domain| state.forward.get(domain))
-            .map(|mapping| mapping.addresses().count())
+            .filter(|(domain, mapping)| selected.matches(domain, mapping))
+            .count();
+        let removed_addresses = state
+            .forward
+            .iter()
+            .filter(|(domain, mapping)| selected.matches(domain, mapping))
+            .map(|(_, mapping)| mapping.addresses().count())
             .sum();
-
-        // Rewrite persistence before changing memory so a failed journal
-        // transaction cannot resurrect a mapping that the command reported as
-        // removed. An all-cache clear compacts even an already-empty allocator
-        // to discard historical upserts from the journal.
-        if clear_all || !domains.is_empty() {
-            let mappings = persisted_mappings(&state, Some(&domains));
-            let retirement = RetiredAddress {
-                reusable_at: now + self.ttl,
-                reusable_after_unix_ms: now_unix_ms.saturating_add(duration_millis(self.ttl)),
-            };
-            let mut retired = persisted_retired_addresses(&state);
-            retired.extend(domains.iter().flat_map(|domain| {
-                state
-                    .forward
-                    .get(domain)
-                    .into_iter()
-                    .flat_map(|mapping| mapping.addresses())
-                    .map(|ip| PersistedRetiredAddress {
-                        ip,
-                        reusable_after_unix_ms: retirement.reusable_after_unix_ms,
-                    })
-            }));
-            retired.sort_by_key(|entry| (entry.reusable_after_unix_ms, entry.ip));
-            if let Some(persistence) = state.persistence.as_mut() {
-                persistence.compact(&mappings, &retired)?;
+        let retirement = RetiredAddress {
+            reusable_at: now + self.ttl,
+            reusable_after_unix_ms: now_unix_ms.saturating_add(duration_millis(self.ttl)),
+        };
+        if clear_all || removed_mappings != 0 {
+            if let Some(persistence) = &state.persistence {
+                let checkpoint = super::checkpoint::Checkpoint::clearing(
+                    &state,
+                    &selected,
+                    retirement.reusable_after_unix_ms,
+                )?;
+                persistence.compact_checkpoint(&checkpoint)?;
             }
-            for domain in &domains {
-                retire_domain_in_memory(&mut state, domain, retirement);
-            }
+            let super::AllocatorState {
+                forward,
+                reverse,
+                retired,
+                ..
+            } = &mut *state;
+            forward.retain(|domain, mapping| {
+                if !selected.matches(domain, mapping) {
+                    return true;
+                }
+                for address in mapping.addresses() {
+                    reverse.remove(&address);
+                    retired.insert(address, retirement);
+                }
+                false
+            });
         }
         Ok(FakeIpClearResult {
-            removed_mappings: domains.len(),
+            removed_mappings,
             removed_addresses,
             live_mappings: state.forward.len(),
             retired_addresses: state.retired.len(),
         })
+    }
+}
+
+pub(super) enum ClearSelection {
+    All,
+    Domain(String),
+    Address(std::net::IpAddr),
+}
+impl ClearSelection {
+    pub(super) fn matches(&self, domain: &str, mapping: &super::Mapping) -> bool {
+        match self {
+            Self::All => true,
+            Self::Domain(selected) => selected == domain,
+            Self::Address(address) => mapping.addresses().any(|actual| actual == *address),
+        }
     }
 }

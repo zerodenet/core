@@ -94,6 +94,7 @@ pub(crate) struct Options {
     roots: Vec<crate::inventory::service::ServiceRoot>,
     ech: Vec<zero_dns::EchDnsEndpoint>,
     identity: Arc<[u8]>,
+    journal: Option<zero_platform_tokio::journal::JournalSpec>,
     #[cfg(feature = "dns")]
     quic: Vec<std::net::SocketAddr>,
     #[cfg(feature = "dns")]
@@ -125,6 +126,39 @@ fn prepare_purpose(
         h2_drivers: NonZeroUsize::new(runtime.effective_native_dns_max_h2_drivers()).unwrap(),
     };
     let budget = candidate_budget(&network, limits)?;
+    let journal = if purpose == Purpose::Query
+        && candidate
+            .runtime
+            .dns
+            .as_ref()
+            .and_then(zero_config::DnsConfig::fake_ip)
+            .is_some()
+    {
+        // Once assembled this same kernel retains its original mapping state
+        // location, including a reload from a different configuration document.
+        // The pre-resolver validation pass is cold metadata and opens nothing.
+        let path = match network.resolver.get() {
+            Some(resolver) => resolver
+                .upgrade()
+                .ok_or_else(|| {
+                    RegistrationError::Options(zero_config::ConfigError::InvalidRuntime(
+                        "actual DNS state owner retired".into(),
+                    ))
+                })?
+                .fake_ip_journal_path()
+                .map(std::path::Path::to_owned),
+            None => candidate
+                .source_dir()
+                .map(zero_dns::default_fake_ip_state_path),
+        };
+        path.map(|path| zero_platform_tokio::journal::JournalSpec {
+            path,
+            max_bytes: NonZeroUsize::new(runtime.effective_file_read_max_bytes()).unwrap(),
+        })
+    } else {
+        None
+    };
+
     let mut configured = candidate.runtime.dns.clone();
     if purpose == Purpose::Node {
         if let Some(dns) = &mut configured {
@@ -168,6 +202,7 @@ fn prepare_purpose(
         hash.write(purpose.key().as_bytes());
         hash.write(format!("{limits:?}").as_bytes());
         hash.write(&bytes);
+        hash.write(format!("{journal:?}").as_bytes());
         #[cfg(feature = "dns")]
         if !quic.is_empty() {
             hash.write(format!("{quic_metadata:?}").as_bytes());
@@ -186,6 +221,7 @@ fn prepare_purpose(
                 roots,
                 ech,
                 identity: identity.into(),
+                journal,
                 #[cfg(feature = "dns")]
                 quic,
                 #[cfg(feature = "dns")]
@@ -208,6 +244,7 @@ struct Owner {
     network: Arc<BackgroundNetwork>,
     purpose: Purpose,
     pending: CloseReport,
+    journal: Option<usize>,
     reported_faults: std::collections::BTreeSet<zero_platform_tokio::contract::scope::TaskId>,
     #[cfg(feature = "dns")]
     metadata: Vec<zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOwner>,
@@ -224,3 +261,7 @@ mod wire_call_tests;
 #[cfg(test)]
 #[path = "native_dns/tests/resolution_call.rs"]
 mod resolution_call_tests;
+
+#[cfg(test)]
+#[path = "native_dns/tests/fake_ip_journal.rs"]
+mod fake_ip_journal_tests;

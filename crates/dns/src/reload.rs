@@ -2,6 +2,7 @@
 //! No new backend I/O starts here. Host supplies actual changed detour dependencies.
 use super::*;
 use std::{collections::BTreeSet, sync::atomic::AtomicBool};
+mod commit;
 mod donor_pause;
 mod prepare;
 
@@ -15,6 +16,9 @@ pub(super) struct PreparedDnsReload {
     unchanged: bool,
     native_profile_changed: bool,
     donor_pause: std::sync::Mutex<Option<Arc<crate::DnsDonorPause>>>,
+    fake_ip_journal_limit: std::sync::Mutex<Option<usize>>,
+    committing: AtomicBool,
+    discard_requested: AtomicBool,
 }
 /// A token for one actual prepared DNS candidate. It contains no synthetic
 /// resource identity and is valid only for the DNS system that prepared it.
@@ -175,6 +179,12 @@ impl DnsSystem {
                 "DNS resource candidate is no longer current",
             ));
         }
+        if token.0.committing.load(Ordering::Acquire) {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "same DNS commit operation remains live",
+            ));
+        }
         Ok(())
     }
     /// Stop admission to all changed/removed persistent backends, then confirm
@@ -202,141 +212,30 @@ impl DnsSystem {
         token.0.retired.store(true, Ordering::Release);
         Ok(())
     }
-    /// Publish this exact candidate after resource retirement. Persistent Fake-IP
-    /// state is opened here only, after the host accepts the full transaction.
-    pub fn commit_reload_resources(&self, token: &DnsReloadResources) -> io::Result<()> {
-        let mut prepared = self
-            .prepared_reload
-            .lock()
-            .expect("DNS prepared reload lock poisoned");
-        if !prepared
-            .as_ref()
-            .is_some_and(|candidate| Arc::ptr_eq(candidate, &token.0))
-            || self.config_generation.load(Ordering::Acquire) != token.0.generation
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::Interrupted,
-                "DNS resource candidate is no longer current",
-            ));
-        }
-        if !token.0.retired.load(Ordering::Acquire)
-            && token
-                .0
-                .retiring
-                .iter()
-                .all(|backend| matches!(backend.as_ref(), ResolverBackend::System(_)))
-        {
-            let mut closed: Vec<&TokioSystemResolver> = Vec::new();
-            for backend in &token.0.retiring {
-                #[cfg(any(feature = "udp", feature = "doh", feature = "dot", feature = "doq"))]
-                let ResolverBackend::System(resolver) = backend.as_ref() else {
-                    unreachable!("retiring set contains only System backends")
-                };
-                #[cfg(not(any(
-                    feature = "udp",
-                    feature = "doh",
-                    feature = "dot",
-                    feature = "doq"
-                )))]
-                let ResolverBackend::System(resolver) = backend.as_ref();
-                if !resolver.close_idle() {
-                    for resolver in closed {
-                        resolver.reopen_idle();
-                    }
-                    return Err(io::Error::new(
-                        io::ErrorKind::WouldBlock,
-                        "system DNS original lookup is still running",
-                    ));
-                }
-                closed.push(resolver);
-            }
-            token.0.retired.store(true, Ordering::Release);
-        }
-        if !token.0.retired.load(Ordering::Acquire) {
-            return Err(io::Error::new(
-                io::ErrorKind::WouldBlock,
-                "affected DNS resources require async retirement before commit",
-            ));
-        }
-        if token
-            .0
-            .servers
-            .values()
-            .any(|server| !server.backend.resource_admission_open())
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::NotConnected,
-                "prepared DNS backend was retired before commit",
-            ));
-        }
-        if token.0.unchanged {
-            // Preserve the exact live cache/allocator/backend objects and the
-            // actual DNS fact. Equal JSON alone is insufficient: compiled
-            // dispatch and each admitted original backend must also match.
-            let inner = self.inner.read().expect("DNS system lock poisoned");
-            if !inner.matches_reload(
-                token.0.config.as_ref(),
-                token.0.dispatch.as_ref(),
-                &token.0.servers,
-            ) {
-                return Err(io::Error::new(
-                    io::ErrorKind::Interrupted,
-                    "unchanged DNS originals no longer match",
-                ));
-            }
-            drop(inner);
-            let retired = prepared.take();
-            drop(prepared);
-            drop(retired);
-            return Ok(());
-        }
-        let state_lease = if token
-            .0
-            .config
-            .as_ref()
-            .and_then(DnsConfig::fake_ip)
-            .is_some()
-        {
-            self.fake_ip_state_lease
-                .lock()
-                .expect("Fake-IP state lease lock poisoned")
-                .clone()
-        } else {
-            None
-        };
-        let new_inner = Self::build_inner(
-            token.0.config.as_ref(),
-            token.0.dispatch.clone(),
-            self.snapshot_fake_ip(),
-            self.snapshot_reverse_mapping(),
-            state_lease,
-            token.0.servers.clone(),
-        )?;
-        if let DnsSystemInner::System(backend) = &new_inner {
-            backend.register_owners(&self.transport_owners)?;
-        }
-        {
-            let mut inner = self.inner.write().expect("DNS system lock poisoned");
-            *inner = new_inner;
-            self.config_generation.fetch_add(1, Ordering::AcqRel);
-        }
-        let retired = prepared.take();
-        drop(prepared);
-        drop(retired);
-        Ok(())
-    }
     pub fn commit_prepared_reload(&self) -> io::Result<()> {
         self.commit_reload_resources(&self.prepared_reload_resources()?)
     }
     /// Discarding a retired candidate does not revive closed pools. Recovery
     /// prepares the previous config again and builds its retired backends anew.
     pub fn discard_prepared_reload(&self) {
-        let retired = self
+        let mut prepared = self
             .prepared_reload
             .lock()
-            .expect("DNS prepared reload lock poisoned")
-            .take();
-        // Query pause/provider destructors never run under the token mutex.
+            .expect("DNS prepared reload poisoned");
+        let retired = if prepared
+            .as_ref()
+            .is_some_and(|actual| actual.committing.load(Ordering::Acquire))
+        {
+            prepared
+                .as_ref()
+                .unwrap()
+                .discard_requested
+                .store(true, Ordering::Release);
+            None
+        } else {
+            prepared.take()
+        };
+        drop(prepared);
         drop(retired);
     }
 }

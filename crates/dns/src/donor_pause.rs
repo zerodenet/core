@@ -10,6 +10,7 @@ use zero_core::component::ComponentInstanceId;
 pub struct DnsDonorPause {
     _queries: Vec<QueryPause>,
     _providers: Vec<Arc<dyn NativeDnsProvider>>,
+    _fake_ip: Option<crate::fake_ip::persistence::JournalPause>,
     #[cfg(feature = "doh")]
     owners: Vec<Arc<crate::backends::DohDriverOwner>>,
     replaced: Vec<ComponentInstanceId>,
@@ -19,6 +20,9 @@ pub struct DnsDonorPause {
     queries_retired: std::sync::atomic::AtomicBool,
 }
 impl DnsDonorPause {
+    pub(crate) fn has_fake_ip_journal(&self) -> bool {
+        self._fake_ip.is_some()
+    }
     pub(crate) fn matches_replacement(&self, replaced: &[ComponentInstanceId]) -> bool {
         self.replaced
             == replaced
@@ -137,6 +141,18 @@ impl DnsSystem {
                 instances.insert(instance);
             }
         }
+        if let Some(lease) = self
+            .fake_ip_state_lease
+            .lock()
+            .expect("Fake-IP lease poisoned")
+            .as_ref()
+        {
+            if lease.bound() {
+                if let Some((instance, _)) = lease.grant()?.host_scope() {
+                    instances.insert(instance);
+                }
+            }
+        }
         #[cfg(feature = "doh")]
         for owner in self.transport_owners.actual_doh_owners() {
             instances.extend(owner.retained_instances()?);
@@ -161,6 +177,7 @@ impl DnsSystem {
         let mut guard = DnsDonorPause {
             _queries: Vec::new(),
             _providers: Vec::new(),
+            _fake_ip: None,
             cancel_sources: Vec::new(),
             queries_retired: Default::default(),
             #[cfg(feature = "doh")]
@@ -180,6 +197,7 @@ impl DnsSystem {
         {
             return Ok(guard);
         }
+        guard._fake_ip = self.pause_fake_ip_journal(replaced)?;
         let mut selected_tasks: Vec<crate::OwnedDnsQueryTasks> = Vec::new();
         #[cfg(feature = "doh")]
         for owner in self.transport_owners.actual_doh_owners() {
