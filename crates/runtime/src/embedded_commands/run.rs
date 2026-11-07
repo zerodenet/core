@@ -58,124 +58,127 @@ impl EmbeddedCommandOwner {
         let observation = entry.observation.clone();
         let stop = entry.stop.clone();
         let raw_entry = entry.clone();
-        let callbacks = tasks.defer_callbacks();
-        let mut state = lock(&self.state);
-        if state.closing
-            || state.faulted
-            || state.pause.is_some()
-            || state
-                .entries
-                .iter()
-                .any(|e| e.failure.get().is_some() || e.raw_failure.get().is_some())
+        // The registration/entry gate is lexical: no std MutexGuard or
+        // deferred-callback guard may enter the public Send future's await.
         {
-            return Err(fault(Reason::Revoked));
-        }
-        state.entries.push(entry.clone());
-        let raw = tasks.spawn_blocking_tracked(TaskClass::Auxiliary, move || {
-            let _ = raw_entry.raw_id.set(tokio::task::id());
-            if gate.recv().is_err() {
-                return Ok(());
+            let callbacks = tasks.defer_callbacks();
+            let mut state = lock(&self.state);
+            if state.closing
+                || state.faulted
+                || state.pause.is_some()
+                || state
+                    .entries
+                    .iter()
+                    .any(|e| e.failure.get().is_some() || e.raw_failure.get().is_some())
+            {
+                return Err(fault(Reason::Revoked));
             }
-            let value = tokio::runtime::Handle::current().block_on(observation.scope_with_stop(
-                stop,
-                async {
-                    let guard =
-                        ApplyObservation::capture().expect("same observed blocking invocation");
-                    guard.run_sync(work)
-                },
-            ));
-            let _ = output.send(value);
-            Ok(())
-        });
-        let raw = match raw {
-            Ok((_, witness)) => witness,
-            Err(error) => {
-                state.entries.pop();
-                drop(state);
-                drop(callbacks);
-                return Err(fault(Reason::Capacity).with_source(error));
-            }
-        };
-        let _ = entry.raw.set(raw.clone());
-        let owner = self.clone();
-        let actual = entry.clone();
-        let (ready, begun) = oneshot::channel();
-        let wrapper = tasks.spawn_tracked(TaskClass::Critical, async move {
-            if begun.await.is_err() {
-                return Ok(());
-            }
-            let value = receive.await;
-            let joined = raw.wait().await;
-            // Raw native exit and Scope identity stay separate from the Tokio
-            // blocking ID; only a genuine JoinError carries a blocking failure.
-            if let Some(id) = actual.raw_id.get().copied() {
-                let source = joined.result().err();
-                let panic = source.as_ref().and_then(|e| raw_panic(e.as_ref()));
-                let observation = actual.observation.clone();
-                observation
-                    .scope(async {
-                        let _ = ApplyObservation::record_blocking_outcome(id, panic.clone());
-                    })
-                    .await;
-                if let Some(observer) = &outer_observation {
-                    // Publish the same actual raw outcome; this does not issue
-                    // frontend custody, an accepted Apply, or a TaskJoined.
-                    observer
+            state.entries.push(entry.clone());
+            let raw = tasks.spawn_blocking_tracked(TaskClass::Auxiliary, move || {
+                let _ = raw_entry.raw_id.set(tokio::task::id());
+                if gate.recv().is_err() {
+                    return Ok(());
+                }
+                let value = tokio::runtime::Handle::current().block_on(
+                    observation.scope_with_stop(stop, async {
+                        let guard =
+                            ApplyObservation::capture().expect("same observed blocking invocation");
+                        guard.run_sync(work)
+                    }),
+                );
+                let _ = output.send(value);
+                Ok(())
+            });
+            let raw = match raw {
+                Ok((_, witness)) => witness,
+                Err(error) => {
+                    state.entries.pop();
+                    drop(state);
+                    drop(callbacks);
+                    return Err(fault(Reason::Capacity).with_source(error));
+                }
+            };
+            let _ = entry.raw.set(raw.clone());
+            let owner = self.clone();
+            let actual = entry.clone();
+            let (ready, begun) = oneshot::channel();
+            let wrapper = tasks.spawn_tracked(TaskClass::Critical, async move {
+                if begun.await.is_err() {
+                    return Ok(());
+                }
+                let value = receive.await;
+                let joined = raw.wait().await;
+                // Raw native exit and Scope identity stay separate from the Tokio
+                // blocking ID; only a genuine JoinError carries a blocking failure.
+                if let Some(id) = actual.raw_id.get().copied() {
+                    let source = joined.result().err();
+                    let panic = source.as_ref().and_then(|e| raw_panic(e.as_ref()));
+                    let observation = actual.observation.clone();
+                    observation
                         .scope(async {
-                            let _ = ApplyObservation::record_blocking_outcome(id, panic);
+                            let _ = ApplyObservation::record_blocking_outcome(id, panic.clone());
                         })
                         .await;
+                    if let Some(observer) = &outer_observation {
+                        // Publish the same actual raw outcome; this does not issue
+                        // frontend custody, an accepted Apply, or a TaskJoined.
+                        observer
+                            .scope(async {
+                                let _ = ApplyObservation::record_blocking_outcome(id, panic);
+                            })
+                            .await;
+                    }
                 }
-            }
-            let cleanup = complete(actual.observation.clone()).await;
-            let result = match (joined.result(), cleanup) {
-                (Err(raw), Err(cleanup)) => Err(Arc::new(fault(Reason::Internal).with_source(
-                    CommandTaskFaults {
-                        raw: Some(raw),
-                        cleanup: Some(Arc::new(cleanup)),
-                    },
-                ))),
-                (Err(raw), _) => Err(raw),
-                (_, Err(cleanup)) => Err(Arc::new(cleanup)),
-                _ => Ok(()),
+                let cleanup = complete(actual.observation.clone()).await;
+                let result = match (joined.result(), cleanup) {
+                    (Err(raw), Err(cleanup)) => Err(Arc::new(fault(Reason::Internal).with_source(
+                        CommandTaskFaults {
+                            raw: Some(raw),
+                            cleanup: Some(Arc::new(cleanup)),
+                        },
+                    ))),
+                    (Err(raw), _) => Err(raw),
+                    (_, Err(cleanup)) => Err(Arc::new(cleanup)),
+                    _ => Ok(()),
+                };
+                if let Err(source) = &result {
+                    actual.failure.get_or_init(|| source.clone());
+                }
+                let response = match value {
+                    Ok(value) if result.is_ok() => Ok(value),
+                    _ => Err(result
+                        .as_ref()
+                        .err()
+                        .map_or_else(|| fault(Reason::Internal), |e| retained(e.clone()))),
+                };
+                let _ = reply.send(response);
+                owner.changed.notify_waiters();
+                result.map_err(retained)
+            });
+            let wrapper = match wrapper {
+                Ok((_, witness)) => witness,
+                Err(error) => {
+                    // The actual raw registration stays owned even though its gate
+                    // never opens. External retirement still consumes its real exit.
+                    entry
+                        .failure
+                        .get_or_init(|| Arc::new(fault(Reason::Capacity).with_source(error)));
+                    entry
+                        .wrapper_rejected
+                        .store(true, std::sync::atomic::Ordering::Release);
+                    drop(start);
+                    drop(state);
+                    drop(callbacks);
+                    self.changed.notify_waiters();
+                    return Err(fault(Reason::Capacity));
+                }
             };
-            if let Err(source) = &result {
-                actual.failure.get_or_init(|| source.clone());
-            }
-            let response = match value {
-                Ok(value) if result.is_ok() => Ok(value),
-                _ => Err(result
-                    .as_ref()
-                    .err()
-                    .map_or_else(|| fault(Reason::Internal), |e| retained(e.clone()))),
-            };
-            let _ = reply.send(response);
-            owner.changed.notify_waiters();
-            result.map_err(retained)
-        });
-        let wrapper = match wrapper {
-            Ok((_, witness)) => witness,
-            Err(error) => {
-                // The actual raw registration stays owned even though its gate
-                // never opens. External retirement still consumes its real exit.
-                entry
-                    .failure
-                    .get_or_init(|| Arc::new(fault(Reason::Capacity).with_source(error)));
-                entry
-                    .wrapper_rejected
-                    .store(true, std::sync::atomic::Ordering::Release);
-                drop(start);
-                drop(state);
-                drop(callbacks);
-                self.changed.notify_waiters();
-                return Err(fault(Reason::Capacity));
-            }
-        };
-        let _ = entry.wrapper.set(wrapper);
-        drop(state);
-        drop(callbacks);
-        let _ = ready.send(());
-        let _ = start.send(());
+            let _ = entry.wrapper.set(wrapper);
+            drop(state);
+            drop(callbacks);
+            let _ = ready.send(());
+            let _ = start.send(());
+        }
         response
             .await
             .map_err(|e| fault(Reason::Internal).with_source(e))?
