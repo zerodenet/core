@@ -33,6 +33,15 @@ impl Running {
     }
 }
 pub(super) async fn start(document: serde_json::Value, tag: &str) -> Running {
+    static TRACE: std::sync::Once = std::sync::Once::new();
+    TRACE.call_once(|| {
+        // This linked transport is not built with cfg(test). Keep its actual
+        // restore census visible without logging any profile or credentials.
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("off,zero_transport::pooled_driver=debug")
+            .with_test_writer()
+            .try_init();
+    });
     let config = zero_config::RuntimeConfig::parse(&document.to_string()).unwrap();
     let proxy = Proxy::new(config.clone()).unwrap();
     let registry = proxy.system_tun_source_registry();
