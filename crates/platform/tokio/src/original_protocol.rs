@@ -25,6 +25,7 @@ pub struct RejectedOriginalProtocolControl {
     pub control: crate::contract::lifecycle::BoxChannelControl,
 }
 pub(crate) struct Phase {
+    instance: zero_core::component::ComponentInstanceId,
     requested: CancellationToken,
     waker: Mutex<Option<std::task::Waker>>,
     control: Arc<AsyncMutex<Option<crate::contract::lifecycle::BoxChannelControl>>>,
@@ -39,6 +40,7 @@ struct State {
     complete: bool,
     report: CloseReport,
     first_fault: Option<Arc<ChannelError>>,
+    resource_fault: Option<Arc<crate::contract::lifecycle::ResourceFailure>>,
 }
 impl CarrierProtocolRetirement {
     /// Same original Root removed its charged reservation only after the real
@@ -60,8 +62,12 @@ impl CarrierProtocolRetirement {
     }
 }
 impl Phase {
-    pub(crate) fn new(control: crate::contract::lifecycle::BoxChannelControl) -> Arc<Self> {
+    pub(crate) fn new(
+        control: crate::contract::lifecycle::BoxChannelControl,
+        instance: zero_core::component::ComponentInstanceId,
+    ) -> Arc<Self> {
         Arc::new_cyclic(|weak| Self {
+            instance,
             requested: CancellationToken::new(),
             waker: Mutex::default(),
             control: Arc::new(AsyncMutex::new(Some(control))),
@@ -136,10 +142,22 @@ impl Phase {
             }
             if let Some(source) = &failure {
                 if state.first_fault.is_none() {
-                    state.first_fault = Some(source.clone());
-                    // Same actual inline-resource failure, never a forged task
-                    // exit. Its typed Arc also survives into positive reports.
-                    state.report.resource_failures.push(source.clone());
+                    // This controller is installed in the same declared
+                    // original's Host resource entry, not a synthetic task.
+                    // Canonical row and Root failure observation share exactly
+                    // this returned source Arc and the real Slot generation.
+                    let actual = state
+                        .resource_fault
+                        .get_or_insert_with(|| {
+                            Arc::new(crate::contract::lifecycle::ResourceFailure::new(
+                                self.instance,
+                                crate::contract::lifecycle::ResourceFailurePhase::DeclaredResources,
+                                source.clone(),
+                            ))
+                        })
+                        .clone();
+                    state.first_fault = Some(actual.source.clone());
+                    state.report.resource_failures.push(actual);
                 }
             }
             state.complete

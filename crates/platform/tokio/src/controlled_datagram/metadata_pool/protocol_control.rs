@@ -69,7 +69,7 @@ impl MetadataPoolPermit {
             Ok(installed) => installed,
             Err(error) => return Err(RejectedOriginalProtocolControl { control, error }),
         };
-        let phase = crate::original_protocol::Phase::new(control);
+        let phase = crate::original_protocol::Phase::new(control, self.0.instance);
         let handle = phase.handle();
         let once = self.0.protocol_stop.set(phase.cancellation());
         assert!(once.is_ok(), "one metadata protocol per exact original");

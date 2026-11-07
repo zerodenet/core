@@ -101,7 +101,7 @@ impl CarrierGrants {
             // The same local declaration and Root original N are now paid. No
             // phase allocation occurs on a refused local or Root reservation.
             if let Some(control) = protocol.take() {
-                let phase = crate::original_protocol::Phase::new(control);
+                let phase = crate::original_protocol::Phase::new(control, slot.instance);
                 assert!(slot.protocol_stop.set(phase.cancellation()).is_ok());
                 slot.state().protocol = Some(phase);
             }
