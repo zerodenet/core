@@ -1,4 +1,3 @@
-use alloc::boxed::Box;
 use std::{
     sync::{Arc, Mutex},
     task::{Context, Poll, Wake, Waker},
@@ -17,7 +16,7 @@ pub(super) struct Shared {
 }
 pub(super) struct State {
     pub(super) tcp: Option<BoxStream>,
-    pub(super) raw_control: Option<Box<dyn DynChannelControl>>,
+    pub(super) raw_control: Option<zero_platform_tokio::contract::lifecycle::BoxChannelControl>,
     pub(super) stopped: bool,
     pub(super) tcp_eof: bool,
     pub(super) tcp_shutdown: bool,
@@ -55,7 +54,7 @@ impl Wake for Fanout {
 impl Shared {
     pub(super) fn new(
         tcp: BoxStream,
-        raw_control: Box<dyn DynChannelControl>,
+        raw_control: zero_platform_tokio::contract::lifecycle::BoxChannelControl,
         admission: Arc<SessionAdmission>,
         session: Option<SessionId>,
     ) -> Arc<Self> {

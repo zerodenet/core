@@ -18,7 +18,7 @@ type Closing = Pin<
     Box<
         dyn Future<
                 Output = (
-                    Box<dyn DynChannelControl>,
+                    zero_platform_tokio::contract::lifecycle::BoxChannelControl,
                     Result<CloseReport, ChannelError>,
                 ),
             > + Send,

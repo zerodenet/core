@@ -56,7 +56,7 @@ impl StreamOutbound for Outbound {
         Ok(Connected {
             io: zero_platform_tokio::controlled_carrier::loan::StreamLoan::new(
                 connected.io,
-                Box::new(Control(record)),
+                Box::new(Control(record)).into(),
                 original,
             ),
             peer_confirmation: connected.peer_confirmation,
