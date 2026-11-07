@@ -380,9 +380,10 @@ mod tests {
         let session = test_session();
         let packet = Packet::from_owned_buffer(vec![0_u8; 16].into())
             .unwrap_or_else(|_| panic!("unique test plaintext"));
-        let mut original = session
-            .format_packet_data(packet)
-            .expect_err("owned plaintext has no admitted ciphertext");
+        let mut original = match session.format_packet_data(packet) {
+            Err(original) => original,
+            Ok(_) => panic!("owned plaintext has no admitted ciphertext"),
+        };
         assert_eq!(session.sending_key_counter.load(Ordering::Relaxed), 0);
         let cipher = Packet::from_owned_buffer(vec![0_u8; WgData::OVERHEAD + 16].into())
             .unwrap_or_else(|_| panic!("unique test ciphertext"));
