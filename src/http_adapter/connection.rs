@@ -99,14 +99,17 @@ async fn serve_request(
     };
     let route = if let Some(observation) = &observation {
         // This original handler retains the accepted operation through its
-        // actual completion/rollback ACK. Stop only suppresses the later write.
+        // actual completion/rollback ACK. The same caller signal also detaches
+        // diagnostic business participation through its actual Probe owner;
+        // it never drops accepted Apply/blocking work or skips cleanup.
         if stop.is_cancelled() {
             return Ok(());
         }
         observation
-            .scope(router::route_with_budget(
-                &request, &handle, &auth_ctx, &budget,
-            ))
+            .scope_with_stop(
+                stop.clone(),
+                router::route_with_budget(&request, &handle, &auth_ctx, &budget),
+            )
             .await
     } else {
         tokio::select! {_=stop.cancelled()=>return Ok(()),result=router::route_with_budget(&request,&handle,&auth_ctx,&budget)=>result}

@@ -144,7 +144,9 @@ impl ConcurrentCommandTasks {
             // Once this original command has started, its existing operation
             // owns completion/cleanup. A disconnected caller cannot turn
             // cancellation into ACK or discard its retained input capacity.
-            let result = super::super::owner::catch_work(observation.scope(future)).await;
+            let result =
+                super::super::owner::catch_work(observation.scope_with_stop(stop.clone(), future))
+                    .await;
             let joined = super::super::owner::wait_command_operation(&observation).await;
             let result = super::super::owner::finish_caught(result, [joined]);
             if result.is_err() {

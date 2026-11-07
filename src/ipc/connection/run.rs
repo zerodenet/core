@@ -169,7 +169,7 @@ where
                                 let observation = credits.observation.clone();
                                 inline_command = Some(credits);
                                 let written = observation
-                                    .scope(async {
+                                    .scope_with_stop(stop.clone(), async {
                                         let result = execute_ipc_command(handle.clone(), cmd).await;
                                         command::write_command_after_ack(
                                             writer.clone(),
