@@ -235,8 +235,6 @@ impl Session {
         if self.sending_key_counter.load(Ordering::Relaxed) >= REJECT_AFTER_MESSAGES {
             return Err(packet);
         }
-        let sending_key_counter = self.sending_key_counter.fetch_add(1, Ordering::Relaxed);
-
         let len = WgData::OVERHEAD + packet.len();
 
         // Prepare a buffer to hold our the WgData packet and our encapsulated payload.
@@ -252,6 +250,10 @@ impl Session {
         };
         #[cfg(not(feature = "zero-owned-packets"))]
         let mut buf = Packet::from_bytes(BytesMut::zeroed(len));
+
+        // A failed owned-buffer admission must leave the security counter
+        // untouched. All actual output storage is now present and validated.
+        let sending_key_counter = self.sending_key_counter.fetch_add(1, Ordering::Relaxed);
 
         let data = WgData::mut_from_bytes(buf.buf_mut())
             .expect("buffer size is at least WgData::OVERHEAD");
@@ -370,6 +372,28 @@ mod tests {
             unreachable!("is a wireguard data packet");
         };
         packet
+    }
+
+    #[cfg(feature = "zero-owned-packets")]
+    #[test]
+    fn missing_owned_cipher_does_not_commit_sending_counter() {
+        let session = test_session();
+        let packet = Packet::from_owned_buffer(vec![0_u8; 16].into())
+            .unwrap_or_else(|_| panic!("unique test plaintext"));
+        let mut original = session
+            .format_packet_data(packet)
+            .expect_err("owned plaintext has no admitted ciphertext");
+        assert_eq!(session.sending_key_counter.load(Ordering::Relaxed), 0);
+        let cipher = Packet::from_owned_buffer(vec![0_u8; WgData::OVERHEAD + 16].into())
+            .unwrap_or_else(|_| panic!("unique test ciphertext"));
+        original
+            .install_prepaid_cipher(cipher)
+            .unwrap_or_else(|_| panic!("same original has no previous cipher"));
+        let output = session
+            .format_packet_data(original)
+            .expect("same plaintext can retry");
+        assert_eq!(output.header.counter.get(), 0);
+        assert_eq!(session.sending_key_counter.load(Ordering::Relaxed), 1);
     }
 
     /// The receive path must reject a counter at/beyond REJECT_AFTER_MESSAGES before decryption,
