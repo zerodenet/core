@@ -4,44 +4,60 @@ impl NativeUse {
         &self,
         end: tokio::time::Instant,
     ) -> std::io::Result<CloseReport> {
-        let mut report = CloseReport::default();
         let mut logical = tokio::time::timeout_at(end, self.logical.lock())
             .await
             .map_err(super::retirement::pending_deadline)?;
+        // Declared after the actual controller guard: cancellation returns the
+        // partial report to this same original before unlocking that controller.
+        let mut report = report::PendingReport::take(&self.pending_report);
+        report.unfinished.clear();
         if let Some(owner) = logical.as_mut() {
-            let closed = owner.close(end).await.map_err(std::io::Error::other)?;
-            if !closed.is_complete() || !owner.closed().is_some_and(|closed| closed.matches(owner))
-            {
+            let closed = match owner.close(end).await {
+                Ok(closed) => closed,
+                Err(source) => {
+                    return Err(self.receiver.retain_error(std::io::Error::other(source))?)
+                }
+            };
+            let complete =
+                closed.is_complete() && owner.closed().is_some_and(|closed| closed.matches(owner));
+            report.append(closed);
+            // Storage has no locked std Mutex here. Receive before any next
+            // await, including on partial output; this acknowledges no driver.
+            self.receiver.receive_report(&mut report)?;
+            if !complete {
                 return Err(retirement::pending_incomplete(
                     "DNS protocol carrier view remains retained",
                 ));
             }
-            report.append(closed);
         }
-        let closed = self
-            .original
-            .retire(end)
-            .await
-            .map_err(std::io::Error::other)?;
-        if !closed.is_complete()
-            || !self
+        let closed = match self.original.retire(end).await {
+            Ok(closed) => closed,
+            Err(source) => {
+                return Err(self.receiver.retain_error(std::io::Error::other(source))?)
+            }
+        };
+        let complete = closed.is_complete()
+            && self
                 .original
                 .closed()
                 .is_some_and(|closed| closed.matches(&self.original))
-            || !self
+            && self
                 .original
                 .users_closed()
-                .is_some_and(|closed| closed.matches(&self.original))
-        {
+                .is_some_and(|closed| closed.matches(&self.original));
+        report.append(closed);
+        self.receiver.receive_report(&mut report)?;
+        if !complete {
             return Err(retirement::pending_incomplete(
                 "DNS original or transferred view is not closed",
             ));
         }
-        report.append(closed);
-        self.capacity
+        let capacity = self
+            .capacity
             .lock()
             .expect("DNS original budget poisoned")
             .take();
-        Ok(report)
+        drop(capacity);
+        Ok(report.finish())
     }
 }

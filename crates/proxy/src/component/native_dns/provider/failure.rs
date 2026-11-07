@@ -1,6 +1,54 @@
 //! Immediate handoff to the actual Scope's existing lifecycle receiver.
 use super::*;
-use zero_platform_tokio::contract::lifecycle::ResourceFailure;
+use zero_platform_tokio::contract::{
+    component::ResourceAccess, lifecycle::ResourceFailure, scope::TaskScopeIdentity,
+};
+#[derive(Clone)]
+pub(in crate::component::native_dns::provider) struct Receiver {
+    resources: std::sync::Weak<dyn ResourceAccess>,
+    scope: TaskScopeIdentity,
+}
+impl Receiver {
+    pub(super) fn receive_report(&self, report: &mut CloseReport) -> std::io::Result<()> {
+        let resources = self.resources.upgrade().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "original DNS fault receiver retired",
+            )
+        })?;
+        resources
+            .receive_protocol_report(&self.scope, report)
+            .map_err(std::io::Error::other)?;
+        Ok(())
+    }
+    pub(super) fn retain_error(&self, source: std::io::Error) -> std::io::Result<std::io::Error> {
+        if retirement::pending_observation(&source) {
+            return Ok(source);
+        }
+        let kind = source.kind();
+        let original = Arc::new(error(source));
+        let result = self
+            .resources
+            .upgrade()
+            .ok_or_else(|| {
+                crate::component::instance::invalid(
+                    zero_platform_tokio::contract::Reason::Revoked,
+                    "original DNS fault receiver retired",
+                )
+            })
+            .and_then(|resources| resources.receive_protocol_failure(&self.scope, &original));
+        result.map_err(|receiver| {
+            std::io::Error::other(
+                BuildError::retained(original.clone()).with_source(Unreceived {
+                    original: original.clone(),
+                    _receiver: Arc::new(receiver),
+                }),
+            )
+        })?;
+        Ok(std::io::Error::new(kind, original))
+    }
+}
+
 struct Unreceived {
     original: Arc<BuildError>,
     _receiver: Arc<BuildError>,
@@ -42,21 +90,12 @@ impl Provider {
         &self,
         source: std::io::Error,
     ) -> std::io::Result<std::io::Error> {
-        if retirement::pending_observation(&source) {
-            return Ok(source);
+        self.cleanup_receiver().retain_error(source)
+    }
+    pub(super) fn cleanup_receiver(&self) -> Receiver {
+        Receiver {
+            resources: Arc::downgrade(&self.resources),
+            scope: self.registrar.scope_identity(),
         }
-        let kind = source.kind();
-        let original = Arc::new(error(source));
-        self.resources
-            .receive_protocol_failure(&self.registrar.scope_identity(), &original)
-            .map_err(|receiver| {
-                std::io::Error::other(BuildError::retained(original.clone()).with_source(
-                    Unreceived {
-                        original: original.clone(),
-                        _receiver: Arc::new(receiver),
-                    },
-                ))
-            })?;
-        Ok(std::io::Error::new(kind, original))
     }
 }

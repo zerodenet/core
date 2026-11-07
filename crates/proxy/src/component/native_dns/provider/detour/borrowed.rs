@@ -26,6 +26,8 @@ impl Provider {
             .claim_transferred_view()
             .map_err(std::io::Error::other)?;
         let entry = Arc::new(custody::NativeUse {
+            receiver: self.cleanup_receiver(),
+            pending_report: Mutex::default(),
             task: caller.clone(),
             cancel: call.cancel.clone(),
             original: grant.adoption(),
