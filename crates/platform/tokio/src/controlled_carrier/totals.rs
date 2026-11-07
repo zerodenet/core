@@ -21,6 +21,7 @@ pub struct CarrierOriginalTotalsSnapshot {
 pub struct CarrierOriginalTotals {
     state: Mutex<State>,
     changed: tokio::sync::Notify,
+    buffers: super::CarrierBufferBudget,
 }
 struct State {
     limit: NonZeroUsize,
@@ -44,6 +45,7 @@ impl Default for CarrierOriginalTotals {
     fn default() -> Self {
         Self {
             changed: tokio::sync::Notify::new(),
+            buffers: Default::default(),
             state: Mutex::new(State {
                 limit: NonZeroUsize::new(1024).expect("nonzero kernel policy"),
                 preparation_limits: [
@@ -69,6 +71,7 @@ impl CarrierOriginalTotals {
     pub fn new(limit: NonZeroUsize) -> Arc<Self> {
         Arc::new(Self {
             changed: tokio::sync::Notify::new(),
+            buffers: Default::default(),
             state: Mutex::new(State {
                 limit,
                 preparation_limits: [
@@ -81,6 +84,35 @@ impl CarrierOriginalTotals {
                 source: Vec::new(),
             }),
         })
+    }
+    /// All actual protocol queues receive this one pure byte book.
+    pub fn buffer_budget(&self) -> super::CarrierBufferBudget {
+        self.buffers.clone()
+    }
+    pub fn check_buffer_limits_after_retirement(
+        &self,
+        limits: super::CarrierBufferLimits,
+    ) -> std::io::Result<()> {
+        self.reconcile();
+        let state = self.lock();
+        if self.buffers.limits() != limits && state.charged() != 0 {
+            return Err(std::io::ErrorKind::WouldBlock.into());
+        }
+        self.buffers.check_limits(limits)
+    }
+    pub fn install_buffer_limits_after_retirement(
+        &self,
+        limits: super::CarrierBufferLimits,
+    ) -> std::io::Result<()> {
+        self.reconcile();
+        let state = self.lock();
+        if self.buffers.limits() != limits && state.charged() != 0 {
+            return Err(std::io::ErrorKind::WouldBlock.into());
+        }
+        let wake = self.buffers.install_limits_deferred(limits)?;
+        drop(state);
+        self.buffers.publish_capacity(wake);
+        Ok(())
     }
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
         self.state

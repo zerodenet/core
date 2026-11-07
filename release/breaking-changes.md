@@ -916,3 +916,31 @@ Endpoint list/get/detail 生产查询改用同原配置、Source 写观测及实
 借阅不授 I/O/任务/关闭权，所有 guard 在 await/退款前销毁；具体说明见
 [原件借阅续作](../design/v0.0.3/compatibility.md#endpoint-control-queries-borrow-their-actual-owners-before-materialization)。
 本片仍需实际统一编测，不据接口或历史局部通过宣告完整 DNS/控制域关闭。
+
+
+### Shared QUIC buffer accounting continuation
+
+Two optional runtime fields retain the omitted export shape:
+`quic_max_queue_packets` defaults to256 (range1..256) per actual existing
+FIFO; `quic_total_max_buffered_bytes` defaults to64MiB (range1..1GiB) across
+the same Host carrier root. These are on-demand admission ceilings, not
+upfront allocations, FD totals, per-identity limits or RSS guarantees.
+
+The root issues one pure buffer book through actual ResourceAccess. A retained
+backing/codec/copy/receive workspace keeps its original credit through pending,
+failed and retiring custody. Transfer splits the existing credit; it does not
+create a second book. Refund and policy-growth wakeups run outside both the
+byte-book and original-root locks. Each actual writer retains its own inline
+waiter and waits for a complete requested amount. Oversized requests fail
+without waiting; a cancelled waiter has no byte credit to refund.
+
+The pure handle remains usable for original cleanup after business cancellation,
+without granting IO, task, native-close, logical-user or Scope authority. Limit
+facts participate in cold recipe identity/reuse and the existing StopOld
+transaction; a live original cannot silently change its queue policy. Held pure
+output stays charged across an otherwise confirmed policy installation.
+
+This common producer/configuration precondition is not completion of QUIC,
+transport or budget migration: actual native/borrowed/Mask FIFO consumers and
+codec peak projections still require B's complete paired implementation and
+original wire/Scope regressions before domain qualification.

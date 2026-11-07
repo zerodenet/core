@@ -28,6 +28,18 @@ pub(in crate::component) fn owns_carrier_custody(spec: &ComponentSpec) -> bool {
     })
 }
 impl ComponentRecipe {
+    pub(in crate::component) fn with_buffer_limits(
+        mut self,
+        limits: Option<zero_platform_tokio::controlled_carrier::CarrierBufferLimits>,
+    ) -> Self {
+        self.buffer_limits = limits;
+        self
+    }
+    pub(in crate::component) fn buffer_limits(
+        &self,
+    ) -> Option<zero_platform_tokio::controlled_carrier::CarrierBufferLimits> {
+        self.buffer_limits
+    }
     pub(in crate::component) fn with_carrier_total_limit(mut self, limit: Option<usize>) -> Self {
         self.carrier_total = limit;
         self

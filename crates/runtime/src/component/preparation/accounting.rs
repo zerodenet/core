@@ -9,10 +9,12 @@ impl ResourcePreparation<'_> {
         let limit = self.carrier_total_limit_for(recipe.spec())?;
         let process = self.process_limits_for(recipe.spec())?;
         let preparation = self.preparation_limits_for(recipe.spec())?;
+        let buffers = self.buffer_limits_for(recipe.spec())?;
         Ok(recipe
             .with_carrier_total_limit(limit)
             .with_process_limits(process)
-            .with_preparation_limits(preparation))
+            .with_preparation_limits(preparation)
+            .with_buffer_limits(buffers))
     }
     pub(super) fn carrier_total_limit_for(
         &self,
@@ -29,6 +31,30 @@ impl ResourcePreparation<'_> {
             ));
         }
         Ok(crate::component::recipe::accounting::owns_carrier_custody(spec).then_some(limit))
+    }
+    pub(super) fn buffer_limits_for(
+        &self,
+        spec: &ComponentSpec,
+    ) -> Result<Option<zero_platform_tokio::controlled_carrier::CarrierBufferLimits>, BuildError>
+    {
+        let Some(candidate) = self.candidate() else {
+            return Ok(None);
+        };
+        if !crate::component::recipe::accounting::owns_carrier_custody(spec) {
+            return Ok(None);
+        }
+        let limits = zero_platform_tokio::controlled_carrier::CarrierBufferLimits {
+            max_queue_packets: candidate.runtime.effective_quic_max_queue_packets(),
+            total_max_bytes: candidate.runtime.effective_quic_total_max_buffered_bytes(),
+        };
+        limits.validate().map_err(|source| {
+            invalid(
+                Reason::InvalidConfig,
+                "invalid actual carrier buffer capacities",
+            )
+            .with_source(source)
+        })?;
+        Ok(Some(limits))
     }
 }
 

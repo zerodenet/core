@@ -20,6 +20,10 @@ impl HostOriginalBudgets {
             || current.effective_navigation_max_jobs() != target.effective_navigation_max_jobs()
             || current.effective_navigation_max_requests()
                 != target.effective_navigation_max_requests()
+            || current.effective_quic_max_queue_packets()
+                != target.effective_quic_max_queue_packets()
+            || current.effective_quic_total_max_buffered_bytes()
+                != target.effective_quic_total_max_buffered_bytes()
             || current.effective_process_max_jobs() != target.effective_process_max_jobs()
             || current.effective_process_max_jobs_per_instance()
                 != target.effective_process_max_jobs_per_instance()
@@ -86,6 +90,13 @@ impl HostOriginalBudgets {
         }
         let preparation =
             preparation.map(|value| value.expect("validated positive preparation cap"));
+        let buffers = zero_platform_tokio::controlled_carrier::CarrierBufferLimits {
+            max_queue_packets: runtime.effective_quic_max_queue_packets(),
+            total_max_bytes: runtime.effective_quic_total_max_buffered_bytes(),
+        };
+        self.carrier
+            .check_buffer_limits_after_retirement(buffers)
+            .map_err(prepare_error)?;
         self.carrier
             .check_preparation_limits_after_retirement(preparation[0], preparation[1])
             .map_err(prepare_error)?;
@@ -149,6 +160,9 @@ impl HostOriginalBudgets {
                 )
                 .with_source(source)
             })?;
+        self.carrier
+            .install_buffer_limits_after_retirement(buffers)
+            .map_err(prepare_error)?;
         #[cfg(feature = "raw-ip-runtime")]
         self.packet
             .install_limits(packet_limits[0], packet_limits[1], packet_limits[2])

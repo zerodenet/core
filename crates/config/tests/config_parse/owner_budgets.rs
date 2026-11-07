@@ -16,7 +16,7 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 72] = [
+    let fields: [BudgetField; 74] = [
         (
             "packet_route_max_routes",
             RuntimeOptionsConfig::effective_packet_route_max_routes,
@@ -160,6 +160,18 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
             RuntimeOptionsConfig::effective_quic_shared_endpoint_max_users,
             65536,
             65536,
+        ),
+        (
+            "quic_max_queue_packets",
+            RuntimeOptionsConfig::effective_quic_max_queue_packets,
+            256,
+            256,
+        ),
+        (
+            "quic_total_max_buffered_bytes",
+            RuntimeOptionsConfig::effective_quic_total_max_buffered_bytes,
+            64 * 1024 * 1024,
+            1_073_741_824,
         ),
         (
             "event_log_stats_max_bytes",

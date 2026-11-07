@@ -782,6 +782,16 @@ fn validate_runtime(
             runtime.effective_quic_shared_endpoint_max_users(),
             65536,
         ),
+        (
+            "quic_max_queue_packets",
+            runtime.effective_quic_max_queue_packets(),
+            256,
+        ),
+        (
+            "quic_total_max_buffered_bytes",
+            runtime.effective_quic_total_max_buffered_bytes(),
+            1_073_741_824,
+        ),
     ] {
         if !(1..=maximum).contains(&limit) {
             return Err(ConfigError::InvalidRuntime(format!(

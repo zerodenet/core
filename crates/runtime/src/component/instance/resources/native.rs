@@ -189,6 +189,11 @@ impl HostResources {
     }
 }
 impl ResourceAccess for HostResources {
+    fn carrier_buffer_budget(
+        &self,
+    ) -> Option<zero_platform_tokio::controlled_carrier::CarrierBufferBudget> {
+        Some(self.originals.carrier.buffer_budget())
+    }
     fn dependency_stream_loan_issuer(
         &self,
         dependency: zero_core::component::ComponentInstanceId,

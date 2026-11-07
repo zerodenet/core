@@ -328,6 +328,12 @@ pub struct InboundListenerEndpoints {
     pub datagram: std::net::SocketAddr,
 }
 pub trait ResourceAccess: Send + Sync {
+    /// The same Host's pure buffer accounting. This confers no acquisition,
+    /// IO, task, native-close, logical-user or Scope authority. Missing actual
+    /// production accounting cannot fall back to an independent local book.
+    fn carrier_buffer_budget(&self) -> Option<crate::controlled_carrier::CarrierBufferBudget> {
+        None
+    }
     /// Seal one actual direct resource dependency before borrowing its existing
     /// stream. Default-deny; metadata IDs alone do not authorize a loan.
     fn dependency_stream_loan_issuer(

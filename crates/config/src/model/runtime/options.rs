@@ -66,6 +66,13 @@ pub struct RuntimeOptionsConfig {
     /// Sealed users across one shared QUIC endpoint. Default65536. Single-query DoQ retains its structural three-user bound.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quic_shared_endpoint_max_users: Option<usize>,
+    /// Actual packet slots per existing QUIC/Mask FIFO. Default256, on demand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quic_max_queue_packets: Option<usize>,
+    /// Shared actual QUIC/Mask frame, codec/copy and receive workspace bytes
+    /// in the same carrier root. Default64MiB; pending/retiring storage counts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quic_total_max_buffered_bytes: Option<usize>,
     /// Per-file bound for component-owned file snapshots. Omission keeps the legacy exported config shape; production readers use 8 MiB by default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_read_max_bytes: Option<usize>,

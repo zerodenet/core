@@ -1,5 +1,6 @@
 //! Direct catalog callers use the same real Users, not a proxy-only preflight.
 use super::*;
+mod buffers;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 fn end() -> tokio::time::Instant {
     tokio::time::Instant::now() + std::time::Duration::from_secs(3)

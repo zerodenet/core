@@ -80,6 +80,19 @@ async fn same_host_two_real_owners_share_total_before_io_and_cannot_exchange_the
         assert!(totals
             .install_after_retirement(NonZeroUsize::new(2).unwrap())
             .is_err());
+        let bytes = crate::controlled_carrier::CarrierBufferLimits {
+            max_queue_packets: 1,
+            total_max_bytes: 65_535,
+        };
+        let original_buffers = totals.buffer_budget().limits();
+        assert_eq!(
+            totals
+                .install_buffer_limits_after_retirement(bytes)
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        assert_eq!(totals.buffer_budget().limits(), original_buffers);
         assert!(actual.closed().is_none());
         drop(io);
         drop(view);
@@ -105,6 +118,10 @@ async fn same_host_two_real_owners_share_total_before_io_and_cannot_exchange_the
                 .is_complete());
         }
         assert!(scope.shutdown(deadline()).await.is_complete());
+        totals
+            .install_buffer_limits_after_retirement(bytes)
+            .unwrap();
+        assert_eq!(totals.buffer_budget().limits(), bytes);
     })
     .await
     .unwrap();

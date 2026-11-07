@@ -27,6 +27,7 @@ struct Key {
     accounting_limit: Option<usize>,
     process_limits: Option<super::recipe::accounting::ProcessLimits>,
     preparation_limits: Option<super::recipe::accounting::PreparationLimits>,
+    buffer_limits: Option<zero_platform_tokio::controlled_carrier::CarrierBufferLimits>,
 }
 
 /// A real host-assigned identity and its state-only resource recipe.
@@ -166,6 +167,7 @@ impl<'a> ResourcePreparation<'a> {
                 || recipe.carrier_total_limit() != old.recipe.carrier_total_limit()
                 || recipe.process_limits() != old.recipe.process_limits()
                 || recipe.preparation_limits() != old.recipe.preparation_limits()
+                || recipe.buffer_limits() != old.recipe.buffer_limits()
             {
                 return None;
             }
@@ -211,11 +213,15 @@ impl<'a> ResourcePreparation<'a> {
         let Ok(preparation_limits) = self.preparation_limits_for(spec) else {
             return false;
         };
+        let Ok(buffer_limits) = self.buffer_limits_for(spec) else {
+            return false;
+        };
         let key = Key {
             namespace,
             accounting_limit,
             process_limits,
             preparation_limits,
+            buffer_limits,
             identity: spec.static_identity.clone(),
         };
         if self
@@ -236,6 +242,7 @@ impl<'a> ResourcePreparation<'a> {
             || old.recipe.carrier_total_limit() != accounting_limit
             || old.recipe.process_limits() != process_limits
             || old.recipe.preparation_limits() != preparation_limits
+            || old.recipe.buffer_limits() != buffer_limits
             || !old.matches_scope_identity(scope)
         {
             return false;
@@ -467,6 +474,7 @@ impl<'a> ResourcePreparation<'a> {
             accounting_limit: recipe.carrier_total_limit(),
             process_limits: recipe.process_limits(),
             preparation_limits: recipe.preparation_limits(),
+            buffer_limits: recipe.buffer_limits(),
             identity: recipe.spec().static_identity.clone(),
         };
         if let Some(existing) = self.resources.get(&key) {

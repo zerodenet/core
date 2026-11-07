@@ -92,6 +92,8 @@ impl Default for RuntimeOptionsConfig {
             metadata_max_send_calls: None,
             quic_source_max_connections: None,
             quic_shared_endpoint_max_users: None,
+            quic_max_queue_packets: None,
+            quic_total_max_buffered_bytes: None,
             event_subscriber_stats_max_bytes: None,
             event_subscriber_max_pending_events: None,
             event_subscriber_total_max_pending_events: None,

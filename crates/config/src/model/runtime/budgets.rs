@@ -220,6 +220,13 @@ impl RuntimeOptionsConfig {
     pub fn effective_quic_shared_endpoint_max_users(&self) -> usize {
         self.quic_shared_endpoint_max_users.unwrap_or(65536)
     }
+    pub fn effective_quic_max_queue_packets(&self) -> usize {
+        self.quic_max_queue_packets.unwrap_or(256)
+    }
+    pub fn effective_quic_total_max_buffered_bytes(&self) -> usize {
+        self.quic_total_max_buffered_bytes
+            .unwrap_or(64 * 1024 * 1024)
+    }
     pub fn effective_inbound_max_tasks_per_carrier(&self, actual_default: usize) -> usize {
         self.inbound_max_tasks_per_carrier.unwrap_or(actual_default)
     }

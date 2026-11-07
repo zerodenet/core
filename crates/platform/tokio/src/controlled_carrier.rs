@@ -2,7 +2,9 @@
 //! One persistent caller owner holds every original control before connect await;
 //! the admitted protocol driver is joined before native close releases capacity.
 mod adoption;
+mod buffers;
 mod caller_credit;
+pub use buffers::{CarrierBufferBudget, CarrierBufferCredit, CarrierBufferLimits};
 mod totals;
 pub use totals::preparation::{CarrierPreparationRequest, CarrierPreparationTotalsSnapshot};
 pub(crate) use totals::{BoundCustody, MetadataCustody, SourceCustody};
