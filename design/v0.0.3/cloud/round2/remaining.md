@@ -1,3 +1,44 @@
+## 2026-11-07 09:00 UTC：接续原控制调用与实际 ACK
+
+远端 integration 再核对仍为 `59615e69ea5a413d657a873157ea4adf8f204a90`；
+M 本地实现输入 `f22b5c728588ac273410615c82010443049bf93e`，工作树干净，普通追加，未回退/强推。
+本节是开发证据索引，五域未完成，无最终候选、同 head CI 或最终下载归档。
+工具链仍 Rust1.99.0，实际锁仍 bb045365baf88f40277e4b87e2941e4990eb630841dd1cd2b2d0de3709d0b0fb。
+
+- Engine Config/Policy、Runtime/Flows/Stats、PrincipalFlows、Sinks 真实借阅视图已接
+  HTTP/IPC/gRPC。冻结实际原表、标量与修订后先计量、预付 workspace/output，再序列化；
+  归还 guard 后才 IO/退款。Traffic、事件重放/队列原件及其余生产者仍继续迁移，不能由此宣布控制预算完成。
+- gRPC H2 HPACK 能缓存已结束 RPC 的错误 header。`8b9a9ea90` 将同一预付 response
+  字节信用转交实际 HeaderValue/Bytes 原件，保留缓存存储额度，归还已结束 RPC 并发额度。
+  不复制第二错误池，不以 Scope join/EOF 归还仍实际持有的 header 字节；原连接低额度拒绝后
+  配置增长可恢复。该输入 Engine5/gRPC19 PASS，日志分别
+  83fe587c448bc63c8a911f7e749c9d30e141f75f625028fa92a12ea7237c8015 /
+  aec386b242d6e9f3350ade4c5fabd2e594f3fcee91e37460cafbf6a735fa7807。
+- 原控制调用携其原 stop。Apply 接受前取消不建任务，接受后继续补偿/实际 ACK；
+  coalesced Probe 仅最后调用者退出时取消同一真实 ProbeCall，控制调用保留原清理。
+  HTTP/IPC/gRPC 使用同一观察元数据，未新增执行器。Target/DNS/Trace 与 typed cleanup
+  故障接收仍在实现，不能把裸 blocking 完成或字符串错误当作原件交接。
+- `a2df49dd4` 保留原 Probe 额度至同 Task 实际 join 且原 Hosted registration ACK；
+  不以业务 body 完成替代 ACK。精确 `b6581ee8e1a3c42aace2b17ae5376cb128cfa616`
+  同冻源码产物：Probe 原 ACK1 PASS、Apply9 PASS、Engine runtime_query5 PASS、gRPC19 PASS；
+  日志 SHA 分别 afa6153beefc60917f88604ecf7eedc933472321bd28fdecd353bd5f908baa77、
+  4910d54ddf53b82c4ecf902b9c27d658f856b4118ca9e6d9a3f9d86b57516264、
+  83fe587c448bc63c8a911f7e749c9d30e141f75f625028fa92a12ea7237c8015、
+  ab29cfbbfd609c311d1aa13ef6b3f88415a079dcd59347dc28e63280fd7f25c3。
+
+保留失败：`a3abaa0eddcd49309283c396ce41f0cba29904f4` Root IPC 无完整结束摘要，
+原队列 fixture 与接受后原调用必须清理的语义冲突导致挂起，由 M 对精确进程 SIGINT；
+中断记录及原日志 abbfe171d6713f5d013159b5f2cbeb862c9c5eabace33d32eb1b9d2d83152171 保留。
+同输入 HTTP/SSE16 PASS/1 FAIL（原2s），fixture预付未含实际事件身份/修订，日志
+5dae2096ab9f41acff44b6c1a2f51355d8ebc88133487695b3d733015f69ba77；
+实际 retirement1 PASS、startup/TLS5 PASS。后续实际 stop 接线及 fixture 修复已普通合入，
+没有放宽期限/容量/断言，也不把后续修复追认成此输入通过。
+
+现串行编译 f22b 的 Proxy/Root lib+bin 测试产物，随后跑实际 coalesced stop、DNS normal
+profile、普通 VMess/H3、fullTX 和 Root 控制。A/B/C 源码并行，不能同时 Cargo。
+B 完整 Nav/QUIC、合法混合/Mieru/SOCKS/process/实际字节额度，以及 C 完整 Source/TUN/
+独立 WG provider 外部草案均未激活，不以准备接口/小子集宣布完成。TEMP 原范围独立保留。
+
 ## 2026-11-07 07:30 UTC：控制实际视图与原 H2 故障
 
 本节是开发输入索引，五域仍未完成；没有最终候选、同 head CI 或最终下载归档。
