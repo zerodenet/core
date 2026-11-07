@@ -1,7 +1,10 @@
 //! Direct lends from its actual selected owner, never the DNS host's native grant.
 use super::*;
 impl Root {
-    pub(super) fn with_direct_endpoint(mut self, endpoint: Option<Destination>) -> Self {
+    pub(in crate::component::native_dns::provider) fn with_direct_endpoint(
+        mut self,
+        endpoint: Option<Destination>,
+    ) -> Self {
         self.direct_endpoint = endpoint;
         self
     }
