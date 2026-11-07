@@ -57,7 +57,11 @@ impl PrefixOpener {
                 deadline: carrier.deadline,
                 cancel: carrier.cancel.clone(),
                 upstream,
-                observer: None,
+                observer: if self.context.session_identity()?.is_none() {
+                    self.context.observer.clone()
+                } else {
+                    None
+                },
             };
             let operation = self.role.connect_carrier(
                 ConnectRequest {

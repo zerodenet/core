@@ -1129,9 +1129,9 @@ impl VmessInboundMuxStreams {
     }
 
     fn close_inbound_stream(&mut self, session_id: u16) -> bool {
-        self.streams
-            .remove(&session_id)
-            .is_some_and(|tx| tx.send(Vec::new()).is_ok())
+        // END finishes the upload. Dropping its sender drains accepted DATA
+        // before EOF while the same relay can still deliver the target reply.
+        self.streams.remove(&session_id).is_some()
     }
 
     fn apply_inbound_action(
