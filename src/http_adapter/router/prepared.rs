@@ -7,6 +7,10 @@ enum Selected<'a> {
     Policies,
     Policy(&'a str),
     Typed(&'a [u8]),
+    Runtime,
+    Stats,
+    Flows(&'a str),
+    Flow(&'a str),
 }
 pub(super) fn route(
     request: &HttpRequest,
@@ -21,6 +25,12 @@ pub(super) fn route(
     let path = path.strip_prefix("/api/v1").unwrap();
     let selected = match (request.method.as_str(), path) {
         ("GET", "/config") => Selected::Config,
+        ("GET", "/runtime") => Selected::Runtime,
+        ("GET", "/stats") => Selected::Stats,
+        ("GET", "/flows") => Selected::Flows(path_query_part(&request.path)),
+        (_, path) if path_segments(path) == 2 && path.starts_with("/flows/") => {
+            Selected::Flow(&path["/flows/".len()..])
+        }
         ("GET", "/policies") => Selected::Policies,
         ("POST", "/query") => Selected::Typed(&request.body),
         (_, path) if path_segments(path) == 2 && path.starts_with("/policies/") => {
@@ -44,12 +54,22 @@ fn prepare(
     // This original extra parsed request/tag copy has independent credit.
     // Declare before query so its real strings disappear before refund/wake.
     let _request_storage = match &selected {
-        Selected::Policy(tag) => Some(budget.reserve(ControlCharge::RequestBytes(tag.len()))?),
+        Selected::Policy(tag) | Selected::Flow(tag) | Selected::Flows(tag) => {
+            Some(budget.reserve(ControlCharge::RequestBytes(tag.len()))?)
+        }
         Selected::Typed(body) => Some(budget.reserve(ControlCharge::RequestBytes(body.len()))?),
         _ => None,
     };
     let request = match selected {
         Selected::Config => QueryRequest::Config(Default::default()),
+        Selected::Runtime => QueryRequest::Runtime(Default::default()),
+        Selected::Stats => QueryRequest::Stats(Default::default()),
+        Selected::Flows(query) => {
+            QueryRequest::ActiveFlows(handlers::parse_flow_list_params(query))
+        }
+        Selected::Flow(id) => QueryRequest::Flow(zero_api::FlowGetQuery {
+            flow_id: id.to_owned(),
+        }),
         Selected::Policies => QueryRequest::Policies(Default::default()),
         Selected::Policy(tag) => QueryRequest::Policy(zero_api::PolicyGetQuery {
             policy_tag: tag.to_owned(),
@@ -61,6 +81,9 @@ fn prepare(
             }
         },
     };
+    if runtime::handles(&request) {
+        return runtime::prepare(handle, &request, budget);
+    }
     if !matches!(
         &request,
         QueryRequest::Config(_) | QueryRequest::Policies(_) | QueryRequest::Policy(_)
@@ -126,3 +149,5 @@ fn encode_failure(
 
 #[cfg(test)]
 mod tests;
+
+mod runtime;

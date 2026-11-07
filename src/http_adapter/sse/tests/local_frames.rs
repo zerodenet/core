@@ -130,14 +130,22 @@ async fn sse_original_frame_write_and_queue_hold_shrink_busy_until_actual_worker
 async fn ordered_catchup_reserves_its_real_working_frame_before_the_same_worker_queue() {
     tokio::time::timeout(Duration::from_secs(2), async {
         let engine = engine();
-        let subscriber = engine
-            .subscribe(EventFilter {
-                event_types: vec!["test.ordered".into()],
-                ..Default::default()
-            })
-            .unwrap();
-        let mut caught = RawApiEvent::new("caught", "test.ordered", 0, json!({"order":0}));
-        caught.sequence = Some(1);
+        let filter = EventFilter {
+            event_types: vec!["test.ordered".into()],
+            ..Default::default()
+        };
+        engine.emit(RawApiEvent::new(
+            "caught",
+            "test.ordered",
+            0,
+            json!({"order":0}),
+        ));
+        // Production catch-up already carries this Engine's published metadata.
+        // Measure that same real envelope, not an unqualified synthetic event.
+        let caught = engine.latest(1, filter.clone()).unwrap().pop().unwrap();
+        assert!(caught.core_instance_id.is_some());
+        assert!(caught.config_revision.is_some());
+        let subscriber = engine.subscribe(filter).unwrap();
         let mut limits =
             ControlBudgetLimits::from_runtime(&zero_config::RuntimeOptionsConfig::default());
         limits.messages.sse_event_frames = 1;

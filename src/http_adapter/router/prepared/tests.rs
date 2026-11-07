@@ -94,3 +94,53 @@ async fn actual_prepared_http_write_keeps_same_body_credit_through_real_pending_
     // returning its payload buffer credit, not an invented native receipt.
     assert!(sending.write_all(b"x").await.is_err());
 }
+
+#[tokio::test]
+async fn original_prepared_stats_output_stays_frozen_through_actual_pending_io() {
+    use std::{
+        future::{poll_fn, Future},
+        task::Poll,
+    };
+    use tokio::io::AsyncReadExt;
+    let (handle, budget) = fixture();
+    let original = prepare(&handle, Selected::Stats, &budget).unwrap();
+    let expected = original.bytes_for_test();
+    let output_bytes = original.len().unwrap();
+    assert_eq!(budget.usage().response_bytes, output_bytes);
+    let (mut tx, mut rx) = tokio::io::duplex(1);
+    let mut write = Box::pin(crate::http_adapter::output::write_response(
+        &mut tx,
+        "HTTP/1.1 200 OK\r\n",
+        &original,
+        &budget,
+    ));
+    poll_fn(|cx| {
+        assert!(write.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    handle
+        .engine_handle()
+        .inner()
+        .record_udp_upstream_association_created();
+    assert_eq!(original.bytes_for_test(), expected);
+    let mut limits = budget.limits();
+    limits.messages.response_bytes_total = output_bytes - 1;
+    match budget.prepare(limits) {
+        Err(error) => assert_eq!(error.kind(), io::ErrorKind::WouldBlock),
+        Ok(_) => panic!("real original output was refunded before returning"),
+    }
+    let read = async {
+        let mut bytes = Vec::new();
+        rx.read_to_end(&mut bytes).await.unwrap();
+        bytes
+    };
+    let (written, wire) = tokio::join!(write, read);
+    written.unwrap();
+    assert!(wire.ends_with(&expected));
+    assert_eq!(budget.usage().response_bytes, output_bytes);
+    drop(original);
+    assert_eq!(budget.usage().response_bytes, 0);
+    let next = prepare(&handle, Selected::Stats, &budget).unwrap();
+    assert_ne!(next.bytes_for_test(), expected);
+}
