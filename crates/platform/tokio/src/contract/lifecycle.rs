@@ -45,6 +45,7 @@ pub struct ResourceFailure {
     pub instance: zero_core::component::ComponentInstanceId,
     pub controller: ResourceFailurePhase,
     pub source: Arc<ChannelError>,
+    original_sources: Option<Arc<OriginalProtocolFailures>>,
     reported: AtomicBool,
     ownership: std::sync::OnceLock<Arc<ChannelError>>,
 }
@@ -58,9 +59,17 @@ impl ResourceFailure {
             instance,
             controller,
             source,
+            original_sources: None,
             reported: false.into(),
             ownership: std::sync::OnceLock::new(),
         }
+    }
+    pub(crate) fn with_original_sources(mut self, sources: Arc<OriginalProtocolFailures>) -> Self {
+        self.original_sources = Some(sources);
+        self
+    }
+    pub fn original_sources(&self) -> Option<&Arc<OriginalProtocolFailures>> {
+        self.original_sources.as_ref()
     }
     /// Exact local ownership delivery, independent of publication, physical
     /// close, actual task join and Host registration ACK.
@@ -86,15 +95,26 @@ impl ResourceFailure {
         }
         let notice = self.ownership.get_or_init(|| {
             let receipt = zero_error::channel::CleanupFailureReceipt::new();
-            assert!(receipt.bind_payload(self.source.clone()));
+            assert!(
+                receipt.bind_payload(Arc::new(original_failures::SourcePayload {
+                    first: self.source.clone(),
+                    _original: self.original_sources.clone(),
+                }))
+            );
             Arc::new(
                 ChannelError::retained(self.source.clone()).with_cleanup_failure_receipt(receipt),
             )
         });
-        notice
+        let accepted = notice
             .cleanup_failure_receipt()
             .unwrap()
-            .acknowledge_retained(notice)
+            .acknowledge_retained(notice);
+        if accepted {
+            if let Some(sources) = &self.original_sources {
+                sources.accept();
+            }
+        }
+        accepted
     }
     pub fn reported(&self) -> bool {
         self.reported.load(Ordering::Acquire)
@@ -255,3 +275,6 @@ pub fn erase_lifecycle(owner: impl ResourceLifecycle + 'static) -> Box<dyn DynRe
 
 mod cleanup_failures;
 pub use cleanup_failures::{CleanupFailurePhase, ResourceCleanupFailures};
+
+mod original_failures;
+pub use original_failures::OriginalProtocolFailures;

@@ -34,6 +34,7 @@ pub(crate) struct Phase {
     changed: tokio::sync::Notify,
     settled: Arc<AtomicBool>,
     state: Mutex<State>,
+    fault_sources: Arc<crate::contract::lifecycle::OriginalProtocolFailures>,
 }
 #[derive(Default)]
 struct State {
@@ -78,6 +79,7 @@ impl Phase {
             changed: tokio::sync::Notify::new(),
             settled: Arc::new(AtomicBool::new(false)),
             state: Mutex::default(),
+            fault_sources: Arc::default(),
         })
     }
     pub(crate) fn handle(self: &Arc<Self>) -> CarrierProtocolRetirement {
@@ -126,6 +128,12 @@ impl Phase {
             .complete
     }
     fn receive(&self, result: Result<CloseReport, ChannelError>) -> bool {
+        self.receive_result(result, false)
+    }
+    fn receive_panic(&self, source: ChannelError) -> bool {
+        self.receive_result(Err(source), true)
+    }
+    fn receive_result(&self, result: Result<CloseReport, ChannelError>, poll_panic: bool) -> bool {
         let (report, failure) = match result {
             Ok(report) => (Some(report), None),
             Err(source) => (None, Some(Arc::new(source))),
@@ -141,6 +149,7 @@ impl Phase {
                 report::merge(&mut state.report, report, &mut retired_failures);
             }
             if let Some(source) = &failure {
+                self.fault_sources.record(poll_panic, source.clone());
                 if state.first_fault.is_none() {
                     // This controller is installed in the same declared
                     // original's Host resource entry, not a synthetic task.
@@ -153,7 +162,7 @@ impl Phase {
                                 self.instance,
                                 crate::contract::lifecycle::ResourceFailurePhase::DeclaredResources,
                                 source.clone(),
-                            ))
+                            ).with_original_sources(self.fault_sources.clone()))
                         })
                         .clone();
                     state.first_fault = Some(actual.source.clone());

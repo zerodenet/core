@@ -92,6 +92,14 @@ impl ChannelError {
         error
     }
 
+    /// Read the exact retained diagnostic Arc. This is identity observation
+    /// only, never a cleanup-delivery ACK or permission to release resources.
+    pub fn retained_source(&self) -> Option<&Arc<Self>> {
+        match self.source.as_ref() {
+            Some(Source::Retained(source)) => Some(source),
+            _ => None,
+        }
+    }
     pub fn retry_permitted(&self) -> bool {
         self.retry.permits(self.delivery)
     }

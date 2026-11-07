@@ -16,6 +16,8 @@ use std::sync::{
 struct Gate {
     released: AtomicBool,
     panic_first: AtomicBool,
+    late_io: Mutex<Option<std::path::PathBuf>>,
+    io_source: Mutex<Option<Arc<ChannelError>>>,
     entered: AtomicUsize,
     changed: tokio::sync::Notify,
 }
@@ -60,6 +62,16 @@ impl DynChannelControl for Control {
     fn wait_closed(&mut self, _: Instant) -> BoxFuture<'_, Result<CloseReport, ChannelError>> {
         Box::pin(async move {
             self.0.gate.wait().await;
+            if let Some(path) = self.0.gate.late_io.lock().unwrap().take() {
+                let error = std::fs::File::open(path)
+                    .expect_err("actual missing original path must fail in OS");
+                let source = Arc::new(
+                    ChannelError::new(Stage::Close, Reason::Io, crate::contract::Impact::Component)
+                        .with_source(error),
+                );
+                *self.0.gate.io_source.lock().unwrap() = Some(source.clone());
+                return Err(ChannelError::retained(source));
+            }
             let wire = self.0.wire.lock().unwrap().take();
             if let Some(mut wire) = wire {
                 let claim = wire.users_claim.take();
@@ -93,10 +105,16 @@ mod fixture;
 #[tokio::test]
 async fn exact_pre_io_control_survives_owner_loss_and_root_closes_real_udp_before_deferred_actor_ack(
 ) {
-    fixture::run(false).await;
+    fixture::run(false, false).await;
 }
 #[tokio::test]
 async fn actual_original_poll_panic_retains_typed_payload_and_recovers_same_udp_before_real_host_ack(
 ) {
-    fixture::run(true).await;
+    fixture::run(true, false).await;
+}
+
+#[tokio::test]
+async fn actual_panic_then_independent_os_cleanup_source_remain_in_same_receiver_until_native_and_ack(
+) {
+    fixture::run(true, true).await;
 }

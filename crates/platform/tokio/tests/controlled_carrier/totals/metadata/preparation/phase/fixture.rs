@@ -1,5 +1,5 @@
 use super::*;
-pub(super) async fn run(panic_first: bool) {
+pub(super) async fn run(panic_first: bool, late_io: bool) {
     timeout(Duration::from_secs(3), async {
         let one = NonZeroUsize::new(1).unwrap();
         let totals = CarrierOriginalTotals::new(one);
@@ -93,6 +93,10 @@ pub(super) async fn run(panic_first: bool) {
         let permit = Arc::new(permit);
         let gate = Arc::new(Gate::default());
         gate.panic_first.store(panic_first, Ordering::Release);
+        let missing = tempfile::tempdir().unwrap();
+        if late_io {
+            *gate.late_io.lock().unwrap() = Some(missing.path().join("missing-original"));
+        }
         let retained = Arc::new(Retained {
             gate: gate.clone(),
             _owner: owner.clone(),
@@ -198,8 +202,47 @@ pub(super) async fn run(panic_first: bool) {
         .await;
         assert_eq!(
             gate.entered.load(Ordering::Acquire),
-            if panic_first { 2 } else { 1 }
+            if late_io {
+                3
+            } else if panic_first {
+                2
+            } else {
+                1
+            }
         );
+        if late_io {
+            let io = gate
+                .io_source
+                .lock()
+                .unwrap()
+                .clone()
+                .expect("actual original OS error");
+            let receiver = totals
+                .resource_failures()
+                .into_iter()
+                .find(|actual| Arc::ptr_eq(&actual.source, original_fault.as_ref().unwrap()))
+                .unwrap();
+            let sources = receiver
+                .original_sources()
+                .expect("same actual Phase finite source record");
+            let actual = sources.protocol().unwrap();
+            assert!(actual
+                .retained_source()
+                .is_some_and(|original| Arc::ptr_eq(original, &io)));
+            assert_eq!(
+                std::error::Error::source(io.as_ref())
+                    .unwrap()
+                    .downcast_ref::<std::io::Error>()
+                    .unwrap()
+                    .kind(),
+                std::io::ErrorKind::NotFound
+            );
+            assert!(Arc::ptr_eq(
+                sources.poll_panic().unwrap(),
+                original_fault.as_ref().unwrap()
+            ));
+            assert!(sources.foreign_source().is_none());
+        }
         if let Some(original) = &original_fault {
             assert!(totals
                 .failures()

@@ -47,6 +47,9 @@ impl Phase {
         _cx: &mut Context<'_>,
         end: Instant,
     ) -> Poll<bool> {
+        if self.fault_sources.identity_failed() {
+            return Poll::Pending;
+        }
         if self.complete() {
             return Poll::Ready(true);
         }
@@ -81,12 +84,14 @@ impl Phase {
                 // The exact thrown payload is retained before dropping the
                 // poisoned future. Its same unique controller remains in Root;
                 // recovery may resume actual state, never repoll this future.
-                self.receive(Err(ChannelError::new(
-                    crate::contract::Stage::Close,
-                    crate::contract::Reason::Internal,
-                    crate::contract::Impact::Component,
-                )
-                .with_source(OriginalPollPanic(Mutex::new(payload)))));
+                self.receive_panic(
+                    ChannelError::new(
+                        crate::contract::Stage::Close,
+                        crate::contract::Reason::Internal,
+                        crate::contract::Impact::Component,
+                    )
+                    .with_source(OriginalPollPanic(Mutex::new(payload))),
+                );
                 drop(work);
                 (None, Some(false))
             }
