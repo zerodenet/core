@@ -17,15 +17,17 @@ pub fn public(seed: u8) -> String {
     STANDARD.encode(PublicKey::from(&StaticSecret::from([seed; 32])).as_bytes())
 }
 pub async fn echo_peer() -> (SocketAddr, JoinHandle<()>) {
-    echo_peer_inner(None).await
+    echo_peer_inner(None, None).await
 }
 
 pub async fn echo_peer_with_dns(answer: zero_traits::IpAddress) -> (SocketAddr, JoinHandle<()>) {
-    echo_peer_inner(Some(answer)).await
+    echo_peer_inner(Some(answer), None).await
 }
 
-async fn echo_peer_inner(
+pub(super) type InnerObserver = dyn Fn(bool, &[u8]) + Send + Sync;
+pub(super) async fn echo_peer_inner(
     dns_answer: Option<zero_traits::IpAddress>,
+    observer: Option<std::sync::Arc<InnerObserver>>,
 ) -> (SocketAddr, JoinHandle<()>) {
     let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
     let address = socket.local_addr().unwrap();
@@ -75,7 +77,11 @@ async fn echo_peer_inner(
                     let (size,source)=received.unwrap(); endpoint=Some(source);
                     tunnel.receive_datagram(Some(source),&buffer[..size]).unwrap()
                 }
-                response=responses.recv() => tunnel.send_ip_packet(&response.unwrap()).unwrap(),
+                response=responses.recv() => {
+                    let response=response.unwrap();
+                    if let Some(observer)=&observer { observer(false,&response); }
+                    tunnel.send_ip_packet(&response).unwrap()
+                },
             };
             for action in actions {
                 match action {
@@ -83,6 +89,9 @@ async fn echo_peer_inner(
                         socket.send_to(&bytes, endpoint.unwrap()).await.unwrap();
                     }
                     TunnelAction::ReceiveIp { packet: inner, .. } => {
+                        if let Some(observer) = &observer {
+                            observer(true, &inner);
+                        }
                         if let Some(udp) = packet::parse_udp(&inner) {
                             let dns_reply =
                                 dns_answer.filter(|_| udp.dst.port == 53).map(|answer| {
