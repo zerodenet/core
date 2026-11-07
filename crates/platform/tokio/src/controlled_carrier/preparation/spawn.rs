@@ -112,11 +112,15 @@ impl CarrierAdoption {
             // exact sealed handoff the original Host/Scope/slot and the job's
             // existing lifetime govern its IO; original Business facts remain
             // retained and are never rebound as another caller or Service.
+            // A canonical stop must prevent another poll of this already
+            // revoked original IO. An earlier Ready result has already left
+            // this select and is retained by this exact Scope's task record;
+            // a later stop cannot replace that actual result or its source.
             tokio::select! {biased;
-                result=future=>result,
                 _=host.cancelled()=>Ok(()),
                 _=scope.cancelled()=>Ok(()),
                 _=original.cancelled()=>Ok(()),
+                result=future=>result,
             }
         });
         let mut state = self.slot.state();

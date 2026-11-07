@@ -1,5 +1,7 @@
 //! Verified TLS decoy uses the actual rejected original and its real Aux/ACK.
 use super::*;
+#[path = "navigation_owned/pending.rs"]
+mod pending;
 use std::task::Poll;
 use tokio::time::{timeout, Instant};
 use zero_core::{
@@ -92,6 +94,8 @@ async fn verified_decoy_stays_on_the_original_until_same_scope_job_and_native_ac
             cancel: CancellationToken::new(),
         };
         let first_caller = call.cancel.clone();
+        let (native_read, read_pending) = pending::Observation::new();
+        let observed = native_read.clone();
         let prepared = PreparedRealityClient {
             config: RealityClientConfig {
                 public_key: *PublicKey::from(&StaticSecret::from([21; 32])).as_bytes(),
@@ -112,10 +116,13 @@ async fn verified_decoy_stays_on_the_original_until_same_scope_job_and_native_ac
                 let (io, _) = carrier.into_parts();
                 let (io, input) = io.into_driver().split(|io| (io, view));
                 let result = prepared
-                    .connect_with_navigation(io, |stream, host, plan| async move {
-                        let job = preparation.reserve_job().unwrap();
-                        crate::component::navigation::stage(stream, host, plan, job);
-                    })
+                    .connect_with_navigation(
+                        pending::ReadPending::new(io, observed),
+                        |stream, host, plan| async move {
+                            let job = preparation.reserve_job().unwrap();
+                            crate::component::navigation::stage(stream, host, plan, job);
+                        },
+                    )
                     .await;
                 let rejection = result.err().expect("a verified decoy never admits a proxy");
                 assert_eq!(rejection.kind(), io::ErrorKind::PermissionDenied);
@@ -168,6 +175,10 @@ async fn verified_decoy_stays_on_the_original_until_same_scope_job_and_native_ac
             })
             .unwrap();
         preface.await.unwrap();
+        native_read.arm();
+        read_pending
+            .await
+            .expect("actual same-original native read is Pending after H2 preface");
         first_caller.cancel();
         assert!(!driver.is_joined());
         assert_eq!(totals.preparation_snapshot().jobs, 1);
