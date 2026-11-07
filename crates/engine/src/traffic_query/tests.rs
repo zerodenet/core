@@ -156,7 +156,7 @@ fn actual_activity_and_mutable_counters_are_frozen_once_until_original_guards_re
     assert_eq!(book.usage().response_bytes, 0);
     engine
         .track_session(session.id)
-        .finish(crate::SessionOutcome::Success);
+        .finish(crate::SessionOutcome::DirectRelayed);
     compare(&engine, request);
 }
 #[test]
