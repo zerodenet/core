@@ -62,3 +62,5 @@ pub use observability::traffic::{
     HostInterfaceSample, InboundTrafficRegistration, PreparedEndpointTraffic, TrafficMeter,
     TrafficRouteLease,
 };
+
+pub use observability::RetainedReplay;

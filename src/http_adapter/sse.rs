@@ -5,6 +5,8 @@ use zero_platform_tokio::contract::CancellationToken;
 #[cfg(test)]
 use zero_runtime::configuration::ControlBudgetLimits;
 use zero_runtime::configuration::{ControlBudget, ControlBudgetPermit, ControlCharge};
+mod catch_up;
+pub use catch_up::CatchUp;
 const SSE_HEADERS: &str = concat!(
     "HTTP/1.1 200 OK\r\n",
     "Content-Type: text/event-stream\r\n",
@@ -67,12 +69,13 @@ pub async fn run_sse_stream(
 pub async fn run_sse_stream_with_budget(
     mut stream: impl tokio::io::AsyncWrite + Unpin,
     subscriber: zero_engine::EventSubscriber,
-    catch_up: Vec<RawApiEvent>,
+    catch_up: impl Into<CatchUp>,
     heartbeat_interval: Duration,
     shutdown: impl std::future::Future + Send,
     budget: Arc<ControlBudget>,
     local: zero_runtime::configuration::ControlConnectionBudget,
 ) -> io::Result<()> {
+    let catch_up = catch_up.into();
     let mut shutdown = Box::pin(shutdown);
     let stop = CancellationToken::new();
     let worker_stop = stop.clone();
@@ -90,8 +93,8 @@ pub async fn run_sse_stream_with_budget(
     // fill the same Root byte book. No buffer is preallocated at this bound.
     // The ordered operation reuses this one working allowance until catch-up
     // finishes; each Vec still allocates only its actual measured frame.
-    let catchup_bytes = catch_up.iter().try_fold(0usize, |maximum, event| {
-        frame_len(event).map(|size| maximum.max(size))
+    let catchup_bytes = (0..catch_up.len()).try_fold(0usize, |maximum, index| {
+        frame_len(catch_up.event(index)).map(|size| maximum.max(size))
     })?;
     let mut catchup_charge = if catchup_bytes == 0 {
         None
@@ -174,10 +177,11 @@ pub async fn run_sse_stream_with_budget(
     });
     let result = crate::ipc::owner::catch_work(async {
         tokio::select! { _ = &mut shutdown => return Ok(()), result = stream.write_all(SSE_HEADERS.as_bytes()) => result? }
-        for event in &catch_up {
-            let frame=frame(event)?;
+        for index in 0..catch_up.len() {
+            let frame=frame(catch_up.event(index))?;
             tokio::select! { _ = &mut shutdown => return Ok(()), result = stream.write_all(&frame) => result? }
         }
+        drop(catch_up);
         drop(catchup_charge.take());
         drop(catchup_slot.take());
         loop {

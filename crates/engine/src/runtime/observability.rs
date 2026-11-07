@@ -62,6 +62,18 @@ impl Engine {
         self.event_log.events_since(since, limit, filter)
     }
 
+    /// Prepaid original replay for concrete production control adapters. The
+    /// existing owned EventSource API retains its independent library role.
+    pub fn retained_event_replay(
+        &self,
+        since: u64,
+        limit: usize,
+        filter: &EventFilter,
+        credit: zero_runtime::configuration::ControlBudgetPermit,
+    ) -> std::io::Result<crate::RetainedReplay> {
+        self.event_log.retained_replay(since, limit, filter, credit)
+    }
+
     pub fn latest_event_sequence(&self) -> u64 {
         self.event_log.latest_sequence()
     }
