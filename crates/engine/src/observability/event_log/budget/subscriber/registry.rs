@@ -125,6 +125,7 @@ impl SubscriberRegistry {
         });
         Ok(book)
     }
+    #[cfg(test)]
     pub(crate) fn current_limits(&self) -> SubscriberLimits {
         self.limits
     }

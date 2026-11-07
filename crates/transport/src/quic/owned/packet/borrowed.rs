@@ -90,7 +90,7 @@ impl BorrowedPacketSegment {
         {
             return Err(ChannelError::retained(source));
         }
-        let mut channels = self
+        let channels = self
             .queues
             .lock()
             .unwrap()
