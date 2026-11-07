@@ -69,9 +69,9 @@ async fn actual_borrowed_wire(cancelled: bool, faulted: bool) {
             TaskScope::suspended_hosted(tokio::runtime::Handle::current(), Some(bound(1)));
         scope.enable_registration().unwrap();
         let totals = CarrierOriginalTotals::new(bound(2));
-        let buffers = totals.buffer_budget();
+        let buffer_book = totals.buffer_budget();
         let (socket, queues) =
-            PacketSocket::prepare_with_budget(remote, buffers.clone(), &[]).unwrap();
+            PacketSocket::prepare_with_budget(remote, buffer_book.clone(), &[]).unwrap();
         let mut donor = CarrierOwner::new(instance(935), bound(1), &host);
         donor
             .registration()
@@ -302,13 +302,13 @@ async fn actual_borrowed_wire(cancelled: bool, faulted: bool) {
         assert!(donor_scope.shutdown(end()).await.is_complete());
         assert_eq!(totals.snapshot().charged, 0);
         assert!(
-            buffers.used_bytes() > 0,
+            buffer_book.used_bytes() > 0,
             "returned unique queues retain their actual scratch"
         );
         drop(_same_queues);
         drop(socket);
         drop(segment);
-        assert_eq!(buffers.used_bytes(), 0);
+        assert_eq!(buffer_book.used_bytes(), 0);
     })
     .await
     .unwrap();
