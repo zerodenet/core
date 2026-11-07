@@ -82,10 +82,11 @@ async fn ordinary_full_material_mux_doh_cancellation_preserves_the_same_physical
             let zero_config::DnsServerConfig::Doh { detour, .. } = &mut backend else { unreachable!() };
             *detour = Some("node".into());
             let mut protocol = if flavor == "trojan" {
-                serde_json::json!({"type":flavor,"server":"127.0.0.1","port":remote.address.port(),"password":"actual-dns-secret","sni":"localhost","insecure":true,"mux_concurrency":8,"xudp_concurrency":8})
+                serde_json::json!({"type":flavor,"server":"127.0.0.1","port":remote.address.port(),"password":"actual-dns-secret","sni":"localhost","insecure":true,"mux_concurrency":8})
             } else {
-                serde_json::json!({"type":flavor,"server":"127.0.0.1","port":remote.address.port(),"id":"11111111-2222-3333-4444-555555555555","mux_concurrency":8,"xudp_concurrency":8,"tls":{"server_name":"localhost","ca_cert_path":remote.ca,"client_fingerprint":null}})
+                serde_json::json!({"type":flavor,"server":"127.0.0.1","port":remote.address.port(),"id":"11111111-2222-3333-4444-555555555555","mux_concurrency":8,"tls":{"server_name":"localhost","ca_cert_path":remote.ca,"client_fingerprint":null}})
             };
+            if flavor == "vless" { protocol["xudp_concurrency"] = serde_json::json!(8); }
             match kind {
                 "raw" => {},
                 "grpc-single" | "grpc-multi" => protocol["grpc"] = serde_json::json!({"service_names":["actual.dns/Tun"],"multi_mode":kind=="grpc-multi"}),
