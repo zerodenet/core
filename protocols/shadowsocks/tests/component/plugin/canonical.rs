@@ -11,7 +11,7 @@ fn options(state: &crate::transport::ShadowsocksTransportState) -> PluginOptions
         .unwrap()
 }
 fn scoped(
-    scope: &TaskScope,
+    tasks: zero_platform_tokio::contract::scope::TaskRegistrar,
     grant: Arc<Grant>,
     options: PluginOptions,
     generation: u64,
@@ -24,7 +24,7 @@ fn scoped(
             dependencies: Arc::from([]),
             roles: Default::default(),
             resources: grant,
-            tasks: scope.registrar(),
+            tasks,
             cancel: CancellationToken::new(),
             background_carrier: None,
         },
@@ -39,7 +39,7 @@ async fn canonical_process_native_generation_needs_matching_native_and_real_defe
             TaskScope::suspended_hosted(tokio::runtime::Handle::current(), NonZeroUsize::new(1));
         old_scope.enable_registration().unwrap();
         let old_grant = Arc::new(Grant::for_scope(&old_scope, 1));
-        let mut old = scoped(&old_scope, old_grant.clone(), options(&state), 1).unwrap();
+        let mut old = scoped(old_scope.registrar(), old_grant.clone(), options(&state), 1).unwrap();
         old.lifecycle.start(deadline()).await.unwrap();
         let original = old_grant.originals.lock().unwrap()[0].clone();
         let actor = old_grant.actor.lock().unwrap().clone().unwrap();
@@ -61,10 +61,15 @@ async fn canonical_process_native_generation_needs_matching_native_and_real_defe
         );
         let next_grant = Arc::new(Grant::for_scope(&next_scope, 2));
         assert_eq!(
-            scoped(&next_scope, next_grant.clone(), options(&state), 2)
-                .err()
-                .unwrap()
-                .reason,
+            scoped(
+                next_scope.registrar(),
+                next_grant.clone(),
+                options(&state),
+                2
+            )
+            .err()
+            .unwrap()
+            .reason,
             Reason::Capacity
         );
         assert_eq!(next_grant.starts.load(Ordering::SeqCst), 0);
@@ -73,10 +78,15 @@ async fn canonical_process_native_generation_needs_matching_native_and_real_defe
         assert!(!actor.try_joined().unwrap().registration_released());
         state.clear_plugins();
         assert_eq!(
-            scoped(&next_scope, next_grant.clone(), options(&state), 2)
-                .err()
-                .unwrap()
-                .reason,
+            scoped(
+                next_scope.registrar(),
+                next_grant.clone(),
+                options(&state),
+                2
+            )
+            .err()
+            .unwrap()
+            .reason,
             Reason::Capacity
         );
         assert_eq!(next_grant.starts.load(Ordering::SeqCst), 0);
@@ -90,7 +100,13 @@ async fn canonical_process_native_generation_needs_matching_native_and_real_defe
             .unwrap()
             .is_complete());
         state.clear_plugins();
-        let mut next = scoped(&next_scope, next_grant.clone(), options(&state), 2).unwrap();
+        let mut next = scoped(
+            next_scope.registrar(),
+            next_grant.clone(),
+            options(&state),
+            2,
+        )
+        .unwrap();
         next.lifecycle.start(deadline()).await.unwrap();
         assert_eq!(next_grant.starts.load(Ordering::SeqCst), 1);
         let successor = next_grant.originals.lock().unwrap()[0].clone();

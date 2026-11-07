@@ -10,6 +10,6 @@ pub(crate) mod stream;
 
 #[cfg(all(test, unix))]
 #[path = "../../tests/plugin/fixtures.rs"]
-mod fixtures;
+pub(crate) mod fixtures;
 
 pub(crate) mod child;
