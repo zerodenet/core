@@ -10,16 +10,39 @@ pub(super) async fn serve_connection(
     budget: Arc<zero_runtime::configuration::ControlBudget>,
     original: Arc<connections::Original>,
 ) -> io::Result<()> {
-    let request = tokio::select! {
+    let work = serve_request(
+        &mut stream,
+        handle,
+        auth,
+        limiters,
+        stop,
+        budget,
+        original.clone(),
+    );
+    let result = crate::ipc::owner::catch_work(work).await;
+    let joined = original.finish_command().await;
+    crate::ipc::owner::finish_caught(result, [joined])
+}
+async fn serve_request(
+    stream: &mut (impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin),
+    handle: ProxyHandle,
+    auth: Option<&HttpServerAuth>,
+    limiters: &ratelimit::ApiRateLimiters,
+    stop: CancellationToken,
+    budget: Arc<zero_runtime::configuration::ControlBudget>,
+    original: Arc<connections::Original>,
+) -> io::Result<()> {
+    let request = Arc::new(tokio::select! {
         _ = stop.cancelled() => return Ok(()),
-        result = input::read_request(&mut stream,&budget) => result?,
-    };
+        result = input::read_request(stream,&budget) => result?,
+    });
 
     let auth_ctx = authenticate(&request, auth, &budget)?;
     if auth_ctx.permissions.is_empty() {
+        let response = body::HttpBody::Raw(br#"{"error":"unauthorized"}"#);
         return tokio::select! {
             _ = stop.cancelled() => Ok(()),
-            result = output::write_response(&mut stream, "HTTP/1.1 401 Unauthorized\r\n", &body::HttpBody::Raw(br#"{"error":"unauthorized"}"#),&budget) => result,
+            result = output::write_response(&mut *stream, "HTTP/1.1 401 Unauthorized\r\n", &response,&budget) => result,
         };
     }
 
@@ -31,9 +54,10 @@ pub(super) async fn serve_connection(
         RateLimitCategory::Sse => limiters.sse_connections.allow(),
     };
     if !allowed {
+        let response = body::HttpBody::Raw(br#"{"error":"rate limit exceeded"}"#);
         return tokio::select! {
             _ = stop.cancelled() => Ok(()),
-            result = output::write_response(&mut stream, "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 1\r\n", &body::HttpBody::Raw(br#"{"error":"rate limit exceeded"}"#),&budget) => result,
+            result = output::write_response(&mut *stream, "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 1\r\n", &response,&budget) => result,
         };
     }
 
@@ -41,44 +65,54 @@ pub(super) async fn serve_connection(
         match budget.reserve(zero_runtime::configuration::ControlCharge::Subscription) {
             Ok(charge) => Some(charge),
             Err(_) => {
-                return tokio::select! { _ = stop.cancelled() => Ok(()), result = output::write_response(&mut stream, "HTTP/1.1 503 Service Unavailable\r\n", &body::HttpBody::Raw(br#"{"error":"subscription capacity exhausted"}"#),&budget) => result }
+                let response =
+                    body::HttpBody::Raw(br#"{"error":"subscription capacity exhausted"}"#);
+                return tokio::select! { _ = stop.cancelled() => Ok(()), result = output::write_response(&mut *stream, "HTTP/1.1 503 Service Unavailable\r\n", &response,&budget) => result };
             }
         }
     } else {
         None
     };
-    if request.method == "POST"
+    let accepted_command = request.method == "POST"
         && request
             .path
             .split('?')
             .next()
-            .is_some_and(|path| path == "/api/v1/commands" || path == "/commands")
-    {
-        if let Err(error) = original.reserve_command() {
-            if error.kind() != io::ErrorKind::WouldBlock {
-                return Err(error);
+            .is_some_and(|path| path == "/api/v1/commands" || path == "/commands");
+    let observation = if accepted_command {
+        match original.reserve_command(request.clone()) {
+            Ok(observation) => Some(observation),
+            Err(error) => {
+                if error.kind() != io::ErrorKind::WouldBlock {
+                    return Err(error);
+                }
+                let error = zero_api::ApiError::new(
+                    zero_api::ApiErrorCode::Conflict,
+                    "root control command admission is full",
+                );
+                let response = body::HttpBody::Error(error);
+                return tokio::select! {biased;_=stop.cancelled()=>Ok(()),result=output::write_response(&mut *stream,"HTTP/1.1 409 Conflict\r\n",&response,&budget)=>result};
             }
-            let error = zero_api::ApiError::new(
-                zero_api::ApiErrorCode::Conflict,
-                "root control command admission is full",
-            );
-            return output::write_response(
-                &mut stream,
-                "HTTP/1.1 409 Conflict\r\n",
-                &body::HttpBody::Error(error),
-                &budget,
-            )
-            .await;
         }
-    }
-    let route = tokio::select! {
-        _ = stop.cancelled() => return Ok(()),
-        result = router::route(&request, &handle, &auth_ctx) => result,
+    } else {
+        None
+    };
+    let route = if let Some(observation) = &observation {
+        // This original handler retains the accepted operation through its
+        // actual completion/rollback ACK. Stop only suppresses the later write.
+        if stop.is_cancelled() {
+            return Ok(());
+        }
+        observation
+            .scope(router::route(&request, &handle, &auth_ctx))
+            .await
+    } else {
+        tokio::select! {_=stop.cancelled()=>return Ok(()),result=router::route(&request,&handle,&auth_ctx)=>result}
     };
     match route {
         RouteResult::Respond(status, body) => tokio::select! {
             _ = stop.cancelled() => Ok(()),
-            result = output::write_response(&mut stream, &status, &body,&budget) => result,
+            result = output::write_response(&mut *stream, &status, &body,&budget) => result,
         },
         RouteResult::Sse {
             subscriber,

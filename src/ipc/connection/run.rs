@@ -11,9 +11,24 @@ pub(super) async fn handle_ipc_connection_with_auth_until<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
+    // These original buffering allocations can retain bytes after a cancelled
+    // flush or a partial read. Their full capacity stays in the same byte book
+    // until all actual buffer/worker owners have returned, even while idle.
+    let messages = budget.limits().messages;
+    let read_capacity = (messages.request_bytes_total / 4).clamp(1, 8192);
+    let write_capacity = (messages.response_bytes_total / 4).clamp(1, 8192);
+    let _read_workspace = budget
+        .reserve(ControlCharge::RequestBytes(read_capacity))
+        .map_err(input::budget)?;
+    let _write_workspace = budget
+        .reserve(ControlCharge::ResponseBytes(write_capacity))
+        .map_err(input::budget)?;
     let (reader, writer) = tokio::io::split(stream);
-    let mut reader = BufReader::new(reader);
-    let writer = Arc::new(TokioMutex::new(BufWriter::new(writer)));
+    let mut reader = BufReader::with_capacity(read_capacity, reader);
+    let writer = Arc::new(TokioMutex::new(BufWriter::with_capacity(
+        write_capacity,
+        writer,
+    )));
 
     let mut subscribed = false;
     let mut subscription_charge: Option<ControlBudgetPermit> = None;
@@ -22,11 +37,11 @@ where
         ConcurrentCommandTasks::with_budget(stop.clone(), budget.clone(), local.clone());
     // Every error/cancellation exits this work future into the same retained
     // cleanup path. The original job handles live outside that future.
+    let mut inline_command: Option<commands::CommandCredits> = None;
     let work = async {
         loop {
-            let Some(raw_line) =
-                frames::next_request(&mut reader, &budget, &mut concurrent_commands).await?
-            else {
+            let next = tokio::select! {biased;_=stop.cancelled()=>break,result=frames::next_request(&mut reader,&budget,&mut concurrent_commands)=>result?};
+            let Some(raw_line) = next else {
                 break;
             };
             let line = input::text(raw_line.bytes())?;
@@ -39,8 +54,7 @@ where
                 Ok(req) => req,
                 Err(_) => {
                     let resp = ipc_error(None, "invalid_argument", "invalid request frame");
-                    frames::write_budgeted_response(&mut *writer.lock().await, &resp, &budget)
-                        .await?;
+                    frames::write_response_until(&writer, &resp, &budget, &stop).await?;
                     continue;
                 }
             };
@@ -49,20 +63,17 @@ where
             match request {
                 IpcRequest::Ping { id } => {
                     let resp = ipc_ok(id, "pong");
-                    frames::write_budgeted_response(&mut *writer.lock().await, &resp, &budget)
-                        .await?;
+                    frames::write_response_until(&writer, &resp, &budget, &stop).await?;
                 }
                 IpcRequest::Query { id, request } => match handle.query(request) {
                     Ok(query_resp) => {
                         let resp = ApiResponse::ok_with_id(id, query_resp);
-                        frames::write_budgeted_response(&mut *writer.lock().await, &resp, &budget)
-                            .await?;
+                        frames::write_response_until(&writer, &resp, &budget, &stop).await?;
                     }
                     Err(error) => {
                         let resp =
                             super::super::owner::BorrowedErrorResponse::new(id.as_ref(), &error);
-                        frames::write_budgeted_response(&mut *writer.lock().await, &resp, &budget)
-                            .await?;
+                        frames::write_response_until(&writer, &resp, &budget, &stop).await?;
                     }
                 },
                 IpcRequest::Command { id, method, params } => {
@@ -75,12 +86,7 @@ where
                                 id.as_ref(),
                                 &error,
                             );
-                            frames::write_budgeted_response(
-                                &mut *writer.lock().await,
-                                &resp,
-                                &budget,
-                            )
-                            .await?;
+                            frames::write_response_until(&writer, &resp, &budget, &stop).await?;
                         }
                         Ok(cmd) => {
                             if command_can_run_concurrently(&cmd) {
@@ -92,14 +98,16 @@ where
                                     ))?;
                                 let rejected_id = id.clone();
                                 let response_budget = budget.clone();
+                                let response_stop = stop.clone();
                                 let spawned = concurrent_commands.try_spawn_owned(
                                     async move {
                                         let result = execute_ipc_command(command_handle, cmd).await;
-                                        if let Err(error) = write_budgeted_command_result(
+                                        if let Err(error) = command::write_command_after_ack(
                                             response_writer,
                                             id,
                                             result,
                                             &response_budget,
+                                            &response_stop,
                                         )
                                         .await
                                         {
@@ -119,38 +127,53 @@ where
                                             budget.limits().messages.ipc_pending_commands
                                         ),
                                     );
-                                    write_budgeted_command_result(
+                                    command::write_command_after_ack(
                                         writer.clone(),
                                         rejected_id,
                                         Err(error),
                                         &budget,
+                                        &stop,
                                     )
                                     .await?;
                                 }
                                 drop(rejected_charge);
                             } else {
-                                let _command=match local.reserve(zero_runtime::configuration::ControlConnectionCharge::PendingCommand) {
+                                let command=match local.reserve(zero_runtime::configuration::ControlConnectionCharge::PendingCommand) {
                                     Ok(command)=>command,
                                     Err(error) if error.kind()==io::ErrorKind::WouldBlock=>{
                                         let error=zero_api::ApiError::new(zero_api::ApiErrorCode::Conflict,"IPC command admission is full");
-                                        write_budgeted_command_result(writer.clone(),id,Err(error),&budget).await?;
+                                        command::write_command_after_ack(writer.clone(),id,Err(error),&budget, &stop).await?;
                                         continue;
                                     }
                                     Err(error)=>return Err(error),
                                 };
-                                let result = execute_ipc_command(handle.clone(), cmd).await;
-                                write_budgeted_command_result(writer.clone(), id, result, &budget)
-                                    .await?;
+                                let credits = commands::CommandCredits::new(
+                                    command,
+                                    vec![request_storage.take().unwrap()],
+                                );
+                                let observation = credits.observation.clone();
+                                inline_command = Some(credits);
+                                let written = observation
+                                    .scope(async {
+                                        let result = execute_ipc_command(handle.clone(), cmd).await;
+                                        command::write_command_after_ack(
+                                            writer.clone(),
+                                            id,
+                                            result,
+                                            &budget,
+                                            &stop,
+                                        )
+                                        .await
+                                    })
+                                    .await;
+                                let joined = inline_command.as_ref().unwrap().settle().await;
+                                drop(inline_command.take());
+                                super::super::owner::finish_work([written, joined])?;
                             }
                         }
                         Err(error) => {
                             let resp = error.with_id(id);
-                            frames::write_budgeted_response(
-                                &mut *writer.lock().await,
-                                &resp,
-                                &budget,
-                            )
-                            .await?;
+                            frames::write_response_until(&writer, &resp, &budget, &stop).await?;
                         }
                     }
                 }
@@ -161,8 +184,7 @@ where
                             "already_subscribed",
                             "this connection is already subscribed to events",
                         );
-                        frames::write_budgeted_response(&mut *writer.lock().await, &resp, &budget)
-                            .await?;
+                        frames::write_response_until(&writer, &resp, &budget, &stop).await?;
                         continue;
                     }
 
@@ -170,12 +192,7 @@ where
                         Ok(charge) => charge,
                         Err(error) => {
                             let resp = ipc_error(id, "resource_exhausted", error.to_string());
-                            frames::write_budgeted_response(
-                                &mut *writer.lock().await,
-                                &resp,
-                                &budget,
-                            )
-                            .await?;
+                            frames::write_response_until(&writer, &resp, &budget, &stop).await?;
                             continue;
                         }
                     };
@@ -192,12 +209,7 @@ where
                             subscribed = true;
                             subscription_charge = Some(charge);
                             let resp = ipc_ok(id, "subscribed");
-                            frames::write_budgeted_response(
-                                &mut *writer.lock().await,
-                                &resp,
-                                &budget,
-                            )
-                            .await?;
+                            frames::write_response_until(&writer, &resp, &budget, &stop).await?;
                             event_jobs.start(
                                 subscriber,
                                 writer.clone(),
@@ -211,12 +223,7 @@ where
                                 id.as_ref(),
                                 &error,
                             );
-                            frames::write_budgeted_response(
-                                &mut *writer.lock().await,
-                                &resp,
-                                &budget,
-                            )
-                            .await?;
+                            frames::write_response_until(&writer, &resp, &budget, &stop).await?;
                         }
                     }
                 }
@@ -225,19 +232,20 @@ where
 
         io::Result::Ok(())
     };
-    let result = super::super::owner::catch_work(async {
-        tokio::select! {
-            _ = stop.cancelled() => Ok(()),
-            result = work => result,
-        }
-    })
-    .await;
+    let result = super::super::owner::catch_work(work).await;
     stop.cancel();
+    // A polling panic or failed response may leave the accepted Apply alive.
+    // This exact original record retains its input and command capacity.
+    let inline = match inline_command.as_ref() {
+        Some(command) => command.settle().await,
+        None => Ok(()),
+    };
+    drop(inline_command.take());
     // The event writer drops its actual receiver, waking a full blocking
     // bridge. Join both originals even when an earlier read/write failed.
     let [events, bridge] = event_jobs.join().await;
     let commands = concurrent_commands.cancel_all().await;
     // Actual queue/writer/worker custody has returned before this capacity.
     drop(subscription_charge);
-    super::super::owner::finish_caught(result, [events, bridge, commands])
+    super::super::owner::finish_caught(result, [inline, events, bridge, commands])
 }

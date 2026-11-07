@@ -82,6 +82,14 @@ pub(super) async fn read_request_frame(
     }
 }
 
+pub(super) async fn write_response_until<W: tokio::io::AsyncWrite + Unpin>(
+    writer: &Arc<TokioMutex<BufWriter<W>>>,
+    response: &impl Serialize,
+    budget: &Arc<ControlBudget>,
+    stop: &CancellationToken,
+) -> io::Result<()> {
+    tokio::select! {biased;_=stop.cancelled()=>Ok(()),result=async {write_budgeted_response(&mut *writer.lock().await,response,budget).await}=>result}
+}
 pub(super) async fn write_budgeted_response(
     writer: &mut (impl AsyncWriteExt + Unpin),
     response: &impl Serialize,
