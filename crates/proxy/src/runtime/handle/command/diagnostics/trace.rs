@@ -1,0 +1,49 @@
+use super::*;
+pub(in crate::runtime::handle::command) fn execute_diagnostics_trace_route(
+    handle: &ProxyHandle,
+    cmd: &zero_api::DiagnosticsTraceRouteCommand,
+) -> zero_api::ApiResult<zero_api::CommandResponse> {
+    let proxy = handle.proxy.clone();
+    let target = cmd.target.clone();
+    let port = cmd.port;
+    let inbound_tag = cmd.inbound_tag.clone();
+    let (protocol, network) = trace_protocol(cmd.protocol.as_deref())?;
+
+    with_current_runtime("no tokio runtime available for trace_route command", |rt| {
+        rt.block_on(async move {
+            let actual = proxy.clone();
+            proxy.with_diagnostic_service(async move {
+            let proxy = actual;
+            let mut session = Session::new(0, trace_target_address(&target), port, network, ProtocolType::UNKNOWN);
+            session.inbound_tag = inbound_tag;
+
+            let services = proxy.tcp_runtime_services();
+            let trace = resolution::settled(&proxy.resolver, route_trace_for_session(&services, &session))
+                .await.map_err(|source|zero_api::ApiError::new(zero_api::ApiErrorCode::Internal,source.to_string()))?;
+            let matched_rule = trace.matched_rule.map(|matched| {
+                serde_json::json!({
+                    "index": matched.index,
+                    "condition": matched.condition,
+                })
+            });
+
+            Ok(zero_api::CommandResponse {
+                accepted: true,
+                result: Some(serde_json::json!({
+                    "target": target,
+                    "port": port,
+                    "protocol": protocol,
+                    "inbound_tag": session.inbound_tag,
+                    "effective_mode": trace.mode,
+                    "route_action": match trace.decision {
+                        zero_engine::RouteDecision::Route(tag) => serde_json::json!({ "route": tag }),
+                        zero_engine::RouteDecision::Direct => serde_json::json!("direct"),
+                        zero_engine::RouteDecision::Reject => serde_json::json!("reject"),
+                    },
+                    "matched_rule": matched_rule,
+                })),
+            })
+            }).await.map_err(|source|zero_api::ApiError::new(zero_api::ApiErrorCode::Internal,source.to_string()))?
+        })
+    })
+}
