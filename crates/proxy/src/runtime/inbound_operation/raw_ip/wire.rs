@@ -136,6 +136,7 @@ pub(super) async fn run(
                 if changed.is_err() || *shutdown.borrow() { break Ok(()); }
             }
             request=checkpoint.requested()=>{
+                #[cfg(test)] eprintln!("actual Packet wire checkpoint received: source={:?} request={request}", facts.inbound);
                 drop(buffer.take());drop(decode.take());
                 let mut idle=receiving.is_none() && fragments.pending_datagrams()==0 && endpoint_fragments.pending_datagrams()==0
                     && responses.is_empty() && packets.capacity()==packets.max_capacity() && proxied_rx.is_empty()
@@ -145,7 +146,9 @@ pub(super) async fn run(
                     idle &= endpoint.packets.is_empty();
                     let devices=endpoint.peers.borrow().devices.clone();
                     for device in devices {
+                        #[cfg(test)] eprintln!("actual Packet wire before stack census: source={:?} request={request} device={}", facts.inbound,device.incarnation);
                         let quiet=device.quiescent().await;
+                        #[cfg(test)] eprintln!("actual Packet wire after stack census: source={:?} request={request} device={} quiet={quiet}", facts.inbound,device.incarnation);
                         #[cfg(test)]
                         if !quiet { eprintln!("actual Packet wire stack pause rejected: source={:?} request={} device={}",facts.inbound,request,device.incarnation); }
                         idle &= quiet;

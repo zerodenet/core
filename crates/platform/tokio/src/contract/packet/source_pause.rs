@@ -213,6 +213,8 @@ impl PacketSourcePause {
             state.wire_requested = false;
             state.serial
         };
+        #[cfg(test)]
+        eprintln!("actual Packet pause MAIN requested: instance={:?} request={request}", self.instance);
         let guard = PacketSourcePaused {
             original: self.clone(),
             request,
@@ -227,6 +229,8 @@ impl PacketSourcePause {
         wire: bool,
         deadline: tokio::time::Instant,
     ) -> Result<(), ChannelError> {
+        #[cfg(test)]
+        let mut observed = None;
         loop {
             let changed = self.changed.notified();
             tokio::pin!(changed);
@@ -236,6 +240,14 @@ impl PacketSourcePause {
                 let mut state = self.state.lock().unwrap();
                 if state.request != Some(request) || !self.live(&state) {
                     return Err(pause_error(Reason::Revoked));
+                }
+                #[cfg(test)]
+                {
+                    let actual = (state.acquiring, state.acknowledged, state.checkpoints_requested, state.wire_requested);
+                    if observed != Some(actual) {
+                        eprintln!("actual Packet pause waiting: instance={:?} request={request} wire={wire} acquiring={} acknowledgements={:?} checkpoints_requested={} wire_requested={}", self.instance, actual.0, actual.1, actual.2, actual.3);
+                        observed = Some(actual);
+                    }
                 }
                 // The same mutex sealed new opens when this request was
                 // installed. ACKs become observable only after the last real
