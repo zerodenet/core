@@ -104,7 +104,12 @@ impl State {
         } = self;
         wake.polling.store(true, Ordering::Release);
         let _polling = Polling(wake);
-        Self::drive(driver, wake, false);
+        // Queue/capacity wakes can arrive after the original read registered
+        // Pending. Reuse that same original's passive read signal here too:
+        // real read readiness/EOF, changed caller and protocol close state all
+        // fall back to its full Future; an enqueue wake alone needs only the
+        // original outbound/control/codec stage.
+        Self::drive(driver, wake, true);
         // Stream-capacity/response notifications belong to this same inline
         // turn as native-driver readiness. The driver may grant capacity while
         // it is already being polled here; waking the application directly in
