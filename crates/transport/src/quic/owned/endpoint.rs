@@ -48,6 +48,12 @@ pub struct OwnedEndpointOwner {
     masks: Vec<(u8, zero_platform_tokio::contract::CancellationToken)>,
     drivers: QuinnDriverOwner,
     users_graph: Option<MetadataGraph>,
+    carrier_graph: Option<
+        zero_platform_tokio::controlled_carrier::loan::CarrierEndpointUserGraph<
+            super::OwnedDriverOrigin,
+            super::DriverBody,
+        >,
+    >,
     native_snapshot: Option<Arc<MetadataOwnerReport>>,
     confirmed_main: u128,
     confirmed_probes: u128,
@@ -67,6 +73,10 @@ use claim::MetadataGraph;
 pub use claim::{MetadataUsersCompletion, RejectedClaimedEndpoint};
 mod report;
 pub use report::{OwnedEndpointReport, OwnedEndpointUsersReport, OwnedNativeFailure};
+pub struct RejectedBorrowedEndpoint {
+    pub socket: super::packet::PacketSocket,
+    pub error: ChannelError,
+}
 impl OwnedEndpointOwner {
     /// Cold construction, with already installed original native ownership and
     /// the caller's existing task registrar. No task/endpoint is started here.
@@ -97,6 +107,25 @@ impl OwnedEndpointOwner {
         limits: OwnedEndpointLimits,
     ) -> (Self, DriverExitReceiver) {
         Self::construct(Native::Packet(socket), registrar, limits)
+    }
+    /// A Kernel receiver's actual unique packet segment binds the same ledger
+    /// used by every Quinn/mask hook and every real endpoint user permit.
+    pub fn new_borrowed_packet(
+        socket: super::packet::PacketSocket,
+        segment: &mut super::packet::BorrowedPacketSegment,
+        registrar: TaskRegistrar,
+        limits: OwnedEndpointLimits,
+    ) -> Result<(Self, DriverExitReceiver), Box<RejectedBorrowedEndpoint>> {
+        let (graph, receiver) = match segment.bind_endpoint_users(&socket, registrar, limits) {
+            Ok(actual) => actual,
+            Err(error) => return Err(Box::new(RejectedBorrowedEndpoint { socket, error })),
+        };
+        let drivers = QuinnDriverOwner::from_ledger(graph.drivers().clone());
+        let users = graph.users().clone();
+        let (mut owner, receiver) =
+            Self::construct_users(Native::Packet(socket), drivers, users, receiver, None);
+        owner.carrier_graph = Some(graph);
+        Ok((owner, receiver))
     }
     fn construct(
         native: Native,
@@ -129,6 +158,7 @@ impl OwnedEndpointOwner {
                 masks: Vec::new(),
                 drivers,
                 users_graph,
+                carrier_graph: None,
                 native_snapshot: None,
                 confirmed_main: 0,
                 confirmed_probes: 0,

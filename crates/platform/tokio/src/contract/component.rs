@@ -333,6 +333,22 @@ pub struct InboundListenerEndpoints {
     pub datagram: std::net::SocketAddr,
 }
 pub trait ResourceAccess: Send + Sync {
+    fn service_datagram_target_issuer(
+        &self,
+        _grant: &crate::controlled_carrier::CarrierGrant,
+        _actor: &crate::contract::scope::TaskJoinWitness,
+        _binding: &crate::contract::network::UpstreamBinding,
+        _endpoint: &Destination,
+        _identity: &crate::contract::context::RequestIdentity,
+        _call: &crate::contract::network::CarrierContext,
+    ) -> Result<crate::controlled_carrier::loan::ServiceDatagramTargetIssuer, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
+
     /// The same declared journal controller/grant. No raw File is exported.
     fn journal(&self, _ordinal: usize) -> Result<crate::journal::JournalGrant, BuildError> {
         Err(super::ChannelError::new(

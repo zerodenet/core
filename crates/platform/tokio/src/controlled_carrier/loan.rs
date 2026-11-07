@@ -1,9 +1,11 @@
 //! Logical borrowing is separate from the donor's native retirement.
 mod adopt;
 mod business;
-mod datagram;
+pub(in crate::controlled_carrier) mod datagram;
 mod dependency;
+mod host_node;
 mod io;
+pub use host_node::HostNodeDnsSource;
 mod native;
 mod native_packet;
 mod owner;
@@ -11,7 +13,11 @@ mod receiver;
 mod related;
 use super::CarrierOrigin;
 use crate::contract::{stream::BoxStream, CancellationToken};
-pub use datagram::{BorrowedDatagram, DatagramLoan, LoanDatagramIo};
+pub use datagram::{
+    BorrowedDatagram, BorrowedDatagramCandidates, CarrierEndpointClaim, CarrierEndpointUserGraph,
+    CarrierEndpointUsersClosed, CarrierEndpointUsersCompletion, DatagramLoan, LoanDatagramIo,
+    ServiceDatagramTarget, ServiceDatagramTargetIssuer, ServiceDatagramTargetLoan,
+};
 pub use dependency::CarrierDependencyLoanIssuer;
 pub use io::LoanIo;
 pub use owner::{LoanClosed, LoanOwner};

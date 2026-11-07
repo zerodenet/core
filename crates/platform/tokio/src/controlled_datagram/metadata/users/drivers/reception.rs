@@ -202,3 +202,5 @@ impl<B: fmt::Debug> fmt::Debug for DriverDelivery<B> {
             .finish_non_exhaustive()
     }
 }
+
+mod registration;

@@ -78,6 +78,9 @@ impl ComponentSlot {
                 resources.bind_dependency_slots(
                     self.dependency_slots.get().cloned().unwrap_or_default(),
                 );
+                if let Some(source) = self.node_dns_source.get() {
+                    resources.bind_node_dns_source(source.clone());
+                }
                 #[cfg(any(target_os = "linux", windows))]
                 if let Some(paid) = self.prepaid_process.get() {
                     resources

@@ -318,6 +318,7 @@ impl HostResources {
         Ok(Arc::new(Self {
             dependency_slots: std::sync::OnceLock::new(),
             source_pause: std::sync::OnceLock::new(),
+            node_dns_source: std::sync::OnceLock::new(),
             originals,
             original_tasks,
             packet_source: packet_source.unwrap_or_default(),

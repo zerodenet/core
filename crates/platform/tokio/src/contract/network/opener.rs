@@ -76,6 +76,44 @@ pub trait UpstreamOpener: Send + Sync {
 
     /// Resolve a selected inner Packet/Flow destination using the actual host
     /// DNS policy. It never prepares a native socket or grants a carrier.
+    /// Resolve the inner numeric wire peer for one Host-issued noncached
+    /// Service original. Unknown providers cannot manufacture this provenance.
+    /// Borrow the exact numeric target selected by the actual receiver's Host
+    /// issuer. Ordinary borrow_datagram nominal-target validation is unchanged.
+    fn borrow_service_datagram_candidate(
+        &self,
+        _binding: &UpstreamBinding,
+        _target: crate::controlled_carrier::loan::ServiceDatagramTarget,
+    ) -> BoxFuture<
+        '_,
+        Result<crate::controlled_carrier::loan::ServiceDatagramTargetLoan, ChannelError>,
+    > {
+        Box::pin(async {
+            Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::Unsupported,
+                Impact::Component,
+            ))
+        })
+    }
+    fn resolve_service_datagram_candidates(
+        &self,
+        _binding: &UpstreamBinding,
+        _issuer: crate::controlled_carrier::loan::ServiceDatagramTargetIssuer,
+    ) -> BoxFuture<
+        '_,
+        Result<crate::controlled_carrier::loan::BorrowedDatagramCandidates, ChannelError>,
+    > {
+        Box::pin(async {
+            Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::Unsupported,
+                Impact::Component,
+            ))
+        })
+    }
+    /// Resolve a selected inner Packet/Flow destination using the actual host
+    /// DNS policy. It never prepares a native socket or grants a carrier.
     fn resolve_packet_target(
         &self,
         _: &UpstreamBinding,

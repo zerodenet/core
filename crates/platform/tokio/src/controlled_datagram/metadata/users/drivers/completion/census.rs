@@ -47,6 +47,10 @@ impl DriverRegistrationsClosed {
             storage: Storage::Library(registrations),
         }
     }
+    /// Cursor over this original sealed ledger; no snapshot allocation or ACK.
+    pub fn registrations(&self) -> super::iteration::RegistrationIter {
+        super::iteration::RegistrationSequence::Original(self.clone()).iter()
+    }
     pub(super) fn next(&self, after: Option<TaskId>) -> Option<(TaskId, TaskJoinWitness)> {
         match &self.storage {
             Storage::Original(census) => census.next(after),

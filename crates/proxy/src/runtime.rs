@@ -225,6 +225,11 @@ impl Proxy {
             dns.with_native_query_queries(node_network.query_dns.clone())
                 .with_native_node_queries(node_network.native_dns.clone()),
         );
+        protocols
+            .runtime_host()
+            .components()
+            .install_node_dns_source(resolver.native_node_service())
+            .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
         let principal_rate_limits = principal_rate_limit::PrincipalRateLimitRegistry::default();
         // Independent host limit for active + retiring native associations.
         // This is not the V1 packet queue capacity or a legacy session budget.

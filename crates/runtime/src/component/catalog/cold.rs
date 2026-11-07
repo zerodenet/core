@@ -74,6 +74,7 @@ impl ComponentCatalog {
         > = BTreeMap::new();
         for slot in &plan.order {
             slot.bind_original_budgets(self.original_budgets());
+            slot.bind_node_dns_source(self.node_dns_source.clone());
             let actual_dependencies: Arc<[_]> = slot
                 .dependency_instances()
                 .iter()

@@ -12,6 +12,7 @@ pub struct BorrowedPacketSegment {
     adoption: CarrierAdoption,
     identity: Arc<continuation::PacketIdentity>,
     input: Option<Input>,
+    endpoint_claim: Option<zero_platform_tokio::controlled_carrier::loan::CarrierEndpointClaim>,
     queues: Arc<Mutex<Option<Channels>>>,
     driver: Option<TaskJoinWitness>,
     joined: Option<TaskJoined>,
@@ -78,6 +79,7 @@ impl BorrowedPacketSegment {
             identity: queues.1.clone(),
             adoption,
             input: Some(input),
+            endpoint_claim: None,
             queues: Arc::new(Mutex::new(queues.0)),
             driver: None,
             joined: None,
@@ -88,6 +90,92 @@ impl BorrowedPacketSegment {
             tasks,
             receive_observation: observation::new(),
         })
+    }
+    /// Kernel protocol path: the actual unique loan/view must issue its one
+    /// endpoint claim before any worker starts. Never falls back to library.
+    pub fn prepare_protocol(
+        io: BorrowedDatagram,
+        view: CarrierUserView,
+        queues: PacketQueues,
+        tasks: TaskRegistrar,
+        logical: SocketAddr,
+    ) -> Result<Self, Box<RejectedBorrowedPacketSegment>> {
+        if queues.0.is_none() || !view.matches(&io.adoption()) {
+            return Err(Box::new(RejectedBorrowedPacketSegment {
+                error: io::ErrorKind::InvalidInput.into(),
+                io,
+                view,
+                queues,
+            }));
+        }
+        let claim = match io.claim_endpoint_users(&view, &tasks) {
+            Ok(claim) => claim,
+            Err(source) => {
+                return Err(Box::new(RejectedBorrowedPacketSegment {
+                    error: io::Error::other(source),
+                    io,
+                    view,
+                    queues,
+                }))
+            }
+        };
+        let mut segment = Self::prepare(io, view, queues, tasks, logical)?;
+        segment.endpoint_claim = Some(claim);
+        Ok(segment)
+    }
+    pub(in crate::quic::owned) fn bind_endpoint_users(
+        &mut self,
+        socket: &PacketSocket,
+        tasks: TaskRegistrar,
+        limits: super::super::OwnedEndpointLimits,
+    ) -> Result<
+        (
+            zero_platform_tokio::controlled_carrier::loan::CarrierEndpointUserGraph<
+                OwnedDriverOrigin,
+                DriverBody,
+            >,
+            DriverExitReceiver,
+        ),
+        ChannelError,
+    > {
+        if !Arc::ptr_eq(&self.identity, &socket.identity)
+            || !self
+                .tasks
+                .scope_identity()
+                .same_scope(&tasks.scope_identity())
+            || self.attempted
+        {
+            return Err(error(Reason::StalePlan));
+        }
+        let claim = self
+            .endpoint_claim
+            .take()
+            .ok_or_else(|| error(Reason::StalePlan))?;
+        match claim.bind_users(tasks, limits.drivers, limits.users) {
+            Ok(graph) => Ok(graph),
+            Err(claim) => {
+                self.endpoint_claim = Some(claim);
+                Err(error(Reason::StalePlan))
+            }
+        }
+    }
+    /// Actual unique IO input must be returned first. The claim was never bound
+    /// to hooks and proves no native close or Scope task outcome.
+    pub fn return_unstarted_endpoint(&mut self) -> Result<(), ChannelError> {
+        if self.endpoint_claim.is_some() && (self.driver.is_some() || self.attempted) {
+            return Err(error(Reason::StalePlan));
+        }
+        drop(self.input.take());
+        if let Some(claim) = self.endpoint_claim.take() {
+            match claim.return_unstarted() {
+                Ok(receipt) => self.adoption.retain_endpoint_users_closed(receipt)?,
+                Err(claim) => {
+                    self.endpoint_claim = Some(claim);
+                    return Err(error(Reason::StalePlan));
+                }
+            }
+        }
+        Ok(())
     }
     /// Registers exactly one bidirectional Aux in the owning factory's Scope.
     /// Failed registration returns the queues and leaves original control in

@@ -114,6 +114,58 @@ impl UpstreamOpener for Pending {
         }
         Ok(self.caller.clone())
     }
+    fn borrow_service_datagram_candidate(
+        &self,
+        binding: &UpstreamBinding,
+        target: zero_platform_tokio::controlled_carrier::loan::ServiceDatagramTarget,
+    ) -> BoxFuture<
+        '_,
+        Result<
+            zero_platform_tokio::controlled_carrier::loan::ServiceDatagramTargetLoan,
+            ChannelError,
+        >,
+    > {
+        let binding = binding.clone();
+        Box::pin(async move {
+            self.check(&binding)?;
+            if &binding != self.upstream.binding() {
+                return Err(ChannelError::new(
+                    zero_platform_tokio::contract::Stage::Prepare,
+                    Reason::StalePlan,
+                    zero_platform_tokio::contract::Impact::Component,
+                ));
+            }
+            self.upstream
+                .borrow_service_datagram_candidate(target)
+                .await
+        })
+    }
+    fn resolve_service_datagram_candidates(
+        &self,
+        binding: &UpstreamBinding,
+        issuer: zero_platform_tokio::controlled_carrier::loan::ServiceDatagramTargetIssuer,
+    ) -> BoxFuture<
+        '_,
+        Result<
+            zero_platform_tokio::controlled_carrier::loan::BorrowedDatagramCandidates,
+            ChannelError,
+        >,
+    > {
+        let checked = self.check(binding);
+        let binding = binding.clone();
+        Box::pin(async move {
+            checked?;
+            if issuer.binding() != &binding {
+                return Err(crate::component::instance::invalid(
+                    Reason::StalePlan,
+                    "actual setup candidate binding changed",
+                ));
+            }
+            self.upstream
+                .resolve_service_datagram_candidates(issuer)
+                .await
+        })
+    }
     fn validate_pending_carrier(
         &self,
         binding: &UpstreamBinding,

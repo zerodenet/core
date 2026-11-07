@@ -15,6 +15,9 @@ use zero_platform_tokio::contract::{
 };
 
 pub struct HostResources {
+    node_dns_source: std::sync::OnceLock<
+        Arc<std::sync::OnceLock<Arc<dyn zero_platform_tokio::contract::dns::DnsService>>>,
+    >,
     dependency_slots:
         std::sync::OnceLock<Arc<[std::sync::Weak<crate::component::instance::ComponentSlot>]>>,
     source_pause:
@@ -112,6 +115,7 @@ mod journal;
 mod listener;
 mod metadata;
 mod metapool;
+mod node_dns;
 mod original_budgets;
 mod packet_device;
 mod prepare;
@@ -194,6 +198,42 @@ impl HostResources {
     }
 }
 impl ResourceAccess for HostResources {
+    fn service_datagram_target_issuer(
+        &self,
+        grant: &zero_platform_tokio::controlled_carrier::CarrierGrant,
+        actor: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+        binding: &zero_platform_tokio::contract::network::UpstreamBinding,
+        endpoint: &Destination,
+        identity: &zero_platform_tokio::contract::context::RequestIdentity,
+        call: &zero_platform_tokio::contract::network::CarrierContext,
+    ) -> Result<
+        zero_platform_tokio::controlled_carrier::loan::ServiceDatagramTargetIssuer,
+        ChannelError,
+    > {
+        if self.cancel.is_cancelled() || self.instance != Some(grant.instance()) {
+            return Err(self.denied());
+        }
+        let bound = self.carriers.registered_dependency_receiver(grant)?;
+        {
+            let state = self
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if state.closed || state.start_deadline.is_some() {
+                return Err(self.denied());
+            }
+        }
+        bound.service_datagram_target_issuer(
+            self.carriers.host_fence()?,
+            grant,
+            actor,
+            binding,
+            endpoint,
+            identity,
+            call,
+        )
+    }
+
     fn journal(
         &self,
         ordinal: usize,

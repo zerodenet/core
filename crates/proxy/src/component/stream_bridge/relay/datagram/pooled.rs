@@ -43,6 +43,52 @@ impl UpstreamOpener for Selected {
         }
         self.upstream.packet_caller(identity, call)
     }
+    fn borrow_service_datagram_candidate(
+        &self,
+        binding: &UpstreamBinding,
+        target: zero_platform_tokio::controlled_carrier::loan::ServiceDatagramTarget,
+    ) -> BoxFuture<
+        '_,
+        Result<
+            zero_platform_tokio::controlled_carrier::loan::ServiceDatagramTargetLoan,
+            ChannelError,
+        >,
+    > {
+        let valid = binding == self.upstream.binding();
+        Box::pin(async move {
+            if !valid {
+                return Err(ChannelError::new(
+                    zero_platform_tokio::contract::Stage::Prepare,
+                    Reason::StalePlan,
+                    zero_platform_tokio::contract::Impact::Component,
+                ));
+            }
+            self.upstream
+                .borrow_service_datagram_candidate(target)
+                .await
+        })
+    }
+    fn resolve_service_datagram_candidates(
+        &self,
+        binding: &UpstreamBinding,
+        issuer: zero_platform_tokio::controlled_carrier::loan::ServiceDatagramTargetIssuer,
+    ) -> BoxFuture<
+        '_,
+        Result<
+            zero_platform_tokio::controlled_carrier::loan::BorrowedDatagramCandidates,
+            ChannelError,
+        >,
+    > {
+        if binding != self.upstream.binding() || issuer.binding() != binding {
+            return Box::pin(async {
+                Err(crate::component::instance::invalid(
+                    Reason::StalePlan,
+                    "actual Service candidate binding changed",
+                ))
+            });
+        }
+        self.upstream.resolve_service_datagram_candidates(issuer)
+    }
     fn resolve_packet_target(
         &self,
         binding: &UpstreamBinding,

@@ -6,6 +6,7 @@ mod cold;
 mod devices;
 mod discard;
 mod maintenance;
+mod node_dns;
 mod original_budgets;
 mod plan;
 #[cfg(all(test, target_os = "linux"))]
@@ -109,6 +110,7 @@ impl Current {
     }
 }
 pub struct ComponentCatalog {
+    node_dns_source: Arc<OnceLock<Arc<dyn zero_platform_tokio::contract::dns::DnsService>>>,
     factories: OnceLock<ComponentRegistry<OutboundConfig>>,
     originals: OnceLock<Arc<crate::HostOriginalBudgets>>,
     probes: OnceLock<std::sync::Weak<crate::probe_owner::ProbeOwner>>,
@@ -124,6 +126,7 @@ pub struct ComponentCatalog {
 impl Default for ComponentCatalog {
     fn default() -> Self {
         Self {
+            node_dns_source: Arc::default(),
             factories: OnceLock::new(),
             originals: OnceLock::new(),
             probes: OnceLock::new(),

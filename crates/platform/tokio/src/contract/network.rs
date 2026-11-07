@@ -166,6 +166,26 @@ impl UpstreamTransport {
         self.opener.validate_pending_carrier(binding, adoption)
     }
 
+    pub fn borrow_service_datagram_candidate(
+        &self,
+        target: crate::controlled_carrier::loan::ServiceDatagramTarget,
+    ) -> BoxFuture<
+        '_,
+        Result<crate::controlled_carrier::loan::ServiceDatagramTargetLoan, ChannelError>,
+    > {
+        self.opener
+            .borrow_service_datagram_candidate(&self.binding, target)
+    }
+    pub fn resolve_service_datagram_candidates(
+        &self,
+        issuer: crate::controlled_carrier::loan::ServiceDatagramTargetIssuer,
+    ) -> BoxFuture<
+        '_,
+        Result<crate::controlled_carrier::loan::BorrowedDatagramCandidates, ChannelError>,
+    > {
+        self.opener
+            .resolve_service_datagram_candidates(&self.binding, issuer)
+    }
     pub fn resolve_packet_target(
         &self,
         destination: Destination,

@@ -43,6 +43,20 @@ impl UpstreamOpener for Opener {
         self.control.packet_caller(binding, identity, call)
     }
 
+    fn resolve_service_datagram_candidates(
+        &self,
+        binding: &UpstreamBinding,
+        issuer: zero_platform_tokio::controlled_carrier::loan::ServiceDatagramTargetIssuer,
+    ) -> BoxFuture<
+        '_,
+        Result<
+            zero_platform_tokio::controlled_carrier::loan::BorrowedDatagramCandidates,
+            ChannelError,
+        >,
+    > {
+        self.control
+            .resolve_service_datagram_candidates(binding, issuer)
+    }
     fn resolve_packet_target(
         &self,
         binding: &UpstreamBinding,

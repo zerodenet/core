@@ -5,7 +5,17 @@ use std::{future::poll_fn, io, pin::Pin, sync::atomic::Ordering};
 use tokio::sync::Mutex;
 use zero_core::{component::AssociationId, packet::Datagram, request::Destination};
 mod adopt;
+pub(in crate::controlled_carrier) mod endpoint;
+mod targets;
 pub use adopt::BorrowedDatagram;
+pub use endpoint::{
+    CarrierEndpointClaim, CarrierEndpointUserGraph, CarrierEndpointUsersClosed,
+    CarrierEndpointUsersCompletion,
+};
+pub use targets::{
+    BorrowedDatagramCandidates, ServiceDatagramTarget, ServiceDatagramTargetIssuer,
+    ServiceDatagramTargetLoan,
+};
 type Tx = Pin<Box<dyn DatagramTx>>;
 type Rx = Pin<Box<dyn DatagramRx>>;
 

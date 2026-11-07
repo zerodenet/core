@@ -116,3 +116,5 @@ async fn actual_ledger_precedes_host_wake_panic_and_retains_original_join_until_
 
 #[path = "tests/storage.rs"]
 mod storage;
+
+mod registration;

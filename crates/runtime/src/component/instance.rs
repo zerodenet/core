@@ -4,6 +4,7 @@ mod business;
 mod cleanup;
 mod construction;
 mod health;
+mod node_dns;
 mod observations;
 mod original_budgets;
 mod owned_start;
@@ -84,6 +85,8 @@ pub struct ComponentSlot {
     start_wake: Arc<MonitorWake>,
     declared_failures: Arc<resources::DeclaredReceiver>,
     originals: OnceLock<Arc<crate::HostOriginalBudgets>>,
+    node_dns_source:
+        OnceLock<Arc<OnceLock<Arc<dyn zero_platform_tokio::contract::dns::DnsService>>>>,
     packet_source: Arc<OnceLock<zero_platform_tokio::controlled_carrier::CarrierOrigin>>,
 }
 struct Live {

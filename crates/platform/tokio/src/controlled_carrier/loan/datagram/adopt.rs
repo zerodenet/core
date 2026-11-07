@@ -138,7 +138,7 @@ impl CarrierGrant {
         context: &CarrierContext,
         loan: DatagramLoan,
     ) -> Result<BorrowedDatagram, ChannelError> {
-        self.adopt_datagram_loan_inner(binding, endpoint, context, loan, false)
+        self.adopt_datagram_loan_inner(binding, endpoint, context, loan, false, |_| Ok(None))
     }
     /// The original per-connection Service adopts its actual strictly shorter
     /// Datagram prefix. This grants no native socket or cached-driver custody.
@@ -149,16 +149,35 @@ impl CarrierGrant {
         context: &CarrierContext,
         loan: DatagramLoan,
     ) -> Result<BorrowedDatagram, ChannelError> {
-        self.adopt_datagram_loan_inner(binding, endpoint, context, loan, true)
+        self.adopt_datagram_loan_inner(binding, endpoint, context, loan, true, |_| Ok(None))
     }
-    fn adopt_datagram_loan_inner(
+    pub(in crate::controlled_carrier::loan::datagram) fn adopt_service_target_loan<F>(
+        self,
+        binding: &UpstreamBinding,
+        endpoint: Destination,
+        context: &CarrierContext,
+        loan: DatagramLoan,
+        selected: F,
+    ) -> Result<BorrowedDatagram, ChannelError>
+    where
+        F: FnOnce(&CarrierGrant) -> Result<Destination, ChannelError>,
+    {
+        self.adopt_datagram_loan_inner(binding, endpoint, context, loan, true, |grant| {
+            selected(grant).map(Some)
+        })
+    }
+    fn adopt_datagram_loan_inner<F>(
         mut self,
         binding: &UpstreamBinding,
         endpoint: Destination,
         context: &CarrierContext,
         loan: DatagramLoan,
         service: bool,
-    ) -> Result<BorrowedDatagram, ChannelError> {
+        selected: F,
+    ) -> Result<BorrowedDatagram, ChannelError>
+    where
+        F: FnOnce(&CarrierGrant) -> Result<Option<Destination>, ChannelError>,
+    {
         let original = loan.owner.original().clone();
         let related = loan.owner.related_control();
         {
@@ -187,8 +206,18 @@ impl CarrierGrant {
             .owner
             .upgrade()
             .and_then(|owner| owner.state().binding.clone());
+        // The unique lower controller and view are already installed above.
+        // A rejected selected target must not drop its actual LoanOwner before
+        // Root custody, or claim no-submission after a donor opened its wire.
+        let selected = selected(&self).map_err(|mut source| {
+            source.stage = Stage::Dial;
+            source.delivery = DeliveryState::Unknown;
+            source.retry = crate::contract::RetryClass::Never;
+            source
+        })?;
+        let wire_target = selected.as_ref().unwrap_or(&endpoint);
         if binding.prefix.is_empty()
-            || !io.io.targets(&endpoint)
+            || !io.io.targets(wire_target)
             || context.session.is_some()
             || context.cancel.is_cancelled()
             || context

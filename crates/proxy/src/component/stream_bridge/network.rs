@@ -7,10 +7,10 @@ use std::{
 };
 use zero_core::request::Destination;
 use zero_platform_tokio::contract::{
-    BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
     datagram::{BoxDatagramSession, DatagramRequest},
     network::{CarrierContext, PendingCarrierObserver, UpstreamBinding, UpstreamOpener},
     stream::BoxStream,
+    BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
 };
 use zero_platform_tokio::controlled_carrier::{
     CarrierEndpointObserver, CarrierEndpoints, CarrierGrant, NativeCarrierOpener, PreparedCarrier,
@@ -214,6 +214,44 @@ impl UpstreamOpener for NodeOpener {
         waiting.packet_caller(identity, call)
     }
 
+    fn resolve_service_datagram_candidates(
+        &self,
+        binding: &UpstreamBinding,
+        issuer: zero_platform_tokio::controlled_carrier::loan::ServiceDatagramTargetIssuer,
+    ) -> BoxFuture<
+        '_,
+        Result<
+            zero_platform_tokio::controlled_carrier::loan::BorrowedDatagramCandidates,
+            ChannelError,
+        >,
+    > {
+        let binding = binding.clone();
+        Box::pin(async move {
+            if issuer.binding() != &binding
+                || binding.network_generation.0 != self.generation
+                || self.services.network_generation() != self.generation
+            {
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "actual Service target Node generation changed",
+                ));
+            }
+            let owner = self.carrier_owner.ok_or_else(|| {
+                invalid(Reason::StalePlan, "actual Service target owner is absent")
+            })?;
+            let plan = self
+                .plan
+                .as_ref()
+                .and_then(std::sync::Weak::upgrade)
+                .ok_or_else(|| invalid(Reason::Revoked, "actual Service target plan retired"))?;
+            // The actual receiver Slot supplies its Host-installed source;
+            // neither a prefix endpoint nor an arbitrary DNS wrapper seals it.
+            let source = plan.host_node_dns_source(owner)?;
+            issuer
+                .resolve_on_node(&source, binding.network_generation)
+                .await
+        })
+    }
     fn resolve_packet_target(
         &self,
         binding: &UpstreamBinding,

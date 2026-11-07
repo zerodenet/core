@@ -48,3 +48,16 @@ impl OwnedEndpointOwner {
         self.users_graph.as_ref().map(MetadataGraph::completion)
     }
 }
+
+impl OwnedEndpointOwner {
+    pub fn borrowed_users_completion(
+        &self,
+    ) -> Option<
+        zero_platform_tokio::controlled_carrier::loan::CarrierEndpointUsersCompletion<
+            super::super::OwnedDriverOrigin,
+            super::super::DriverBody,
+        >,
+    > {
+        self.carrier_graph.as_ref().map(|graph| graph.completion())
+    }
+}

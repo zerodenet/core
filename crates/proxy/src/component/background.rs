@@ -121,6 +121,45 @@ impl UpstreamOpener for BackgroundCarrier {
     ) -> BoxFuture<'_, Result<UpstreamTransport, ChannelError>> {
         self.select(binding, call, Some(waiting))
     }
+    fn resolve_service_datagram_candidates(
+        &self,
+        binding: &UpstreamBinding,
+        issuer: zero_platform_tokio::controlled_carrier::loan::ServiceDatagramTargetIssuer,
+    ) -> BoxFuture<
+        '_,
+        Result<
+            zero_platform_tokio::controlled_carrier::loan::BorrowedDatagramCandidates,
+            ChannelError,
+        >,
+    > {
+        let binding = binding.clone();
+        Box::pin(async move {
+            if issuer.binding() != &binding
+                || binding.dial != self.initial.dial
+                || binding.network_generation.0 != self.network.egress.generation()
+            {
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "background Service target binding changed",
+                ));
+            }
+            let source = self.network.current_services().map_err(|source| {
+                invalid(Reason::Revoked, "actual Service target source retired").with_source(source)
+            })?;
+            let services = source.runtime_services().map_err(|source| {
+                invalid(Reason::Revoked, "actual Service target services retired")
+                    .with_source(source)
+            })?;
+            let plan = services.components.as_ref().map_err(|source| {
+                invalid(Reason::StalePlan, "actual Service target plan unavailable")
+                    .with_source(source.clone())
+            })?;
+            let source = plan.host_node_dns_source(self.instance)?;
+            issuer
+                .resolve_on_node(&source, binding.network_generation)
+                .await
+        })
+    }
     fn resolve_packet_target(
         &self,
         binding: &UpstreamBinding,
