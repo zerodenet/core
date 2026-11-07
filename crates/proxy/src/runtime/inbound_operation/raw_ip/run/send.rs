@@ -3,7 +3,7 @@
 use std::pin::Pin;
 use zero_core::packet::IpPacket;
 use zero_platform_tokio::contract::{
-    lifecycle::packet::{self, BoxPacketSession, PacketLimits, PacketTx},
+    packet::{self, BoxPacketSession, PacketLimits, PacketTx},
     BoxFuture, CloseReason, SendReceipt,
 };
 pub(super) struct Sender {

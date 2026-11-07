@@ -14,7 +14,7 @@ use zero_core::{
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::{
     datagram::{recv, send, DatagramLimits, DatagramRequest, DatagramRx, DatagramTx},
-    lifecycle::ChannelError,
+    ChannelError,
     CloseReason, Impact, Reason, Stage,
 };
 pub(super) struct DatagramConnection {

@@ -1,5 +1,6 @@
 //! Drive the existing association controller and its retained originals.
 use super::*;
+use zero_platform_tokio::contract::lifecycle::DynChannelControl;
 impl DynChannelControl for Control {
     fn cancel(&self, reason: CloseReason) {
         self.0.cancel(reason);
