@@ -273,3 +273,7 @@ vendored blake3 的上游 deprecated warning 不改写为工作区新增 allow�
 最终交接提交只允许上述文档/工程规则与此索引变化；精确交接 SHA、相对被测实现的逐文件 blob 一致性证明和远端 ref 见外部 `m-final-delivery.json`，以及五个 PR 的最终验收表。
 
 文档冻结后补检 `git diff --check`、Rust 1.99.0 fmt、plan、layout、runtime-contracts 和复用原产物的 workspace_architecture，全部 exit 0；精确命令与日志摘要见 `m-final-doc-check-results.json`。未再次运行无代码变更的完整 workspace。
+
+## 2026-11-07 02:35 UTC 开发证据
+
+本次精确输入、实际锁、15组5c5生产失败及12ce严格flush结果见[剩余调用者记录](remaining.md)。均为开发定向，五域未完成、最终CI/下载归档未获资格。原始失败/忽略/中断保留；不得把后来未测提交继承这些结果。
