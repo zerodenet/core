@@ -16,13 +16,14 @@ pub(super) fn prepare(
         match selected {
             Ok(guard) => {
                 let view = guard.freeze(&mut workspace)?;
-                crate::ipc::owner::encode_response(
+                let encoded = crate::ipc::owner::encode_response(
                     &ApiResponse::ok(view.body()),
                     budget,
                     &mut storage,
                     true,
                     false,
-                )
+                );
+                encoded
             }
             Err(error) => crate::ipc::owner::encode_response(
                 &crate::ipc::owner::BorrowedMessageResponse::new(

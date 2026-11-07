@@ -10,13 +10,14 @@ pub(super) fn prepare(
         let view = handle
             .control_proxy_query(request)
             .expect("selected concrete Proxy status owner");
-        crate::ipc::owner::encode_response(
+        let encoded = crate::ipc::owner::encode_response(
             &ApiResponse::ok(view.body()),
             budget,
             &mut storage,
             true,
             false,
-        )
+        );
+        encoded
     }?;
     Ok(HttpBody::Prepared(crate::ipc::owner::EncodedResponse::new(
         bytes,
