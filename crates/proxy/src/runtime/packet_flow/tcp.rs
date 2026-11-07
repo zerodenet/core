@@ -122,7 +122,20 @@ fn stack_error(error: ClientTcpStackError) -> EngineError {
         Error::ConnectionReset => std::io::ErrorKind::ConnectionReset,
         Error::DestinationUnreachable => std::io::ErrorKind::NetworkUnreachable,
     };
-    EngineError::Io(std::io::Error::new(kind, error))
+    EngineError::Io(std::io::Error::new(kind, StackFailure(error)))
+}
+
+#[derive(Debug)]
+struct StackFailure(ClientTcpStackError);
+impl std::fmt::Display for StackFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "raw-IP TCP stack: {:?}", self.0)
+    }
+}
+impl std::error::Error for StackFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
 }
 
 fn invalid(message: impl ToString) -> EngineError {
