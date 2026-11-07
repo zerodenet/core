@@ -105,6 +105,19 @@ impl TcpRuntimeServices {
 
     pub(crate) fn with_current_snapshot(&self) -> Self {
         let mut services = self.clone();
+        if !services.execution.configuration_publication.is_committed() {
+            // The accepted Source is Ready under its exact target snapshot;
+            // Engine still publishes the old domain until final commit. Keep
+            // the target's frozen options rather than initializing its request
+            // loop with the old configuration. This grants no Business access.
+            services.execution.components = services.protocols
+                .prepared_components(services.execution.snapshot.config())
+                .unwrap_or_else(|| Err(Arc::new(crate::component::instance::invalid(
+                    zero_platform_tokio::contract::Reason::StalePlan,
+                    "pending Source lost its actual retained component candidate",
+                ))));
+            return services;
+        }
         services.execution.snapshot = services.engine.runtime_snapshot();
         services.execution.components = services
             .protocols
