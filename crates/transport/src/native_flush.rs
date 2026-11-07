@@ -151,9 +151,14 @@ impl NativeFlush {
                     self.state.notify();
                 }
                 if self.state.requested.load(Ordering::Acquire) > epoch {
+                    // A request after the old flush started still needs its
+                    // actual next flush. Keep the same codec continuation
+                    // Pending so normal connection progress cannot discard it.
                     cx.waker().wake_by_ref();
+                    Poll::Pending
+                } else {
+                    Poll::Ready(Ok(()))
                 }
-                Poll::Ready(Ok(()))
             }
             Poll::Ready(Err(error)) => {
                 self.started = None;

@@ -24,7 +24,8 @@ async fn actual_old_pending_native_flush_cannot_acknowledge_new_data_epoch() {
         assert_eq!(&new, b"new DATA");
         client.gate.release();
         std::future::poll_fn(|cx| {
-            assert!(matches!(native.poll(&mut client, cx), Poll::Ready(Ok(()))));
+            assert!(native.poll(&mut client, cx).is_pending(),
+                "the actual old flush completed, but its codec continuation still owes the newer epoch");
             assert!(
                 !state.ready(epoch).unwrap(),
                 "the old native flush only acknowledges its starting epoch"
