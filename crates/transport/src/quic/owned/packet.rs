@@ -6,7 +6,10 @@ use std::{
     io,
     net::SocketAddr,
     num::NonZeroUsize,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
 };
 use zero_platform_tokio::{
     contract::{
@@ -33,6 +36,7 @@ pub struct PacketSegment {
     driver: Option<zero_core::component::TaskId>,
     received: Option<super::DriverDelivery>,
     stop: CancellationToken,
+    final_retirement: Arc<AtomicBool>,
     peer: SocketAddr,
     logical: SocketAddr,
     tasks: TaskRegistrar,
@@ -150,14 +154,22 @@ impl PacketSegment {
             queues: Arc::new(Mutex::new(queues.0)),
             driver: None,
             received: None,
-            stop: tasks.cancellation().child_token(),
+            // Scope cancellation fences business and registration, but this
+            // same ancillary original must remain available for Quinn's final
+            // accepted transmissions until the endpoint drivers have joined.
+            // This token controls cleanup only; it grants no native authority.
+            stop: CancellationToken::new(),
+            final_retirement: Arc::new(AtomicBool::new(false)),
             peer,
             logical,
             tasks,
         })
     }
     pub fn start(&mut self) -> Result<(), ChannelError> {
-        if self.driver.is_some() || self.stop.is_cancelled() {
+        if self.driver.is_some()
+            || self.stop.is_cancelled()
+            || self.tasks.cancellation().is_cancelled()
+        {
             return Err(error(Reason::Revoked));
         }
         let source = self.source.take().ok_or_else(|| error(Reason::Revoked))?;
@@ -169,6 +181,7 @@ impl PacketSegment {
             .ok_or_else(|| error(Reason::Revoked))?;
         let returned = self.queues.clone();
         let stop = self.stop.clone();
+        let final_retirement = self.final_retirement.clone();
         let peer = self.peer;
         let logical = self.logical;
         let origin = OwnedDriverOrigin::Carrier;
@@ -192,10 +205,28 @@ impl PacketSegment {
                 let channels=queue.channels.as_mut().unwrap();
                 loop {
                     tokio::select! {biased;
-                        _=stop.cancelled()=>return Ok::<_,io::Error>(()),
+                        _=stop.cancelled()=>{
+                            // A final endpoint has returned all users and its
+                            // actual drivers. Seal its original FIFO before
+                            // draining. A live endpoint's UDP hop instead
+                            // drains only the finite accepted prefix; later
+                            // queued frames stay in these same returned queues.
+                            if final_retirement.load(Ordering::Acquire) {
+                                channels.outgoing.close();
+                            }
+                            let remaining=channels.outgoing.len();
+                            for _ in 0..remaining {
+                                let Some(mut packet)=channels.outgoing.recv().await else {break};
+                                packet.peer=peer;
+                                datagram_queue::send(&socket,packet).await?;
+                            }
+                            return Ok::<_,io::Error>(());
+                        },
                         packet=channels.outgoing.recv()=>{
                             let Some(mut packet)=packet else{return Ok(())};packet.peer=peer;
-                            tokio::select! {biased;_=stop.cancelled()=>return Ok(()),result=datagram_queue::send(&socket,packet)=>result?};
+                            // Keep this exact pending send in the original
+                            // worker across retirement/deadline cancellation.
+                            datagram_queue::send(&socket,packet).await?;
                             if let Some(native)=&channels.native {
                                 let transmit=socket.max_transmit_segments();let fragment=socket.may_fragment();
                                 let mut caps=native.lock().unwrap();
@@ -249,6 +280,16 @@ impl PacketSegment {
             native.lock().unwrap().current = None;
         }
         Ok((PacketQueues(Some(channels)), receipt))
+    }
+    /// Final retirement after the same endpoint's users and actual Quinn
+    /// drivers joined. Unlike a live UDP hop, this seals its existing FIFO.
+    /// A deadline retains the original worker and its pending native send.
+    pub async fn retire_final(
+        &mut self,
+        end: tokio::time::Instant,
+    ) -> Result<(PacketQueues, MetadataUsersClosedReceipt), ChannelError> {
+        self.final_retirement.store(true, Ordering::Release);
+        self.retire(end).await
     }
     pub fn task_exit(&self) -> Option<&super::DriverDelivery> {
         self.received.as_ref()

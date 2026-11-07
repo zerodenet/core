@@ -94,7 +94,7 @@ impl EntryState {
         }
         if self.permit.is_some() && self.receipt.is_none() {
             if let Some(segment) = &mut self.segment {
-                let (queues, receipt) = segment.retire(end).await?;
+                let (queues, receipt) = segment.retire_final(end).await?;
                 self.queues = Some(queues);
                 self.receipt = Some(receipt);
             } else {
