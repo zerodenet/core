@@ -74,8 +74,8 @@ pub(super) async fn run(
                 if state.bytes+packet.bytes.len()>16*1024*1024 {continue;}
                 let Some(client)=state.client(packet.peer) else {continue;};
                 if client.packets.len()>=512 {continue;}
-                let n=packet.bytes.len();client.packets.push_back(packet.into_unbudgeted_bytes());state.bytes+=n;
-                if state.pending.as_ref().is_some_and(|p|p.peer==packet.peer) {state.flush(&mut raw,ipv6).await?;}
+                let n=packet.bytes.len();let original_peer=packet.peer;client.packets.push_back(packet.into_unbudgeted_bytes());state.bytes+=n;
+                if state.pending.as_ref().is_some_and(|p|p.peer==original_peer) {state.flush(&mut raw,ipv6).await?;}
             }
             received=raw.recv_from(&mut wire)=>{
                 let(n,source)=received?;let Ok(echo)=codec::parse(&wire[..n],ipv6,false) else {continue;};

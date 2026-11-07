@@ -82,8 +82,8 @@ pub(super) async fn run(
                 if state.queued_bytes+packet.bytes.len()>16*1024*1024 {continue;}
                 let Some(client)=state.client(packet.peer) else {continue;};
                 if client.packets.len()>=512 {continue;}
-                let n=packet.bytes.len();client.packets.push_back(packet.into_unbudgeted_bytes());state.queued_bytes+=n;
-                if state.pending.as_ref().is_some_and(|pending|pending.client==packet.peer) {state.flush(&inner).await?;}
+                let n=packet.bytes.len();let original_peer=packet.peer;client.packets.push_back(packet.into_unbudgeted_bytes());state.queued_bytes+=n;
+                if state.pending.as_ref().is_some_and(|pending|pending.client==original_peer) {state.flush(&inner).await?;}
             }
             received=queue::receive(inner.as_ref())=>{
                 for packet in received? {
