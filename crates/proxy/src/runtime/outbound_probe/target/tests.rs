@@ -67,11 +67,15 @@ async fn actual_cold_target_panic_keeps_native_source_and_recovers_through_same_
   assert_eq!(carrier.observe().unwrap().retained(),0);
   let mut bytes=[0;1];assert_eq!(peer.read(&mut bytes).await.unwrap(),0,"fixed target performs TCP connect only");
   assert!(proxy.protocols.current_components(&config).is_none());
+  eprintln!("actual cold target: old Native/Scope ACK consumed; original carrier retained={}",carrier.observe().unwrap().retained());
   let fresh=proxy.protocols.prepare_components(config.clone()).unwrap();assert!(!Arc::ptr_eq(&old,&fresh));
-  let actual=proxy.clone();let next=tokio::spawn(async move{let owner=actual.clone();actual.with_diagnostic_service(async move{
-   OutboundProbeRuntime::new(owner.tcp_runtime_services()).probe_server_endpoint(address.ip().to_string(),address.port(),None).await
-  }).await});
-  let(mut peer,_)=listener.accept().await.unwrap();assert!(next.await.unwrap().unwrap().is_ok());
+  eprintln!("actual cold target: fresh cold plan prepared; entering same public maintenance owner");
+  let actual=proxy.clone();let mut next=tokio::spawn(async move{let owner=actual.clone();let result=actual.with_diagnostic_service(async move{
+   eprintln!("actual cold target: fresh maintenance invoked original connect-only target");
+   let result=OutboundProbeRuntime::new(owner.tcp_runtime_services()).probe_server_endpoint(address.ip().to_string(),address.port(),None).await;
+   eprintln!("actual cold target: original target returned {result:?}");result
+  }).await;eprintln!("actual cold target: same public maintenance returned {result:?}");result});
+  let(mut peer,_)=tokio::select!{biased;accepted=listener.accept()=>accepted.unwrap(),result=&mut next=>panic!("fresh actual target ended before original TCP accept: {result:?}")};assert!(next.await.unwrap().unwrap().is_ok());
   assert_eq!(peer.read(&mut bytes).await.unwrap(),0);assert!(proxy.protocols.current_components(&config).is_none());
  }).await.unwrap();
 }

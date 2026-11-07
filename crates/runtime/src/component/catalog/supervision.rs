@@ -46,7 +46,15 @@ impl InlineSupervisor {
                 }
                 scan(&target);
             }
-            work.as_mut().poll(cx)
+            let result = work.as_mut().poll(cx);
+            if result.is_ready() && held.is_some() {
+                // The final work poll may have consumed an original Slot's
+                // Native/Users/Scope ACK. Let the same elected owner actually
+                // observe it before returning; only its existing receipt gates
+                // may reclaim custody. No new task or guessed ACK is issued.
+                scan(&target);
+            }
+            result
         })
         .await
     }
