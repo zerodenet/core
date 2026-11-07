@@ -3,7 +3,8 @@ use super::*;
 pub(super) fn handles(request: &QueryRequest) -> bool {
     matches!(
         request,
-        QueryRequest::Runtime(_)
+        QueryRequest::PrincipalFlows(_)
+            | QueryRequest::Runtime(_)
             | QueryRequest::Stats(_)
             | QueryRequest::Diagnostics(_)
             | QueryRequest::ActiveFlows(_)

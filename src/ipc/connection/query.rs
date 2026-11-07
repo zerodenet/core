@@ -7,6 +7,7 @@ pub(super) fn handles(request: &zero_api::QueryRequest) -> bool {
             | zero_api::QueryRequest::Policies(_)
             | zero_api::QueryRequest::Policy(_)
             | zero_api::QueryRequest::Runtime(_)
+            | zero_api::QueryRequest::PrincipalFlows(_)
             | zero_api::QueryRequest::Stats(_)
             | zero_api::QueryRequest::Diagnostics(_)
             | zero_api::QueryRequest::ActiveFlows(_)
