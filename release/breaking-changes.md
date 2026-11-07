@@ -11,6 +11,18 @@ Application 状态采样改由原 TaskScope 监督并等待真实 join，正常�
 实例。保留 V1 配置/API/events、CLI/FFI、ACK/revision 与计量语义，不需要消费者改动。
 当前仍为开发中续作，历史局部限制/资格不代表当前完整迁移或最终候选已完成。
 
+第二轮完整调用者续作新增两个可选的 Engine 统计字节预算：
+`runtime.event_log_stats_max_bytes`（默认 8 MiB）及
+`runtime.event_subscriber_stats_max_bytes`（每订阅默认 1 MiB），范围均为 1..=256 MiB，
+省略不导出。按原实际账本检查缩额，低于 held 用量保留旧配置/revision/事件并返回 Busy；
+控制 ACK、V1 信封和流量结算保持。TUN 初启/换代/恢复的内部 Rust 调用者接续同一
+Catalog 停旧、额度安装及真实网络代次后的 cold refresh；取消不丢原件责任。
+独立 inspect 与 quota 最终 worker 继续归原 ConfigurationSource。具体 Rust 接线见
+[当前调用者边界](../design/v0.0.3/compatibility.md#第二轮完整调用者续作的当前-rust-边界)。
+当前 Direct Packet/TUN 已有普通装配接线，完整 TX、其余调用者/旧链删除与全部预算仍在
+实现；下文先前“gate 未开启”等阶段性说明不作为当前状态。未取得统一最终候选资格，
+不要求客户端/面板修改，不改变 TEMP 的原有范围。
+
 ## 消费者如何判断兼容性
 
 外部消费者连接内核后应依次检查：

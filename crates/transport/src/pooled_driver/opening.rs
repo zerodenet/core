@@ -96,10 +96,7 @@ impl ManagedPool {
                 .into_parts()
                 .0
         } else {
-            let issuer = if binding.prefix.is_empty() {
-                let dependency = self
-                    .stream_dependency
-                    .ok_or_else(|| failure(self.instance, Stage::Prepare, Reason::StalePlan))?;
+            let issuer = if let Some(dependency) = self.stream_dependency {
                 Some(
                     self.resources
                         .upgrade()

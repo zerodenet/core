@@ -43,8 +43,21 @@ def main():
             "platform": platform.platform(), "rustup_toolchain": os.environ.get("RUSTUP_TOOLCHAIN")}, indent=2) + "\n")
         result = {"expected_sha256": expected, "actual_sha256": digest(used)}
         (output / "lock-verification.json").write_text(json.dumps(result, indent=2) + "\n")
+        original = json.loads((output / "checkout.json").read_text())
+        source_manifest = json.loads((output / "source-inputs.json").read_text())
+        changed = [name for name, expected_digest in source_manifest.items()
+                   if not Path(name).is_file() or digest(Path(name).read_bytes()) != expected_digest]
+        source_result = {"expected_checkout": original["checkout_sha"],
+                         "actual_checkout": git("rev-parse", "HEAD"), "changed_files": changed}
+        (output / "source-verification.json").write_text(json.dumps(source_result, indent=2) + "\n")
+        records = {str(path.relative_to(output)): digest(path.read_bytes())
+                   for path in sorted(output.rglob("*"))
+                   if path.is_file() and path.name != "artifact-files.sha256.json"}
+        (output / "artifact-files.sha256.json").write_text(json.dumps(records, indent=2) + "\n")
         if used != frozen:
             sys.exit("candidate Cargo.lock changed during verification")
+        if changed or source_result["expected_checkout"] != source_result["actual_checkout"]:
+            sys.exit("candidate source changed during verification")
         print("unchanged candidate Cargo.lock SHA-256:", expected)
         return
     if actual.exists() and actual.read_bytes() != frozen:

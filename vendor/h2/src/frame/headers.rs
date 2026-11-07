@@ -25,7 +25,10 @@ pub struct Headers {
     stream_dep: Option<StreamDependency>,
 
     /// The header block fragment
-    header_block: HeaderBlock,
+    // Keep the large decoded header set out of every DATA/WINDOW_UPDATE
+    // Frame value. This is the same bounded HPACK block, allocated only when
+    // this actual HEADERS/PUSH_PROMISE is constructed.
+    header_block: Box<HeaderBlock>,
 
     /// The associated flags
     flags: HeadersFlag,
@@ -43,7 +46,10 @@ pub struct PushPromise {
     promised_id: StreamId,
 
     /// The header block fragment
-    header_block: HeaderBlock,
+    // Keep the large decoded header set out of every DATA/WINDOW_UPDATE
+    // Frame value. This is the same bounded HPACK block, allocated only when
+    // this actual HEADERS/PUSH_PROMISE is constructed.
+    header_block: Box<HeaderBlock>,
 
     /// The associated flags
     flags: PushPromiseFlag,
@@ -118,12 +124,12 @@ impl Headers {
         Headers {
             stream_id,
             stream_dep: None,
-            header_block: HeaderBlock {
+            header_block: Box::new(HeaderBlock {
                 field_size: calculate_headermap_size(&fields),
                 fields,
                 is_over_size: false,
                 pseudo,
-            },
+            }),
             flags: HeadersFlag::default(),
         }
     }
@@ -135,12 +141,12 @@ impl Headers {
         Headers {
             stream_id,
             stream_dep: None,
-            header_block: HeaderBlock {
+            header_block: Box::new(HeaderBlock {
                 field_size: calculate_headermap_size(&fields),
                 fields,
                 is_over_size: false,
                 pseudo: Pseudo::default(),
-            },
+            }),
             flags,
         }
     }
@@ -200,12 +206,12 @@ impl Headers {
         let headers = Headers {
             stream_id: head.stream_id(),
             stream_dep,
-            header_block: HeaderBlock {
+            header_block: Box::new(HeaderBlock {
                 fields: HeaderMap::new(),
                 field_size: 0,
                 is_over_size: false,
                 pseudo: Pseudo::default(),
-            },
+            }),
             flags,
         };
 
@@ -246,7 +252,8 @@ impl Headers {
     }
 
     pub fn into_parts(self) -> (Pseudo, HeaderMap) {
-        (self.header_block.pseudo, self.header_block.fields)
+        let HeaderBlock { pseudo, fields, .. } = *self.header_block;
+        (pseudo, fields)
     }
 
     #[cfg(feature = "unstable")]
@@ -268,7 +275,8 @@ impl Headers {
     }
 
     pub fn into_fields(self) -> HeaderMap {
-        self.header_block.fields
+        let HeaderBlock { fields, .. } = *self.header_block;
+        fields
     }
 
     pub fn encode(
@@ -282,7 +290,7 @@ impl Headers {
         // Get the HEADERS frame head
         let head = self.head();
 
-        self.header_block
+        (*self.header_block)
             .into_encoding(encoder)
             .encode(&head, dst, |_| {})
     }
@@ -360,12 +368,12 @@ impl PushPromise {
     ) -> Self {
         PushPromise {
             flags: PushPromiseFlag::default(),
-            header_block: HeaderBlock {
+            header_block: Box::new(HeaderBlock {
                 field_size: calculate_headermap_size(&fields),
                 fields,
                 is_over_size: false,
                 pseudo,
-            },
+            }),
             promised_id,
             stream_id,
         }
@@ -405,7 +413,8 @@ impl PushPromise {
 
     #[cfg(feature = "unstable")]
     pub fn into_fields(self) -> HeaderMap {
-        self.header_block.fields
+        let HeaderBlock { fields, .. } = *self.header_block;
+        fields
     }
 
     /// Loads the push promise frame but doesn't actually do HPACK decoding.
@@ -451,12 +460,12 @@ impl PushPromise {
 
         let frame = PushPromise {
             flags,
-            header_block: HeaderBlock {
+            header_block: Box::new(HeaderBlock {
                 fields: HeaderMap::new(),
                 field_size: 0,
                 is_over_size: false,
                 pseudo: Pseudo::default(),
-            },
+            }),
             promised_id,
             stream_id: head.stream_id(),
         };
@@ -503,7 +512,7 @@ impl PushPromise {
         let head = self.head();
         let promised_id = self.promised_id;
 
-        self.header_block
+        (*self.header_block)
             .into_encoding(encoder)
             .encode(&head, dst, |dst| {
                 dst.put_u32(promised_id.into());
@@ -516,7 +525,8 @@ impl PushPromise {
 
     /// Consume `self`, returning the parts of the frame
     pub fn into_parts(self) -> (Pseudo, HeaderMap) {
-        (self.header_block.pseudo, self.header_block.fields)
+        let HeaderBlock { pseudo, fields, .. } = *self.header_block;
+        (pseudo, fields)
     }
 }
 

@@ -114,6 +114,20 @@ impl PreparedInboundBind {
     pub(crate) fn take_recovery(&mut self) -> Option<Arc<dyn super::InboundRecovery>> {
         self.recovery.take()
     }
+    /// Refresh only through the protocol's existing immutable replacement
+    /// capsule. No generic re-decode or second Source executor is introduced.
+    pub(crate) fn refresh_dependencies(
+        self,
+        inbound: zero_config::InboundConfig,
+        source_dir: Option<&std::path::Path>,
+    ) -> Result<Self, EngineError> {
+        if let Some(recovery) = &self.recovery {
+            if let Some(prepared) = recovery.prepare_replacement(inbound, source_dir)? {
+                return Ok(prepared);
+            }
+        }
+        Ok(self)
+    }
     pub(crate) fn resources(&self) -> &[ResourceDeclaration] {
         &self.resources
     }

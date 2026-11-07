@@ -35,6 +35,20 @@ impl OwnedDnsQueryTasks {
                         return; // Keep the unmatched original record charged.
                     }
                     if let Err(source) = joined.result() {
+                        let original = state.records[index].retirement.clone();
+                        if state
+                            .faults
+                            .get(&id)
+                            .is_some_and(|old| !Arc::ptr_eq(old, &original))
+                        {
+                            state.identity_fault = true;
+                            state.first_failure.get_or_insert(source);
+                            return;
+                        }
+                        // Install the actual finite receiver before removing
+                        // its live Record or releasing any callback/permit.
+                        // Local acceptance remains outside this state lock.
+                        state.faults.entry(id).or_insert(original);
                         state.first_failure.get_or_insert(source);
                         failed = Some(joined);
                     }

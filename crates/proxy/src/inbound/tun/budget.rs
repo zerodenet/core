@@ -18,6 +18,37 @@ struct Resumed {
     removed: bool,
 }
 impl Proxy {
+    /// Pure preflight before any actual Source StopOld. Presence is an owned
+    /// restart responsibility, never evidence that native/Scope work is closed.
+    pub(crate) fn validate_tun_packet_budget(
+        &self,
+        next: &zero_config::RuntimeConfig,
+    ) -> Result<bool, EngineError> {
+        let retained = self.tun_control.lock().unwrap().as_ref().map(|control| {
+            (
+                control.budget_recovery.clone(),
+                control.completion.restart(),
+            )
+        });
+        let Some((recovery, restart)) = retained else {
+            return Ok(false);
+        };
+        let restart = recovery
+            .as_ref()
+            .map(|recovery| recovery.restart.clone())
+            .or(restart)
+            .ok_or_else(|| {
+                io::Error::other("actual System TUN has no retained validated restart intent")
+            })?;
+        if restart.managed_config.is_none() && next.runtime.tun.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "cannot enable configured TUN while a command-managed TUN is running",
+            )
+            .into());
+        }
+        Ok(true)
+    }
     pub(crate) fn has_tun_packet_budget_recovery(&self) -> bool {
         self.tun_control
             .lock()

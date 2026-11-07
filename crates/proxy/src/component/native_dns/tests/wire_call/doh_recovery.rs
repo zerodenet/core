@@ -64,6 +64,11 @@ async fn physically_closed_doh_panic_keeps_original_faults_and_recovers_the_actu
         let retired = zero_dns::test_support::doh_pool_witness(&proxy.resolver, "wire").unwrap();
         assert_eq!(retired.registered_driver_tasks, 0);
         assert_eq!(retired.active_leases, 0);
+        let retained_panic = joined.result().unwrap_err();
+        assert!(Arc::ptr_eq(&retained_panic, &panic));
+        assert!(joined.failure_accepted() && joined.registration_released());
+        assert!(received.failed_tasks.iter().any(|fault| super::recovery::contains_source(&fault.error, &retained_panic)),
+            "successful pool retirement cannot erase its real original fault receiver");
         proxy.protocols.commit_components(&config, || proxy.resolver.commit_reload_resources(&token).map_err(|source| source.to_string())).unwrap();
         zero_dns::test_support::install_doh_ca(&proxy.resolver, "wire", tls.certificate.clone()).unwrap();
         let next = proxy.resolver.resolve_real_type("recovered.actual.doh.test", 1); tokio::pin!(next);

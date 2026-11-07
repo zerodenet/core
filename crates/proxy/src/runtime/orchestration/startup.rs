@@ -99,10 +99,24 @@ impl OrchestrationState {
             .protocols
             .prepare_device_components(config.clone())
             .map_err(|error| EngineError::Io(std::io::Error::other(error)))?;
+        #[cfg(test)]
+        eprintln!("actual startup early phase: cold described; before DNS retirement");
         dns::prepare(proxy, &snapshot, &components).await?;
         self.preparing_inbounds.ensure_open()?;
         // Reuse the existing orchestration grace period. The migrated Direct
         // component starts no I/O or tasks; this is not a new admission budget.
+        #[cfg(feature = "raw-ip-runtime")]
+        if config.runtime.tun.is_some() {
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+            let mut prepared = proxy.protocols.prepare_resource_start(config.clone(), deadline).await?;
+            proxy.reconcile_configured_tun_for_config(config.clone()).await?;
+            proxy.protocols.refresh_prepared_device_components(&mut prepared, deadline).await?;
+            prepared.start(deadline).await.map_err(std::io::Error::other)?;
+        } else {
+            proxy.protocols.start_components(config.clone(),
+                tokio::time::Instant::now() + std::time::Duration::from_secs(5)).await?;
+        }
+        #[cfg(not(feature = "raw-ip-runtime"))]
         proxy
             .protocols
             .start_components(
@@ -114,6 +128,8 @@ impl OrchestrationState {
         // A cold diagnostic may have temporarily owned and then closed the
         // initially prepared plan while startup awaited the catalog gate.
         // Capture the actual retained started generation after that gate.
+        #[cfg(test)]
+        eprintln!("actual startup early phase: ordinary components started; before deferred graph");
         let tcp_services = proxy.tcp_runtime_services_for_snapshot(snapshot.clone());
         #[cfg(feature = "raw-ip-runtime")]
         proxy
@@ -135,9 +151,7 @@ impl OrchestrationState {
         .with_preparing(self.preparing_inbounds.clone());
         #[cfg(feature = "managed-stream-runtime")]
         let prepared_services = proxy.protocols.prepare_inbound_services(&config)?;
-        proxy
-            .reconcile_configured_tun(config.runtime.tun.as_ref(), config.runtime.network.mtu)
-            .await?;
+        proxy.reconcile_configured_tun_for_config(config.clone()).await?;
         #[cfg(feature = "raw-ip-runtime")]
         let prepared_generation = proxy.egress_interface.generation();
         #[cfg(feature = "raw-ip-runtime")]
@@ -158,6 +172,10 @@ impl OrchestrationState {
             // Leave startup notifications queued. A topology change racing
             // preparation completion must stay visible to the runtime loop.
         }
+        #[cfg(test)]
+        eprintln!(
+            "actual startup early phase: device invocation installed; before actual listener bind"
+        );
         self.start_inbounds(proxy).await?;
         #[cfg(feature = "managed-stream-runtime")]
         self.services
@@ -175,6 +193,8 @@ impl OrchestrationState {
                 tokio::time::Instant::now() + std::time::Duration::from_secs(5),
             )
             .await?;
+        #[cfg(test)]
+        eprintln!("actual startup early phase: all listeners ready; before candidate commit");
         proxy
             .protocols
             .commit_components(&config, || Ok(()))

@@ -239,3 +239,39 @@ ConfigurationSource；独立库检查仍有显式 standalone 入口，均经过�
 
 上述接线仍在整域迁移与必要回归中，不代表五域结题、统一候选 CI、跨平台或同产物
 GUI/面板资格已通过。配置/API/events 与 ACK/revision/计量标识继续保持，未改消费者。
+
+
+## 第二轮完整调用者续作的当前 Rust 边界
+
+本节登记当前实际生产调用者及 Rust 接线，运行资格按 round2/verification.md 的精确
+输入分别判断。五域仍在收尾，不将历史局部限制、公开接口出现或单项通过当作最终资格。
+
+- System TUN 使用同一 Catalog 的 `prepare_resource_start` / `PreparedComponentStart`。
+  该 token 只在原 StopOld 与同 Root 额度安装后返回；`refresh_device_resources` 在真实
+  TUN Source 改变网络代次后，接续同一份已接受 cold 材料，拒绝替换已构造候选。
+  `prepare_restarting_device_resources` 先描述完整受影响集合，活跃 Business 仍为 Busy，
+  旧 TCP 不因此撤销。取消/Drop token 只释放串行锁，实际 Replacement、原件与清理责任
+  仍留 Catalog；不是原件关闭凭据。生产调用者是 Proxy 的 TUN 初启、换代及恢复。
+- `prepared_candidate` 的同配置 device cold 候选优先于旧 current；只读存在不表示 Ready。
+  Source 真正 BuildNew 后，其既有协议恢复 capsule 重新选择实际 linked binding，不能
+  复活 first-cold Pending 图。原 Main/Wire 两阶段 checkpoint 仍与 native/Scope 关闭分证据。
+- `CarrierGrant::adopt_service_stream_loan` 的生产调用者是既有 per-connection Node Service
+  前缀。仅接受其真实 ControlledServiceStream 声明、完整 endpoint/dial/binding、无业务
+  Session 与存活 Scope；先安装同一 strong LoanOwner 再校验。普通空前缀 native 规则不改。
+  direct-dependency Stream loan 还须实际 Catalog Slot、同 host fence 与原 grant 的 seal，
+  不能用角色 ID、裸 Stream 或测试登记替代。无第二协议池或资源缺失 fallback。
+- 独立 connector-state inspect 消费加载配置的原 ConfigurationSource 及现有
+  DispatcherResources；`ConfigurationSnapshotReader` 只借原捕获长度内的 Read/Seek，
+  不授予 clone、写入或原生 handle。实际 File/SQLite/scratch 关闭与原失败分别保留。
+  Engine-only/FFI 不因此启动 Proxy。quota 最终 std worker 的错误在真实 join 后回到同一
+  Source；已接历史故障与仍未知的 native/worker 清理分开，不凭 Drop 放行下一原件。
+- 新增 `runtime.event_log_stats_max_bytes` 与 `event_subscriber_stats_max_bytes`，默认
+  分别 8 MiB 和 1 MiB，范围 1..=256 MiB，省略不导出。前者是同 Engine 统计历史的
+  序列化字节，后者是每个实际订阅未取走的统计字节，独立于控制出口预算。缩额低于
+  真实 held 用量返回 Busy，保留当前配置、revision 与事件；新订阅接续同一实际限制。
+  既有统计采样溢额/历史前缀缺口语义、控制 ACK 与流量结算保持。
+
+普通 Direct Packet 的实际 provider/路由/returns 及 System TUN Source 已在生产装配
+接线；完整 TX/SDK/所有预算投影和换代回归仍继续，不能再用“尚未开启 gate”概括当前
+实现。特权 TUN、真实 Windows/macOS、GUI/面板同产物及 1c1g 资格仍须适用环境验证。
+TEMP-WG-OUTER-UDP-01 仅保原 outer_udp_proxy/reconnect 历史范围，仍单独未关闭。

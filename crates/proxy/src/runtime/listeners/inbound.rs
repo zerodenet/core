@@ -107,7 +107,24 @@ where
         .await?;
     let stopped = plan.stop_old(rollback_runtime_factory, &mut state).await?;
     before_bind(stopped).await?;
-    for candidate in plan.candidates {
+    // A Source restart may have changed the actual network generation while
+    // BuildNew remained sealed. Read its exact retained plan, preserving the
+    // candidate's original publication gate and ingress bookkeeping.
+    let refreshed;
+    let runtime_factory = if runtime_factory.source_network_restart() {
+        refreshed = runtime_factory.with_prepared_components()?;
+        &refreshed
+    } else {
+        runtime_factory
+    };
+    for mut candidate in plan.candidates {
+        if runtime_factory.source_network_restart() {
+            if let Some(prepared) = candidate.prepared.take() {
+                candidate.prepared = Some(prepared.refresh_dependencies(
+                    runtime_factory.listener_config(&candidate.inbound), source_dir,
+                )?);
+            }
+        }
         apply::apply_candidate(
             candidate,
             protocols,

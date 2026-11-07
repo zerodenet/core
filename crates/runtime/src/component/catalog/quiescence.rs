@@ -182,6 +182,9 @@ impl ComponentCatalog {
             for slot in &stopping {
                 roots.push(slot.own_user_root().try_pause_receivers(|lease| {
                     receiver::retained(&old, slot, &stopping, lease)
+                }).map_err(|mut source| {
+                    source.component.get_or_insert(slot.id);
+                    source
                 })?);
             }
         }

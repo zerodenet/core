@@ -15,6 +15,9 @@ impl PreparedComponentStart<'_> {
     pub fn plan(&self) -> &Arc<ComponentPlan> {
         &self.plan
     }
+    pub fn config(&self) -> &Arc<RuntimeConfig> {
+        &self.config
+    }
     /// Recompute the same cold candidate after its actual Source has changed
     /// network facts. The first cold recipes remain strongly owned so protocol
     /// material is inherited from that accepted pass rather than reread files.

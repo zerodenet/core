@@ -109,12 +109,16 @@ impl DriverOwner {
             let joined = tokio::time::timeout_at(end, actual.wait_registration_released())
                 .await
                 .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
-            if !actual.matches_joined(&joined) || !native.closed() {
+            if !actual.matches_joined(&joined) || !native.retired() {
                 return Err(io::Error::other(
                     "actual DoH original or registration ACK remains retained",
                 ));
             }
-            joined.result().map_err(io::Error::other)?;
+            if let Err(source) = joined.result() {
+                if !self.retained_failures_received() {
+                    return Err(io::Error::other(source));
+                }
+            }
         }
         Ok(())
     }

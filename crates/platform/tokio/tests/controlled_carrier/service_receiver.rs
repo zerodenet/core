@@ -107,10 +107,10 @@ async fn per_connection_service_prefix_borrow_requires_exact_service_declaration
                 acquired.unwrap()
             } else {
                 assert_eq!(acquired.err().unwrap().reason, Reason::StalePlan);
-                assert!(
-                    receiving.borrowed_origin().is_some(),
-                    "rejected actual loan was installed before validation"
-                );
+                let rejected = observation.retained()
+                    .expect("rejected actual loan was installed before validation");
+                assert!(rejected.receiver_adoption().unwrap().same_slot(&receiving));
+                assert!(rejected.retains(&original));
                 drop(view);
                 assert!(receiving.retire(deadline()).await.unwrap().is_complete());
                 assert!(original.closed().unwrap().matches(&original));

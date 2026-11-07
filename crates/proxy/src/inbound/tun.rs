@@ -385,9 +385,25 @@ impl Proxy {
         desired: Option<&zero_config::TunConfig>,
         network_mtu: u16,
     ) -> Result<(), EngineError> {
+        self.reconcile_configured_tun_candidate(desired, network_mtu, None).await
+    }
+    pub(crate) async fn reconcile_configured_tun_for_config(
+        &self,
+        config: Arc<zero_config::RuntimeConfig>,
+    ) -> Result<(), EngineError> {
+        self.reconcile_configured_tun_candidate(
+            config.runtime.tun.as_ref(), config.runtime.network.mtu, Some(config.clone()),
+        ).await
+    }
+    async fn reconcile_configured_tun_candidate(
+        &self,
+        desired: Option<&zero_config::TunConfig>,
+        network_mtu: u16,
+        candidate: Option<Arc<zero_config::RuntimeConfig>>,
+    ) -> Result<(), EngineError> {
         #[cfg(feature = "raw-ip-runtime")]
         if self.has_tun_packet_budget_recovery() {
-            let config = self.engine().config();
+            let config = candidate.clone().unwrap_or_else(|| self.engine().config());
             if config.runtime.tun.as_ref() != desired || config.runtime.network.mtu != network_mtu {
                 return Err(io::Error::other(
                     "System TUN recovery requires the exact candidate snapshot",
@@ -468,7 +484,7 @@ impl Proxy {
         }
 
         let desired = desired.expect("configured TUN desired state checked above");
-        self.start_tun_internal(TunStartSpec {
+        self.start_tun_prepared(TunStartSpec {
             name: desired.name.as_deref(),
             addr: &desired.addr,
             mask: &desired.mask,
@@ -485,6 +501,11 @@ impl Proxy {
             },
             managed_config: Some(desired.clone()),
             prepared_network,
+        }, TunStartPreparation {
+            #[cfg(feature = "raw-ip-runtime")]
+            config: candidate,
+            #[cfg(feature = "raw-ip-runtime")]
+            recovery: None,
         })
         .await
     }
