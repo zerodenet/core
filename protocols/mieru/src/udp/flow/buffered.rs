@@ -145,7 +145,7 @@ impl DatagramCodec<Address> for MieruUdpFlowCodec {
         target: &Address,
         _port: u16,
         payload_len: usize,
-    ) -> Result<Vec<usize>, zero_traits::DatagramCodecBufferError<Error>> {
+    ) -> core::result::Result<Vec<usize>, zero_traits::DatagramCodecBufferError<Error>> {
         self.encoded_lengths(target, payload_len)
     }
     fn encode_buffered(
@@ -154,28 +154,35 @@ impl DatagramCodec<Address> for MieruUdpFlowCodec {
         port: u16,
         payload: &[u8],
         buffers: &mut [zero_traits::PacketBuffer],
-    ) -> Result<zero_traits::DatagramCodecOutput, zero_traits::DatagramCodecBufferError<Error>>
-    {
+    ) -> core::result::Result<
+        zero_traits::DatagramCodecOutput,
+        zero_traits::DatagramCodecBufferError<Error>,
+    > {
         self.encode_reserved(target, port, payload, buffers)
     }
     fn decode_buffer_lengths(
         &self,
         wire_len: usize,
-    ) -> Result<Vec<usize>, zero_traits::DatagramCodecBufferError<Error>> {
+    ) -> core::result::Result<Vec<usize>, zero_traits::DatagramCodecBufferError<Error>> {
         self.decoded_lengths(wire_len)
     }
     fn decode_buffered(
         &self,
         wire: &[u8],
         buffers: &mut [zero_traits::PacketBuffer],
-    ) -> Result<
+    ) -> core::result::Result<
         Option<(Address, u16, zero_traits::DatagramCodecOutput)>,
         zero_traits::DatagramCodecBufferError<Error>,
     > {
         self.decode_reserved(wire, buffers)
     }
 
-    fn encode(&self, target: &Address, port: u16, payload: &[u8]) -> Result<Vec<u8>, Self::Error> {
+    fn encode(
+        &self,
+        target: &Address,
+        port: u16,
+        payload: &[u8],
+    ) -> core::result::Result<Vec<u8>, Self::Error> {
         encode_udp_flow_packet(target, port, payload)
     }
 
