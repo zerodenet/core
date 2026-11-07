@@ -19,8 +19,32 @@ pub struct ChannelError {
     pub impact: Impact,
     pub delivery: DeliveryState,
     pub retry: RetryClass,
-    source: Option<Box<dyn Error + Send + Sync>>,
+    source: Option<Source>,
     cleanup_failure_receipt: Option<CleanupFailureReceipt>,
+}
+
+/// An owned diagnostic may need its original Box. Forwarding an existing
+/// exact error Arc does not allocate another Box on every observation/retry.
+/// Both variants preserve the same diagnostic source shape as before.
+enum Source {
+    Owned(Box<dyn Error + Send + Sync>),
+    Retained(Arc<ChannelError>),
+}
+impl Source {
+    fn as_error(&self) -> &(dyn Error + 'static) {
+        match self {
+            Self::Owned(source) => source.as_ref(),
+            Self::Retained(source) => source,
+        }
+    }
+}
+impl fmt::Debug for Source {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Owned(source) => fmt::Debug::fmt(source, formatter),
+            Self::Retained(source) => fmt::Debug::fmt(source, formatter),
+        }
+    }
 }
 
 impl ChannelError {
@@ -40,7 +64,7 @@ impl ChannelError {
     }
 
     pub fn with_source(mut self, source: impl Error + Send + Sync + 'static) -> Self {
-        self.source = Some(Box::new(source));
+        self.source = Some(Source::Owned(Box::new(source)));
         self
     }
 
@@ -64,7 +88,8 @@ impl ChannelError {
         error.delivery = source.delivery;
         error.retry = source.retry;
         error.cleanup_failure_receipt = source.cleanup_failure_receipt.clone();
-        error.with_source(source)
+        error.source = Some(Source::Retained(source));
+        error
     }
 
     pub fn retry_permitted(&self) -> bool {
@@ -84,9 +109,7 @@ impl fmt::Display for ChannelError {
 
 impl Error for ChannelError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.source
-            .as_ref()
-            .map(|source| source.as_ref() as &(dyn Error + 'static))
+        self.source.as_ref().map(Source::as_error)
     }
 }
 
