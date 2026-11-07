@@ -200,7 +200,7 @@ impl InboundTargetNativeOwner {
     }
 }
 impl Slot {
-    fn try_close(&mut self, stop: &CancellationToken) -> Result<CloseReport, ChannelError> {
+    pub(super) fn try_close(&mut self, stop: &CancellationToken) -> Result<CloseReport, ChannelError> {
         if let Some(raw) = self.raw.take() {
             let original = into_original(raw);
             let (pending, control) = PendingTcpConnect::from_socket(

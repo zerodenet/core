@@ -3,7 +3,7 @@ use super::*;
 use crate::contract::{
     lifecycle::{ChannelControl, CloseReport, Unfinished},
     scope::{ScopeRetirementObservation, TaskJoinWitness, TaskScopeIdentity},
-    BoxFuture, ChannelError, CloseReason, DeliveryState, Impact, Reason, Stage,
+    BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
 };
 use crate::{
     controlled_carrier::{CarrierOriginalTotals, SourceCustody},

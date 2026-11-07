@@ -129,7 +129,7 @@ impl InboundTargetNativeOwner {
     }
 }
 impl Core {
-    fn acked(&self) -> bool {
+    pub(super) fn acked(&self) -> bool {
         match self.driver.get() {
             Some(driver) => driver.try_joined().is_some_and(|joined| {
                 driver.matches_joined(&joined) && joined.registration_released()
@@ -152,7 +152,7 @@ impl Core {
             self.returned.cancelled().await;
         }
     }
-    async fn progress(self: Arc<Self>) {
+    pub(super) async fn progress(self: Arc<Self>) {
         self.wait_actor_and_view().await;
         let mut state = self.state.lock().await;
         let indices = state.slots.keys().copied().collect::<Vec<_>>();
