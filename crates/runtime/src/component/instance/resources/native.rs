@@ -284,6 +284,12 @@ impl ResourceAccess for HostResources {
         self.journals.open(self.component, ordinal)
     }
 
+    fn declared_resource_sources(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::lifecycle::DeclaredResourceSources> {
+        Some(self.declared_failures.sources(self.instance?))
+    }
+
     fn carrier_buffer_budget(
         &self,
     ) -> Option<zero_platform_tokio::controlled_carrier::CarrierBufferBudget> {

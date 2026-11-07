@@ -41,6 +41,12 @@ async fn two_actual_journal_faults_have_one_canonical_receiver_and_held_ack_keep
     )
     .unwrap();
     let end = Instant::now() + std::time::Duration::from_secs(3);
+    let capsule = resources.declared_resource_sources().unwrap();
+    assert_eq!(capsule.instance(), actual);
+    assert!(
+        resources.resource_fault().is_none(),
+        "getter did not create a fault or acquire IO"
+    );
     let access = resources.activate(end).unwrap();
     let grants = [resources.journal(0).unwrap(), resources.journal(1).unwrap()];
     let barrier = Arc::new(std::sync::Barrier::new(2));
@@ -167,7 +173,52 @@ async fn two_actual_journal_faults_have_one_canonical_receiver_and_held_ack_keep
     assert!(weak.iter().all(|source| source.upgrade().is_some()));
     drop(canonical);
     assert!(
+        weak.iter().all(|source| source.upgrade().is_some()),
+        "pre-IO capsule holds both later exact OS sources after the writer retires"
+    );
+    drop(capsule);
+    assert!(
         weak.iter().all(|source| source.upgrade().is_none()),
         "no receipt/receiver/producer Arc cycle"
     );
+}
+
+#[test]
+fn pure_declared_capsule_debug_never_formats_foreign_sources_under_the_receiver_lock() {
+    struct Reenter(std::sync::Weak<DeclaredReceiver>);
+    impl std::fmt::Debug for Reenter {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let actual = self.0.upgrade().unwrap();
+            assert!(
+                actual.causes.sources.try_lock().is_ok(),
+                "foreign Debug must not run under the actual receiver mutex"
+            );
+            f.write_str("foreign source")
+        }
+    }
+    impl std::fmt::Display for Reenter {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("foreign source")
+        }
+    }
+    impl std::error::Error for Reenter {}
+    let receiver = Arc::new(DeclaredReceiver::default());
+    let actual = ComponentInstanceId {
+        component: ComponentId(792),
+        generation: ResourceGeneration(2),
+    };
+    receiver.original(
+        actual,
+        Arc::new(
+            ChannelError::new(
+                zero_platform_tokio::contract::Stage::Close,
+                Reason::Io,
+                zero_platform_tokio::contract::Impact::Component,
+            )
+            .with_source(Reenter(Arc::downgrade(&receiver))),
+        ),
+    );
+    let capsule = receiver.sources(actual);
+    assert!(format!("{:?}", receiver.causes).contains("retained"));
+    assert!(format!("{capsule:?}").contains("instance"));
 }
