@@ -560,6 +560,12 @@ where
         if !self.chunk_stream {
             return Pin::new(&mut self.inner).poll_write(cx, buf);
         }
+        if self.write_shutdown_sent && !buf.is_empty() {
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "vmess upload is already half-closed",
+            )));
+        }
         let had_pending = self.write_pos < self.write_buf.len();
         match self.poll_flush_pending(cx) {
             Poll::Ready(Ok(())) => {

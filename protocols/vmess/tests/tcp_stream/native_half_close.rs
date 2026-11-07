@@ -116,6 +116,13 @@ async fn vmess_framed_upload_end_flushes_without_closing_the_reverse_carrier() {
                 AsyncWriteExt::write_all(&mut io, &upload).await.unwrap();
                 AsyncWriteExt::shutdown(&mut io).await.unwrap();
                 assert!(!shutdown.load(Ordering::Acquire));
+                assert_eq!(
+                    AsyncWriteExt::write_all(&mut io, b"after upload EOF")
+                        .await
+                        .unwrap_err()
+                        .kind(),
+                    io::ErrorKind::BrokenPipe
+                );
                 let mut bytes = Vec::new();
                 AsyncReadExt::read_to_end(&mut io, &mut bytes)
                     .await
