@@ -175,6 +175,21 @@ pub(super) fn failure_optional(
             if let Some(channel) = source.downcast_ref::<ChannelError>() {
                 eprintln!("actual native Stream failure stage={stage} depth={depth} component={:?} session={:?} operation={:?} reason={:?} impact={:?} delivery={:?}",channel.component,channel.session,channel.stage,channel.reason,channel.impact,channel.delivery);
             }
+            // Transparent enum/Arc Error implementations delegate source()
+            // through their contained error, so visit the actual payload too.
+            if let Some(retained) = source.downcast_ref::<std::sync::Arc<ChannelError>>() {
+                pending.push(retained.as_ref());
+            }
+            if let Some(runtime) = source.downcast_ref::<zero_transport::RuntimeError>() {
+                match runtime {
+                    zero_transport::RuntimeError::Io(error) => pending.push(error),
+                    zero_transport::RuntimeError::Core(error) => pending.push(error),
+                }
+            }
+            if let Some(core) = source.downcast_ref::<zero_core::Error>() {
+                // Every Core error payload is a protocol-owned &'static str.
+                eprintln!("actual native Stream static core source depth={depth} error={core:?}");
+            }
             if let Some(native) = source.downcast_ref::<io::Error>() {
                 // Only these known static lifecycle diagnostics are emitted;
                 // no arbitrary profile, credential or payload is formatted.
@@ -186,6 +201,11 @@ pub(super) fn failure_optional(
                         | "actual VMess MUX recipe no longer retained by its owner"
                         | "actual VMess MUX role owner no longer retained"
                         | "actual VMess MUX role was revoked before this open"
+                        | "native pool generation differs from the actual dependency"
+                        | "native carrier pool is unavailable"
+                        | "native carrier pool is retired"
+                        | "native carrier pool generation is unavailable"
+                        | "native pool view is unscoped"
                 ) {
                     eprintln!("actual native Stream lifecycle source depth={depth} kind={:?} message={message}",native.kind());
                 }
