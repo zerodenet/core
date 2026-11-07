@@ -245,6 +245,8 @@ impl InboundTaskAccess {
         self.registrar
             .spawn_tracked(TaskClass::Critical, async move {
                 work.await.map_err(|source| {
+                    #[cfg(test)]
+                    eprintln!("actual Source tracked Critical work returned original error: {source:#?}");
                     ChannelError::new(Stage::Close, Reason::Io, Impact::Component)
                         .with_source(source)
                 })
