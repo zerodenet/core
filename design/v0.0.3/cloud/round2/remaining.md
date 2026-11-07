@@ -1,3 +1,55 @@
+## 2026-11-07 13:27 UTC：同原件实测结果、最新配套与新锁
+
+当前实现d5f77fdbd3cc65d5d66712378322f4408865b784；最终候选未冻结。
+实际offline metadata仅增加zero-connector→zero-engine本地边，无第三方包/版本/source改变；
+Cargo.lock与fixture同0d118db581a040ffeca07fe3d16173d25d18639e2d45c5269ce32c22326c5dd3。
+解析命令原记录m-46a597-actual-kernel-local-lock-resolution（exit0，锁改变故不当资格），
+逐包diff/proof与已用旧548锁全留仓库外。
+
+81b69566bc3ff7a73d7ba3b6c219b11b76479b1d / 548锁新产物实际1576.37s no-run成功，
+日志SHA8864edebb6513f71fe0dbd0b5e116b397079cc383038dcf02b4a8c2c2995458f；
+Proxy ELF SHA51e2332b9dd15eca9371aec4ef3c1f0972b20101482c295dcdcfc53effad46cf。
+同输入结果由m-81b695-serial-regressions.json逐组登记，全部检验nonempty及输入完整性：
+
+| 实际回归 | 结果/边界 |
+| --- | --- |
+| Lookup/Trace真实取消、旧raw query/native/Scope | 2通过，同16MiB原测试环境；原SIGABRT修复实际获证 |
+| 原VLESS材料/普通导航及完整tail | 7通过；另同81b三协议client回应各5通过，不能归因为所有VMess路径已修 |
+| 实际gRPC / IPC / HTTP-SSE旧wire、首帧、队列与joins | 24 / 94 / 23通过，原始snapshot Engine2、Runtime/Principal7、Traffic3、Packet5通过 |
+| DNS既有profile/cancel全组 / 原双family wire | 50 / 4通过；Catalog完整DNS设备/共享原件与旧链删除尚未完成 |
+| 实际H3 endpoint最终drain、TUN completion/exit、TunStatus | 1 / 3+2 / 2通过，不代完整B/C域 |
+| 实际hosted preparation / ProbeOwner / ApplyOwner / control retirement / initial material | 3 / 2 / 9 / 1 / 5通过，不代新NoCURRENT片 |
+| 冷Target恢复 | 失败0.01s，旧Critical caller故障被当sticky NativeFault永久重返。A五file窄修baa8385e8将同TaskId/同Arc交原CloseReport，Native Unknown门仍保；待新ELF原强断言复验 |
+| VMess gRPC domain/first/three-hop | 同3个outer deadline仍失败，组2通过3失败，101.99s；未假称MUX回应片已修 |
+| WG fullTX原cap4 | 失败5.02s：SYN已真到peer，5次SYNACK时TX4frames316B满额，kernel payload0。C正在完整修认证/Stack准入前的读原件转换自等，不提高cap/期限，不归TEMP |
+| Metadata N1新ACK夹具 | 初始化先于ACK阶段因probe attempts1失败，原GSO/GRO各含v6/v4必要探测；d5f77只修新增正向夹具探测声明4、保MainN1/Root2/任务数/3s/ACK，且强化原probe1负向的matching原生关闭。生产容量未变，尚待实际N1验证 |
+| VLESS verified decoy原job | 真Err为撤权后TCP ConnectionAborted，B核到job先poll work再canonical stop；准备窄producer+真实pending/真实先到故障反例，不吞ConnectionAborted字符串 |
+
+旧队列漏请求zero-dns library ELF后assert中断，日志保留；未启动组未计通过。
+后续使用同81b产物补完上述三控制等组，再实际构建同输入DNS ELF并跑4项，未借0bf旧ELF。
+
+最新实现配套与剩余：
+
+- M5409完整Connector actual Engine生产源+installation已接原event/history/SourceBook/DeliveryBook，
+  不构造丢弃snapshot，保原bootstrap/continuation/持久sink顺序。09a补count与bytes独立压力回归。
+  1713该片all-features lib/tests类型检查15.75s通过；不是实际5回归资格。
+  原Engine subscriber dequeue后count续存、Drop登记/filter清理仍由A继续，不把此缺口隐藏。
+- B→A/C/M共享前置46a59707ee0109d3d26778dc315682a042b16535：26file完整genuine setup Aux、
+  同unique queue/Endpoint长期driver跨hop责任、final sealed dual-Arc registration ACK、DNS外owner
+  锁外被动等实际ACK。primary registrations()保原语义，消费者须同时处理related_registrations。
+  不是完整QUIC/余出站迁移；其registration slice新存储/临时峰值预算仍列未完成。
+- 1713第二型检失败仅新增transport测试漏Duration两处，原exit101保留；d5f77追加import。
+  当前冻结d5f77同新锁串行检查实际producer+consumer与Source5/Metadata2/probe1/Quinn真实driver
+  回归及全控制Proxy类型检查，结果以实际新record为准。
+- M b574清理Windows已计额原pipe entries时只借一原件，不再申请全ledger快照；原Native/worker/
+  Scope/ACK门不变。当前Windows改动仍需对应编译/真实适用环境资格。
+- A NoCURRENT同Host唯一book/真实三frontend任务强custody整片尚未冻结；C完整Source/设备/helper/
+  独立WG provider、晚continuation及实际Resource故障接收桥仍在outside，不启缺口gate。
+  B完整QUIC/native+borrowed、SOCKS双原件/Mieru/进程及所有剩余合法路径继续，不删未迁旧链。
+
+13:04原www.cloudflare.com:443只读DNS复查仍errno-3；不改目标/断言/期限。
+同最终head CI、最终可下载archive及SHA尚未取得；开发日志与不同输入通过不冒最终资格。
+
 ## 2026-11-07 12:58 UTC：实际cap4、MUX尾部与完整生产事件source
 
 远端integration再次核实仍为59615e69ea5a413d657a873157ea4adf8f204a90；
