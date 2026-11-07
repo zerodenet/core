@@ -214,3 +214,60 @@ async fn actual_partial_logical_read_keeps_byte_credit_until_its_last_byte_is_re
     assert_eq!(&rest, b"ail");
     assert_eq!(backlog.used(), 0);
 }
+
+#[tokio::test]
+async fn pending_old_response_never_moves_to_a_reused_sid_receiver() {
+    tokio::time::timeout(Duration::from_secs(8), async {
+        let (mut peer, reader) = tokio::io::duplex(4096);
+        peer.write_all(&data(7, &[3; 512])).await.unwrap();
+        peer.write_all(&data(7, &[4; 512])).await.unwrap();
+        let streams: Arc<Mutex<HashMap<u16, mpsc::Sender<TrojanMuxDownlink>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let (tx, old_rx) = mpsc::channel(1);
+        insert(&streams, 7, tx);
+        let backlog = MuxResponseBacklog::new(512);
+        let closed = Arc::new(AtomicBool::new(false));
+        let (stop, stopping) = watch::channel(false);
+        let mut driver = Box::pin(client_response::run_mux_read_relay_with_shutdown(
+            reader,
+            streams.clone(),
+            closed,
+            stop.clone(),
+            stopping,
+            None,
+            backlog.clone(),
+        ));
+        core::future::poll_fn(|cx| {
+            assert!(driver.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        assert_eq!(old_rx.len(), 1);
+        assert_eq!(backlog.used(), 512);
+        // The second wire header already selected the old actual sender. The
+        // pending original byte wait must not later target this new receiver.
+        let (replacement, mut new_rx) = mpsc::channel(1);
+        insert(&streams, 7, replacement.clone());
+        drop(old_rx);
+        core::future::poll_fn(|cx| {
+            assert!(driver.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        assert!(streams
+            .lock()
+            .unwrap()
+            .get(&7)
+            .is_some_and(|current| current.same_channel(&replacement)));
+        assert!(matches!(
+            new_rx.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
+        assert_eq!(backlog.used(), 0);
+        stop.send(true).unwrap();
+        driver.await;
+        assert!(streams.lock().unwrap().is_empty());
+    })
+    .await
+    .expect("original 8s SID reuse deadline");
+}
