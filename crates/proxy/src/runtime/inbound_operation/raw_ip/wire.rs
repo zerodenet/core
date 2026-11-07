@@ -293,9 +293,10 @@ pub(super) async fn run(
                 let Some(peer) = operation.device.peer_for_destination(destination) else { continue; };
                 let Some(endpoint) = endpoints.get(peer).and_then(|value| *value) else { continue; };
                 let carrier = peer_uses_proxy.get(peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, peer)).flatten();
+                let mtu = usize::from(operation.device.mtu());
                 let packets=tokio::select! { biased;
                     _=shutdown.changed()=>break Ok(()),
-                    result=async {packet::fragment_ip_packet_prepaid(response,operation.device.mtu() as usize,fragment_id)}=>result.map_err(receive::fragment_failure)?,
+                    result=async move {packet::fragment_ip_packet_prepaid(response,mtu,fragment_id)}=>result.map_err(receive::fragment_failure)?,
                 };
                 tracing::trace!(fragments = packets.len(), "raw-IP inbound response fragments");
                 fragment_id = fragment_id.wrapping_add(1);
