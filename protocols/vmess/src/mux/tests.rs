@@ -167,3 +167,6 @@ async fn slow_consumer_is_cut_off_at_the_frame_limit() {
     }
     assert!(matches!(rx.recv().await, Some(VmessMuxDownlink::Overflow)));
 }
+
+#[path = "tests/half_close.rs"]
+mod half_close;
