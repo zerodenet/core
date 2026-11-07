@@ -39,7 +39,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 use zero_engine::EngineError;
 
 use crate::runtime::{Proxy, TunControl, TunInfo};

@@ -535,9 +535,6 @@ pub(crate) fn compiled_registries_with_network(
                     {
                         let native = node_network.is_some();
                         move |input| {
-                            // Every adapter must exist before the one actual Packet Root is injected.
-                            // The same network source contains only weak current services.
-                            devices.set_node_network(device_network.as_ref());
                             (if native {
                                 crate::adapters::vmess::component::grpc::owned_eligible(input)
                             } else {
@@ -743,6 +740,9 @@ pub(crate) fn compiled_registries_with_network(
             Some(DirectAdapter::claim_outbound_leaf_impl),
         );
     }
+    // Every adapter must exist before the one actual Packet Root is injected.
+    // The same network source contains only weak current services.
+    devices.set_node_network(device_network.as_ref());
     (registry, components, Arc::new(devices))
 }
 
