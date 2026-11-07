@@ -53,10 +53,20 @@ mod management;
 mod standard;
 
 impl PacketSessionPins {
-    /// Retained conversations remain authoritative until their existing normal
-    /// expiry/removal; a budget preflight cannot evict an admitted pin.
-    pub(crate) fn quiescent(&self) -> bool {
-        self.entries.is_empty()
+    /// L3 Packet admissions have no per-flow socket owner: their real managed
+    /// pin remains business custody until the original route is closed.
+    /// Flow/DirectEcho entries only pin selection. Source quiescence separately
+    /// requires its actual TCP/UDP stacks, echo workers, native obligations,
+    /// child joins and queued sends to be empty. Their old selection metadata
+    /// (including a rejected late FIN/RST) cannot invent a live operation.
+    /// This method neither removes a pin nor grants Source/native closure.
+    pub(crate) fn packet_routes_quiescent(&self) -> bool {
+        !self.entries.values().any(|pin| {
+            matches!(
+                pin.plane,
+                PacketPlane::Packet(_) | PacketPlane::TranslatedPacket(_)
+            )
+        })
     }
 
     /// Reuse the observation handle for an admitted conversation. New paths

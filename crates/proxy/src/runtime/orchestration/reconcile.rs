@@ -52,11 +52,14 @@ impl OrchestrationState {
                 match proxy.validate_tun_packet_budget(next) {
                     Ok(present) => present || next.runtime.tun.is_some(),
                     Err(error) => {
-                        self.reject_before_start(proxy, &new_snapshot, error.to_string(), true).await;
+                        self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
+                            .await;
                         return;
                     }
                 }
-            } else { false }
+            } else {
+                false
+            }
         };
         #[cfg(not(feature = "raw-ip-runtime"))]
         let tun_restart = false;
@@ -126,10 +129,18 @@ impl OrchestrationState {
         self.publish_reload_transitions(proxy, &new_snapshot);
         let new_config = new_snapshot.config().clone();
         #[cfg(feature = "raw-ip-runtime")]
-        let restarted = tun_restart.then(|| proxy.protocols
-            .prepare_restarting_device_components(new_config.clone(), compensating));
+        let restarted = tun_restart.then(|| {
+            proxy
+                .protocols
+                .prepare_restarting_device_components(new_config.clone(), compensating)
+        });
         #[cfg(not(feature = "raw-ip-runtime"))]
-        let restarted: Option<Result<std::sync::Arc<crate::component::catalog::ComponentPlan>, crate::component::instance::SharedError>> = None;
+        let restarted: Option<
+            Result<
+                std::sync::Arc<crate::component::catalog::ComponentPlan>,
+                crate::component::instance::SharedError,
+            >,
+        > = None;
         let prepared = if let Some(restarted) = restarted {
             restarted
         } else if compensating {
@@ -161,8 +172,13 @@ impl OrchestrationState {
             }
         };
         if tun_restart {
-            source_dependency_changes.extend(self.applied_snapshot.config().inbounds.iter()
-                .map(|input| input.tag.clone()));
+            source_dependency_changes.extend(
+                self.applied_snapshot
+                    .config()
+                    .inbounds
+                    .iter()
+                    .map(|input| input.tag.clone()),
+            );
         }
         let source_barrier = budget_changed || tun_restart || !source_dependency_changes.is_empty();
         let affected = proxy.protocols.affected_dns_detours(
@@ -191,31 +207,17 @@ impl OrchestrationState {
                 .await;
             return;
         }
-        // Reject actual Business before revoking any cached borrower. This same
-        // guard also supplies the sealed actual receiver set for Source preflight.
-        let user_pause = if source_barrier {
-            match proxy.protocols.try_pause_replacement_users(&components) {
-                Ok(pause) => Some(std::sync::Arc::new(pause)),
-                Err(error) => {
-                    #[cfg(test)]
-                    eprintln!("actual replacement user preflight before Source pause: {error:?}");
-                    self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
-                        .await;
-                    return;
-                }
-            }
-        } else {
-            None
-        };
+        // Source Main first closes only its actually idle logical Packet
+        // cache. pause_sources then fences the catalog's exact Users and proves
+        // cached receivers before any component/carrier StopOld is allowed.
         let mut source_retirement = None;
-        let _source_pauses = if let Some(user_pause) = &user_pause {
+        let _source_pauses = if source_barrier {
             match budget_barrier::pause_sources(
                 proxy,
                 self.applied_snapshot.config(),
                 new_snapshot.config(),
                 &source_dependency_changes,
                 &components,
-                user_pause.clone(),
                 &mut source_retirement,
                 tun_restart,
             )
@@ -262,7 +264,9 @@ impl OrchestrationState {
         );
         let candidate_runtime_factory = if tun_restart {
             candidate_runtime_factory.for_source_network_restart()
-        } else { candidate_runtime_factory };
+        } else {
+            candidate_runtime_factory
+        };
         let candidate_runtime_factory = if compensating {
             candidate_runtime_factory.for_recovery()
         } else {
@@ -384,20 +388,29 @@ impl OrchestrationState {
                     drop(source_retirement);
                     #[cfg(feature = "raw-ip-runtime")]
                     let refreshed = if tun_restart {
-                        Some(budget_barrier::restart_tun_and_resources(
-                            proxy, start_config, start_services, start_preparing, start_retained,
-                        ).await?)
-                    } else { None };
+                        Some(
+                            budget_barrier::restart_tun_and_resources(
+                                proxy,
+                                start_config,
+                                start_services,
+                                start_preparing,
+                                start_retained,
+                            )
+                            .await?,
+                        )
+                    } else {
+                        None
+                    };
                     #[cfg(feature = "raw-ip-runtime")]
                     let start_services = refreshed.as_ref().unwrap_or(start_services);
                     if !tun_restart {
                         budget_barrier::start_resources(
-                        proxy,
-                        start_config,
-                        start_services,
-                        start_preparing,
-                        start_retained,
-                    )
+                            proxy,
+                            start_config,
+                            start_services,
+                            start_preparing,
+                            start_retained,
+                        )
                         .await?;
                     }
                     *output_resources = Some(
@@ -427,31 +440,41 @@ impl OrchestrationState {
             match candidate_tcp_services.with_prepared_components() {
                 Ok(services) => services,
                 Err(error) => {
-                    self.reject_reload(proxy, &new_snapshot, error.to_string()).await;
+                    self.reject_reload(proxy, &new_snapshot, error.to_string())
+                        .await;
                     return;
                 }
             }
-        } else { candidate_tcp_services };
+        } else {
+            candidate_tcp_services
+        };
         let candidate_runtime_factory = if tun_restart {
             match candidate_runtime_factory.with_prepared_components() {
                 Ok(factory) => factory,
                 Err(error) => {
-                    self.reject_reload(proxy, &new_snapshot, error.to_string()).await;
+                    self.reject_reload(proxy, &new_snapshot, error.to_string())
+                        .await;
                     return;
                 }
             }
-        } else { candidate_runtime_factory };
+        } else {
+            candidate_runtime_factory
+        };
         let candidate_urltest_runtime = UrlTestRuntime::new(candidate_tcp_services.clone());
         if tun_restart {
             let actual = match &candidate_tcp_services.components {
                 Ok(actual) => actual.clone(),
                 Err(error) => {
-                    self.reject_reload(proxy, &new_snapshot, error.to_string()).await;
+                    self.reject_reload(proxy, &new_snapshot, error.to_string())
+                        .await;
                     return;
                 }
             };
-            if let Err(error) = self.refresh_dns_component_candidate(&new_snapshot, &components, actual) {
-                self.reject_reload(proxy, &new_snapshot, error.to_string()).await;
+            if let Err(error) =
+                self.refresh_dns_component_candidate(&new_snapshot, &components, actual)
+            {
+                self.reject_reload(proxy, &new_snapshot, error.to_string())
+                    .await;
                 return;
             }
         }
@@ -522,7 +545,8 @@ impl OrchestrationState {
                 return;
             }
             if let Err(error) = proxy.confirm_tun_packet_budget(&new_config) {
-                self.finish_rejection(proxy, &new_snapshot, error.to_string(), true).await;
+                self.finish_rejection(proxy, &new_snapshot, error.to_string(), true)
+                    .await;
                 return;
             }
         }

@@ -262,7 +262,7 @@ pub(in crate::runtime) async fn run(
             _=cancel.cancelled()=>break Ok(()),
             request=checkpoint.requested()=>{
                 let deadline=checkpoint.request_deadline(request).unwrap_or_else(tokio::time::Instant::now);
-                let idle=if pins.quiescent() && sending.is_none() && responses.is_empty() && closing_packet_roles.is_none() {
+                let idle=if pins.packet_routes_quiescent() && sending.is_none() && responses.is_empty() && closing_packet_roles.is_none() {
                     match children.native.quiescent(deadline).await {
                         Ok(native)=>native && source_host.peer_groups_quiescent() && children.echoes.quiescent()
                             && children.udp.quiescent() && children.tcp_dns.as_ref().is_none_or(|tasks|tasks.quiescent())
@@ -279,7 +279,7 @@ pub(in crate::runtime) async fn run(
                 }}else{false};
                 #[cfg(test)]
                 if !idle { eprintln!("actual Packet Main pause rejected: source={:?} request={} pins={} sending={} responses={} closing_roles={}",
-                    facts.inbound,request,pins.quiescent(),sending.is_some(),responses.len(),closing_packet_roles.is_some()); }
+                    facts.inbound,request,pins.packet_routes_quiescent(),sending.is_some(),responses.len(),closing_packet_roles.is_some()); }
                 checkpoint.acknowledge(request,idle);
                 tokio::select! {_=cancel.cancelled()=>break Ok(()),_=checkpoint.resumed(request)=>{}}
             },
