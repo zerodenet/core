@@ -475,3 +475,6 @@ fn build_payload(len: usize) -> Vec<u8> {
 
 #[path = "tcp_stream/half_close.rs"]
 mod half_close;
+
+#[path = "tcp_stream/native_half_close.rs"]
+mod native_half_close;
