@@ -17,6 +17,17 @@ impl OwnedConnection {
             permit,
         })
     }
+    /// Wait only for this endpoint's actual user book, with this connection's stop.
+    pub async fn try_clone_wait(&self) -> Result<Self, ChannelError> {
+        let permit = tokio::select! { biased;
+            source = self.connection.closed() => return Err(protocol(Stage::Prepare, source)),
+            permit = self.permit.users().acquire_wait() => permit?,
+        };
+        Ok(Self {
+            connection: self.connection.clone(),
+            permit,
+        })
+    }
     pub fn close(&self, code: quinn::VarInt, reason: &[u8]) {
         self.connection.close(code, reason);
     }
@@ -82,7 +93,10 @@ impl OwnedConnection {
         }
     }
     pub async fn accept_uni(&self) -> Result<OwnedRecvStream, ChannelError> {
-        let permit = self.permit.users().acquire()?;
+        let permit = tokio::select! { biased;
+            source = self.connection.closed() => return Err(protocol(Stage::Receive, source)),
+            permit = self.permit.users().acquire_wait() => permit?,
+        };
         let cancel = permit.users().cancellation().clone();
         tokio::select! { biased;
             _ = cancel.cancelled() => Err(error(Stage::Receive, Reason::Cancelled)),
@@ -90,8 +104,7 @@ impl OwnedConnection {
         }
     }
     pub async fn open_bi(&self) -> Result<(OwnedSendStream, OwnedRecvStream), ChannelError> {
-        let send = self.permit.users().acquire()?;
-        let recv = self.permit.users().acquire()?;
+        let (send, recv) = self.permit.users().acquire_pair()?;
         let cancel = send.users().cancellation().clone();
         tokio::select! { biased;
             _ = cancel.cancelled() => Err(error(Stage::Prepare, Reason::Cancelled)),
@@ -99,12 +112,32 @@ impl OwnedConnection {
         }
     }
     pub async fn accept_bi(&self) -> Result<(OwnedSendStream, OwnedRecvStream), ChannelError> {
-        let send = self.permit.users().acquire()?;
-        let recv = self.permit.users().acquire()?;
+        let (send, recv) = tokio::select! { biased;
+            source = self.connection.closed() => return Err(protocol(Stage::Receive, source)),
+            permits = self.permit.users().acquire_pair_wait() => permits?,
+        };
         let cancel = send.users().cancellation().clone();
         tokio::select! { biased;
             _ = cancel.cancelled() => Err(error(Stage::Receive, Reason::Cancelled)),
             result = self.connection.accept_bi() => result.map(|(tx, rx)| (OwnedSendStream::new(tx, send), OwnedRecvStream::new(rx, recv))).map_err(|source| protocol(Stage::Receive, source)),
+        }
+    }
+    /// The classifier's real connection handle and both raw stream views are
+    /// admitted together, before accepting a new stream from Quinn.
+    pub async fn accept_bi_with_connection(
+        &self,
+    ) -> Result<(Self, OwnedSendStream, OwnedRecvStream), ChannelError> {
+        let (connection, send, recv) = tokio::select! { biased;
+            source = self.connection.closed() => return Err(protocol(Stage::Receive, source)),
+            permits = self.permit.users().acquire_triplet_wait() => permits?,
+        };
+        let cancel = connection.users().cancellation().clone();
+        tokio::select! { biased;
+            _ = cancel.cancelled() => Err(error(Stage::Receive, Reason::Cancelled)),
+            result = self.connection.accept_bi() => result.map(|(tx, rx)| (
+                Self { connection: self.connection.clone(), permit: connection },
+                OwnedSendStream::new(tx, send), OwnedRecvStream::new(rx, recv)
+            )).map_err(|source| protocol(Stage::Receive, source)),
         }
     }
 }

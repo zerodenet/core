@@ -41,19 +41,23 @@ impl<A: UserAdmission> LogicalUsers<A> {
             admission,
         })
     }
-    pub fn acquire(self: &Arc<Self>) -> Result<LogicalUserPermit<A>, ChannelError> {
+    /// Reserve each real view in one atomic operation; no partial group waits.
+    fn acquire_group<const N: usize>(
+        self: &Arc<Self>,
+    ) -> Result<[LogicalUserPermit<A>; N], ChannelError> {
+        assert!((1..=3).contains(&N));
         self.admission.check()?;
         if self.cancel.is_cancelled() {
             return Err(error(Stage::Prepare, Reason::Revoked));
         }
         let mut active = self.active.load(Ordering::Acquire);
         loop {
-            if active >= self.limit.get() {
+            if N > self.limit.get().saturating_sub(active) {
                 return Err(error(Stage::Prepare, Reason::Capacity));
             }
             match self.active.compare_exchange_weak(
                 active,
-                active + 1,
+                active + N,
                 Ordering::AcqRel,
                 Ordering::Acquire,
             ) {
@@ -61,11 +65,62 @@ impl<A: UserAdmission> LogicalUsers<A> {
                 Err(current) => active = current,
             }
         }
-        let permit = LogicalUserPermit(self.clone());
+        let permits = std::array::from_fn(|_| LogicalUserPermit(self.clone()));
         if self.cancel.is_cancelled() {
             return Err(error(Stage::Prepare, Reason::Revoked));
         }
+        Ok(permits)
+    }
+    async fn wait_group<const N: usize>(
+        self: &Arc<Self>,
+    ) -> Result<[LogicalUserPermit<A>; N], ChannelError> {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            match self.acquire_group() {
+                Ok(permits) => return Ok(permits),
+                Err(source) if source.reason == Reason::Capacity && N <= self.limit.get() => {}
+                Err(source) => return Err(source),
+            }
+            tokio::select! { biased;
+                _ = self.cancel.cancelled() => return Err(error(Stage::Prepare, Reason::Revoked)),
+                _ = changed => {},
+            }
+        }
+    }
+    pub fn acquire(self: &Arc<Self>) -> Result<LogicalUserPermit<A>, ChannelError> {
+        let [permit] = self.acquire_group()?;
         Ok(permit)
+    }
+    pub fn acquire_pair(
+        self: &Arc<Self>,
+    ) -> Result<(LogicalUserPermit<A>, LogicalUserPermit<A>), ChannelError> {
+        let [first, second] = self.acquire_group()?;
+        Ok((first, second))
+    }
+    pub async fn acquire_wait(self: &Arc<Self>) -> Result<LogicalUserPermit<A>, ChannelError> {
+        let [permit] = self.wait_group().await?;
+        Ok(permit)
+    }
+    pub async fn acquire_pair_wait(
+        self: &Arc<Self>,
+    ) -> Result<(LogicalUserPermit<A>, LogicalUserPermit<A>), ChannelError> {
+        let [first, second] = self.wait_group().await?;
+        Ok((first, second))
+    }
+    pub async fn acquire_triplet_wait(
+        self: &Arc<Self>,
+    ) -> Result<
+        (
+            LogicalUserPermit<A>,
+            LogicalUserPermit<A>,
+            LogicalUserPermit<A>,
+        ),
+        ChannelError,
+    > {
+        let [first, second, third] = self.wait_group().await?;
+        Ok((first, second, third))
     }
     pub fn cancellation(&self) -> &CancellationToken {
         &self.cancel

@@ -8,7 +8,24 @@ impl Hysteria2Adapter {
         runtime: &zero_config::RuntimeOptionsConfig,
     ) -> Result<::hysteria2::component::Options, crate::component::RegistrationError> {
         let n = |value| std::num::NonZeroUsize::new(value).expect("validated runtime budget");
+        let queues = ::hysteria2::transport::Hysteria2H3QueueLimits::new(
+            n(runtime.effective_hysteria2_h3_max_pending_classifications()),
+            n(runtime.effective_hysteria2_h3_max_pending_tcp_streams()),
+            n(runtime.effective_hysteria2_h3_max_pending_web_streams()),
+            n(runtime.effective_hysteria2_h3_max_pending_web_requests()),
+        )
+        .map_err(|source| {
+            crate::component::RegistrationError::Planning(
+                zero_platform_tokio::contract::ChannelError::new(
+                    zero_platform_tokio::contract::Stage::Prepare,
+                    zero_platform_tokio::contract::Reason::InvalidConfig,
+                    zero_platform_tokio::contract::Impact::Component,
+                )
+                .with_source(source),
+            )
+        })?;
         self.inbound_options(inbound, source_dir)?
+            .with_h3_queue_limits(queues)
             .with_metadata_limits(
                 n(runtime.effective_metadata_max_probe_sockets(2)),
                 n(runtime.effective_metadata_max_probe_attempts(8)),

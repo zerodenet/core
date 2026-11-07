@@ -4,6 +4,19 @@ use super::*;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuntimeOptionsConfig {
+    /// On-demand pending classifications per actual inbound HY2 HTTP/3 connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hysteria2_h3_max_pending_classifications: Option<usize>,
+    /// On-demand pending tcp streams per actual inbound HY2 HTTP/3 connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hysteria2_h3_max_pending_tcp_streams: Option<usize>,
+    /// On-demand pending web streams per actual inbound HY2 HTTP/3 connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hysteria2_h3_max_pending_web_streams: Option<usize>,
+    /// On-demand pending web requests per actual inbound HY2 HTTP/3 connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hysteria2_h3_max_pending_web_requests: Option<usize>,
+
     /// Maximum same-original accepted/peer tasks. Omission retains the actual protocol default; no Scope or worker is allocated from the number alone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inbound_max_tasks_per_carrier: Option<usize>,
@@ -286,6 +299,10 @@ impl Default for RuntimeOptionsConfig {
             udp_upstream_idle_timeout_seconds: default_udp_upstream_idle_timeout_seconds(),
             event_log_capacity: default_event_log_capacity(),
             event_log_stats_max_bytes: None,
+            hysteria2_h3_max_pending_classifications: None,
+            hysteria2_h3_max_pending_tcp_streams: None,
+            hysteria2_h3_max_pending_web_streams: None,
+            hysteria2_h3_max_pending_web_requests: None,
             inbound_max_tasks_per_carrier: None,
             inbound_max_resources_per_carrier: None,
             inbound_max_in_flight_requests: None,
@@ -463,6 +480,18 @@ impl RuntimeOptionsConfig {
     pub fn effective_inbound_max_in_flight_requests(&self, actual_default: usize) -> usize {
         self.inbound_max_in_flight_requests
             .unwrap_or(actual_default)
+    }
+    pub fn effective_hysteria2_h3_max_pending_classifications(&self) -> usize {
+        self.hysteria2_h3_max_pending_classifications.unwrap_or(128)
+    }
+    pub fn effective_hysteria2_h3_max_pending_tcp_streams(&self) -> usize {
+        self.hysteria2_h3_max_pending_tcp_streams.unwrap_or(128)
+    }
+    pub fn effective_hysteria2_h3_max_pending_web_streams(&self) -> usize {
+        self.hysteria2_h3_max_pending_web_streams.unwrap_or(128)
+    }
+    pub fn effective_hysteria2_h3_max_pending_web_requests(&self) -> usize {
+        self.hysteria2_h3_max_pending_web_requests.unwrap_or(64)
     }
     pub fn effective_event_log_stats_max_bytes(&self) -> usize {
         self.event_log_stats_max_bytes.unwrap_or(8 * 1024 * 1024)

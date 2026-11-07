@@ -322,6 +322,10 @@ impl OrchestrationState {
         let carrier_changed =
             budget_barrier::carrier_budget_changed(self.applied_snapshot.config(), &new_config);
         if carrier_changed
+            || crate::adapters::metadata::h3_budget_changed(
+                self.applied_snapshot.config(),
+                &new_config,
+            )
             || budget_barrier::metadata_budget_changed(self.applied_snapshot.config(), &new_config)
             || budget_barrier::inbound_work_budget_changed(
                 self.applied_snapshot.config(),
@@ -339,7 +343,12 @@ impl OrchestrationState {
                     self.applied_snapshot.config(),
                     &new_config,
                 );
-                if !carrier_changed && !metadata_changed && !work_changed {
+                let h3_changed = crate::adapters::metadata::h3_source_budget_changed(
+                    input,
+                    self.applied_snapshot.config(),
+                    &new_config,
+                );
+                if !carrier_changed && !metadata_changed && !work_changed && !h3_changed {
                     continue;
                 }
                 match proxy.protocols.prepare_inbound_bind_in_config(
@@ -355,6 +364,10 @@ impl OrchestrationState {
                                 ))
                             || (work_changed
                                 && budget_barrier::inbound_work_resources(
+                                    prepared.resources(),
+                                ))
+                            || (h3_changed
+                                && budget_barrier::metadata_source_resources(
                                     prepared.resources(),
                                 )) =>
                     {

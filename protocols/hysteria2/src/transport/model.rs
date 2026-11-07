@@ -19,6 +19,7 @@ pub struct Hysteria2ManagedDatagramFlowResume {
 
 #[derive(Debug, Clone)]
 pub struct Hysteria2AuthenticatedInboundProfile {
+    pub(crate) h3_queues: super::Hysteria2H3QueueLimits,
     pub(crate) masquerade: super::http3::Masquerade,
     pub(crate) settings: crate::settings::Settings,
     pub(crate) protocol: crate::inbound::Hysteria2InboundProfile,

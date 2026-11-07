@@ -37,6 +37,28 @@ pub struct Options {
     quic_users: NonZeroUsize,
 }
 impl Options {
+    pub fn h3_queue_limits(&self) -> crate::transport::Hysteria2H3QueueLimits {
+        self.profile.h3_queue_limits()
+    }
+    pub fn with_h3_queue_limits(
+        mut self,
+        limits: crate::transport::Hysteria2H3QueueLimits,
+    ) -> Self {
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"actual-hy2-h3-queues-v1");
+        for n in [
+            limits.classifications(),
+            limits.tcp_streams(),
+            limits.web_streams(),
+            limits.web_requests(),
+        ] {
+            identity.extend_from_slice(&n.get().to_le_bytes());
+        }
+        self.identity = identity.into();
+        self.profile = self.profile.with_h3_queue_limits(limits);
+        self
+    }
+
     /// Cold limits on this same original accepted/peer graph. No work starts.
     pub fn with_inbound_work_limits(
         mut self,

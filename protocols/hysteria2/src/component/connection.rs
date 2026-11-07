@@ -43,6 +43,7 @@ impl InboundHandshake for Incoming {
             facts,
             cancel,
             udp_delivered: false,
+            pending_udp: None,
         };
         let caller = context
             .accepted
@@ -70,9 +71,8 @@ impl InboundHandshake for Incoming {
             source.streams = Some(streams);
             auth
         } else {
-            let (send, recv) = source.connection.accept_bi().await?;
-            let mut stream =
-                OwnedBiStream::from_streams(source.connection.try_clone()?, send, recv);
+            let (connection, send, recv) = source.connection.accept_bi_with_connection().await?;
+            let mut stream = OwnedBiStream::from_streams(connection, send, recv);
             let mut salt = [0; 32];
             source
                 .connection
@@ -110,6 +110,7 @@ struct Source {
     facts: InboundConnectionFacts,
     cancel: CancellationToken,
     udp_delivered: bool,
+    pending_udp: Option<bytes::Bytes>,
 }
 impl Drop for Source {
     fn drop(&mut self) {
@@ -140,19 +141,29 @@ impl RequestMultiplexer for Source {
                 match &mut self.streams {
                     Some(streams) => Ok(streams.recv().await),
                     None => {
-                        let (send, recv) = self.connection.accept_bi().await?;
+                        let (connection, send, recv) =
+                            self.connection.accept_bi_with_connection().await?;
                         Ok::<_, ChannelError>(Some(TcpRelayStream::new(
-                            OwnedBiStream::from_streams(self.connection.try_clone()?, send, recv),
+                            OwnedBiStream::from_streams(connection, send, recv),
                         )))
                     }
                 }
+            };
+            let datagram = async {
+                if self.pending_udp.is_none() {
+                    self.pending_udp = Some(self.connection.read_datagram().await?);
+                }
+                // A cancelled select keeps the same first packet while waiting
+                // for its real connection view; it is never silently consumed.
+                let connection = self.connection.try_clone_wait().await?;
+                Ok::<_, ChannelError>((connection, self.pending_udp.take().unwrap()))
             };
             tokio::select! {biased;
                 _=self.cancel.cancelled()=>Ok(None),
                 _=context.cancel.cancelled()=>Ok(None),
             _=async {match context.deadline {Some(deadline)=>tokio::time::sleep_until(deadline).await,None=>std::future::pending().await}}=>Err(ChannelError::new(Stage::Receive,Reason::Timeout,Impact::Session)),
                 result=tcp=>{let Some(stream)=result? else{return Ok(None)};Ok(Some(PendingInbound::new(Tcp {stream,auth:self.auth.clone().unwrap(),facts:self.facts.clone()})))},
-                first=self.connection.read_datagram(),if !self.udp_delivered=>{let first=first?;self.udp_delivered=true;Ok(Some(PendingInbound::new(datagram::Incoming {connection:self.connection.try_clone()?,first,auth:self.auth.clone().unwrap(),facts:self.facts.clone()})))},
+                first=datagram,if !self.udp_delivered=>{let (connection,first)=first?;self.udp_delivered=true;Ok(Some(PendingInbound::new(datagram::Incoming {connection,first,auth:self.auth.clone().unwrap(),facts:self.facts.clone()})))},
             }
         })
     }

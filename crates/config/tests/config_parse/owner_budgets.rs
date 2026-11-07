@@ -16,7 +16,31 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 47] = [
+    let fields: [BudgetField; 51] = [
+        (
+            "hysteria2_h3_max_pending_classifications",
+            RuntimeOptionsConfig::effective_hysteria2_h3_max_pending_classifications,
+            128,
+            4096,
+        ),
+        (
+            "hysteria2_h3_max_pending_tcp_streams",
+            RuntimeOptionsConfig::effective_hysteria2_h3_max_pending_tcp_streams,
+            128,
+            4096,
+        ),
+        (
+            "hysteria2_h3_max_pending_web_streams",
+            RuntimeOptionsConfig::effective_hysteria2_h3_max_pending_web_streams,
+            128,
+            4096,
+        ),
+        (
+            "hysteria2_h3_max_pending_web_requests",
+            RuntimeOptionsConfig::effective_hysteria2_h3_max_pending_web_requests,
+            64,
+            4096,
+        ),
         (
             "inbound_max_tasks_per_carrier",
             |r| r.effective_inbound_max_tasks_per_carrier(520),

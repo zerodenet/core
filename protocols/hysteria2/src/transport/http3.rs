@@ -43,8 +43,9 @@ pub(super) async fn accept(
     connection: quinn::Connection,
     profile: &Hysteria2AuthenticatedInboundProfile,
 ) -> Result<(zero_core::SessionAuth, Hysteria2Http3ServerGuard), RuntimeError> {
-    let (web_tx, web_rx) = mpsc::channel(128);
-    let (tcp_tx, tcp_rx) = mpsc::channel(128);
+    let limits = profile.h3_queue_limits();
+    let (web_tx, web_rx) = mpsc::channel(limits.web_streams().get());
+    let (tcp_tx, tcp_rx) = mpsc::channel(limits.tcp_streams().get());
     let (auth_tx, auth_rx) = oneshot::channel();
     let authenticated = Arc::new(AtomicBool::new(false));
     let dispatch = tokio::spawn(dispatch::run(
@@ -52,6 +53,7 @@ pub(super) async fn accept(
         authenticated.clone(),
         web_tx,
         tcp_tx,
+        limits.classifications(),
     ));
     let incoming = futures_util::stream::unfold(web_rx, |mut rx| async move {
         let stream = rx
@@ -76,7 +78,7 @@ pub(super) async fn accept(
         let mut requests = tokio::task::JoinSet::new();
         loop {
             tokio::select! {
-                request = server.accept(), if requests.len() < 64 => {
+                request = server.accept(), if requests.len() < profile.h3_queue_limits().web_requests().get() => {
                     let resolver = match request { Ok(Some(resolver)) => resolver, _ => break };
                     let state = state.clone(); let profile = profile.clone(); let connection = driver_connection.clone();
                     requests.spawn(async move {

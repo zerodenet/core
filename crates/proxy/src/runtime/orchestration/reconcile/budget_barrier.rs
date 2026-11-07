@@ -91,6 +91,7 @@ pub(in crate::runtime) fn inbound_work_resources(
 }
 pub(in crate::runtime) fn ss_budget_changed(old: &RuntimeConfig, next: &RuntimeConfig) -> bool {
     if carrier_budget_changed(old, next)
+        || crate::adapters::metadata::h3_budget_changed(old, next)
         || inbound_work_budget_changed(old, next)
         || old.inbounds.iter().chain(&next.inbounds).any(|input| {
             crate::adapters::metadata::metadata_source_budget_changed(input, old, next)

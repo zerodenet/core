@@ -30,8 +30,9 @@ pub(super) async fn accept(
     resources: Arc<dyn ResourceAccess>,
     cancel: CancellationToken,
 ) -> Result<(zero_core::SessionAuth, mpsc::Receiver<TcpRelayStream>), ChannelError> {
-    let (web_tx, web_rx) = mpsc::channel(128);
-    let (tcp_tx, tcp_rx) = mpsc::channel(128);
+    let limits = profile.h3_queue_limits();
+    let (web_tx, web_rx) = mpsc::channel(limits.web_streams().get());
+    let (tcp_tx, tcp_rx) = mpsc::channel(limits.tcp_streams().get());
     let (sender, auth) = oneshot::channel();
     let state = Arc::new(Auth {
         authenticated: AtomicBool::new(false),
@@ -43,15 +44,23 @@ pub(super) async fn accept(
     let auth_state = state.clone();
     caller.spawn(TaskClass::Auxiliary, move |_| async move {
         let _exit = stop.clone().drop_guard();
-        let _ = dispatch(conn, auth_state, web_tx, tcp_tx, stop).await;
-        Ok(())
+        dispatch(
+            conn,
+            auth_state,
+            web_tx,
+            tcp_tx,
+            stop,
+            limits.classifications(),
+        )
+        .await
     })?;
     let owner = caller.clone();
     let stop = cancel.clone();
     caller.spawn(TaskClass::Auxiliary, move |_| async move {
         let _exit = stop.clone().drop_guard();
-        let _ = serve(connection, profile, state, web_rx, stop, resources, owner).await;
-        Ok(())
+        serve(connection, profile, state, web_rx, stop, resources, owner)
+            .await
+            .map_err(failure)
     })?;
     let auth = auth
         .await
@@ -64,14 +73,16 @@ async fn dispatch(
     web: mpsc::Sender<owned_h3::BidiStream>,
     tcp: mpsc::Sender<TcpRelayStream>,
     cancel: CancellationToken,
+    classifications: std::num::NonZeroUsize,
 ) -> Result<(), ChannelError> {
     let mut pending = FuturesUnordered::<BoxFuture<'static, Result<(), ChannelError>>>::new();
     loop {
         tokio::select! {biased;
             _=cancel.cancelled()=>break,
+            _=connection.closed()=>break,
             _=tcp.closed()=>break,
-            pair=connection.accept_bi(),if pending.len()<128=>{
-                let (send,mut recv)=match pair{Ok(pair)=>pair,Err(_)=>break};let conn=connection.try_clone()?;let state=state.clone();let web=web.clone();let tcp=tcp.clone();
+            pair=connection.accept_bi_with_connection(),if pending.len()<classifications.get()=>{
+                let (conn,send,mut recv)=match pair{Ok(pair)=>pair,Err(_) if connection.close_reason().is_some()=>break,Err(source)=>return Err(source)};let state=state.clone();let web=web.clone();let tcp=tcp.clone();
                 pending.push(Box::pin(async move {
                     let mut prefix=[0;8];let read=async {recv.read_exact(&mut prefix[..1]).await.map_err(failure)?;let size=1usize<<(prefix[0]>>6);if size>1 {recv.read_exact(&mut prefix[1..size]).await.map_err(failure)?;}Ok::<_,ChannelError>(size)};
                     let size=match tokio::time::timeout(std::time::Duration::from_secs(10),read).await{Ok(Ok(size))=>size,_=>return Ok(())};
@@ -98,15 +109,18 @@ async fn serve(
     resources: Arc<dyn ResourceAccess>,
     caller: AcceptedCaller,
 ) -> io::Result<()> {
-    let owner = connection.try_clone().map_err(io::Error::other)?;
+    // All request callbacks only observe/authenticate this same control handle.
+    // Its one actual user remains held until every callback returns; each real
+    // bidi direction still retains its own independently charged permit.
+    let owner = Arc::new(connection.try_clone().map_err(io::Error::other)?);
     let builder = h3::server::builder();
     let mut server = tokio::select! {biased;_=cancel.cancelled()=>return Ok(()),result=builder.build(owned_h3::Connection::with_incoming_bidi(connection,web))=>result.map_err(io::Error::other)?};
     let mut pending = FuturesUnordered::<BoxFuture<'static, io::Result<()>>>::new();
     loop {
         tokio::select! {biased;
             _=cancel.cancelled()=>break,
-            request=server.accept(),if pending.len()<64=>{
-                let resolver=match request{Ok(Some(resolver))=>resolver,_=>break};let conn=owner.try_clone().map_err(io::Error::other)?;let profile=profile.clone();let state=state.clone();let resources=resources.clone();let caller=caller.clone();
+            request=server.accept(),if pending.len()<profile.h3_queue_limits().web_requests().get()=>{
+                let resolver=match request{Ok(Some(resolver))=>resolver,_=>break};let conn=owner.clone();let profile=profile.clone();let state=state.clone();let resources=resources.clone();let caller=caller.clone();
                 pending.push(Box::pin(async move {let work=async {let (request,mut stream)=resolver.resolve_request().await.map_err(io::Error::other)?;request_using(request,&mut Exchange(&mut stream),&profile,&state,&conn,resources.as_ref(),&caller).await};let _=tokio::time::timeout(std::time::Duration::from_secs(30),work).await;Ok(())}));
             },
             _=pending.next(),if !pending.is_empty()=>{},

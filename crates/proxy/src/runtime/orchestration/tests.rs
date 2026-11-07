@@ -195,3 +195,6 @@ mod metadata_budgets;
     feature = "hysteria2"
 ))]
 mod inbound_work_limits;
+
+#[cfg(all(feature = "hysteria2", feature = "socks5"))]
+mod h3_queues;

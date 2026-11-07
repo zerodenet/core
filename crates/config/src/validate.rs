@@ -688,6 +688,30 @@ fn validate_runtime(
             )));
         }
     }
+    for (name, limit) in [
+        (
+            "hysteria2_h3_max_pending_classifications",
+            runtime.effective_hysteria2_h3_max_pending_classifications(),
+        ),
+        (
+            "hysteria2_h3_max_pending_tcp_streams",
+            runtime.effective_hysteria2_h3_max_pending_tcp_streams(),
+        ),
+        (
+            "hysteria2_h3_max_pending_web_streams",
+            runtime.effective_hysteria2_h3_max_pending_web_streams(),
+        ),
+        (
+            "hysteria2_h3_max_pending_web_requests",
+            runtime.effective_hysteria2_h3_max_pending_web_requests(),
+        ),
+    ] {
+        if !(1..=4096).contains(&limit) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between 1 and 4096"
+            )));
+        }
+    }
     if runtime.event_log_capacity == 0 {
         return Err(ConfigError::InvalidRuntime(
             "`runtime.event_log_capacity` must be greater than 0".to_owned(),
