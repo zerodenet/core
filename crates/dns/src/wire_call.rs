@@ -3,8 +3,11 @@
 use crate::DnsSystem;
 mod prepared;
 mod registration;
+mod resolution;
 use registration::Admission;
 pub(crate) use registration::Registration;
+pub(crate) use resolution::register as register_resolution;
+pub use resolution::{DnsResolutionCall, DnsResolutionClosed, DnsResolutionUnsettled};
 use std::{
     io,
     sync::atomic::{AtomicBool, Ordering},

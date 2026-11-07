@@ -90,6 +90,9 @@ impl<T> Default for QueryCoordinator<T> {
 }
 
 impl<T> QueryCoordinator<T> {
+    pub(crate) fn original_resolution_identity(&self) -> usize {
+        Arc::as_ptr(&self.state) as usize
+    }
     pub(crate) fn native_source(&self) -> Option<&Arc<crate::native::NativeDnsSource>> {
         self.native_source.as_ref()
     }
@@ -242,6 +245,14 @@ where
             flight: flight.clone(),
         };
         crate::wire_call::register(&flight.caller_registration)?;
+        crate::wire_call::register_resolution(
+            &flight.caller_registration,
+            Arc::as_ptr(&self.state) as usize,
+            &key.domain,
+            key.query_type,
+            key.scope,
+            key.wire_query.is_none() && key.endpoint.is_none(),
+        )?;
         if leader {
             let original_admission = flight.caller_registration.preparing();
             #[cfg(test)]

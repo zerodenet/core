@@ -21,15 +21,7 @@ impl DnsSystem {
         query: &'a [u8],
         tcp: bool,
     ) -> (DnsQueryCall, BoxFuture<'a, io::Result<Vec<u8>>>) {
-        let state = Arc::new(State {
-            cancel: CancellationToken::new(),
-            returned: AtomicBool::new(false),
-            registration: Mutex::new(None),
-            conflict: AtomicBool::new(false),
-            changed: Notify::new(),
-            closed: OnceLock::new(),
-            cleanup_failure: OnceLock::new(),
-        });
+        let state = State::new();
         let returned = Returned(state.clone());
         let original = DnsQueryCall(state.clone());
         let work = Box::pin(async move {
@@ -43,5 +35,19 @@ impl DnsSystem {
             }).await
         });
         (original, work)
+    }
+}
+
+impl State {
+    pub(super) fn new() -> Arc<Self> {
+        Arc::new(State {
+            cancel: CancellationToken::new(),
+            returned: AtomicBool::new(false),
+            registration: Mutex::new(None),
+            conflict: AtomicBool::new(false),
+            changed: Notify::new(),
+            closed: OnceLock::new(),
+            cleanup_failure: OnceLock::new(),
+        })
     }
 }

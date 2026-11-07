@@ -220,3 +220,7 @@ mod tests;
 #[cfg(all(test, feature = "dns"))]
 #[path = "native_dns/tests/wire_call.rs"]
 mod wire_call_tests;
+
+#[cfg(test)]
+#[path = "native_dns/tests/resolution_call.rs"]
+mod resolution_call_tests;
