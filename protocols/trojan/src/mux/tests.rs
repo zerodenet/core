@@ -113,3 +113,6 @@ mod half_close;
 #[cfg(feature = "runtime")]
 #[path = "tests/cancelled.rs"]
 mod cancelled;
+
+#[path = "tests/response.rs"]
+mod response;

@@ -11,7 +11,7 @@ pub(crate) struct MuxResponseBacklog {
 struct MuxResponseBacklogInner {
     limit: usize,
     used: AtomicUsize,
-    #[cfg(feature = "runtime")]
+    #[cfg(feature = "tokio")]
     released: Arc<tokio::sync::Notify>,
 }
 
@@ -27,7 +27,7 @@ impl MuxResponseBacklog {
             inner: Arc::new(MuxResponseBacklogInner {
                 limit,
                 used: AtomicUsize::new(0),
-                #[cfg(feature = "runtime")]
+                #[cfg(feature = "tokio")]
                 released: Arc::new(tokio::sync::Notify::new()),
             }),
         }
@@ -75,7 +75,7 @@ impl MuxResponseBacklog {
             .expect("validated MUX byte budget accommodates TCP DATA")
     }
 
-    #[cfg(feature = "runtime")]
+    #[cfg(feature = "tokio")]
     /// Reserve original byte credit before protocol allocation/serialization.
     pub(crate) fn poll_charge(
         &self,
@@ -108,7 +108,13 @@ impl MuxResponseBacklog {
 }
 
 impl<T> BufferedMuxResponse<T> {
-    #[cfg(feature = "runtime")]
+    pub(crate) fn value(&self) -> &T {
+        self.value
+            .as_ref()
+            .expect("buffered MUX response value is present")
+    }
+
+    #[cfg(feature = "tokio")]
     pub(crate) fn map<U>(mut self, build: impl FnOnce(T) -> U) -> BufferedMuxResponse<U> {
         // A serializer panic returns this exact already-held byte reservation.
         let value = build(self.value.take().expect("original byte reservation"));
@@ -133,7 +139,7 @@ impl<T> Drop for BufferedMuxResponse<T> {
             .inner
             .used
             .fetch_sub(self.bytes, Ordering::AcqRel);
-        #[cfg(feature = "runtime")]
+        #[cfg(feature = "tokio")]
         if self.bytes != 0 {
             self.backlog.inner.released.notify_waiters();
         }

@@ -151,6 +151,13 @@ impl Default for MuxResponseBacklogPolicy {
 
 impl<T> BufferedMuxResponse<T> {
     #[cfg(feature = "reality")]
+    pub(crate) fn value(&self) -> &T {
+        self.value
+            .as_ref()
+            .expect("buffered MUX response value is present")
+    }
+
+    #[cfg(feature = "reality")]
     pub(crate) fn map<U>(mut self, build: impl FnOnce(T) -> U) -> BufferedMuxResponse<U> {
         // A serializer panic returns this exact already-held byte reservation.
         let value = build(self.value.take().expect("original byte reservation"));

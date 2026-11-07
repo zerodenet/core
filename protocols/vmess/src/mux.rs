@@ -24,7 +24,11 @@ use crate::shared::{parse_address_from_bytes, write_address};
 use crate::stream::VmessAeadStream;
 use crate::VmessCipher;
 
+mod client_response;
+use client_response::run_mux_read_relay_with_shutdown;
+
 mod backlog;
+mod response;
 #[cfg(test)]
 mod tests;
 
@@ -1064,42 +1068,8 @@ fn encode_frame(
     Ok(frame)
 }
 
-async fn read_frame_from_tokio<R>(reader: &mut R) -> Result<MuxFrame, Error>
-where
-    R: tokio::io::AsyncRead + Unpin,
-{
-    let mut len_buf = [0u8; 2];
-    tokio::io::AsyncReadExt::read_exact(reader, &mut len_buf)
-        .await
-        .map_err(|_| Error::Io("vmess: failed to read from socket"))?;
-    let meta_len = u16::from_be_bytes(len_buf) as usize;
-    if meta_len > MUX_MAX_META_LEN {
-        return Err(Error::Protocol("vmess mux metadata too large"));
-    }
-
-    let mut meta = vec![0_u8; meta_len];
-    tokio::io::AsyncReadExt::read_exact(reader, &mut meta)
-        .await
-        .map_err(|_| Error::Io("vmess: failed to read from socket"))?;
-    let mut frame = decode_metadata(&meta)?;
-
-    if frame.option & MUX_OPTION_DATA != 0 {
-        tokio::io::AsyncReadExt::read_exact(reader, &mut len_buf)
-            .await
-            .map_err(|_| Error::Io("vmess: failed to read from socket"))?;
-        let data_len = u16::from_be_bytes(len_buf) as usize;
-        if data_len > MUX_MAX_DATA_LEN {
-            return Err(Error::Protocol("vmess mux data too large"));
-        }
-        frame.payload.resize(data_len, 0);
-        if data_len > 0 {
-            tokio::io::AsyncReadExt::read_exact(reader, &mut frame.payload)
-                .await
-                .map_err(|_| Error::Io("vmess: failed to read from socket"))?;
-        }
-    }
-
-    Ok(frame)
+async fn read_frame_from_tokio<R: AsyncRead + Unpin>(reader: &mut R) -> Result<MuxFrame, Error> {
+    response::read_frame(reader).await
 }
 
 async fn read_mux_stream_frame<R>(reader: &mut R) -> Result<MuxFrame, Error>
@@ -1662,7 +1632,7 @@ struct VmessMuxStream {
     read_rx: mpsc::Receiver<VmessMuxDownlink>,
     write_buf: Vec<u8>,
     write_pos: usize,
-    read_buf: Vec<u8>,
+    read_buf: Option<BufferedMuxResponse<Vec<u8>>>,
     read_pos: usize,
     opened: bool,
     ended: bool,
@@ -1794,7 +1764,7 @@ impl VmessMuxConn {
         port: u16,
         network: Network,
     ) -> VmessMuxStream {
-        let (down_tx, down_rx) = mpsc::channel(self.response_backlog_frames + 1);
+        let (down_tx, down_rx) = mpsc::channel(self.response_backlog_frames);
         self.streams.lock().unwrap().insert(session_id, down_tx);
 
         VmessMuxStream::new_with_network(
@@ -1911,89 +1881,6 @@ async fn run_mux_write_relay_with_shutdown<W>(
     let _ = shutdown_tx.send(true);
 }
 
-async fn run_mux_read_relay_with_shutdown<R>(
-    mut reader: R,
-    streams: Arc<Mutex<std::collections::HashMap<u16, mpsc::Sender<VmessMuxDownlink>>>>,
-    closed: Arc<AtomicBool>,
-    shutdown_tx: watch::Sender<bool>,
-    mut shutdown_rx: watch::Receiver<bool>,
-    activity_tx: Option<watch::Sender<tokio::time::Instant>>,
-    response_backlog: MuxResponseBacklog,
-) where
-    R: AsyncRead + Unpin + Send + 'static,
-{
-    loop {
-        let event = tokio::select! {
-            biased;
-            changed = shutdown_rx.changed() => {
-                if changed.is_err() || *shutdown_rx.borrow() {
-                    break;
-                }
-                continue;
-            }
-            event = read_mux_server_event(&mut reader) => {
-                match event {
-                    Ok(event) => event,
-                    Err(_) => break,
-                }
-            }
-        };
-        if let Some(activity_tx) = &activity_tx {
-            activity_tx.send_replace(tokio::time::Instant::now());
-        }
-        match event {
-            VmessMuxServerEvent::KeepAlive => continue,
-            VmessMuxServerEvent::Data {
-                session_id,
-                payload,
-            }
-            | VmessMuxServerEvent::NewStream {
-                session_id,
-                payload,
-                ..
-            } => {
-                let tx = streams.lock().unwrap().get(&session_id).cloned();
-                if let Some(tx) = tx {
-                    if !payload.is_empty() {
-                        let payload_len = payload.len();
-                        if !try_queue_mux_response(&response_backlog, &tx, payload, payload_len) {
-                            streams.lock().unwrap().remove(&session_id);
-                        }
-                    }
-                }
-            }
-            VmessMuxServerEvent::End { session_id }
-            | VmessMuxServerEvent::Unknown { session_id, .. } => {
-                streams.lock().unwrap().remove(&session_id);
-            }
-        }
-    }
-    closed.store(true, Ordering::Release);
-    let _ = shutdown_tx.send(true);
-    streams.lock().unwrap().clear();
-}
-
-fn try_queue_mux_response(
-    backlog: &MuxResponseBacklog,
-    tx: &mpsc::Sender<VmessMuxDownlink>,
-    payload: Vec<u8>,
-    bytes: usize,
-) -> bool {
-    if tx.capacity() <= 1 {
-        let _ = tx.try_send(VmessMuxDownlink::Overflow);
-        return false;
-    }
-    let Ok(response) = backlog.try_buffer(bytes, payload) else {
-        let _ = tx.try_send(VmessMuxDownlink::Overflow);
-        return false;
-    };
-    if tx.try_send(VmessMuxDownlink::Data(response)).is_err() {
-        let _ = tx.try_send(VmessMuxDownlink::Overflow);
-        return false;
-    }
-    true
-}
-
 async fn run_mux_idle_monitor(
     idle_timeout: Duration,
     mut activity_rx: watch::Receiver<tokio::time::Instant>,
@@ -2046,7 +1933,7 @@ impl VmessMuxStream {
             read_rx,
             write_buf: Vec::new(),
             write_pos: 0,
-            read_buf: Vec::new(),
+            read_buf: None,
             read_pos: 0,
             opened: false,
             ended: false,
@@ -2145,12 +2032,13 @@ impl AsyncRead for VmessMuxStream {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        if self.read_pos < self.read_buf.len() {
-            let n = (self.read_buf.len() - self.read_pos).min(buf.remaining());
-            buf.put_slice(&self.read_buf[self.read_pos..self.read_pos + n]);
+        if let Some(data) = &self.read_buf {
+            let length = data.value().len();
+            let n = (length - self.read_pos).min(buf.remaining());
+            buf.put_slice(&data.value()[self.read_pos..self.read_pos + n]);
             self.read_pos += n;
-            if self.read_pos == self.read_buf.len() {
-                self.read_buf.clear();
+            if self.read_pos == length {
+                self.read_buf = None;
                 self.read_pos = 0;
             }
             return Poll::Ready(Ok(()));
@@ -2158,11 +2046,10 @@ impl AsyncRead for VmessMuxStream {
 
         match Pin::new(&mut self.read_rx).poll_recv(cx) {
             Poll::Ready(Some(VmessMuxDownlink::Data(chunk))) => {
-                let chunk = chunk.into_inner();
-                let n = chunk.len().min(buf.remaining());
-                buf.put_slice(&chunk[..n]);
-                if n < chunk.len() {
-                    self.read_buf = chunk;
+                let n = chunk.value().len().min(buf.remaining());
+                buf.put_slice(&chunk.value()[..n]);
+                if n < chunk.value().len() {
+                    self.read_buf = Some(chunk);
                     self.read_pos = n;
                 }
                 Poll::Ready(Ok(()))
