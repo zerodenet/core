@@ -85,7 +85,9 @@ async fn abandoned_direct_socks_service_role_closes_its_original_without_observe
         }
         assert!(!cancel.is_cancelled());
         let receipt = loop {
-            if let Some(receipt) = original.closed() { break receipt; }
+            if let Some(receipt) = original.closed() {
+                if physical.observe().unwrap().slots().is_empty() { break receipt; }
+            }
             tokio::task::yield_now().await;
         };
         assert!(original.matches_closed(&receipt) && receipt.had_native_acquisition());
