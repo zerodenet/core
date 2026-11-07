@@ -55,7 +55,7 @@ pub async fn route(
         .reserve(zero_runtime::configuration::ControlCharge::Connection)
         .unwrap();
     let local = connection.connection_budget().unwrap();
-    let mut result = route_inner(request, handle, auth_ctx, &budget, &local).await;
+    let mut result = route_with_budget(request, handle, auth_ctx, &budget, &local).await;
     if let RouteResult::Sse { subscriber, .. } = &mut result {
         subscriber._connection = Some(connection);
     }
@@ -84,8 +84,6 @@ async fn route_inner(
     match (method, api_path) {
         // ── /api/v1/* ──────────────────────────────────────────
         (m, p) if route_path.starts_with("/api/v1/") => match (m, p) {
-            ("GET", "/capabilities") => read_json(handlers::capabilities(handle), auth_ctx),
-            ("GET", "/health") => read_json(handlers::health(handle), auth_ctx),
             ("GET", "/endpoints") => read_json(handlers::endpoints_list(handle, query), auth_ctx),
             ("GET", path) if path.starts_with("/endpoints/") => {
                 let id = &path["/endpoints/".len()..];
@@ -94,12 +92,6 @@ async fn route_inner(
                     .map_or((id, false), |id| (id, true));
                 read_json(handlers::endpoint_get(handle, id, details), auth_ctx)
             }
-            ("GET", "/config") => read_json(handlers::config(handle), auth_ctx),
-            ("GET", "/runtime") => read_json(handlers::runtime(handle), auth_ctx),
-            ("POST", "/query") => read_json(handlers::typed_query(handle, &request.body), auth_ctx),
-            ("GET", "/stats") => read_json(handlers::stats(handle), auth_ctx),
-            ("GET", "/principal_flows") => read_json(handlers::principal_flows(handle), auth_ctx),
-            ("GET", "/flows") => read_json(handlers::flows_list(handle, query), auth_ctx),
             ("POST", "/commands") => {
                 command_permission(handlers::commands(handle, &request.body, auth_ctx).await)
             }
@@ -116,17 +108,6 @@ async fn route_inner(
                 }
             }
             ("GET", "/events") => read_json(handlers::events_snapshot(handle), auth_ctx),
-            _ if path_segments(p) == 2 && p.starts_with("/flows/") => {
-                let flow_id = &p["/flows/".len()..];
-                read_json(handlers::flow_get(handle, flow_id), auth_ctx)
-            }
-            ("GET", "/policies") => read_json(handlers::policies_list(handle), auth_ctx),
-            _ if path_segments(p) == 2 && p.starts_with("/policies/") => {
-                let policy_tag = &p["/policies/".len()..];
-                read_json(handlers::policy_get(handle, policy_tag), auth_ctx)
-            }
-            ("GET", "/sinks") => read_json(handlers::sinks(handle), auth_ctx),
-            ("GET", "/tun_status") => read_json(handlers::tun_status(handle), auth_ctx),
             _ => not_found_response(),
         },
 

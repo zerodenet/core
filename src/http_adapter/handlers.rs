@@ -1,8 +1,8 @@
 use std::io;
 
 use zero_api::{
-    ApiError, ApiErrorCode, AuthContext, CommandRequest, CommandService, EventFilter, EventSource,
-    FlowGetQuery, FlowListQuery, QueryRequest, QueryResponse, QueryService,
+    ApiError, ApiErrorCode, AuthContext, CommandRequest, CommandService, EventFilter,
+    FlowListQuery, QueryRequest, QueryResponse, QueryService,
 };
 use zero_proxy::ProxyHandle;
 
@@ -14,90 +14,6 @@ type EventStream = (super::sse::Subscription, zero_engine::RetainedReplay);
 
 mod endpoint;
 pub use endpoint::{endpoint_get, endpoints_list};
-
-/// Handle GET /api/v1/capabilities.
-pub fn capabilities(handle: &ProxyHandle) -> io::Result<HttpBody> {
-    let resp = handle.query(QueryRequest::Capabilities(Default::default()));
-    serialize_query(resp)
-}
-
-/// Handle GET /api/v1/health.
-pub fn health(handle: &ProxyHandle) -> io::Result<HttpBody> {
-    let resp = handle.query(QueryRequest::Health(Default::default()));
-    serialize_query(resp)
-}
-
-/// Handle GET /api/v1/config.
-pub fn config(handle: &ProxyHandle) -> io::Result<HttpBody> {
-    let resp = handle.query(QueryRequest::Config(Default::default()));
-    serialize_query(resp)
-}
-
-/// Handle GET /api/v1/runtime.
-pub fn runtime(handle: &ProxyHandle) -> io::Result<HttpBody> {
-    let resp = handle.query(QueryRequest::Runtime(Default::default()));
-    serialize_query(resp)
-}
-
-/// Generic typed Zero query, with the same response/error envelope as GET views.
-pub fn typed_query(handle: &ProxyHandle, body: &[u8]) -> io::Result<HttpBody> {
-    let request = serde_json::from_slice::<QueryRequest>(body)
-        .map_err(|error| ApiError::new(ApiErrorCode::InvalidArgument, error.to_string()));
-    serialize_query(request.and_then(|query| handle.query(query)))
-}
-
-/// Handle GET /api/v1/stats.
-pub fn stats(handle: &ProxyHandle) -> io::Result<HttpBody> {
-    let resp = handle.query(QueryRequest::Stats(Default::default()));
-    serialize_query(resp)
-}
-
-/// Handle GET /api/v1/principal_flows.
-pub fn principal_flows(handle: &ProxyHandle) -> io::Result<HttpBody> {
-    let resp = handle.query(QueryRequest::PrincipalFlows(Default::default()));
-    serialize_query(resp)
-}
-
-/// Handle GET /api/v1/flows (active flows list).
-pub fn flows_list(handle: &ProxyHandle, query: &str) -> io::Result<HttpBody> {
-    let params = parse_flow_list_params(query);
-    let resp = handle.query(QueryRequest::ActiveFlows(params));
-    serialize_query(resp)
-}
-
-/// Handle GET /api/v1/flows/{flow_id}.
-pub fn flow_get(handle: &ProxyHandle, flow_id: &str) -> io::Result<HttpBody> {
-    let resp = handle.query(QueryRequest::Flow(FlowGetQuery {
-        flow_id: flow_id.to_owned(),
-    }));
-    serialize_query(resp)
-}
-
-/// Handle GET /api/v1/policies.
-pub fn policies_list(handle: &ProxyHandle) -> io::Result<HttpBody> {
-    let resp = handle.query(QueryRequest::Policies(Default::default()));
-    serialize_query(resp)
-}
-
-/// Handle GET /api/v1/policies/{policy_tag}.
-pub fn policy_get(handle: &ProxyHandle, policy_tag: &str) -> io::Result<HttpBody> {
-    let resp = handle.query(QueryRequest::Policy(zero_api::PolicyGetQuery {
-        policy_tag: policy_tag.to_owned(),
-    }));
-    serialize_query(resp)
-}
-
-/// Handle GET /api/v1/sinks.
-pub fn sinks(handle: &ProxyHandle) -> io::Result<HttpBody> {
-    let resp = handle.query(QueryRequest::Sinks(Default::default()));
-    serialize_query(resp)
-}
-
-/// Handle GET /api/v1/tun_status.
-pub fn tun_status(handle: &ProxyHandle) -> io::Result<HttpBody> {
-    let resp = handle.query(QueryRequest::TunStatus(Default::default()));
-    serialize_query(resp)
-}
 
 /// Handle GET /api/v1/events (snapshot).
 pub fn events_snapshot(handle: &ProxyHandle) -> io::Result<HttpBody> {

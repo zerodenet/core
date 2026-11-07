@@ -21,8 +21,6 @@ use zero_proxy::ProxyHandle;
 use zero_runtime::configuration::ControlBudgetLimits;
 use zero_runtime::configuration::{ControlBudget, ControlBudgetPermit, ControlCharge};
 
-#[cfg(test)]
-use super::protocol::serialize_frame;
 use super::protocol::{ipc_error, ipc_ok, IpcRequest};
 
 mod command;
@@ -34,8 +32,6 @@ mod query;
 mod run;
 #[cfg(test)]
 use command::write_command_result;
-#[cfg(test)]
-pub(crate) use command::write_ipc_response;
 use command::{command_can_run_concurrently, execute_ipc_command};
 use commands::ConcurrentCommandTasks;
 pub(crate) use input::is_invalid_input_frame;

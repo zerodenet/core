@@ -3,7 +3,7 @@ use super::{
     MAX_PENDING_CONCURRENT_IPC_COMMANDS,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::{io, sync::Arc};
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader, BufWriter};
 use tokio::sync::{oneshot, Mutex};
 use zero_api::{
