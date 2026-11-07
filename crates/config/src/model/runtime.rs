@@ -4,6 +4,16 @@ use super::*;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuntimeOptionsConfig {
+    /// Maximum same-original accepted/peer tasks. Omission retains the actual protocol default; no Scope or worker is allocated from the number alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_tasks_per_carrier: Option<usize>,
+    /// Auxiliary resources in the same actual accepted/peer graph. Zero grants none; omitted defaults differ across protocols.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_resources_per_carrier: Option<usize>,
+    /// Concurrent real logical requests per multiplexed carrier. Sequential HTTP framing remains structurally one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_in_flight_requests: Option<usize>,
+
     /// Concurrent capability-probe socket originals per actual Metadata owner; omitted keeps that owner's existing default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata_max_probe_sockets: Option<usize>,
@@ -276,6 +286,9 @@ impl Default for RuntimeOptionsConfig {
             udp_upstream_idle_timeout_seconds: default_udp_upstream_idle_timeout_seconds(),
             event_log_capacity: default_event_log_capacity(),
             event_log_stats_max_bytes: None,
+            inbound_max_tasks_per_carrier: None,
+            inbound_max_resources_per_carrier: None,
+            inbound_max_in_flight_requests: None,
             metadata_max_probe_sockets: None,
             metadata_max_probe_attempts: None,
             metadata_max_send_calls: None,
@@ -439,6 +452,17 @@ impl RuntimeOptionsConfig {
     }
     pub fn effective_quic_shared_endpoint_max_users(&self) -> usize {
         self.quic_shared_endpoint_max_users.unwrap_or(65536)
+    }
+    pub fn effective_inbound_max_tasks_per_carrier(&self, actual_default: usize) -> usize {
+        self.inbound_max_tasks_per_carrier.unwrap_or(actual_default)
+    }
+    pub fn effective_inbound_max_resources_per_carrier(&self, actual_default: usize) -> usize {
+        self.inbound_max_resources_per_carrier
+            .unwrap_or(actual_default)
+    }
+    pub fn effective_inbound_max_in_flight_requests(&self, actual_default: usize) -> usize {
+        self.inbound_max_in_flight_requests
+            .unwrap_or(actual_default)
     }
     pub fn effective_event_log_stats_max_bytes(&self) -> usize {
         self.event_log_stats_max_bytes.unwrap_or(8 * 1024 * 1024)

@@ -120,10 +120,18 @@ pub(crate) fn compiled_registries_with_network(
 
         registry
             .inbounds
-            .register(
+            .register_with_resources(
                 ::socks5::Socks5Protocol.descriptor(),
                 ::socks5::component::listener::InboundFactory,
-                crate::adapters::socks5::inbound::component_options,
+                |input, resources| {
+                    let defaults = zero_config::RuntimeOptionsConfig::default();
+                    let runtime = resources
+                        .candidate()
+                        .map(|candidate| &candidate.runtime)
+                        .unwrap_or(&defaults);
+                    crate::adapters::socks5::inbound::component_options_in_runtime(input, runtime)
+                        .map_err(Into::into)
+                },
             )
             .expect("unique SOCKS5 inbound component registration");
         registry.register_standard_protocol(
@@ -136,10 +144,18 @@ pub(crate) fn compiled_registries_with_network(
         use crate::adapters::http::HttpConnectAdapter;
         registry
             .inbounds
-            .register(
+            .register_with_resources(
                 ::http::HttpConnectProtocol.descriptor(),
                 ::http::component::InboundFactory,
-                crate::adapters::http::component_options,
+                |input, resources| {
+                    let defaults = zero_config::RuntimeOptionsConfig::default();
+                    let runtime = resources
+                        .candidate()
+                        .map(|candidate| &candidate.runtime)
+                        .unwrap_or(&defaults);
+                    crate::adapters::http::inbound::component_options_in_runtime(input, runtime)
+                        .map_err(Into::into)
+                },
             )
             .expect("unique HTTP inbound component registration");
         registry.register_standard_protocol(Arc::new(HttpConnectAdapter), None);
@@ -232,7 +248,12 @@ pub(crate) fn compiled_registries_with_network(
                 ::vless::metadata::VlessProtocol.descriptor(),
                 ::vless::component::inbound::listener::Factory,
                 move |input, resources| {
-                    match resources.candidate() {
+                    let defaults = zero_config::RuntimeOptionsConfig::default();
+                    let runtime = resources
+                        .candidate()
+                        .map(|candidate| &candidate.runtime)
+                        .unwrap_or(&defaults);
+                    let options = match resources.candidate() {
                         Some(candidate) => inbound_adapter.inbound_options_in_runtime(
                             input,
                             resources.source_dir(),
@@ -240,7 +261,32 @@ pub(crate) fn compiled_registries_with_network(
                         ),
                         // Explicit primitive fixture preparation has no Proxy candidate.
                         None => inbound_adapter.inbound_options(input, resources.source_dir()),
-                    }
+                    }?;
+                    options
+                        .with_inbound_work_limits(
+                            std::num::NonZeroUsize::new(
+                                runtime.effective_inbound_max_tasks_per_carrier(520),
+                            )
+                            .unwrap(),
+                            runtime.effective_inbound_max_resources_per_carrier(257),
+                            std::num::NonZeroUsize::new(
+                                runtime.effective_inbound_max_in_flight_requests(
+                                    if matches!(
+                                        &input.protocol,
+                                        zero_config::InboundProtocolConfig::Vless {
+                                            mkcp: Some(_),
+                                            ..
+                                        }
+                                    ) {
+                                        128
+                                    } else {
+                                        256
+                                    },
+                                ),
+                            )
+                            .unwrap(),
+                        )
+                        .map_err(crate::component::RegistrationError::Planning)
                 },
             )
             .expect("unique standard VLESS inbound registration");
@@ -257,13 +303,33 @@ pub(crate) fn compiled_registries_with_network(
             .register_with_resources(
                 ::hysteria2::Hysteria2Protocol.descriptor(),
                 ::hysteria2::component::Factory,
-                move |input, resources| match resources.candidate() {
-                    Some(candidate) => projected.inbound_options_in_runtime(
-                        input,
-                        resources.source_dir(),
-                        &candidate.runtime,
-                    ),
-                    None => projected.inbound_options(input, resources.source_dir()),
+                move |input, resources| {
+                    let defaults = zero_config::RuntimeOptionsConfig::default();
+                    let runtime = resources
+                        .candidate()
+                        .map(|candidate| &candidate.runtime)
+                        .unwrap_or(&defaults);
+                    let options = match resources.candidate() {
+                        Some(candidate) => projected.inbound_options_in_runtime(
+                            input,
+                            resources.source_dir(),
+                            &candidate.runtime,
+                        ),
+                        None => projected.inbound_options(input, resources.source_dir()),
+                    }?;
+                    options
+                        .with_inbound_work_limits(
+                            std::num::NonZeroUsize::new(
+                                runtime.effective_inbound_max_tasks_per_carrier(520),
+                            )
+                            .unwrap(),
+                            runtime.effective_inbound_max_resources_per_carrier(257),
+                            std::num::NonZeroUsize::new(
+                                runtime.effective_inbound_max_in_flight_requests(256),
+                            )
+                            .unwrap(),
+                        )
+                        .map_err(crate::component::RegistrationError::Planning)
                 },
             )
             .expect("unique standard Hysteria2 inbound registration");
@@ -406,7 +472,27 @@ pub(crate) fn compiled_registries_with_network(
             .register_with_resources(
                 adapter.descriptor(),
                 ::trojan::component::inbound::listener::Factory,
-                move |input, resources| inbound.inbound_options(input, resources.source_dir()),
+                move |input, resources| {
+                    let defaults = zero_config::RuntimeOptionsConfig::default();
+                    let runtime = resources
+                        .candidate()
+                        .map(|candidate| &candidate.runtime)
+                        .unwrap_or(&defaults);
+                    let options = inbound.inbound_options(input, resources.source_dir())?;
+                    options
+                        .with_inbound_work_limits(
+                            std::num::NonZeroUsize::new(
+                                runtime.effective_inbound_max_tasks_per_carrier(516),
+                            )
+                            .unwrap(),
+                            runtime.effective_inbound_max_resources_per_carrier(257),
+                            std::num::NonZeroUsize::new(
+                                runtime.effective_inbound_max_in_flight_requests(256),
+                            )
+                            .unwrap(),
+                        )
+                        .map_err(crate::component::RegistrationError::Planning)
+                },
             )
             .expect("unique Trojan standard inbound registration");
         registry.register_standard_protocol(adapter, Some(TrojanAdapter::claim_outbound_leaf_impl));
@@ -500,7 +586,26 @@ pub(crate) fn compiled_registries_with_network(
                 adapter.descriptor(),
                 ::vmess::component::inbound::listener::Factory,
                 move |inbound, resources| {
-                    inbound_adapter.inbound_options(inbound, resources.source_dir())
+                    let defaults = zero_config::RuntimeOptionsConfig::default();
+                    let runtime = resources
+                        .candidate()
+                        .map(|candidate| &candidate.runtime)
+                        .unwrap_or(&defaults);
+                    let options =
+                        inbound_adapter.inbound_options(inbound, resources.source_dir())?;
+                    options
+                        .with_inbound_work_limits(
+                            std::num::NonZeroUsize::new(
+                                runtime.effective_inbound_max_tasks_per_carrier(516),
+                            )
+                            .unwrap(),
+                            runtime.effective_inbound_max_resources_per_carrier(257),
+                            std::num::NonZeroUsize::new(
+                                runtime.effective_inbound_max_in_flight_requests(256),
+                            )
+                            .unwrap(),
+                        )
+                        .map_err(crate::component::RegistrationError::Planning)
                 },
             )
             .expect("unique standard VMess inbound registration");
@@ -515,7 +620,27 @@ pub(crate) fn compiled_registries_with_network(
             .register_with_resources(
                 adapter.descriptor(),
                 ::mieru::component::inbound::Factory,
-                |input, _| crate::adapters::mieru::inbound::options(input),
+                |input, resources| {
+                    let defaults = zero_config::RuntimeOptionsConfig::default();
+                    let runtime = resources
+                        .candidate()
+                        .map(|candidate| &candidate.runtime)
+                        .unwrap_or(&defaults);
+                    let options = crate::adapters::mieru::inbound::options(input)?;
+                    options
+                        .with_inbound_work_limits(
+                            std::num::NonZeroUsize::new(
+                                runtime.effective_inbound_max_tasks_per_carrier(514),
+                            )
+                            .unwrap(),
+                            runtime.effective_inbound_max_resources_per_carrier(257),
+                            std::num::NonZeroUsize::new(
+                                runtime.effective_inbound_max_in_flight_requests(256),
+                            )
+                            .unwrap(),
+                        )
+                        .map_err(crate::component::RegistrationError::Planning)
+                },
             )
             .expect("unique standard Mieru inbound registration");
         if let Some(network) = node_network {
@@ -581,10 +706,18 @@ pub(crate) fn compiled_registries_with_network(
         use crate::adapters::mixed::MixedAdapter;
         registry
             .inbounds
-            .register(
+            .register_with_resources(
                 MixedAdapter.descriptor(),
                 crate::adapters::mixed::inbound::Factory,
-                crate::adapters::mixed::inbound::component_options,
+                |input, resources| {
+                    let defaults = zero_config::RuntimeOptionsConfig::default();
+                    let runtime = resources
+                        .candidate()
+                        .map(|candidate| &candidate.runtime)
+                        .unwrap_or(&defaults);
+                    crate::adapters::mixed::inbound::component_options_in_runtime(input, runtime)
+                        .map_err(Into::into)
+                },
             )
             .expect("unique mixed inbound component registration");
         registry.register_standard_protocol(Arc::new(MixedAdapter), None);

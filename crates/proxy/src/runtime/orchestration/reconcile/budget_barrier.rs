@@ -1,7 +1,7 @@
 //! SS security changes fence original users before the existing StopOld phase.
 use super::*;
 use std::{collections::HashMap, sync::Arc};
-use zero_config::RuntimeConfig;
+use zero_config::{InboundConfig, RuntimeConfig};
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::BoxFuture;
 
@@ -59,8 +59,39 @@ pub(in crate::runtime) fn metadata_source_resources(
         )
     })
 }
+pub(in crate::runtime) fn inbound_work_source_changed(
+    input: &InboundConfig,
+    old: &RuntimeConfig,
+    next: &RuntimeConfig,
+) -> bool {
+    crate::adapters::inbound_work_budgets::inbound_work_source_changed(input, old, next)
+}
+pub(in crate::runtime) fn inbound_work_budget_changed(
+    old: &RuntimeConfig,
+    next: &RuntimeConfig,
+) -> bool {
+    crate::adapters::inbound_work_budgets::inbound_work_budget_changed(old, next)
+}
+pub(in crate::runtime) fn inbound_work_resources(
+    resources: &[zero_platform_tokio::contract::component::ResourceDeclaration],
+) -> bool {
+    use zero_platform_tokio::contract::component::ResourceDeclaration as R;
+    resources.iter().any(|r| {
+        matches!(
+            r,
+            R::TcpListener {
+                accepted: Some(_),
+                ..
+            } | R::DatagramListener {
+                accepted: Some(_),
+                ..
+            } | R::DatagramAssociations { .. }
+        )
+    })
+}
 pub(in crate::runtime) fn ss_budget_changed(old: &RuntimeConfig, next: &RuntimeConfig) -> bool {
     if carrier_budget_changed(old, next)
+        || inbound_work_budget_changed(old, next)
         || old.inbounds.iter().chain(&next.inbounds).any(|input| {
             crate::adapters::metadata::metadata_source_budget_changed(input, old, next)
         })

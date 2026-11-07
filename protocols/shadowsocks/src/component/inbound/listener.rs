@@ -18,12 +18,16 @@ use zero_platform_tokio::{
     TcpRelayStream, TokioSocket,
 };
 mod datagram;
+mod work;
+use work::peer_limits;
 mod plugin;
 pub struct Options {
     listen: Destination,
     profile: PreparedInboundProfile,
     plugin: Option<crate::validation::PluginConfig>,
     identity: Arc<[u8]>,
+    work_tasks: NonZeroUsize,
+    work_resources: usize,
 }
 impl Options {
     pub fn new(
@@ -50,6 +54,8 @@ impl Options {
             profile,
             plugin: None,
             identity: identity.into(),
+            work_tasks: NonZeroUsize::new(1).unwrap(),
+            work_resources: 0,
         }
     }
     pub fn with_plugin(mut self, plugin: Option<crate::validation::PluginConfig>) -> Self {
@@ -73,15 +79,15 @@ impl ComponentFactory for Factory {
                     max_bind_attempts: NonZeroUsize::new(50).unwrap(),
                     accepted: Some(AcceptedTcpLimits {
                         max_sockets: NonZeroUsize::new(4096).unwrap(),
-                        max_tasks_per_socket: NonZeroUsize::new(1).unwrap(),
-                        max_resources_per_socket: 0,
+                        max_tasks_per_socket: options.work_tasks,
+                        max_resources_per_socket: options.work_resources,
                     }),
                 },
                 ResourceDeclaration::DatagramListener {
                     destination: options.listen.clone(),
                     max_bind_attempts: NonZeroUsize::new(50).unwrap(),
                     max_pending_sends: NonZeroUsize::new(32).unwrap(),
-                    accepted: Some(peer_limits()),
+                    accepted: Some(options.peer_limits()),
                 },
             ],
         };
@@ -144,7 +150,7 @@ impl ComponentFactory for Factory {
             options.listen.clone(),
             context.resources,
             context.cancel,
-            peer_limits(),
+            options.peer_limits(),
             idle,
             {
                 let responder = responder.clone();
@@ -184,14 +190,7 @@ impl ComponentFactory for Factory {
         })
     }
 }
-fn peer_limits() -> DatagramPeerLimits {
-    DatagramPeerLimits {
-        max_tasks_per_peer: std::num::NonZeroUsize::new(1).unwrap(),
-        max_resources_per_peer: 0,
-        max_peers: NonZeroUsize::new(4096).unwrap(),
-        packets_per_peer: NonZeroUsize::new(32).unwrap(),
-    }
-}
+
 struct Connection {
     socket: TokioSocket,
     acceptor: ShadowsocksInboundTcpAcceptor,

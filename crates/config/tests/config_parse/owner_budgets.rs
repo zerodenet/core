@@ -16,7 +16,19 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 45] = [
+    let fields: [BudgetField; 47] = [
+        (
+            "inbound_max_tasks_per_carrier",
+            |r| r.effective_inbound_max_tasks_per_carrier(520),
+            520,
+            4096,
+        ),
+        (
+            "inbound_max_in_flight_requests",
+            |r| r.effective_inbound_max_in_flight_requests(256),
+            256,
+            65536,
+        ),
         (
             "metadata_max_probe_sockets",
             |runtime| runtime.effective_metadata_max_probe_sockets(2),
@@ -361,4 +373,40 @@ fn omitted_metadata_limits_preserve_distinct_actual_dns_and_shared_endpoint_defa
         configured.runtime.effective_metadata_max_probe_sockets(2),
         7
     );
+}
+
+#[test]
+fn inbound_resource_zero_and_actual_defaults_preserve_original_admission_meaning() {
+    let defaults = RuntimeOptionsConfig::default();
+    for actual in [0, 2, 257] {
+        assert_eq!(
+            defaults.effective_inbound_max_resources_per_carrier(actual),
+            actual
+        );
+    }
+    for actual in [1, 2, 514, 516, 520] {
+        assert_eq!(
+            defaults.effective_inbound_max_tasks_per_carrier(actual),
+            actual
+        );
+    }
+    for actual in [1, 128, 256] {
+        assert_eq!(
+            defaults.effective_inbound_max_in_flight_requests(actual),
+            actual
+        );
+    }
+    assert!(serde_json::to_value(&defaults)
+        .unwrap()
+        .get("inbound_max_resources_per_carrier")
+        .is_none());
+    let empty = parse("inbound_max_resources_per_carrier", 0).unwrap();
+    assert_eq!(
+        empty
+            .runtime
+            .effective_inbound_max_resources_per_carrier(257),
+        0
+    );
+    assert!(parse("inbound_max_resources_per_carrier", 65536).is_ok());
+    assert!(parse("inbound_max_resources_per_carrier", 65537).is_err());
 }

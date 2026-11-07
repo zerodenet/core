@@ -28,3 +28,15 @@ pub(crate) fn component_options(
         max_bind_attempts: NonZeroUsize::new(50).unwrap(),
     })
 }
+
+pub(crate) fn component_options_in_runtime(
+    inbound: &zero_config::InboundConfig,
+    runtime: &zero_config::RuntimeOptionsConfig,
+) -> Result<http::component::InboundOptions, zero_config::ConfigError> {
+    let mut options = component_options(inbound)?;
+    options.accepted.max_tasks_per_socket =
+        std::num::NonZeroUsize::new(runtime.effective_inbound_max_tasks_per_carrier(1)).unwrap();
+    options.accepted.max_resources_per_socket =
+        runtime.effective_inbound_max_resources_per_carrier(0);
+    Ok(options)
+}

@@ -28,6 +28,8 @@ pub struct Options {
     tag: String,
     sites: Vec<(Destination, crate::transport::website::Hysteria2Website)>,
     identity: Arc<[u8]>,
+    work_tasks: NonZeroUsize,
+    work_resources: usize,
     metadata_probes: NonZeroUsize,
     metadata_attempts: NonZeroUsize,
     metadata_sends: NonZeroUsize,
@@ -35,6 +37,31 @@ pub struct Options {
     quic_users: NonZeroUsize,
 }
 impl Options {
+    /// Cold limits on this same original accepted/peer graph. No work starts.
+    pub fn with_inbound_work_limits(
+        mut self,
+        tasks: NonZeroUsize,
+        resources: usize,
+        requests: NonZeroUsize,
+    ) -> Result<Self, zero_platform_tokio::contract::ChannelError> {
+        if tasks.get() > 4096 || resources > 65536 || requests.get() > 65536 {
+            return Err(zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::InvalidConfig,
+                zero_platform_tokio::contract::Impact::Component,
+            ));
+        }
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"actual-inbound-work-limits-v1");
+        for n in [tasks.get(), resources, requests.get()] {
+            identity.extend_from_slice(&n.to_le_bytes());
+        }
+        self.identity = identity.into();
+        self.work_tasks = tasks;
+        self.work_resources = resources;
+        Ok(self)
+    }
+
     #[expect(
         clippy::too_many_arguments,
         reason = "existing cold options keep native bind, authentication, website and immutable identity explicit"
@@ -87,6 +114,8 @@ impl Options {
             tag: tag.into(),
             sites,
             identity: identity.into(),
+            work_tasks: NonZeroUsize::new(520).unwrap(),
+            work_resources: 257,
             metadata_probes: NonZeroUsize::new(2).unwrap(),
             metadata_attempts: NonZeroUsize::new(8).unwrap(),
             metadata_sends: NonZeroUsize::new(2).unwrap(),
@@ -111,8 +140,8 @@ impl ComponentFactory for Factory {
             },
             ResourceDeclaration::DatagramAssociations {
                 max_associations: n(4096),
-                max_tasks_per_association: n(520),
-                max_resources_per_association: 257,
+                max_tasks_per_association: options.work_tasks,
+                max_resources_per_association: options.work_resources,
             },
         ];
         for (destination, _) in &options.sites {
@@ -120,8 +149,8 @@ impl ComponentFactory for Factory {
                 destination: destination.clone(),
                 accepted: Some(AcceptedTcpLimits {
                     max_sockets: n(4096),
-                    max_tasks_per_socket: n(520),
-                    max_resources_per_socket: 257,
+                    max_tasks_per_socket: options.work_tasks,
+                    max_resources_per_socket: options.work_resources,
                 }),
                 max_bind_attempts: n(50),
             });

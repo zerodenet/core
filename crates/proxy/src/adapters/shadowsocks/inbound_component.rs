@@ -57,9 +57,14 @@ impl ShadowsocksAdapter {
         );
         let identity = serde_json::to_vec(inbound)
             .map_err(|source| zero_config::ConfigError::InvalidInbound(source.to_string()))?;
-        Ok(
-            ::shadowsocks::component::inbound::listener::Options::new(listen, prepared, &identity)
-                .with_plugin(plugin.clone()),
-        )
+        ::shadowsocks::component::inbound::listener::Options::new(listen, prepared, &identity)
+            .with_plugin(plugin.clone())
+            .with_inbound_work_limits(
+                std::num::NonZeroUsize::new(runtime.effective_inbound_max_tasks_per_carrier(1))
+                    .unwrap(),
+                runtime.effective_inbound_max_resources_per_carrier(0),
+                std::num::NonZeroUsize::new(1).unwrap(),
+            )
+            .map_err(crate::component::RegistrationError::Planning)
     }
 }

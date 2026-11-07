@@ -73,6 +73,27 @@ impl InboundOptions {
             identity: identity.into(),
         })
     }
+    pub fn with_inbound_work_limits(
+        mut self,
+        tasks: NonZeroUsize,
+        resources: usize,
+    ) -> Result<Self, BuildError> {
+        if !(2..=4096).contains(&tasks.get()) || !(2..=65536).contains(&resources) {
+            return Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                Impact::Component,
+            ));
+        }
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"actual-inbound-work-limits-v1");
+        identity.extend_from_slice(&tasks.get().to_le_bytes());
+        identity.extend_from_slice(&resources.to_le_bytes());
+        self.identity = identity.into();
+        self.accepted.max_tasks_per_socket = tasks;
+        self.accepted.max_resources_per_socket = resources;
+        Ok(self)
+    }
     pub fn acceptor(&self) -> Socks5InboundAcceptor {
         self.acceptor.clone()
     }

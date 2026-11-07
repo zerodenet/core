@@ -3,6 +3,8 @@
 //! Cold state and credentials remain inert until confirmed StopOld and host Build.
 #[path = "quic.rs"]
 mod quic;
+#[path = "listener/work.rs"]
+mod work;
 use crate::transport::PreparedVlessInboundListenerRequest;
 use std::{
     collections::hash_map::RandomState,
@@ -10,6 +12,7 @@ use std::{
     num::NonZeroUsize,
     sync::{Arc, Mutex, OnceLock},
 };
+use work::peer_limits;
 use zero_core::request::Destination;
 use zero_platform_tokio::contract::{
     component::*,
@@ -29,6 +32,8 @@ pub struct Options {
     file_root: Option<std::path::PathBuf>,
     prepared: Mutex<Option<PreparedVlessInboundListenerRequest>>,
     identity: Arc<[u8]>,
+    work_tasks: NonZeroUsize,
+    work_resources: usize,
     metadata_probes: NonZeroUsize,
     metadata_attempts: NonZeroUsize,
     metadata_sends: NonZeroUsize,
@@ -63,6 +68,8 @@ impl Options {
             listen,
             prepared: Mutex::new(Some(prepared)),
             identity: identity.into(),
+            work_tasks: NonZeroUsize::new(520).unwrap(),
+            work_resources: 257,
             metadata_probes: NonZeroUsize::new(2).unwrap(),
             metadata_attempts: NonZeroUsize::new(8).unwrap(),
             metadata_sends: NonZeroUsize::new(2).unwrap(),
@@ -138,7 +145,7 @@ impl ComponentFactory for Factory {
                             destination: options.listen.clone(),
                             max_bind_attempts: NonZeroUsize::new(50).unwrap(),
                             max_pending_sends: NonZeroUsize::new(32).unwrap(),
-                            accepted: Some(peer_limits()),
+                            accepted: Some(options.peer_limits()),
                         }
                     } else {
                         ResourceDeclaration::TcpListener {
@@ -146,15 +153,15 @@ impl ComponentFactory for Factory {
                             max_bind_attempts: NonZeroUsize::new(50).unwrap(),
                             accepted: Some(AcceptedTcpLimits {
                                 max_sockets: NonZeroUsize::new(4096).unwrap(),
-                                max_tasks_per_socket: NonZeroUsize::new(520).unwrap(),
-                                max_resources_per_socket: 257,
+                                max_tasks_per_socket: options.work_tasks,
+                                max_resources_per_socket: options.work_resources,
                             }),
                         }
                     },
                     ResourceDeclaration::DatagramAssociations {
                         max_associations: NonZeroUsize::new(4096).unwrap(),
-                        max_tasks_per_association: NonZeroUsize::new(520).unwrap(),
-                        max_resources_per_association: 257,
+                        max_tasks_per_association: options.work_tasks,
+                        max_resources_per_association: options.work_resources,
                     },
                 ];
                 if options
@@ -229,7 +236,7 @@ impl ComponentFactory for Factory {
                 options.listen.clone(),
                 context.resources,
                 context.cancel,
-                peer_limits(),
+                options.peer_limits(),
                 std::time::Duration::from_secs(300),
                 move |peer| PacketConnection {
                     request: request.clone(),
@@ -294,14 +301,6 @@ impl InboundHandshake for Connection {
     }
 }
 
-fn peer_limits() -> DatagramPeerLimits {
-    DatagramPeerLimits {
-        max_peers: NonZeroUsize::new(128).unwrap(),
-        packets_per_peer: NonZeroUsize::new(256).unwrap(),
-        max_tasks_per_peer: NonZeroUsize::new(520).unwrap(),
-        max_resources_per_peer: 257,
-    }
-}
 struct PacketConnection {
     request: crate::transport::VlessInboundListenerRequest,
     peer: udp::DatagramPeer,
