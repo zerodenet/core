@@ -190,8 +190,24 @@ pub(super) async fn echo_inspect(
     inspect(&original.0, &original.1);
     io.shutdown().await.unwrap();
     let mut received = Vec::new();
-    io.read_to_end(&mut received).await.unwrap();
-    assert_eq!(received, payload);
+    {
+        let mut observed = super::read_progress::ReadProgress::new(
+            &mut io,
+            &client.proxy,
+            "VLESS material reverse",
+        );
+        observed.read_to_end(&mut received).await.unwrap();
+    }
+    assert!(
+        received == payload,
+        "reverse bytes={} expected={} first_difference={:?}",
+        received.len(),
+        payload.len(),
+        received
+            .iter()
+            .zip(&payload)
+            .position(|(left, right)| left != right)
+    );
     drop(io);
     peer.await.unwrap();
     original
