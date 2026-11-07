@@ -183,3 +183,7 @@ impl VlessInboundMuxTcpRelay {
         ))
     }
 }
+
+#[cfg(test)]
+#[path = "standard/tests/half_close.rs"]
+mod half_close;
