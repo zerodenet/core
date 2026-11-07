@@ -2,10 +2,11 @@
 use super::*;
 use zero_core::request::Destination;
 use zero_platform_tokio::{
-    contract::{ChannelError, CloseReason, lifecycle::DynChannelControl, stream::BoxStream},
+    contract::{lifecycle::DynChannelControl, stream::BoxStream, ChannelError, CloseReason},
     controlled_carrier::{CarrierGrants, ResolvingCarrierOpener},
 };
 mod controlled;
+mod direct;
 #[cfg(any(target_os = "linux", windows))]
 mod process;
 pub(super) struct Root {
@@ -25,8 +26,8 @@ pub(super) struct Root {
     current: std::sync::Weak<crate::runtime::current_services::CurrentServiceSource>,
     roles: Vec<zero_core::component::RoleInstanceId>,
     candidates: tokio::sync::Mutex<Option<controlled::Candidates>>,
-    #[cfg(any(target_os = "linux", windows))]
     invocation: CarrierContext,
+    direct_endpoint: Option<Destination>,
     waiting: std::sync::OnceLock<zero_platform_tokio::contract::network::PendingCarrierObserver>,
 }
 impl Root {
@@ -45,8 +46,6 @@ impl Root {
         current: std::sync::Weak<crate::runtime::current_services::CurrentServiceSource>,
         roles: Vec<zero_core::component::RoleInstanceId>,
     ) -> Result<Self, ChannelError> {
-        #[cfg(not(any(target_os = "linux", windows)))]
-        let _ = &invocation;
         Ok(Self {
             native: Some(ResolvingCarrierOpener::new(
                 grants.registration().instance(),
@@ -71,8 +70,8 @@ impl Root {
             current,
             roles,
             candidates: Default::default(),
-            #[cfg(any(target_os = "linux", windows))]
             invocation,
+            direct_endpoint: None,
             waiting: Default::default(),
         })
     }
@@ -164,6 +163,30 @@ impl DynChannelControl for Control {
     }
 }
 impl UpstreamOpener for Root {
+    fn open_controlled_stream_loan(
+        &self,
+        binding: &UpstreamBinding,
+        request: zero_platform_tokio::contract::network::ControlledStreamRequest,
+    ) -> BoxFuture<'_, Result<StreamLoan, ChannelError>> {
+        let binding = binding.clone();
+        Box::pin(async move {
+            self.direct_transport(&binding)?
+                .open_controlled_stream_loan(request)
+                .await
+        })
+    }
+    fn open_controlled_stream(
+        &self,
+        binding: &UpstreamBinding,
+        request: zero_platform_tokio::contract::network::ControlledStreamRequest,
+    ) -> BoxFuture<'_, Result<BoxStream, ChannelError>> {
+        let binding = binding.clone();
+        Box::pin(async move {
+            self.direct_transport(&binding)?
+                .open_controlled_stream(request)
+                .await
+        })
+    }
     #[cfg(any(target_os = "linux", windows))]
     fn acquire_process_endpoint_stream(
         &self,
@@ -341,10 +364,7 @@ impl UpstreamOpener for Root {
         Ok(())
     }
     fn supports_controlled_stream(&self) -> bool {
-        // Direct's multi-candidate request carries its Business-only owner.
-        // DNS services use this root's declared BackgroundControl original;
-        // prepare/acquire still accept an independently validated actual grant.
-        false
+        self.direct_transport(&self.binding).is_ok()
     }
     fn carrier_dns_generation(&self) -> Option<zero_platform_tokio::contract::dns::DnsGeneration> {
         Some(self.node_dns.generation())

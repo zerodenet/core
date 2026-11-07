@@ -51,10 +51,7 @@ impl OriginalDriver {
             retained(&source)
         });
         self.ended.store(true, Ordering::Release);
-        if self.flush.waiting.swap(false, Ordering::AcqRel) {
-            self.flush.writer.wake();
-        }
-        result
+        self.flush.finish(result)
     }
     pub(in crate::h2) fn poll_outbound(
         self: Pin<&mut Self>,
@@ -80,5 +77,11 @@ impl Future for OriginalDriver {
         this.connection
             .poll_connection(cx)
             .map(|result| this.finish(result))
+    }
+}
+
+impl Drop for OriginalDriver {
+    fn drop(&mut self) {
+        self.flush.interrupt();
     }
 }

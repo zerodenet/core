@@ -101,11 +101,16 @@ pub(crate) fn component_options_in_runtime(
     inbound: &zero_config::InboundConfig,
     runtime: &zero_config::RuntimeOptionsConfig,
 ) -> Result<socks5::component::listener::InboundOptions, zero_config::ConfigError> {
-    component_options(inbound)?
-        .with_inbound_work_limits(
-            std::num::NonZeroUsize::new(runtime.effective_inbound_max_tasks_per_carrier(2))
-                .unwrap(),
-            runtime.effective_inbound_max_resources_per_carrier(2),
-        )
+    let options = component_options(inbound)?;
+    let limits = crate::adapters::source_budgets::limits(runtime, options.source_limits());
+    options
+        .with_inbound_source_limits(limits)
+        .and_then(|options| {
+            options.with_inbound_work_limits(
+                std::num::NonZeroUsize::new(runtime.effective_inbound_max_tasks_per_carrier(2))
+                    .unwrap(),
+                runtime.effective_inbound_max_resources_per_carrier(2),
+            )
+        })
         .map_err(|source| zero_config::ConfigError::InvalidInbound(source.to_string()))
 }

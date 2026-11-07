@@ -1,6 +1,6 @@
 //! The single temporary conversion from native proxy roles to legacy relay I/O.
 use super::{
-    instance::{ComponentSlot, invalid},
+    instance::{invalid, ComponentSlot},
     legacy_stream::LegacyStream,
 };
 use crate::{
@@ -9,12 +9,12 @@ use crate::{
     transport::{EstablishedTcpOutbound, TcpOutboundFailure},
 };
 use std::{error::Error, fmt, io, sync::Arc};
-use zero_core::{Address, Session, component::NetworkGeneration, request::Destination};
+use zero_core::{component::NetworkGeneration, request::Destination, Address, Session};
 use zero_platform_tokio::contract::{
-    ChannelError, Reason,
     context::OpenContext,
     network::{UpstreamBinding, UpstreamTransport},
     stream::ConnectRequest,
+    ChannelError, Reason,
 };
 #[cfg(any(
     feature = "upstream-association-runtime",
@@ -160,6 +160,64 @@ pub(super) fn failure_optional(
     error: ChannelError,
     endpoint: Option<&(String, u16)>,
 ) -> TcpOutboundFailure {
+    #[cfg(test)]
+    {
+        // Read only the retained typed facts before legacy display projection.
+        // These facts grant no IO, admission, retry or cleanup authority.
+        let mut pending: Vec<&(dyn std::error::Error + 'static)> = vec![&error];
+        let mut visited = Vec::new();
+        for depth in 0..64 {
+            let Some(source) = pending.pop() else { break };
+            if visited.iter().any(|actual| std::ptr::eq(*actual, source)) {
+                continue;
+            }
+            visited.push(source);
+            if let Some(channel) = source.downcast_ref::<ChannelError>() {
+                eprintln!("actual native Stream failure stage={stage} depth={depth} component={:?} session={:?} operation={:?} reason={:?} impact={:?} delivery={:?}",channel.component,channel.session,channel.stage,channel.reason,channel.impact,channel.delivery);
+            }
+            // Transparent enum/Arc Error implementations delegate source()
+            // through their contained error, so visit the actual payload too.
+            if let Some(retained) = source.downcast_ref::<std::sync::Arc<ChannelError>>() {
+                pending.push(retained.as_ref());
+            }
+            if let Some(runtime) = source.downcast_ref::<zero_transport::RuntimeError>() {
+                match runtime {
+                    zero_transport::RuntimeError::Io(error) => pending.push(error),
+                    zero_transport::RuntimeError::Core(error) => pending.push(error),
+                }
+            }
+            if let Some(core) = source.downcast_ref::<zero_core::Error>() {
+                // Every Core error payload is a protocol-owned &'static str.
+                eprintln!("actual native Stream static core source depth={depth} error={core:?}");
+            }
+            if let Some(native) = source.downcast_ref::<io::Error>() {
+                // Only these known static lifecycle diagnostics are emitted;
+                // no arbitrary profile, credential or payload is formatted.
+                let message = native.to_string();
+                if matches!(
+                    message.as_str(),
+                    "component was stopped"
+                        | "component task registration is closed"
+                        | "actual VMess MUX recipe no longer retained by its owner"
+                        | "actual VMess MUX role owner no longer retained"
+                        | "actual VMess MUX role was revoked before this open"
+                        | "native pool generation differs from the actual dependency"
+                        | "native carrier pool is unavailable"
+                        | "native carrier pool is retired"
+                        | "native carrier pool generation is unavailable"
+                        | "native pool view is unscoped"
+                ) {
+                    eprintln!("actual native Stream lifecycle source depth={depth} kind={:?} message={message}",native.kind());
+                }
+                if let Some(inner) = native.get_ref() {
+                    pending.push(inner)
+                }
+            }
+            if let Some(next) = source.source() {
+                pending.push(next)
+            }
+        }
+    }
     let kind = match error.reason {
         Reason::Timeout => io::ErrorKind::TimedOut,
         Reason::Cancelled | Reason::Revoked | Reason::StalePlan => io::ErrorKind::Interrupted,

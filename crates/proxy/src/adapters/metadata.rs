@@ -30,3 +30,39 @@ pub(crate) fn metadata_source_budget_changed(
                 || a.effective_quic_shared_endpoint_max_users()
                     != b.effective_quic_shared_endpoint_max_users()))
 }
+
+pub(crate) fn h3_source_budget_changed(
+    input: &InboundConfig,
+    old: &RuntimeConfig,
+    next: &RuntimeConfig,
+) -> bool {
+    matches!(
+        &input.protocol,
+        zero_config::InboundProtocolConfig::Hysteria2 { .. }
+    ) && (old
+        .runtime
+        .effective_hysteria2_h3_max_pending_classifications()
+        != next
+            .runtime
+            .effective_hysteria2_h3_max_pending_classifications()
+        || old.runtime.effective_hysteria2_h3_max_pending_tcp_streams()
+            != next
+                .runtime
+                .effective_hysteria2_h3_max_pending_tcp_streams()
+        || old.runtime.effective_hysteria2_h3_max_pending_web_streams()
+            != next
+                .runtime
+                .effective_hysteria2_h3_max_pending_web_streams()
+        || old
+            .runtime
+            .effective_hysteria2_h3_max_pending_web_requests()
+            != next
+                .runtime
+                .effective_hysteria2_h3_max_pending_web_requests())
+}
+pub(crate) fn h3_budget_changed(old: &RuntimeConfig, next: &RuntimeConfig) -> bool {
+    old.inbounds
+        .iter()
+        .chain(&next.inbounds)
+        .any(|input| h3_source_budget_changed(input, old, next))
+}

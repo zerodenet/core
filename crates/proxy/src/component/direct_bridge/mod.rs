@@ -1,4 +1,5 @@
 //! One temporary boundary from existing probe callers to standard Stream roles.
+pub(in crate::component) mod background;
 pub(super) mod controlled;
 pub(super) mod network;
 mod source;
@@ -233,4 +234,30 @@ fn failure(stage: &'static str, error: ChannelError) -> TcpOutboundFailure {
         upstream_endpoint: None,
         network: None,
     }
+}
+
+/// Delegate an actual selected Service call to its original Direct owner.
+/// The supplied plan/slot come from the current execution; this mints no grant.
+pub(crate) fn service_transport(
+    slot: &Arc<super::instance::ComponentSlot>,
+    plan: std::sync::Weak<super::catalog::ComponentPlan>,
+    services: crate::protocol_registry::UpstreamConnectServices,
+    endpoint: Destination,
+    binding: UpstreamBinding,
+    call: zero_platform_tokio::contract::network::CarrierContext,
+    waiting: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
+) -> Result<UpstreamTransport, ChannelError> {
+    background::Root::transport(
+        slot,
+        plan,
+        services,
+        endpoint,
+        binding,
+        background::Caller {
+            business: None,
+            call: Some(call),
+            waiting,
+        },
+    )
+    .map(|(_, transport)| transport)
 }

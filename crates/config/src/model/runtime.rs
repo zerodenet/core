@@ -4,6 +4,55 @@ use super::*;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuntimeOptionsConfig {
+    /// Actual Source accepted sockets; None preserves the producer default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_accepted_sockets: Option<usize>,
+
+    /// Actual Source datagram associations; None preserves the producer default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_datagram_associations: Option<usize>,
+
+    /// Actual Source datagram peers; None preserves the producer default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_datagram_peers: Option<usize>,
+
+    /// Actual Source packets per peer; None preserves the producer default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_packets_per_peer: Option<usize>,
+
+    /// Actual Source pending sends; None preserves the producer default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_pending_sends: Option<usize>,
+
+    /// Actual Source bind attempts; None preserves the producer default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_bind_attempts: Option<usize>,
+
+    /// Actual Source target sockets; None preserves the producer default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_target_sockets: Option<usize>,
+
+    /// Actual Source file sessions; None preserves the producer default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_file_sessions: Option<usize>,
+
+    /// Actual Source handoff probe attempts; None preserves the producer default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_handoff_probe_attempts: Option<usize>,
+
+    /// On-demand pending classifications per actual inbound HY2 HTTP/3 connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hysteria2_h3_max_pending_classifications: Option<usize>,
+    /// On-demand pending tcp streams per actual inbound HY2 HTTP/3 connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hysteria2_h3_max_pending_tcp_streams: Option<usize>,
+    /// On-demand pending web streams per actual inbound HY2 HTTP/3 connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hysteria2_h3_max_pending_web_streams: Option<usize>,
+    /// On-demand pending web requests per actual inbound HY2 HTTP/3 connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hysteria2_h3_max_pending_web_requests: Option<usize>,
+
     /// Maximum same-original accepted/peer tasks. Omission retains the actual protocol default; no Scope or worker is allocated from the number alone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inbound_max_tasks_per_carrier: Option<usize>,
@@ -42,6 +91,14 @@ pub struct RuntimeOptionsConfig {
     /// Four by default, shared by its pending and delivered carrier uses.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_stream_max_originals: Option<usize>,
+    /// Actual TCP originals per Direct component generation, including pending,
+    /// failed and retiring candidates. On demand; default4096.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direct_max_originals: Option<usize>,
+    /// Actual Direct initialization/refresh tasks in the same original Scope.
+    /// On demand; default256. Separate from the shared carrier total.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direct_max_tasks: Option<usize>,
     /// Actual pending, failed and retiring carrier custody reservations across
     /// this one Host. Default1024, on demand. Distinct from FD/socket count,
     /// per-role N, per-protocol pool N and logical user/task/byte limits.
@@ -214,6 +271,10 @@ pub struct RuntimeOptionsConfig {
     /// One MiB by default; independent of control serialized output custody.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub event_subscriber_stats_max_bytes: Option<usize>,
+    /// Same-kernel Windows pipe payload workspaces, including native pending
+    /// read/write and queued buffers. Default2MiB, on demand; not RSS or events.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_pipe_max_workspace_bytes: Option<usize>,
     /// Global URL used by end-to-end outbound latency probes.
     #[serde(default)]
     pub latency_test_url: Option<String>,
@@ -235,260 +296,8 @@ pub struct RuntimeOptionsConfig {
     pub tun: Option<TunConfig>,
 }
 
-impl Default for RuntimeOptionsConfig {
-    fn default() -> Self {
-        Self {
-            file_read_max_bytes: None,
-            native_mux_max_carriers: None,
-            native_stream_max_originals: None,
-            carrier_max_total_originals: None,
-            process_max_jobs: None,
-            process_max_jobs_per_instance: None,
-            mieru_max_carriers: None,
-            vmess_grpc_max_originals: None,
-            packet_return_max_frames: None,
-            packet_return_max_bytes: None,
-            packet_return_total_max_frames: None,
-            packet_return_total_max_bytes: None,
-            packet_transmit_total_max_frames: None,
-            packet_transmit_total_max_bytes: None,
-            packet_native_read_total_max_frames: None,
-            packet_native_read_total_max_bytes: None,
-            ss_udp_replay_max_windows: None,
-            ss_udp_max_senders: None,
-            ss_udp_max_associations: None,
-            ss_udp_max_return_bindings: None,
-            ss_udp_max_authenticated_codecs: None,
-            ss_udp_max_pending_responses: None,
-            ss_udp_total_max_pending_responses: None,
-            grpc_pool_max_carriers: None,
-            grpc_pool_max_streams: None,
-            grpc_total_max_carriers: None,
-            grpc_total_max_streams: None,
-            diagnostic_max_operations: None,
-            system_tun_task_limit: None,
-            ss_legacy_replay_max_bytes: None,
-            ss_tcp_replay_max_salts: None,
-            hysteria2_max_entries: None,
-            hysteria2_max_udp_sessions: None,
-            hysteria2_udp_pending_bytes: None,
-            control_max_connections: None,
-            control_max_subscriptions: None,
-            control_max_queued_event_bytes: None,
-            event_network_max_tasks: None,
-            event_network_max_originals: None,
-            event_network_max_lookups: None,
-            native_dns_max_originals: None,
-            native_dns_max_queries: None,
-            native_dns_max_blocking_jobs: None,
-            native_dns_max_h2_drivers: None,
-            udp_direct_max_sockets: None,
-            udp_upstream_idle_timeout_seconds: default_udp_upstream_idle_timeout_seconds(),
-            event_log_capacity: default_event_log_capacity(),
-            event_log_stats_max_bytes: None,
-            inbound_max_tasks_per_carrier: None,
-            inbound_max_resources_per_carrier: None,
-            inbound_max_in_flight_requests: None,
-            metadata_max_probe_sockets: None,
-            metadata_max_probe_attempts: None,
-            metadata_max_send_calls: None,
-            quic_source_max_connections: None,
-            quic_shared_endpoint_max_users: None,
-            event_subscriber_stats_max_bytes: None,
-            latency_test_url: None,
-            principal_quota_state_path: None,
-            network: NetworkOptionsConfig::default(),
-            udp: UdpPolicyConfig::default(),
-            log: LogConfig::default(),
-            dns: None,
-            tun: None,
-        }
-    }
-}
-
 pub const DEFAULT_LATENCY_TEST_URL: &str = "http://www.gstatic.com/generate_204";
 pub const DEFAULT_EVENT_LOG_CAPACITY: usize = 1024;
 
-impl RuntimeOptionsConfig {
-    pub fn effective_process_max_jobs(&self) -> usize {
-        self.process_max_jobs.unwrap_or(64)
-    }
-    pub fn effective_process_max_jobs_per_instance(&self) -> usize {
-        self.process_max_jobs_per_instance.unwrap_or(1)
-    }
-    pub fn effective_carrier_max_total_originals(&self) -> usize {
-        self.carrier_max_total_originals.unwrap_or(1024)
-    }
-    pub fn effective_native_stream_max_originals(&self) -> usize {
-        self.native_stream_max_originals.unwrap_or(4)
-    }
-    pub fn effective_packet_return_max_frames(&self) -> usize {
-        self.packet_return_max_frames.unwrap_or(256)
-    }
-    pub fn effective_packet_return_max_bytes(&self) -> usize {
-        self.packet_return_max_bytes.unwrap_or(16777216)
-    }
-    pub fn effective_packet_return_total_max_frames(&self) -> usize {
-        self.packet_return_total_max_frames.unwrap_or(1024)
-    }
-    pub fn effective_packet_return_total_max_bytes(&self) -> usize {
-        self.packet_return_total_max_bytes.unwrap_or(67108864)
-    }
-    pub fn effective_packet_transmit_total_max_frames(&self) -> usize {
-        self.packet_transmit_total_max_frames.unwrap_or(16384)
-    }
-    pub fn effective_packet_transmit_total_max_bytes(&self) -> usize {
-        self.packet_transmit_total_max_bytes.unwrap_or(67108864)
-    }
-    pub fn effective_packet_native_read_total_max_frames(&self) -> usize {
-        self.packet_native_read_total_max_frames.unwrap_or(256)
-    }
-    pub fn effective_packet_native_read_total_max_bytes(&self) -> usize {
-        self.packet_native_read_total_max_bytes.unwrap_or(16777216)
-    }
-    pub fn effective_ss_udp_replay_max_windows(&self) -> usize {
-        self.ss_udp_replay_max_windows.unwrap_or(8192)
-    }
-    pub fn effective_ss_udp_max_senders(&self) -> usize {
-        self.ss_udp_max_senders.unwrap_or(8192)
-    }
-    pub fn effective_ss_udp_max_associations(&self) -> usize {
-        self.ss_udp_max_associations.unwrap_or(8192)
-    }
-    pub fn effective_ss_udp_max_return_bindings(&self) -> usize {
-        self.ss_udp_max_return_bindings.unwrap_or(65536)
-    }
-    pub fn effective_ss_udp_max_pending_responses(&self) -> usize {
-        self.ss_udp_max_pending_responses.unwrap_or(4096)
-    }
-    pub fn effective_ss_udp_total_max_pending_responses(&self) -> usize {
-        self.ss_udp_total_max_pending_responses.unwrap_or(4096)
-    }
-    pub fn effective_ss_udp_max_authenticated_codecs(&self) -> usize {
-        self.ss_udp_max_authenticated_codecs.unwrap_or(4096)
-    }
-    pub fn effective_grpc_pool_max_carriers(&self) -> usize {
-        self.grpc_pool_max_carriers.unwrap_or(4)
-    }
-    pub fn effective_grpc_pool_max_streams(&self) -> usize {
-        self.grpc_pool_max_streams.unwrap_or(256)
-    }
-    pub fn effective_grpc_total_max_carriers(&self) -> usize {
-        self.grpc_total_max_carriers.unwrap_or(16)
-    }
-    pub fn effective_grpc_total_max_streams(&self) -> usize {
-        self.grpc_total_max_streams.unwrap_or(1024)
-    }
-    pub fn effective_diagnostic_max_operations(&self) -> usize {
-        self.diagnostic_max_operations.unwrap_or(8)
-    }
-    pub fn effective_system_tun_task_limit(&self, actual_default: usize) -> usize {
-        self.system_tun_task_limit
-            .unwrap_or(actual_default)
-            .min(actual_default)
-    }
-    pub fn effective_ss_legacy_replay_max_bytes(&self) -> usize {
-        self.ss_legacy_replay_max_bytes.unwrap_or(64 * 1024 * 1024)
-    }
-    pub fn effective_ss_tcp_replay_max_salts(&self) -> usize {
-        self.ss_tcp_replay_max_salts.unwrap_or(500_000)
-    }
-    pub fn effective_vmess_grpc_max_originals(&self) -> usize {
-        self.vmess_grpc_max_originals.unwrap_or(4096)
-    }
-    pub fn effective_mieru_max_carriers(&self) -> usize {
-        self.mieru_max_carriers.unwrap_or(4)
-    }
-    pub fn effective_hysteria2_max_entries(&self) -> usize {
-        self.hysteria2_max_entries.unwrap_or(256)
-    }
-    pub fn effective_hysteria2_max_udp_sessions(&self) -> usize {
-        self.hysteria2_max_udp_sessions.unwrap_or(4096)
-    }
-    pub fn effective_hysteria2_udp_pending_bytes(&self) -> usize {
-        self.hysteria2_udp_pending_bytes.unwrap_or(4 * 1024 * 1024)
-    }
-    pub fn effective_control_max_connections(&self) -> usize {
-        self.control_max_connections.unwrap_or(256)
-    }
-    pub fn effective_control_max_subscriptions(&self) -> usize {
-        self.control_max_subscriptions.unwrap_or(256)
-    }
-    pub fn effective_control_max_queued_event_bytes(&self) -> usize {
-        self.control_max_queued_event_bytes.unwrap_or(1024 * 1024)
-    }
-    pub fn effective_event_network_max_tasks(&self) -> usize {
-        self.event_network_max_tasks.unwrap_or(1024)
-    }
-    pub fn effective_event_network_max_originals(&self) -> usize {
-        self.event_network_max_originals.unwrap_or(256)
-    }
-    pub fn effective_event_network_max_lookups(&self) -> usize {
-        self.event_network_max_lookups.unwrap_or(256)
-    }
-    pub fn effective_native_dns_max_originals(&self) -> usize {
-        self.native_dns_max_originals.unwrap_or(16)
-    }
-    pub fn effective_native_dns_max_queries(&self) -> usize {
-        self.native_dns_max_queries.unwrap_or(16)
-    }
-    pub fn effective_native_dns_max_blocking_jobs(&self) -> usize {
-        self.native_dns_max_blocking_jobs.unwrap_or(16)
-    }
-    pub fn effective_native_dns_max_h2_drivers(&self) -> usize {
-        self.native_dns_max_h2_drivers.unwrap_or(16)
-    }
-    pub fn effective_metadata_max_probe_sockets(&self, actual_default: usize) -> usize {
-        self.metadata_max_probe_sockets.unwrap_or(actual_default)
-    }
-    pub fn effective_metadata_max_probe_attempts(&self, actual_default: usize) -> usize {
-        self.metadata_max_probe_attempts.unwrap_or(actual_default)
-    }
-    pub fn effective_metadata_max_send_calls(&self, actual_default: usize) -> usize {
-        self.metadata_max_send_calls.unwrap_or(actual_default)
-    }
-    pub fn effective_quic_source_max_connections(&self) -> usize {
-        self.quic_source_max_connections.unwrap_or(8192)
-    }
-    pub fn effective_quic_shared_endpoint_max_users(&self) -> usize {
-        self.quic_shared_endpoint_max_users.unwrap_or(65536)
-    }
-    pub fn effective_inbound_max_tasks_per_carrier(&self, actual_default: usize) -> usize {
-        self.inbound_max_tasks_per_carrier.unwrap_or(actual_default)
-    }
-    pub fn effective_inbound_max_resources_per_carrier(&self, actual_default: usize) -> usize {
-        self.inbound_max_resources_per_carrier
-            .unwrap_or(actual_default)
-    }
-    pub fn effective_inbound_max_in_flight_requests(&self, actual_default: usize) -> usize {
-        self.inbound_max_in_flight_requests
-            .unwrap_or(actual_default)
-    }
-    pub fn effective_event_log_stats_max_bytes(&self) -> usize {
-        self.event_log_stats_max_bytes.unwrap_or(8 * 1024 * 1024)
-    }
-    pub fn effective_event_subscriber_stats_max_bytes(&self) -> usize {
-        self.event_subscriber_stats_max_bytes.unwrap_or(1024 * 1024)
-    }
-    pub fn effective_udp_direct_max_sockets(&self) -> usize {
-        self.udp_direct_max_sockets.unwrap_or(64)
-    }
-    pub fn effective_native_mux_max_carriers(&self) -> usize {
-        self.native_mux_max_carriers.unwrap_or(4)
-    }
-
-    pub fn effective_file_read_max_bytes(&self) -> usize {
-        self.file_read_max_bytes.unwrap_or(8 * 1024 * 1024)
-    }
-
-    pub fn effective_latency_test_url(&self) -> &str {
-        self.latency_test_url_or(None)
-    }
-
-    pub fn latency_test_url_or<'a>(&'a self, fallback: Option<&'a str>) -> &'a str {
-        self.latency_test_url
-            .as_deref()
-            .or(fallback)
-            .unwrap_or(DEFAULT_LATENCY_TEST_URL)
-    }
-}
+mod budgets;
+mod defaults;

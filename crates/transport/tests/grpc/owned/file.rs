@@ -50,7 +50,15 @@ fn actual_ca_file_recipe_is_cold_idempotent_bounded_and_distinct_from_the_fixed_
                 NonZeroUsize::new(4096).unwrap(),
             )
             .unwrap();
-        assert_eq!(first.identity, again.identity);
+        // These are two fresh candidate recipes, not the same retained Options.
+        // Their File descriptors are identical, while their authorized snapshot
+        // stamps force a new candidate to read changed CA material.
+        assert_ne!(first.identity, again.identity);
+        assert_ne!(first.file_stamp, again.file_stamp);
+        assert_eq!(
+            NativePoolFactory.describe(&first).resources,
+            NativePoolFactory.describe(&again).resources
+        );
         assert!(
             !Arc::ptr_eq(first.ca.as_ref().unwrap(), again.ca.as_ref().unwrap()),
             "a newly prepared candidate must read its own actual File material"

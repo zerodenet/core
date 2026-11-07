@@ -21,6 +21,8 @@ use zero_platform_tokio::{
     TcpRelayStream, TokioSocket,
 };
 pub struct Options {
+    source_limits: InboundSourceLimits,
+
     udp: bool,
     listen: Destination,
     profile: MieruInboundProfile,
@@ -29,8 +31,38 @@ pub struct Options {
     work_resources: usize,
 }
 impl Options {
+    pub fn source_limits(&self) -> InboundSourceLimits {
+        self.source_limits
+    }
+    pub fn with_inbound_source_limits(
+        mut self,
+        limits: InboundSourceLimits,
+    ) -> Result<Self, zero_platform_tokio::contract::ChannelError> {
+        let limits = limits.validate()?;
+        let used = if self.udp {
+            vec![
+                limits.bind_attempts,
+                limits.pending_sends,
+                limits.datagram_peers,
+                limits.packets_per_peer,
+            ]
+        } else {
+            vec![limits.accepted_sockets, limits.bind_attempts]
+        };
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"actual-source-limits-v1");
+        for value in used {
+            identity.extend_from_slice(&value.get().to_le_bytes());
+        }
+        self.identity = identity.into();
+        self.source_limits = limits;
+        Ok(self)
+    }
+
     fn peer_limits(&self) -> DatagramPeerLimits {
         let mut limits = peer_limits();
+        limits.max_peers = self.source_limits.datagram_peers;
+        limits.packets_per_peer = self.source_limits.packets_per_peer;
         limits.max_tasks_per_peer = self.work_tasks;
         limits.max_resources_per_peer = self.work_resources;
         limits
@@ -83,6 +115,7 @@ impl Options {
             identity: identity.into(),
             work_tasks: NonZeroUsize::new(514).unwrap(),
             work_resources: 257,
+            source_limits: InboundSourceLimits::default(),
         })
     }
 }
@@ -99,16 +132,16 @@ impl ComponentFactory for Factory {
             resources: vec![if options.udp {
                 ResourceDeclaration::DatagramListener {
                     destination: options.listen.clone(),
-                    max_bind_attempts: NonZeroUsize::new(50).unwrap(),
-                    max_pending_sends: NonZeroUsize::new(32).unwrap(),
+                    max_bind_attempts: options.source_limits.bind_attempts,
+                    max_pending_sends: options.source_limits.pending_sends,
                     accepted: Some(options.peer_limits()),
                 }
             } else {
                 ResourceDeclaration::TcpListener {
                     destination: options.listen.clone(),
-                    max_bind_attempts: NonZeroUsize::new(50).unwrap(),
+                    max_bind_attempts: options.source_limits.bind_attempts,
                     accepted: Some(AcceptedTcpLimits {
-                        max_sockets: NonZeroUsize::new(4096).unwrap(),
+                        max_sockets: options.source_limits.accepted_sockets,
                         max_tasks_per_socket: options.work_tasks,
                         max_resources_per_socket: options.work_resources,
                     }),

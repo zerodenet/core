@@ -18,6 +18,7 @@ pub struct LoanDatagramIo {
     rx: Mutex<Option<Rx>>,
     state: Arc<State>,
     association: AssociationId,
+    wire_association: AssociationId,
     endpoint: Destination,
     limits: DatagramLimits,
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
@@ -69,6 +70,7 @@ impl DatagramLoan {
                 rx: Mutex::new(Some(session.rx)),
                 state: state.clone(),
                 association,
+                wire_association: association,
                 endpoint,
                 limits: session.limits,
                 observer: None,
@@ -97,12 +99,21 @@ impl LoanDatagramIo {
         *self.tx.get_mut() = Some(tx);
         *self.rx.get_mut() = Some(rx);
     }
+    /// This receiver's actual logical association, not its donor wire binding.
+    pub fn association(&self) -> AssociationId {
+        self.association
+    }
+    /// Exact association expected by the existing inner Tx/Rx. Observation
+    /// grants no IO, new association, native original or Scope authority.
+    pub fn wire_association(&self) -> AssociationId {
+        self.wire_association
+    }
     pub fn endpoint(&self) -> &Destination {
         &self.endpoint
     }
     pub async fn send(&self, bytes: &[u8]) -> io::Result<()> {
         let frame = Datagram {
-            association: self.association,
+            association: self.wire_association,
             address: self.endpoint.clone(),
             payload: bytes.to_vec().into(),
         };
@@ -142,7 +153,7 @@ impl LoanDatagramIo {
             if let Some(observer) = &self.observer {
                 observer.received(frame.payload.len());
             }
-            if frame.association != self.association {
+            if frame.association != self.wire_association {
                 continue;
             }
             // The existing wire form may name an IP literal as a domain.

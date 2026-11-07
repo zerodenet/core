@@ -195,3 +195,25 @@ mod metadata_budgets;
     feature = "hysteria2"
 ))]
 mod inbound_work_limits;
+
+#[cfg(all(feature = "hysteria2", feature = "socks5"))]
+mod h3_queues;
+
+#[cfg(feature = "socks5")]
+mod direct_budgets;
+
+#[cfg(all(
+    feature = "http",
+    feature = "socks5",
+    feature = "mixed",
+    feature = "shadowsocks",
+    feature = "mieru",
+    feature = "vless",
+    feature = "vmess",
+    feature = "trojan",
+    feature = "hysteria2"
+))]
+mod source_limits;
+
+#[cfg(all(feature = "vless", feature = "hysteria2"))]
+mod inbound_targets;

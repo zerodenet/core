@@ -246,6 +246,8 @@ impl Native {
                 .first()
                 .or_else(|| self.probes.unknown.first())
             {
+                #[cfg(test)]
+                eprintln!("actual Metadata original unknown at retirement component={component:?}, reservation={:?}, native={:#?}, acquisition={:#?}", source.reservation, source.source, source.acquisition_source);
                 let mut failure = zero_platform_tokio::contract::ChannelError::new(
                     zero_platform_tokio::contract::Stage::Close,
                     Reason::Io,

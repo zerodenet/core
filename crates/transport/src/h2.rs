@@ -1,7 +1,7 @@
 mod client;
 mod owned;
 mod scoped;
-pub use scoped::{ScopedH2Stream, accept_h2_scoped};
+pub use scoped::{accept_h2_scoped, ScopedH2Stream};
 // HTTP/2 transport 鈥?h2.rs
 //
 // Raw DATA frames over HTTP/2 (no gRPC framing).
@@ -401,3 +401,7 @@ impl ClientStream for H2Stream {
         ))
     }
 }
+
+#[cfg(all(test, any(unix, windows)))]
+#[path = "../tests/h2_native_flush.rs"]
+mod native_flush;

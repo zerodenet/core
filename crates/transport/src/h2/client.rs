@@ -67,15 +67,15 @@ impl Inline {
     }
 }
 impl State {
-    fn drive(driver: &mut Option<H2ClientDriver>, wake: &Arc<WakeBoth>, outbound: bool) {
+    fn drive(driver: &mut Option<H2ClientDriver>, wake: &Arc<WakeBoth>, outbound: bool) -> bool {
         let Some(future) = driver.as_mut() else {
-            return;
+            return false;
         };
         // Poll only the original driver's initial turn or actual wake. An
         // application capacity-Pending poll supplies no new native readiness.
         // Clear before polling so an inline wake preserves the next turn.
         if !wake.ready.swap(false, Ordering::AcqRel) {
-            return;
+            return false;
         }
         let driver_waker = waker_ref(wake);
         let mut cx = Context::from_waker(&driver_waker);
@@ -89,12 +89,13 @@ impl State {
             wake.reader.wake();
             wake.writer.wake();
         }
+        true
     }
     fn poll<T>(
         &mut self,
         cx: &mut Context<'_>,
         reading: bool,
-        operation: impl FnOnce(Pin<&mut OwnedH2Client>, &mut Context<'_>) -> Poll<io::Result<T>>,
+        mut operation: impl FnMut(Pin<&mut OwnedH2Client>, &mut Context<'_>) -> Poll<io::Result<T>>,
     ) -> Poll<io::Result<T>> {
         let Self {
             stream,
@@ -103,7 +104,12 @@ impl State {
         } = self;
         wake.polling.store(true, Ordering::Release);
         let _polling = Polling(wake);
-        Self::drive(driver, wake, false);
+        // Queue/capacity wakes can arrive after the original read registered
+        // Pending. Reuse that same original's passive read signal here too:
+        // real read readiness/EOF, changed caller and protocol close state all
+        // fall back to its full Future; an enqueue wake alone needs only the
+        // original outbound/control/codec stage.
+        Self::drive(driver, wake, true);
         // Stream-capacity/response notifications belong to this same inline
         // turn as native-driver readiness. The driver may grant capacity while
         // it is already being polled here; waking the application directly in
@@ -112,7 +118,7 @@ impl State {
         // forward a still-pending turn to the actual reader/writer below.
         let operation_waker = waker_ref(wake);
         let mut operation_context = Context::from_waker(&operation_waker);
-        let result = operation(Pin::new(stream), &mut operation_context);
+        let mut result = operation(Pin::new(&mut *stream), &mut operation_context);
         // Only a pending application operation is owed a future wake. Install
         // it before the post-drive turn; synchronous driver notifications stay
         // retained by Polling until after this registration. A successful
@@ -126,7 +132,18 @@ impl State {
         }
         // The same original is also driven after application enqueue/credit
         // return. Pending capacity alone cannot manufacture readiness.
-        Self::drive(driver, wake, true);
+        let drove = Self::drive(driver, wake, true);
+        if result.is_pending() && drove {
+            // A real post-operation driver turn may receive capacity, response
+            // or reset after the application already returned Pending. Consume
+            // that same original's result once in this caller before yielding.
+            // The first Pending already registered the actual caller's waker;
+            // this is bounded, with no speculative turn when the driver slept.
+            result = operation(Pin::new(&mut *stream), &mut operation_context);
+            // A successful retry may enqueue DATA/END or return read credit.
+            // Flush only actual readiness on the same original connection.
+            Self::drive(driver, wake, true);
+        }
         result
     }
 }

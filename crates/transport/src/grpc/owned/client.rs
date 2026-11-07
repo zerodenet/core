@@ -67,6 +67,7 @@ pub(in crate::grpc) struct NativeClient {
     sender: h2::client::SendRequest<Bytes>,
     commands: mpsc::Sender<Work>,
     active: Arc<std::sync::atomic::AtomicUsize>,
+    flush: Arc<crate::native_flush::Flushed>,
     pub(super) life: Arc<Life>,
 }
 pub(super) struct Life {
@@ -90,6 +91,7 @@ impl NativeClient {
         let PreparedConnection {
             sender,
             active,
+            flush,
             driver,
         } = connection;
         let life = Arc::new(Life {
@@ -111,6 +113,7 @@ impl NativeClient {
                 sender,
                 commands,
                 active,
+                flush,
                 life,
             }),
             tasks,
@@ -151,6 +154,7 @@ impl NativeClient {
             send,
             response,
             owner.options.settings.grpc.multi_mode,
+            self.flush.clone(),
         );
         let read_record = lease.record.clone();
         let write_record = lease.record.clone();

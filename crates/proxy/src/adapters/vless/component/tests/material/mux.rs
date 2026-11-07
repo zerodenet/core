@@ -182,6 +182,7 @@ async fn ordinary_mux_borrows_the_same_cached_grpc_original_for_tcp_udp_and_retu
             std::fs::write(&key, cert.signing_key.serialize_pem()).unwrap();
             let grpc = serde_json::json!({"service_names":["same.mux/Tun"],"multi_mode":multi});
             let remote = start(serde_json::json!({"inbounds":[{"tag":"remote","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"vless","users":[{"id":ID}],"grpc":grpc,"tls":{"cert_path":certificate,"key_path":key}}}],"route":{"final":{"type":"direct"}}}), "remote").await;
+            let _remote_progress=super::read_progress::FlowProgress::new(&remote.proxy,"remote cached gRPC MUX");
             let client = start(serde_json::json!({"runtime":{"native_mux_max_carriers":1,"grpc_pool_max_carriers":1},"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"outbounds":[{"tag":"node","protocol":{"type":"vless","server":"127.0.0.1","port":remote.address.port(),"id":ID,"mux_concurrency":8,"xudp_concurrency":8,"grpc":grpc,"tls":{"server_name":"localhost","ca_cert_path":certificate,"client_fingerprint":null}}}],"route":{"final":{"type":"route","outbound":"node"}}}), "entry").await;
             eprintln!("actual gRPC MUX mode={multi} phase=first TCP");
             exchange(&client).await;

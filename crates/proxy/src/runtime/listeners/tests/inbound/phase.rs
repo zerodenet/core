@@ -17,8 +17,9 @@ async fn before_bind_gets_the_original_terminal_only_after_pending_native_close_
         let pending = fixture.gate.pending.clone();
         let entered = Arc::new(AtomicBool::new(false));
         let first = entered.clone();
+        let forced_source_restarts = std::collections::BTreeSet::new();
         let mut applying = Box::pin(reconcile_inbounds_with_before_bind(
-            &protocols, None, &next, &rollback, &candidate, fixture.state(),
+            &protocols, None, &next, &rollback, &candidate, &forced_source_restarts, fixture.state(),
             move |_phase| async move { first.store(true, Ordering::Release); Ok(()) },
         ));
         tokio::select! {
@@ -37,7 +38,7 @@ async fn before_bind_gets_the_original_terminal_only_after_pending_native_close_
         let closed = fixture.gate.closed.clone();
         let second = entered.clone();
         reconcile_inbounds_with_before_bind(
-            &protocols, None, &next, &rollback, &candidate, fixture.state(),
+            &protocols, None, &next, &rollback, &candidate, &forced_source_restarts, fixture.state(),
             move |phase| async move {
                 assert!(closed.load(Ordering::Acquire));
                 assert!(phase.matches_candidate(&actual_config));

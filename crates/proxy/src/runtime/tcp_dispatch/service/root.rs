@@ -36,6 +36,41 @@ pub(super) struct RootOpener {
     >,
 }
 impl RootOpener {
+    fn direct_transport(
+        &self,
+        binding: &UpstreamBinding,
+    ) -> Result<zero_platform_tokio::contract::network::UpstreamTransport, ChannelError> {
+        if binding != &self.binding
+            || self.call.session.is_some()
+            || self.call.cancel.is_cancelled()
+        {
+            return Err(super::failure(Reason::StalePlan));
+        }
+        let source = self
+            .source
+            .upgrade()
+            .ok_or_else(|| super::failure(Reason::Revoked))?;
+        let current = source
+            .runtime_services()
+            .map_err(|source| super::failure(Reason::Revoked).with_source(source))?
+            .execution();
+        let plan = current.components.as_ref().map_err(|source| {
+            super::failure(Reason::Revoked)
+                .with_source(crate::component::instance::retained(source.clone()))
+        })?;
+        let slot = plan
+            .role_slot(self.selected)
+            .ok_or_else(|| super::failure(Reason::StalePlan))?;
+        crate::component::direct_bridge::service_transport(
+            &slot,
+            Arc::downgrade(plan),
+            self.services.clone(),
+            self.endpoint.clone(),
+            binding.clone(),
+            self.call.clone(),
+            None,
+        )
+    }
     pub(super) fn take_evidence(&self) -> Option<Evidence> {
         self.evidence
             .lock()
@@ -44,6 +79,40 @@ impl RootOpener {
     }
 }
 impl UpstreamOpener for RootOpener {
+    fn supports_controlled_stream(&self) -> bool {
+        self.direct_transport(&self.binding).is_ok()
+    }
+    fn open_controlled_stream_loan(
+        &self,
+        binding: &UpstreamBinding,
+        request: zero_platform_tokio::contract::network::ControlledStreamRequest,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::controlled_carrier::loan::StreamLoan, ChannelError>,
+    > {
+        let binding = binding.clone();
+        Box::pin(async move {
+            let upstream = self.direct_transport(&binding)?;
+            let loan = upstream.open_controlled_stream_loan(request).await?;
+            if !self.observe_carrier_origin(loan.owner.original()) {
+                return Err(super::failure(Reason::StalePlan));
+            }
+            Ok(loan)
+        })
+    }
+    fn open_controlled_stream(
+        &self,
+        binding: &UpstreamBinding,
+        request: zero_platform_tokio::contract::network::ControlledStreamRequest,
+    ) -> BoxFuture<'_, Result<BoxStream, ChannelError>> {
+        let binding = binding.clone();
+        Box::pin(async move {
+            let loan = self.open_controlled_stream_loan(&binding, request).await?;
+            Ok(crate::component::background::stateless::service_stream(
+                loan,
+            ))
+        })
+    }
     fn carrier_dns_generation(&self) -> Option<zero_platform_tokio::contract::dns::DnsGeneration> {
         matches!(self.endpoint.address, zero_core::Address::Domain(_))
             .then(|| self.services.dns_generation())

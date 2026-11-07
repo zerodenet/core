@@ -1,17 +1,17 @@
 //! Explicit library provider for one literal empty-prefix root and one grantee.
 use super::{connect_error, error, grant::CarrierGrant, prepared::PreparedCarrier};
 use crate::{
-    EgressInterfaceControl, PendingTcpConnect,
     contract::{
-        BoxFuture, ChannelError, DeliveryState, Reason, Stage,
         datagram::{BoxDatagramSession, DatagramRequest},
         network::{CarrierContext, UpstreamBinding, UpstreamOpener},
         stream::BoxStream,
+        BoxFuture, ChannelError, DeliveryState, Reason, Stage,
     },
+    EgressInterfaceControl, PendingTcpConnect,
 };
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{sync::Mutex, time::Instant};
-use zero_core::{Address, component::ComponentInstanceId, request::Destination};
+use zero_core::{component::ComponentInstanceId, request::Destination, Address};
 use zero_traits::IoObserver;
 mod packet;
 mod stream;
@@ -132,6 +132,48 @@ impl NativeCarrierOpener {
         let mut native = Self::new(instance, grant.upstream().clone(), peer, egress, observer)?;
         native.endpoint = endpoint;
         native.business = Some(grant);
+        native.dns = Some((resolver, generation));
+        Ok(native)
+    }
+    /// A real resolved Service candidate keeps the ticket's logical endpoint
+    /// distinct from the native peer, under the same Node source generation.
+    pub fn service_resolved(
+        grant: super::CarrierServiceGrant,
+        peer: SocketAddr,
+        resolver: Arc<dyn crate::contract::dns::DnsService>,
+        generation: crate::contract::dns::DnsGeneration,
+        egress: Arc<EgressInterfaceControl>,
+        observer: Option<Arc<dyn IoObserver>>,
+    ) -> Result<Self, ChannelError> {
+        grant.check_liveness()?;
+        let endpoint = grant.endpoint().clone();
+        let instance = grant.binding().registration().instance();
+        if peer.port() != endpoint.port || resolver.generation() != generation {
+            return Err(error(
+                instance,
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        if !matches!(endpoint.address, Address::Domain(_)) {
+            let expected = match &endpoint.address {
+                Address::Ipv4(bytes) => std::net::IpAddr::from(*bytes),
+                Address::Ipv6(bytes) => std::net::IpAddr::from(*bytes),
+                Address::Domain(_) => unreachable!(),
+            };
+            if peer.ip() != expected {
+                return Err(error(
+                    instance,
+                    Stage::Prepare,
+                    Reason::StalePlan,
+                    DeliveryState::NotSubmitted,
+                ));
+            }
+        }
+        let mut native = Self::new(instance, grant.upstream().clone(), peer, egress, observer)?;
+        native.endpoint = endpoint;
+        native.service = Some(grant);
         native.dns = Some((resolver, generation));
         Ok(native)
     }

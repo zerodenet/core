@@ -25,6 +25,35 @@ pub struct InboundOptions {
     identity: Arc<[u8]>,
 }
 impl InboundOptions {
+    pub fn source_limits(&self) -> InboundSourceLimits {
+        InboundSourceLimits {
+            accepted_sockets: self.accepted.max_sockets,
+            bind_attempts: self.max_bind_attempts,
+            pending_sends: self.max_pending_sends,
+            ..Default::default()
+        }
+    }
+    pub fn with_inbound_source_limits(
+        mut self,
+        limits: InboundSourceLimits,
+    ) -> Result<Self, ChannelError> {
+        let limits = limits.validate()?;
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"actual-source-limits-v1");
+        for value in [
+            limits.accepted_sockets,
+            limits.bind_attempts,
+            limits.pending_sends,
+        ] {
+            identity.extend_from_slice(&value.get().to_le_bytes());
+        }
+        self.identity = identity.into();
+        self.accepted.max_sockets = limits.accepted_sockets;
+        self.max_bind_attempts = limits.bind_attempts;
+        self.max_pending_sends = limits.pending_sends;
+        Ok(self)
+    }
+
     pub fn new<'a>(
         listen: Destination,
         accepted: AcceptedTcpLimits,

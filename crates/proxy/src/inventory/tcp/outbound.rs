@@ -42,7 +42,18 @@ impl ProtocolInventory {
                 if let Some(prepared) = Self::prepare_native_tcp_relay_chain(
                     chain
                         .iter()
-                        .map(|leaf| self.native_tcp_candidate(ctx, leaf, components)),
+                        .enumerate().map(|(index,leaf)| {
+                            if let zero_engine::ResolvedLeafOutbound::Direct {tag,..}=leaf {
+                                if index!=0 {return None;}
+                                let slot=components?.direct(*tag).ok()?;
+                                if !slot.recipe.spec().resources.iter().any(|resource|matches!(resource,zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..})){return None;}
+                                return Some(Ok(super::PreparedTcpCandidate {
+                                    health_tag:None,tag:Some(tag.unwrap_or("direct").into()),protocol:"direct".into(),endpoint:None,
+                                    execution:super::PreparedTcpCandidateExecution::Native(slot),
+                                }));
+                            }
+                            self.native_tcp_candidate(ctx, leaf, components)
+                        }),
                 ) {
                     return prepared.map(PreparedTcpOutbound::NativeRelay);
                 }

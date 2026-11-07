@@ -36,9 +36,8 @@ impl ProtocolInventory {
                             || (!relay && components.has_node_stream_provider(slot.role_id())))
                             && components.has_carrier_provider(slot.role_id())
                             && components.stream_dependencies_supported(slot.role_id());
-                    if slot.dial != Default::default() && !(direct && !relay)
+                    if slot.dial != Default::default() && !direct
                         || !spec.roles.contains(&RoleKind::Stream)
-                        || direct && relay
                         || !direct
                             && !borrowed
                             && (spec.task_limit.is_some()

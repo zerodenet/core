@@ -18,6 +18,17 @@ impl ComponentPlan {
         if !spec.roles.contains(&RoleKind::Stream) {
             return false;
         }
+        if let [R::ControlledDirectStream { dial, max_sockets }] = spec.resources.as_slice() {
+            return dial == &slot.dial
+                && slot.original_carrier_owner(0).is_some_and(|owner| {
+                    owner.instance() == slot.instance_id()
+                        && owner.limit() == *max_sockets
+                        && owner.bound().is_some_and(|bound| {
+                            bound.scope_identity().resource_open()
+                                && bound.matches_registration(&owner)
+                        })
+                });
+        }
         let mut node = None;
         let mut packets = Vec::new();
         for (ordinal, resource) in spec.resources.iter().enumerate() {

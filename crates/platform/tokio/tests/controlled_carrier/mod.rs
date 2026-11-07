@@ -161,3 +161,5 @@ mod receiver;
 mod service_receiver;
 
 mod dependency_receiver;
+
+mod service_datagram_receiver;

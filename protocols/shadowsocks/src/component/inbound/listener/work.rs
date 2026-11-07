@@ -3,6 +3,8 @@ use super::*;
 impl Options {
     pub(super) fn peer_limits(&self) -> DatagramPeerLimits {
         let mut limits = peer_limits();
+        limits.max_peers = self.source_limits.datagram_peers;
+        limits.packets_per_peer = self.source_limits.packets_per_peer;
         limits.max_tasks_per_peer = self.work_tasks;
         limits.max_resources_per_peer = self.work_resources;
         limits

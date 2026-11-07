@@ -89,6 +89,7 @@ async fn oversized_event(disconnect: Option<bool>) {
         connections: 1,
         subscriptions: 1,
         queued_event_bytes: 64,
+        pipe_workspace_bytes: 2 * 1024 * 1024,
     });
     let jobs = Arc::new(Subscriptions::new(budget.clone()));
     let service = ControlService::new(source.clone(), None, jobs.clone());
@@ -122,6 +123,7 @@ async fn oversized_event(disconnect: Option<bool>) {
                     connections: 1,
                     subscriptions: 1,
                     queued_event_bytes: 1024,
+                    pipe_workspace_bytes: 2 * 1024 * 1024,
                 })
                 .unwrap()
                 .commit()

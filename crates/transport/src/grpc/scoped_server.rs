@@ -74,10 +74,13 @@ async fn drive<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    let flush = Arc::new(crate::native_flush::Flushed::default());
+    let _guard = crate::native_flush::DriverGuard(flush.clone());
     let activity = keepalive::Activity::new();
     let io = keepalive::ObservedIo {
         io: stream,
         activity: activity.clone(),
+        flush: crate::native_flush::NativeFlush::new(flush.clone()),
     };
     let mut builder = h2::server::Builder::new();
     builder.max_concurrent_streams(1024);
@@ -94,11 +97,12 @@ where
         let incoming = tokio::select! { biased;
             _=cancel.cancelled()=>return Ok(()),
             _=tx.closed()=>return Ok(()),
-            _=&mut alive=>return Ok(()),
+            result=&mut alive=>return result.map_err(|source|failure(flush.fail(source))),
             _=io_jobs.next(),if !io_jobs.is_empty()=>continue,
             incoming=conn.accept()=>incoming,
         };
         let Some(incoming) = incoming else {
+            flush.finish(Ok(())).map_err(failure)?;
             // Stop accepting new application streams without discarding DATA
             // already decoded into one of this original task's bounded FIFOs.
             drop(tx);
@@ -110,7 +114,8 @@ where
             }
             return Ok(());
         };
-        let (request, mut respond) = incoming.map_err(failure)?;
+        let (request, mut respond) =
+            incoming.map_err(|source| failure(flush.fail(io::Error::other(source))))?;
         let allowed = options::matches(&profile, &request);
         if !allowed || tx.capacity() == 0 || io_jobs.len() >= 130 {
             let response = Response::builder()
@@ -143,6 +148,7 @@ where
             progress.clone(),
             true,
             None,
+            flush.clone(),
         )));
         io_jobs.push(Box::pin(read_grpc_hunks(
             request.into_body(),

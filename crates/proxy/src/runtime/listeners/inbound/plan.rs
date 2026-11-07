@@ -23,6 +23,7 @@ pub(super) fn prepare(
     rollback_runtime_factory: &InboundListenerRuntimeFactory,
     _source_dir: Option<&Path>,
     config: &RuntimeConfig,
+    forced_source_restarts: &BTreeSet<String>,
     active: &HashMap<String, InboundConfig>,
 ) -> Result<Plan, EngineError> {
     // The actual last-good snapshot survives cancellation after active entries
@@ -90,7 +91,12 @@ pub(super) fn prepare(
                     .is_some_and(|owner| owner.has_packet_source_custody());
         #[cfg(not(feature = "raw-ip-runtime"))]
         let packet_source_changed = false;
+        // The owning resource transaction already classified this exact
+        // Source from its actual cold declarations. It requires physical
+        // StopOld even when serialized listener/authentication fields match.
+        let forced_restart = forced_source_restarts.contains(&inbound.tag);
         let reuse = running
+            && !forced_restart
             && !packet_source_changed
             && !dependencies_changed
             && !mode_changed
@@ -103,6 +109,7 @@ pub(super) fn prepare(
                 )
             });
         let update = running
+            && !forced_restart
             && !packet_source_changed
             && !dependencies_changed
             && !source_total_changed

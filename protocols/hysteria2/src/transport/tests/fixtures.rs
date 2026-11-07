@@ -6,6 +6,7 @@ pub(super) fn profile() -> Hysteria2AuthenticatedInboundProfile {
         protocol: crate::inbound::Hysteria2InboundProfile::from_config("test-password"),
         settings: Default::default(),
         masquerade: Masquerade::NotFound,
+        h3_queues: Default::default(),
     }
 }
 pub(super) fn endpoint() -> quinn::Endpoint {

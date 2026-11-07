@@ -39,6 +39,7 @@ impl PreparedSingleClient {
             sender,
             mut driver,
             active,
+            flush,
         } = prepared::prepare_connection(io, profile.clone(), peer_settings).await?;
         // The original H2 future must also progress if readiness waits for SETTINGS.
         let ready = sender.ready();
@@ -57,7 +58,7 @@ impl PreparedSingleClient {
             mut stream,
             read,
             write,
-        } = prepared_stream::prepare_stream(send, response, profile.multi_mode);
+        } = prepared_stream::prepare_stream(send, response, profile.multi_mode, flush);
         active.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         stream.active = Some(active);
         let driver = Box::pin(async move {

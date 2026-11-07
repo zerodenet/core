@@ -1,4 +1,5 @@
 use super::*;
+mod transferred;
 use crate::{
     contract::{
         network::{CarrierContext, UpstreamBinding},
@@ -6,12 +7,19 @@ use crate::{
     },
     controlled_carrier::{error, slot::Slot, CarrierDriver, CarrierGrant},
 };
+use transferred::{Transferred, TransferredRx, TransferredTx};
 
 pub struct BorrowedDatagram {
     io: LoanDatagramIo,
     slot: Arc<Slot>,
 }
 impl BorrowedDatagram {
+    /// Observe this exact receiver slot; this grants no acquisition or closure.
+    pub fn adoption(&self) -> crate::controlled_carrier::CarrierAdoption {
+        crate::controlled_carrier::CarrierAdoption {
+            slot: self.slot.clone(),
+        }
+    }
     /// Re-transfer this actual receiver's unique Tx/Rx and user lease, while
     /// its original donor controller remains retained in the same child slot.
     pub fn into_datagram_loan(
@@ -33,6 +41,7 @@ impl BorrowedDatagram {
         let original = adoption.transferred_origin()?;
         let endpoint = self.io.endpoint.clone();
         let limits = self.io.limits.clone();
+        let wire_association = self.io.wire_association;
         let tx = self.io.tx.get_mut().take().expect("live packet sender");
         let rx = self.io.rx.get_mut().take().expect("live packet receiver");
         let observer = self.io.observer.clone();
@@ -60,7 +69,11 @@ impl BorrowedDatagram {
                 as Box<dyn crate::contract::lifecycle::DynChannelControl>,
             limits,
         };
-        Ok(DatagramLoan::new(session, original, association, endpoint))
+        let mut loan = DatagramLoan::new(session, original, association, endpoint);
+        // Same original Tx/Rx still expect their original wire association.
+        // A new logical receiver never rewrites a borrowed immutable payload.
+        loan.io.wire_association = wire_association;
+        Ok(loan)
     }
     /// A domain's eventual family is unknown here; retain conservative IPv6
     /// packet overhead without inventing a native peer or local socket.
@@ -109,81 +122,6 @@ impl BorrowedDatagram {
         }
     }
 }
-// The original views are dropped before either shared custody reference. Only
-// the final actual Tx/Rx return drops BorrowedDatagram and its original loan IO.
-struct Transferred {
-    original: BorrowedDatagram,
-    _view: crate::controlled_carrier::CarrierUserView,
-}
-struct TransferredTx {
-    inner: Tx,
-    fence: crate::controlled_carrier::related::ViewCancellation,
-    send_pending: bool,
-    observer: Option<Arc<dyn zero_traits::IoObserver>>,
-    custody: Arc<Transferred>,
-}
-struct TransferredRx {
-    inner: Rx,
-    fence: crate::controlled_carrier::related::ViewCancellation,
-    observer: Option<Arc<dyn zero_traits::IoObserver>>,
-    custody: Arc<Transferred>,
-}
-impl DatagramTx for TransferredTx {
-    fn poll_send(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        frame: &zero_core::packet::Datagram,
-    ) -> std::task::Poll<Result<crate::contract::SendReceipt, crate::contract::SendFailure>> {
-        let this = self.get_mut();
-        if this.fence.stopped(cx) {
-            let delivery = if this.send_pending {
-                DeliveryState::Unknown
-            } else {
-                DeliveryState::NotSubmitted
-            };
-            return std::task::Poll::Ready(Err(crate::contract::SendFailure::new(
-                error(
-                    this.custody.original.slot.instance,
-                    Stage::Send,
-                    Reason::Revoked,
-                    delivery,
-                ),
-                delivery,
-            )));
-        }
-        let result = this.inner.as_mut().poll_send(cx, frame);
-        this.send_pending = result.is_pending();
-        if let std::task::Poll::Ready(Ok(receipt)) = &result {
-            if let Some(observer) = &this.observer {
-                observer.sent(receipt.accepted_bytes);
-            }
-        }
-        result
-    }
-}
-impl DatagramRx for TransferredRx {
-    fn poll_recv(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<Option<zero_core::packet::Datagram>, ChannelError>> {
-        let this = self.get_mut();
-        if this.fence.stopped(cx) {
-            return std::task::Poll::Ready(Err(error(
-                this.custody.original.slot.instance,
-                Stage::Receive,
-                Reason::Revoked,
-                DeliveryState::NotSubmitted,
-            )));
-        }
-        let result = this.inner.as_mut().poll_recv(cx);
-        if let std::task::Poll::Ready(Ok(Some(frame))) = &result {
-            if let Some(observer) = &this.observer {
-                observer.received(frame.payload.len());
-            }
-        }
-        result
-    }
-}
 impl Drop for BorrowedDatagram {
     fn drop(&mut self) {
         self.slot.state().view_live = false;
@@ -193,11 +131,32 @@ impl Drop for BorrowedDatagram {
 }
 impl CarrierGrant {
     pub fn adopt_datagram_loan(
+        self,
+        binding: &UpstreamBinding,
+        endpoint: Destination,
+        context: &CarrierContext,
+        loan: DatagramLoan,
+    ) -> Result<BorrowedDatagram, ChannelError> {
+        self.adopt_datagram_loan_inner(binding, endpoint, context, loan, false)
+    }
+    /// The original per-connection Service adopts its actual strictly shorter
+    /// Datagram prefix. This grants no native socket or cached-driver custody.
+    pub fn adopt_service_datagram_loan(
+        self,
+        binding: &UpstreamBinding,
+        endpoint: Destination,
+        context: &CarrierContext,
+        loan: DatagramLoan,
+    ) -> Result<BorrowedDatagram, ChannelError> {
+        self.adopt_datagram_loan_inner(binding, endpoint, context, loan, true)
+    }
+    fn adopt_datagram_loan_inner(
         mut self,
         binding: &UpstreamBinding,
         endpoint: Destination,
         context: &CarrierContext,
         loan: DatagramLoan,
+        service: bool,
     ) -> Result<BorrowedDatagram, ChannelError> {
         let original = loan.owner.original().clone();
         let related = loan.owner.related_control();
@@ -243,7 +202,9 @@ impl CarrierGrant {
                     .related_parent
                     .as_ref()
                     .and_then(std::sync::Weak::upgrade);
-                if let Some(parent) = related {
+                if service {
+                    !bound.permits_service_datagram_loan(binding, &endpoint, context)
+                } else if let Some(parent) = related {
                     !bound.permits_related()
                         || crate::controlled_carrier::related::check_parent(
                             &crate::controlled_carrier::CarrierAdoption { slot: parent },

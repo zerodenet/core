@@ -322,6 +322,11 @@ impl OrchestrationState {
         let carrier_changed =
             budget_barrier::carrier_budget_changed(self.applied_snapshot.config(), &new_config);
         if carrier_changed
+            || budget_barrier::source_budget_changed(self.applied_snapshot.config(), &new_config)
+            || crate::adapters::metadata::h3_budget_changed(
+                self.applied_snapshot.config(),
+                &new_config,
+            )
             || budget_barrier::metadata_budget_changed(self.applied_snapshot.config(), &new_config)
             || budget_barrier::inbound_work_budget_changed(
                 self.applied_snapshot.config(),
@@ -339,7 +344,22 @@ impl OrchestrationState {
                     self.applied_snapshot.config(),
                     &new_config,
                 );
-                if !carrier_changed && !metadata_changed && !work_changed {
+                let source_changed = budget_barrier::source_local_budget_changed(
+                    input,
+                    self.applied_snapshot.config(),
+                    &new_config,
+                );
+                let h3_changed = crate::adapters::metadata::h3_source_budget_changed(
+                    input,
+                    self.applied_snapshot.config(),
+                    &new_config,
+                );
+                if !carrier_changed
+                    && !metadata_changed
+                    && !work_changed
+                    && !h3_changed
+                    && !source_changed
+                {
                     continue;
                 }
                 match proxy.protocols.prepare_inbound_bind_in_config(
@@ -347,14 +367,22 @@ impl OrchestrationState {
                     &new_config,
                 ) {
                     Ok(Some(prepared))
-                        if (carrier_changed
+                        if (source_changed
                             && budget_barrier::source_total_resources(prepared.resources()))
+                            || (carrier_changed
+                                && budget_barrier::source_total_resources(
+                                    prepared.resources(),
+                                ))
                             || (metadata_changed
                                 && budget_barrier::metadata_source_resources(
                                     prepared.resources(),
                                 ))
                             || (work_changed
                                 && budget_barrier::inbound_work_resources(
+                                    prepared.resources(),
+                                ))
+                            || (h3_changed
+                                && budget_barrier::metadata_source_resources(
                                     prepared.resources(),
                                 )) =>
                     {
@@ -376,6 +404,7 @@ impl OrchestrationState {
                 }
             }
         }
+        let required_source_restarts = charged_source_changes.clone();
         let output_resources = &mut prepared_resources;
         let inbound_result = listeners::reconcile_inbounds_with_before_bind(
             &proxy.protocols,
@@ -383,6 +412,7 @@ impl OrchestrationState {
             &candidate_runtime_factory,
             &rollback_runtime_factory,
             &new_config,
+            &required_source_restarts,
             listeners::InboundReconcileState {
                 listener_stops: &mut self.listener_stops,
                 active_inbounds: &mut self.active_inbounds,

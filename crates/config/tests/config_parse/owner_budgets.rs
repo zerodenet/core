@@ -16,7 +16,103 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 47] = [
+    let fields: [BudgetField; 63] = [
+        (
+            "control_pipe_max_workspace_bytes",
+            RuntimeOptionsConfig::effective_control_pipe_max_workspace_bytes,
+            2 * 1024 * 1024,
+            256 * 1024 * 1024,
+        ),
+        (
+            "direct_max_originals",
+            RuntimeOptionsConfig::effective_direct_max_originals,
+            4096,
+            4096,
+        ),
+        (
+            "direct_max_tasks",
+            RuntimeOptionsConfig::effective_direct_max_tasks,
+            256,
+            4096,
+        ),
+        (
+            "inbound_max_accepted_sockets",
+            RuntimeOptionsConfig::effective_inbound_max_accepted_sockets,
+            4096,
+            65536,
+        ),
+        (
+            "inbound_max_datagram_associations",
+            RuntimeOptionsConfig::effective_inbound_max_datagram_associations,
+            4096,
+            65536,
+        ),
+        (
+            "inbound_max_datagram_peers",
+            |r| r.effective_inbound_max_datagram_peers(128),
+            128,
+            65536,
+        ),
+        (
+            "inbound_max_packets_per_peer",
+            |r| r.effective_inbound_max_packets_per_peer(256),
+            256,
+            65536,
+        ),
+        (
+            "inbound_max_pending_sends",
+            |r| r.effective_inbound_max_pending_sends(32),
+            32,
+            65536,
+        ),
+        (
+            "inbound_max_bind_attempts",
+            RuntimeOptionsConfig::effective_inbound_max_bind_attempts,
+            50,
+            4096,
+        ),
+        (
+            "inbound_max_target_sockets",
+            RuntimeOptionsConfig::effective_inbound_max_target_sockets,
+            4096,
+            65536,
+        ),
+        (
+            "inbound_max_file_sessions",
+            RuntimeOptionsConfig::effective_inbound_max_file_sessions,
+            16,
+            4096,
+        ),
+        (
+            "inbound_max_handoff_probe_attempts",
+            RuntimeOptionsConfig::effective_inbound_max_handoff_probe_attempts,
+            1000,
+            65536,
+        ),
+        (
+            "hysteria2_h3_max_pending_classifications",
+            RuntimeOptionsConfig::effective_hysteria2_h3_max_pending_classifications,
+            128,
+            4096,
+        ),
+        (
+            "hysteria2_h3_max_pending_tcp_streams",
+            RuntimeOptionsConfig::effective_hysteria2_h3_max_pending_tcp_streams,
+            128,
+            4096,
+        ),
+        (
+            "hysteria2_h3_max_pending_web_streams",
+            RuntimeOptionsConfig::effective_hysteria2_h3_max_pending_web_streams,
+            128,
+            4096,
+        ),
+        (
+            "hysteria2_h3_max_pending_web_requests",
+            RuntimeOptionsConfig::effective_hysteria2_h3_max_pending_web_requests,
+            64,
+            4096,
+        ),
         (
             "inbound_max_tasks_per_carrier",
             |r| r.effective_inbound_max_tasks_per_carrier(520),
@@ -328,10 +424,12 @@ fn control_event_payload_budget_preserves_omission_and_checks_real_byte_boundari
         defaults.effective_control_max_queued_event_bytes(),
         1024 * 1024
     );
-    assert!(serde_json::to_value(&defaults)
-        .unwrap()
-        .get("control_max_queued_event_bytes")
-        .is_none());
+    assert!(
+        serde_json::to_value(&defaults)
+            .unwrap()
+            .get("control_max_queued_event_bytes")
+            .is_none()
+    );
     for bytes in [1024, 1024 * 1024, 64 * 1024 * 1024] {
         let config = parse("control_max_queued_event_bytes", bytes).unwrap();
         assert_eq!(
@@ -348,10 +446,12 @@ fn control_event_payload_budget_preserves_omission_and_checks_real_byte_boundari
         );
     }
     for bytes in [0, 1023, 64 * 1024 * 1024 + 1, usize::MAX] {
-        assert!(parse("control_max_queued_event_bytes", bytes)
-            .unwrap_err()
-            .to_string()
-            .contains("control_max_queued_event_bytes"));
+        assert!(
+            parse("control_max_queued_event_bytes", bytes)
+                .unwrap_err()
+                .to_string()
+                .contains("control_max_queued_event_bytes")
+        );
     }
 }
 
@@ -396,10 +496,12 @@ fn inbound_resource_zero_and_actual_defaults_preserve_original_admission_meaning
             actual
         );
     }
-    assert!(serde_json::to_value(&defaults)
-        .unwrap()
-        .get("inbound_max_resources_per_carrier")
-        .is_none());
+    assert!(
+        serde_json::to_value(&defaults)
+            .unwrap()
+            .get("inbound_max_resources_per_carrier")
+            .is_none()
+    );
     let empty = parse("inbound_max_resources_per_carrier", 0).unwrap();
     assert_eq!(
         empty

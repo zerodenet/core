@@ -13,8 +13,40 @@ impl AcceptedCaller {
         &self,
         owner: Box<dyn DynResourceLifecycle>,
     ) -> Result<AcceptedResource, ChannelError> {
+        self.retain_logical_resource_bound(owner, None)
+    }
+    /// Same existing graph and already registered task, installed atomically
+    /// before opening that task's start gate. No task or native I/O is created.
+    pub fn retain_logical_resource_with_driver(
+        &self,
+        owner: Box<dyn DynResourceLifecycle>,
+        driver: &AcceptedTasks,
+    ) -> Result<AcceptedResource, ChannelError> {
+        self.retain_logical_resource_bound(owner, Some(driver))
+    }
+    fn retain_logical_resource_bound(
+        &self,
+        owner: Box<dyn DynResourceLifecycle>,
+        driver: Option<&AcceptedTasks>,
+    ) -> Result<AcceptedResource, ChannelError> {
         self.check_open()?;
         let users = self.users.upgrade().ok_or_else(gone)?;
+        let driver = match driver {
+            Some(driver) => {
+                if !self.users.ptr_eq(&driver.users)
+                    || driver
+                        .task
+                        .get()
+                        .is_none_or(|(_, witness)| witness.is_joined())
+                {
+                    return Err(gone());
+                }
+                let actual = OnceLock::new();
+                assert!(actual.set(driver.task.clone()).is_ok());
+                actual
+            }
+            None => OnceLock::new(),
+        };
         if users.peer.is_none() && users.pool.upgrade().is_none() {
             return Err(gone());
         }
@@ -46,7 +78,7 @@ impl AcceptedCaller {
             owner: AsyncMutex::new(Some(owner)),
             complete: AtomicBool::new(false),
             logical_owner: Some(self.task.clone()),
-            driver: OnceLock::new(),
+            driver,
         });
         state.resources.push(original.clone());
         users.logical_charge(true);

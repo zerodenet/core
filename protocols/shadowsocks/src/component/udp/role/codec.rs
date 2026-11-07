@@ -8,6 +8,8 @@ struct Tx {
     inner: Pin<Box<dyn DatagramTx>>,
     codec: Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>,
     remote: zero_core::request::Destination,
+    association: zero_core::component::AssociationId,
+    wire_association: zero_core::component::AssociationId,
     limits: DatagramLimits,
     pending: Option<(Datagram, Datagram)>,
     observer: Option<Arc<dyn zero_platform_tokio::contract::context::ConnectObserver>>,
@@ -18,6 +20,7 @@ struct Rx {
     inner: Pin<Box<dyn DatagramRx>>,
     codec: Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>,
     association: zero_core::component::AssociationId,
+    wire_association: zero_core::component::AssociationId,
     cancel: Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
 }
 fn failure(stage: Stage, reason: Reason, delivery: DeliveryState) -> ChannelError {
@@ -47,6 +50,17 @@ impl DatagramTx for Tx {
                 delivery,
             )));
         }
+        if frame.association != this.association {
+            let delivery = if this.pending.is_some() {
+                DeliveryState::Unknown
+            } else {
+                DeliveryState::NotSubmitted
+            };
+            return Poll::Ready(Err(SendFailure::new(
+                failure(Stage::Send, Reason::Protocol, delivery),
+                delivery,
+            )));
+        }
         if let Some((original, _)) = &this.pending {
             if original.association != frame.association
                 || original.address != frame.address
@@ -69,7 +83,7 @@ impl DatagramTx for Tx {
                     )
                 })?;
             let wire = Datagram {
-                association: frame.association,
+                association: this.wire_association,
                 address: this.remote.clone(),
                 payload: payload.into(),
             };
@@ -129,6 +143,9 @@ impl DatagramRx for Rx {
             let Some(raw) = raw else {
                 return Poll::Ready(Ok(None));
             };
+            if raw.association != this.wire_association {
+                continue;
+            }
             if let Some((address, port, payload)) = this.codec.decode(&raw.payload) {
                 return Poll::Ready(Ok(Some(Datagram {
                     association: this.association,
@@ -141,20 +158,31 @@ impl DatagramRx for Rx {
         Poll::Pending
     }
 }
+pub(super) struct Raw {
+    pub session: BoxDatagramSession,
+    pub endpoint: zero_core::request::Destination,
+    pub association: zero_core::component::AssociationId,
+}
 pub(super) fn wrap(
-    raw: BoxDatagramSession,
+    raw: Raw,
     request: DatagramRequest,
-    remote: zero_core::request::Destination,
     codec: Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>,
     cancel: CancellationToken,
     observer: Option<Arc<dyn zero_platform_tokio::contract::context::ConnectObserver>>,
     session: Option<zero_core::component::SessionId>,
 ) -> BoxDatagramSession {
+    let Raw {
+        session: raw,
+        endpoint: remote,
+        association: wire_association,
+    } = raw;
     DatagramSession {
         tx: Box::pin(Tx {
             inner: raw.tx,
             codec: codec.clone(),
             remote,
+            association: request.association,
+            wire_association,
             limits: raw.limits.clone(),
             pending: None,
             observer,
@@ -165,6 +193,7 @@ pub(super) fn wrap(
             inner: raw.rx,
             codec,
             association: request.association,
+            wire_association,
             cancel: Box::pin(cancel.cancelled_owned()),
         }),
         control: raw.control,
@@ -175,3 +204,7 @@ pub(super) fn wrap(
         },
     }
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/component/udp_wire_association.rs"]
+mod tests;

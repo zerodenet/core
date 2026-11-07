@@ -20,6 +20,8 @@ use crate::transport::{Hysteria2AuthenticatedInboundProfile, Hysteria2InboundBin
 #[path = "component/limits.rs"]
 mod limits;
 pub struct Options {
+    source_limits: InboundSourceLimits,
+
     listen: std::net::SocketAddr,
     server: quinn::ServerConfig,
     masks: Vec<zero_transport::finalmask::udp::Mask>,
@@ -37,6 +39,59 @@ pub struct Options {
     quic_users: NonZeroUsize,
 }
 impl Options {
+    pub fn source_limits(&self) -> InboundSourceLimits {
+        self.source_limits
+    }
+    pub fn with_inbound_source_limits(
+        mut self,
+        limits: InboundSourceLimits,
+    ) -> Result<Self, zero_platform_tokio::contract::ChannelError> {
+        let limits = limits.validate()?;
+        let used = {
+            let mut used = vec![limits.datagram_associations];
+            if !self.sites.is_empty() {
+                used.extend([limits.accepted_sockets, limits.bind_attempts]);
+            }
+            if self.profile.masquerade.file_root().is_some() {
+                used.push(limits.file_sessions);
+            }
+            if self.profile.masquerade.endpoint().is_some() {
+                used.push(limits.target_sockets);
+            }
+            used
+        };
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"actual-source-limits-v1");
+        for value in used {
+            identity.extend_from_slice(&value.get().to_le_bytes());
+        }
+        self.identity = identity.into();
+        self.source_limits = limits;
+        Ok(self)
+    }
+
+    pub fn h3_queue_limits(&self) -> crate::transport::Hysteria2H3QueueLimits {
+        self.profile.h3_queue_limits()
+    }
+    pub fn with_h3_queue_limits(
+        mut self,
+        limits: crate::transport::Hysteria2H3QueueLimits,
+    ) -> Self {
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"actual-hy2-h3-queues-v1");
+        for n in [
+            limits.classifications(),
+            limits.tcp_streams(),
+            limits.web_streams(),
+            limits.web_requests(),
+        ] {
+            identity.extend_from_slice(&n.get().to_le_bytes());
+        }
+        self.identity = identity.into();
+        self.profile = self.profile.with_h3_queue_limits(limits);
+        self
+    }
+
     /// Cold limits on this same original accepted/peer graph. No work starts.
     pub fn with_inbound_work_limits(
         mut self,
@@ -116,6 +171,7 @@ impl Options {
             identity: identity.into(),
             work_tasks: NonZeroUsize::new(520).unwrap(),
             work_resources: 257,
+            source_limits: InboundSourceLimits::default(),
             metadata_probes: NonZeroUsize::new(2).unwrap(),
             metadata_attempts: NonZeroUsize::new(8).unwrap(),
             metadata_sends: NonZeroUsize::new(2).unwrap(),
@@ -139,7 +195,7 @@ impl ComponentFactory for Factory {
                 max_bind_attempts: n(1),
             },
             ResourceDeclaration::DatagramAssociations {
-                max_associations: n(4096),
+                max_associations: options.source_limits.datagram_associations,
                 max_tasks_per_association: options.work_tasks,
                 max_resources_per_association: options.work_resources,
             },
@@ -148,23 +204,23 @@ impl ComponentFactory for Factory {
             resources.push(ResourceDeclaration::TcpListener {
                 destination: destination.clone(),
                 accepted: Some(AcceptedTcpLimits {
-                    max_sockets: n(4096),
+                    max_sockets: options.source_limits.accepted_sockets,
                     max_tasks_per_socket: options.work_tasks,
                     max_resources_per_socket: options.work_resources,
                 }),
-                max_bind_attempts: n(50),
+                max_bind_attempts: options.source_limits.bind_attempts,
             });
         }
         if let Some(root) = profile.masquerade.file_root() {
             resources.push(ResourceDeclaration::FileTree {
                 root,
-                max_sessions: n(16),
+                max_sessions: options.source_limits.file_sessions,
             });
         }
         if let Some(endpoint) = profile.masquerade.endpoint() {
             resources.push(ResourceDeclaration::InboundTargets {
                 endpoints: vec![endpoint],
-                max_sockets: n(4096),
+                max_sockets: options.source_limits.target_sockets,
             });
         }
         ComponentSpec {

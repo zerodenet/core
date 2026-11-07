@@ -63,6 +63,12 @@ async fn one_h2_connection_accepts_multiple_routes_and_drains_flow_controlled_wr
             // Allow final H2 data/trailers to drain before closing the owner.
             tokio::time::sleep(Duration::from_millis(50)).await;
         });
+        let flush = std::sync::Arc::new(crate::native_flush::Flushed::default());
+        let client = crate::grpc::keepalive::ObservedIo {
+            io: client,
+            activity: crate::grpc::keepalive::Activity::new(),
+            flush: crate::native_flush::NativeFlush::new(flush.clone()),
+        };
         let (sender, connection) = h2::client::handshake(client).await.unwrap();
         let driver = tokio::spawn(connection);
         let mut routes = tokio::task::JoinSet::new();
@@ -75,8 +81,10 @@ async fn one_h2_connection_accepts_multiple_routes_and_drains_flow_controlled_wr
             let (response, send) = sender
                 .send_request(options::request(&profile, "localhost").unwrap(), false)
                 .unwrap();
+            let flush = flush.clone();
             routes.spawn(async move {
-                let mut stream = build_grpc_client_stream(send, response, profile.multi_mode);
+                let mut stream =
+                    build_grpc_client_stream(send, response, profile.multi_mode, flush);
                 let payload = vec![id as u8; 196_613];
                 AsyncWriteExt::write_all(&mut stream, &payload)
                     .await
@@ -182,3 +190,6 @@ fn unknown_protobuf_groups_are_skipped_without_consuming_outer_hunks() {
 mod keepalive;
 
 mod single;
+
+#[cfg(any(unix, windows))]
+mod native_flush;

@@ -110,7 +110,7 @@ where
             let listener = guard
                 .as_mut()
                 .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?;
-            let (accepted, _) = listener.accept_owned().await?;
+            let (accepted, _) = listener.accept_owned_wait().await?;
             accepted.into_pending(&self.make).map(Some)
         };
         tokio::select! { biased;

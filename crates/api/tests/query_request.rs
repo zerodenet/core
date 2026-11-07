@@ -180,3 +180,47 @@ fn round_trip_with_fields() {
     let rt: QueryRequest = serde_json::from_str(&json).unwrap();
     assert_eq!(original, rt);
 }
+
+#[test]
+fn owned_recognized_query_moves_the_original_inner_string_without_changing_first_key_semantics() {
+    let input = serde_json::json!({"active_flows":{"limit":3,"filter":{"inbound_tag":"original allocation","principal_key":null,"network":null}},"z_ignored":{"future":[1,2,3]}});
+    let original = input["active_flows"]["filter"]["inbound_tag"]
+        .as_str()
+        .unwrap()
+        .as_ptr();
+    let query: QueryRequest = serde_json::from_value(input).unwrap();
+    let QueryRequest::ActiveFlows(query) = query else {
+        panic!("the same original first key remains selected")
+    };
+    assert_eq!(
+        query.filter.inbound_tag.as_ref().unwrap().as_ptr(),
+        original,
+        "recognized owned input must not clone the original payload"
+    );
+    assert_eq!(query.limit, Some(3));
+    let query: QueryRequest =
+        serde_json::from_value(serde_json::json!({"health":false,"z_ignored":1})).unwrap();
+    assert_eq!(query, QueryRequest::Health(HealthQuery));
+    assert_eq!(
+        serde_json::to_value(query).unwrap(),
+        serde_json::json!({"health":{}})
+    );
+}
+#[test]
+fn borrowed_query_response_encoding_preserves_wire_shape_and_complete_unknown_values() {
+    let response = zero_api::QueryResponse::ActiveFlows(Vec::new());
+    assert_eq!(
+        serde_json::to_value(&response).unwrap(),
+        serde_json::json!({"active_flows":[]})
+    );
+    let known: zero_api::QueryResponse = serde_json::from_value(
+        serde_json::json!({"active_flows":[],"z_ignored":{"opaque":"old first-key semantics"}}),
+    )
+    .unwrap();
+    assert_eq!(known, response);
+    let raw = serde_json::json!({"future":{"nested":[null,true,9007199254740991u64,"完整值"]},"z_extra":{"keep":true}});
+    let request: QueryRequest = serde_json::from_value(raw.clone()).unwrap();
+    let response: zero_api::QueryResponse = serde_json::from_value(raw.clone()).unwrap();
+    assert_eq!(serde_json::to_value(request).unwrap(), raw);
+    assert_eq!(serde_json::to_value(response).unwrap(), raw);
+}

@@ -1,3 +1,5 @@
+mod source_limits;
+pub use source_limits::InboundSourceLimits;
 mod root_datagram;
 pub use root_datagram::{
     GrantedRootDatagram, RootDatagramAttemptFailure, RootDatagramAuthority, RootDatagramClosed,
@@ -139,6 +141,14 @@ pub enum ResourceDeclaration {
     /// original caller witness; this descriptor grants neither. Service custody
     /// has no cached-driver handoff and remains with the awaiting caller.
     ControlledNodeCarrier {
+        endpoint: Destination,
+        dial: zero_traits::DialPolicy,
+        max_sockets: NonZeroUsize,
+    },
+    /// Per-connection Service receiver of an existing DatagramLoan. The fixed
+    /// endpoint/dial and original Scope constrain borrowed custody only: this
+    /// declaration grants no root native I/O, shared cache or retained driver.
+    ControlledServiceDatagram {
         endpoint: Destination,
         dial: zero_traits::DialPolicy,
         max_sockets: NonZeroUsize,

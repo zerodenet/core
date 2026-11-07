@@ -14,6 +14,8 @@ async fn ordinary_mux_raw_ws_h2_and_upgrade_keep_same_file_material_original_dri
                 std::fs::write(&key, cert.signing_key.serialize_pem()).unwrap();
                 std::fs::write(&ca, cert.cert.pem()).unwrap();
                 let remote = server(kind, &certificate, &key).await;
+                let _remote_progress =
+                    super::read_progress::FlowProgress::new(&remote.proxy, "remote VLESS MUX");
                 let client = client(kind, backend, remote.address, &ca).await;
                 eprintln!("actual MUX mode={kind} backend={backend} phase=first TCP");
                 let (owner, original) = echo(&client).await;

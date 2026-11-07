@@ -28,6 +28,13 @@ Catalog 停旧、额度安装及真实网络代次后的 cold refresh；取消�
 预算保留省略导出和协议原默认；V1 消费者无需修改。具体 Rust 接线与开发中资格边界见
 [同原件 Packet 内存与 Source 生产预算](../design/v0.0.3/compatibility.md#同原件-packet-内存与-source-生产预算续作)。
 
+Windows Pipe 原件工作区新增可选生产总字节额度
+`runtime.control_pipe_max_workspace_bytes`（默认2MiB，省略不导出），由既有
+ControlBudget按实际provider预付并保留到原件/任务/Host ACK确认。
+进程内Rust `ControlBudgetLimits/Usage` 新增 `pipe_workspace_bytes` 字段和对应charge；
+V1/API/events、CLI/FFI与消费者无需改动。具体计额及尚待资格边界见
+[控制原件工作区](../design/v0.0.3/compatibility.md#同一控制原件的-pipe-工作区额度续作)。
+
 ## 消费者如何判断兼容性
 
 外部消费者连接内核后应依次检查：
@@ -111,6 +118,17 @@ Linux 进程原件续作增加内核 Rust 的 cold owned-process grant，保留�
 | `0.0.15-rc` | GUI flow 生命周期 | 订阅 ACK 后以 `flow.snapshot` 建立活动连接基线，再合并 flow 增量 |
 
 ## Unreleased
+
+### 第二轮内部 Datagram 原件转交续作
+
+进程内 Rust `ResourceDeclaration` 新增借入专用 `ControlledServiceDatagram`；穷举实现需
+处理新变体。`LoanDatagramIo::association()/wire_association()` 区分实际逻辑调用者与
+原 Tx/Rx 绑定，`into_session` 的真实 codec 须使用原 wire ID；SS 借入 consumer 已配对。
+`BorrowedPacketSegment` 使用同 Factory Scope 的真实 driver 和既有队列，关闭须分别
+确认原件、join 和 Host ACK。现 QUIC 完整生产 consumer 仍在实现，尚非最终资格。
+具体调用者与 Rust 适配见[同原 Datagram 转交](../design/v0.0.3/compatibility.md#同一-datagramloan-的实际-wire-与逻辑-association-续作)。
+V1/API/events、CLI/FFI 和客户端面板保持兼容，无需消费者迁移。
+
 
 ### v0.0.3 云端配置资源与 Hysteria2 出站
 

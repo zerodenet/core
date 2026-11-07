@@ -60,19 +60,10 @@ impl AsyncWrite for ScopedH2Stream {
         // frames have actually left its h2 stream queue. An unrelated old
         // native flush cannot satisfy this condition.
         std::task::ready!(this.send.poll_send_drained(&mut context)).map_err(io::Error::other)?;
-        // A successful terminal connection already passed codec flush/shutdown.
-        // Cancellation/body exit alone never sets this actual result marker.
-        if progress.completed.load(Ordering::Acquire) {
-            return Poll::Ready(Ok(()));
-        }
         let target = match this.target {
             Some(target) => target,
             None => {
-                let target = progress
-                    .flushed
-                    .count
-                    .load(Ordering::Acquire)
-                    .saturating_add(1);
+                let target = progress.flushed.request()?;
                 this.target = Some(target);
                 // Stage two: explicitly poll this same original connection
                 // after drain observation, even when the codec is now idle.
@@ -80,22 +71,10 @@ impl AsyncWrite for ScopedH2Stream {
                 target
             }
         };
-        progress.flushed.writer.register(&wake);
-        progress.flushed.waiting.store(true, Ordering::Release);
         if let Some(source) = progress.failure.lock().unwrap().as_ref() {
             return Poll::Ready(Err(super::super::owned::retained(source)));
         }
-        if progress.flushed.count.load(Ordering::Acquire) >= target {
-            progress.flushed.waiting.store(false, Ordering::Release);
-            Poll::Ready(Ok(()))
-        } else if progress.ended.load(Ordering::Acquire) {
-            Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "original scoped H2 driver ended before native flush",
-            )))
-        } else {
-            Poll::Pending
-        }
+        progress.flushed.poll(&mut context, target)
     }
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         {

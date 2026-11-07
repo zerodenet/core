@@ -61,6 +61,17 @@ impl DirectOptions {
         });
         Ok(self)
     }
+    pub(crate) fn with_runtime_budgets(
+        mut self,
+        runtime: Option<&zero_config::RuntimeOptionsConfig>,
+    ) -> Self {
+        if let (Some(control), Some(runtime)) = (&mut self.control, runtime) {
+            // RuntimeConfig was validated before this cold producer runs.
+            control.max_sockets = NonZeroUsize::new(runtime.effective_direct_max_originals()).unwrap();
+            control.max_refresh_tasks = NonZeroUsize::new(runtime.effective_direct_max_tasks()).unwrap();
+        }
+        self
+    }
     pub fn policy(&self) -> &DialPolicy {
         &self.policy
     }
@@ -121,6 +132,8 @@ impl ComponentFactory for DirectFactory {
         if let Some(control) = &options.control {
             static_identity.extend_from_slice(b"controlled");
             static_identity.extend_from_slice(&control.retirement.as_nanos().to_be_bytes());
+            static_identity.extend_from_slice(&control.max_sockets.get().to_be_bytes());
+            static_identity.extend_from_slice(&control.max_refresh_tasks.get().to_be_bytes());
         }
         #[cfg(feature = "raw-ip-runtime")]
         if let Some(packet) = &options.packet {
@@ -188,6 +201,64 @@ impl ComponentFactory for DirectFactory {
 
 impl StreamOutbound for Outbound {
     type Stream = BoxStream;
+    async fn connect_carrier(
+        &self,
+        request: ConnectRequest,
+        context: OpenContext,
+    ) -> Result<Connected<zero_platform_tokio::controlled_carrier::loan::StreamLoan>, ChannelError>
+    {
+        let session = self.state.check(&context)?;
+        if session.is_some() || context.upstream.binding().dial != self.options.policy {
+            return Err(self.state.error(
+                session,
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        let control = self.control.as_ref().ok_or_else(|| {
+            self.state.error(
+                session,
+                Stage::Prepare,
+                Reason::Unsupported,
+                DeliveryState::NotSubmitted,
+            )
+        })?;
+        let opening = context.upstream.open_controlled_stream_loan(
+            zero_platform_tokio::contract::network::ControlledStreamRequest {
+                destination: request.destination,
+                context: CarrierContext {
+                    session: None,
+                    deadline: context.deadline,
+                    cancel: context.cancel.clone(),
+                },
+                grants: control.grants.clone(),
+                tasks: control.tasks.clone(),
+                retirement: control.retirement,
+            },
+        );
+        let io = tokio::select!{biased;
+            _ = self.state.cancelled()=>return Err(during_open(&self.state,session,Reason::Revoked)),
+            _ = context.cancel.cancelled()=>return Err(during_open(&self.state,session,Reason::Cancelled)),
+            result = with_deadline(context.deadline,opening)=>result.map_err(|source|during_open(&self.state,session,Reason::Timeout).with_source(source))?,
+        }.map_err(|source|self.state.attach(source,session))?;
+        if !context.upstream.observe_carrier_origin(io.owner.original()) {
+            return Err(self.state.error(
+                session,
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::Unknown,
+            ));
+        }
+        if let Some(observer) = &context.observer {
+            observer.record(session, ConnectFact::CarrierReady);
+            observer.record(session, ConnectFact::PeerConfirmed);
+        }
+        Ok(Connected {
+            io,
+            peer_confirmation: PeerConfirmation::Confirmed,
+        })
+    }
     async fn connect(
         &self,
         request: ConnectRequest,

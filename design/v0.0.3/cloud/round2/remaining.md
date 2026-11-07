@@ -1,6 +1,80 @@
 # 第二轮续作：剩余生产调用者冻结
 
 
+## 接续检查点 2026-11-07 03:41 UTC（开发中，五域未结题）
+
+remote 再核仍为 `https://github.com/zerodenet/core.git`，远端 integration 完整 SHA
+`59615e69ea5a413d657a873157ea4adf8f204a90`。本地普通接续至
+`887c4ed4ce511dc41ae1cfd10e08b230c47d2d5a`；未回退、覆盖 dirty 或强推。
+Rust 1.99.0，实际 Cargo.lock 与版控 candidate 锁摘要继续为
+`bb045365baf88f40277e4b87e2941e4990eb630841dd1cd2b2d0de3709d0b0fb`。
+
+| 冻结输入 | 实际定向结果与边界 |
+| --- | --- |
+| `09900efb95289070874969cb3c742b37e202ac23` | 七包 all-features lib/web/config no-run exit0/780.31s；原始日志 SHA-256 `05f874532329d0252c4d5ae3a6bde353f756596f77311f375b9ff88f3197225d`。同产物23组见 `m-099-serial-regressions.json`：真实 accepted local/global held ACK、gRPC43、native flush4、Packet memory12、WG security4、Mieru压力、DoH canonical恢复等通过。H2原8秒、Source预算/cold VMess材料、Metadata/H3换代、Direct预算、部分VLESS/全部VMess/Trojan材料、Packet及WG warm退出仍有失败，原始记录完整保留。后续修复不继承此输入资格 |
+| `383d9285ba70923d59ba1357f257c56a6182d469` | runtime/config/gRPC/stack及config_contracts no-run exit0/71.34s；日志 SHA-256 `a16a366953ef3f2eac9ff12fbdb52f26c35f0f6e088095740d5d00620b79d496`。实际 ControlBudget3、可选配置4、真实accept取消/同步重入3、gRPC控制10通过。首次错误runtime filter选中0项的原记录单列，不当通过 |
+| `19b1e1fd1d87fada2db3143d87651ea1d6ae2a55` | 三协议/transport no-run exit0/13.88s；日志 SHA-256 `c3f53f91913708e29301e0b34ae8549383ca53657d4873945629f9f33fced17c`。同产物8项真实FIFO满队列、取消后DATA→END、最后strong writer归还后END→EOF通过，均保持原8秒。记录 `m-19b-serial-regressions.json`；尚未替代普通生产材料资格。首轮fixture同名方法编译exit101保留 |
+| `d648ce90d752f607cf61b559251044eda3615280` | 平台/transport no-run exit0/30.39s；日志 SHA-256 `02e22ac02193e50f61a7521bc5835a50709585e6545d207abcf7e82e2ea29a65`。既有Packet实际队列/metadata/native-close3通过，新Service UDP2项1通过1失败（真实重转交association未映射），新借入driver1失败（测试未配置source_ip，native本地通配地址与真实wire不等；887c仅补实际source且保精确断言，尚待复验）。失败不改为通过 |
+| `97e55fdc406754b0d00a6417a2700a7074af94ab` | Windows GNU平台provider全feature/tests typecheck exit0/10.04s，日志 SHA-256 `75da339dd3f7457e226b472c0fdc45e6ca68a88b3b25a83581ffd46a9e448fa4`。更广Root typecheck因缺交叉C编译器exit101；安装无权限exit100均保留。不构成真实Windows运行资格 |
+
+已接但仍待新输入普通生产回归：真实Source预算缩额不驱逐活跃业务、DNS复用实际Direct
+ServiceRoot双入口、Source metadata地址cell及VMess TLS夹具、真实Stack accept不持锁跨等待、
+Windows Pipe原工作区及原worker/Host ACK后退款、MUX原队列背压和取消END债务。
+`57e099b17` 将现VLESS fallback/HY2 proxy masquerade的同一Target候选图接入现Root，
+单独保存真实native/view/原actor join/Host ACK；删对应旧裸prepare/controller列表。
+每图同Source socket额度且真实HappyEyeballs并行保留；尚未取得运行资格。
+
+M `d648ce90d` 公共Service Datagram为真实非空prefix借入专用，无root native/cache授权；
+借入段使用既有Packet队列、实际同Factory Scope单Aux，持有原LoanOwner，等真实join及ACK
+后归还原队列。B正在接实际QUIC producer和同一个Entry额度；不能以公共接口完成结题。
+A继续全DNS donor集合/重转交ID修复/旧链删除，B继续全部transport/navigation/池退休，
+C继续实际PacketDriver caller、同Root/Scope完整WG/TUN/独立UDP及helper责任。
+
+全部原始输入、日志、命令、结束码、工具版本和产物摘要留在Git外；尚无统一最终候选、
+同head CI或确认可下载的最终归档，不提供本地验收资格。REALITY原目标DNS探针
+2026-11-07T02:37:26UTC仍为errno -3，原始探针SHA-256
+`bd17fa73f77749da1191575cd070d1459dce50bad905c8a3579f298af0f92415`。
+原目标/断言/期限不变。Darwin whole-job provider/authority缺口与真实跨平台/TUN/GUI/1c1g
+环境待验分别记录；唯一TEMP仅原outer_udp_proxy/reconnect范围未关闭。
+
+## 接续检查点 2026-11-07 02:35 UTC（开发中，五域未结题）
+
+remote 仍为 `https://github.com/zerodenet/core.git`，实际远端 integration
+`59615e69ea5a413d657a873157ea4adf8f204a90`。仅普通追加与合入，无回退/强推。
+本轮实现已接续至 `e34899b42`（完整提交见 Git），实际验证锁仍为
+`bb045365baf88f40277e4b87e2941e4990eb630841dd1cd2b2d0de3709d0b0fb`。
+
+| 同输入原始记录 | 实际结果与继续项 |
+| --- | --- |
+| `5c5da4fee0f5d189b13be3a941b58f85eb86bdb4` 七包 all-features lib/web no-run | exit0/755.92s，日志 SHA-256 `de912f796413a8e789584526335b40fd6986bdf1b9ff3ad2037495395483cf63`。同产物15组逐项保存于 `m-5c5-serial-regressions.json`：Packet预算及5项linked WG在初始apply失败，原因为真实Source内存来自第二Root；3项standalone WG通过。DoH canonical故障恢复、完整TX预付3、拥有Echo1、MUX同池cold1、真实前缀原件1、Runtime网络3、WG安全4、gRPC原2MiB drain1通过。VLESS材料3通过/2失败（差1024字节），VMess材料4失败（截尾/reset/恢复Revoked），Trojan1失败（初始invalidpacket事件），Metadata StopOld1失败，入站工作预算2失败，均保留原始错误 |
+| `d9bebad3502d246f2f38b095b67046fbfa1f9c3e` | Packet三包实际库：WG10通过/2忽略，stack47通过/1忽略，TUN57通过/1失败/2忽略。TUN失败为辅助FD数字被并行复用；真实receipt/同错误Arc断言保留，18c4修为匹配原件receipt并辅助同真实UnixStream peer，尚待复验。QUIC真实共享用户等待7通过。H2原8项7通过/1失败，原8秒phase1仅230890字节 |
+| `12ce6f984e992c0f3032e412c95ffb7f4fb75d0b` | 严格同原件flush epoch no-run exit0/24.92s；真实flush挂起、旧Pending不能满足新DATA、任务body返回不能充当ACK共4通过。gRPC完整43项41通过/2失败（旧fresh-file identity断言、Elapsed包装链断言，继续核验，不删断言）。H2原8项7通过/1失败，原8秒phase1仅236596字节。实际native close/Scope/Host ACK与flush严格分开 |
+
+已追加但未取得普通生产新输入资格的修复：`e3cbca492`/C `b2e39a4b`
+修实际注册次序，将唯一Kernel Root注入已安装WG adapter，并删除生产get_or_init第二Root；
+`df9263254` 将实际charged Source集合传入原ListenerPlan强制StopOld，禁止复用绕过；
+`1570d9638` 保同实际SOCKS/SS listener graph的可配置工作额度，并以真实Mieru payload/
+目标尚未accept/旧TCP连续性验证压力。新全部9项Source原件额度schema `63a692a65`
+与None默认修复 `e4b5818a6` 已冻结，完整producer/等待/ACK/Target图仍由A续作，
+不因schema存在结题。`58a411472` 将Direct原4096 socket/256任务上限接入可选生产配置、
+实际cold identity/普通登记与换代回归；尚待新输入编译运行。
+
+B→M `60ec99035` 加私有 `692692890` 已普通接入实际Direct前缀，复用同原件/
+原TaskScope Auxiliary，Node DNS与原候选scheduler，失败逐原件关闭和真实join/ACK
+后才重试/交付；有限无observer custody仍在同Host保留。literal/Domain已有真实wire
+回归源码，未以接口或冷登记代替运行资格。B继续全部剩余transport/REALITY navigation
+实际借入责任和原件退休。C继续实际PacketDriver caller/有限pre-delivery ledger、
+TEMP原worker任务责任、独立WG UDP、macOS helper/SCM_RIGHTS/实际exit；不扩大唯一TEMP。
+DNS完整调用者删除片仍等待B/C真正donor集合，不提前删旧connector造成合法能力丢失。
+
+同输入验证保留实际SHA/逐文件摘要/工具链Rust1.99.0/相同锁/命令/结束码/原始日志/
+逐target/产物摘要；旧通过数不是迁移比例。尚无统一最终候选CI或已确认的最终下载归档，
+不能作为本地验收候选交付。REALITY原目标DNS仍须恢复后按原目标/期限复验。
+Darwin任意SIP whole-job provider/权限实现缺口与真实平台/TUN/GUI/1c1g环境待验分列。
+其他可做内核实现继续，不合develop/main、不发布部署。
+
+
+
 ## 接续检查点 2026-11-07 01:25 UTC（开发中）
 
 远端 integration 完整 SHA 再核仍为

@@ -23,6 +23,21 @@ use zero_platform_tokio::contract::{
     ChannelError, Reason,
 };
 
+enum RootEvidence {
+    Node(Arc<NodeOpener>),
+    Direct(Arc<crate::component::direct_bridge::background::Root>),
+}
+impl RootEvidence {
+    fn take(&self) -> Option<(Option<std::net::SocketAddr>, std::net::SocketAddr)> {
+        match self {
+            Self::Node(root) => root
+                .take_evidence()
+                .map(|facts| (facts.local, facts.remote)),
+            Self::Direct(root) => root.take_evidence(),
+        }
+    }
+}
+
 pub(crate) async fn connect(
     services: &TcpExecutionServices,
     session: &Session,
@@ -114,7 +129,10 @@ pub(crate) async fn connect(
                         .map(super::pending::PendingCaller::observer),
                 ),
             );
-            (Some(root.clone()), UpstreamTransport::new(binding, root))
+            (
+                Some(RootEvidence::Node(root.clone())),
+                UpstreamTransport::new(binding, root),
+            )
         }
         None => {
             let plan = services.components.as_ref().map_err(|source| {
@@ -123,6 +141,18 @@ pub(crate) async fn connect(
                         .with_source(source.clone()),
                 )
             })?;
+            if first.slot.recipe.spec().resources.iter().any(|resource|matches!(resource,
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. })) {
+                let target=prepared.nodes.get(1).and_then(|node|node.endpoint.as_ref()).ok_or_else(||normalize(invalid(Reason::StalePlan,"Direct root has no next-hop endpoint")))?;
+                let (root,upstream)=crate::component::direct_bridge::background::Root::transport(
+                    &first.slot,Arc::downgrade(plan),services.upstream_observed(&first.tag),destination(target),binding,
+                    crate::component::direct_bridge::background::Caller {
+                        business:crate::component::business_carrier::BusinessCarrierRequest::new(services.engine(),&first.slot,&invocation).map_err(normalize)?,
+                        call:None,waiting:waiting.as_ref().map(super::pending::PendingCaller::observer),
+                    },
+                ).map_err(normalize)?;
+                (Some(RootEvidence::Direct(root)),upstream)
+            } else {
             if !plan.has_device_carrier_provider(first.slot.role_id()) {
                 return Err(normalize(invalid(
                     Reason::Revoked,
@@ -134,6 +164,7 @@ pub(crate) async fn connect(
                 super::packet_network::business_transport(services, &first.slot, binding)
                     .map_err(normalize)?,
             )
+            }
         }
     };
     let cancel = invocation.cancellation();
@@ -143,7 +174,7 @@ pub(crate) async fn connect(
             identity: invocation.identity.clone(),
             deadline: invocation.deadline,
             cancel: cancel.clone(),
-            observer: if index == 0 && node.endpoint.is_none() {
+            observer: if index == 0 && node.endpoint.is_none() && !node.slot.recipe.spec().resources.iter().any(|resource|matches!(resource,zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..})) {
                 Some(Arc::new(super::packet_network::PacketObserver {
                     engine: services.engine().clone(),
                     tag: node.tag.clone(),
@@ -168,13 +199,13 @@ pub(crate) async fn connect(
                 .map_err(normalize)?;
             let (local, remote) = match &root {
                 Some(root) => {
-                    let evidence = root.take_evidence().ok_or_else(|| {
+                    let evidence = root.take().ok_or_else(|| {
                         normalize(invalid(
                             Reason::Internal,
                             "native relay lost the physical carrier evidence",
                         ))
                     })?;
-                    (evidence.local, Some(evidence.remote))
+                    (evidence.0, Some(evidence.1))
                 }
                 None => (None, None),
             };

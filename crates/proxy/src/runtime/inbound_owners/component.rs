@@ -156,9 +156,16 @@ impl InboundInstallContext {
                 self.entry.task_access().cancellation(),
             )?;
         }
-        let carrier = metadata
-            .as_ref()
-            .map(|_| Arc::new(std::sync::OnceLock::new()));
+        let carrier = metadata.as_ref().map(|_| {
+            #[cfg(test)]
+            {
+                self.entry.original_listener_address.clone()
+            }
+            #[cfg(not(test))]
+            {
+                Arc::new(std::sync::OnceLock::new())
+            }
+        });
         #[cfg(feature = "managed-datagram-runtime")]
         let peer = if metadata.is_some() {
             let Some(ResourceDeclaration::DatagramAssociations {
@@ -239,7 +246,9 @@ impl InboundInstallContext {
                     declaration,
                     upstream
                         .ok_or_else(|| std::io::Error::other("inbound target services absent"))?,
-                    self.entry.accepted_registrar().scope_identity(),
+                    self.entry.identity(),
+                    self.entry.accepted_registrar(),
+                    &self.protocols.runtime_host().original_budgets().carrier,
                     self.entry.task_access().cancellation(),
                 )
             })
@@ -307,8 +316,9 @@ impl InboundInstallContext {
                 // Already validated supplemental memory and ICMP declarations
                 // of the original Packet listener, not accepted-peer authority.
                 #[cfg(feature = "raw-ip-runtime")]
-                [ResourceDeclaration::NativeIcmp { .. },
-                    ResourceDeclaration::PacketDatagramReads { datagram: 0, .. }] => None,
+                [ResourceDeclaration::NativeIcmp { .. }, ResourceDeclaration::PacketDatagramReads { datagram: 0, .. }] => {
+                    None
+                }
                 resources
                     if resources.iter().all(|resource| {
                         matches!(

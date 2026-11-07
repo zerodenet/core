@@ -38,10 +38,13 @@ where
     let profile = OwnedGrpcProfile::from_profile(profile);
     let (tx, rx) = mpsc::channel(64);
     let task = tokio::spawn(async move {
+        let flush = Arc::new(crate::native_flush::Flushed::default());
+        let _guard = crate::native_flush::DriverGuard(flush.clone());
         let activity = keepalive::Activity::new();
         let io = keepalive::ObservedIo {
             io: stream,
             activity: activity.clone(),
+            flush: crate::native_flush::NativeFlush::new(flush.clone()),
         };
         let mut builder = h2::server::Builder::new();
         builder.max_concurrent_streams(1024);
@@ -54,9 +57,17 @@ where
         let alive = keepalive::run(ping, profile.clone(), activity, true, active.clone());
         tokio::pin!(alive);
         loop {
-            let request = tokio::select! { _ = tx.closed()=>break, _ = &mut alive => break, request = conn.accept()=>request };
-            let Some(Ok((request, mut respond))) = request else {
-                break;
+            let request = tokio::select! { _ = tx.closed()=>break, result = &mut alive => {if let Err(source)=result {let _=flush.fail(source);}break;}, request = conn.accept()=>request };
+            let (request, mut respond) = match request {
+                Some(Ok(incoming)) => incoming,
+                Some(Err(error)) => {
+                    let _ = flush.finish(Err(io::Error::other(error)));
+                    break;
+                }
+                None => {
+                    let _ = flush.finish(Ok(()));
+                    break;
+                }
             };
             if !options::matches(&profile, &request) {
                 let response = Response::builder()
@@ -79,7 +90,9 @@ where
             let Ok(sender) = respond.send_response(response, false) else {
                 continue;
             };
-            let Ok(mut stream) = build_grpc_stream(sender, request.into_body(), multi) else {
+            let Ok(mut stream) =
+                build_grpc_stream(sender, request.into_body(), multi, flush.clone())
+            else {
                 continue;
             };
             active.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

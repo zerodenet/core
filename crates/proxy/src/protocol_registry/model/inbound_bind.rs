@@ -75,10 +75,11 @@ impl PreparedInboundBind {
                         accepted: Some(peers),
                         ..
                     }] if datagram == destination
-                        && limits.max_resources_per_socket == 0
+                        && limits.max_tasks_per_socket == peers.max_tasks_per_peer
+                        && limits.max_resources_per_socket == peers.max_resources_per_peer
                         && peers.task_slots().is_some() => {}
                     [ResourceDeclaration::AcceptedDatagram { .. }]
-                        if limits.max_resources_per_socket == 2
+                        if limits.max_resources_per_socket >= 2
                             && limits.max_tasks_per_socket.get() >= 2 => {}
                     _ => return Err(unsupported()),
                 }

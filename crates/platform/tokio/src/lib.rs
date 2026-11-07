@@ -50,8 +50,9 @@ mod original_poll;
 mod windows_socket;
 #[cfg(windows)]
 pub use controlled_pipe::{ControlledPipe, ControlledPipeOwner, PipeClosed, PipeNativeFailures};
-#[cfg(any(unix, windows))]
 pub use controlled_tcp::PendingTcpConnect;
+#[cfg(any(unix, windows))]
+pub use controlled_tcp::{InboundTargetClosed, InboundTargetNativeOwner, InboundTargetSocketPool};
 #[cfg(unix)]
 pub use controlled_tcp::{PendingUnixAccept, PendingUnixConnect};
 #[cfg(unix)]

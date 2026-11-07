@@ -15,11 +15,11 @@ async fn original_stream_workers_run_inline_with_flow_control_half_close_and_grp
             finished.await.unwrap();incoming.close();
         });
         let io=tokio::net::TcpStream::connect(address).await.unwrap();
-        let PreparedConnection {sender,driver,active:_}=crate::grpc::prepared::prepare_connection(io,profile.clone(),None).await.unwrap();
+        let PreparedConnection {sender,driver,active:_,flush}=crate::grpc::prepared::prepare_connection(io,profile.clone(),None).await.unwrap();
         let logical=async move {
             let mut sender=sender.ready().await.unwrap();
             let (response,send)=sender.send_request(options::request(&profile,"localhost").unwrap(),false).unwrap();
-            let PreparedStream{mut stream,read,write}=crate::grpc::prepared_stream::prepare_stream(send,response,true);
+            let PreparedStream{mut stream,read,write}=crate::grpc::prepared_stream::prepare_stream(send,response,true,flush);
             let io=async move {
                 AsyncWriteExt::write_all(&mut stream,&vec![0x53;196_613]).await.unwrap();
                 AsyncWriteExt::shutdown(&mut stream).await.unwrap();
@@ -54,11 +54,11 @@ async fn inline_writer_retains_the_original_h2_reset_error_instead_of_a_display_
         });
         let profile=OwnedGrpcProfile {service_names:vec!["source/Tun".into()],..Default::default()};
         let io=tokio::net::TcpStream::connect(address).await.unwrap();
-        let PreparedConnection{sender,driver,active:_}=crate::grpc::prepared::prepare_connection(io,profile.clone(),None).await.unwrap();
+        let PreparedConnection{sender,driver,active:_,flush}=crate::grpc::prepared::prepare_connection(io,profile.clone(),None).await.unwrap();
         let logical=async move {
             let mut sender=sender.ready().await.unwrap();let (response,mut send)=sender.send_request(options::request(&profile,"localhost").unwrap(),false).unwrap();
             let reset=futures_util::future::poll_fn(|cx|send.poll_reset(cx)).await.unwrap();assert_eq!(reset,h2::Reason::REFUSED_STREAM);
-            let PreparedStream{mut stream,read,write}=crate::grpc::prepared_stream::prepare_stream(send,response,false);
+            let PreparedStream{mut stream,read,write}=crate::grpc::prepared_stream::prepare_stream(send,response,false,flush);
             let io=async move {
                 AsyncWriteExt::write_all(&mut stream,b"retained-source").await.unwrap();
                 let error=AsyncWriteExt::flush(&mut stream).await.unwrap_err();

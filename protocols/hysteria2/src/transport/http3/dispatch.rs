@@ -13,11 +13,12 @@ pub(super) async fn run(
     authenticated: Arc<AtomicBool>,
     web: mpsc::Sender<WebStream>,
     tcp: mpsc::Sender<(zero_core::Session, Hysteria2Stream)>,
+    classifications: std::num::NonZeroUsize,
 ) {
     let mut streams = JoinSet::new();
     loop {
         tokio::select! {
-            accepted = connection.accept_bi(), if streams.len() < 128 => {
+            accepted = connection.accept_bi(), if streams.len() < classifications.get() => {
                 let (mut send, mut recv) = match accepted { Ok(pair) => pair, Err(error) => { let _ = web.send(Err(error)).await; break; } };
                 let authenticated = authenticated.clone();
                 let web = web.clone(); let tcp = tcp.clone();

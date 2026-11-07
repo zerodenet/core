@@ -40,6 +40,10 @@ impl CarrierOriginalTotals {
                 .position(|actual| Arc::ptr_eq(actual, original))
                 .map(|index| state.source.swap_remove(index))
         };
+        let changed = removed.is_some();
         drop(removed);
+        if changed {
+            self.changed.notify_waiters();
+        }
     }
 }

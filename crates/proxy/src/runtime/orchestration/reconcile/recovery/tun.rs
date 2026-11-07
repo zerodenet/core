@@ -67,6 +67,7 @@ impl OrchestrationState {
                     &runtime,
                     &rollback,
                     config,
+                    changed,
                     listeners::InboundReconcileState {
                         listener_stops: &mut self.listener_stops,
                         active_inbounds: &mut self.active_inbounds,

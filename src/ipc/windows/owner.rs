@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use zero_runtime::configuration::{ControlBudgetPermit, ControlCharge};
 pub(super) struct Entry {
     pub(super) original: ControlledPipeOwner,
-    charge: Mutex<Option<ControlBudgetPermit>>,
+    charge: Mutex<Option<(ControlBudgetPermit, ControlBudgetPermit)>>,
     pub(super) task: Mutex<Option<tokio::task::Id>>,
     pub(super) joined: AtomicBool,
 }
@@ -32,9 +32,12 @@ impl Originals {
         // First charge, then install this concrete cold owner, then create its
         // native pipe/worker. A capacity miss issues no CreateNamedPipe/thread.
         let charge = budget.reserve(ControlCharge::Connection)?;
+        let workspace = budget.reserve(ControlCharge::PipeWorkspaceBytes(
+            ControlledPipeOwner::workspace_bytes(),
+        ))?;
         let entry = Arc::new(Entry {
             original: ControlledPipeOwner::new(path.to_owned(), tasks),
-            charge: Mutex::new(Some(charge)),
+            charge: Mutex::new(Some((charge, workspace))),
             task: Mutex::new(None),
             joined: AtomicBool::new(false),
         });
@@ -77,7 +80,22 @@ impl Originals {
                 .await
             {
                 Ok(closed) if entry.original.matches_closed(&closed) => {
-                    lock(&entry.charge).take();
+                    let peer_joined =
+                        lock(&entry.task).is_none() || entry.joined.load(Ordering::Acquire);
+                    let acknowledged = entry.original.worker().is_none_or(|worker| {
+                        worker.try_joined().is_some_and(|joined| {
+                            worker.matches_joined(&joined) && joined.registration_released()
+                        })
+                    });
+                    if !peer_joined || !acknowledged {
+                        if all {
+                            failures.push(io::Error::new(io::ErrorKind::WouldBlock,
+                            "same pipe connection/std worker Scope acknowledgement remains retained"));
+                        }
+                        continue;
+                    }
+                    let charges = lock(&entry.charge).take();
+                    drop(charges);
                     lock(&self.0).retain(|actual| !Arc::ptr_eq(actual, &entry));
                 }
                 Ok(_) => failures.push(io::Error::other("foreign actual pipe close receipt")),

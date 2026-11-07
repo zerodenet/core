@@ -229,7 +229,7 @@ impl<H: InboundHandshake, Make: Fn(OwnedIncoming) -> H + Send + 'static> Inbound
                     }
                     state.owner.as_ref().unwrap().reclaim_received_drivers();
                 },
-                incoming=with_deadline(context.deadline,handle.accept_incoming()),if admit=>{
+                incoming=with_deadline(context.deadline,handle.accept_incoming_wait()),if admit=>{
                     let incoming=incoming.map_err(|e|failure(Reason::Timeout).with_source(e))??;
                     let facts=InboundConnectionFacts{original_source:Some(incoming.remote_address()),effective_source:Some(incoming.remote_address()),local_endpoint:Some(incoming.local_addr()),sni:None};
                     return Ok(Some(PendingInbound::new((self.make)(incoming)).with_carrier_facts(facts)));

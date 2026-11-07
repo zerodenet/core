@@ -129,6 +129,7 @@ async fn run(configured: u32) {
         sender,
         driver,
         active: _,
+        flush: _,
     } = crate::grpc::prepared::prepare_connection(
         Observed {
             io,
@@ -209,10 +210,7 @@ async fn run(configured: u32) {
     let failure = driver.as_mut().await.unwrap_err();
     assert_eq!(failure.kind(), io::ErrorKind::TimedOut);
     assert!(
-        failure
-            .get_ref()
-            .unwrap()
-            .is::<tokio::time::error::Elapsed>(),
+        original_elapsed(&failure),
         "the actual timeout error object is retained"
     );
     tokio::time::resume();
@@ -333,20 +331,42 @@ async fn inline_original_ping_and_timeout_progress_with_only_a_real_pending_appl
     tokio::time::advance(Duration::from_secs(1)).await;
     let failure = read.await.unwrap_err();
     assert_eq!(failure.kind(), io::ErrorKind::TimedOut);
-    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&failure);
-    let mut elapsed = false;
-    while let Some(error) = source {
-        elapsed |= error.is::<tokio::time::error::Elapsed>();
-        // std io::Error delegates source() through its boxed payload's source;
-        // inspect that original typed payload too, never a formatted message.
-        elapsed |= error
-            .downcast_ref::<io::Error>()
-            .and_then(io::Error::get_ref)
-            .is_some_and(|error| error.is::<tokio::time::error::Elapsed>());
-        source = error.source();
-    }
-    assert!(elapsed, "same original timeout source was retained");
+    assert!(
+        original_elapsed(&failure),
+        "same original timeout source was retained"
+    );
     tokio::time::resume();
     finish.send(()).unwrap();
     server.await.unwrap();
+}
+
+/// Inspect actual typed payloads and sources, including retained original Arcs.
+/// std io::Error.source may skip its boxed node; neither branch uses text/kind.
+fn original_elapsed(error: &(dyn std::error::Error + 'static)) -> bool {
+    let mut pending = vec![error];
+    let mut seen = Vec::new();
+    for _ in 0..64 {
+        let Some(error) = pending.pop() else {
+            return false;
+        };
+        // Nested transparent errors can share a data address while retaining
+        // different typed vtables. Deduplicate the complete trait-object ptr.
+        if seen.iter().any(|actual| std::ptr::eq(*actual, error)) {
+            continue;
+        }
+        seen.push(error);
+        if error.is::<tokio::time::error::Elapsed>() {
+            return true;
+        }
+        if let Some(source) = error.source() {
+            pending.push(source)
+        }
+        if let Some(inner) = error
+            .downcast_ref::<io::Error>()
+            .and_then(io::Error::get_ref)
+        {
+            pending.push(inner);
+        }
+    }
+    false
 }

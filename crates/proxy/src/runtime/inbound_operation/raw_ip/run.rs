@@ -271,9 +271,13 @@ pub(in crate::runtime) async fn run(
         tokio::select! {
             _=cancel.cancelled()=>break Ok(()),
             request=checkpoint.requested()=>{
+                #[cfg(test)] eprintln!("actual Packet Main checkpoint received: source={:?} request={request}", facts.inbound);
                 let deadline=checkpoint.request_deadline(request).unwrap_or_else(tokio::time::Instant::now);
                 let idle=if pins.packet_routes_quiescent() && sending.is_none() && responses.is_empty() && closing_packet_roles.is_none() {
-                    match children.native.quiescent(deadline).await {
+                    #[cfg(test)] eprintln!("actual Packet Main before native census: source={:?} request={request}", facts.inbound);
+                    let native = children.native.quiescent(deadline).await;
+                    #[cfg(test)] eprintln!("actual Packet Main after native census: source={:?} request={request} result={native:?}", facts.inbound);
+                    match native {
                         Ok(native)=>native && source_host.peer_groups_quiescent() && children.echoes.quiescent()
                             && children.udp.quiescent() && children.tcp_dns.as_ref().is_none_or(|tasks|tasks.quiescent())
                             && tcp.quiescent().await && udp.quiescent().await,
@@ -283,6 +287,7 @@ pub(in crate::runtime) async fn run(
                 // No admitted pin or actual queued/native child work may be
                 // evicted to make a policy change fit. Only this same Source
                 // main may settle its own now-idle logical session cache.
+                #[cfg(test)] eprintln!("actual Packet Main before idle session close: source={:?} request={request} census={idle}", facts.inbound);
                 let idle=if idle { match packet_roles.close_idle(deadline).await {
                     Ok(())=>true,
                     Err(source)=>{checkpoint.reject(request,source);false}
@@ -290,6 +295,7 @@ pub(in crate::runtime) async fn run(
                 #[cfg(test)]
                 if !idle { eprintln!("actual Packet Main pause rejected: source={:?} request={} pins={} sending={} responses={} closing_roles={}",
                     facts.inbound,request,pins.packet_routes_quiescent(),sending.is_some(),responses.len(),closing_packet_roles.is_some()); }
+                #[cfg(test)] eprintln!("actual Packet Main checkpoint ACK: source={:?} request={request} idle={idle}", facts.inbound);
                 checkpoint.acknowledge(request,idle);
                 tokio::select! {_=cancel.cancelled()=>break Ok(()),_=checkpoint.resumed(request)=>{}}
             },

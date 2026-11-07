@@ -123,6 +123,14 @@ fn inbound_tcp_acceptor() -> Hysteria2InboundTcpResponseProtocol {
 }
 
 impl Hysteria2AuthenticatedInboundProfile {
+    pub fn with_h3_queue_limits(mut self, limits: super::Hysteria2H3QueueLimits) -> Self {
+        self.h3_queues = limits;
+        self
+    }
+    pub fn h3_queue_limits(&self) -> super::Hysteria2H3QueueLimits {
+        self.h3_queues
+    }
+
     pub fn with_masquerade(mut self, masquerade: super::http3::Masquerade) -> Self {
         self.masquerade = masquerade;
         self
@@ -145,6 +153,7 @@ impl Hysteria2AuthenticatedInboundProfile {
             protocol,
             settings: Default::default(),
             masquerade: Default::default(),
+            h3_queues: Default::default(),
         }
     }
 

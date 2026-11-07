@@ -5,6 +5,30 @@ impl ControlledTcpListener {
     pub async fn accept_owned(&mut self) -> Result<(AcceptedTcp, SocketAddr), ChannelError> {
         self.accept_owned_with(|| {}).await
     }
+    /// Ordinary Source admission waits on the same original local/global books.
+    /// The finite library rejection API remains available as accept_owned().
+    pub async fn accept_owned_wait(&mut self) -> Result<(AcceptedTcp, SocketAddr), ChannelError> {
+        loop {
+            match self.accept_owned().await {
+                Ok(accepted) => return Ok(accepted),
+                Err(source)
+                    if source.stage == Stage::Prepare
+                        && source.reason == Reason::Capacity
+                        && source.delivery == DeliveryState::NotSubmitted =>
+                {
+                    let pool = self.shared.accepted.as_ref().ok_or_else(|| {
+                        failure(
+                            Stage::Prepare,
+                            Reason::Unsupported,
+                            "accepted TCP authority was not installed",
+                        )
+                    })?;
+                    pool.wait_capacity().await?;
+                }
+                Err(source) => return Err(source),
+            }
+        }
+    }
     /// Charge an actual native candidate immediately before polling accept.
     /// A known Pending/no-native result returns that charge. After acquisition,
     /// error or unwind, the caller keeps it until this original entry closes.

@@ -68,6 +68,11 @@ impl CarrierOwnerRegistration {
                 dial,
                 max_sockets,
             }
+            | ResourceDeclaration::ControlledServiceDatagram {
+                endpoint,
+                dial,
+                max_sockets,
+            }
             | ResourceDeclaration::ControlledAssociationPool {
                 endpoint,
                 dial,
@@ -216,6 +221,7 @@ impl BoundAuthority {
                 } | ResourceDeclaration::ControlledDatagramCarrier { .. }
                     | ResourceDeclaration::ControlledCarrierPool { .. }
                     | ResourceDeclaration::ControlledServiceStream { .. }
+                    | ResourceDeclaration::ControlledServiceDatagram { .. }
                     | ResourceDeclaration::ControlledAssociationPool { .. }
             )
     }
@@ -223,9 +229,11 @@ impl BoundAuthority {
         self.available()
             && matches!(
                 self.declaration,
-                ResourceDeclaration::ControlledNodeCarrier { .. }
+                ResourceDeclaration::ControlledDirectStream { .. }
+                    | ResourceDeclaration::ControlledNodeCarrier { .. }
                     | ResourceDeclaration::ControlledNodeStream { .. }
                     | ResourceDeclaration::ControlledServiceStream { .. }
+                    | ResourceDeclaration::ControlledServiceDatagram { .. }
             )
     }
     pub(super) fn service_candidates_available(&self) -> bool {
@@ -241,7 +249,8 @@ impl BoundAuthority {
             || (self.available()
                 && matches!(
                     self.declaration,
-                    ResourceDeclaration::ControlledNodeStream { .. }
+                    ResourceDeclaration::ControlledDirectStream { .. }
+                        | ResourceDeclaration::ControlledNodeStream { .. }
                         | ResourceDeclaration::ControlledNodeCarrier { .. }
                 ))
     }
@@ -255,6 +264,7 @@ impl BoundAuthority {
                 ResourceDeclaration::ControlledOutboundStream { max_sockets, .. }
                 | ResourceDeclaration::ControlledCarrierPool { max_sockets, .. }
                 | ResourceDeclaration::ControlledServiceStream { max_sockets, .. }
+                | ResourceDeclaration::ControlledServiceDatagram { max_sockets, .. }
                 | ResourceDeclaration::ControlledAssociationPool { max_sockets, .. }
                 | ResourceDeclaration::ControlledDatagramCarrier { max_sockets, .. }
                 | ResourceDeclaration::ControlledDirectStream { max_sockets, .. } => {
@@ -359,6 +369,18 @@ impl BoundAuthority {
             && matches!(&self.declaration, ResourceDeclaration::ControlledServiceStream { endpoint, dial, .. }
                 if endpoint == destination && dial == &binding.dial)
     }
+    pub(super) fn permits_service_datagram_loan(
+        &self,
+        binding: &UpstreamBinding,
+        destination: &Destination,
+        context: &CarrierContext,
+    ) -> bool {
+        self.available()
+            && context.session.is_none()
+            && !binding.prefix.is_empty()
+            && matches!(&self.declaration, ResourceDeclaration::ControlledServiceDatagram { endpoint, dial, .. }
+                if endpoint == destination && dial == &binding.dial)
+    }
     pub(super) fn available(&self) -> bool {
         !self.host_cancel.is_cancelled() && self.scope.resource_open()
     }
@@ -445,6 +467,14 @@ impl CarrierOwnerBinding {
             _ => None,
         }
     }
+    pub(super) fn matches_direct_service(
+        &self,
+        destination: &Destination,
+        binding: &UpstreamBinding,
+    ) -> bool {
+        matches!(&self.authority.declaration, ResourceDeclaration::ControlledDirectStream {dial,..}
+            if dial == &binding.dial && binding.prefix.is_empty() && destination.port != 0)
+    }
     pub fn matches_direct(&self, destination: &Destination, binding: &UpstreamBinding) -> bool {
         self.authority.matches_direct(destination, binding)
     }
@@ -483,6 +513,7 @@ impl CarrierOwnerBinding {
             }
             ResourceDeclaration::ControlledCarrierPool { .. }
             | ResourceDeclaration::ControlledServiceStream { .. }
+            | ResourceDeclaration::ControlledServiceDatagram { .. }
             | ResourceDeclaration::ControlledAssociationPool { .. } => {
                 ControlledStreamDemandClass::BackgroundControl
             }

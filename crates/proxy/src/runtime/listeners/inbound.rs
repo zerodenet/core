@@ -59,6 +59,7 @@ pub(in crate::runtime) async fn reconcile_inbounds(
         runtime_factory,
         rollback_runtime_factory,
         new_config,
+        &std::collections::BTreeSet::new(),
         state,
         |_stopped| async { Ok(()) },
     )
@@ -73,6 +74,7 @@ pub(in crate::runtime) async fn reconcile_inbounds_with_before_bind<F, Fut>(
     runtime_factory: &InboundListenerRuntimeFactory,
     rollback_runtime_factory: &InboundListenerRuntimeFactory,
     new_config: &RuntimeConfig,
+    forced_source_restarts: &std::collections::BTreeSet<String>,
     mut state: InboundReconcileState<'_>,
     before_bind: F,
 ) -> Result<(), EngineError>
@@ -99,6 +101,7 @@ where
         rollback_runtime_factory,
         source_dir,
         new_config,
+        forced_source_restarts,
         state.active_inbounds,
     )?;
     // This phase may publish an adapter's existing same-endpoint hot update;
@@ -121,7 +124,8 @@ where
         if runtime_factory.source_network_restart() {
             if let Some(prepared) = candidate.prepared.take() {
                 candidate.prepared = Some(prepared.refresh_dependencies(
-                    runtime_factory.listener_config(&candidate.inbound), source_dir,
+                    runtime_factory.listener_config(&candidate.inbound),
+                    source_dir,
                 )?);
             }
         }

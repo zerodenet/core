@@ -16,6 +16,7 @@ impl Activity {
 pub(super) struct ObservedIo<S> {
     pub io: S,
     pub activity: Activity,
+    pub flush: crate::native_flush::NativeFlush,
 }
 impl<S: AsyncRead + Unpin> AsyncRead for ObservedIo<S> {
     fn poll_read(
@@ -23,6 +24,7 @@ impl<S: AsyncRead + Unpin> AsyncRead for ObservedIo<S> {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
+        self.flush.bind(cx);
         let before = buf.filled().len();
         let result = Pin::new(&mut self.io).poll_read(cx, buf);
         if buf.filled().len() > before {
@@ -37,12 +39,15 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for ObservedIo<S> {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
+        self.flush.bind(cx);
         Pin::new(&mut self.io).poll_write(cx, buf)
     }
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.io).poll_flush(cx)
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        this.flush.poll(&mut this.io, cx)
     }
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.flush.bind(cx);
         Pin::new(&mut self.io).poll_shutdown(cx)
     }
 }
