@@ -8,6 +8,7 @@ use zero_platform_tokio::contract::{
     network::CarrierContext,
 };
 mod prepare;
+mod setup;
 mod stream;
 mod wait;
 pub(super) struct Outbound(pub(super) Arc<Managed>);
@@ -154,27 +155,11 @@ impl Managed {
             let mut grant = grants
                 .reserve()
                 .map_err(|source| owner.admission.attach(source, session))?;
-            // This one lease starts before physical preparation, remains with this
-            // inline opening on error/cancel, and moves into the actual logical view.
-            // A real host-tracked Business caller must bind its original join
-            // witness to an ordinary view. Transferred custody is reserved for
-            // Service or the existing callerless entry, never both at once.
-            // This hint chooses custody only; native preparation still checks
-            // the original host-issued Business grant and its actual caller.
-            let user_view = if owner.options.business.is_some() {
-                Some(
-                    (if owner.options.node()
-                        && !(session.is_some() && upstream.has_tracked_business_caller())
-                    {
-                        grant.claim_transferred_view()
-                    } else {
-                        grant.claim_user_view()
-                    })
-                    .map_err(|source| owner.admission.attach(source, session))?,
-                )
-            } else {
-                None
-            };
+            let setup::View {
+                user_view,
+                preparation,
+                caller,
+            } = owner.claim_view(&mut grant, context, upstream, service)?;
             let record = Arc::new(Record {
                 adoption: grant.adoption(),
                 capacity: Mutex::new(Some(capacity)),
@@ -186,6 +171,7 @@ impl Managed {
                 // token whose native body could only escape through an I/O error.
                 stop: grant.cancellation(),
                 opening: AtomicBool::new(true),
+                published: AtomicBool::new(false),
                 done: AtomicBool::new(false),
                 user_live: AtomicBool::new(false),
                 tracked_view: user_view.is_some(),
@@ -207,8 +193,15 @@ impl Managed {
                 deadline: context.deadline,
                 cancel: record.stop.clone(),
             };
-            let acquiring = async {
-                if service && !upstream.binding().prefix.is_empty() {
+            let selected_upstream = upstream.clone();
+            let actual = owner.clone();
+            let input = context.clone();
+            let tls = prepared_tls.clone();
+            let acquiring = async move {
+                let upstream = selected_upstream;
+                let owner = actual;
+                let context = &input;
+                let io = if service && !upstream.binding().prefix.is_empty() {
                     let loan = upstream
                         .borrow_stream(owner.options.base.endpoint.clone(), call.clone())
                         .await?;
@@ -222,12 +215,17 @@ impl Managed {
                     upstream
                         .acquire_controlled_stream(owner.options.base.endpoint.clone(), call, grant)
                         .await
-                }
+                }?;
+                owner.prepare_transport(io, tls, context).await
             };
-            let io = match owner
-                .wait(context, Stage::Dial, acquiring)
-                .await
-                .map_err(|error| owner.admission.attach(error, session))
+            let tag = match if let Some(preparation) = &preparation {
+                owner
+                    .prepare_on_scope(&record, preparation, context, acquiring)
+                    .await
+            } else {
+                owner.wait(context, Stage::Dial, acquiring).await
+            }
+            .map_err(|error| owner.admission.attach(error, session))
             {
                 Ok(ready) => ready,
                 Err(error)
@@ -271,16 +269,22 @@ impl Managed {
                     })
                 }
             };
-            let io = owner
-                .prepare_stream(
-                    io,
-                    record.clone(),
-                    prepared_tls,
-                    context,
-                    user_view,
-                    (selected, dns_generation),
-                )
-                .await?;
+            let io = owner.finish_stream(
+                tag,
+                record.clone(),
+                context,
+                user_view,
+                (selected, dns_generation),
+            )?;
+            if let Some(preparation) = &preparation {
+                match &caller {
+                    Some(caller) => preparation.publish(caller)?,
+                    None => preparation.publish_transferred()?,
+                }
+            }
+            record
+                .published
+                .store(true, std::sync::atomic::Ordering::Release);
             return Ok((io, record));
         }
     }
