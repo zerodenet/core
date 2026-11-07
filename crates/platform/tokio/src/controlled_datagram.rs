@@ -227,7 +227,9 @@ impl ControlledDatagramOwner {
             .entries
             .values()
             .find_map(|entry| match &*entry.lock() {
-                NativeHandleState::Unknown(source) => Some((entry.id, source.clone())),
+                NativeHandleState::Unknown(source) => {
+                    Some((entry.id, entry.close_failure_source(source)))
+                }
                 _ => None,
             })
         {
