@@ -9,33 +9,36 @@ pub(super) fn prepare(
     let mut storage = None;
     let bytes = if matches!(request, QueryRequest::Capabilities(_)) {
         let view = handle.control_capabilities_query(&mut workspace)?;
-        crate::ipc::owner::encode_response(
+        let encoded = crate::ipc::owner::encode_response(
             &ApiResponse::ok(view.body()),
             budget,
             &mut storage,
             true,
             false,
-        )
+        );
+        encoded
     } else if matches!(request, QueryRequest::Health(_)) {
         let view = handle.control_health_query(&mut workspace)?;
-        crate::ipc::owner::encode_response(
+        let encoded = crate::ipc::owner::encode_response(
             &ApiResponse::ok(view.body()),
             budget,
             &mut storage,
             true,
             false,
-        )
+        );
+        encoded
     } else {
         let view = handle
             .control_proxy_query(request)
             .expect("selected concrete Proxy status owner");
-        crate::ipc::owner::encode_response(
+        let encoded = crate::ipc::owner::encode_response(
             &ApiResponse::ok(view.body()),
             budget,
             &mut storage,
             true,
             false,
-        )
+        );
+        encoded
     }?;
     Ok(HttpBody::Prepared(crate::ipc::owner::EncodedResponse::new(
         bytes,
