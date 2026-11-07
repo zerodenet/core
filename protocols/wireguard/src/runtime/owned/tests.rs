@@ -238,6 +238,7 @@ fn missing_prepaid_cipher_preserves_same_plaintext_and_first_real_wire_counter()
         0,
         "admission failure cannot consume a nonce"
     );
+    let wire = wire.into_bytes();
     let actions = client.receive_datagram(source(), wire.as_ref()).unwrap();
     assert!(actions.iter().any(|action| matches!(action,
         TunnelAction::ReceiveIp { packet, .. } if packet.as_ref() == payload.as_slice())));
