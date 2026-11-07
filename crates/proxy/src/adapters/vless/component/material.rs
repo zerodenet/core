@@ -82,6 +82,7 @@ impl super::super::VlessAdapter {
                 }
             }
         }
+        let preparation_jobs = options.requires_preparation_jobs();
         let mut result = stateless::Options::new(
             options,
             crate::inventory::service::endpoint(server, *port),
@@ -89,6 +90,9 @@ impl super::super::VlessAdapter {
             limit,
         )
         .with_cleanup_network(network.clone());
+        if preparation_jobs {
+            result = result.with_preparation_jobs();
+        }
         if zero_core::address::parse_ip_literal(server).is_none()
             || tls
                 .as_ref()

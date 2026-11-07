@@ -4,6 +4,15 @@ use std::sync::Arc;
 use zero_core::request::Destination;
 use zero_platform_tokio::contract::network::UpstreamBinding;
 impl PoolOptions {
+    /// Owning protocol accepts actual failed-auth IO into a finite noncached
+    /// job on this same original. It is never a usable cached connection.
+    pub fn with_preparation_jobs(mut self) -> Self {
+        self.preparation_jobs = true;
+        self.scoped_preparation = true;
+        self.rebuild_identity();
+        self
+    }
+
     /// Only the actual owning protocol assembly opts into a real initializer
     /// in this same Scope. Fixed library callers retain inline preparation.
     pub fn with_scoped_preparation(mut self) -> Self {
@@ -15,6 +24,9 @@ impl PoolOptions {
         let mut identity = self.base_identity.to_vec();
         if self.scoped_preparation {
             identity.extend_from_slice(b"actual-scoped-preparation");
+        }
+        if self.preparation_jobs {
+            identity.extend_from_slice(b"same-original-noncached-preparation-job-v1");
         }
         for dependency in &self.dependencies {
             identity.extend_from_slice(b"actual-node-dependency");

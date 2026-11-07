@@ -24,6 +24,7 @@ pub struct CarrierOriginalTotals {
 }
 struct State {
     limit: NonZeroUsize,
+    preparation_limits: [NonZeroUsize; 2],
     originals: BTreeMap<usize, Arc<dyn custody::CarrierCustody>>,
     metadata: Vec<Arc<dyn MetadataCustody>>,
     bound: Vec<Arc<dyn BoundCustody>>,
@@ -45,6 +46,10 @@ impl Default for CarrierOriginalTotals {
             changed: tokio::sync::Notify::new(),
             state: Mutex::new(State {
                 limit: NonZeroUsize::new(1024).expect("nonzero kernel policy"),
+                preparation_limits: [
+                    NonZeroUsize::new(64).unwrap(),
+                    NonZeroUsize::new(32).unwrap(),
+                ],
                 originals: BTreeMap::new(),
                 metadata: Vec::new(),
                 bound: Vec::new(),
@@ -66,6 +71,10 @@ impl CarrierOriginalTotals {
             changed: tokio::sync::Notify::new(),
             state: Mutex::new(State {
                 limit,
+                preparation_limits: [
+                    NonZeroUsize::new(64).unwrap(),
+                    NonZeroUsize::new(32).unwrap(),
+                ],
                 originals: BTreeMap::new(),
                 metadata: Vec::new(),
                 bound: Vec::new(),
@@ -278,35 +287,7 @@ impl CarrierOriginalTotals {
             .collect()
     }
 }
-impl Original {
-    fn witnesses(&self) -> Vec<crate::contract::scope::TaskJoinWitness> {
-        let state = self.slot.state();
-        state
-            .driver
-            .iter()
-            .map(|(_, witness)| witness.clone())
-            .chain(state.auxiliary.iter().cloned())
-            .collect()
-    }
-    fn released(&self) -> bool {
-        // Set only by Slot::remove after matching native and user settlement,
-        // plus the actual acquired caller's Host publication ACK.
-        let users_confirmed = {
-            let state = self.slot.state();
-            match &state.users {
-                Some(users) => users.ready(),
-                None => state.control.is_none() && state.packet.is_none() && state.loan.is_none(),
-            }
-        };
-        self.slot.removed.load(Ordering::Acquire)
-            && users_confirmed
-            && self.witnesses().iter().all(|witness| {
-                witness.try_joined().is_some_and(|joined| {
-                    witness.matches_joined(&joined) && joined.registration_released()
-                })
-            })
-    }
-}
+mod original;
 
 mod datagram;
 
@@ -315,10 +296,7 @@ pub(crate) use custody::{BoundCustody, MetadataCustody};
 
 mod source;
 pub(crate) use source::SourceCustody;
-impl State {
-    fn charged(&self) -> usize {
-        self.originals.len() + self.metadata.len() + self.bound.len() + self.source.len()
-    }
-}
 
 mod capacity;
+
+pub(crate) mod preparation;

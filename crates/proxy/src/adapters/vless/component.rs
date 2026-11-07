@@ -9,9 +9,10 @@ pub(crate) fn native_input(input: &OutboundConfig) -> bool {
     matches!(&input.protocol,OutboundProtocolConfig::Vless {
         mux_concurrency:None,xudp_concurrency:None,flow,testpre:0,testseed,
         final_mask:None,mkcp:None,hysteria:None,reverse_tag:None,reverse_sniffing:None,
-        encryption,reality:None,quic:None,h2,grpc:None,http_upgrade,split_http:None,tls,ws,..
+        encryption,reality,quic:None,h2,grpc:None,http_upgrade,split_http:None,tls,ws,..
     } if (flow.as_deref().map_or(testseed.is_empty(),|flow|
-            matches!(flow,"xtls-rprx-vision"|"xtls-rprx-vision-udp443") && tls.is_some() && ws.is_none() && h2.is_none() && http_upgrade.is_none()))
+            matches!(flow,"xtls-rprx-vision"|"xtls-rprx-vision-udp443") && (tls.is_some() || reality.is_some()) && ws.is_none() && h2.is_none() && http_upgrade.is_none()))
+        && (reality.is_none() || (tls.is_none() && ws.is_none() && h2.is_none() && http_upgrade.is_none()))
         && encryption.as_deref().is_none_or(|value|value=="none")
         && ws.as_ref().is_none_or(|ws|ws.browser_dialer.is_none())
         && tls.as_ref().is_none_or(|tls|tls.ca_cert_path.is_none() && !tls.options.ech_config_list.contains("://")))

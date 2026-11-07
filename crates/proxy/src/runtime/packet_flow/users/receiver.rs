@@ -52,14 +52,19 @@ impl FlowUsers {
             let Some(adoption) = loan.receiver_adoption() else {
                 return false;
             };
-            let Some(driver) = adoption.retained_driver() else {
-                return false;
-            };
-            driver.retains(&adoption)
-                && caller
-                    .scope_identity()
-                    .same_scope(&driver.driver().scope_identity())
-                && stopping.retains_source_receiver(receiver, source)
+            let exact_driver_scope =
+                adoption.retained_driver().is_some_and(|proof| {
+                    proof.retains(&adoption)
+                        && caller
+                            .scope_identity()
+                            .same_scope(&proof.driver().scope_identity())
+                }) || adoption.retained_preparation_job().is_some_and(|proof| {
+                    proof.retains(&adoption)
+                        && caller
+                            .scope_identity()
+                            .same_scope(&proof.driver().scope_identity())
+                });
+            exact_driver_scope && stopping.retains_source_receiver(receiver, source)
         })
     }
 }

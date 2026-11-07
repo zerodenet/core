@@ -79,3 +79,40 @@ impl ComponentRecipe {
         self.process_limits
     }
 }
+
+/// Same Root's finite noncached job/request policy; data only, not permission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(in crate::component) struct PreparationLimits {
+    max_jobs: usize,
+    max_requests: usize,
+}
+impl PreparationLimits {
+    pub(in crate::component) fn from_runtime(
+        runtime: &zero_config::RuntimeOptionsConfig,
+    ) -> Result<Self, BuildError> {
+        let max_jobs = runtime.effective_navigation_max_jobs();
+        let max_requests = runtime.effective_navigation_max_requests();
+        if !(1..=64).contains(&max_jobs) || !(1..=32).contains(&max_requests) {
+            return Err(super::super::instance::invalid(
+                zero_platform_tokio::contract::Reason::InvalidConfig,
+                "invalid actual preparation job/request capacities",
+            ));
+        }
+        Ok(Self {
+            max_jobs,
+            max_requests,
+        })
+    }
+}
+impl ComponentRecipe {
+    pub(in crate::component) fn with_preparation_limits(
+        mut self,
+        limits: Option<PreparationLimits>,
+    ) -> Self {
+        self.preparation_limits = limits;
+        self
+    }
+    pub(in crate::component) fn preparation_limits(&self) -> Option<PreparationLimits> {
+        self.preparation_limits
+    }
+}

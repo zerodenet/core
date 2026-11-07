@@ -102,6 +102,7 @@ async fn ready_original_report_survives_cancelled_close_while_second_real_tcp_vi
             .await;
         }
         let transfer = Arc::new(Transfer {
+            driver_input: Mutex::new(None),
             grant: Mutex::new(None),
             view: Mutex::new(None),
             caller: None,

@@ -1,10 +1,15 @@
 //! One-way delivery of the original Business view after its real setup task.
 //! Native authorization remains bound to the admitted Business caller.
 mod closed;
+mod job;
 mod publication;
+mod source;
+mod spawn;
 use super::{error, slot::Slot, CarrierGrant, CarrierUserView, CarrierUsersClosed};
 use crate::contract::{scope::TaskJoinWitness, ChannelError, DeliveryState, Reason, Stage};
 pub use closed::CarrierPreparationClosed;
+pub(in crate::controlled_carrier) use job::staged::cancel_staged;
+pub use job::{CarrierPreparationJob, CarrierPreparationJobRetained, StagedCarrierPreparationJob};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, OnceLock, Weak,
@@ -14,6 +19,7 @@ pub(super) struct Preparation {
     pub(super) expected_caller: Option<TaskJoinWitness>,
     pub(super) auxiliary: OnceLock<TaskJoinWitness>,
     pub(super) published: AtomicBool,
+    pub(super) job: OnceLock<Arc<job::Job>>,
     pending: OnceLock<crate::contract::network::PendingCarrierObserver>,
 }
 /// Sealed delivery state for exactly one original view and setup registration.
@@ -55,6 +61,7 @@ impl CarrierGrant {
             expected_caller: None,
             auxiliary: OnceLock::new(),
             published: AtomicBool::new(false),
+            job: OnceLock::new(),
             pending: OnceLock::new(),
         });
         self.slot
@@ -98,6 +105,7 @@ impl CarrierGrant {
             expected_caller: Some(caller.clone()),
             auxiliary: OnceLock::new(),
             published: AtomicBool::new(false),
+            job: OnceLock::new(),
             pending: OnceLock::new(),
         });
         self.slot

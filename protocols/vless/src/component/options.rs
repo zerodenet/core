@@ -39,6 +39,12 @@ impl fmt::Debug for Options {
     }
 }
 impl Options {
+    /// The owning adapter projects this private actual task responsibility.
+    /// It neither selects an executor nor grants a Scope/IO capability.
+    pub fn requires_preparation_jobs(&self) -> bool {
+        self.reality.is_some()
+    }
+
     /// Existing packet-path semantics from this actual validated recipe. This
     /// is immutable data only: no role, Scope, grant or material is prepared.
     pub fn packet_path_metadata(&self) -> (Destination, bool) {
@@ -172,10 +178,14 @@ impl Options {
             ));
         }
         if input.protocol.reality.is_some()
-            && (input.tls.is_some() || input.ws.is_some() || input.grpc.is_some())
+            && (input.tls.is_some()
+                || input.ws.is_some()
+                || input.grpc.is_some()
+                || input.h2.is_some()
+                || input.http_upgrade.is_some())
         {
             return Err(Error::Config(
-                "REALITY direct carrier cannot combine TLS/WS/gRPC",
+                "REALITY direct carrier cannot combine TLS/WS/gRPC/H2/Upgrade",
             ));
         }
         let reality = input

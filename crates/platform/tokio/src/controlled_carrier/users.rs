@@ -127,7 +127,11 @@ impl Users {
     }
 
     pub(super) fn driver_custody_live(&self) -> bool {
-        self.driver_owned && self.live
+        self.driver_owned
+            && self.live
+            && self.preparation.as_ref().is_none_or(|preparation| {
+                preparation.published.load(Ordering::Acquire) && preparation.job.get().is_none()
+            })
     }
 
     pub(super) fn transferred(&self) -> bool {

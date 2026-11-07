@@ -117,7 +117,24 @@ impl Provider {
                 // Before its first driver exists, an undelivered receiver stays in
                 // this caller ledger. Once its real Pool Scope owns the registered
                 // driver, cancelling this waiter must preserve other pool users.
+                let actual_job = entry
+                    .original
+                    .retained_preparation_job()
+                    .is_some_and(|proof| {
+                        proof.retains(&entry.original)
+                            && proof
+                                .owner()
+                                .is_some_and(|owner| owner.matches_adoption(&entry.original))
+                            && current.as_ref().is_some_and(|source| {
+                                entry.pending_roles.iter().any(|role| {
+                                    source
+                                        .validate_owned_carrier_adoption(*role, &entry.original)
+                                        .is_ok()
+                                })
+                            })
+                    });
                 actual_pool_driver
+                    || actual_job
                     || loans.iter().any(|(receiver, proof)| {
                         !receiver.same_slot(&entry.original) && proof.retains(&entry.original)
                     })

@@ -3,10 +3,21 @@ use super::slot::Slot;
 use crate::contract::scope::TaskJoinWitness;
 use std::sync::Arc;
 pub(super) fn caller(slot: &Slot) -> Option<TaskJoinWitness> {
-    slot.state()
-        .users
+    let state = slot.state();
+    let users = state.users.as_ref()?;
+    if users
+        .preparation
         .as_ref()
-        .and_then(|users| users.credit_caller())
+        .is_some_and(|preparation| preparation.job.get().is_some())
+    {
+        if let Some((_, driver)) = &state.driver {
+            // This actual Slot registered the job, even if its later seal
+            // failed. Native/UsersClosed remain independently observable;
+            // local N removal alone waits for this actual registration ACK.
+            return Some(driver.clone());
+        }
+    }
+    users.credit_caller()
 }
 pub(super) fn released(slot: &Slot) -> bool {
     caller(slot).is_none_or(|caller| {

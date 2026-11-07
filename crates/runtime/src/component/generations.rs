@@ -53,6 +53,7 @@ pub(super) fn order_with_loans(
                     || slot.recipe.packet_path_facts() != previous.recipe.packet_path_facts()
                     || slot.recipe.carrier_total_limit() != previous.recipe.carrier_total_limit()
                     || slot.recipe.process_limits() != previous.recipe.process_limits()
+                    || slot.recipe.preparation_limits() != previous.recipe.preparation_limits()
                     || slot.dial != previous.dial
             })
         })

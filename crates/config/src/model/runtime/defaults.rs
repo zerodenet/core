@@ -42,6 +42,8 @@ impl Default for RuntimeOptionsConfig {
             grpc_pool_max_streams: None,
             grpc_total_max_carriers: None,
             grpc_total_max_streams: None,
+            navigation_max_jobs: None,
+            navigation_max_requests: None,
             diagnostic_max_operations: None,
             system_tun_task_limit: None,
             ss_legacy_replay_max_bytes: None,

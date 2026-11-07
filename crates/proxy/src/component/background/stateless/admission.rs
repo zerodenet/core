@@ -9,6 +9,7 @@ impl Outbound {
                 .published
                 .load(std::sync::atomic::Ordering::Acquire);
             if !transfer.opening.load(std::sync::atomic::Ordering::Acquire)
+                && transfer.adoption.retained_preparation_job().is_none()
                 && (!published || transfer.stop.is_cancelled())
             {
                 let report = match context.deadline {
@@ -57,6 +58,7 @@ impl Outbound {
             (None, None) => (grant.claim_transferred_view()?, None),
         };
         let transfer = Arc::new(Transfer {
+            driver_input: Mutex::new(None),
             stop: grant.cancellation(),
             adoption: grant.adoption(),
             grant: Mutex::new(Some(grant)),

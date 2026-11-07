@@ -4,6 +4,7 @@
 mod adoption;
 mod caller_credit;
 mod totals;
+pub use totals::preparation::{CarrierPreparationRequest, CarrierPreparationTotalsSnapshot};
 pub(crate) use totals::{BoundCustody, MetadataCustody, SourceCustody};
 pub use totals::{CarrierOriginalTotals, CarrierOriginalTotalsSnapshot};
 mod auxiliary;
@@ -28,7 +29,10 @@ mod resolution;
 mod service;
 mod slot;
 mod users;
-pub use preparation::{CarrierPreparation, CarrierPreparationClosed};
+pub use preparation::{
+    CarrierPreparation, CarrierPreparationClosed, CarrierPreparationJob,
+    CarrierPreparationJobRetained, StagedCarrierPreparationJob,
+};
 mod view;
 use crate::contract::{ChannelError, DeliveryState, Impact, Reason, Stage};
 pub use adoption::{CarrierAdoption, CarrierClosed};

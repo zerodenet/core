@@ -16,6 +16,7 @@ async fn close_slot_until(
     deadline: Instant,
     wait_users: bool,
 ) -> Result<CloseReport, BuildError> {
+    crate::controlled_carrier::preparation::cancel_staged(slot);
     // Cleanup is the persistent local receiver even when the original
     // request was cancelled before observing its auxiliary result.
     match timeout_at(

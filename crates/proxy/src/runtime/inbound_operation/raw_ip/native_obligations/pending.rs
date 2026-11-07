@@ -20,6 +20,9 @@ fn complete(slot: &CarrierAdoption) -> bool {
 fn handed_off(slot: &CarrierAdoption, originals: &[CarrierAdoption]) -> bool {
     slot.retained_driver()
         .is_some_and(|proof| proof.retains(slot))
+        || slot
+            .retained_preparation_job()
+            .is_some_and(|proof| proof.retains(slot))
         || originals.iter().any(|receiver| {
             !receiver.same_slot(slot)
                 && receiver

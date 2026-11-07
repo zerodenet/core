@@ -132,6 +132,28 @@ impl Outbound {
             }
         }
         if let Some(source) = original_error {
+            let retained = source.clone();
+            // Only this actually ACKed rejected preparation can install the
+            // same original's noncached job. Errors here keep the original
+            // protocol failure; no replacement error grants a handoff.
+            let handoff = self
+                .handoff_rejected_job(transfer, context, retained, joined.as_ref().unwrap())
+                .await;
+            if let Err(retained_install_failure) = handoff {
+                return Err(zero_platform_tokio::controlled_carrier::CarrierPreparationJob::failed_install_error(
+                    source, retained_install_failure,
+                ));
+            }
+            if let Some(delay) = handoff.unwrap() {
+                let metadata = transfer.preparing.lock().unwrap().take();
+                drop(metadata);
+                drop(stop.0.take());
+                // The original camouflage delay belongs to caller response,
+                // not to this new job's independent60s/Host/Scope lifetime.
+                let _=with_deadline(context.deadline,async {
+                    tokio::select!{biased;_=context.cancel.cancelled()=>{},_=tokio::time::sleep(delay)=>{}}
+                }).await;
+            }
             return Err(ChannelError::retained(source));
         }
         let metadata = transfer.preparing.lock().unwrap().take();

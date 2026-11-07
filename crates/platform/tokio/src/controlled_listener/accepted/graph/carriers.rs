@@ -165,6 +165,11 @@ impl Users {
                             && proof
                                 .adoption()
                                 .is_some_and(|actual| actual.same_slot(&record.slot))
+                    }) || record.slot.retained_preparation_job().is_some_and(|proof| {
+                        proof.retains(&record.slot)
+                            && proof
+                                .owner()
+                                .is_some_and(|owner| owner.same_owner(&record.owner))
                     }) || observed.iter().any(|receiver| {
                         receiver.pending
                             && !receiver.fault

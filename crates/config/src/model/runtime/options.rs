@@ -173,6 +173,14 @@ pub struct RuntimeOptionsConfig {
     /// Actual logical streams across the same gRPC registry until worker and view return.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grpc_total_max_streams: Option<usize>,
+    /// Noncached preparation jobs in this RuntimeHost's actual original book.
+    /// Pending, failed and retiring jobs remain charged; default64, range1..64.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub navigation_max_jobs: Option<usize>,
+    /// Outstanding requests/body futures across those same owned jobs; default32.
+    /// This bounds the existing4MiB-per-response payload, not total process RSS.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub navigation_max_requests: Option<usize>,
     /// Actual diagnostic and health probes per kernel, including pending and retiring originals; the process-wide ceiling remains eight.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostic_max_operations: Option<usize>,

@@ -110,7 +110,9 @@ impl PreparedMux {
         {
             return Err(zero_core::Error::Config("native MUX requires enabled concurrency").into());
         }
-        if input.protocol.flow.is_some() || input.protocol.reality.is_some() {
+        if input.protocol.flow.is_some()
+            || (input.protocol.reality.is_some() && max_file_bytes.is_none())
+        {
             return Err(zero_core::Error::Unsupported(
                 "native MUX flow/REALITY requires its complete owner",
             )
@@ -150,9 +152,19 @@ impl PreparedMux {
             }
             None
         };
+        let prepared_reality = material
+            .as_ref()
+            .and_then(|options| options.reality.clone());
         let leaf =
-            crate::transport::VlessOutboundLeaf::from_options_refs(source_dir, input, runtime)?;
-        let pool = Arc::new(leaf.native_mux_options(binding, carriers, open_budget)?);
+            crate::transport::VlessOutboundLeaf::from_options_refs(source_dir, input, runtime)?
+                .with_preparation_reality(prepared_reality.clone());
+        let mut pool = leaf.native_mux_options(binding, carriers, open_budget)?;
+        if prepared_reality.is_some() {
+            // One setup or rejected-original job in this actual physical slot.
+            // Authentication rejection never yields a usable MuxClient/cache.
+            pool = pool.with_preparation_jobs();
+        }
+        let pool = Arc::new(pool);
         Ok(Self {
             leaf,
             pool,

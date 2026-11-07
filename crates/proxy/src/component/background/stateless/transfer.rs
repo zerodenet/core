@@ -1,6 +1,8 @@
 //! Same-slot taskless transfer; native and logical completion stay separate.
 use super::*;
 pub(super) struct Transfer {
+    pub(super) driver_input:
+        Mutex<Option<zero_platform_tokio::controlled_carrier::CarrierDriver<()>>>,
     pub(super) grant: Mutex<Option<CarrierGrant>>,
     pub(super) view: Mutex<Option<zero_platform_tokio::controlled_carrier::CarrierUserView>>,
     pub(super) caller: Option<zero_platform_tokio::contract::scope::TaskJoinWitness>,
@@ -120,7 +122,9 @@ impl Drop for Opening {
         self.0
             .opening
             .store(false, std::sync::atomic::Ordering::Release);
-        if !self.0.published.load(std::sync::atomic::Ordering::Acquire) {
+        if !self.0.published.load(std::sync::atomic::Ordering::Acquire)
+            && self.0.adoption.retained_preparation_job().is_none()
+        {
             self.0.stop.cancel();
             self.0.request_pending_retirement();
             // If no opener consumed the unique grant, return its actual view

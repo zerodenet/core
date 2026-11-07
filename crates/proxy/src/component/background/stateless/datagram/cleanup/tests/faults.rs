@@ -176,6 +176,7 @@ async fn actual_socket_faults_share_one_durable_received_row_and_late_secondary_
             .await;
         }
         let transfer = Arc::new(Transfer {
+            driver_input: Mutex::new(None),
             grant: Mutex::new(None),
             view: Mutex::new(None),
             caller: None,

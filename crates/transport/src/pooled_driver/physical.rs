@@ -9,6 +9,9 @@ use zero_platform_tokio::{
 };
 
 pub struct Physical {
+    pub(super) driver_input:
+        Mutex<Option<zero_platform_tokio::controlled_carrier::CarrierDriver<()>>>,
+    pub(super) rejected_delay: std::sync::OnceLock<std::time::Duration>,
     pub(super) binding: zero_platform_tokio::contract::network::UpstreamBinding,
     pub(super) pending: Mutex<Vec<CarrierAdoption>>,
     pub(super) original: CarrierAdoption,
@@ -32,6 +35,8 @@ impl Physical {
         binding: zero_platform_tokio::contract::network::UpstreamBinding,
     ) -> Arc<Self> {
         Arc::new(Self {
+            driver_input: Mutex::new(None),
+            rejected_delay: std::sync::OnceLock::new(),
             binding,
             pending: Mutex::new(Vec::new()),
             original,

@@ -182,7 +182,12 @@ impl ManagedPool {
                 .into());
             }
             let mut grant = self.grants.reserve().map_err(std::io::Error::other)?;
-            let view = grant.claim_driver_view().map_err(std::io::Error::other)?;
+            let view = if self.options.preparation_jobs {
+                grant.claim_preparing_driver_view().map(|(view, _)| view)
+            } else {
+                grant.claim_driver_view()
+            }
+            .map_err(std::io::Error::other)?;
             let record = Physical::new(
                 grant.adoption(),
                 grant.cancellation(),
@@ -250,6 +255,8 @@ impl ManagedPool {
                             },
                         )
                         .map_err(std::io::Error::other)?;
+                    self.publish_prepared_driver(&record, &witness)
+                        .map_err(std::io::Error::other)?;
                     *record.witness.lock().unwrap() = Some(witness);
                     record.registered.store(true, Ordering::Release);
                     drop(opening);
@@ -258,6 +265,17 @@ impl ManagedPool {
                 }
                 Err(source) => {
                     drop(opening);
+                    if let Some(delay) = record.rejected_delay.get() {
+                        // Job ownership was sealed before returning this real
+                        // auth error. Caller delay/cancellation does not revoke
+                        // the independent same-Scope original job.
+                        tokio::select! {biased;
+                            _=call.cancel.cancelled()=>{},
+                            _=tokio::time::sleep_until(deadline)=>{},
+                            _=tokio::time::sleep(*delay)=>{},
+                        }
+                        return Err(std::io::Error::other(source).into());
+                    }
                     let unused_prepare = { prepare.lock().unwrap().is_some() };
                     let retry =
                         zero_platform_tokio::controlled_carrier::original_connect_error(&source)

@@ -8,6 +8,7 @@ use tokio::sync::{Mutex as AsyncMutex, Notify};
 use tokio_util::sync::CancellationToken;
 use zero_core::component::{ComponentInstanceId, TaskId};
 pub(super) struct Slot {
+    pub(super) preparation_usage: Arc<super::totals::preparation::PreparationUsage>,
     pub(super) removed: std::sync::atomic::AtomicBool,
     pub(super) completion: Arc<std::sync::OnceLock<bool>>,
     pub(super) instance: ComponentInstanceId,

@@ -16,6 +16,9 @@ fn handed_off(adoption: &CarrierAdoption, originals: &[CarrierAdoption]) -> bool
     adoption
         .retained_driver()
         .is_some_and(|proof| proof.retains(adoption))
+        || adoption
+            .retained_preparation_job()
+            .is_some_and(|proof| proof.retains(adoption))
         || originals.iter().any(|receiver| {
             !receiver.same_slot(adoption)
                 && receiver

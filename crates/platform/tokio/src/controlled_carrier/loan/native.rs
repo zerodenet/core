@@ -1,7 +1,7 @@
 //! Taskless custody keeps native or borrowed controls in their actual owner.
 use super::*;
 use crate::{
-    contract::{BoxFuture, ChannelError, CloseReason, lifecycle::CloseReport},
+    contract::{lifecycle::CloseReport, BoxFuture, ChannelError, CloseReason},
     controlled_carrier::{CarrierAdoption, CarrierIo, CarrierUserView},
 };
 use tokio::time::Instant;
@@ -24,6 +24,34 @@ impl DynChannelControl for NativeControl {
     }
 }
 impl CarrierIo {
+    /// Keep the same Service views/controller during this actual setup only.
+    /// This is not normal transfer publication or permission for a new driver.
+    pub fn into_preparing_stream_loan(
+        self,
+        view: CarrierUserView,
+        preparation: &crate::controlled_carrier::CarrierPreparation,
+    ) -> Result<StreamLoan, ChannelError> {
+        let adoption = CarrierAdoption {
+            slot: self.slot.clone(),
+        };
+        if !view.matches(&adoption) || !preparation.matches_transferred_origin(&self.slot) {
+            return Err(super::super::error(
+                self.slot.instance,
+                crate::contract::Stage::Prepare,
+                crate::contract::Reason::StalePlan,
+                crate::contract::DeliveryState::Unknown,
+            ));
+        }
+        let original = adoption.preparing_transferred_origin()?;
+        Ok(StreamLoan::new(
+            Box::pin(Custody {
+                io: self,
+                _view: view,
+            }),
+            Box::new(NativeControl(adoption)),
+            original,
+        ))
+    }
     /// Transfer the actual view and unique custody lease. Borrowed views keep
     /// their sealed parent/control lineage and make no native-close claim.
     /// No worker, caller witness or FD is invented here.

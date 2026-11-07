@@ -30,75 +30,17 @@ use zero_platform_tokio::{
     },
 };
 
-pub(crate) struct Options<T> {
-    inner: Arc<T>,
-    cleanup_network: Option<Arc<super::BackgroundNetwork>>,
-    endpoint: Destination,
-    dial: zero_traits::DialPolicy,
-    limit: NonZeroUsize,
-    node_dns: Option<zero_core::component::ComponentId>,
-    process: Option<(zero_core::component::ComponentId, std::time::Duration)>,
-}
-impl<T> Options<T> {
-    /// Borrow the same protocol-owned immutable recipe, never a new executor.
-    pub(crate) fn inner_options(&self) -> &T {
-        &self.inner
-    }
-
-    pub(crate) fn new(
-        inner: T,
-        endpoint: Destination,
-        dial: zero_traits::DialPolicy,
-        limit: NonZeroUsize,
-    ) -> Self {
-        Self {
-            inner: Arc::new(inner),
-            cleanup_network: None,
-            endpoint,
-            dial,
-            limit,
-            node_dns: None,
-            process: None,
-        }
-    }
-    pub(crate) fn with_cleanup_network(mut self, network: Arc<super::BackgroundNetwork>) -> Self {
-        self.cleanup_network = Some(network);
-        self
-    }
-    pub(crate) fn with_process(
-        mut self,
-        dependency: zero_core::component::ComponentId,
-        startup: std::time::Duration,
-    ) -> Self {
-        self.process = Some((dependency, startup));
-        self
-    }
-    pub(crate) fn with_node_dns(mut self, dependency: zero_core::component::ComponentId) -> Self {
-        self.node_dns = Some(dependency);
-        self
-    }
-}
-impl<T> Clone for Options<T> {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-            cleanup_network: self.cleanup_network.clone(),
-            endpoint: self.endpoint.clone(),
-            dial: self.dial.clone(),
-            limit: self.limit,
-            node_dns: self.node_dns,
-            process: self.process,
-        }
-    }
-}
+mod options;
+pub(crate) use options::Options;
 pub(crate) struct Factory<F>(pub(crate) F);
 impl<F: ComponentFactory> ComponentFactory for Factory<F> {
     type Options = Options<F::Options>;
     fn describe(&self, options: &Self::Options) -> ComponentSpec {
         let mut spec = self.0.describe(&options.inner);
-        // The inner protocol remains taskless. The same original carrier owns
-        // at most one actual preparation Auxiliary per outstanding reservation.
-        if spec.task_limit.is_none() {
+        // The same original carrier owns at most one live setup or rejected
+        // preparation job per reservation. The protocol opt-in preserves this
+        // actual Scope; it is not a taskless or cached-driver exemption.
+        if spec.task_limit.is_none() || options.preparation_jobs {
             spec.task_limit = Some(options.limit);
         }
         spec.resources
@@ -119,6 +61,7 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
         }
         let mut identity = spec.static_identity.to_vec();
         identity.extend_from_slice(b"same-slot-prepared-carrier-v2");
+        identity.push(u8::from(options.preparation_jobs));
         if options.cleanup_network.is_some() {
             identity.extend_from_slice(b"same-retained-catalog-source-v1");
         }
@@ -144,7 +87,7 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
         let original = self.0.describe(&options.inner);
         // A transport driver must keep its actual protocol owner; it cannot be
         // made taskless by placing its role inside this custody adapter.
-        if original.task_limit.is_some() {
+        if original.task_limit.is_some() && !options.preparation_jobs {
             return Err(super::super::instance::invalid(
                 Reason::InvalidConfig,
                 "carrier framing requires the actual taskless role",
@@ -271,3 +214,5 @@ pub(crate) use service::into_stream as service_stream;
 mod setup;
 
 mod datagram;
+
+mod job;

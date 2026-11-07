@@ -4,6 +4,20 @@ use crate::contract::{DeliveryState, Impact, Reason, Stage};
 /// Host-supplied execution of an already selected prefix. Implementations must
 /// reject stale generations and preserve every hard dial constraint. No direct fallback.
 pub trait UpstreamOpener: Send + Sync {
+    fn has_preparation_job_owner(&self) -> bool {
+        false
+    }
+    fn reserve_preparation_job(
+        &self,
+        _binding: &UpstreamBinding,
+        _call: &CarrierContext,
+    ) -> Result<crate::controlled_carrier::CarrierPreparationJob, ChannelError> {
+        Err(ChannelError::new(
+            super::super::Stage::Prepare,
+            super::super::Reason::Unsupported,
+            super::super::Impact::Component,
+        ))
+    }
     /// Exact same-Host Process dependency and the aggregate's existing UDP
     /// original. Session admission is not inferred from this metadata request.
     fn acquire_process_endpoint_datagram(

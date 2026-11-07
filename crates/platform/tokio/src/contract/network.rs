@@ -124,6 +124,15 @@ impl PendingCarrierObserver {
 }
 
 impl UpstreamTransport {
+    pub fn has_preparation_job_owner(&self) -> bool {
+        self.opener.has_preparation_job_owner()
+    }
+    pub fn reserve_preparation_job(
+        &self,
+        call: &CarrierContext,
+    ) -> Result<crate::controlled_carrier::CarrierPreparationJob, ChannelError> {
+        self.opener.reserve_preparation_job(&self.binding, call)
+    }
     pub fn acquire_process_endpoint_datagram(
         &self,
         request: ProcessEndpointDatagramRequest,

@@ -17,6 +17,9 @@ impl HostOriginalBudgets {
     ) -> bool {
         if current.effective_carrier_max_total_originals()
             != target.effective_carrier_max_total_originals()
+            || current.effective_navigation_max_jobs() != target.effective_navigation_max_jobs()
+            || current.effective_navigation_max_requests()
+                != target.effective_navigation_max_requests()
             || current.effective_process_max_jobs() != target.effective_process_max_jobs()
             || current.effective_process_max_jobs_per_instance()
                 != target.effective_process_max_jobs_per_instance()
@@ -68,6 +71,24 @@ impl HostOriginalBudgets {
             )
             .with_source(source)
         };
+        let preparation = [
+            std::num::NonZeroUsize::new(runtime.effective_navigation_max_jobs()),
+            std::num::NonZeroUsize::new(runtime.effective_navigation_max_requests()),
+        ];
+        if !(1..=64).contains(&runtime.effective_navigation_max_jobs())
+            || !(1..=32).contains(&runtime.effective_navigation_max_requests())
+        {
+            return Err(zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::InvalidConfig,
+                zero_platform_tokio::contract::Impact::Component,
+            ));
+        }
+        let preparation =
+            preparation.map(|value| value.expect("validated positive preparation cap"));
+        self.carrier
+            .check_preparation_limits_after_retirement(preparation[0], preparation[1])
+            .map_err(prepare_error)?;
         self.carrier
             .check_install_after_retirement(
                 std::num::NonZeroUsize::new(limit).expect("validated positive cap"),
@@ -99,6 +120,9 @@ impl HostOriginalBudgets {
         self.packet
             .check_limits(packet_limits[0], packet_limits[1], packet_limits[2])
             .map_err(|source| prepare_error(std::io::Error::other(source)))?;
+        self.carrier
+            .install_preparation_limits_after_retirement(preparation[0], preparation[1])
+            .map_err(prepare_error)?;
         self.carrier
             .install_after_retirement(
                 std::num::NonZeroUsize::new(limit).expect("validated positive cap"),

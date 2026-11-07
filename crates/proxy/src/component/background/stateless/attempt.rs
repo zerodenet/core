@@ -21,6 +21,12 @@ impl Outbound {
         next.upstream = UpstreamTransport::new(
             context.upstream.binding().clone(),
             Arc::new(Opener {
+                tasks: self.tasks.clone(),
+                preparation_call: CarrierContext {
+                    session: context.session_identity()?,
+                    deadline: context.deadline,
+                    cancel: context.cancel.clone(),
+                },
                 upstream: context.upstream.clone(),
                 endpoint: self.endpoint.clone(),
                 process: self.process,
@@ -60,8 +66,14 @@ impl Outbound {
             None => transfer.try_close()?,
         };
         #[cfg(test)]
-        eprintln!("actual original retry settled report={report:?} finished={} ownClosed={:?}", transfer.finished(),
-            transfer.adoption.closed().map(|native| (native.had_native_acquisition(),native.borrowed_origin().is_some())));
+        eprintln!(
+            "actual original retry settled report={report:?} finished={} ownClosed={:?}",
+            transfer.finished(),
+            transfer.adoption.closed().map(|native| (
+                native.had_native_acquisition(),
+                native.borrowed_origin().is_some()
+            ))
+        );
         Ok(report.is_complete()
             && transfer.finished()
             && transfer.adoption.closed().is_some_and(|native| {

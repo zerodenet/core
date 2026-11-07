@@ -101,6 +101,12 @@ impl PendingOpen {
                             .owner()
                             .is_some_and(|owner| owner.matches_adoption(original))
                         && self.valid(original)
+                }) || original.retained_preparation_job().is_some_and(|proof| {
+                    proof.retains(original)
+                        && proof
+                            .owner()
+                            .is_some_and(|owner| owner.matches_adoption(original))
+                        && self.valid(original)
                 }) || loans.iter().any(|(receiver, proof)| {
                     !receiver.same_slot(original) && proof.retains(original)
                 })

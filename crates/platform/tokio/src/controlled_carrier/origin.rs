@@ -76,6 +76,12 @@ impl CarrierAdoption {
         }))))
     }
     pub(super) fn transferred_origin(&self) -> Result<CarrierOrigin, ChannelError> {
+        self.transferred_origin_inner(true)
+    }
+    pub(super) fn preparing_transferred_origin(&self) -> Result<CarrierOrigin, ChannelError> {
+        self.transferred_origin_inner(false)
+    }
+    fn transferred_origin_inner(&self, publish: bool) -> Result<CarrierOrigin, ChannelError> {
         let owner = self
             .slot
             .owner
@@ -93,7 +99,9 @@ impl CarrierAdoption {
         {
             return Err(self.origin_error());
         }
-        state.transferred_origin = true;
+        if publish {
+            state.transferred_origin = true;
+        }
         Ok(CarrierOrigin(Arc::new(Original::Carrier(ActualOriginal {
             slot: Arc::downgrade(&self.slot),
             owner: CarrierOwnerRegistration::new(&owner),

@@ -12,6 +12,7 @@ pub struct VlessManagedUdpFlowResume {
     protocol: crate::udp::PreparedVlessUdpFlowPlan,
     transport: OwnedVlessOutboundTransportPlan,
     preconnect: Option<super::runtime::preconnect::Access>,
+    navigation_reality: Option<crate::reality::PreparedRealityClient>,
 }
 
 pub type VlessManagedUdpConnectorFlow = crate::udp::VlessUdpConnectorFlow;
@@ -22,12 +23,14 @@ impl VlessManagedUdpFlowResume {
         protocol: crate::udp::PreparedVlessUdpFlowPlan,
         transport: OwnedVlessOutboundTransportPlan,
         preconnect: Option<super::runtime::preconnect::Access>,
+        navigation_reality: Option<crate::reality::PreparedRealityClient>,
     ) -> Self {
         Self {
             mux_pool,
             protocol,
             transport,
             preconnect,
+            navigation_reality,
         }
     }
 
@@ -117,16 +120,18 @@ impl VlessManagedUdpFlowResume {
                     &self.mux_pool,
                     binding,
                     move |raw| async move {
+                        let preparation = raw.preparation();
                         let io = TcpRelayStream::new(
                             zero_transport::pooled_driver::ExclusiveIo::new(raw),
                         );
-                        if leaf.mux_pool.native_stream_dependency()?.is_some() {
-                            leaf.transport.encrypt(io).await
-                        } else {
-                            leaf.transport
-                                .open_owned_mux_carrier(io, leaf.mux_pool.native_instance()?)
-                                .await
-                        }
+                        super::navigation::open_carrier(
+                            &leaf.transport,
+                            &leaf.mux_pool,
+                            leaf.navigation_reality.as_ref(),
+                            io,
+                            preparation,
+                        )
+                        .await
                     },
                 )
                 .await

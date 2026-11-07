@@ -9,3 +9,5 @@ pub const DEFAULT_EVENT_LOG_CAPACITY: usize = 1024;
 
 mod budgets;
 mod defaults;
+
+mod navigation;

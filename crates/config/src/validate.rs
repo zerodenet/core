@@ -4,8 +4,8 @@ use std::path::{Component, Path, PathBuf};
 use crate::{ConfigError, EventSinkConfig, ModeConfig, RuntimeConfig, RuntimeOptionsConfig};
 
 mod api;
-mod dial;
 mod control_messages;
+mod dial;
 mod dns;
 mod fallback;
 mod group;
@@ -463,6 +463,24 @@ fn validate_runtime(
         return Err(ConfigError::InvalidRuntime(
             "runtime.grpc_total_max_carriers must be between 1 and 4096".into(),
         ));
+    }
+    for (name, value, maximum) in [
+        (
+            "navigation_max_jobs",
+            runtime.effective_navigation_max_jobs(),
+            64,
+        ),
+        (
+            "navigation_max_requests",
+            runtime.effective_navigation_max_requests(),
+            32,
+        ),
+    ] {
+        if !(1..=maximum).contains(&value) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between 1 and {maximum}"
+            )));
+        }
     }
     if !(1..=65536).contains(&runtime.effective_grpc_total_max_streams()) {
         return Err(ConfigError::InvalidRuntime(

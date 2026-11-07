@@ -70,6 +70,12 @@ impl Datagram {
             attempt.upstream = UpstreamTransport::new(
                 upstream.binding().clone(),
                 Arc::new(Opener {
+                    tasks: self.owner.tasks.clone(),
+                    preparation_call: CarrierContext {
+                        session,
+                        deadline: context.deadline,
+                        cancel: context.cancel.clone(),
+                    },
                     upstream,
                     endpoint: self.owner.endpoint.clone(),
                     process: self.owner.process,

@@ -60,6 +60,15 @@ impl CarrierRecord {
                                 provider.validate_pending_carrier(binding, pending).is_ok()
                             })
                     })
+                    || pending.retained_preparation_job().is_some_and(|proof| {
+                        proof.retains(pending)
+                            && proof
+                                .owner()
+                                .is_some_and(|owner| owner.matches_adoption(pending))
+                            && cleanup.as_ref().is_some_and(|(provider, binding)| {
+                                provider.validate_pending_carrier(binding, pending).is_ok()
+                            })
+                    })
             })
             .cloned()
             .collect::<Vec<_>>();

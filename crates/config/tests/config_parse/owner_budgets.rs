@@ -16,7 +16,7 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 63] = [
+    let fields: [BudgetField; 65] = [
         (
             "control_pipe_max_workspace_bytes",
             RuntimeOptionsConfig::effective_control_pipe_max_workspace_bytes,
@@ -234,6 +234,18 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
             65536,
         ),
         (
+            "navigation_max_jobs",
+            RuntimeOptionsConfig::effective_navigation_max_jobs,
+            64,
+            64,
+        ),
+        (
+            "navigation_max_requests",
+            RuntimeOptionsConfig::effective_navigation_max_requests,
+            32,
+            32,
+        ),
+        (
             "diagnostic_max_operations",
             RuntimeOptionsConfig::effective_diagnostic_max_operations,
             8,
@@ -424,12 +436,10 @@ fn control_event_payload_budget_preserves_omission_and_checks_real_byte_boundari
         defaults.effective_control_max_queued_event_bytes(),
         1024 * 1024
     );
-    assert!(
-        serde_json::to_value(&defaults)
-            .unwrap()
-            .get("control_max_queued_event_bytes")
-            .is_none()
-    );
+    assert!(serde_json::to_value(&defaults)
+        .unwrap()
+        .get("control_max_queued_event_bytes")
+        .is_none());
     for bytes in [1024, 1024 * 1024, 64 * 1024 * 1024] {
         let config = parse("control_max_queued_event_bytes", bytes).unwrap();
         assert_eq!(
@@ -446,12 +456,10 @@ fn control_event_payload_budget_preserves_omission_and_checks_real_byte_boundari
         );
     }
     for bytes in [0, 1023, 64 * 1024 * 1024 + 1, usize::MAX] {
-        assert!(
-            parse("control_max_queued_event_bytes", bytes)
-                .unwrap_err()
-                .to_string()
-                .contains("control_max_queued_event_bytes")
-        );
+        assert!(parse("control_max_queued_event_bytes", bytes)
+            .unwrap_err()
+            .to_string()
+            .contains("control_max_queued_event_bytes"));
     }
 }
 
@@ -496,12 +504,10 @@ fn inbound_resource_zero_and_actual_defaults_preserve_original_admission_meaning
             actual
         );
     }
-    assert!(
-        serde_json::to_value(&defaults)
-            .unwrap()
-            .get("inbound_max_resources_per_carrier")
-            .is_none()
-    );
+    assert!(serde_json::to_value(&defaults)
+        .unwrap()
+        .get("inbound_max_resources_per_carrier")
+        .is_none());
     let empty = parse("inbound_max_resources_per_carrier", 0).unwrap();
     assert_eq!(
         empty

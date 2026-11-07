@@ -32,6 +32,7 @@ pub struct ComponentRecipe {
     bound_datagrams: Arc<[bound_datagram::NativeBinding]>,
     carrier_total: Option<usize>,
     process_limits: Option<accounting::ProcessLimits>,
+    preparation_limits: Option<accounting::PreparationLimits>,
     packet_path: Option<PacketPathFacts>,
 }
 impl ComponentRecipe {
@@ -45,6 +46,7 @@ impl ComponentRecipe {
             bound_datagrams: Arc::from([]),
             carrier_total: None,
             process_limits: None,
+            preparation_limits: None,
             packet_path: None,
         }
     }

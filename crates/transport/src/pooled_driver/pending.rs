@@ -182,6 +182,18 @@ impl Physical {
                                     .is_ok()
                             })
                     })
+                    || slot.retained_preparation_job().is_some_and(|proof| {
+                        proof.retains(slot)
+                            && proof
+                                .owner()
+                                .is_some_and(|registration| registration.matches_adoption(slot))
+                            && owner.as_ref().is_some_and(|owner| {
+                                owner
+                                    .upstream
+                                    .validate_pending_carrier(&self.binding, slot)
+                                    .is_ok()
+                            })
+                    })
                     || observed.iter().any(|receiver| {
                         !receiver.same_slot(slot)
                             && receiver

@@ -2,6 +2,8 @@
 use super::*;
 pub(super) struct Opener {
     pub(super) upstream: UpstreamTransport,
+    pub(super) tasks: Option<TaskRegistrar>,
+    pub(super) preparation_call: CarrierContext,
     pub(super) endpoint: Destination,
     pub(super) process: Option<(
         zero_core::component::ComponentInstanceId,
@@ -11,6 +13,16 @@ pub(super) struct Opener {
     pub(super) association: Option<super::datagram::Association>,
 }
 impl UpstreamOpener for Opener {
+    fn has_preparation_job_owner(&self) -> bool {
+        self.tasks.is_some()
+    }
+    fn reserve_preparation_job(
+        &self,
+        binding: &UpstreamBinding,
+        call: &CarrierContext,
+    ) -> Result<zero_platform_tokio::controlled_carrier::CarrierPreparationJob, ChannelError> {
+        self.reserve_job(binding, call)
+    }
     fn has_pending_carrier_observer(&self) -> bool {
         self.transfer.preparing.lock().unwrap().is_some()
             || self.upstream.observed_pending_carrier().is_some()
@@ -165,13 +177,18 @@ impl UpstreamOpener for Opener {
                     .await?;
                 grant.adopt_stream_loan(&binding, endpoint, &call, loan)?
             };
+            let (io, tag) = io.into_driver().split(|io| (io, ()));
+            *self.transfer.driver_input.lock().unwrap() = Some(tag);
             if business {
                 // Native permission has bound this exact admitted caller to the
                 // slot. Keep its real IO and unique view; no transferred-origin
                 // or Service loan is manufactured for a Business connection.
                 return Ok(Box::pin(super::business::BusinessIo::new(io, view)) as BoxStream);
             }
-            let loan = io.into_stream_loan(view)?;
+            let loan = match &self.transfer.preparation {
+                Some(preparation) => io.into_preparing_stream_loan(view, preparation)?,
+                None => io.into_stream_loan(view)?,
+            };
             let StreamLoan { io, owner } = loan;
             // Keep the original control in the persistent actual owner before
             // returning the view to protocol TLS/framing/handshake code.

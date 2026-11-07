@@ -5,9 +5,9 @@ mod identities;
 mod named;
 mod packet_path;
 mod source_dependencies;
-pub use source_dependencies::SourceDependencyDeclarations;
 use super::{dependencies, instance::invalid, ComponentRecipe};
 pub use identities::SharedResourceIdentities;
+pub use source_dependencies::SourceDependencyDeclarations;
 use std::{
     cell::Cell,
     collections::{BTreeMap, BTreeSet},
@@ -26,6 +26,7 @@ struct Key {
     identity: Arc<[u8]>,
     accounting_limit: Option<usize>,
     process_limits: Option<super::recipe::accounting::ProcessLimits>,
+    preparation_limits: Option<super::recipe::accounting::PreparationLimits>,
 }
 
 /// A real host-assigned identity and its state-only resource recipe.
@@ -138,11 +139,18 @@ impl<'a> ResourcePreparation<'a> {
             if !seen.insert(id) {
                 return None;
             }
-            let shared = preparation.resources.values().find(|node| node.component == id);
+            let shared = preparation
+                .resources
+                .values()
+                .find(|node| node.component == id);
             let (recipe, fresh) = match shared {
                 Some(candidate) => (&candidate.recipe, candidate.fresh),
                 None => {
-                    let tag = preparation.named_components.iter().find(|(_, actual)| **actual == id)?.0;
+                    let tag = preparation
+                        .named_components
+                        .iter()
+                        .find(|(_, actual)| **actual == id)?
+                        .0;
                     let (recipe, _) = preparation.named_recipes.get(tag)?;
                     (recipe, false)
                 }
@@ -157,6 +165,7 @@ impl<'a> ResourcePreparation<'a> {
                 || recipe.packet_path_facts() != old.recipe.packet_path_facts()
                 || recipe.carrier_total_limit() != old.recipe.carrier_total_limit()
                 || recipe.process_limits() != old.recipe.process_limits()
+                || recipe.preparation_limits() != old.recipe.preparation_limits()
             {
                 return None;
             }
@@ -175,7 +184,9 @@ impl<'a> ResourcePreparation<'a> {
             Some(old.instance_id())
         }
         self.ensure_valid().ok()?;
-        if self.restarting { return None; }
+        if self.restarting {
+            return None;
+        }
         check(self, component, &mut BTreeSet::new())
     }
 
@@ -197,10 +208,14 @@ impl<'a> ResourcePreparation<'a> {
         let Ok(process_limits) = self.process_limits_for(spec) else {
             return false;
         };
+        let Ok(preparation_limits) = self.preparation_limits_for(spec) else {
+            return false;
+        };
         let key = Key {
             namespace,
             accounting_limit,
             process_limits,
+            preparation_limits,
             identity: spec.static_identity.clone(),
         };
         if self
@@ -220,6 +235,7 @@ impl<'a> ResourcePreparation<'a> {
             || old.recipe.spec() != spec
             || old.recipe.carrier_total_limit() != accounting_limit
             || old.recipe.process_limits() != process_limits
+            || old.recipe.preparation_limits() != preparation_limits
             || !old.matches_scope_identity(scope)
         {
             return false;
@@ -270,7 +286,15 @@ impl<'a> ResourcePreparation<'a> {
     /// liveness, material authorization, native acquisition or cleanup.
     pub fn previous_resource_identity(&self, component: ComponentId) -> Option<&[u8]> {
         self.ensure_valid().ok()?;
-        Some(self.previous_slots.iter().find(|slot| slot.id == component)?.recipe.spec().static_identity.as_ref())
+        Some(
+            self.previous_slots
+                .iter()
+                .find(|slot| slot.id == component)?
+                .recipe
+                .spec()
+                .static_identity
+                .as_ref(),
+        )
     }
     pub(super) fn with_previous_named(
         mut self,
@@ -442,6 +466,7 @@ impl<'a> ResourcePreparation<'a> {
             namespace,
             accounting_limit: recipe.carrier_total_limit(),
             process_limits: recipe.process_limits(),
+            preparation_limits: recipe.preparation_limits(),
             identity: recipe.spec().static_identity.clone(),
         };
         if let Some(existing) = self.resources.get(&key) {

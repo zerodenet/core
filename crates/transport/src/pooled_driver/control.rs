@@ -214,6 +214,7 @@ impl PoolControl {
             on_closed: None,
             dependencies: Vec::new(),
             scoped_preparation: false,
+            preparation_jobs: false,
             stream_dependency: None,
             node_dependency: None,
         })
@@ -222,6 +223,7 @@ impl PoolControl {
 #[derive(Clone)]
 pub struct PoolOptions {
     pub(super) scoped_preparation: bool,
+    pub(super) preparation_jobs: bool,
     pub(super) stream_dependency: Option<zero_core::component::ComponentId>,
     pub(super) node_dependency: Option<zero_core::component::ComponentId>,
     pub(super) dependencies: Vec<zero_core::component::ComponentId>,

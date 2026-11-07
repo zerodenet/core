@@ -423,6 +423,34 @@ impl BoundAuthority {
             && self.scope.resource_open()
             && self.scope.same_scope(&witness.scope_identity())
     }
+    /// Exact same original per-connection job; no cached driver permission.
+    pub(super) fn permits_preparation_job(&self, registrar: &TaskRegistrar) -> bool {
+        matches!(
+            self.declaration,
+            ResourceDeclaration::ControlledNodeCarrier { .. }
+                | ResourceDeclaration::ControlledCarrierPool {
+                    datagram: false,
+                    ..
+                }
+        ) && !self.host_cancel.is_cancelled()
+            && self.scope.matches(registrar)
+            && self.scope.resource_open()
+    }
+    /// Read-only cleanup provenance, including an actually retiring owner.
+    /// This grants no I/O and does not turn Scope disappearance into closure.
+    pub(super) fn observes_preparation_job(
+        &self,
+        witness: &crate::contract::scope::TaskJoinWitness,
+    ) -> bool {
+        matches!(
+            self.declaration,
+            ResourceDeclaration::ControlledNodeCarrier { .. }
+                | ResourceDeclaration::ControlledCarrierPool {
+                    datagram: false,
+                    ..
+                }
+        ) && self.scope.same_scope(&witness.scope_identity())
+    }
     pub(super) fn permits_driver(&self, registrar: &TaskRegistrar) -> bool {
         // This checks the original binding/scope, not available task credit.
         // The same real registrar must perform the tracked registration and

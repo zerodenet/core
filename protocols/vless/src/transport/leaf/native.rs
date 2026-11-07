@@ -8,16 +8,24 @@ impl VlessOutboundLeaf {
     pub(in crate::transport) async fn open_native_mux_carrier(
         &self,
         io: zero_transport::TcpRelayStream,
+        preparation: Option<zero_platform_tokio::controlled_carrier::CarrierPreparation>,
     ) -> Result<zero_transport::TcpRelayStream, RuntimeError> {
-        if self.mux_pool.native_stream_dependency()?.is_some() {
-            // TLS, H2 and the gRPC body belong to the lower real cache. Keep
-            // VLESS's own optional encryption above that exact logical view.
-            self.transport.encrypt(io).await
-        } else {
-            self.transport
-                .open_owned_mux_carrier(io, self.mux_pool.native_instance()?)
-                .await
-        }
+        super::super::navigation::open_carrier(
+            &self.transport,
+            &self.mux_pool,
+            self.navigation_reality.as_ref(),
+            io,
+            preparation,
+        )
+        .await
+    }
+
+    pub(crate) fn with_preparation_reality(
+        mut self,
+        reality: Option<crate::reality::PreparedRealityClient>,
+    ) -> Self {
+        self.navigation_reality = reality;
+        self
     }
 
     pub fn native_mux_eligible(&self) -> bool {
@@ -82,10 +90,11 @@ impl VlessOutboundLeaf {
                 binding,
                 call,
                 move |raw| async move {
+                    let preparation = raw.preparation();
                     let io = zero_transport::TcpRelayStream::new(
                         zero_transport::pooled_driver::ExclusiveIo::new(raw),
                     );
-                    leaf.open_native_mux_carrier(io).await
+                    leaf.open_native_mux_carrier(io, preparation).await
                 },
             )
             .await
@@ -112,10 +121,11 @@ impl VlessOutboundLeaf {
         let leaf = self.clone();
         self.mux_pool
             .open_native_udp(key, concurrency, binding, call, move |raw| async move {
+                let preparation = raw.preparation();
                 let io = zero_transport::TcpRelayStream::new(
                     zero_transport::pooled_driver::ExclusiveIo::new(raw),
                 );
-                leaf.open_native_mux_carrier(io).await
+                leaf.open_native_mux_carrier(io, preparation).await
             })
             .await
     }

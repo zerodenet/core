@@ -13,6 +13,20 @@ use zero_platform_tokio::{
     controlled_carrier::{CarrierDriver, CarrierGrant, CarrierIo},
 };
 impl ManagedPool {
+    pub(super) fn publish_prepared_driver(
+        &self,
+        record: &Physical,
+        witness: &TaskJoinWitness,
+    ) -> Result<(), ChannelError> {
+        if self.options.preparation_jobs {
+            record
+                .original
+                .preparation()
+                .ok_or_else(|| failure(self.instance, Stage::Prepare, Reason::StalePlan))?
+                .publish_driver(witness)?;
+        }
+        Ok(())
+    }
     pub(super) async fn settle_failed(
         &self,
         record: &Arc<Physical>,
@@ -144,9 +158,26 @@ impl ManagedPool {
         // next actual candidate, never for retrying an authenticated session.
         let prepare = { prepare.lock().unwrap().take() }
             .ok_or_else(|| failure(self.instance, Stage::Handshake, Reason::Internal))?;
-        let prepared = raw.prepare_driver(prepare).await.map_err(|source| {
-            failure(self.instance, Stage::Handshake, Reason::Io).with_source(source)
-        })?;
+        let prepared = if self.options.preparation_jobs {
+            // The actual tag is retained before protocol TLS can move IO into
+            // a rejected decoy job. It is consumed once by success or that job.
+            let (raw, tag) = raw.into_driver().split(|raw| (raw, ()));
+            *physical.driver_input.lock().unwrap() = Some(tag);
+            let driver = prepare(raw).await.map_err(|source| {
+                failure(self.instance, Stage::Handshake, Reason::Io).with_source(source)
+            })?;
+            physical
+                .driver_input
+                .lock()
+                .unwrap()
+                .take()
+                .ok_or_else(|| failure(self.instance, Stage::Handshake, Reason::StalePlan))?
+                .try_map(|()| Ok::<_, ChannelError>(driver))?
+        } else {
+            raw.prepare_driver(prepare).await.map_err(|source| {
+                failure(self.instance, Stage::Handshake, Reason::Io).with_source(source)
+            })?
+        };
         physical.release_installed_pending();
         self.verify_epoch(&binding).map_err(|source| {
             failure(self.instance, Stage::Prepare, Reason::StalePlan).with_source(source)

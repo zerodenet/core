@@ -8,7 +8,7 @@ use tokio::{
 };
 use zero_core::Address;
 
-async fn associate(endpoint: SocketAddr) -> (TcpStream, UdpSocket, SocketAddr) {
+pub(super) async fn associate(endpoint: SocketAddr) -> (TcpStream, UdpSocket, SocketAddr) {
     let mut control = TcpStream::connect(endpoint).await.unwrap();
     control.write_all(&[5, 1, 0]).await.unwrap();
     let mut auth = [0; 2];

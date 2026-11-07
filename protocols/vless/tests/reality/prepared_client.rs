@@ -115,3 +115,6 @@ fn cold_profile_rejects_invalid_keys_short_ids_ciphers_and_spider_without_openin
         .is_err());
     }
 }
+
+#[path = "prepared_client/navigation_owned.rs"]
+mod navigation_owned;

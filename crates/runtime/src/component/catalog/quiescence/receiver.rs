@@ -14,8 +14,18 @@ pub(super) fn retained(
     let loan = lease.retained_receiver()?;
     let receiver = loan.receiver_adoption()?;
     let registered = loan.receiver_owner()?;
-    let driver = receiver.retained_driver()?;
-    if !driver.retains(&receiver) || !driver.owner()?.same_owner(&registered) {
+    let independently_owned = receiver.retained_driver().is_some_and(|proof| {
+        proof.retains(&receiver)
+            && proof
+                .owner()
+                .is_some_and(|owner| owner.same_owner(&registered))
+    }) || receiver.retained_preparation_job().is_some_and(|proof| {
+        proof.retains(&receiver)
+            && proof
+                .owner()
+                .is_some_and(|owner| owner.same_owner(&registered))
+    });
+    if !independently_owned {
         return None;
     }
     let slot = stopping

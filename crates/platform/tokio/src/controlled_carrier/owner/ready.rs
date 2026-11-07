@@ -128,6 +128,7 @@ pub(in crate::controlled_carrier) fn try_close_native_slot(
 pub(in crate::controlled_carrier) fn try_close_slot(
     slot: &Arc<Slot>,
 ) -> Result<CloseReport, BuildError> {
+    crate::controlled_carrier::preparation::cancel_staged(slot);
     let related = { slot.state().related_child.clone() };
     if let Some(child) = related {
         child.cancel.cancel();

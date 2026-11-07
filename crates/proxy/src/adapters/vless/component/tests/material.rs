@@ -64,3 +64,6 @@ async fn ordinary_h2_and_upgrade_use_the_same_owned_file_material_across_network
 
 #[path = "material/direct.rs"]
 mod direct;
+
+#[path = "material/navigation.rs"]
+mod navigation;

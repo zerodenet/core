@@ -13,7 +13,7 @@ impl Outbound {
         };
         let opened = context
             .upstream
-            .open_stream(self.options.endpoint.clone(), carrier);
+            .open_stream(self.options.endpoint.clone(), carrier.clone());
         let io = tokio::select! { biased;
             _ = self.admission.cancelled() => return Err(self.admission.error(session,Stage::Dial,Reason::Revoked,DeliveryState::Unknown)),
             _ = context.cancel.cancelled() => return Err(self.admission.error(session,Stage::Dial,Reason::Cancelled,DeliveryState::Unknown)),
@@ -24,12 +24,14 @@ impl Outbound {
             if let Some(reality) = &self.options.reality {
                 let stream = reality
                     .connect_with_navigation(io, |stream, host, plan| {
-                        navigation::start(
+                        navigation::start_owned(
                             stream,
                             host,
                             plan,
                             self.tasks.clone(),
                             self.admission.clone(),
+                            context.upstream.clone(),
+                            carrier.clone(),
                         )
                     })
                     .await

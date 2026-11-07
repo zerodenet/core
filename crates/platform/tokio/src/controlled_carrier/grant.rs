@@ -62,6 +62,7 @@ impl CarrierGrants {
         })?;
         state.next = next;
         let slot = Arc::new(Slot {
+            preparation_usage: Arc::default(),
             completion: Default::default(),
             removed: Default::default(),
             instance: self.0.instance,

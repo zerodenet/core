@@ -181,7 +181,7 @@ impl UpstreamOpener for Pending {
     }
 }
 impl Transfer {
-    fn retains_cached_driver(&self, original: &CarrierAdoption) -> bool {
+    fn retains_independent_original(&self, original: &CarrierAdoption) -> bool {
         let Some(network) = &self.cleanup_network else {
             return false;
         };
@@ -201,6 +201,12 @@ impl Transfer {
         original
             .retained_driver()
             .is_some_and(|proof| proof.retains(original))
+            || original.retained_preparation_job().is_some_and(|proof| {
+                proof.retains(original)
+                    && proof
+                        .owner()
+                        .is_some_and(|owner| owner.matches_adoption(original))
+            })
     }
     pub(super) fn release_pending(&self) {
         let observed = self.pending.lock().unwrap().clone();
@@ -213,7 +219,7 @@ impl Transfer {
                         .users_closed()
                         .is_some_and(|closed| closed.matches(slot))
                     || installed.as_ref().is_some_and(|proof| proof.retains(slot))
-                    || self.retains_cached_driver(slot)
+                    || self.retains_independent_original(slot)
                     || observed.iter().any(|receiver| {
                         !receiver.same_slot(slot)
                             && receiver

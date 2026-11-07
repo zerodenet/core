@@ -4,6 +4,7 @@ use super::*;
 use std::time::Duration;
 pub(super) trait CarrierCustody: Send + Sync {
     fn released(&self) -> bool;
+    fn preparation_usage(&self) -> [usize; 2];
     fn owner_identity(&self) -> usize;
     fn poll_cancelled_owner(&self, cx: &mut Context<'_>) -> bool;
     fn poll_ack(&self, cx: &mut Context<'_>) -> bool;
@@ -22,6 +23,9 @@ pub(crate) trait BoundCustody: Send + Sync {
 impl CarrierCustody for Original {
     fn released(&self) -> bool {
         Original::released(self)
+    }
+    fn preparation_usage(&self) -> [usize; 2] {
+        self.slot.preparation_usage.snapshot()
     }
     fn owner_identity(&self) -> usize {
         Arc::as_ptr(&self.owner) as usize

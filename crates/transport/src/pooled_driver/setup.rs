@@ -79,6 +79,53 @@ where
             Ok(_) => Err(error(instance, Stage::Prepare, Reason::Cancelled)),
         };
     }
+    if let Err(source) = &outcome {
+        if owner.options.preparation_jobs {
+            let received = joined.as_ref().unwrap();
+            if let Some(pending) = physical
+                .original
+                .take_preparation_job(&owner.tasks, received)
+                .map_err(|install| zero_platform_tokio::controlled_carrier::CarrierPreparationJob::failed_install_error(source.clone(), install))?
+            {
+                let key = pending.grant.clone();
+                let rejected = source.clone();
+                let installed = (|| {
+                    pending.grant.accept_rejection(source.clone(), received)?;
+                    let input = physical
+                        .driver_input
+                        .lock()
+                        .unwrap()
+                        .take()
+                        .ok_or_else(|| error(instance, Stage::Prepare, Reason::StalePlan))?;
+                    let zero_platform_tokio::controlled_carrier::StagedCarrierPreparationJob {
+                        grant,
+                        return_delay,
+                        work,
+                    } = pending;
+                    let body = super::physical::Body(physical.clone());
+                    let (_, driver) = physical.original.spawn_preparation_job(
+                        &owner.tasks,
+                        &grant,
+                        input,
+                        move |_| async move {
+                            let _body = body;
+                            work.await
+                        },
+                    )?;
+                    *physical.witness.lock().unwrap() = Some(driver);
+                    physical
+                        .registered
+                        .store(true, std::sync::atomic::Ordering::Release);
+                    let _ = physical.rejected_delay.set(return_delay);
+                    drop(cancel_on_drop.0.take());
+                    Ok(())
+                })();
+                if let Err(install) = installed {
+                    return Err(key.retain_failed_install(rejected, install));
+                }
+            }
+        }
+    }
     if outcome.is_ok() {
         drop(cancel_on_drop.0.take());
     }
