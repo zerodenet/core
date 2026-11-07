@@ -1,5 +1,40 @@
 # 第二轮续作：剩余生产调用者冻结
 
+## 接续检查点 2026-11-07 06:49 UTC（五域继续实施）
+
+M普通集成源码为 `2aa63ed41d9705bfc94944ccb9e1cc37e8648124`。同一次实际Apply观察前置
+`eaa2742df`与A完整HTTP/IPC消费者 `b35780bcbce7183329f339fe34b9e54601279c2f`已成对接入；
+M `7fff412cabefc7e072b244ddf27e88af3692dc66`接通gRPC同原记录，保原15s wire超时，之后
+由原任务继续取得该次真实TaskJoined及同原错误，而非wait_idle借另一任务。无实际run
+有明确NoAcceptedWork；原blocking closure只携观察元数据，不另造执行任务或宿主。
+后续 `2aa63ed41`将gRPC实际连接退款通知移出custody锁并加强原真accept/close回归，未编测。
+
+精确 `7fff412cabefc7e072b244ddf27e88af3692dc66`、Rust1.99.0、同bb045365锁：六包 lib及
+vmess_contracts no-run exit0/99.15s，日志SHA `a82516b4f9739c0874ca5d9225e26c30ee516acec907725341c233fad84a3393`。
+同产物定向运行见 `m-7fff-serial-regressions.json`：SS固定workspace4项（其中一项实际遍历
+全部现有cipher/地址/负载与安全状态）、HY2 1、Mieru 1、VMess TCP原framing/半关闭/真实
+Pending取消14、gRPC真实原件/事件/同Apply16、ApplyOwner原4加新4共8，均选中且通过，
+源码及实际Cargo.lock不变。这不是全部普通调用者、HTTP/IPC运行或五域完成资格。
+
+此前d995小编译exit101/20.72s为两个新真实IO fixture缺原AsyncSocket的Sync约束，原始
+日志SHA `c87f1ac89db237d3ab2c90243cda0529028b6fb6349f004eaccf794002ca3c2d`；仅fixture
+补界后在上述7fff取证，生产接口未收窄。SS/Mieru更早失败继续保留。
+
+7fff普通Proxy构建首次会话消失，原wrapper没有result JSON；日志停于编译、没有资格。
+关联同启动时间残留Cargo256561/rustc257028的真实kernel wait_status均9（SIGKILL/-9），
+M未发送终止信号；cgroup memory峰近16GiB、oom_kill0，不能据此确认OOM原因。原始
+`m-proxy-vmess-material-recovery-dns-h3-and-full-transmit-artifacts-interruption.json`保存冻结
+输入、日志SHA `d93e7438ee027284a6da3f02f0052c70b52ae70bba54b329645400b234997b74`、真实
+wait status及环境快照。确认无live Cargo/rustc后，同源重跑仅将CARGO_BUILD_JOBS降到1，
+并每10秒追加原始进程/内存采样；生产配置、测试栈、断言、期限和协议目标均未变，当前
+仍在构建。后续不得用首批不完整产物冒充这个输入的普通生产资格。
+
+必要前置已经接入不等于Kernel消费者完成：C完整PacketCaller/cold Source/RX全层预付/
+多peer声明/reconnect仍未激活；B完整QUIC/Nav、其余出站、process与transport实际字节额度
+仍在实现；A DNS完整donor/旧链删除、控制Engine DTO首次物化前预算及剩余投影继续推进。
+当前无统一最终候选、同head最终CI或最终下载归档；TEMP原范围不变。
+
+
 ## 接续检查点 2026-11-07 06:05 UTC（未冻结候选）
 
 实际 remote integration 再核仍为 `59615e69ea5a413d657a873157ea4adf8f204a90`，M 普通接续实现
