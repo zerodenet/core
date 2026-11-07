@@ -233,3 +233,112 @@ async fn statistics_original_blocking_panic_is_joined_and_retained_for_shutdown(
     assert!(Arc::ptr_eq(retained, &original));
     assert!(owner.state.lock().await.as_ref().unwrap().closed);
 }
+
+fn occupy_same_total(
+    book: &Arc<TaskRegistrationBudget>,
+) -> (
+    zero_platform_tokio::contract::scope::HostedScope,
+    tokio::sync::oneshot::Sender<()>,
+    TaskJoinWitness,
+) {
+    let mut scope = TaskScope::suspended_hosted(
+        tokio::runtime::Handle::current(),
+        std::num::NonZeroUsize::new(1),
+    );
+    scope.bind_task_budget(book.clone()).unwrap();
+    scope.enable_registration().unwrap();
+    let (release, gate) = tokio::sync::oneshot::channel();
+    let (_, witness) = scope
+        .registrar()
+        .spawn_tracked(TaskClass::Critical, async move {
+            gate.await.unwrap();
+            Ok(())
+        })
+        .unwrap();
+    (scope, release, witness)
+}
+
+#[tokio::test]
+async fn actual_shared_task_pressure_defers_sampling_until_original_host_ack_without_faulting_active_io(
+) {
+    tokio::time::timeout(Duration::from_secs(3), async {
+        let book = TaskRegistrationBudget::new(std::num::NonZeroUsize::new(1).unwrap());
+        let (mut foreign, release, witness) = occupy_same_total(&book);
+        assert!(witness.native_task_id().is_some());
+        let owner = Sampler::with_task_budget(book.clone());
+        let engine = engine();
+        owner.start(engine.clone()).await.unwrap();
+        let mut cancelled = Box::pin(owner.next_sample());
+        std::future::poll_fn(|cx| {
+            assert!(cancelled.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        drop(cancelled);
+        assert_eq!(book.usage().charged, 1);
+        assert!(!witness.is_joined());
+        assert!(owner.failure.lock().unwrap().is_none());
+        assert!(owner.state.lock().await.as_ref().unwrap().pending.is_none());
+        let mut sample = Box::pin(owner.next_sample());
+        std::future::poll_fn(|cx| {
+            assert!(sample.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        release.send(()).unwrap();
+        let receipt = foreign.next_receipt().await.unwrap();
+        assert!(witness.is_joined());
+        assert_eq!(
+            book.usage().charged,
+            1,
+            "real join before original ACK still blocks a new sampler worker"
+        );
+        assert!(engine
+            .events_snapshot(&Default::default())
+            .iter()
+            .all(|event| event.event_type != "stats.sampled"));
+        foreign.acknowledge(&receipt).unwrap();
+        sample.await.unwrap();
+        assert_eq!(book.usage().charged, 0);
+        assert!(owner.failure.lock().unwrap().is_none());
+        assert_eq!(
+            engine
+                .events_snapshot(&Default::default())
+                .iter()
+                .filter(|event| event.event_type == "stats.sampled")
+                .count(),
+            1
+        );
+        owner.shutdown().await.unwrap();
+        foreign.begin_shutdown();
+        assert!(foreign.is_drained());
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn shutdown_wakes_a_sample_waiting_for_another_originals_task_credit() {
+    tokio::time::timeout(Duration::from_secs(3), async {
+        let book = TaskRegistrationBudget::new(std::num::NonZeroUsize::new(1).unwrap());
+        let (mut foreign, release, witness) = occupy_same_total(&book);
+        let owner = Sampler::with_task_budget(book.clone());
+        owner.start(engine()).await.unwrap();
+        let mut sample = Box::pin(owner.next_sample());
+        std::future::poll_fn(|cx| { assert!(sample.as_mut().poll(cx).is_pending()); std::task::Poll::Ready(()) }).await;
+        tokio::select! {
+            result = owner.shutdown() => result.unwrap(),
+            result = &mut sample => panic!("a pressure-deferred sampler has no worker to complete: {result:?}"),
+        }
+        drop(sample);
+        assert!(owner.state.lock().await.as_ref().unwrap().closed);
+        assert!(!witness.is_joined());
+        assert_eq!(book.usage().charged, 1, "stopping sampler cannot refund another original");
+        release.send(()).unwrap();
+        let receipt = foreign.next_receipt().await.unwrap();
+        foreign.acknowledge(&receipt).unwrap();
+        foreign.begin_shutdown();
+        assert!(foreign.is_drained());
+        assert_eq!(book.usage().charged, 0);
+    }).await.unwrap();
+}

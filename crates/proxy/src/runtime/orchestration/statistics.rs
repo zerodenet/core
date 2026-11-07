@@ -185,9 +185,8 @@ impl Sampler {
                 }
                 let engine = state.engine.clone();
                 let endpoint_due = state.seconds.is_multiple_of(10);
-                state.seconds = state.seconds.wrapping_add(1);
                 let offset = state.endpoint_offset.clone();
-                state.register(move || {
+                let registered = state.register(move || {
                     #[cfg(feature = "host-network-stats")]
                     {
                         sample_host_interfaces(&engine);
@@ -201,7 +200,23 @@ impl Sampler {
                         offset.store(next, Ordering::Release);
                     }
                     Ok(())
-                })?;
+                });
+                if let Err(error) = registered {
+                    if error.get_ref().and_then(|source| {
+                        source.downcast_ref::<zero_platform_tokio::contract::scope::SpawnError>()
+                    }) == Some(&zero_platform_tokio::contract::scope::SpawnError::Capacity)
+                    {
+                        // No worker was created. Shared pressure must defer
+                        // this sample rather than fault or evict active IO.
+                        tokio::select! {
+                            _ = &mut changed => {},
+                            _ = self.task_budget.wait_available() => {},
+                        }
+                        continue;
+                    }
+                    return Err(error);
+                }
+                state.seconds = state.seconds.wrapping_add(1);
             }
             let exit = tokio::select! {
                 _ = &mut changed => continue,
