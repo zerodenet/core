@@ -10,6 +10,7 @@ enum Selected<'a> {
     Runtime,
     Stats,
     PrincipalFlows,
+    Sinks,
     Flows(&'a str),
     Flow(&'a str),
 }
@@ -29,6 +30,7 @@ pub(super) fn route(
         ("GET", "/runtime") => Selected::Runtime,
         ("GET", "/stats") => Selected::Stats,
         ("GET", "/principal_flows") => Selected::PrincipalFlows,
+        ("GET", "/sinks") => Selected::Sinks,
         ("GET", "/flows") => Selected::Flows(path_query_part(&request.path)),
         (_, path) if path_segments(path) == 2 && path.starts_with("/flows/") => {
             Selected::Flow(&path["/flows/".len()..])
@@ -67,6 +69,7 @@ fn prepare(
         Selected::Runtime => QueryRequest::Runtime(Default::default()),
         Selected::Stats => QueryRequest::Stats(Default::default()),
         Selected::PrincipalFlows => QueryRequest::PrincipalFlows(Default::default()),
+        Selected::Sinks => QueryRequest::Sinks(Default::default()),
         Selected::Flows(query) => {
             QueryRequest::ActiveFlows(handlers::parse_flow_list_params(query))
         }
