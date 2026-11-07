@@ -9,6 +9,8 @@ use zero_traits::AsyncSocket;
 pub use zero_platform_tokio::{ClientStream, PrefixedSocket, RelayCarrier, TcpRelayStream};
 mod channel;
 pub use channel::ChannelStream;
+mod queued;
+pub use queued::QueuedChannelStream;
 
 pub struct RecordingStream<S> {
     inner: S,
