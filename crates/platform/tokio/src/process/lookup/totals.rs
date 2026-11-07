@@ -99,6 +99,9 @@ impl LocalProcessLookup {
     }
 }
 impl SourceCustody for LocalProcessLookup {
+    fn instance(&self) -> Option<zero_core::component::ComponentInstanceId> {
+        self.totals.binding.get().map(|binding| binding.instance)
+    }
     fn released(&self) -> bool {
         self.retired()
     }

@@ -4,6 +4,8 @@ use super::*;
 /// software-driver custody. No public factory,
 /// resource bag, executor, protocol extension or identity reconstruction.
 pub(crate) trait SourceCustody: Send + Sync {
+    /// Same concrete original/binding copy; no generation from error metadata.
+    fn instance(&self) -> Option<zero_core::component::ComponentInstanceId>;
     fn released(&self) -> bool;
     fn poll_retirement(&self, cx: &mut Context<'_>) -> bool;
     fn failure(&self) -> Option<Arc<ChannelError>>;

@@ -80,6 +80,9 @@ fn acked(witness: &TaskJoinWitness) -> bool {
         .is_some_and(|joined| witness.matches_joined(&joined) && joined.registration_released())
 }
 impl SourceCustody for Original {
+    fn instance(&self) -> Option<zero_core::component::ComponentInstanceId> {
+        self.pool.originals.get().map(|binding| binding.instance)
+    }
     fn released(&self) -> bool {
         let phase = self.entry.state().phase;
         if phase == Phase::Waiting && self.entry.control.get().is_none() {

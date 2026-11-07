@@ -69,6 +69,9 @@ impl Waiting {
     }
 }
 impl SourceCustody for Core {
+    fn instance(&self) -> Option<zero_core::component::ComponentInstanceId> {
+        self.hosted.as_ref().map(|hosted| hosted.instance)
+    }
     fn released(&self) -> bool {
         let closed = match self.state.try_lock() {
             Ok(state) => state.closed.is_some(),

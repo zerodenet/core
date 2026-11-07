@@ -11,7 +11,7 @@ pub use buffers::{
 mod totals;
 pub use totals::preparation::{CarrierPreparationRequest, CarrierPreparationTotalsSnapshot};
 pub(crate) use totals::{BoundCustody, MetadataCustody, SourceCustody};
-pub use totals::{CarrierOriginalTotals, CarrierOriginalTotalsSnapshot};
+pub use totals::{CarrierOriginalFailure, CarrierOriginalTotals, CarrierOriginalTotalsSnapshot};
 mod auxiliary;
 mod binding;
 mod business;

@@ -183,6 +183,9 @@ impl MetadataTotalsOriginal {
 }
 
 impl crate::controlled_carrier::MetadataCustody for MetadataTotalsOriginal {
+    fn instance(&self) -> Option<zero_core::component::ComponentInstanceId> {
+        Some(MetadataTotalsOriginal::instance(self))
+    }
     fn released(&self) -> bool {
         MetadataTotalsOriginal::released(self)
     }

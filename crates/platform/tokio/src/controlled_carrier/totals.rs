@@ -11,6 +11,14 @@ use std::{
     task::Context,
 };
 
+/// Original fault identity from its retained provider, never reconstructed from
+/// a component-only error. None is unknown ownership, not an absent fault or a
+/// successful close. No task/native capability or Scope is issued here.
+#[derive(Clone, Debug)]
+pub struct CarrierOriginalFailure {
+    pub instance: Option<zero_core::component::ComponentInstanceId>,
+    pub source: Arc<ChannelError>,
+}
 /// Counts original reservation/custody records. An adopted logical LoanOwner
 /// is a record too; this count must never be advertised as native FD count.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -303,19 +311,43 @@ impl CarrierOriginalTotals {
     /// Original typed failures stay owned even if the protocol Owner is lost.
     /// This does not accept an error on behalf of its actual task/receiver.
     pub fn failures(&self) -> Vec<Arc<ChannelError>> {
+        self.failures_with_instances()
+            .into_iter()
+            .map(|actual| actual.source)
+            .collect()
+    }
+    /// Read only. An unknown original instance cannot be attributed to a current
+    /// Slot or converted to a successful no-acquisition/retirement observation.
+    pub fn failures_with_instances(&self) -> Vec<CarrierOriginalFailure> {
         let metadata = self.lock().metadata.clone();
         let bound = self.lock().bound.clone();
         let source = self.lock().source.clone();
         self.originals()
             .into_iter()
-            .filter_map(|(_, original)| original.failure())
-            .chain(
-                metadata
-                    .into_iter()
-                    .filter_map(|original| original.failure()),
-            )
-            .chain(bound.into_iter().filter_map(|original| original.failure()))
-            .chain(source.into_iter().filter_map(|original| original.failure()))
+            .filter_map(|(_, original)| {
+                original.failure().map(|source| CarrierOriginalFailure {
+                    instance: original.instance(),
+                    source,
+                })
+            })
+            .chain(metadata.into_iter().filter_map(|original| {
+                original.failure().map(|source| CarrierOriginalFailure {
+                    instance: original.instance(),
+                    source,
+                })
+            }))
+            .chain(bound.into_iter().filter_map(|original| {
+                original.failure().map(|source| CarrierOriginalFailure {
+                    instance: original.instance(),
+                    source,
+                })
+            }))
+            .chain(source.into_iter().filter_map(|original| {
+                original.failure().map(|source| CarrierOriginalFailure {
+                    instance: original.instance(),
+                    source,
+                })
+            }))
             .collect()
     }
 }

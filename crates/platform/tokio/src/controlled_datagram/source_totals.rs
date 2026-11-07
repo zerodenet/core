@@ -2,15 +2,15 @@
 use super::*;
 use crate::{
     contract::{
-        BoxFuture, CancellationToken, ChannelError, DeliveryState, Impact, Reason, Stage,
-        scope::ScopeRetirementObservation,
+        scope::ScopeRetirementObservation, BoxFuture, CancellationToken, ChannelError,
+        DeliveryState, Impact, Reason, Stage,
     },
     controlled_carrier::{CarrierOriginalTotals, SourceCustody},
 };
 use std::{
     sync::{
-        Weak,
         atomic::{AtomicBool, Ordering},
+        Weak,
     },
     task::{Context, Poll},
 };
@@ -132,6 +132,9 @@ impl Original {
     }
 }
 impl SourceCustody for Original {
+    fn instance(&self) -> Option<zero_core::component::ComponentInstanceId> {
+        Some(self.binding.instance)
+    }
     fn released(&self) -> bool {
         if !self.native_closed() || !self.users_returned() {
             return false;

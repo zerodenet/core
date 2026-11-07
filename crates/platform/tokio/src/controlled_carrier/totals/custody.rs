@@ -3,6 +3,8 @@
 use super::*;
 use std::time::Duration;
 pub(super) trait CarrierCustody: Send + Sync {
+    /// Same concrete original/binding copy; no generation from error metadata.
+    fn instance(&self) -> Option<zero_core::component::ComponentInstanceId>;
     fn released(&self) -> bool;
     fn preparation_usage(&self) -> [usize; 2];
     fn owner_identity(&self) -> usize;
@@ -11,16 +13,23 @@ pub(super) trait CarrierCustody: Send + Sync {
     fn failure(&self) -> Option<Arc<ChannelError>>;
 }
 pub(crate) trait MetadataCustody: Send + Sync {
+    /// Same concrete original/binding copy; no generation from error metadata.
+    fn instance(&self) -> Option<zero_core::component::ComponentInstanceId>;
     fn released(&self) -> bool;
     fn poll_retirement(&self, cx: &mut Context<'_>) -> bool;
     fn failure(&self) -> Option<Arc<ChannelError>>;
 }
 pub(crate) trait BoundCustody: Send + Sync {
+    /// Same concrete original/binding copy; no generation from error metadata.
+    fn instance(&self) -> Option<zero_core::component::ComponentInstanceId>;
     fn released(&self) -> bool;
     fn poll_retirement(&self, cx: &mut Context<'_>) -> bool;
     fn failure(&self) -> Option<Arc<ChannelError>>;
 }
 impl CarrierCustody for Original {
+    fn instance(&self) -> Option<zero_core::component::ComponentInstanceId> {
+        Some(self.owner.instance)
+    }
     fn released(&self) -> bool {
         Original::released(self)
     }

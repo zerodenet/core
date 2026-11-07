@@ -1,14 +1,14 @@
 //! Same Host reservation before the original software/outer acquisition starts.
 use super::*;
 use crate::contract::{
-    BoxFuture,
     scope::{ScopeRetirementObservation, WeakTaskRegistrar},
+    BoxFuture,
 };
 use crate::controlled_carrier::{CarrierOriginalTotals, SourceCustody};
 use std::{
     sync::{
-        Mutex, OnceLock, Weak,
         atomic::{AtomicBool, Ordering},
+        Mutex, OnceLock, Weak,
     },
     task::Context,
 };
@@ -113,6 +113,9 @@ impl LogicalPacketProviderRegistration {
     }
 }
 impl SourceCustody for ActualLogicalPacket {
+    fn instance(&self) -> Option<zero_core::component::ComponentInstanceId> {
+        Some(self.device.instance())
+    }
     fn released(&self) -> bool {
         // The original outer-acquisition marker and final quota reconciliation
         // share this exact gate. Scope completion cannot race a new attempt.

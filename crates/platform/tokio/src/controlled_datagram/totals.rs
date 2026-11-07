@@ -1,8 +1,8 @@
 //! Original Bound UDP Entry custody in the same actual Host aggregate.
 use super::*;
 use crate::contract::{
-    BoxFuture, CancellationToken, ChannelError, DeliveryState, Impact, Reason, Stage,
-    scope::TaskJoinWitness,
+    scope::TaskJoinWitness, BoxFuture, CancellationToken, ChannelError, DeliveryState, Impact,
+    Reason, Stage,
 };
 use crate::controlled_carrier::CarrierOriginalTotals;
 use std::{
@@ -189,6 +189,9 @@ impl std::error::Error for OriginalSource {
 }
 
 impl crate::controlled_carrier::BoundCustody for BoundTotalsOriginal {
+    fn instance(&self) -> Option<zero_core::component::ComponentInstanceId> {
+        Some(BoundTotalsOriginal::instance(self))
+    }
     fn released(&self) -> bool {
         BoundTotalsOriginal::released(self)
     }

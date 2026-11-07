@@ -2,6 +2,9 @@
 use super::*;
 use std::task::Context;
 impl SourceCustody for Original {
+    fn instance(&self) -> Option<zero_core::component::ComponentInstanceId> {
+        Some(self.core.pool.instance)
+    }
     fn released(&self) -> bool {
         if !self.core.closed.load(Ordering::Acquire) || !self.core.acked() {
             return false;

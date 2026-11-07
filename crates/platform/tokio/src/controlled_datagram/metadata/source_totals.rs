@@ -4,15 +4,15 @@ mod users;
 use super::*;
 use crate::{
     contract::{
-        BoxFuture, CancellationToken, ChannelError, DeliveryState, Impact, Reason, Stage,
-        scope::ScopeRetirementObservation,
+        scope::ScopeRetirementObservation, BoxFuture, CancellationToken, ChannelError,
+        DeliveryState, Impact, Reason, Stage,
     },
     controlled_carrier::{CarrierOriginalTotals, SourceCustody},
 };
 use std::{
     sync::{
-        Weak,
         atomic::{AtomicBool, Ordering},
+        Weak,
     },
     task::{Context, Poll},
 };
@@ -136,6 +136,9 @@ impl MetadataOwner {
     }
 }
 impl SourceCustody for Original {
+    fn instance(&self) -> Option<zero_core::component::ComponentInstanceId> {
+        Some(self.instance)
+    }
     fn released(&self) -> bool {
         let Some(owner) = try_owner(&self.owner) else {
             return false;

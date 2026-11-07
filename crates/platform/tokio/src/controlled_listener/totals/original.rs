@@ -1,6 +1,9 @@
 //! Existing Host polls this exact Source native and publication continuation.
 use super::*;
 impl SourceCustody for Original {
+    fn instance(&self) -> Option<zero_core::component::ComponentInstanceId> {
+        self.owner.originals.get().map(|binding| binding.instance)
+    }
     fn released(&self) -> bool {
         if !self.attempt.native_complete() {
             return false;
