@@ -28,6 +28,7 @@ impl ControlBudgetPermit {
             owner: self.owner.clone(),
             charge: ControlCharge::QueuedEventBytes(bytes),
             connection: None,
+            command_identity: None,
         })
     }
     /// Transfer already prepaid response storage to its actual retained byte
@@ -51,6 +52,7 @@ impl ControlBudgetPermit {
             owner: self.owner.clone(),
             charge: ControlCharge::ResponseBytes(bytes),
             connection: None,
+            command_identity: None,
         })
     }
     /// Admit one concrete serialized output: retained encoder growth, its raw
@@ -122,6 +124,7 @@ impl ControlBudgetPermit {
             owner: self.owner.clone(),
             charge,
             connection: None,
+            command_identity: None,
         };
         Ok((
             permit(raw),
