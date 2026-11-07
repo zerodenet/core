@@ -1,3 +1,51 @@
+## 2026-11-07 09:25 UTC：真实事件、借用原 driver 与隔离类型检查
+
+五域仍未完成，不是候选冻结；源代码工作继续，所有 Cargo 仍由 M 串行。
+生产改动已普通追加至 `96c8044e64798d7a15666c71c094e5dbd90f7e10`：
+
+- C `d456a3d2b4187d73191d2316c307b3e0b0998379` 经 M `c1fc33995` 普通合入，
+  实际 TUN 生产只剩 managed System TUN Source completion；旧独立 completion 的
+  native/acquisition/任务执行字段与无调用者安装接口已删。原真实取消/通知/joins 测试保留
+  在 cfg(test) LegacyCompletion。独立 zero_tun 库职责未删；完整 Source/Packet/TUN 仍继续。
+- M `38b0bbbf4e545561d4b2e5c9a6ac2103bec63cd6`：实际 Resource 在原主任务故障之外
+  保留同 cleanup receipt 的稳定原 Arc，以及 driver/external 两固定观测槽，先持久再 ACK；
+  terminal 传递这些实际原错，Native/User/Scope/Host ACK 各自独立。新真实 TCP/文件 OS
+  错误/原 Scope 恢复回归已注册，尚未运行；这三个槽不替代 C 未激活组合的各有限 controller 接收。
+- M `fa4ffacc65c9f3ce84acc0bc55cc4e506a198085` 和可见性修正 `aef65dc02`：
+  HTTP/IPC/gRPC 实时订阅保留 Engine 原队列项及同订阅字节责任直到计量/编码结束，
+  不在出队时深拷贝历史仍持有的 payload。gRPC 先测量原字段，预付后才产生 protobuf 副本；
+  生产选择同 Engine 订阅，standalone 库 API 原职责保留。重放/初始 snapshot 与其他 DTO
+  仍未迁完；新增实际原队列额度/Prost/native 订阅回归尚待运行。
+- M `4e7c5115ab4585fc489f17ec2670766c2f438bc1`：同一借用 datagram driver 的有限
+  清理 continuation 不再被外层取消先 Drop；普通 spawn_driver/related donor 撤权不变。
+  hop 排空已接受前缀，final 封原队列再排空，实际 in-flight send 保留；同 TaskJoined/失败
+  接收、真实 Host ACK、adoption 清理分别处理。新真实 UDP/取消/最终两帧/延迟 ACK 已注册，
+  尚未编测。B 未激活 QUIC 实际 Entry 同 cleanup fence/退出顺序正消费此提交。
+
+实际失败均保留，Rust1.99.0/同 bb045365 锁：
+
+| 冻结实际输入 | 命令/结束码 | 原始日志 SHA-256 |
+| --- | --- | --- |
+| `f22b5c728588ac273410615c82010443049bf93e` | Proxy+Root all-features lib/bin no-run，742.37s exit101；Root 两 fixture 接口与 IPC layout130，未产出本组测试资格，队列未执行 | 18891759e71b998a469ea13f6b60d112b6e2f3601999b2a101132f6c1a1cc2d0 |
+| `fa4ffacc65c9f3ce84acc0bc55cc4e506a198085` | Root all-features bin/tests check exit101；RetainedEvent 旧 owned 转换可见性，aef 追加修正 | 详见原 input/result |
+| `aef65dc023af24bbd741a09cfda8b7d80e36ff97` | 同 Root check，322.55s exit101；IPC inner Work layout130仍在，未提高 recursion limit/栈/容量 | c612f5eadb9a9ced0206e3a82342991d5460ca03b043227457be6de4dba25b30 |
+
+`96c8044e6` 将 type erasure 移到同 admitted execute_ipc_command 边界，删除无效 outer
+Work Box，未增任务/执行器；待复验。先前 VMess/H3/DNS/fullTX 和 Root 生产回归仍排队，
+没有用不同输入旧产物补资格。
+
+C 147 文件基础全片以精确 base38b/patch SHA
+2d42a31faf1caf018fefac4d357c96aff883907927890cd81b9b9874fd256d5a
+冻结，M 在同环境隔离 worktree 提交 `c0908efb24ae322290806bb5dafbae6b6117b2ea` 作
+check-only，使用 M 唯一 bb045365 锁，不采用 C 旧参考锁。没有合入 integration 或激活。
+真实 all-peer Source 装配/停旧、VLESS accepted recipe、各 finite receipt 仍是实现缺口；
+该检查仅提供真实类型错误供继续实现，不把 foundation 编译作为完成。
+
+开发 b658 控制证据已打包（298064 bytes，SHA-256
+ e07233dd4105559804ac9bf94dd44c0c2f764f941bcb18ddd88827aa60c03a60），
+Pages 上传返回 outcome_unknown 且无可确认 Files reference，未盲目重传、未声称可下载。
+最终仍须取得真实可下载归档、精确同锁及同 head CI；当前均未获最终资格。
+
 ## 2026-11-07 09:00 UTC：接续原控制调用与实际 ACK
 
 远端 integration 再核对仍为 `59615e69ea5a413d657a873157ea4adf8f204a90`；
