@@ -137,6 +137,20 @@ impl InboundDevice {
             .chain((0..self.peers.len()).filter(|index| !initiation && Some(*index) != initial))
             .collect::<Vec<_>>();
         let mut verified = Some(packet);
+        // Keep the SDK's exact control allocation across failed peer candidates.
+        // Wrapping it as an outbound EnginePacket between candidates would
+        // correctly forbid extracting its Vec again, losing this transfer.
+        let control = match Packet::from_owned_buffer(control) {
+            Ok(control) => control,
+            Err(control) => {
+                return failed(
+                    TunnelError::Engine,
+                    Some(PacketDeriveError::Unreserved),
+                    None,
+                    control,
+                )
+            }
+        };
         let mut control = Some(control);
         let mut last = TunnelError::UnknownPeer;
         for peer in candidates {
@@ -162,16 +176,24 @@ impl InboundDevice {
                             TunnelError::Engine,
                             Some(storage),
                             None,
-                            control.take().expect("same unused control"),
+                            super::super::owned_packet(
+                                control.take().expect("same unused control"),
+                            ),
                         )
                     }
                 },
             };
             let tunnel = &mut self.peers[peer];
-            if let Err((storage, returned)) =
-                tunnel.install_control(control.take().expect("same actual control"))
+            if let Err(returned) = tunnel
+                .engine
+                .install_owned_control(control.take().expect("same actual control"))
             {
-                return failed(TunnelError::Engine, Some(storage), None, returned);
+                return failed(
+                    TunnelError::Engine,
+                    Some(PacketDeriveError::LayoutMismatch),
+                    None,
+                    super::super::owned_packet(returned),
+                );
             }
             let result =
                 tunnel
@@ -181,9 +203,8 @@ impl InboundDevice {
                         storage: None,
                         original: None,
                     });
-            let output = tunnel.finish_owned_operation(result);
-            control = output.unused_control;
-            match output.result {
+            control = tunnel.engine.take_unused_owned_control();
+            match result {
                 Ok(received) => {
                     self.register_indices(peer, &received.actions);
                     let mut source_rejected_packets = 0;
@@ -217,7 +238,7 @@ impl InboundDevice {
                             actions,
                             source_rejected_packets,
                         }),
-                        unused_control: control,
+                        unused_control: control.map(super::super::owned_packet),
                     };
                 }
                 Err(error) => {
@@ -235,7 +256,7 @@ impl InboundDevice {
             last,
             None,
             Arc::try_unwrap(original).ok(),
-            control.expect("actual unused control after candidates"),
+            super::super::owned_packet(control.expect("actual unused control after candidates")),
         )
     }
 }
