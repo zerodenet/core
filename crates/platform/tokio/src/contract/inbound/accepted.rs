@@ -108,6 +108,11 @@ pub fn accept_datagram(reply: impl DatagramReply) -> Box<dyn AcceptedDatagram> {
 }
 
 pub trait AcceptedPacket: Send {
+    #[cfg(feature = "native-packet-origin")]
+    fn packet_memory(&self) -> Option<super::super::packet::PacketSourceMemory> {
+        None
+    }
+
     fn link_mtu(&self) -> Option<u16> {
         None
     }
@@ -125,6 +130,11 @@ pub trait AcceptedPacket: Send {
     ) -> BoxFuture<'static, Result<Option<BoxPacketSession>, ChannelError>>;
 }
 pub trait PacketReply: Send + 'static {
+    #[cfg(feature = "native-packet-origin")]
+    fn packet_memory(&self) -> Option<super::super::packet::PacketSourceMemory> {
+        None
+    }
+
     fn link_mtu(&self) -> Option<u16> {
         None
     }
@@ -151,6 +161,11 @@ pub type PacketReplyResult<Tx, Rx, Control> =
     Result<Option<PacketSession<Tx, Rx, Control>>, ChannelError>;
 struct Packet<T>(T);
 impl<T: PacketReply> AcceptedPacket for Packet<T> {
+    #[cfg(feature = "native-packet-origin")]
+    fn packet_memory(&self) -> Option<super::super::packet::PacketSourceMemory> {
+        self.0.packet_memory()
+    }
+
     fn link_mtu(&self) -> Option<u16> {
         self.0.link_mtu()
     }

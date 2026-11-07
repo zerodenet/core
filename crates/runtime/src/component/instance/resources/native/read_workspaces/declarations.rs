@@ -29,6 +29,7 @@ impl ReadDeclarations {
             let ResourceDeclaration::PacketDatagramReads {
                 datagram,
                 workspaces,
+                control_workspace,
             } = declaration
             else {
                 continue;
@@ -49,11 +50,12 @@ impl ReadDeclarations {
                     }
                     _ => None,
                 },
-                original: HostPacketReadReservation::new(
+                original: HostPacketReadReservation::new_with_control(
                     *instance,
                     scope.clone(),
                     roots.clone(),
                     *workspaces,
+                    *control_workspace,
                 )?,
             });
         }
@@ -107,6 +109,24 @@ impl ReadDeclarations {
             })?
             .original
             .take()
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(in crate::component::instance::resources::native) fn take_control(
+        &self,
+        datagram: usize,
+    ) -> Result<Option<zero_tun::packet_memory::NativeReadGrant>, ChannelError> {
+        self.entries
+            .iter()
+            .find(|entry| entry.datagram == datagram)
+            .ok_or_else(|| {
+                error(
+                    self.component,
+                    Reason::InvalidConfig,
+                    "no original packet read declaration",
+                )
+            })?
+            .original
+            .take_control()
     }
     pub(in crate::component::instance::resources::native) fn revoke(&self) {
         for entry in &self.entries {

@@ -26,8 +26,14 @@ impl IngressTraffic {
     ) -> Self {
         // System TUN counts the actual native IP boundary, including real
         // fragments. Post-reassembly routing must not count it a second time.
-        let global = native_io.is_none().then(|| runtime.global_packet_traffic()).flatten();
-        let role = native_io.is_none().then(|| runtime.inbound_packet_traffic()).flatten();
+        let global = native_io
+            .is_none()
+            .then(|| runtime.global_packet_traffic())
+            .flatten();
+        let role = native_io
+            .is_none()
+            .then(|| runtime.inbound_packet_traffic())
+            .flatten();
         if let Some(meter) = &role {
             meter.enable(
                 zero_api::TrafficPlane::Inner,
@@ -93,13 +99,47 @@ impl IngressTraffic {
             role.dropped_reason(zero_api::TrafficPlane::Inner, reason);
         }
     }
+    pub fn send_error_spec(
+        &self,
+        responses: &zero_stack::packet_output::PacketSender,
+        spec: zero_stack::packet::IcmpErrorSpec<'_>,
+        identity: Option<&str>,
+    ) {
+        let output = responses
+            .allocate_transmit(spec.length())
+            .and_then(|mut output| {
+                spec.write_into(&mut output)?;
+                Ok(output)
+            });
+        match output {
+            Ok(output) => self.send_response(responses, output, identity),
+            Err(_) => self.drop_inner(identity, zero_api::TrafficDropReason::QueueFull),
+        }
+    }
+    pub fn send_echo_spec(
+        &self,
+        responses: &zero_stack::packet_output::PacketSender,
+        spec: zero_stack::packet::IcmpEchoPacketSpec<'_>,
+        identity: Option<&str>,
+    ) {
+        let output = responses
+            .allocate_transmit(spec.length())
+            .and_then(|mut output| {
+                spec.write_into(&mut output)?;
+                Ok(output)
+            });
+        match output {
+            Ok(output) => self.send_response(responses, output, identity),
+            Err(_) => self.drop_inner(identity, zero_api::TrafficDropReason::QueueFull),
+        }
+    }
     pub fn send_response(
         &self,
         responses: &zero_stack::packet_output::PacketSender,
-        packet: Vec<u8>,
+        packet: zero_traits::PacketBuffer,
         identity: Option<&str>,
     ) {
-        if let Err(error) = responses.try_send(packet) {
+        if let Err(error) = responses.try_send_buffer(packet) {
             self.drop_inner(
                 identity,
                 match error {

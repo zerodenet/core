@@ -233,7 +233,10 @@ impl ProtocolInventory {
         plan: &crate::component::catalog::ComponentPlan,
         inbound_tag: &str,
         original: zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+        memory: zero_platform_tokio::contract::packet::PacketSourceMemory,
     ) -> Result<(), EngineError> {
+        self.devices
+            .install_packet_source_memory(config, inbound_tag, memory.view.clone())?;
         #[cfg(feature = "wireguard")]
         if let Some(adapter) = &self.devices.wireguard {
             for (tag, id) in adapter.packet_source_resources(config)? {
@@ -244,7 +247,7 @@ impl ProtocolInventory {
                 }
             }
         }
-        let _ = (config, plan, inbound_tag, original);
+        let _ = (config, plan, inbound_tag, original, memory);
         Ok(())
     }
 }

@@ -17,6 +17,7 @@ pub fn packet_datagram_read_spec(
         if let ResourceDeclaration::PacketDatagramReads {
             datagram: actual,
             workspaces,
+            ..
         } = declaration
         {
             if !matches!(
@@ -40,6 +41,23 @@ pub fn packet_datagram_read_spec(
     }
     Ok(found)
 }
+/// Cold control metadata from the same validated descriptor. No memory/IO grant.
+pub fn packet_datagram_control_spec(
+    declarations: &[ResourceDeclaration],
+    datagram: usize,
+) -> Result<Option<NonZeroUsize>, ChannelError> {
+    packet_datagram_read_spec(declarations, datagram)?;
+    Ok(declarations
+        .iter()
+        .find_map(|declaration| match declaration {
+            ResourceDeclaration::PacketDatagramReads {
+                datagram: actual,
+                control_workspace,
+                ..
+            } if *actual == datagram => *control_workspace,
+            _ => None,
+        }))
+}
 /// Host construction data only. A protocol receives the unique original grants
 /// through ResourceAccess, never this accounting root or a new provider.
 pub struct HostPacketReadReservation {
@@ -47,6 +65,8 @@ pub struct HostPacketReadReservation {
     scope: TaskScopeIdentity,
     #[cfg(feature = "raw-ip-runtime")]
     lengths: [NonZeroUsize; 2],
+    #[cfg(feature = "raw-ip-runtime")]
+    control: Option<NonZeroUsize>,
     #[cfg(feature = "raw-ip-runtime")]
     roots: Arc<crate::HostOriginalBudgets>,
     state: Mutex<ReadState>,
@@ -56,7 +76,9 @@ struct ReadState {
     stopped: bool,
     taken: bool,
     #[cfg(feature = "raw-ip-runtime")]
-    grants: Option<[zero_tun::packet_memory::NativeReadGrant; 2]>,
+    control_taken: bool,
+    #[cfg(feature = "raw-ip-runtime")]
+    grants: Option<zero_tun::packet_memory::PacketDatagramWorkspaces>,
     driver: Option<TaskJoinWitness>,
 }
 impl HostPacketReadReservation {
@@ -66,6 +88,15 @@ impl HostPacketReadReservation {
         roots: Arc<crate::HostOriginalBudgets>,
         lengths: [NonZeroUsize; 2],
     ) -> Result<Arc<Self>, ChannelError> {
+        Self::new_with_control(instance, scope, roots, lengths, None)
+    }
+    pub fn new_with_control(
+        instance: ComponentInstanceId,
+        scope: TaskScopeIdentity,
+        roots: Arc<crate::HostOriginalBudgets>,
+        lengths: [NonZeroUsize; 2],
+        control: Option<NonZeroUsize>,
+    ) -> Result<Arc<Self>, ChannelError> {
         if !cfg!(feature = "raw-ip-runtime") {
             return Err(error(
                 instance.component,
@@ -74,7 +105,7 @@ impl HostPacketReadReservation {
             ));
         }
         #[cfg(not(feature = "raw-ip-runtime"))]
-        let _ = (roots, lengths);
+        let _ = (roots, lengths, control);
         Ok(Arc::new(Self {
             instance,
             scope,
@@ -82,6 +113,8 @@ impl HostPacketReadReservation {
             roots,
             #[cfg(feature = "raw-ip-runtime")]
             lengths,
+            #[cfg(feature = "raw-ip-runtime")]
+            control,
             state: Mutex::new(ReadState::default()),
         }))
     }
@@ -128,7 +161,10 @@ impl HostPacketReadReservation {
                 let grants = self
                     .roots
                     .packet
-                    .native_grants(&self.lengths.map(NonZeroUsize::get))
+                    .datagram_workspaces(
+                        self.lengths.map(NonZeroUsize::get),
+                        self.control.map(NonZeroUsize::get),
+                    )
                     .map_err(|source| {
                         error(
                             self.instance.component,
@@ -137,11 +173,7 @@ impl HostPacketReadReservation {
                         )
                         .with_source(source)
                     })?;
-                state.grants = Some(
-                    grants
-                        .try_into()
-                        .unwrap_or_else(|_| unreachable!("two admitted actual workspaces")),
-                );
+                state.grants = Some(grants);
             }
         }
         if let Some(driver) = driver {
@@ -161,9 +193,56 @@ impl HostPacketReadReservation {
         if state.stopped || state.taken {
             return Err(self.denied());
         }
-        let grants = state.grants.as_ref().ok_or_else(|| self.denied())?.clone();
+        let grants = state
+            .grants
+            .as_ref()
+            .ok_or_else(|| self.denied())?
+            .reads
+            .clone();
         state.taken = true;
         Ok(grants)
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub fn take_control(
+        &self,
+    ) -> Result<Option<zero_tun::packet_memory::NativeReadGrant>, ChannelError> {
+        if !self.scope.resource_open() {
+            return Err(self.denied());
+        }
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.stopped || !state.taken || state.control_taken {
+            return Err(self.denied());
+        }
+        let control = state
+            .grants
+            .as_ref()
+            .ok_or_else(|| self.denied())?
+            .control
+            .clone();
+        state.control_taken = true;
+        Ok(control)
+    }
+    /// Read-only view of this exact retained read0; never retakes unique IO.
+    #[cfg(feature = "raw-ip-runtime")]
+    pub fn packet_memory_view(
+        &self,
+    ) -> Result<zero_tun::packet_memory::PacketMemoryView, ChannelError> {
+        if !self.scope.resource_open() {
+            return Err(self.denied());
+        }
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.stopped || !state.taken {
+            return Err(self.denied());
+        }
+        state.grants.as_ref().ok_or_else(|| self.denied())?.reads[0]
+            .memory_view()
+            .map_err(|source| self.denied().with_source(source))
     }
     pub fn revoke(&self) {
         let mut state = self

@@ -57,6 +57,48 @@ impl HostOriginalBudgets {
                 zero_platform_tokio::contract::Impact::Component,
             ));
         }
+        // The owning transition retains every actual source/caller admission
+        // fence here. Check all concrete lanes before changing any policy;
+        // pending/failed/retiring originals remain in their existing roots.
+        let prepare_error = |source: std::io::Error| {
+            zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::Capacity,
+                zero_platform_tokio::contract::Impact::Component,
+            )
+            .with_source(source)
+        };
+        self.carrier
+            .check_install_after_retirement(
+                std::num::NonZeroUsize::new(limit).expect("validated positive cap"),
+            )
+            .map_err(prepare_error)?;
+        #[cfg(any(target_os = "linux", windows))]
+        self.process
+            .check_install(zero_platform_tokio::owned_process::ProcessBudgetLimits {
+                max_jobs: runtime.effective_process_max_jobs(),
+                max_jobs_per_instance: runtime.effective_process_max_jobs_per_instance(),
+            })
+            .map_err(prepare_error)?;
+        #[cfg(feature = "raw-ip-runtime")]
+        let packet_limits = [
+            zero_tun::packet_memory::PacketMemoryLimit {
+                frames: runtime.effective_packet_return_total_max_frames(),
+                bytes: runtime.effective_packet_return_total_max_bytes(),
+            },
+            zero_tun::packet_memory::PacketMemoryLimit {
+                frames: runtime.effective_packet_native_read_total_max_frames(),
+                bytes: runtime.effective_packet_native_read_total_max_bytes(),
+            },
+            zero_tun::packet_memory::PacketMemoryLimit {
+                frames: runtime.effective_packet_transmit_total_max_frames(),
+                bytes: runtime.effective_packet_transmit_total_max_bytes(),
+            },
+        ];
+        #[cfg(feature = "raw-ip-runtime")]
+        self.packet
+            .check_limits(packet_limits[0], packet_limits[1], packet_limits[2])
+            .map_err(|source| prepare_error(std::io::Error::other(source)))?;
         self.carrier
             .install_after_retirement(
                 std::num::NonZeroUsize::new(limit).expect("validated positive cap"),
@@ -83,6 +125,10 @@ impl HostOriginalBudgets {
                 )
                 .with_source(source)
             })?;
+        #[cfg(feature = "raw-ip-runtime")]
+        self.packet
+            .install_limits(packet_limits[0], packet_limits[1], packet_limits[2])
+            .map_err(|source| prepare_error(std::io::Error::other(source)))?;
         #[cfg(not(any(target_os = "linux", windows)))]
         let _ = runtime;
         Ok(())

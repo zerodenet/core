@@ -25,6 +25,22 @@ pub(super) struct BoundResources {
         Option<zero_platform_tokio::contract::component::AcceptedDatagramAuthority>,
 }
 impl ResourceAccess for BoundResources {
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+    fn install_packet_source_memory(
+        &self,
+        datagram: usize,
+        memory: zero_platform_tokio::contract::packet::PacketSourceMemory,
+    ) -> Result<(), BuildError> {
+        if datagram != 0 {
+            return Err(denied());
+        }
+        self.packet_native
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .ok_or_else(denied)?
+            .install_packet_memory(memory)
+    }
+
     #[cfg(feature = "raw-ip-runtime")]
     fn packet_source_pause(
         &self,
@@ -42,6 +58,17 @@ impl ResourceAccess for BoundResources {
             .and_then(std::sync::Weak::upgrade)
             .ok_or_else(denied)?
             .take_packet_reads(datagram)
+    }
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+    fn take_packet_datagram_control(
+        &self,
+        datagram: usize,
+    ) -> Result<Option<zero_tun::packet_memory::NativeReadGrant>, BuildError> {
+        self.packet_native
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .ok_or_else(denied)?
+            .take_packet_control(datagram)
     }
     #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
     fn register_packet_source_driver(

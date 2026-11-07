@@ -3,6 +3,7 @@ fn declaration(datagram: usize) -> ResourceDeclaration {
     ResourceDeclaration::PacketDatagramReads {
         datagram,
         workspaces: [NonZeroUsize::new(65_536).unwrap(); 2],
+        control_workspace: None,
     }
 }
 #[test]

@@ -22,7 +22,9 @@ pub use resources::HostOutboundDatagramResources;
 pub use resources::HostResources;
 #[cfg(any(test, feature = "test-support"))]
 pub use resources::NoResources;
-pub use resources::{packet_datagram_read_spec, HostPacketReadReservation};
+pub use resources::{
+    packet_datagram_control_spec, packet_datagram_read_spec, HostPacketReadReservation,
+};
 #[cfg(feature = "raw-ip-runtime")]
 pub use resources::{HostIcmpProbeGrant, HostIcmpProbeOwner};
 use std::sync::{Arc, OnceLock};
@@ -78,8 +80,7 @@ pub struct ComponentSlot {
     owned_start_host: OnceLock<std::sync::Mutex<Option<owned_start::OwnedStart>>>,
     start_wake: Arc<MonitorWake>,
     originals: OnceLock<Arc<crate::HostOriginalBudgets>>,
-    packet_source:
-        Arc<OnceLock<zero_platform_tokio::controlled_carrier::CarrierOrigin>>,
+    packet_source: Arc<OnceLock<zero_platform_tokio::controlled_carrier::CarrierOrigin>>,
 }
 struct Live {
     packet: Option<Arc<dyn DynPacketOutbound>>,
@@ -122,19 +123,32 @@ impl ComponentSlot {
     pub(in crate::component) fn seal_unbuilt_refresh(&self) -> Result<(), ChannelError> {
         self.revoke();
         let _owned = self.owned_start_gate.try_lock().map_err(|_| {
-            invalid(Reason::Capacity, "cold initializer remains owned during refresh")
+            invalid(
+                Reason::Capacity,
+                "cold initializer remains owned during refresh",
+            )
         })?;
         let _starting = self.start_gate.try_lock().map_err(|_| {
-            invalid(Reason::Capacity, "cold component start remains active during refresh")
+            invalid(
+                Reason::Capacity,
+                "cold component start remains active during refresh",
+            )
         })?;
-        if self.live.get().is_some() || self.owned_start.get().is_some()
+        if self.live.get().is_some()
+            || self.owned_start.get().is_some()
             || self.owned_start_host.get().is_some()
         {
-            return Err(invalid(Reason::StalePlan, "network refresh cannot replace a built candidate"));
+            return Err(invalid(
+                Reason::StalePlan,
+                "network refresh cannot replace a built candidate",
+            ));
         }
         #[cfg(any(target_os = "linux", windows))]
         if self.prepaid_process.get().is_some() {
-            return Err(invalid(Reason::StalePlan, "cold refresh retains an actual process reservation"));
+            return Err(invalid(
+                Reason::StalePlan,
+                "cold refresh retains an actual process reservation",
+            ));
         }
         Ok(())
     }

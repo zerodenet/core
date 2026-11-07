@@ -18,8 +18,8 @@ use super::{
 
 mod source_pause;
 pub use source_pause::{
-    PacketPauseParticipant, PacketSourceAcquisition, PacketSourceCheckpoint, PacketSourcePause,
-    PacketSourceMainPaused, PacketSourcePaused,
+    PacketPauseParticipant, PacketSourceAcquisition, PacketSourceCheckpoint,
+    PacketSourceMainPaused, PacketSourcePause, PacketSourcePaused,
 };
 mod owned;
 pub use owned::{send_owned, OwnedSendFailure};
@@ -113,12 +113,31 @@ impl PacketLimits {
     }
 }
 
+/// Immutable actual codec byte sizes; no IO, task or native-close authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PacketMemoryLayout {
+    Native,
+    Padded {
+        multiple: std::num::NonZeroU16,
+        overhead: u16,
+    },
+}
+/// Only a valid original read grant issues this allocation-only view.
+#[cfg(feature = "native-packet-origin")]
+#[derive(Clone)]
+pub struct PacketSourceMemory {
+    pub view: zero_tun::packet_memory::PacketMemoryView,
+    pub layout: PacketMemoryLayout,
+}
 #[derive(Debug, Clone)]
 pub struct PacketRequest {
     pub endpoint: EndpointId,
     /// Actual original Source link MTU for reverse transmission. Independent
     /// of envelope limits and any larger reassembled ingress datagram.
     pub return_mtu: Option<u16>,
+    /// Actual original Source return codec, independent from envelope limits.
+    /// A production Source must supply this positive fact; None is no default.
+    pub return_memory_layout: Option<PacketMemoryLayout>,
     pub limits: PacketLimits,
 }
 

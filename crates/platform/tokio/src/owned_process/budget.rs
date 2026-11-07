@@ -169,6 +169,35 @@ impl ProcessBudget {
         state.limits = limits;
         Ok(())
     }
+    /// Same actual records, no policy change. Host still owns the exclusion
+    /// that prevents new jobs between this read and its later installation.
+    pub fn check_install(&self, limits: ProcessBudgetLimits) -> io::Result<()> {
+        let limits = limits.validate()?;
+        self.reap();
+        let state = self.lock();
+        if state.limits != limits && (!state.jobs.is_empty() || !state.pending.is_empty()) {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "actual process original retirement remains owed",
+            ));
+        }
+        if state.jobs.len() + state.pending.len() > limits.max_jobs
+            || state.jobs.values().any(|entry| {
+                state
+                    .jobs
+                    .values()
+                    .filter(|other| other.instance == entry.instance)
+                    .count()
+                    > limits.max_jobs_per_instance
+            })
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "actual process originals still occupy the proposed budget",
+            ));
+        }
+        Ok(())
+    }
     /// The real host passes its exact instance; no PID or protocol identity
     /// can substitute for the installed original. Reserve before native IO.
     pub fn reserve(

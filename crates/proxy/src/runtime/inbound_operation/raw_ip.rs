@@ -49,6 +49,39 @@ pub(crate) struct RawIpInboundDispatch {
 }
 
 pub(crate) trait RawIpInboundDevice: Send {
+    fn packet_memory_layout(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::packet::PacketMemoryLayout> {
+        None
+    }
+
+    fn receive_datagram_owned(
+        &mut self,
+        _source: Option<SocketAddr>,
+        packet: zero_traits::PacketBuffer,
+        _decode: zero_tun::packet_memory::NativeReadBuffer,
+        control: zero_traits::PacketBuffer,
+        _memory: &zero_tun::packet_memory::PacketDatagramWorkspaces,
+    ) -> crate::runtime::raw_ip::OwnedWireResult<RawIpInboundDispatch> {
+        crate::runtime::raw_ip::OwnedWireResult::unsupported(Some(packet), control)
+    }
+    fn send_ip_packet_owned(
+        &mut self,
+        _peer: usize,
+        packet: zero_traits::PacketBuffer,
+        control: zero_traits::PacketBuffer,
+        _memory: &zero_tun::packet_memory::PacketDatagramWorkspaces,
+    ) -> crate::runtime::raw_ip::OwnedWireResult<Vec<RawIpInboundAction>> {
+        crate::runtime::raw_ip::OwnedWireResult::unsupported(Some(packet), control)
+    }
+    fn tick_peer_owned(
+        &mut self,
+        _peer: usize,
+        control: zero_traits::PacketBuffer,
+        _memory: &zero_tun::packet_memory::PacketDatagramWorkspaces,
+    ) -> crate::runtime::raw_ip::OwnedWireResult<Vec<RawIpInboundAction>> {
+        crate::runtime::raw_ip::OwnedWireResult::unsupported(None, control)
+    }
     /// Actual protocol-owned pending inner payloads, not timer/key metadata.
     /// An implementation without a complete observation cannot ACK idle.
     fn quiescent(&self) -> bool {

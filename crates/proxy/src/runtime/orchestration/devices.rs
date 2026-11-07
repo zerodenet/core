@@ -24,9 +24,17 @@ impl OrchestrationState {
                 continue;
             }
             if let Some(original) = proxy.inbound_owners.packet_source_origin(input)? {
+                let memory = proxy
+                    .inbound_owners
+                    .packet_source_memory(input)?
+                    .ok_or_else(|| {
+                        std::io::Error::other(
+                            "retained actual Packet Source lost its original memory view/layout",
+                        )
+                    })?;
                 proxy
                     .protocols
-                    .bind_actual_packet_source(config, plan, &input.tag, original)?;
+                    .bind_actual_packet_source(config, plan, &input.tag, original, memory)?;
             }
         }
         Ok(())
