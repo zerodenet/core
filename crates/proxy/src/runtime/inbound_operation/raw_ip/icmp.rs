@@ -53,7 +53,7 @@ impl IcmpEchoRelay {
         }
     }
 
-    pub(super) fn new_owned(
+    pub(crate) fn new_owned(
         responses: zero_stack::packet_output::PacketSender,
         route: InboundRouteRuntimeFactory,
         shutdown: watch::Receiver<bool>,
