@@ -1,7 +1,7 @@
 use super::*;
 pub(crate) struct Options<T> {
     pub(super) inner: Arc<T>,
-    pub(super) cleanup_network: Option<Arc<super::BackgroundNetwork>>,
+    pub(super) cleanup_network: Option<Arc<crate::component::background::BackgroundNetwork>>,
     pub(super) endpoint: Destination,
     pub(super) dial: zero_traits::DialPolicy,
     pub(super) limit: NonZeroUsize,
@@ -37,7 +37,7 @@ impl<T> Options<T> {
         self.preparation_jobs = true;
         self
     }
-    pub(crate) fn with_cleanup_network(mut self, network: Arc<super::BackgroundNetwork>) -> Self {
+    pub(crate) fn with_cleanup_network(mut self, network: Arc<crate::component::background::BackgroundNetwork>) -> Self {
         self.cleanup_network = Some(network);
         self
     }
