@@ -106,7 +106,7 @@ impl NativeClient {
             .ok_or_else(|| io::Error::other("DoH driver registration is not bound"))?;
         let joined = tokio::time::timeout_at(end, task.wait())
             .await
-            .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
+            .map_err(|source| crate::retirement_observation::deadline(source, ""))?;
         let provider = self
             .provider
             .lock()
@@ -118,7 +118,7 @@ impl NativeClient {
         if !self.closed() {
             let mut original = tokio::time::timeout_at(end, self.original.lock())
                 .await
-                .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
+                .map_err(|source| crate::retirement_observation::deadline(source, ""))?;
             if let Some(owner) = original.as_mut() {
                 let report = owner.close(end).await.map_err(io::Error::other)?;
                 if !report.is_complete()
@@ -151,7 +151,7 @@ impl NativeClient {
         }
         let released = tokio::time::timeout_at(end, task.wait_registration_released())
             .await
-            .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
+            .map_err(|source| crate::retirement_observation::deadline(source, ""))?;
         if !task.matches_joined(&released) || !released.registration_released() {
             return Err(io::Error::other("DoH original registration ACK is unknown"));
         }
