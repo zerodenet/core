@@ -11,6 +11,7 @@ async fn actual_accept_returns_pending_charge_and_full_root_budget_does_not_acce
             subscriptions: 1,
             queued_event_bytes: 1024,
             pipe_workspace_bytes: 2 * 1024 * 1024,
+            messages: Default::default(),
         });
         let charges = Connections::default();
         let (mut scope, mut original) = cold("127.0.0.1:0".parse().unwrap()).unwrap();

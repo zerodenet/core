@@ -215,6 +215,19 @@ impl super::PacketSender {
             Origin::ExistingStorage | Origin::Standalone(_) => None,
         }
     }
+    /// Copy retained by a real caller's pending send future. This is a
+    /// separate allocation from its later IP/codec envelope and therefore uses
+    /// its own credit in the same original Source's Kernel transmit lane.
+    pub fn copy_pending_payload(&self, bytes: &[u8]) -> Result<PacketBuffer, PacketDeriveError> {
+        let view = self
+            .packet_memory_view()
+            .ok_or(PacketDeriveError::Unreserved)?;
+        let mut packet = view
+            .transmit_packet(bytes.len(), 0, 0)
+            .map_err(memory_error)?;
+        packet.copy_from_slice(bytes);
+        Ok(packet)
+    }
     pub fn allocate_transmit(&self, length: usize) -> Result<PacketBuffer, PacketDeriveError> {
         let binding = self.memory.as_ref().ok_or(PacketDeriveError::Unreserved)?;
         let workspace = binding.wire.workspace_lengths(length)?;

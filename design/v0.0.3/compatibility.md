@@ -318,3 +318,26 @@ helper、剩余调用者/旧执行链删除和必要回归继续，唯一 TEMP �
 自定义literal按实际root提供额度，普通生产装配由既定runtime配置投影。
 V1配置/API/events、CLI/FFI、ACK/revision/订阅和计量语义保持。
 代码与真实Windows回归已补，当前尚待该输入编译和真实平台验证，不算G8或整轮关闭。
+
+
+## 同一 DatagramLoan 的实际 wire 与逻辑 association 续作
+
+进程内 Rust `LoanDatagramIo` 区分当前接收者的逻辑 association 与原 Tx/Rx 实际绑定的
+wire association。初次构造二者相同；真实多层转交继承原 wire 绑定，当前调用者保留其
+自己的逻辑 ID。`association()` 和 `wire_association()` 只读，不授予原件、任务或关闭权限。
+`send` 在构造原有 owned Datagram 前填实际 wire ID，`receive` 按该 ID 筛选；不克隆独占
+PacketBuffer，也不另建队列。原 native 对错误 association 的拒绝仍保留。
+
+实际 `into_session` 消费者应在转移前读取 `io.wire_association()`，用在其本来就拥有的
+编码 frame 上，收到原 wire 后再返回当前逻辑 ID。现有 SS UDP 借入 codec 已配对适配；
+SOCKS native 初次转交的两个 ID 本来相同。没有第二协议 SPI、resolver、pool 或资源后备。
+
+Rust `ResourceDeclaration` 新增 `ControlledServiceDatagram`，穷举该内部契约的集成代码
+需处理新变体；它仅消费声明 endpoint/dial 的真实非空 prefix DatagramLoan，无 root
+native 或 cached-driver 权限。`BorrowedPacketSegment` 接既有 Packet 队列及同 Factory
+Scope 的实际单 Aux，原 LoanOwner 先存原 slot；失败或取消继续持有，真正 join/Host ACK
+及原控制归还后才返原队列。目标生产调用者是既有 per-connection QUIC 出站，完整 producer
+仍在续作，不能以公开类型或局部回归替代普通装配资格。
+
+V1 配置/API/events、CLI、FFI、客户端及面板无需改动。实际编译、失败和运行资格逐输入见
+[第二轮验证记录](cloud/round2/verification.md)，五域仍未完整结题。

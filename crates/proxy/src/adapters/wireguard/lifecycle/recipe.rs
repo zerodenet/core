@@ -5,7 +5,7 @@ pub(super) mod carrier;
 pub(super) mod component;
 mod invocation;
 pub(super) mod retained;
-use super::{PendingLinkedEndpoint, WireguardAdapter, WireguardRawIpPlan, inbound, invalid};
+use super::{inbound, invalid, PendingLinkedEndpoint, WireguardAdapter, WireguardRawIpPlan};
 use crate::{
     protocol_registry::UpstreamConnectServices,
     runtime::{
@@ -155,9 +155,15 @@ impl LinkedEndpointRecipe {
                 Some(link) => Arc::new(PendingLinkedEndpoint::from_ready(link)?),
                 None => graph.pending.clone(),
             },
-            None => Arc::new(PendingLinkedEndpoint::with_peer_slots(
+            None => Arc::new(PendingLinkedEndpoint::with_peer_layout(
                 inbound.listen.clone(),
                 adapter.passive_inbound_live(inbound)?,
+                // Own only the actual declared client stacks. An inbound-only
+                // endpoint still has native crypto peers in its Source, while
+                // this canonical outbound graph legitimately has zero stacks.
+                settings.stacks.len(),
+                // Node resolution/outer acquisition still belongs to each
+                // configured crypto peer, independently of disabled client IO.
                 plan.peer_count(),
             )?),
         };

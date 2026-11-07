@@ -274,3 +274,6 @@ async fn direct_service_still_requires_original_fence_scope_literal_and_an_expli
     assert!(scope.shutdown(deadline()).await.is_complete());
     assert!(foreign.shutdown(deadline()).await.is_complete());
 }
+
+#[path = "direct_service/preparing.rs"]
+mod preparing;

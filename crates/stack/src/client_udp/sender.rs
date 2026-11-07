@@ -148,6 +148,19 @@ impl ClientUdpSender {
             state,
         }
     }
+    #[cfg(feature = "packet-memory")]
+    pub fn copy_pending_payload(
+        &self,
+        bytes: &[u8],
+    ) -> Result<zero_traits::PacketBuffer, zero_traits::PacketDeriveError> {
+        self.inner.outbound.copy_pending_payload(bytes)
+    }
+    #[cfg(feature = "packet-memory")]
+    pub fn defer_memory_notifications(
+        &self,
+    ) -> Option<crate::packet_output::memory::PacketSendNotifications> {
+        self.inner.outbound.defer_memory_notifications()
+    }
     pub fn local_endpoint(&self) -> Endpoint {
         self.endpoint
     }
@@ -267,3 +280,7 @@ impl ClientUdpSender {
 #[cfg(test)]
 #[path = "../../tests/client_udp/sender.rs"]
 mod tests;
+
+#[cfg(all(test, feature = "packet-memory"))]
+#[path = "../../tests/client_udp/pending_memory.rs"]
+mod pending_memory_tests;

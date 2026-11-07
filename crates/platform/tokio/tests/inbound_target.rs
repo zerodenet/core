@@ -173,7 +173,10 @@ async fn target_graph_retries_same_n1_only_after_actual_failed_native_close_and_
     .await
     .unwrap();
 }
+#[path = "inbound_target/cancellation.rs"]
 mod cancellation;
+#[path = "inbound_target/parallel.rs"]
 mod parallel;
 #[cfg(unix)]
+#[path = "inbound_target/unix.rs"]
 mod unix;

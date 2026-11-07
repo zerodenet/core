@@ -18,6 +18,7 @@ pub(super) fn defaults() -> Arc<ControlBudget> {
         subscriptions: 256,
         queued_event_bytes: 1024 * 1024,
         pipe_workspace_bytes: 2 * 1024 * 1024,
+        messages: Default::default(),
     })
 }
 pub(super) struct QueuedEvent {

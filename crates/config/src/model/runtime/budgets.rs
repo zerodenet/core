@@ -2,6 +2,35 @@
 use super::*;
 
 impl RuntimeOptionsConfig {
+    pub fn effective_control_max_in_flight_request_bytes(&self) -> usize {
+        self.control_max_in_flight_request_bytes.unwrap_or(67108864)
+    }
+    pub fn effective_control_max_in_flight_response_bytes(&self) -> usize {
+        self.control_max_in_flight_response_bytes
+            .unwrap_or(67108864)
+    }
+    pub fn effective_control_ipc_max_frame_bytes(&self) -> usize {
+        self.control_ipc_max_frame_bytes.unwrap_or(67108864)
+    }
+    pub fn effective_control_http_max_header_bytes(&self) -> usize {
+        self.control_http_max_header_bytes.unwrap_or(8192)
+    }
+    pub fn effective_control_http_max_body_bytes(&self) -> usize {
+        self.control_http_max_body_bytes.unwrap_or(262144)
+    }
+    pub fn effective_control_max_response_bytes(&self) -> usize {
+        self.control_max_response_bytes.unwrap_or(67108864)
+    }
+    pub fn effective_control_ipc_max_pending_commands(&self) -> usize {
+        self.control_ipc_max_pending_commands.unwrap_or(32)
+    }
+    pub fn effective_control_max_pending_commands(&self) -> usize {
+        self.control_max_pending_commands.unwrap_or(1024)
+    }
+    pub fn effective_control_ipc_max_event_frames(&self) -> usize {
+        self.control_ipc_max_event_frames.unwrap_or(32)
+    }
+
     pub fn effective_control_pipe_max_workspace_bytes(&self) -> usize {
         self.control_pipe_max_workspace_bytes
             .unwrap_or(2 * 1024 * 1024)
@@ -240,5 +269,18 @@ impl RuntimeOptionsConfig {
             .as_deref()
             .or(fallback)
             .unwrap_or(DEFAULT_LATENCY_TEST_URL)
+    }
+}
+
+impl RuntimeOptionsConfig {
+    pub fn effective_control_grpc_max_requests(&self) -> usize {
+        self.control_grpc_max_requests.unwrap_or(1024)
+    }
+    pub fn effective_control_grpc_max_streams_per_connection(&self) -> usize {
+        self.control_grpc_max_streams_per_connection.unwrap_or(32)
+    }
+    pub fn effective_control_grpc_max_request_bytes(&self) -> usize {
+        self.control_grpc_max_request_bytes
+            .unwrap_or(4 * 1024 * 1024)
     }
 }

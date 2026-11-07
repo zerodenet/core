@@ -12,6 +12,7 @@ async fn cancelled_subscription_join_waiter_preserves_registration_and_original_
             subscriptions: 1,
             queued_event_bytes: 1024,
             pipe_workspace_bytes: 2 * 1024 * 1024,
+            messages: Default::default(),
         },
     );
     let charge = budget

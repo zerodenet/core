@@ -5,29 +5,21 @@ use std::{
     sync::{Arc, Mutex, Weak},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ControlBudgetLimits {
-    pub connections: usize,
-    pub subscriptions: usize,
-    pub queued_event_bytes: usize,
-    pub pipe_workspace_bytes: usize,
-}
-impl ControlBudgetLimits {
-    pub fn from_runtime(runtime: &zero_config::RuntimeOptionsConfig) -> Self {
-        Self {
-            connections: runtime.effective_control_max_connections(),
-            subscriptions: runtime.effective_control_max_subscriptions(),
-            queued_event_bytes: runtime.effective_control_max_queued_event_bytes(),
-            pipe_workspace_bytes: runtime.effective_control_pipe_max_workspace_bytes(),
-        }
-    }
-}
+mod capacity;
+mod connection;
+pub use connection::{ControlConnectionBudget, ControlConnectionCharge, ControlConnectionPermit};
+mod limits;
+pub use limits::{ControlBudgetLimits, ControlMessageLimits};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ControlBudgetUsage {
     pub connections: usize,
     pub subscriptions: usize,
     pub queued_event_bytes: usize,
     pub pipe_workspace_bytes: usize,
+    pub request_bytes: usize,
+    pub response_bytes: usize,
+    pub pending_commands: usize,
+    pub grpc_requests: usize,
 }
 #[derive(Clone, Copy)]
 pub enum ControlCharge {
@@ -35,6 +27,10 @@ pub enum ControlCharge {
     Subscription,
     QueuedEventBytes(usize),
     PipeWorkspaceBytes(usize),
+    RequestBytes(usize),
+    ResponseBytes(usize),
+    PendingCommand,
+    GrpcRequest,
 }
 #[derive(Debug)]
 struct Pending {
@@ -47,15 +43,18 @@ struct State {
     used: ControlBudgetUsage,
     pending: Option<Pending>,
     closed: bool,
+    connection_serial: u64,
+    connections: std::collections::BTreeMap<u64, connection::Usage>,
 }
 #[derive(Debug)]
-pub struct ControlBudget(Mutex<State>);
+pub struct ControlBudget(Mutex<State>, Arc<tokio::sync::Notify>);
 /// Each live permit is retained by the actual original, not by a waiter. Its
 /// owner releases it only after matching native close / real worker and queue
 /// custody return, as appropriate to that charge.
 pub struct ControlBudgetPermit {
     owner: Arc<ControlBudget>,
     charge: ControlCharge,
+    connection: Option<ControlConnectionBudget>,
 }
 /// Exact finite host attempt; Drop deliberately does not authorize publication
 /// or retirement. The existing application attempt retains it across awaits.
@@ -75,15 +74,24 @@ fn fits(used: ControlBudgetUsage, limits: ControlBudgetLimits) -> bool {
         && used.subscriptions <= limits.subscriptions
         && used.queued_event_bytes <= limits.queued_event_bytes
         && used.pipe_workspace_bytes <= limits.pipe_workspace_bytes
+        && used.request_bytes <= limits.messages.request_bytes_total
+        && used.response_bytes <= limits.messages.response_bytes_total
+        && used.pending_commands <= limits.messages.pending_commands
+        && used.grpc_requests <= limits.messages.grpc_requests
 }
 impl ControlBudget {
     pub fn new(limits: ControlBudgetLimits) -> Arc<Self> {
-        Arc::new(Self(Mutex::new(State {
-            limits,
-            used: ControlBudgetUsage::default(),
-            pending: None,
-            closed: false,
-        })))
+        Arc::new(Self(
+            Mutex::new(State {
+                limits,
+                used: ControlBudgetUsage::default(),
+                pending: None,
+                closed: false,
+                connection_serial: 0,
+                connections: Default::default(),
+            }),
+            Arc::new(tokio::sync::Notify::new()),
+        ))
     }
     pub fn limits(&self) -> ControlBudgetLimits {
         self.0
@@ -114,6 +122,10 @@ impl ControlBudget {
             ControlCharge::Subscription => (&mut used.subscriptions, 1),
             ControlCharge::QueuedEventBytes(bytes) => (&mut used.queued_event_bytes, bytes),
             ControlCharge::PipeWorkspaceBytes(bytes) => (&mut used.pipe_workspace_bytes, bytes),
+            ControlCharge::RequestBytes(bytes) => (&mut used.request_bytes, bytes),
+            ControlCharge::ResponseBytes(bytes) => (&mut used.response_bytes, bytes),
+            ControlCharge::PendingCommand => (&mut used.pending_commands, 1),
+            ControlCharge::GrpcRequest => (&mut used.grpc_requests, 1),
         };
         *counter = counter.checked_add(cost).ok_or_else(capacity)?;
         if !fits(used, state.limits)
@@ -124,10 +136,22 @@ impl ControlBudget {
         {
             return Err(capacity());
         }
+        let connection = if matches!(charge, ControlCharge::Connection) {
+            let id = state
+                .connection_serial
+                .checked_add(1)
+                .ok_or_else(capacity)?;
+            state.connection_serial = id;
+            state.connections.insert(id, connection::Usage::default());
+            Some(ControlConnectionBudget::issued(self.clone(), id))
+        } else {
+            None
+        };
         state.used = used;
         Ok(ControlBudgetPermit {
             owner: self.clone(),
             charge,
+            connection,
         })
     }
     pub fn validate(&self, limits: ControlBudgetLimits) -> io::Result<()> {
@@ -138,7 +162,7 @@ impl ControlBudget {
         if state.pending.is_some() {
             return Err(io::Error::other("root control candidate still owned"));
         }
-        if !fits(state.used, limits) {
+        if !fits(state.used, limits) || !connection::fits_all(&state, limits) {
             return Err(capacity());
         }
         Ok(())
@@ -156,7 +180,7 @@ impl ControlBudget {
                 "root control candidate cannot replace an unresolved owner",
             ));
         }
-        if !fits(state.used, limits) {
+        if !fits(state.used, limits) || !connection::fits_all(&state, limits) {
             return Err(capacity());
         }
         let identity = Arc::new(());
@@ -175,6 +199,7 @@ impl ControlBudget {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .closed = true;
+        self.1.notify_waiters();
     }
     pub fn confirm_released(&self) -> io::Result<()> {
         let state = self
@@ -213,6 +238,8 @@ impl ControlBudgetCandidate {
             state.limits = self.limits;
         }
         state.pending = None;
+        drop(state);
+        owner.1.notify_waiters();
         Ok(())
     }
     pub fn commit(&self) -> io::Result<()> {
@@ -236,10 +263,19 @@ impl Drop for ControlBudgetPermit {
             ControlCharge::PipeWorkspaceBytes(bytes) => {
                 (&mut state.used.pipe_workspace_bytes, bytes)
             }
+            ControlCharge::RequestBytes(bytes) => (&mut state.used.request_bytes, bytes),
+            ControlCharge::ResponseBytes(bytes) => (&mut state.used.response_bytes, bytes),
+            ControlCharge::PendingCommand => (&mut state.used.pending_commands, 1),
+            ControlCharge::GrpcRequest => (&mut state.used.grpc_requests, 1),
         };
         *counter = counter
             .checked_sub(cost)
             .expect("same root control charge returned once");
+        if let Some(connection) = &self.connection {
+            connection::close(&mut state, connection);
+        }
+        drop(state);
+        self.owner.1.notify_waiters();
     }
 }
 #[cfg(test)]

@@ -1,4 +1,5 @@
 //! Original host-fence authority for one fixed Service slot and real caller.
+mod caller;
 use super::{error, slot::Slot, CarrierGrant, CarrierOwnerBinding};
 use crate::contract::{
     component::ControlledStreamDemandClass,
@@ -240,36 +241,6 @@ impl CarrierServiceGrant {
             .is_some_and(|deadline| Instant::now() >= deadline)
         {
             return Err(failure(slot.instance, Reason::Timeout));
-        }
-        Ok(())
-    }
-    pub(super) fn bind_caller(&self, slot: &Arc<Slot>) -> Result<(), ChannelError> {
-        if !Weak::ptr_eq(&self.slot, &Arc::downgrade(slot)) {
-            return Err(failure(slot.instance, Reason::StalePlan));
-        }
-        let identity = Arc::downgrade(&self.demand);
-        let cancel = self.demand.cancel.clone();
-        let mut state = slot.state();
-        if state.closed || slot.cancel.is_cancelled() || state.business_identity.is_some() {
-            return Err(failure(slot.instance, Reason::Revoked));
-        }
-        if state
-            .service_identity
-            .as_ref()
-            .is_some_and(|actual| !Weak::ptr_eq(actual, &identity))
-        {
-            return Err(failure(slot.instance, Reason::StalePlan));
-        }
-        if !state
-            .users
-            .as_mut()
-            .is_some_and(|users| users.bind(self.demand.caller.clone()))
-        {
-            return Err(failure(slot.instance, Reason::InvalidConfig));
-        }
-        if state.service_identity.is_none() {
-            state.service_identity = Some(identity);
-            state.business_cancel = Some(cancel);
         }
         Ok(())
     }
