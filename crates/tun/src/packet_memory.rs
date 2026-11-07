@@ -1,11 +1,20 @@
 //! Concrete packet payload credits shared by the one kernel memory owner.
 //! These counters own no queue, worker, native handle or close evidence.
 mod credit;
+mod notifications;
+pub use notifications::{PacketMemoryNotifications, PacketRootNotifications};
+mod view;
+pub use view::PacketMemoryView;
+mod datagram;
+pub use datagram::PacketDatagramWorkspaces;
+mod limits;
 mod read;
+mod transmit;
 pub use credit::{NativePacketCredit, PacketReturnCredit};
 pub use read::{NativeReadBuffer, NativeReadGrant};
 use std::sync::{Arc, Condvar, Mutex};
 use tokio::sync::Notify;
+pub use transmit::{PacketTransmitCredit, PacketTransmitEnvelope};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PacketMemoryLimit {
@@ -37,10 +46,12 @@ impl std::error::Error for PacketMemoryError {}
 enum Lane {
     Returns,
     Native,
+    Transmit,
 }
 struct State {
     returns: PacketMemorySnapshot,
     native: PacketMemorySnapshot,
+    transmit: PacketMemorySnapshot,
     paused: bool,
 }
 /// Constructed once beside the kernel's Devices and passed into its existing
@@ -50,6 +61,7 @@ pub struct PacketReturnTotals {
     state: Mutex<State>,
     changed: Notify,
     blocking: Condvar,
+    notifications: notifications::Notifications,
 }
 impl Default for PacketReturnTotals {
     fn default() -> Self {
@@ -67,6 +79,20 @@ impl Default for PacketReturnTotals {
 }
 impl PacketReturnTotals {
     pub fn new(returns: PacketMemoryLimit, native: PacketMemoryLimit) -> Self {
+        Self::new_with_transmit(
+            returns,
+            native,
+            PacketMemoryLimit {
+                frames: 16384,
+                bytes: 64 * 1024 * 1024,
+            },
+        )
+    }
+    pub fn new_with_transmit(
+        returns: PacketMemoryLimit,
+        native: PacketMemoryLimit,
+        transmit: PacketMemoryLimit,
+    ) -> Self {
         Self {
             state: Mutex::new(State {
                 returns: PacketMemorySnapshot {
@@ -83,10 +109,18 @@ impl PacketReturnTotals {
                         bytes: 0,
                     },
                 },
+                transmit: PacketMemorySnapshot {
+                    limit: transmit,
+                    occupied: PacketMemoryLimit {
+                        frames: 0,
+                        bytes: 0,
+                    },
+                },
                 paused: false,
             }),
             changed: Notify::new(),
             blocking: Condvar::new(),
+            notifications: notifications::Notifications::default(),
         }
     }
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
@@ -99,41 +133,6 @@ impl PacketReturnTotals {
     }
     pub fn native(&self) -> PacketMemorySnapshot {
         self.state().native
-    }
-    /// StopOld must already have completed. This does not evict or refund any
-    /// buffer merely because its old Scope or native handle has closed.
-    pub fn install(&self, frames: usize, bytes: usize) -> std::io::Result<()> {
-        self.install_lane(Lane::Returns, PacketMemoryLimit { frames, bytes })
-            .map_err(|source| {
-                std::io::Error::new(
-                    if source == PacketMemoryError::Busy {
-                        std::io::ErrorKind::WouldBlock
-                    } else {
-                        std::io::ErrorKind::InvalidInput
-                    },
-                    source,
-                )
-            })
-    }
-    pub fn install_native(&self, frames: usize, bytes: usize) -> Result<(), PacketMemoryError> {
-        self.install_lane(Lane::Native, PacketMemoryLimit { frames, bytes })
-    }
-    fn install_lane(&self, lane: Lane, limit: PacketMemoryLimit) -> Result<(), PacketMemoryError> {
-        let mut state = self.state();
-        let current = match lane {
-            Lane::Returns => &mut state.returns,
-            Lane::Native => &mut state.native,
-        };
-        if limit.frames == 0 || limit.bytes == 0 {
-            return Err(PacketMemoryError::Capacity);
-        }
-        if current.occupied.frames > limit.frames || current.occupied.bytes > limit.bytes {
-            return Err(PacketMemoryError::Busy);
-        }
-        current.limit = limit;
-        drop(state);
-        self.wake();
-        Ok(())
     }
     pub fn reserve_returns(
         self: &Arc<Self>,
@@ -199,6 +198,7 @@ impl PacketReturnTotals {
         let current = match lane {
             Lane::Returns => &state.returns,
             Lane::Native => &state.native,
+            Lane::Transmit => &state.transmit,
         };
         if frames > current.limit.frames || bytes > current.limit.bytes {
             return Err(PacketMemoryError::Capacity);
@@ -214,6 +214,7 @@ impl PacketReturnTotals {
         let current = match lane {
             Lane::Returns => &mut state.returns,
             Lane::Native => &mut state.native,
+            Lane::Transmit => &mut state.transmit,
         };
         current.occupied.frames += frames;
         current.occupied.bytes += bytes;
@@ -224,11 +225,17 @@ impl PacketReturnTotals {
                 root: self.clone(),
                 lane,
                 bytes: *bytes,
+                frames: 1,
             })
             .collect())
     }
     /// Wakes only existing memory waiters. This is not task or native closure.
     pub fn wake(&self) {
+        if self.notifications.request() {
+            self.notify_now();
+        }
+    }
+    fn notify_now(&self) {
         self.changed.notify_waiters();
         self.blocking.notify_all();
     }

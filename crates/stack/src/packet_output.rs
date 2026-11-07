@@ -1,15 +1,19 @@
 //! Bounded raw-IP output with opaque per-flow observation provenance.
+#[cfg(feature = "packet-memory")]
+pub mod memory;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use zero_traits::{IoObserver, PacketBuffer};
 
 #[derive(Debug)]
 pub struct ObservedPacket {
-    pub packet: Vec<u8>,
+    pub packet: PacketBuffer,
     pub observer: Option<Arc<dyn IoObserver>>,
 }
 #[derive(Clone, Debug)]
 pub struct PacketSender {
+    #[cfg(feature = "packet-memory")]
+    memory: Option<memory::Binding>,
     return_mtu: Option<u16>,
     channel: Channel,
     observer: Option<Arc<dyn IoObserver>>,
@@ -29,6 +33,8 @@ pub enum PacketPermit {
     ),
 }
 pub struct WeakPacketSender {
+    #[cfg(feature = "packet-memory")]
+    memory: Option<memory::Binding>,
     return_mtu: Option<u16>,
     channel: WeakChannel,
     observer: Option<Arc<dyn IoObserver>>,
@@ -41,6 +47,8 @@ enum WeakChannel {
 impl From<mpsc::Sender<Vec<u8>>> for PacketSender {
     fn from(sender: mpsc::Sender<Vec<u8>>) -> Self {
         Self {
+            #[cfg(feature = "packet-memory")]
+            memory: None,
             return_mtu: None,
             channel: Channel::Plain(sender),
             observer: None,
@@ -50,6 +58,8 @@ impl From<mpsc::Sender<Vec<u8>>> for PacketSender {
 impl From<mpsc::Sender<ObservedPacket>> for PacketSender {
     fn from(sender: mpsc::Sender<ObservedPacket>) -> Self {
         Self {
+            #[cfg(feature = "packet-memory")]
+            memory: None,
             return_mtu: None,
             channel: Channel::Observed(sender),
             observer: None,
@@ -59,6 +69,8 @@ impl From<mpsc::Sender<ObservedPacket>> for PacketSender {
 impl From<mpsc::Sender<PacketBuffer>> for PacketSender {
     fn from(sender: mpsc::Sender<PacketBuffer>) -> Self {
         Self {
+            #[cfg(feature = "packet-memory")]
+            memory: None,
             return_mtu: None,
             channel: Channel::Owned(sender),
             observer: None,
@@ -66,6 +78,16 @@ impl From<mpsc::Sender<PacketBuffer>> for PacketSender {
     }
 }
 impl PacketSender {
+    pub(crate) fn memory_changed(
+        &self,
+    ) -> Option<std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>> {
+        #[cfg(feature = "packet-memory")]
+        {
+            return self.memory.as_ref().map(memory::Binding::changed);
+        }
+        #[cfg(not(feature = "packet-memory"))]
+        None
+    }
     /// Metadata from the original accepted Source; no native/role authority.
     pub fn with_return_mtu(mut self, mtu: u16) -> Self {
         self.return_mtu = Some(mtu);
@@ -103,7 +125,7 @@ impl PacketSender {
             Channel::Observed(sender) => match sender.reserve().await {
                 Ok(permit) => {
                     permit.send(ObservedPacket {
-                        packet: packet.into_vec(),
+                        packet,
                         observer: self.observer.clone(),
                     });
                     Ok(())
@@ -137,7 +159,7 @@ impl PacketSender {
             Channel::Observed(sender) => match sender.try_reserve() {
                 Ok(permit) => {
                     permit.send(ObservedPacket {
-                        packet: packet.into_vec(),
+                        packet,
                         observer: self.observer.clone(),
                     });
                     Ok(())
@@ -169,48 +191,64 @@ impl PacketSender {
     }
     pub async fn send(&self, packet: Vec<u8>) -> Result<(), mpsc::error::SendError<Vec<u8>>> {
         self.send_packet(ObservedPacket {
-            packet,
+            packet: packet.into(),
             observer: self.observer.clone(),
         })
         .await
+        .map_err(|error| mpsc::error::SendError(error.0.into_vec()))
     }
     pub async fn send_packet(
         &self,
         packet: ObservedPacket,
-    ) -> Result<(), mpsc::error::SendError<Vec<u8>>> {
+    ) -> Result<(), mpsc::error::SendError<PacketBuffer>> {
         match &self.channel {
-            Channel::Plain(sender) => sender.send(packet.packet).await,
-            Channel::Owned(sender) => sender
-                .send(packet.packet.into())
-                .await
-                .map_err(|e| mpsc::error::SendError(e.0.into_vec())),
+            Channel::Plain(sender) => match sender.reserve().await {
+                Ok(permit) => {
+                    permit.send(packet.packet.into_vec());
+                    Ok(())
+                }
+                Err(_) => Err(mpsc::error::SendError(packet.packet)),
+            },
+            Channel::Owned(sender) => sender.send(packet.packet).await,
             Channel::Observed(sender) => sender
                 .send(packet)
                 .await
-                .map_err(|e| mpsc::error::SendError(e.0.packet)),
+                .map_err(|error| mpsc::error::SendError(error.0.packet)),
         }
     }
     pub fn try_send(&self, packet: Vec<u8>) -> Result<(), mpsc::error::TrySendError<Vec<u8>>> {
         self.try_send_packet(ObservedPacket {
-            packet,
+            packet: packet.into(),
             observer: self.observer.clone(),
+        })
+        .map_err(|error| match error {
+            mpsc::error::TrySendError::Full(packet) => {
+                mpsc::error::TrySendError::Full(packet.into_vec())
+            }
+            mpsc::error::TrySendError::Closed(packet) => {
+                mpsc::error::TrySendError::Closed(packet.into_vec())
+            }
         })
     }
     pub fn try_send_packet(
         &self,
         packet: ObservedPacket,
-    ) -> Result<(), mpsc::error::TrySendError<Vec<u8>>> {
+    ) -> Result<(), mpsc::error::TrySendError<PacketBuffer>> {
         match &self.channel {
-            Channel::Plain(sender) => sender.try_send(packet.packet),
-            Channel::Owned(sender) => sender.try_send(packet.packet.into()).map_err(|e| match e {
-                mpsc::error::TrySendError::Full(packet) => {
-                    mpsc::error::TrySendError::Full(packet.into_vec())
+            Channel::Plain(sender) => match sender.try_reserve() {
+                Ok(permit) => {
+                    permit.send(packet.packet.into_vec());
+                    Ok(())
                 }
-                mpsc::error::TrySendError::Closed(packet) => {
-                    mpsc::error::TrySendError::Closed(packet.into_vec())
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    Err(mpsc::error::TrySendError::Full(packet.packet))
                 }
-            }),
-            Channel::Observed(sender) => sender.try_send(packet).map_err(|e| match e {
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    Err(mpsc::error::TrySendError::Closed(packet.packet))
+                }
+            },
+            Channel::Owned(sender) => sender.try_send(packet.packet),
+            Channel::Observed(sender) => sender.try_send(packet).map_err(|error| match error {
                 mpsc::error::TrySendError::Full(packet) => {
                     mpsc::error::TrySendError::Full(packet.packet)
                 }
@@ -232,6 +270,8 @@ impl PacketSender {
     }
     pub fn downgrade(&self) -> WeakPacketSender {
         WeakPacketSender {
+            #[cfg(feature = "packet-memory")]
+            memory: self.memory.clone(),
             return_mtu: self.return_mtu,
             observer: self.observer.clone(),
             channel: match &self.channel {
@@ -245,6 +285,8 @@ impl PacketSender {
 impl WeakPacketSender {
     pub fn upgrade(&self) -> Option<PacketSender> {
         Some(PacketSender {
+            #[cfg(feature = "packet-memory")]
+            memory: self.memory.clone(),
             return_mtu: self.return_mtu,
             observer: self.observer.clone(),
             channel: match &self.channel {
@@ -265,10 +307,7 @@ impl PacketPermit {
                 permit.send(packet);
             }
             Self::Observed(permit, observer) => {
-                permit.send(ObservedPacket {
-                    packet: packet.into_vec(),
-                    observer,
-                });
+                permit.send(ObservedPacket { packet, observer });
             }
         }
     }
@@ -281,7 +320,10 @@ impl PacketPermit {
                 permit.send(packet.into());
             }
             Self::Observed(permit, observer) => {
-                permit.send(ObservedPacket { packet, observer });
+                permit.send(ObservedPacket {
+                    packet: packet.into(),
+                    observer,
+                });
             }
         }
     }

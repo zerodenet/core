@@ -3,17 +3,18 @@ use super::*;
 /// no buffer queue: the current exclusive allocation returns its credit only
 /// when its memory is released. Other originals cannot steal the next read.
 #[derive(Clone)]
-pub struct NativeReadGrant(Arc<ReadSlot>);
+pub struct NativeReadGrant(pub(super) Arc<ReadSlot>);
 pub(super) struct ReadSlot {
-    root: Arc<PacketReturnTotals>,
+    pub(super) root: Arc<PacketReturnTotals>,
     bytes: usize,
-    state: Mutex<SlotState>,
-    changed: Notify,
-    blocking: Condvar,
+    pub(super) state: Mutex<SlotState>,
+    pub(super) changed: Notify,
+    pub(super) blocking: Condvar,
+    pub(super) notifications: notifications::Notifications,
 }
-struct SlotState {
-    ready: Option<credit::Credit>,
-    revoked: bool,
+pub(super) struct SlotState {
+    pub(super) ready: Option<credit::Credit>,
+    pub(super) revoked: bool,
 }
 impl ReadSlot {
     pub(super) fn return_credit(&self, credit: credit::Credit) {
@@ -32,12 +33,21 @@ impl ReadSlot {
         );
         state.ready = Some(credit);
         drop(state);
+        self.notify();
+    }
+    pub(super) fn notify(&self) {
+        if self.notifications.request() {
+            self.notify_now();
+        }
+    }
+    pub(super) fn notify_now(&self) {
         self.changed.notify_waiters();
         self.blocking.notify_all();
     }
 }
 impl NativeReadGrant {
     pub(super) fn from_credit(credit: credit::Credit) -> Self {
+        assert_eq!(credit.frames, 1, "one original IO workspace");
         Self(Arc::new(ReadSlot {
             root: credit.root.clone(),
             bytes: credit.bytes,
@@ -47,6 +57,7 @@ impl NativeReadGrant {
             }),
             changed: Notify::new(),
             blocking: Condvar::new(),
+            notifications: notifications::Notifications::default(),
         }))
     }
     pub fn bytes(&self) -> usize {
@@ -112,6 +123,7 @@ impl NativeReadGrant {
         drop(state);
         drop(unused);
         self.wake();
+        self.0.root.wake();
     }
     /// The actual blocking SDK reader waits on its own admitted workspace.
     /// Stop wakes this original Condvar; no polling timeout/reaper is needed.
@@ -179,8 +191,7 @@ impl NativeReadGrant {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner),
         );
-        self.0.changed.notify_waiters();
-        self.0.blocking.notify_all();
+        self.0.notify();
     }
 }
 /// The credit covers actual allocation capacity, including the unused tail.
@@ -228,6 +239,25 @@ impl AsMut<[u8]> for ReadPacket {
     }
 }
 impl zero_traits::PacketStorage for ReadPacket {
+    fn prepare_transmit(
+        &mut self,
+        frames: usize,
+        bytes: usize,
+    ) -> Result<(), zero_traits::PacketDeriveError> {
+        self._credit
+            .begin_transmit(frames, bytes)
+            .map_err(super::transmit::derive_error)
+    }
+    fn take_vec_allocation(&mut self) -> Option<Vec<u8>> {
+        Some(std::mem::take(&mut self.bytes))
+    }
+
+    fn try_derive_zeroed(
+        &self,
+        lengths: &[usize],
+    ) -> Result<Vec<zero_traits::PacketBuffer>, zero_traits::PacketDeriveError> {
+        self._credit.try_derive_zeroed(lengths)
+    }
     fn derive_zeroed<'a>(&'a self, lengths: &'a [usize]) -> zero_traits::PacketDerivation<'a> {
         self._credit.derive_zeroed(lengths)
     }

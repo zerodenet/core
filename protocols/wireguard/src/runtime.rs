@@ -1,7 +1,9 @@
+mod owned;
 mod quiescence;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::net::{IpAddr, SocketAddr};
+pub use owned::{OwnedTunnelFailure, OwnedTunnelResult};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -270,15 +272,20 @@ impl PeerTunnel {
         datagram: &[u8],
     ) -> Result<ReceivedDatagram, TunnelError> {
         check_wire_datagram(datagram)?;
+        self.receive_prepared_packet(source, Packet::copy_from(datagram))
+    }
+    fn receive_prepared_packet(
+        &mut self,
+        source: Option<SocketAddr>,
+        datagram: Packet,
+    ) -> Result<ReceivedDatagram, TunnelError> {
         let observed_source = source.is_some();
         let source = source.unwrap_or(SocketAddr::V4(std::net::SocketAddrV4::new(
             std::net::Ipv4Addr::UNSPECIFIED,
             0,
         )));
         self.rate_limiter.try_reset_count();
-        let verified = self
-            .rate_limiter
-            .verify_packet(source, Packet::copy_from(datagram));
+        let verified = self.rate_limiter.verify_packet(source, datagram);
         match verified {
             Ok(packet) => {
                 if !observed_source
