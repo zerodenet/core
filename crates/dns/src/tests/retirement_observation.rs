@@ -1,6 +1,6 @@
 //! Actual query join observations remain pending while its Host withholds ACK.
 use super::*;
-use crate::OwnedDnsQueryTasks;
+use crate::{OwnedDnsQueryBudget, OwnedDnsQueryTasks};
 use std::{future::poll_fn, num::NonZeroUsize, task::Poll, time::Duration};
 use tokio::io::AsyncRead;
 use zero_platform_tokio::contract::{scope::TaskScope, CancellationToken};
@@ -10,8 +10,10 @@ async fn real_join_deadline_observations_preserve_actual_host_ack_without_mintin
         let mut scope =
             TaskScope::suspended_hosted(tokio::runtime::Handle::current(), NonZeroUsize::new(1));
         scope.enable_registration().unwrap();
+        let one = NonZeroUsize::new(1).unwrap();
+        let budget = OwnedDnsQueryBudget::new(one);
         let tasks =
-            OwnedDnsQueryTasks::new_critical(&scope.registrar(), NonZeroUsize::new(1).unwrap());
+            OwnedDnsQueryTasks::new_critical_with_budget(&scope.registrar(), one, budget.clone());
         let (mut reader, _writer) = tokio::io::duplex(1);
         let (entered, pending) = tokio::sync::oneshot::channel();
         let witness = tasks
@@ -44,34 +46,52 @@ async fn real_join_deadline_observations_preserve_actual_host_ack_without_mintin
             .unwrap_err();
         assert_eq!(first.kind(), io::ErrorKind::TimedOut);
         assert!(first.get_ref().unwrap().is::<DnsRetirementPending>());
-        let joined = scope.next_receipt().await.unwrap();
-        assert!(witness.matches_joined(joined.joined()));
-        joined.result().unwrap();
-        assert!(!joined.joined().registration_released());
         for _ in 0..32 {
             let observed = tasks
                 .wait_closed(tokio::time::Instant::now())
                 .await
                 .unwrap_err();
             assert!(observed.get_ref().unwrap().is::<DnsRetirementPending>());
-            assert!(!joined.joined().registration_released());
+            assert!(
+                witness.try_joined().is_none(),
+                "only the original Host consumes the real join"
+            );
             assert!(
                 tasks.retained_faults().is_none(),
                 "deadline observation is not a task fault"
             );
-            assert_eq!(
-                tasks.observe().len(),
-                1,
-                "same unACKed registration remains retained"
-            );
+            assert_eq!(tasks.observe().len(), 1);
         }
-        scope.acknowledge(&joined).unwrap();
+        let joined = scope.next_receipt().await.unwrap();
+        assert!(witness.matches_joined(joined.joined()));
+        joined.result().unwrap();
+        assert!(!joined.joined().registration_released());
+        // Query join and budget ACK are independent: this API confirms join,
+        // while the original budget keeps the actual registration charged.
         tasks
             .wait_closed(tokio::time::Instant::now() + Duration::from_secs(1))
             .await
             .unwrap();
-        assert!(joined.joined().registration_released());
         assert!(tasks.observe().is_empty());
+        let fresh = OwnedDnsQueryTasks::new_critical_with_budget(&scope.registrar(), one, budget);
+        assert_eq!(
+            fresh
+                .spawn(async {}, CancellationToken::new())
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::WouldBlock
+        );
+        scope.acknowledge(&joined).unwrap();
+        assert!(joined.joined().registration_released());
+        let next = fresh.spawn(async {}, CancellationToken::new()).unwrap();
+        let actual = scope.next_receipt().await.unwrap();
+        assert!(next.matches_joined(actual.joined()));
+        actual.result().unwrap();
+        scope.acknowledge(&actual).unwrap();
+        fresh
+            .wait_closed(tokio::time::Instant::now() + Duration::from_secs(1))
+            .await
+            .unwrap();
         scope.begin_shutdown();
         assert!(scope.next_receipt().await.is_none());
     })
