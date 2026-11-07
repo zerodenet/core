@@ -84,3 +84,30 @@ async fn actual_command_failure_wakes_cleanup_without_waiting_for_another_reques
         assert!(tasks.tasks.is_empty());
     }
 }
+
+#[tokio::test]
+async fn body_done_keeps_root_command_and_request_credit_until_original_join_is_received() {
+    let mut limits =
+        ControlBudgetLimits::from_runtime(&zero_config::RuntimeOptionsConfig::default());
+    limits.messages.pending_commands = 1;
+    let budget = ControlBudget::new(limits);
+    let mut tasks =
+        ConcurrentCommandTasks::test_with_budget(CancellationToken::new(), budget.clone());
+    let request = budget.reserve(ControlCharge::RequestBytes(7)).unwrap();
+    let (entered, body) = tokio::sync::oneshot::channel();
+    assert!(tasks.try_spawn_owned(
+        async move {
+            entered.send(()).unwrap();
+            Ok(())
+        },
+        vec![request]
+    ));
+    body.await.unwrap();
+    assert_eq!(tasks.tasks.len(), 1);
+    assert_eq!(budget.usage().pending_commands, 1);
+    assert_eq!(budget.usage().request_bytes, 7);
+    assert!(budget.reserve(ControlCharge::PendingCommand).is_err());
+    tasks.cancel_all().await.unwrap();
+    assert_eq!(budget.usage().pending_commands, 0);
+    assert_eq!(budget.usage().request_bytes, 0);
+}

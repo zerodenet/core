@@ -207,8 +207,9 @@ async fn run_server(
                     connected?;
                     let (pipe,entry)=pending.take().unwrap();let handle=handle.clone();let active=active.clone();let path=path.clone();let stopped=stop.child_token();let budget=budget.clone();
                     let n=active.fetch_add(1,Ordering::AcqRel)+1;super::events::emit_connected(&handle,n,&path.to_string_lossy());
+                    let local=entry.connection_budget().expect("actual pipe connection admission");
                     let task=connections.spawn(async move {
-                        let result=connection::handle_ipc_connection_with_budget_until(pipe,handle.clone(),stopped,budget).await;
+                        let result=connection::handle_ipc_connection_with_connection_until(pipe,handle.clone(),stopped,budget,local).await;
                         let n=active.fetch_sub(1,Ordering::AcqRel)-1;let error=result.as_ref().err().map(ToString::to_string);
                         super::events::emit_disconnected(&handle,n,&path.to_string_lossy(),error.as_deref());result
                     });

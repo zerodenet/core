@@ -21,48 +21,44 @@ use zero_proxy::ProxyHandle;
 use zero_runtime::configuration::ControlBudgetLimits;
 use zero_runtime::configuration::{ControlBudget, ControlBudgetPermit, ControlCharge};
 
-use super::protocol::{ipc_api_error, ipc_error, ipc_ok, serialize_frame, IpcRequest};
+#[cfg(test)]
+use super::protocol::serialize_frame;
+use super::protocol::{ipc_error, ipc_ok, IpcRequest};
 
 mod command;
 mod commands;
+mod events;
+mod frames;
 mod input;
 mod run;
+#[cfg(test)]
+use command::write_command_result;
+#[cfg(test)]
 pub(crate) use command::write_ipc_response;
-use command::{command_can_run_concurrently, execute_ipc_command, write_command_result};
+use command::{command_can_run_concurrently, execute_ipc_command, write_budgeted_command_result};
 use commands::ConcurrentCommandTasks;
 pub(crate) use input::is_invalid_input_frame;
 use run::handle_ipc_connection_with_auth_until;
 
 type CommandParseError = Box<ApiResponse<()>>;
+#[cfg(test)]
 const MAX_PENDING_CONCURRENT_IPC_COMMANDS: usize = 32;
 
 #[cfg(test)]
 mod tests;
 
-/// Parse a string method name + JSON params into a typed `CommandRequest`.
-///
-/// Uses the same serde `#[serde(tag = "method", content = "params")]` path as
-/// the HTTP adapter — the two transport layers share one deserialization
-/// definition.  Adding a new command variant only requires changing
-/// `zero_api::CommandRequest`; no transport-specific code needed.
-pub(crate) fn parse_command(
-    method: &str,
-    params: &serde_json::Value,
+fn parse_owned_command(
+    method: String,
+    params: serde_json::Value,
 ) -> Result<CommandRequest, CommandParseError> {
-    let wrapper = serde_json::json!({
-        "method": method,
-        "params": params,
-    });
-    serde_json::from_value::<CommandRequest>(wrapper).map_err(|e| {
-        let msg = e.to_string();
-        if msg.contains("unknown_variant") {
-            Box::new(ApiResponse::error_msg(
-                "unsupported",
-                format!("unknown command method: {method}"),
-            ))
-        } else {
-            Box::new(ApiResponse::error_msg("invalid_argument", msg))
-        }
+    let mut wrapper = serde_json::Map::new();
+    wrapper.insert("method".into(), serde_json::Value::String(method));
+    wrapper.insert("params".into(), params);
+    serde_json::from_value(serde_json::Value::Object(wrapper)).map_err(|error| {
+        Box::new(ApiResponse::error_msg(
+            "invalid_argument",
+            error.to_string(),
+        ))
     })
 }
 
@@ -95,11 +91,29 @@ where
     ));
     handle_ipc_connection_with_budget_until(stream, handle, stop, budget).await
 }
+#[cfg(test)]
 pub(crate) async fn handle_ipc_connection_with_budget_until<S>(
     stream: S,
     handle: ProxyHandle,
     stop: CancellationToken,
     budget: Arc<ControlBudget>,
+) -> io::Result<()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let original = budget.reserve(ControlCharge::Connection)?;
+    let local = original
+        .connection_budget()
+        .expect("same original connection issuer");
+    handle_ipc_connection_with_connection_until(stream, handle, stop, budget, local).await
+}
+
+pub(crate) async fn handle_ipc_connection_with_connection_until<S>(
+    stream: S,
+    handle: ProxyHandle,
+    stop: CancellationToken,
+    budget: Arc<ControlBudget>,
+    local: zero_runtime::configuration::ControlConnectionBudget,
 ) -> io::Result<()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
@@ -116,7 +130,7 @@ where
         ],
     };
 
-    handle_ipc_connection_with_auth_until(stream, handle, auth_ctx, stop, budget).await
+    handle_ipc_connection_with_auth_until(stream, handle, auth_ctx, stop, budget, local).await
 }
 
 #[cfg(all(test, unix, feature = "wireguard"))]
@@ -128,14 +142,18 @@ async fn handle_ipc_connection_with_auth<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
+    let budget = ControlBudget::new(ControlBudgetLimits::from_runtime(
+        &zero_config::RuntimeOptionsConfig::default(),
+    ));
+    let original = budget.reserve(ControlCharge::Connection)?;
+    let local = original.connection_budget().unwrap();
     handle_ipc_connection_with_auth_until(
         stream,
         handle,
         auth_ctx,
         CancellationToken::new(),
-        ControlBudget::new(ControlBudgetLimits::from_runtime(
-            &zero_config::RuntimeOptionsConfig::default(),
-        )),
+        budget,
+        local,
     )
     .await
 }

@@ -21,6 +21,28 @@ pub(super) async fn execute_ipc_command(
     command_handle.execute_acknowledged(command).await
 }
 
+pub(super) async fn write_budgeted_command_result<W>(
+    writer: Arc<TokioMutex<BufWriter<W>>>,
+    id: Option<serde_json::Value>,
+    result: zero_api::ApiResult<zero_api::CommandResponse>,
+    budget: &Arc<ControlBudget>,
+) -> io::Result<()>
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    match result {
+        Ok(command_response) => {
+            let response = ApiResponse::ok_with_id(id, command_response);
+            frames::write_budgeted_response(&mut *writer.lock().await, &response, budget).await
+        }
+        Err(error) => {
+            let response = super::super::owner::BorrowedErrorResponse::new(id.as_ref(), &error);
+            frames::write_budgeted_response(&mut *writer.lock().await, &response, budget).await
+        }
+    }
+}
+
+#[cfg(test)]
 pub(super) async fn write_command_result<W>(
     writer: Arc<TokioMutex<BufWriter<W>>>,
     id: Option<serde_json::Value>,
@@ -29,17 +51,10 @@ pub(super) async fn write_command_result<W>(
 where
     W: tokio::io::AsyncWrite + Unpin,
 {
-    match result {
-        Ok(command_response) => {
-            let value = serde_json::to_value(command_response).map_err(io::Error::other)?;
-            let response = ipc_ok(id, value);
-            write_ipc_response(&mut *writer.lock().await, &response).await
-        }
-        Err(error) => {
-            let response = ipc_api_error(id, &error);
-            write_ipc_response(&mut *writer.lock().await, &response).await
-        }
-    }
+    let budget = ControlBudget::new(ControlBudgetLimits::from_runtime(
+        &zero_config::RuntimeOptionsConfig::default(),
+    ));
+    write_budgeted_command_result(writer, id, result, &budget).await
 }
 
 /// Write a serialized IPC response frame to the transport.
@@ -50,6 +65,7 @@ where
 /// event/heartbeat task, which doesn't run until a `Subscribe` succeeds
 /// and only fires every 30 s; relying on it leaves every pre-subscribe
 /// response (and ack/error frames) stuck in the buffer indefinitely.
+#[cfg(test)]
 pub(crate) async fn write_ipc_response(
     writer: &mut (impl AsyncWriteExt + Unpin),
     response: &impl Serialize,

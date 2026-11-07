@@ -3,9 +3,8 @@ use std::io;
 use zero_api::{AuthContext, Permission};
 use zero_proxy::ProxyHandle;
 
-use super::handlers;
 use super::response::api_error_status;
-use zero_api::ApiResponse;
+use super::{body::HttpBody, handlers};
 
 /// A parsed HTTP request ready for routing.
 pub struct HttpRequest {
@@ -17,7 +16,7 @@ pub struct HttpRequest {
 
 /// Result of routing: either an immediate response body, or an SSE stream.
 pub enum RouteResult {
-    Respond(String, Vec<u8>),
+    Respond(String, HttpBody),
     Sse {
         subscriber: zero_engine::EventSubscriber,
         catch_up: Vec<zero_api::RawApiEvent>,
@@ -40,7 +39,7 @@ pub async fn route(
 
     // Handle CORS preflight.
     if method == "OPTIONS" {
-        return RouteResult::Respond("HTTP/1.1 204 No Content\r\n".to_owned(), Vec::new());
+        return RouteResult::Respond("HTTP/1.1 204 No Content\r\n".to_owned(), HttpBody::Raw(b""));
     }
 
     match (method, api_path) {
@@ -97,27 +96,27 @@ pub async fn route(
     }
 }
 
-fn read_json(result: io::Result<Vec<u8>>, auth_ctx: &AuthContext) -> RouteResult {
+fn read_json(result: io::Result<HttpBody>, auth_ctx: &AuthContext) -> RouteResult {
     if let Some(denied) = require_permission(auth_ctx, Permission::Read) {
         return denied;
     }
     json_response(result)
 }
 
-fn json_response(result: io::Result<Vec<u8>>) -> RouteResult {
+fn json_response(result: io::Result<HttpBody>) -> RouteResult {
     match result {
         Ok(body) => RouteResult::Respond("HTTP/1.1 200 OK\r\n".to_owned(), body),
         Err(err) => {
             let body = format!(r#"{{"error":"{}"}}"#, err);
             RouteResult::Respond(
                 "HTTP/1.1 500 Internal Server Error\r\n".to_owned(),
-                body.into_bytes(),
+                HttpBody::Text(body),
             )
         }
     }
 }
 
-fn command_permission(result: Result<Vec<u8>, (&'static str, Vec<u8>)>) -> RouteResult {
+fn command_permission(result: Result<HttpBody, (&'static str, HttpBody)>) -> RouteResult {
     match result {
         Ok(body) => RouteResult::Respond("HTTP/1.1 200 OK\r\n".to_owned(), body),
         Err((status, body)) => RouteResult::Respond(status.to_owned(), body),
@@ -131,8 +130,7 @@ fn require_permission(auth_ctx: &AuthContext, required: Permission) -> Option<Ro
     } else {
         let error = zero_api::ApiError::permission_denied(required);
         let status = api_error_status(&error);
-        let body = serde_json::to_vec_pretty(&ApiResponse::<()>::from_api_error(&error))
-            .unwrap_or_default();
+        let body = HttpBody::Error(error);
         Some(RouteResult::Respond(status.to_owned(), body))
     }
 }
@@ -140,14 +138,14 @@ fn require_permission(auth_ctx: &AuthContext, required: Permission) -> Option<Ro
 fn not_found_response() -> RouteResult {
     RouteResult::Respond(
         "HTTP/1.1 404 Not Found\r\n".to_owned(),
-        br#"{"error":"not found"}"#.to_vec(),
+        HttpBody::Raw(br#"{"error":"not found"}"#),
     )
 }
 
 fn method_not_allowed_response() -> RouteResult {
     RouteResult::Respond(
         "HTTP/1.1 405 Method Not Allowed\r\n".to_owned(),
-        br#"{"error":"method not allowed"}"#.to_vec(),
+        HttpBody::Raw(br#"{"error":"method not allowed"}"#),
     )
 }
 

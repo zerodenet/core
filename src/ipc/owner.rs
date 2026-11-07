@@ -1,6 +1,8 @@
 //! Retained original control tasks and their existing cleanup helpers.
 use std::{io, sync::Arc};
+mod error;
 mod task;
+pub(crate) use error::BorrowedErrorResponse;
 pub(crate) use task::ControlTask;
 
 /// Catch only the work future's polling boundary. Its parent still owns each
