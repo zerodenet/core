@@ -4,7 +4,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::plan::{TargetId, UrlTestSelection};
 
+mod query;
 mod reload;
+pub(crate) use query::GroupQueryBorrow;
 mod selection;
 use selection::Signal;
 pub use selection::{GroupSelectionBinding, GroupSelectionChanged, SelectionChange};
