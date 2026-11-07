@@ -9,7 +9,13 @@ fn control_payload_and_command_dimensions_are_optional_and_validate_the_actual_f
         usize,
         usize,
     );
-    let fields: [Field; 12] = [
+    let fields: [Field; 13] = [
+        (
+            "control_sse_max_event_frames",
+            RuntimeOptionsConfig::effective_control_sse_max_event_frames,
+            32,
+            4096,
+        ),
         (
             "control_max_in_flight_request_bytes",
             RuntimeOptionsConfig::effective_control_max_in_flight_request_bytes

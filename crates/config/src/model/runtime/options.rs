@@ -278,6 +278,9 @@ pub struct RuntimeOptionsConfig {
     pub control_max_pending_commands: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub control_ipc_max_event_frames: Option<usize>,
+    /// Retained serialized frames per actual SSE connection, including a pending write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_sse_max_event_frames: Option<usize>,
     /// Actual gRPC stream jobs, retained through original joins and output return.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub control_grpc_max_requests: Option<usize>,
