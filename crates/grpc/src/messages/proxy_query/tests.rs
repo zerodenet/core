@@ -119,7 +119,14 @@ async fn native_proxy_query_uses_same_original_status_and_recovers_from_output_b
                     tonic::codec::ProstCodec::default(),
                 )
                 .await
-                .unwrap();
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "actual original query {request:?}: {error}; json_bytes={} root_usage={:?} root_limits={:?}",
+                        serde_json::to_vec(&expected).unwrap().len(),
+                        book.usage(),
+                        book.limits(),
+                    )
+                });
             assert_eq!(
                 serde_json::from_slice::<serde_json::Value>(&response.into_inner().payload)
                     .unwrap(),
