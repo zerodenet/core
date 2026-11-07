@@ -27,7 +27,8 @@ pub use resources::HostResources;
 #[cfg(any(test, feature = "test-support"))]
 pub use resources::NoResources;
 pub use resources::{
-    packet_datagram_control_spec, packet_datagram_read_spec, HostPacketReadReservation,
+    packet_datagram_control_spec, packet_datagram_read_spec, packet_datagram_supplemental_spec,
+    HostPacketReadReservation,
 };
 #[cfg(feature = "raw-ip-runtime")]
 pub use resources::{HostIcmpProbeGrant, HostIcmpProbeOwner};
