@@ -265,9 +265,10 @@ pub(super) async fn run(
                     continue;
                 };
                 let carrier = peer_uses_proxy.get(outgoing.peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, outgoing.peer)).flatten();
+                let mtu = usize::from(operation.device.mtu());
                 let packets=tokio::select! { biased;
                     _=shutdown.changed()=>break Ok(()),
-                    result=async {packet::fragment_ip_packet_prepaid(outgoing.packet,operation.device.mtu() as usize,fragment_id)}=>result.map_err(receive::fragment_failure)?,
+                    result=async move {packet::fragment_ip_packet_prepaid(outgoing.packet,mtu,fragment_id)}=>result.map_err(receive::fragment_failure)?,
                 };
                 fragment_id = fragment_id.wrapping_add(1);
                 for packet in packets {
