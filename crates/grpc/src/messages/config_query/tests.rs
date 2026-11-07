@@ -244,6 +244,12 @@ async fn actual_status_header_clones_keep_credit_after_the_same_request_scope_jo
         "cached header storage cannot pin concurrency after the actual request joins"
     );
     assert!(budget.usage().response_bytes > 0);
+    let mut shrink = budget.limits();
+    shrink.messages.response_bytes_total = budget.usage().response_bytes - 1;
+    assert!(
+        budget.prepare(shrink).is_err(),
+        "the cached original bytes still fence a smaller total"
+    );
     drop(header);
     assert_eq!(budget.usage().grpc_requests, 0);
     assert_eq!(budget.usage().response_bytes, 0);
