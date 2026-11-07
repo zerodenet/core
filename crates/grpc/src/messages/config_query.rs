@@ -44,7 +44,62 @@ impl io::Write for Count {
         Ok(())
     }
 }
+impl std::fmt::Write for Count {
+    fn write_str(&mut self, value: &str) -> std::fmt::Result {
+        io::Write::write_all(self, value.as_bytes()).map_err(|_| std::fmt::Error)
+    }
+}
 impl Record {
+    /// Called after the concrete producer returned its error and its guards.
+    /// Measure the same borrowed Display before constructing Status's String.
+    pub(crate) async fn error_status(
+        &self,
+        code: tonic::Code,
+        prefix: &str,
+        error: &(impl std::fmt::Display + Sync),
+    ) -> tonic::Status {
+        let mut count = Count {
+            bytes: 0,
+            limit: self.policy.response_bytes,
+        };
+        if std::fmt::write(&mut count, format_args!("{prefix}{error}")).is_err() {
+            return tonic::Status::resource_exhausted(
+                "gRPC error exceeds its admitted message limit",
+            );
+        }
+        let Some(bound) = count
+            .bytes
+            .checked_mul(7)
+            .and_then(|size| size.checked_add(super::CODEC_BUFFER_SIZE))
+        else {
+            return tonic::Status::resource_exhausted("gRPC error storage length overflow");
+        };
+        let credit = loop {
+            let changed = self.budget.capacity_changed();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            match self.budget.reserve(ControlCharge::ResponseBytes(bound)) {
+                Ok(credit) => break credit,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => changed.await,
+                Err(error) => return tonic::Status::resource_exhausted(error.to_string()),
+            }
+        };
+        let mut message = String::new();
+        if let Err(error) = message.try_reserve_exact(count.bytes) {
+            return tonic::Status::resource_exhausted(error.to_string());
+        }
+        use std::fmt::Write;
+        if write!(&mut message, "{prefix}{error}").is_err() || message.len() != count.bytes {
+            return tonic::Status::internal("same gRPC error changed during encoding");
+        }
+        let previous = self
+            .status
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .replace(credit);
+        drop(previous);
+        tonic::Status::new(code, message)
+    }
     pub(crate) async fn config_query(
         &self,
         engine: &zero_engine::EngineHandle,

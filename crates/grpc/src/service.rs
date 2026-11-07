@@ -1,6 +1,18 @@
 //! The existing typed control handlers; protocol JSON and ACK semantics are unchanged.
 use super::*;
 
+async fn error_status(
+    original: &Option<Arc<messages::Record>>,
+    code: tonic::Code,
+    prefix: &str,
+    error: &(impl std::fmt::Display + Sync),
+) -> Status {
+    match original {
+        Some(original) => original.error_status(code, prefix, error).await,
+        None => Status::new(code, format!("{prefix}{error}")),
+    }
+}
+
 pub(super) struct ControlService<H> {
     handle: H,
     auth: Option<GrpcServerAuth>,
@@ -50,17 +62,29 @@ where
         }
         let original = messages::request(&request)?;
         let req = request.into_inner();
-        let query: zero_api::QueryRequest = serde_json::from_slice(&req.payload)
-            .map_err(|e| Status::invalid_argument(format!("query parse error: {e}")))?;
+        let query: zero_api::QueryRequest = match serde_json::from_slice(&req.payload) {
+            Ok(query) => query,
+            Err(error) => {
+                return Err(error_status(
+                    &original,
+                    tonic::Code::InvalidArgument,
+                    "query parse error: ",
+                    &error,
+                )
+                .await)
+            }
+        };
         if let (Some(engine), Some(original)) = (&self.engine, &original) {
             if let Some(result) = original.config_query(engine, &query).await {
                 return result.map(|payload| Response::new(QueryResponse { payload }));
             }
         }
-        let result = self
-            .handle
-            .query(query)
-            .map_err(|e: zero_api::ApiError| Status::internal(e.to_string()))?;
+        let result = match self.handle.query(query) {
+            Ok(result) => result,
+            Err(error) => {
+                return Err(error_status(&original, tonic::Code::Internal, "", &error).await)
+            }
+        };
         let json = match original {
             Some(original) => original.json(messages::Payload::Query(&result)).await?,
             None => serde_json::to_vec(&result).map_err(|e| Status::internal(e.to_string()))?,
@@ -79,8 +103,18 @@ where
         }
         let original = messages::request(&request)?;
         let req = request.into_inner();
-        let cmd: zero_api::CommandRequest = serde_json::from_slice(&req.payload)
-            .map_err(|e| Status::invalid_argument(format!("command parse error: {e}")))?;
+        let cmd: zero_api::CommandRequest = match serde_json::from_slice(&req.payload) {
+            Ok(command) => command,
+            Err(error) => {
+                return Err(error_status(
+                    &original,
+                    tonic::Code::InvalidArgument,
+                    "command parse error: ",
+                    &error,
+                )
+                .await)
+            }
+        };
         let result = match &original {
             Some(original) => original.execute(self.handle.clone(), cmd).await?,
             None => self

@@ -147,16 +147,27 @@ async fn actual_status_header_clones_keep_credit_after_the_same_request_scope_jo
         })
         .unwrap();
     assert!(original.bind(witness));
-    let error = original
-        .config_query(
-            &engine(),
-            &zero_api::QueryRequest::Policy(zero_api::PolicyGetQuery {
-                policy_tag: "no \"雪\"\n".repeat(100),
-            }),
-        )
-        .await
-        .unwrap()
-        .unwrap_err();
+    let held = budget
+        .reserve(ControlCharge::ResponseBytes(
+            budget.limits().messages.response_bytes_total - super::super::CODEC_BUFFER_SIZE,
+        ))
+        .unwrap();
+    let source =
+        zero_api::ApiError::new(zero_api::ApiErrorCode::NotFound, "no \"雪\"\n".repeat(100));
+    let pending = original.error_status(tonic::Code::Internal, "", &source);
+    tokio::pin!(pending);
+    std::future::poll_fn(|cx| {
+        use std::future::Future;
+        assert!(
+            pending.as_mut().poll(cx).is_pending(),
+            "the original status storage must wait for actual shared credit"
+        );
+        std::task::Poll::Ready(())
+    })
+    .await;
+    drop(held);
+    let error = pending.await;
+    assert_eq!(error.message(), source.to_string());
     let mut response = error.into_http();
     original.retain_status_header(response.headers_mut());
     let header = response.headers()["grpc-message"].clone();

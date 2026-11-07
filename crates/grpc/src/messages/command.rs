@@ -53,10 +53,13 @@ impl Record {
                 .scope(async move { handle.execute_acknowledged(command).await })
                 .await
         }));
-        std::future::poll_fn(|cx| self.command.poll(cx))
+        let result = std::future::poll_fn(|cx| self.command.poll(cx))
             .await
-            .ok_or_else(|| tonic::Status::internal("original gRPC command result absent"))?
-            .map_err(|error| tonic::Status::internal(error.to_string()))
+            .ok_or_else(|| tonic::Status::internal("original gRPC command result absent"))?;
+        match result {
+            Ok(result) => Ok(result),
+            Err(error) => Err(self.error_status(tonic::Code::Internal, "", &error).await),
+        }
     }
 }
 impl Command {
