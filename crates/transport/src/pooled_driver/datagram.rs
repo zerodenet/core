@@ -166,6 +166,20 @@ impl<I: PacketIo> DatagramTx for Tx<I> {
                     delivery: DeliveryState::LocallyAccepted,
                 })
                 .map_err(|source| {
+                    // Only the protocol's explicit local validation fact can
+                    // reject one unsubmitted packet. An io::ErrorKind alone
+                    // must never downgrade a real codec/driver failure.
+                    let packet = source
+                        .get_ref()
+                        .and_then(|source| source.downcast_ref::<ChannelError>())
+                        .filter(|error| {
+                            error.stage == Stage::Send
+                                && error.delivery == DeliveryState::NotSubmitted
+                                && error.impact == zero_platform_tokio::contract::Impact::Datagram
+                                && matches!(error.reason, Reason::Protocol | Reason::Unsupported)
+                                && error.cleanup_failure_receipt().is_none()
+                        })
+                        .map(|error| (error.reason, error.retry));
                     let reason = match source.kind() {
                         io::ErrorKind::WouldBlock => Reason::Capacity,
                         io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData => {
@@ -173,12 +187,16 @@ impl<I: PacketIo> DatagramTx for Tx<I> {
                         }
                         _ => Reason::Io,
                     };
-                    SendFailure::new(
-                        this.shared
-                            .error(Stage::Send, reason, DeliveryState::NotSubmitted)
-                            .with_source(source),
+                    let mut error = this.shared.error(
+                        Stage::Send,
+                        packet.map_or(reason, |(reason, _)| reason),
                         DeliveryState::NotSubmitted,
-                    )
+                    );
+                    if let Some((_, retry)) = packet {
+                        error.impact = zero_platform_tokio::contract::Impact::Datagram;
+                        error.retry = retry;
+                    }
+                    SendFailure::new(error.with_source(source), DeliveryState::NotSubmitted)
                 }),
         )
     }
