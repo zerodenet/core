@@ -152,3 +152,6 @@ fn actual_runtime_and_stats_are_encoded_before_guards_leave_and_only_output_byte
         expected
     );
 }
+
+#[path = "tests/traffic.rs"]
+mod traffic;

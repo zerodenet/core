@@ -144,3 +144,6 @@ async fn original_prepared_stats_output_stays_frozen_through_actual_pending_io()
     let next = prepare(&handle, Selected::Stats, &budget).unwrap();
     assert_ne!(next.bytes_for_test(), expected);
 }
+
+#[path = "tests/traffic.rs"]
+mod traffic;

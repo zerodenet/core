@@ -14,6 +14,8 @@ pub(super) fn handles(request: &zero_api::QueryRequest) -> bool {
             | zero_api::QueryRequest::ActiveFlows(_)
             | zero_api::QueryRequest::RecentFlows(_)
             | zero_api::QueryRequest::Flow(_)
+            | zero_api::QueryRequest::TrafficStat(_)
+            | zero_api::QueryRequest::TrafficStats(_)
     )
 }
 pub(super) fn prepare(
@@ -32,6 +34,12 @@ fn prepare_original(
     id: Option<serde_json::Value>,
     budget: &Arc<ControlBudget>,
 ) -> io::Result<super::super::owner::EncodedResponse> {
+    if matches!(
+        request,
+        zero_api::QueryRequest::TrafficStat(_) | zero_api::QueryRequest::TrafficStats(_)
+    ) {
+        return traffic::prepare(handle, request, id, budget);
+    }
     if !matches!(
         request,
         zero_api::QueryRequest::Config(_)
@@ -80,3 +88,5 @@ fn prepare_original(
 mod tests;
 
 mod runtime;
+
+mod traffic;
