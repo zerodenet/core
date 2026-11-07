@@ -44,7 +44,9 @@ async fn ordinary_wireguard_tcp_ack_releases_full_actual_transmit_cache_without_
         }) as Arc<peer::InnerObserver>
     };
     let (endpoint, peer_task) = peer::echo_peer_inner(None, Some(observe)).await;
-    let mut config = configuration(endpoint, 0, false);
+    // Both real originals choose an ephemeral port, on distinct validated
+    // addresses. No duplicate listen or assumed free numeric port is used.
+    let mut config = configuration_with_source(endpoint, 0, false, "127.0.0.2");
     // The same Source's actual 148-byte control workspace consumes one frame;
     // its real retained IP+padding+cipher envelope consumes the remaining three.
     config.runtime.packet_transmit_total_max_frames = Some(4);
@@ -82,22 +84,23 @@ async fn ordinary_wireguard_tcp_ack_releases_full_actual_transmit_cache_without_
         source.terminal_for_test(),
     )
     };
-    let mut client = match tokio::time::timeout_at(
-        end(),
-        std::panic::AssertUnwindSafe(connect(port, false)).catch_unwind(),
-    )
-    .await
-    {
-        Ok(Ok(client)) => client,
-        outcome => panic!(
-            "real SOCKS/TCP connect did not complete: {outcome:?}; {}",
-            diagnostics()
-        ),
-    };
+    let mut clients = Vec::new();
     for payload in [
         b"first-real-cached-packet".as_slice(),
         b"same-root-reused-after-ack".as_slice(),
     ] {
+        let mut client = match tokio::time::timeout_at(
+            end(),
+            std::panic::AssertUnwindSafe(connect(port, false)).catch_unwind(),
+        )
+        .await
+        {
+            Ok(Ok(client)) => client,
+            outcome => panic!(
+                "real SOCKS/TCP connect did not complete: {outcome:?}; {}",
+                diagnostics()
+            ),
+        };
         client.write_all(payload).await.unwrap();
         let mut echoed = vec![0; payload.len()];
         tokio::time::timeout_at(end(), client.read_exact(&mut echoed))
@@ -122,7 +125,13 @@ async fn ordinary_wireguard_tcp_ack_releases_full_actual_transmit_cache_without_
         assert_eq!(root.transmit().limit.frames, 4);
         assert!(!original.driver().unwrap().is_joined());
         assert!(original.closed().is_none());
+        clients.push(client);
     }
+    assert_eq!(
+        clients.len(),
+        2,
+        "two real business TCP callers use the same actual SOCKS original"
+    );
     assert!(actual_payload.load(Ordering::Acquire) >= 48);
     assert!(full_at_ack.load(Ordering::Acquire) > 0,
         "the real encrypted peer generated its ACK while that same retransmission cache exhausted the configured total");
@@ -138,6 +147,19 @@ async fn ordinary_wireguard_tcp_ack_releases_full_actual_transmit_cache_without_
         .unwrap()
         .registration_released());
     assert!(original.closed().unwrap().matches(&original));
+    for mut client in clients {
+        let mut byte = [0];
+        let stopped = tokio::time::timeout_at(end(), client.read(&mut byte))
+            .await
+            .unwrap();
+        assert!(
+            matches!(stopped, Ok(0))
+                || stopped.is_err_and(|source| matches!(
+                    source.kind(),
+                    std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
+                ))
+        );
+    }
     peer_task.abort();
     assert!(peer_task.await.is_err_and(|error| error.is_cancelled()));
 }
