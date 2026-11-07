@@ -32,7 +32,7 @@ impl Running {
         assert!(closed.native_bound_failures().is_empty());
     }
 }
-async fn start(document: serde_json::Value, tag: &str) -> Running {
+pub(super) async fn start(document: serde_json::Value, tag: &str) -> Running {
     let config = zero_config::RuntimeConfig::parse(&document.to_string()).unwrap();
     let proxy = Proxy::new(config.clone()).unwrap();
     let registry = proxy.system_tun_source_registry();
@@ -162,6 +162,9 @@ pub(super) fn capture(proxy: &Proxy) -> (CarrierOwnerRegistration, CarrierOrigin
     panic!("actual ordinary VMess wire must own its same native grant")
 }
 pub(super) async fn echo(client: &Running) -> (CarrierOwnerRegistration, CarrierOriginObservation) {
+    echo_with(client, || capture(&client.proxy)).await
+}
+pub(super) async fn echo_with<T>(client: &Running, inspect: impl FnOnce() -> T) -> T {
     let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = target.local_addr().unwrap().port();
     let payload: Vec<u8> = (0..262144).map(|index| (index % 251) as u8).collect();
@@ -189,7 +192,7 @@ pub(super) async fn echo(client: &Running) -> (CarrierOwnerRegistration, Carrier
     // progress; then preserve a real write half-close and full response body.
     io.write_all(&payload).await.unwrap();
     io.flush().await.unwrap();
-    let original = capture(&client.proxy);
+    let original = inspect();
     io.shutdown().await.unwrap();
     let mut received = Vec::new();
     io.read_to_end(&mut received).await.unwrap();
@@ -234,6 +237,9 @@ pub(super) fn cached_driver(
         .expect("same actual cached MUX driver witness")
 }
 pub(super) async fn udp_echo(client: &Running) {
+    udp_echo_with(client, || ()).await
+}
+pub(super) async fn udp_echo_with<T>(client: &Running, inspect: impl FnOnce() -> T) -> T {
     let mut control = TcpStream::connect(client.address).await.unwrap();
     control.write_all(&[5, 1, 0]).await.unwrap();
     let mut auth = [0; 2];
@@ -266,5 +272,7 @@ pub(super) async fn udp_echo(client: &Running) {
         assert_eq!(source, port);
         assert_eq!(body.as_slice(), payload);
     }
+    let original = inspect();
     drop(control);
+    original
 }
