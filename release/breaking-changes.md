@@ -6,6 +6,12 @@ control消息字段省略不导出。IPC/HTTP/SSE/gRPC消费者与原Connection�
 原件接线仍在开发；新字段和局部测试不表示职责域关闭。详情见
 [控制原请求预算续作](../design/v0.0.3/compatibility.md#控制原请求与序列化输出预算续作)。
 
+Packet route 控制查询改为同原表冻结编码，V1形状/分页/错误不变；新增可选
+`runtime.packet_route_max_routes`（默认4096，省略不导出），低于未归还原件用量时
+拒绝配置替换，不驱逐活跃业务。Rust 完整 RuntimeOptionsConfig 字面量需增加 Option
+字段，Default 构造不变。见[原表与额度续作](../design/v0.0.3/compatibility.md#packet-route-原表查询与生产登记额度续作)。
+当前仍为开发中实现，尚未取得最终候选资格。
+
 本文记录会影响 GUI、SDK、面板、事件 Sink 或进程内 Rust 集成的控制面语义变化。公开接口与事件说明由 [ZeroDeNet 文档仓库](https://github.com/zerodenet/docs)维护；本文只维护 Core 的版本边界和迁移要求。
 
 第二轮续作的内部 Rust 错误转发须保留 `ChannelError` 可选的结构化 cleanup receipt；

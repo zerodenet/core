@@ -402,3 +402,18 @@ Config/Policy、Runtime/Flows/Stats、PrincipalFlows、Sinks 原表借阅视图�
 控制连接 stop 传递同次 Apply/Probe 调用：接受前取消，接受后保留原补偿与 Scope ACK；
 coalesced Probe 的其他调用者保持原业务，最后调用者取消同一原件。其余 DTO、事件与
 Target/DNS/Trace 资源责任继续实施；上述接口存在不表示完整职责域关闭。
+
+## Packet route 原表查询与生产登记额度续作
+
+PacketRoutes/PacketRoute 的 HTTP typed query、IPC 和生产 gRPC 直接借阅同一实际登记表，
+工作区在保留原 Arc 前预付，状态/分页/观察时间只冻结一次，输出后归还 guard，再保留实际
+wire buffer 的 Root 字节额度。V1 列表/详情字段、Closing 状态及 NotFound 消息不变；
+既有 Engine owned query 保留进程内库职责，不作为生产控制消费者的后备执行者。
+
+新增可选 `runtime.packet_route_max_routes`，默认4096，范围1..=4096，省略不导出。
+它限制同一 Engine 中实际 route 原件；执行 lease 已归还但 response worker 未确认返回的
+Closing 原件仍计额。配置准备及最后发布都检查同一原表；低于实际用量返回 Busy，
+不撤销活跃 route，不改 revision 或已持有原件，恢复/增长仍使用同一原表。原4096任务
+Scope 安全上界保留；这不是设备缓冲、Packet return 内存或关闭任务独立额度已全部完成的声明。
+Rust 的 RuntimeOptionsConfig 完整字面量新增该 Option 字段；使用 Default 省略构造不变。
+新增原表/真实双归还/最终发布竞态/回滚与三控制消费者回归，当前仍待串行编测。
