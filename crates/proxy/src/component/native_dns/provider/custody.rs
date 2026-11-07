@@ -1,6 +1,9 @@
 //! Bounded actual original custody, not a completed-query history.
 use super::*;
 use zero_platform_tokio::controlled_carrier::CarrierAdoption;
+mod failure;
+mod settle;
+pub(super) use failure::OpenCleanupFailure;
 pub(super) struct NativeUse {
     pub(super) task: TaskJoinWitness,
     pub(super) cancel: CancellationToken,
@@ -12,51 +15,7 @@ pub(super) struct NativeUse {
     pub(super) logical:
         tokio::sync::Mutex<Option<zero_platform_tokio::controlled_carrier::loan::LoanOwner>>,
 }
-impl NativeUse {
-    pub(super) async fn settle(&self, end: tokio::time::Instant) -> std::io::Result<CloseReport> {
-        let mut report = CloseReport::default();
-        let mut logical = tokio::time::timeout_at(end, self.logical.lock())
-            .await
-            .map_err(super::retirement::pending_deadline)?;
-        if let Some(owner) = logical.as_mut() {
-            let closed = owner.close(end).await.map_err(std::io::Error::other)?;
-            if !closed.is_complete() || !owner.closed().is_some_and(|closed| closed.matches(owner))
-            {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "DNS protocol carrier view remains retained",
-                ));
-            }
-            report.append(closed);
-        }
-        let closed = self
-            .original
-            .retire(end)
-            .await
-            .map_err(std::io::Error::other)?;
-        if !closed.is_complete()
-            || !self
-                .original
-                .closed()
-                .is_some_and(|closed| closed.matches(&self.original))
-            || !self
-                .original
-                .users_closed()
-                .is_some_and(|closed| closed.matches(&self.original))
-        {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "DNS original or transferred view is not closed",
-            ));
-        }
-        report.append(closed);
-        self.capacity
-            .lock()
-            .expect("DNS original budget poisoned")
-            .take();
-        Ok(report)
-    }
-}
+
 impl Provider {
     /// Transfer cleanup claims only through actual installed controllers or
     /// an original pool's retained same-Scope driver. Logical return and these
@@ -187,12 +146,19 @@ impl Provider {
             ));
         }
         self.release_installed_pending(caller);
-        let bootstrap = self
+        let bootstrap = match self
             .network
             .native_dns
             .close_bootstrap_descendants(caller, end)
-            .await;
-        let descendants = self.tasks.close_descendants(caller, end).await;
+            .await
+        {
+            Ok(()) => Ok(()),
+            Err(source) => Err(self.retain_io_cleanup_failure(source)?),
+        };
+        let descendants = match self.tasks.close_descendants(caller, end).await {
+            Ok(()) => Ok(()),
+            Err(source) => Err(self.retain_io_cleanup_failure(source)?),
+        };
         let entries = self
             .users
             .lock()
@@ -204,7 +170,8 @@ impl Provider {
         let mut original_failure = None;
         for entry in entries {
             if let Err(error) = entry.settle(end).await {
-                original_failure.get_or_insert(error);
+                let original = self.retain_io_cleanup_failure(error)?;
+                original_failure.get_or_insert(original);
                 continue;
             }
             let removed = {
@@ -259,37 +226,23 @@ impl Provider {
                     drop(removed);
                 }
                 Err(error) => {
-                    failure.get_or_insert(error);
+                    let original = self.retain_io_cleanup_failure(error)?;
+                    failure.get_or_insert(original);
                 }
             }
         }
         failure.map_or(Ok(()), Err)
     }
 
-    pub(super) async fn failed_open(
-        &self,
-        opening: std::io::Error,
-        original: &CarrierAdoption,
-        end: tokio::time::Instant,
-    ) -> std::io::Error {
-        let cleanup = match original.retire(end).await {
-            Ok(report) if report.is_complete() => {
-                return zero_dns::native::NativeDnsOpenFailure::after_close(opening, original);
-            }
-            Ok(_) => std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "DNS failed-open original cleanup remains unconfirmed",
-            ),
-            Err(source) => std::io::Error::other(source),
-        };
-        std::io::Error::new(cleanup.kind(), OpenCleanupFailure { opening, cleanup })
-    }
     pub(in crate::component::native_dns) async fn reap(
         &self,
         end: tokio::time::Instant,
     ) -> std::io::Result<()> {
+        let mut failure = None;
         #[cfg(feature = "dns")]
-        self.reap_quic(end).await?;
+        if let Err(source) = self.reap_quic(end).await {
+            failure = Some(self.retain_io_cleanup_failure(source)?);
+        }
         let callers = self
             .pending
             .lock()
@@ -300,7 +253,10 @@ impl Provider {
             .collect::<Vec<_>>();
         for caller in callers {
             self.release_installed_pending(&caller);
-            self.close_pending_originals(&caller, end).await?;
+            if let Err(source) = self.close_pending_originals(&caller, end).await {
+                let original = self.retain_io_cleanup_failure(source)?;
+                failure.get_or_insert(original);
+            }
         }
         let entries = self.users.lock().expect("DNS users poisoned").clone();
         for entry in entries {
@@ -309,7 +265,11 @@ impl Provider {
             if !entry.task.is_joined() && entry.original.closed().is_none() {
                 continue;
             }
-            entry.settle(end).await?;
+            if let Err(source) = entry.settle(end).await {
+                let original = self.retain_io_cleanup_failure(source)?;
+                failure.get_or_insert(original);
+                continue;
+            }
             // This same ledger also retains a detour's real foreign grants,
             // installed before its handshake and DNS loan handoff. Task
             // failures remain in their original host TaskScope.
@@ -322,22 +282,6 @@ impl Provider {
             };
             drop(retired);
         }
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-pub(super) struct OpenCleanupFailure {
-    pub(super) opening: std::io::Error,
-    pub(super) cleanup: std::io::Error,
-}
-impl std::fmt::Display for OpenCleanupFailure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}; original cleanup: {}", self.opening, self.cleanup)
-    }
-}
-impl std::error::Error for OpenCleanupFailure {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.cleanup)
+        failure.map_or(Ok(()), Err)
     }
 }

@@ -1,0 +1,62 @@
+//! Immediate handoff to the actual Scope's existing lifecycle receiver.
+use super::*;
+use zero_platform_tokio::contract::lifecycle::ResourceFailure;
+struct Unreceived {
+    original: Arc<BuildError>,
+    _receiver: Arc<BuildError>,
+}
+impl std::fmt::Debug for Unreceived {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UnreceivedDnsCleanup")
+            .finish_non_exhaustive()
+    }
+}
+impl std::fmt::Display for Unreceived {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("actual DNS cleanup fault has no matching Scope receiver")
+    }
+}
+impl std::error::Error for Unreceived {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.original.as_ref())
+    }
+}
+impl Provider {
+    pub(super) fn receive_cleanup_failure(
+        &self,
+        source: BuildError,
+    ) -> Result<Arc<ResourceFailure>, BuildError> {
+        let original = Arc::new(source);
+        self.resources
+            .receive_protocol_failure(&self.registrar.scope_identity(), &original)
+            .map_err(|receiver| {
+                BuildError::retained(original.clone()).with_source(Unreceived {
+                    original,
+                    _receiver: Arc::new(receiver),
+                })
+            })
+    }
+    /// Return the actual input error, not the canonical RF/source. Feeding a
+    /// canonical receiver back through a query TaskFailure would form a cycle.
+    pub(super) fn retain_io_cleanup_failure(
+        &self,
+        source: std::io::Error,
+    ) -> std::io::Result<std::io::Error> {
+        if retirement::pending_observation(&source) {
+            return Ok(source);
+        }
+        let kind = source.kind();
+        let original = Arc::new(error(source));
+        self.resources
+            .receive_protocol_failure(&self.registrar.scope_identity(), &original)
+            .map_err(|receiver| {
+                std::io::Error::other(BuildError::retained(original.clone()).with_source(
+                    Unreceived {
+                        original: original.clone(),
+                        _receiver: Arc::new(receiver),
+                    },
+                ))
+            })?;
+        Ok(std::io::Error::new(kind, original))
+    }
+}

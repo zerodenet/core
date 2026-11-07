@@ -1,6 +1,6 @@
 //! Positive caller-native facts are separate from retained typed task failures.
 use super::*;
-use zero_platform_tokio::contract::{ChannelError, Impact, Reason, Stage};
+use zero_platform_tokio::contract::ChannelError;
 impl custody::NativeUse {
     fn native_retirement_complete(&self) -> bool {
         let logical_complete = {
@@ -115,54 +115,6 @@ pub(in crate::component::native_dns) fn report_faults(
             });
     }
 }
-/// Compare actual typed source identities, never messages or error kinds.
-pub(in crate::component::native_dns) fn reported_source(
-    error: &BuildError,
-    faults: &zero_dns::OwnedDnsQueryFaults,
-) -> bool {
-    fn same(a: &(dyn std::error::Error + 'static), b: &(dyn std::error::Error + 'static)) -> bool {
-        if std::ptr::eq(a, b) {
-            return true;
-        }
-        if let (Some(a), Some(b)) = (
-            a.downcast_ref::<Arc<ChannelError>>(),
-            b.downcast_ref::<Arc<ChannelError>>(),
-        ) {
-            return Arc::ptr_eq(a, b);
-        }
-        if let (Some(a), Some(b)) = (
-            a.downcast_ref::<Arc<std::io::Error>>(),
-            b.downcast_ref::<Arc<std::io::Error>>(),
-        ) {
-            return Arc::ptr_eq(a, b);
-        }
-        false
-    }
-    fn common(
-        a: &(dyn std::error::Error + 'static),
-        b: &(dyn std::error::Error + 'static),
-    ) -> bool {
-        let mut left = Some(a);
-        while let Some(a) = left {
-            let mut right = Some(b);
-            while let Some(b) = right {
-                if same(a, b) {
-                    return true;
-                }
-                right = b.source();
-            }
-            left = a.source();
-        }
-        false
-    }
-    faults.faults().iter().any(|fault| {
-        common(error, fault.error.as_ref())
-            || fault
-                .cleanup_failure
-                .as_ref()
-                .is_some_and(|source| common(error, source.as_ref()))
-    })
-}
 impl Provider {
     pub(in crate::component::native_dns) fn native_retirement_complete(&self) -> bool {
         let users = self.users.lock().expect("DNS users poisoned").clone();
@@ -194,28 +146,6 @@ impl Provider {
 }
 
 #[derive(Debug)]
-struct RetirementFailures(Vec<BuildError>);
-impl std::fmt::Display for RetirementFailures {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} original DNS retirement failures", self.0.len())
-    }
-}
-impl std::error::Error for RetirementFailures {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.0.first().map(|source| source as _)
-    }
-}
-pub(in crate::component::native_dns) fn unreported_failures(
-    mut failures: Vec<BuildError>,
-) -> BuildError {
-    if failures.len() == 1 {
-        return failures.pop().expect("one original failure");
-    }
-    ChannelError::new(Stage::Close, Reason::Io, Impact::Component)
-        .with_source(RetirementFailures(failures))
-}
-
-#[derive(Debug)]
 struct PendingDeadline(tokio::time::error::Elapsed);
 impl std::fmt::Display for PendingDeadline {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -232,9 +162,24 @@ pub(in crate::component::native_dns) fn pending_deadline(
 ) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::TimedOut, PendingDeadline(source))
 }
+/// This module itself inspected a successful close result with unfinished work
+/// or an exact receipt that is not yet present. No callee error is classified.
+#[derive(Debug)]
+struct PendingIncomplete(&'static str);
+impl std::fmt::Display for PendingIncomplete {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+impl std::error::Error for PendingIncomplete {}
+pub(super) fn pending_incomplete(description: &'static str) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::TimedOut, PendingIncomplete(description))
+}
 pub(in crate::component::native_dns) fn pending_observation(source: &std::io::Error) -> bool {
     source.get_ref().is_some_and(|actual| {
-        actual.is::<zero_dns::DnsRetirementPending>() || actual.is::<PendingDeadline>()
+        actual.is::<zero_dns::DnsRetirementPending>()
+            || actual.is::<PendingDeadline>()
+            || actual.is::<PendingIncomplete>()
     })
 }
 

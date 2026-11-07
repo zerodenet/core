@@ -68,7 +68,6 @@ impl ResourceLifecycle for Owner {
     }
     async fn shutdown(&mut self, end: tokio::time::Instant) -> Result<CloseReport, BuildError> {
         self.revoke(CloseReason::Shutdown);
-        let mut failures = Vec::new();
         let mut unfinished = Vec::new();
         if let Some(dns) = self
             .network
@@ -84,7 +83,7 @@ impl ResourceLifecycle for Owner {
                         ),
                     );
                 } else {
-                    failures.push(provider::error(source));
+                    receive(&self.provider, &mut self.pending, provider::error(source))?;
                 }
             }
         }
@@ -92,7 +91,7 @@ impl ResourceLifecycle for Owner {
             Ok(()) => true,
             Err(source) => {
                 if !provider::retirement::pending_observation(&source) {
-                    failures.push(provider::error(source));
+                    receive(&self.provider, &mut self.pending, provider::error(source))?;
                 }
                 false
             }
@@ -104,7 +103,7 @@ impl ResourceLifecycle for Owner {
                     self.pending.append(report);
                 }
                 Err(source) => {
-                    failures.push(source);
+                    receive(&self.provider, &mut self.pending, source)?;
                 }
             }
         }
@@ -116,7 +115,7 @@ impl ResourceLifecycle for Owner {
                     ),
                 );
             } else {
-                failures.push(provider::error(source));
+                receive(&self.provider, &mut self.pending, provider::error(source))?;
             }
         }
         #[cfg(feature = "dns")]
@@ -127,7 +126,7 @@ impl ResourceLifecycle for Owner {
                     self.pending.append(report);
                 }
                 Err(source) => {
-                    failures.push(source);
+                    receive(&self.provider, &mut self.pending, source)?;
                 }
             }
         }
@@ -141,17 +140,6 @@ impl ResourceLifecycle for Owner {
             );
         }
         let protocol_complete = queries_joined && self.provider.native_retirement_complete();
-        if !failures.is_empty()
-            && (!protocol_complete
-                || !unfinished.is_empty()
-                || failures.iter().any(|failure| {
-                    faults.as_ref().is_none_or(|faults| {
-                        !provider::retirement::reported_source(failure, faults)
-                    })
-                }))
-        {
-            return Err(provider::retirement::unreported_failures(failures));
-        }
         // Exact worker sources are now persisted in failed_tasks. Their faults
         // are separate from positive native/logical closure, never its proof.
         if !protocol_complete {
@@ -165,4 +153,20 @@ impl ResourceLifecycle for Owner {
         report.unfinished = unfinished;
         Ok(report)
     }
+}
+
+fn receive(
+    provider: &Provider,
+    report: &mut CloseReport,
+    source: BuildError,
+) -> Result<(), BuildError> {
+    let actual = provider.receive_cleanup_failure(source)?;
+    if !report
+        .resource_failures
+        .iter()
+        .any(|same| Arc::ptr_eq(same, &actual))
+    {
+        report.resource_failures.push(actual);
+    }
+    Ok(())
 }
