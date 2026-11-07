@@ -159,3 +159,5 @@ mod association_business;
 mod receiver;
 
 mod service_receiver;
+
+mod dependency_receiver;

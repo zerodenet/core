@@ -76,9 +76,7 @@ impl CarrierGrant {
             .upgrade()
             .and_then(|owner| owner.state().binding.clone());
         let path_permitted = match dependency {
-            Some(issuer) => {
-                binding.prefix.is_empty() && issuer.permits(&self, binding, &endpoint, &original)
-            }
+            Some(issuer) => issuer.permits(&self, binding, &endpoint, &original),
             None => !binding.prefix.is_empty(),
         };
         if !path_permitted

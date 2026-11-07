@@ -38,8 +38,7 @@ impl CarrierOwnerBinding {
             )
         };
         let donor = donor.bound().ok_or_else(fail)?;
-        if !binding.prefix.is_empty()
-            || !self.matches_host_cancel(host_fence)
+        if !self.matches_host_cancel(host_fence)
             || !self.registration().matches_grant(grant)
             || !self.authority.available()
             || !donor.authority.available()
@@ -72,6 +71,10 @@ impl CarrierDependencyLoanIssuer {
             || !self.bound.authority.available()
             || !self.donor.authority.available()
             || !self.bound.registration().matches_grant(grant)
+            // The actual direct dependency must have acquired this exact
+            // endpoint/prefix/dial/network, not merely named scalar roles.
+            || original.selected_binding().is_none_or(|(selected_endpoint, selected_binding)|
+                selected_endpoint != self.endpoint || selected_binding != self.binding)
             || !original.owner().same_owner(self.donor.registration())
             || !original.driver().is_some_and(|driver| {
                 self.donor

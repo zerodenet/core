@@ -39,10 +39,7 @@ impl HostResources {
         binding: &UpstreamBinding,
         grant: &CarrierGrant,
     ) -> Result<CarrierDependencyLoanIssuer, ChannelError> {
-        if self.cancel.is_cancelled()
-            || !binding.prefix.is_empty()
-            || self.instance != Some(grant.instance())
-        {
+        if self.cancel.is_cancelled() || self.instance != Some(grant.instance()) {
             return Err(self.denied());
         }
         let donor = self
