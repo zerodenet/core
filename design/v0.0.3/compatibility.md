@@ -394,3 +394,11 @@ ControlBudget credit；原请求实际 join 与 wire 所有权分别计额。该
 `PacketSegment::retire_final` 用于真实 endpoint users/drivers 退出后的最终 FIFO 封闭与
 排空；UDP hop 的 `retire` 保留同队列。Scope 取消先停止业务，原 Aux 保留已接受 native
 send，超时不授关闭/替换或退款凭据。四项真实 Packet 定向已验，普通 H3 尚待新输入复验。
+
+### 续作控制借阅与取消（开发中）
+
+Config/Policy、Runtime/Flows/Stats、PrincipalFlows、Sinks 原表借阅视图保持既有 V1 wire，
+不启动额外 Proxy。gRPC 持久错误头保留实际字节计额，已结束 RPC 并发额度独立归还。
+控制连接 stop 传递同次 Apply/Probe 调用：接受前取消，接受后保留原补偿与 Scope ACK；
+coalesced Probe 的其他调用者保持原业务，最后调用者取消同一原件。其余 DTO、事件与
+Target/DNS/Trace 资源责任继续实施；上述接口存在不表示完整职责域关闭。
