@@ -1,3 +1,45 @@
+## 2026-11-07 10:40 UTC：完整调用者续作与同锁开发证据
+
+五域未完成，继续实现；没有最终候选、同 head CI 或可确认下载的最终归档。
+远端 integration 仍为 `59615e69ea5a413d657a873157ea4adf8f204a90`；本节实现输入
+`dbcce472b8e16a8de8d1b427744bc53be5a285d0`。所有追加均普通提交/合并。
+Rust1.99.0、实际 Cargo.lock 与仓库 candidate fixture 同为
+`bb045365baf88f40277e4b87e2941e4990eb630841dd1cd2b2d0de3709d0b0fb`。
+
+- A 原 Target TCP-connect-only、Lookup/Trace 与 DnsResolutionCall 已接同查询/Probe Scope；
+  typed cleanup 接收保留实际 Arc/原阻塞任务 ID，不改 ApiError wire 或 Rust 字段。
+  HTTP/IPC/gRPC 接同 ApplyObservation 故障；没有 Apply TaskJoined 时不伪造 witness。
+  c270 同冻产物 Probe2、Apply9、Engine event10/replay1/runtime5、gRPC22 PASS。
+  DNS4 中一例 EDNS question fixture 误读保留失败；149257402 的同实际 DNS parser 修复后4 PASS。
+- M SSE replay 原历史 Arc 在冻结/预付后借入同 Root workspace，历史删除也不提前退额度；
+  原 standalone owned replay 留真实库职责。初始 flow snapshot/事件采样 DTO 仍待迁移。
+- A TrafficStat/TrafficStats 从同管理锁/原 registry/实际配置代次冻结数值和借阅字段，
+  HTTP/IPC/gRPC 已实际消费；不存在 generic query fallback。8e8 full Root check 的5个类型
+  错误原日志保留，dbcce 已窄修复，等待最新检查，不追认成通过。
+- B `8e8bc180e586a70972831a0465cad3f867a240bf` 完成同原 REALITY 非缓存导航 job 的
+  actual Aux -> job 交接和所有已接 Nav 调用者；同 Root 原表保持 pending/failed/retiring
+  job/request 额度，生产 navigation_max_jobs/requests 可配置、旧省略形状保留。
+  这不关闭 QUIC、其余合法 mixed/Mieru/SOCKS/process 与 legacy crossing 的剩余实现。
+- B 同 accepted recipe 的 VLESS PacketPathFacts 已作为唯一 cold 私有准备投影，不授予 IO。
+  C 全 Source/Packet pair 仍在同环境隔离 worktree 类型检查，未合入/启 gate。
+  latest audit `5a9471830fdbcb2ffd16b64df1e427dc6770896c` 已含原 wire装配、同 Source
+  logical projection/Scope身份核对；有限多 phase fault、prefix/共享 donor 交接、all-peer
+  与独立 WG provider 等仍是实现工作，不列为平台验收替代。
+
+| 实际 checkout | 检查及结束 | 原始日志 SHA-256 |
+| --- | --- | --- |
+| 96c8044e64798d7a15666c71c094e5dbd90f7e10 | Root all-features bin/tests typecheck 391.62s exit0；未运行 Root tests | 26dd8d6dc5fc5be9cf1a14e72d3ff29fb179ddeb60a440e7ca184cb38caff274 |
+| 96c8044e64798d7a15666c71c094e5dbd90f7e10 | 实际借用 QUIC packet driver 6 PASS；先前错误 selector 0选中另存，不计通过 | 0d5f931405751fd5ff6b5936d9c158d997bc43d5e3a59b7f0c3d75a54a319bef |
+| c270e6f8c60d64ebedb91295ddf96f34b21816d2 | Runtime/DNS/Engine/gRPC 定向 all-features typecheck exit0 | c4a702dd74bae6eff8f1704d3613430a67ffd5ac910bfcb6eed386bdb0ecdeab |
+| c270e6f8c60d64ebedb91295ddf96f34b21816d2 | gRPC22 PASS，含真实 raw blocking panic 原 Arc/实际 request Scope 回归 | ac3d1b872b6ef6284ca3acdc96030acd324177347c508dd3605680984ddd555d |
+| 14925740254452e22d344f9a68e0da8ea30c4fd4 | DNS wire_call4 PASS，46.28s exit0 | 9130fa9ff7b9fe0688074057b659ee0231a036b2376930edd650eb625feacf49 |
+| 8e8bc180e586a70972831a0465cad3f867a240bf | Root all-features bin/tests typecheck exit101，5个 Traffic 类型错误 | 89fa1cf331ca055d04ae4e8f599c4643dcce55acac957058e0420601d2707c3d |
+
+普通 Proxy VMess/H3/DNS/fullTX、新 Probe/Target/TUN/Source 原件回归、最新 Root consumers
+仍需新冻结源码产物。旧输入失败不由以上小包通过替代。全部 input/result/raw log、同锁、
+ELF摘要和显式中断/未执行项保留在外部证据目录，最终须一并打包取得下载渠道。
+TEMP-WG-OUTER-UDP-01 原范围独立未关闭；没有增加例外或更改系统网络。
+
 ## 2026-11-07 09:25 UTC：真实事件、借用原 driver 与隔离类型检查
 
 五域仍未完成，不是候选冻结；源代码工作继续，所有 Cargo 仍由 M 串行。
