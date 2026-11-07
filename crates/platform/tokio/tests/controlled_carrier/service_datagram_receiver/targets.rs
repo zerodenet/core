@@ -122,7 +122,7 @@ async fn selected_domain_receiver_keeps_nominal_binding_and_real_numeric_udp_nat
         .unwrap()
         .prepare_controlled_datagram(&binding, destination(remote), actual.call.clone(), original)
         .unwrap();
-        let loan = native.into_datagram_loan(view, AssociationId(44)).unwrap();
+        let mut loan = native.into_datagram_loan(view, AssociationId(44)).unwrap();
         let retained = loan.receiver_observation();
         let io = target
             .with_loan(loan)
@@ -135,7 +135,7 @@ async fn selected_domain_receiver_keeps_nominal_binding_and_real_numeric_udp_nat
             .unwrap()
             .same_slot(&actual.original));
         assert!(actual.original.closed().is_none() && adoption.closed().is_none());
-        let mut transferred = io
+        let transferred = io
             .into_datagram_loan(actual.view.take().unwrap(), AssociationId(45))
             .unwrap();
         for payload in [b"selected Node wire".as_slice(), b"".as_slice()] {
