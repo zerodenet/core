@@ -944,3 +944,14 @@ This common producer/configuration precondition is not completion of QUIC,
 transport or budget migration: actual native/borrowed/Mask FIFO consumers and
 codec peak projections still require B's complete paired implementation and
 original wire/Scope regressions before domain qualification.
+
+
+GET /api/v1/events now encodes the same original Engine history under its
+existing short synchronous guard. It measures the legacy envelope and prepays
+the actual response Vec in the same Host control book before allocation, then
+releases history before native output can await. No event String/payload or
+selection Vec is cloned first. Existing history/event identity, order and wire
+shape remain unchanged; the genuine owned Engine.events_snapshot API retains
+its library role. The superseded private HTTP DTO branch and body variant are
+removed. New same-root refusal/recovery/Pending-output regression still needs
+the exact frozen-input run before qualification.

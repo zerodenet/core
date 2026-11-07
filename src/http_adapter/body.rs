@@ -1,12 +1,11 @@
 //! The original typed DTO is measured before allocating its single wire body.
 use std::io::{self, Write};
-use zero_api::{ApiError, ApiResponse, CommandResponse, QueryResponse, RawApiEvent};
+use zero_api::{ApiError, ApiResponse, CommandResponse, QueryResponse};
 
 pub enum HttpBody {
     Prepared(crate::ipc::owner::EncodedResponse),
     Query(Result<Box<QueryResponse>, ApiError>),
     Command(ApiResponse<CommandResponse>),
-    Events(ApiResponse<Vec<RawApiEvent>>),
     Error(ApiError),
     BareError(ApiError),
     Raw(&'static [u8]),
@@ -27,7 +26,6 @@ impl HttpBody {
                 &crate::ipc::owner::BorrowedErrorResponse::new(None, error),
             ),
             Self::Command(value) => serde_json::to_writer_pretty(writer, value),
-            Self::Events(value) => serde_json::to_writer_pretty(writer, value),
             Self::Error(value) => serde_json::to_writer_pretty(
                 writer,
                 &crate::ipc::owner::BorrowedErrorResponse::new(None, value),

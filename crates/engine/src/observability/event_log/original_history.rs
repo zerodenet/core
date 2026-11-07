@@ -5,6 +5,12 @@ pub struct OriginalEventHistory<'a> {
     log: &'a EngineEventLog,
 }
 impl OriginalEventHistory<'_> {
+    /// Serialize these same immutable originals while this history guard is
+    /// held. The actual HTTP owner measures/prepays its output before encoding;
+    /// no selection Vec, event payload or event String is copied here.
+    pub fn snapshot_body(&self) -> impl serde::Serialize + '_ {
+        SnapshotBody(self)
+    }
     pub fn core_instance_id(&self) -> &str {
         &self.log.core_instance_id
     }
@@ -44,6 +50,17 @@ impl OriginalEventHistory<'_> {
             .iter()
             .rev()
             .find(|event| event.event_type == event_type::ENGINE_STARTED)
+    }
+}
+struct SnapshotBody<'a, 'history>(&'a OriginalEventHistory<'history>);
+impl serde::Serialize for SnapshotBody<'_, '_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut sequence = serializer.serialize_seq(Some(self.0.history.len()))?;
+        for original in self.0.history.iter() {
+            sequence.serialize_element(original.as_ref())?;
+        }
+        sequence.end()
     }
 }
 impl EngineEventLog {

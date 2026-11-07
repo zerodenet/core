@@ -14,16 +14,6 @@ type EventStream = (super::sse::Subscription, zero_engine::RetainedReplay);
 
 mod endpoint;
 
-/// Handle GET /api/v1/events (snapshot).
-pub fn events_snapshot(handle: &ProxyHandle) -> io::Result<HttpBody> {
-    let events = handle
-        .engine_handle()
-        .inner()
-        .events_snapshot(&EventFilter::default());
-    let body = ApiResponse::ok(events);
-    Ok(HttpBody::Events(body))
-}
-
 /// Handle POST /api/v1/commands.
 pub async fn commands(
     handle: &ProxyHandle,

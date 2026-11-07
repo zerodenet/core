@@ -99,7 +99,6 @@ async fn route_inner(
                     Err((status, body)) => RouteResult::Respond(status.to_owned(), body),
                 }
             }
-            ("GET", "/events") => read_json(handlers::events_snapshot(handle), auth_ctx),
             _ => not_found_response(),
         },
 

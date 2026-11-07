@@ -16,6 +16,7 @@ enum Selected<'a> {
     Endpoints(&'a str),
     Endpoint(&'a str, bool),
     Capabilities,
+    Events,
     Flows(&'a str),
     Flow(&'a str),
 }
@@ -47,6 +48,7 @@ pub(super) fn route(
             Selected::Endpoint(id, details)
         }
         ("GET", "/capabilities") => Selected::Capabilities,
+        ("GET", "/events") => Selected::Events,
         ("GET", "/flows") => Selected::Flows(path_query_part(&request.path)),
         (_, path) if path_segments(path) == 2 && path.starts_with("/flows/") => {
             Selected::Flow(&path["/flows/".len()..])
@@ -85,6 +87,7 @@ fn prepare(
         _ => None,
     };
     let request = match selected {
+        Selected::Events => return history::prepare(handle, budget),
         Selected::Config => QueryRequest::Config(Default::default()),
         Selected::Runtime => QueryRequest::Runtime(Default::default()),
         Selected::Stats => QueryRequest::Stats(Default::default()),
@@ -210,6 +213,7 @@ mod runtime;
 
 mod traffic;
 
+mod history;
 mod proxy;
 
 mod endpoint;

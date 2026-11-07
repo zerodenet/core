@@ -35,14 +35,10 @@ fn fixture() -> (ProxyHandle, Arc<ControlBudget>) {
         "outbound_groups":[{"tag":"pick","type":"selector","outbounds":["a","long-雪"]}],
         "route":{"final":{"type":"direct"}}
     }"#).unwrap()).unwrap();
+    let budget = proxy.application_control_budget();
     let handle = ProxyHandle::new(
         zero_engine::EngineHandle::new(proxy.engine().clone()),
         proxy,
-    );
-    let budget = ControlBudget::new(
-        zero_runtime::configuration::ControlBudgetLimits::from_runtime(
-            &zero_config::RuntimeOptionsConfig::default(),
-        ),
     );
     (handle, budget)
 }
@@ -183,3 +179,6 @@ mod proxy;
 #[cfg(feature = "wireguard")]
 #[path = "tests/endpoint.rs"]
 mod endpoint;
+
+#[path = "tests/history.rs"]
+mod history;
