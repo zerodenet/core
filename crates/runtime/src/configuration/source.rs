@@ -4,15 +4,17 @@ mod cache;
 mod document;
 mod quota;
 mod snapshot;
-pub use snapshot::ConfigurationSnapshotReader;
 pub use quota::QuotaStorage;
+pub use snapshot::ConfigurationSnapshotReader;
 mod embedded;
 mod files;
 mod model;
+mod observation;
 mod persistence;
 mod transaction;
 pub use cache::{RuleSetCacheDownload, MAX_RULE_SET_CACHE_BYTES};
 pub use model::{SourceDisposition, SourcePersistError, SourceWriteObservation};
+pub use observation::SourceWriteView;
 use std::{
     io,
     path::{Path, PathBuf},

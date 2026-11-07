@@ -446,3 +446,33 @@ dispatcher仍调用EventSource::subscribe(default)并消费owned快照，统计�
 事件生产者仍需迁移。旧owned EventSource入口在该生产调用者与真实库职责结束前保留，
 不能将它标成standalone-only或把它留作控制预算不足时的后备。新原表wire/拒绝、真实
 Pending写与N=1重放/首帧/live顺序、native gRPC/实际worker join回归已注册，待串行验证。
+
+
+### Endpoint control queries borrow their actual owners before materialization
+
+Production HTTP endpoint GET/typed-query, IPC query and gRPC query encode the
+same immutable endpoint intent/configuration, Source write observation and
+actual fact/traffic/session books. The finite WG observer freezes its real
+peer/source/health scalars after the original response book admits row storage;
+peer public keys, allowed IPs and labels stay in that same configuration. Direct
+has no configured EndpointBinding in the current schema and gains no synthetic
+endpoint. No endpoint DTO, arbitrary JSON Value or copied error/recovery text is
+constructed before admission. Reply bytes retain their existing output lease
+after every borrowed guard and workspace has gone.
+
+Endpoint list/get/detail wire shapes, pagination, percent decoding, permissions,
+operation/persistence capabilities, transient states, counters, errors and
+`zero.endpoint.wireguard.v1` remain unchanged. Actual counter values freeze once
+per measurement/encoding operation. Capacity refuses only the new query; a
+later request can recover on the same listener and same Root after growth.
+Genuine owned QueryService calls remain available to embedded/library callers;
+production never falls back to those deep-copy paths.
+
+The Rust Engine/Proxy endpoint borrower types and SourceWriteView are additive
+synchronous observation APIs, without task, I/O, mutation or close authority.
+Destroy every view/guard before awaiting or releasing its response permission.
+The additive fixed public_peer_id_bytes helper preserves the existing owned
+public_peer_id canonical text and accepts only a peer public key by contract.
+No existing public struct literal, config default/export shape or wire contract
+changes. This continuation is not whole-domain completion or new runtime
+qualification; original Native/User/Scope/ACK receipts remain independent.

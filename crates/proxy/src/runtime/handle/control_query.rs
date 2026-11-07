@@ -1,7 +1,9 @@
 //! Finite production Proxy views over actual original state, not a query SPI.
 use super::model::ProxyHandle;
 use serde::{ser::SerializeMap, Serialize, Serializer};
+mod endpoint;
 mod health;
+pub use endpoint::{ProxyEndpointQuery, ProxyEndpointQueryError, ProxyEndpointQueryGuard};
 mod tun;
 pub use health::ProxyHealthQuery;
 mod capabilities;

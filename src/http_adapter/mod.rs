@@ -110,3 +110,7 @@ mod retirement_tests;
 #[cfg(test)]
 #[path = "tests/envelopes.rs"]
 mod envelope_tests;
+
+#[cfg(test)]
+#[path = "tests/endpoints.rs"]
+mod endpoint_tests;

@@ -1,51 +1,38 @@
-use std::io;
-use zero_api::{EndpointGetQuery, EndpointListQuery, QueryRequest, QueryService};
-use zero_proxy::ProxyHandle;
-
-use super::{parse_query_param, serialize_query, HttpBody};
-
-pub fn endpoints_list(handle: &ProxyHandle, query: &str) -> io::Result<HttpBody> {
-    let params = (|| {
-        let parse = |name| {
-            parse_query_param(query, name)
-                .map(|value| value.parse::<usize>())
-                .transpose()
-                .map_err(|_| {
-                    zero_api::ApiError::new(
-                        zero_api::ApiErrorCode::InvalidArgument,
-                        format!("invalid endpoint pagination `{name}`"),
-                    )
-                })
-        };
-        Ok::<_, zero_api::ApiError>(EndpointListQuery {
-            offset: parse("offset")?.unwrap_or_default(),
-            limit: parse("limit")?,
-        })
-    })();
-    serialize_query(params.and_then(|params| handle.query(QueryRequest::Endpoints(params))))
+use super::parse_query_param;
+use zero_api::{EndpointGetQuery, EndpointListQuery, QueryRequest};
+pub(in crate::http_adapter) fn endpoint_list_request(
+    query: &str,
+) -> Result<QueryRequest, &'static str> {
+    let parse = |name| {
+        parse_query_param(query, name)
+            .map(|value| value.parse::<usize>())
+            .transpose()
+            .map_err(|_| {
+                if name == "offset" {
+                    "invalid endpoint pagination `offset`"
+                } else {
+                    "invalid endpoint pagination `limit`"
+                }
+            })
+    };
+    Ok(QueryRequest::Endpoints(EndpointListQuery {
+        offset: parse("offset")?.unwrap_or_default(),
+        limit: parse("limit")?,
+    }))
 }
-
-pub fn endpoint_get(
-    handle: &ProxyHandle,
+pub(in crate::http_adapter) fn endpoint_get_request(
     endpoint_id: &str,
     details: bool,
-) -> io::Result<HttpBody> {
+) -> Result<QueryRequest, &'static str> {
     let id = percent_encoding::percent_decode_str(endpoint_id)
         .decode_utf8()
-        .map_err(|_| {
-            zero_api::ApiError::new(
-                zero_api::ApiErrorCode::InvalidArgument,
-                "endpoint ID is not valid UTF-8",
-            )
-        });
-    serialize_query(id.and_then(|id| {
-        let query = EndpointGetQuery {
-            endpoint_id: id.into_owned(),
-        };
-        handle.query(if details {
-            QueryRequest::EndpointDetails(query)
-        } else {
-            QueryRequest::Endpoint(query)
-        })
-    }))
+        .map_err(|_| "endpoint ID is not valid UTF-8")?;
+    let query = EndpointGetQuery {
+        endpoint_id: id.into_owned(),
+    };
+    Ok(if details {
+        QueryRequest::EndpointDetails(query)
+    } else {
+        QueryRequest::Endpoint(query)
+    })
 }

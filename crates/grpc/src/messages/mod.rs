@@ -43,3 +43,6 @@ mod initial_snapshot;
 #[cfg(feature = "proxy-control")]
 mod proxy_query;
 mod traffic_query;
+
+#[cfg(feature = "proxy-control")]
+mod endpoint_query;

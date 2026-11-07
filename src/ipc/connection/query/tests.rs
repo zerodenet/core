@@ -194,3 +194,7 @@ fn packet_route_queries_use_original_prepaid_rows_and_preserve_missing_wire() {
 }
 #[path = "tests/proxy.rs"]
 mod proxy;
+
+#[cfg(feature = "wireguard")]
+#[path = "tests/endpoint.rs"]
+mod endpoint;

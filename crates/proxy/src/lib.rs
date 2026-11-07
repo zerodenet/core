@@ -28,3 +28,5 @@ pub fn compiled_protocol_features() -> Vec<String> {
 mod dns_fixture;
 #[cfg(test)]
 mod socket_fixture;
+
+pub use runtime::{ProxyEndpointQuery, ProxyEndpointQueryError, ProxyEndpointQueryGuard};

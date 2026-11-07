@@ -13,6 +13,8 @@ enum Selected<'a> {
     Sinks,
     TunStatus,
     Health,
+    Endpoints(&'a str),
+    Endpoint(&'a str, bool),
     Capabilities,
     Flows(&'a str),
     Flow(&'a str),
@@ -36,6 +38,14 @@ pub(super) fn route(
         ("GET", "/sinks") => Selected::Sinks,
         ("GET", "/tun_status") => Selected::TunStatus,
         ("GET", "/health") => Selected::Health,
+        ("GET", "/endpoints") => Selected::Endpoints(path_query_part(&request.path)),
+        ("GET", path) if path.starts_with("/endpoints/") => {
+            let id = &path["/endpoints/".len()..];
+            let (id, details) = id
+                .strip_suffix("/details")
+                .map_or((id, false), |id| (id, true));
+            Selected::Endpoint(id, details)
+        }
         ("GET", "/capabilities") => Selected::Capabilities,
         ("GET", "/flows") => Selected::Flows(path_query_part(&request.path)),
         (_, path) if path_segments(path) == 2 && path.starts_with("/flows/") => {
@@ -64,7 +74,11 @@ fn prepare(
     // This original extra parsed request/tag copy has independent credit.
     // Declare before query so its real strings disappear before refund/wake.
     let _request_storage = match &selected {
-        Selected::Policy(tag) | Selected::Flow(tag) | Selected::Flows(tag) => {
+        Selected::Policy(tag)
+        | Selected::Flow(tag)
+        | Selected::Flows(tag)
+        | Selected::Endpoints(tag)
+        | Selected::Endpoint(tag, _) => {
             Some(budget.reserve(ControlCharge::RequestBytes(tag.len()))?)
         }
         Selected::Typed(body) => Some(budget.reserve(ControlCharge::RequestBytes(body.len()))?),
@@ -78,6 +92,18 @@ fn prepare(
         Selected::Sinks => QueryRequest::Sinks(Default::default()),
         Selected::TunStatus => QueryRequest::TunStatus(zero_api::TunStatusQuery),
         Selected::Health => QueryRequest::Health(Default::default()),
+        Selected::Endpoints(query) => match handlers::endpoint_list_request(query) {
+            Ok(request) => request,
+            Err(error) => {
+                return encode_failure(&error, zero_api::ApiErrorCode::InvalidArgument, budget)
+            }
+        },
+        Selected::Endpoint(id, details) => match handlers::endpoint_get_request(id, details) {
+            Ok(request) => request,
+            Err(error) => {
+                return encode_failure(&error, zero_api::ApiErrorCode::InvalidArgument, budget)
+            }
+        },
         Selected::Capabilities => QueryRequest::Capabilities(Default::default()),
         Selected::Flows(query) => {
             QueryRequest::ActiveFlows(handlers::parse_flow_list_params(query))
@@ -96,6 +122,9 @@ fn prepare(
             }
         },
     };
+    if endpoint::handles(&request) {
+        return endpoint::prepare(handle, &request, budget);
+    }
     if matches!(
         &request,
         QueryRequest::TunStatus(_) | QueryRequest::Health(_) | QueryRequest::Capabilities(_)
@@ -182,3 +211,5 @@ mod runtime;
 mod traffic;
 
 mod proxy;
+
+mod endpoint;

@@ -81,7 +81,8 @@ pub(crate) mod udp_socket;
 
 pub use handle::{
     ConfigApplyReconciler, ConfigReconcileResult, ProxyCapabilitiesQuery, ProxyControlQuery,
-    ProxyHandle, ProxyHealthQuery,
+    ProxyEndpointQuery, ProxyEndpointQueryError, ProxyEndpointQueryGuard, ProxyHandle,
+    ProxyHealthQuery,
 };
 mod reload_ack;
 use reload_ack::PendingReloadAck;

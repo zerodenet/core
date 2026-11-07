@@ -216,3 +216,7 @@ struct UnixOriginal {
 #[cfg(test)]
 #[path = "tests/unix_originals.rs"]
 mod original_tests;
+
+#[cfg(test)]
+#[path = "tests/endpoints.rs"]
+mod endpoint_tests;

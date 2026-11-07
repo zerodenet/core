@@ -179,3 +179,7 @@ mod traffic;
 
 #[path = "tests/proxy.rs"]
 mod proxy;
+
+#[cfg(feature = "wireguard")]
+#[path = "tests/endpoint.rs"]
+mod endpoint;

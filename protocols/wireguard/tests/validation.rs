@@ -380,3 +380,23 @@ fn validation_errors_do_not_echo_key_material() {
     .unwrap_err();
     assert!(!format!("{error:?}").contains(secret));
 }
+
+#[test]
+fn fixed_public_peer_identity_matches_the_original_canonical_owned_text() {
+    for input in [
+        "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=",
+        "0202020202020202020202020202020202020202020202020202020202020202",
+    ] {
+        let bytes = wireguard::validation::public_peer_id_bytes(input).unwrap();
+        assert_eq!(bytes.len(), 54);
+        assert_eq!(
+            std::str::from_utf8(&bytes).unwrap(),
+            "wireguard:AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI="
+        );
+        assert_eq!(
+            std::str::from_utf8(&bytes).unwrap(),
+            wireguard::validation::public_peer_id(input).unwrap()
+        );
+    }
+    assert!(wireguard::validation::public_peer_id_bytes("invalid").is_err());
+}

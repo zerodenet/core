@@ -62,7 +62,7 @@ impl Record {
             Err(error) => Err(tonic::Status::resource_exhausted(error.to_string())),
         })
     }
-    fn encode_proxy_view(
+    pub(super) fn encode_proxy_view(
         &self,
         view: &impl serde::Serialize,
         encoded: &mut Option<Arc<Lease>>,

@@ -76,7 +76,7 @@ where
         };
         #[cfg(feature = "proxy-control")]
         if let (Some(proxy), Some(original)) = (self.source.proxy(), &original) {
-            if let Some(result) = original.proxy_query(proxy, &query) {
+            if let Some(result) = original.actual_proxy_query(proxy, &query).await {
                 return result.map(|payload| Response::new(QueryResponse { payload }));
             }
         }
@@ -185,9 +185,9 @@ where
                             zero_api::ApiErrorCode::InvalidArgument => tonic::Code::InvalidArgument,
                             _ => tonic::Code::Internal,
                         };
-                        return Err(
-                            original.error_status(code, "subscribe failed: ", &error).await
-                        );
+                        return Err(original
+                            .error_status(code, "subscribe failed: ", &error)
+                            .await);
                     }
                 };
                 if wants_snapshot {

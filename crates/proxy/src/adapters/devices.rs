@@ -2,6 +2,8 @@
 //! No dynamic lifecycle SPI or protocol lookup lives in the runtime registry.
 #[cfg(feature = "raw-ip-runtime")]
 mod component;
+mod endpoint_query;
+pub(crate) use endpoint_query::EndpointDeviceRows;
 #[cfg(feature = "raw-ip-runtime")]
 mod context;
 #[cfg(feature = "raw-ip-runtime")]

@@ -906,3 +906,13 @@ payload in AsyncCommandPanic and the existing finite row's typed fault receiver;
 it is not a fabricated blocking JoinError or TaskFailure. Unknown cleanup remains
 owned and never authorizes refund/reopen. Known physical retirement permits
 recovery while the returned original fault is still strongly retained.
+
+
+Endpoint list/get/detail 生产查询改用同原配置、Source 写观测及实际 WG/流量/会话
+原件的同步借阅，原响应账本先计行工作区再物化；HTTP/IPC/gRPC 既有 wire、
+分页、权限、错误及详情 schema 不变。Rust 新增具体 Engine/Proxy endpoint
+借阅视图与固定公共 peer-id 编码助手；不改既有结构字面量或配置省略导出形状。
+原 QueryService 的 genuine owned 调用仍有库职责，生产路径不回退深复制。
+借阅不授 I/O/任务/关闭权，所有 guard 在 await/退款前销毁；具体说明见
+[原件借阅续作](../design/v0.0.3/compatibility.md#endpoint-control-queries-borrow-their-actual-owners-before-materialization)。
+本片仍需实际统一编测，不据接口或历史局部通过宣告完整 DNS/控制域关闭。

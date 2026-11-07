@@ -75,3 +75,35 @@ impl SessionTrafficRows<'_> {
         (streams, datagrams)
     }
 }
+
+impl SessionTrafficRows<'_> {
+    pub(crate) fn endpoint_activity(
+        &self,
+        binding: &zero_config::EndpointBindingConfig,
+    ) -> (u64, u64) {
+        let (mut streams, mut datagrams) = (0, 0);
+        for row in &self.0 {
+            let matches = row
+                .original
+                .inbound_tag
+                .as_ref()
+                .is_some_and(|tag| binding.inbound_tags.contains(tag))
+                || row
+                    .outbound
+                    .as_ref()
+                    .is_some_and(|tag| binding.outbound_tags.contains(tag))
+                || row
+                    .path
+                    .relay_chain
+                    .iter()
+                    .any(|(tag, _)| binding.outbound_tags.contains(tag));
+            if matches {
+                match row.original.network {
+                    Network::Tcp => streams += 1,
+                    Network::Udp => datagrams += 1,
+                }
+            }
+        }
+        (streams, datagrams)
+    }
+}

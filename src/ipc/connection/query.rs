@@ -20,6 +20,9 @@ pub(super) fn handles(request: &zero_api::QueryRequest) -> bool {
             | zero_api::QueryRequest::PacketRoute(_)
             | zero_api::QueryRequest::TunStatus(_)
             | zero_api::QueryRequest::Health(_)
+            | zero_api::QueryRequest::Endpoints(_)
+            | zero_api::QueryRequest::Endpoint(_)
+            | zero_api::QueryRequest::EndpointDetails(_)
             | zero_api::QueryRequest::Capabilities(_)
     )
 }
@@ -39,6 +42,9 @@ fn prepare_original(
     id: Option<serde_json::Value>,
     budget: &Arc<ControlBudget>,
 ) -> io::Result<super::super::owner::EncodedResponse> {
+    if endpoint::handles(request) {
+        return endpoint::prepare(handle, request, id, budget);
+    }
     if matches!(
         request,
         zero_api::QueryRequest::TunStatus(_)
@@ -105,3 +111,5 @@ mod runtime;
 mod traffic;
 
 mod proxy;
+
+mod endpoint;

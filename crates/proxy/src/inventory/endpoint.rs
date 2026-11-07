@@ -84,3 +84,21 @@ impl ProtocolInventory {
         Some(observed)
     }
 }
+
+impl ProtocolInventory {
+    pub(crate) fn endpoint_observer_present(
+        &self,
+        binding: &zero_config::EndpointBindingConfig,
+    ) -> bool {
+        self.devices.endpoint_observer_present(binding)
+    }
+    pub(crate) fn control_endpoint_rows(
+        &self,
+        binding: &zero_config::EndpointBindingConfig,
+        config: &RuntimeConfig,
+        workspace: &mut zero_runtime::configuration::ControlBudgetPermit,
+    ) -> std::io::Result<Option<crate::adapters::devices::EndpointDeviceRows>> {
+        self.devices
+            .control_endpoint_rows(binding, config, workspace)
+    }
+}

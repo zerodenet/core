@@ -155,3 +155,6 @@ impl EndpointFacts {
         Some(fact.clone())
     }
 }
+
+mod query;
+pub(super) use query::EndpointFactQuery;

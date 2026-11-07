@@ -40,7 +40,10 @@ mod snapshot;
 mod traffic;
 
 pub(crate) use endpoint::Fact as EndpointFact;
-pub use endpoint::{EndpointAdmission, EndpointChange};
+pub use endpoint::{
+    EndpointAdmission, EndpointChange, EndpointControlObservation, EndpointQueryError,
+    EngineEndpointQueryGuard, EngineEndpointRow, EngineEndpointRows,
+};
 pub use route::{IpRouteCache, RouteEvaluation};
 pub use snapshot::{ConfigurationPublication, EngineRuntimeSnapshot};
 

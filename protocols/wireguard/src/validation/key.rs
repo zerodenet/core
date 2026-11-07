@@ -44,11 +44,21 @@ pub fn parse_key(value: &str) -> Result<Key, KeyError> {
 /// Stable public identity independent of the accepted key text encoding.
 /// Callers must only pass a peer's public key, never private/PSK material.
 pub fn public_peer_id(value: &str) -> Result<alloc::string::String, KeyError> {
+    let bytes = public_peer_id_bytes(value)?;
+    Ok(alloc::string::String::from_utf8(bytes.to_vec()).expect("canonical peer identity is ASCII"))
+}
+
+/// Fixed canonical public identity for prepaid observation rows. As above,
+/// callers must supply only a peer public key, never private/PSK material.
+/// Parsing/encoding uses its original fixed 32-byte key and 54-byte output.
+pub fn public_peer_id_bytes(value: &str) -> Result<[u8; 54], KeyError> {
     let key = parse_key(value)?;
-    Ok(alloc::format!(
-        "wireguard:{}",
-        STANDARD.encode(key.as_bytes())
-    ))
+    let mut bytes = [0; 54];
+    bytes[..10].copy_from_slice(b"wireguard:");
+    STANDARD
+        .encode_slice(key.as_bytes(), &mut bytes[10..])
+        .expect("fixed canonical base64 output");
+    Ok(bytes)
 }
 
 #[cfg(feature = "runtime")]

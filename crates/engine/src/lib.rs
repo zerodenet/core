@@ -72,3 +72,8 @@ pub use observability::traffic::{
 };
 
 pub use observability::{OriginalEventHistory, RetainedReplay};
+
+pub use runtime::{
+    EndpointControlObservation, EndpointQueryError, EngineEndpointQueryGuard, EngineEndpointRow,
+    EngineEndpointRows,
+};

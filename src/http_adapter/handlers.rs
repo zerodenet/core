@@ -13,7 +13,6 @@ type HttpApiError = (&'static str, HttpBody);
 type EventStream = (super::sse::Subscription, zero_engine::RetainedReplay);
 
 mod endpoint;
-pub use endpoint::{endpoint_get, endpoints_list};
 
 /// Handle GET /api/v1/events (snapshot).
 pub fn events_snapshot(handle: &ProxyHandle) -> io::Result<HttpBody> {
@@ -224,3 +223,5 @@ fn parse_query_param<'a>(query: &'a str, key: &str) -> Option<&'a str> {
         }
     })
 }
+
+pub(super) use endpoint::{endpoint_get_request, endpoint_list_request};

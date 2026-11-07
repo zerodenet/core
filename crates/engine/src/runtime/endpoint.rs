@@ -11,11 +11,16 @@ mod facts;
 mod flows;
 mod intent;
 mod management;
+mod query;
 pub use admission::EndpointAdmission;
 pub(super) use facts::EndpointFacts;
 pub(crate) use facts::Fact;
 pub(super) use intent::EndpointIntents;
 pub use management::EndpointChange;
+pub use query::{
+    EndpointControlObservation, EndpointQueryError, EngineEndpointQueryGuard, EngineEndpointRow,
+    EngineEndpointRows,
+};
 
 impl super::EngineRuntimeSnapshot {
     pub(crate) fn admit_endpoint_outbound<'a>(

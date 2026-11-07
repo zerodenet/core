@@ -1,7 +1,9 @@
 //! WireGuard adapter: config projection and explicit outbound capabilities.
 
 mod controlled_bind;
+mod endpoint_query;
 mod health_query;
+pub(crate) use endpoint_query::{EndpointObservationRows, EndpointPeerRow};
 pub(crate) mod inbound;
 mod inbound_state;
 pub(crate) mod lifecycle;

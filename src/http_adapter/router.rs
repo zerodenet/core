@@ -84,14 +84,6 @@ async fn route_inner(
     match (method, api_path) {
         // ── /api/v1/* ──────────────────────────────────────────
         (m, p) if route_path.starts_with("/api/v1/") => match (m, p) {
-            ("GET", "/endpoints") => read_json(handlers::endpoints_list(handle, query), auth_ctx),
-            ("GET", path) if path.starts_with("/endpoints/") => {
-                let id = &path["/endpoints/".len()..];
-                let (id, details) = id
-                    .strip_suffix("/details")
-                    .map_or((id, false), |id| (id, true));
-                read_json(handlers::endpoint_get(handle, id, details), auth_ctx)
-            }
             ("POST", "/commands") => {
                 command_permission(handlers::commands(handle, &request.body, auth_ctx).await)
             }
