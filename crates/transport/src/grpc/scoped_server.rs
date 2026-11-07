@@ -101,21 +101,29 @@ where
             _=io_jobs.next(),if !io_jobs.is_empty()=>continue,
             incoming=conn.accept()=>incoming,
         };
-        let Some(incoming) = incoming else {
-            flush.finish(Ok(())).map_err(failure)?;
-            // Stop accepting new application streams without discarding DATA
-            // already decoded into one of this original task's bounded FIFOs.
-            drop(tx);
-            while !io_jobs.is_empty() {
-                tokio::select! { biased;
-                    _ = cancel.cancelled() => return Ok(()),
-                    _ = io_jobs.next() => {},
+        let (request, mut respond) = match incoming {
+            Some(Ok(incoming)) => incoming,
+            terminal => {
+                let result = match terminal {
+                    Some(Err(source)) => Err(failure(flush.fail(io::Error::other(source)))),
+                    None => flush.finish(Ok(())).map_err(failure),
+                    Some(Ok(_)) => unreachable!(),
+                };
+                // Drop the actual failed/ended H2 connection so its original
+                // send/receive handles observe that terminal state. Retain all
+                // accepted workers, including a decoded hunk waiting for FIFO
+                // credit, until the application consumes it or returns its view.
+                drop(conn);
+                drop(tx);
+                while !io_jobs.is_empty() {
+                    tokio::select! { biased;
+                        _ = cancel.cancelled() => return result,
+                        _ = io_jobs.next() => {},
+                    }
                 }
+                return result;
             }
-            return Ok(());
         };
-        let (request, mut respond) =
-            incoming.map_err(|source| failure(flush.fail(io::Error::other(source))))?;
         let allowed = options::matches(&profile, &request);
         if !allowed || tx.capacity() == 0 || io_jobs.len() >= 130 {
             let response = Response::builder()

@@ -70,13 +70,15 @@ impl PreparedSingleClient {
             tokio::pin!(workers);
             tokio::select! {
                 result=driver.as_mut()=>{
-                    result?;
+                    // Preserve the original connection result while its hunk
+                    // workers still own decoded DATA or a pending error send.
+                    // An actual connection error is not return of those views.
                     // H2 may have completed its graceful transport while read
                     // still owns decoded DATA blocked on the same bounded FIFO.
                     // The original task keeps that worker until the real view
                     // drains it or returns. Connection EOF is not worker return.
                     workers.await;
-                    Ok(())
+                    result
                 },
                 _=&mut workers=>{
                     drop(sender);

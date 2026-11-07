@@ -210,3 +210,7 @@ impl Drop for GrpcStream {
 #[cfg(test)]
 #[path = "../../tests/grpc/inline.rs"]
 mod inline_tests;
+
+#[cfg(test)]
+#[path = "../../tests/grpc/failed_tail.rs"]
+mod failed_tail;

@@ -43,7 +43,9 @@ impl Pump {
         loop {
             tokio::select! {
                 result=driver.as_mut()=>{
-                    result?;
+                    // Keep the actual driver result until every admitted
+                    // original worker has returned, including on connection
+                    // failure while decoded DATA awaits its bounded FIFO.
                     // Seal new logical admission, then retain every accepted
                     // work item through its original read/write return guards.
                     receiver.close();
@@ -51,7 +53,7 @@ impl Pump {
                         workers.push(Box::pin(async move { tokio::join!(read, write); }));
                     }
                     while workers.next().await.is_some() {}
-                    return Ok(());
+                    return result;
                 },
                 command=receiver.recv(),if accepting=>match command {
                     Some(Work{read,write})=>workers.push(Box::pin(async move {tokio::join!(read,write);})),
