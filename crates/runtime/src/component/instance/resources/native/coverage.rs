@@ -7,6 +7,7 @@ pub(in crate::component) enum DeclaredResourceKind {
     ControlledOutboundStream,
     ControlledCarrierPool,
     ControlledServiceStream,
+    ControlledServiceDatagram,
     ControlledDatagramCarrier,
     ControlledOutboundDatagram,
     ControlledDirectStream,
@@ -83,6 +84,9 @@ impl CoverageBinding {
             }
             ResourceDeclaration::ControlledServiceStream { .. } => {
                 Self::Carrier(DeclaredResourceKind::ControlledServiceStream)
+            }
+            ResourceDeclaration::ControlledServiceDatagram { .. } => {
+                Self::Carrier(DeclaredResourceKind::ControlledServiceDatagram)
             }
             ResourceDeclaration::ControlledOutboundStream { .. } => {
                 Self::Carrier(DeclaredResourceKind::ControlledOutboundStream)
@@ -301,6 +305,7 @@ impl evidence::HostIoEvidence {
                         DeclaredResourceKind::ControlledOutboundStream
                             | DeclaredResourceKind::ControlledCarrierPool
                             | DeclaredResourceKind::ControlledServiceStream
+                            | DeclaredResourceKind::ControlledServiceDatagram
                             | DeclaredResourceKind::ControlledDatagramCarrier
                             | DeclaredResourceKind::ControlledNodeCarrier
                             | DeclaredResourceKind::ControlledNodeStream

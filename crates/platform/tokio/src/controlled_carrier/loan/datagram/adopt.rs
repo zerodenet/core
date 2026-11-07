@@ -12,6 +12,12 @@ pub struct BorrowedDatagram {
     slot: Arc<Slot>,
 }
 impl BorrowedDatagram {
+    /// Observe this exact receiver slot; this grants no acquisition or closure.
+    pub fn adoption(&self) -> crate::controlled_carrier::CarrierAdoption {
+        crate::controlled_carrier::CarrierAdoption {
+            slot: self.slot.clone(),
+        }
+    }
     /// Re-transfer this actual receiver's unique Tx/Rx and user lease, while
     /// its original donor controller remains retained in the same child slot.
     pub fn into_datagram_loan(
@@ -193,11 +199,32 @@ impl Drop for BorrowedDatagram {
 }
 impl CarrierGrant {
     pub fn adopt_datagram_loan(
+        self,
+        binding: &UpstreamBinding,
+        endpoint: Destination,
+        context: &CarrierContext,
+        loan: DatagramLoan,
+    ) -> Result<BorrowedDatagram, ChannelError> {
+        self.adopt_datagram_loan_inner(binding, endpoint, context, loan, false)
+    }
+    /// The original per-connection Service adopts its actual strictly shorter
+    /// Datagram prefix. This grants no native socket or cached-driver custody.
+    pub fn adopt_service_datagram_loan(
+        self,
+        binding: &UpstreamBinding,
+        endpoint: Destination,
+        context: &CarrierContext,
+        loan: DatagramLoan,
+    ) -> Result<BorrowedDatagram, ChannelError> {
+        self.adopt_datagram_loan_inner(binding, endpoint, context, loan, true)
+    }
+    fn adopt_datagram_loan_inner(
         mut self,
         binding: &UpstreamBinding,
         endpoint: Destination,
         context: &CarrierContext,
         loan: DatagramLoan,
+        service: bool,
     ) -> Result<BorrowedDatagram, ChannelError> {
         let original = loan.owner.original().clone();
         let related = loan.owner.related_control();
@@ -243,7 +270,9 @@ impl CarrierGrant {
                     .related_parent
                     .as_ref()
                     .and_then(std::sync::Weak::upgrade);
-                if let Some(parent) = related {
+                if service {
+                    !bound.permits_service_datagram_loan(binding, &endpoint, context)
+                } else if let Some(parent) = related {
                     !bound.permits_related()
                         || crate::controlled_carrier::related::check_parent(
                             &crate::controlled_carrier::CarrierAdoption { slot: parent },

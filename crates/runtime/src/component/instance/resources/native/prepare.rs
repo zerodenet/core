@@ -42,11 +42,7 @@ impl HostResources {
         cancel: CancellationToken,
         identity: Option<(ComponentInstanceId, TaskScopeIdentity)>,
         packet_source: Option<
-            Arc<
-                std::sync::OnceLock<
-                    zero_platform_tokio::controlled_carrier::CarrierOrigin,
-                >,
-            >,
+            Arc<std::sync::OnceLock<zero_platform_tokio::controlled_carrier::CarrierOrigin>>,
         >,
         originals: Arc<crate::HostOriginalBudgets>,
         original_tasks: Option<zero_platform_tokio::contract::scope::WeakTaskRegistrar>,
@@ -281,6 +277,7 @@ impl HostResources {
                 | ResourceDeclaration::ControlledOutboundStream { .. }
                 | ResourceDeclaration::ControlledCarrierPool { .. }
                 | ResourceDeclaration::ControlledServiceStream { .. }
+                | ResourceDeclaration::ControlledServiceDatagram { .. }
                 | ResourceDeclaration::ControlledAssociationPool { .. }
                 | ResourceDeclaration::ControlledMetadataDatagram { .. }
                 | ResourceDeclaration::ControlledMetadataCarrier { .. }

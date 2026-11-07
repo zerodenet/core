@@ -145,6 +145,14 @@ pub enum ResourceDeclaration {
         dial: zero_traits::DialPolicy,
         max_sockets: NonZeroUsize,
     },
+    /// Per-connection Service receiver of an existing DatagramLoan. The fixed
+    /// endpoint/dial and original Scope constrain borrowed custody only: this
+    /// declaration grants no root native I/O, shared cache or retained driver.
+    ControlledServiceDatagram {
+        endpoint: Destination,
+        dial: zero_traits::DialPolicy,
+        max_sockets: NonZeroUsize,
+    },
     /// Sole actual physical stream owner, exact host-selected endpoint and full
     /// prefix/dial/network binding. Registration and users remain separately
     /// proved; this declaration alone never opens I/O or grants a task.

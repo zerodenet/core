@@ -55,6 +55,7 @@ impl ComponentPlan {
             for resource in &slot.recipe.spec().resources {
                 let limit = match resource {
                     R::ControlledServiceStream { max_sockets, .. }
+                    | R::ControlledServiceDatagram { max_sockets, .. }
                     | R::ControlledCarrierPool { max_sockets, .. }
                     | R::ControlledAssociationPool { max_sockets, .. }
                     | R::ControlledNodeStream { max_sockets, .. }
@@ -135,7 +136,7 @@ impl ComponentPlan {
                 return false;
             };
             if slot.recipe.spec().resources.iter().any(|resource|matches!(resource,
-                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeCarrier {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledServiceStream {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier {..})) {return true;}
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeCarrier {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledServiceStream {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledServiceDatagram {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier {..})) {return true;}
             pending.extend(slot.dependency_instances());
         }
         false
@@ -167,7 +168,7 @@ impl ComponentPlan {
             }
             if slot.recipe.spec().resources.iter().any(|resource|!matches!(resource,
                 zero_platform_tokio::contract::component::ResourceDeclaration::File {..} |
-                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeCarrier {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledServiceStream {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool { .. } |
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeCarrier {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledServiceStream {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledServiceDatagram {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool { .. } |
                 zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier {..} |
                 zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataDatagram {..})
                 && !(matches!(resource, zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeStream { .. })
