@@ -192,8 +192,11 @@ async fn actual_join_without_host_ack_does_not_refund_the_original_command() {
     .unwrap();
 }
 
+#[path = "tests/frontend.rs"]
 mod frontend;
 
+#[path = "tests/limits.rs"]
 mod limits;
 
+#[path = "tests/returned_scope.rs"]
 mod returned_scope;
