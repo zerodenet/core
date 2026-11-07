@@ -35,7 +35,9 @@ struct State {
     wire: Option<wire::Wire>,
     grant: Option<GrantedDatagramListener>,
     taken: bool,
+    memory: Option<PacketSourceMemory>,
     reads: Option<[zero_tun::packet_memory::NativeReadGrant; 2]>,
+    control: Option<zero_tun::packet_memory::NativeReadGrant>,
 }
 pub(crate) struct Owner {
     shared: Arc<Shared>,
@@ -69,7 +71,9 @@ pub(crate) fn source(
             }),
             grant: None,
             taken: false,
+            memory: None,
             reads: None,
+            control: None,
         }),
         stop,
         cancel: context.cancel.child_token(),
@@ -108,7 +112,30 @@ impl ResourceLifecycle for Owner {
             "actual Packet Source lifecycle read-grants taken, before listener: {:?}",
             self.destination
         );
+        let layout = self
+            .shared
+            .state
+            .lock()
+            .unwrap()
+            .wire
+            .as_ref()
+            .and_then(|wire| wire.device.packet_memory_layout())
+            .ok_or_else(|| error(Reason::InvalidConfig))?;
+        let memory = PacketSourceMemory {
+            view: reads[0]
+                .memory_view()
+                .map_err(|source| error(Reason::Revoked).with_source(source))?,
+            layout,
+        };
+        self.resources
+            .install_packet_source_memory(0, memory.clone())?;
+        self.shared.state.lock().unwrap().memory = Some(memory);
         self.shared.state.lock().unwrap().reads = Some(reads);
+        let control = self
+            .resources
+            .take_packet_datagram_control(0)?
+            .ok_or_else(|| error(Reason::InvalidConfig))?;
+        self.shared.state.lock().unwrap().control = Some(control);
         let grant = self
             .resources
             .listen_datagram(self.destination.clone())
@@ -144,6 +171,10 @@ impl ResourceLifecycle for Owner {
             for read in reads {
                 read.revoke();
             }
+        }
+        let control = self.shared.state.lock().unwrap().control.take();
+        if let Some(control) = control {
+            control.revoke();
         }
         self.shared.proxies.clone().shutdown(deadline).await
     }
@@ -208,6 +239,12 @@ struct Reply {
     facts: PacketFacts,
 }
 impl PacketReply for Reply {
+    fn packet_memory(&self) -> Option<PacketSourceMemory> {
+        let memory = self.shared.state.lock().unwrap().memory.clone()?;
+        memory.view.check_open().ok()?;
+        Some(memory)
+    }
+
     fn link_mtu(&self) -> Option<u16> {
         self.shared
             .state
@@ -240,12 +277,13 @@ impl PacketReply for Reply {
             "actual Packet Source respond before wire custody: {:?}",
             self.facts.inbound
         );
-        let (wire, grant, reads) = {
+        let (wire, grant, reads, control) = {
             let mut state = self.shared.state.lock().unwrap();
             (
                 state.wire.take().ok_or_else(|| error(Reason::Revoked))?,
                 state.grant.take().ok_or_else(|| error(Reason::Revoked))?,
                 state.reads.take().ok_or_else(|| error(Reason::Revoked))?,
+                state.control.take().ok_or_else(|| error(Reason::Revoked))?,
             )
         };
         let original = grant.tx.identity();
@@ -281,7 +319,7 @@ impl PacketReply for Reply {
                     checkpoint=actual_checkpoint=>checkpoint.map_err(|source|error(Reason::Revoked).with_source(source))?,
                 };
                 let result = wire::run(
-                    wire, grant, reads, egress, packets, returned, facts, observer, shutdown, checkpoint,
+                    wire, grant, reads, control, egress, packets, returned, facts, observer, shutdown, checkpoint,
                 )
                 .await;
                 proxies.request_abort();

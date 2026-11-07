@@ -5,8 +5,8 @@ use std::{
     collections::BTreeMap,
     num::NonZeroUsize,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
     },
     task::Context,
 };
@@ -99,6 +99,24 @@ impl CarrierOriginalTotals {
             ));
         }
         state.limit = limit;
+        Ok(())
+    }
+    /// Read-only actual original retirement check; Host must retain its
+    /// existing acquisition fence through the later installation.
+    pub fn check_install_after_retirement(&self, limit: NonZeroUsize) -> std::io::Result<()> {
+        self.reconcile();
+        let state = self.lock();
+        if state.limit != limit
+            && (!state.originals.is_empty()
+                || !state.metadata.is_empty()
+                || !state.bound.is_empty()
+                || !state.source.is_empty())
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "original Carrier native/users/registration debts remain retained",
+            ));
+        }
         Ok(())
     }
     pub fn snapshot(&self) -> CarrierOriginalTotalsSnapshot {

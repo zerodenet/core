@@ -1,10 +1,13 @@
 //! The same wire loop holds one received frame during return/main admission.
 //! There is no receiver task/pump; TX, timers and stop remain in its select.
 use super::*;
-pub(super) struct ReadMemory(pub [zero_tun::packet_memory::NativeReadGrant; 2]);
+pub(super) struct ReadMemory(
+    pub [zero_tun::packet_memory::NativeReadGrant; 2],
+    pub zero_tun::packet_memory::NativeReadGrant,
+);
 impl Drop for ReadMemory {
     fn drop(&mut self) {
-        for grant in &self.0 {
+        for grant in self.0.iter().chain(std::iter::once(&self.1)) {
             grant.revoke();
         }
     }

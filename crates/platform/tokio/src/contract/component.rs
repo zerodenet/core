@@ -37,7 +37,6 @@ mod metadata_datagram;
 pub use metadata_datagram::{GrantedMetadataListener, MetadataDatagramRequest};
 
 use super::{
-    BoxFuture,
     datagram::DynDatagramOutbound,
     inbound::DynInboundSource,
     lifecycle::{BuildError, DynResourceLifecycle},
@@ -45,6 +44,7 @@ use super::{
     packet::{BoxPacketSession, DynPacketOutbound},
     scope::{TaskJoinWitness, TaskRegistrar},
     stream::DynStreamOutbound,
+    BoxFuture,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -230,6 +230,9 @@ pub enum ResourceDeclaration {
     PacketDatagramReads {
         datagram: usize,
         workspaces: [NonZeroUsize; 2],
+        /// Optional actual control-output allocation, prepaid in the same Host
+        /// total Transmit lane before this descriptor attempts native IO.
+        control_workspace: Option<NonZeroUsize>,
     },
     /// A literal outbound peer on the actual host network generation. The
     /// current provider supports exactly one socket and one acquisition attempt
@@ -324,7 +327,11 @@ pub trait ResourceAccess: Send + Sync {
         _binding: &super::network::UpstreamBinding,
         _grant: &crate::controlled_carrier::CarrierGrant,
     ) -> Result<crate::controlled_carrier::loan::CarrierDependencyLoanIssuer, BuildError> {
-        Err(super::ChannelError::new(super::Stage::Prepare, super::Reason::Unsupported, super::Impact::Component))
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
     }
 
     /// Metadata of this same original Packet source only; no grant or task API.
@@ -337,6 +344,29 @@ pub trait ResourceAccess: Send + Sync {
         &self,
         _datagram: usize,
     ) -> Result<[zero_tun::packet_memory::NativeReadGrant; 2], BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
+    #[cfg(feature = "native-packet-origin")]
+    fn take_packet_datagram_control(
+        &self,
+        _datagram: usize,
+    ) -> Result<Option<zero_tun::packet_memory::NativeReadGrant>, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
+    #[cfg(feature = "native-packet-origin")]
+    fn install_packet_source_memory(
+        &self,
+        _datagram: usize,
+        _memory: super::packet::PacketSourceMemory,
+    ) -> Result<(), BuildError> {
         Err(super::ChannelError::new(
             super::Stage::Prepare,
             super::Reason::Unsupported,
@@ -369,7 +399,11 @@ pub trait ResourceAccess: Send + Sync {
         &self,
         _source: &crate::controlled_carrier::LogicalPacketProviderRegistration,
     ) -> Result<(), BuildError> {
-        Err(super::ChannelError::new(super::Stage::Prepare, super::Reason::Unsupported, super::Impact::Component))
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
     }
 
     /// Install only this actual Host Scope's registered software Packet driver.
@@ -378,8 +412,11 @@ pub trait ResourceAccess: Send + Sync {
         &self,
         _source: crate::controlled_carrier::LogicalPacketProviderRegistration,
     ) -> Result<(), BuildError> {
-        Err(super::ChannelError::new(super::Stage::Prepare,
-            super::Reason::Unsupported, super::Impact::Component))
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
     }
 
     /// Read the same actual linked Packet source dependency installed by the

@@ -1,5 +1,38 @@
 # 第二轮续作：剩余生产调用者冻结
 
+
+## 接续检查点 2026-11-07 01:25 UTC（开发中）
+
+远端 integration 完整 SHA 再核仍为
+`59615e69ea5a413d657a873157ea4adf8f204a90`，remote/工作树普通接续。
+五域仍须逐实际调用者收尾，下面结果不换算迁移完成率。
+
+| 冻结输入与实际锁 | 真实必要定向结果 / 未关闭问题 |
+| --- | --- |
+| `04f6298980e64f818afd381acfe0f346104e7e34` / `402d67cc…` | 八包 all-features lib no-run exit0 / 773.39s，日志 `m-complete-halfclose-node-relay-dns-custody-and-tun-recovery-build.log` SHA-256 `b0f6c55dc9f969c4abba79ce2a8664689029b7865a1cec8373448a8c8257c7ad`。Runtime完整cold restart 3 PASS；VLESS材料3 PASS/2 FAIL；VMess材料及实际Node/Relay 4 FAIL；Trojan完整MUX 1 FAIL；Packet预算、WG warm预算、DoH恢复各1 FAIL。完整逐项/原始错误保留于 `m-04f-serial-regressions.json` 及各 input/result/log，不借单独协议 halfclose 通过替代生产装配资格 |
+| `707f613f`（完整 SHA 在 input） / `402d67cc…` | 同原H2 Connection outbound turn no-run exit0 / 23.09s。web `h2` 筛选实际8项：7 PASS/1 FAIL；原1字节窗口/256KiB/8秒用例 phase1仅233617字节，继续保留实现问题；另 transport lib ALPS 1 PASS。初次 e1c 构建缺Future导入已最小修，不抹去初次 exit101 |
+| `1eefea32`（完整 SHA 在 input） / `bb045365…` | Packet中性三包 all-features lib no-run exit0 / 0.62s。原Root/read/TX额度11 PASS，真实TCP锁释放后同步重入1 PASS，预付Echo原件1 PASS；真实WG握手/安全回放2 PASS、多peer回退1 FAIL（原控制buffer被再次封装的Unreserved），尚待修复。首次和第二次编译错误均保留；普通VMess AEAD实际1024缓冲双向256KiB/原8秒回归1 PASS，但生产rawTLS/完整MUX截尾尚未关闭 |
+
+现源码新增的未资格化修复包括：d1b66cef先回收真实Source空闲载体视图、再检查同Catalog实际用户，Packet Main将长生命selection元数据与真实活动分开且保留其他stack/native/queue栅栏；47e14431让待发布Source持有确切目标snapshot；DoH原提交token夹具341/1fc；三协议标准MUX Datagram角色7552；Packet逐包未提交typed拒绝保持同association；VMess三个真实role失效边界诊断9f。尚须用新同输入普通装配回归验证，不把04f结果归到这些新提交。
+
+Metadata/QUIC五个可选生产字段已由实际DoQ、VLESS、HY2 Source/共享池消费（1cfa5709），协议私有配置仅在适配层判定；其余Source任务/资源/请求和H3队列仍继续。Packet中性Root/traits/SDK/stack先整体接续，完整Source/TUN TX生产消费及8项实际Root policy事务仍由C实现，未因中性切片通过而开启缺原件的路径。
+
+新锁文件 SHA-256：
+`bb045365baf88f40277e4b87e2941e4990eb630841dd1cd2b2d0de3709d0b0fb`。
+它来自已有实际锁的offline metadata最小更新，只增加 gotatun→zero-traits、
+wireguard→zero-tun、zero-stack→zero-tun三个本地依赖边；包版本新增/删除均0。
+与manifest匹配的实际字节和旧锁均在Git外按摘要保存；版控candidate锁同步。
+旧402/9026验证严格按各自锁保留。锁转换操作不是运行资格。
+
+CI结果归档脚本已在本地模拟验证原始字节、实际源码及used-lock不匹配拒绝等边界，
+但尚无统一最终同head CI，也未确认云端原始归档可下载；不伪造artifact链接。
+REALITY原目标 `www.cloudflare.com:443` 于2026-11-07T00:51:53UTC仍返回
+getaddrinfo errno -3，原始探针SHA-256
+`1667a36f4a0282944dd7496d0c0bb95c7740edca3dee8bcc5f0bc186096a01b3`。
+不换目标/解析器/期限。唯一TEMP仍为原outer_udp_proxy历史范围；Darwin任意SIP
+缺whole-job provider/authority与平台运行待验分别记录，不减免其他内核实现。
+下方均为历史输入。
+
 ## 开发接续检查点 2026-11-07 00:10 UTC
 
 远端 integration 实际完整 SHA 仍为 `59615e69ea5a413d657a873157ea4adf8f204a90`，

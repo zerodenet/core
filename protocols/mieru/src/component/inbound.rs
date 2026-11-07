@@ -25,8 +25,42 @@ pub struct Options {
     listen: Destination,
     profile: MieruInboundProfile,
     identity: Arc<[u8]>,
+    work_tasks: NonZeroUsize,
+    work_resources: usize,
 }
 impl Options {
+    fn peer_limits(&self) -> DatagramPeerLimits {
+        let mut limits = peer_limits();
+        limits.max_tasks_per_peer = self.work_tasks;
+        limits.max_resources_per_peer = self.work_resources;
+        limits
+    }
+
+    /// Cold limits on this same original accepted/peer graph. No work starts.
+    pub fn with_inbound_work_limits(
+        mut self,
+        tasks: NonZeroUsize,
+        resources: usize,
+        requests: NonZeroUsize,
+    ) -> Result<Self, zero_platform_tokio::contract::ChannelError> {
+        if tasks.get() > 4096 || resources > 65536 || requests.get() > 65536 {
+            return Err(zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::InvalidConfig,
+                zero_platform_tokio::contract::Impact::Component,
+            ));
+        }
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"actual-inbound-work-limits-v1");
+        for n in [tasks.get(), resources, requests.get()] {
+            identity.extend_from_slice(&n.to_le_bytes());
+        }
+        self.identity = identity.into();
+        self.work_tasks = tasks;
+        self.work_resources = resources;
+        Ok(self)
+    }
+
     pub fn new(
         listen: Destination,
         udp: bool,
@@ -47,6 +81,8 @@ impl Options {
             listen,
             profile,
             identity: identity.into(),
+            work_tasks: NonZeroUsize::new(514).unwrap(),
+            work_resources: 257,
         })
     }
 }
@@ -65,7 +101,7 @@ impl ComponentFactory for Factory {
                     destination: options.listen.clone(),
                     max_bind_attempts: NonZeroUsize::new(50).unwrap(),
                     max_pending_sends: NonZeroUsize::new(32).unwrap(),
-                    accepted: Some(peer_limits()),
+                    accepted: Some(options.peer_limits()),
                 }
             } else {
                 ResourceDeclaration::TcpListener {
@@ -73,8 +109,8 @@ impl ComponentFactory for Factory {
                     max_bind_attempts: NonZeroUsize::new(50).unwrap(),
                     accepted: Some(AcceptedTcpLimits {
                         max_sockets: NonZeroUsize::new(4096).unwrap(),
-                        max_tasks_per_socket: NonZeroUsize::new(514).unwrap(),
-                        max_resources_per_socket: 257,
+                        max_tasks_per_socket: options.work_tasks,
+                        max_resources_per_socket: options.work_resources,
                     }),
                 }
             }],
@@ -90,7 +126,7 @@ impl ComponentFactory for Factory {
                 options.listen.clone(),
                 context.resources,
                 context.cancel,
-                peer_limits(),
+                options.peer_limits(),
                 std::time::Duration::from_secs(300),
                 move |peer| PacketConnection {
                     peer,

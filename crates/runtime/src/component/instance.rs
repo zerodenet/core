@@ -2,6 +2,9 @@
 use super::{ComponentRecipe, ValidatedRecipe};
 mod business;
 mod cleanup;
+mod construction;
+mod health;
+mod observations;
 mod original_budgets;
 mod owned_start;
 mod packet_source;
@@ -22,7 +25,9 @@ pub use resources::HostOutboundDatagramResources;
 pub use resources::HostResources;
 #[cfg(any(test, feature = "test-support"))]
 pub use resources::NoResources;
-pub use resources::{packet_datagram_read_spec, HostPacketReadReservation};
+pub use resources::{
+    packet_datagram_control_spec, packet_datagram_read_spec, HostPacketReadReservation,
+};
 #[cfg(feature = "raw-ip-runtime")]
 pub use resources::{HostIcmpProbeGrant, HostIcmpProbeOwner};
 use std::sync::{Arc, OnceLock};
@@ -78,8 +83,7 @@ pub struct ComponentSlot {
     owned_start_host: OnceLock<std::sync::Mutex<Option<owned_start::OwnedStart>>>,
     start_wake: Arc<MonitorWake>,
     originals: OnceLock<Arc<crate::HostOriginalBudgets>>,
-    packet_source:
-        Arc<OnceLock<zero_platform_tokio::controlled_carrier::CarrierOrigin>>,
+    packet_source: Arc<OnceLock<zero_platform_tokio::controlled_carrier::CarrierOrigin>>,
 }
 struct Live {
     packet: Option<Arc<dyn DynPacketOutbound>>,
@@ -116,173 +120,6 @@ impl Drop for StartCancellation<'_> {
 }
 
 impl ComponentSlot {
-    /// Seal only a never installed cold candidate. Revocation is an admission
-    /// fence, not native/task close evidence; the ordinary replacement still
-    /// confirms this slot. A concurrent initializer makes refresh fail closed.
-    pub(in crate::component) fn seal_unbuilt_refresh(&self) -> Result<(), ChannelError> {
-        self.revoke();
-        let _owned = self.owned_start_gate.try_lock().map_err(|_| {
-            invalid(Reason::Capacity, "cold initializer remains owned during refresh")
-        })?;
-        let _starting = self.start_gate.try_lock().map_err(|_| {
-            invalid(Reason::Capacity, "cold component start remains active during refresh")
-        })?;
-        if self.live.get().is_some() || self.owned_start.get().is_some()
-            || self.owned_start_host.get().is_some()
-        {
-            return Err(invalid(Reason::StalePlan, "network refresh cannot replace a built candidate"));
-        }
-        #[cfg(any(target_os = "linux", windows))]
-        if self.prepaid_process.get().is_some() {
-            return Err(invalid(Reason::StalePlan, "cold refresh retains an actual process reservation"));
-        }
-        Ok(())
-    }
-    /// Observe the installed original for one declared ordinal. This weak
-    /// identity grants no acquisition, cleanup or task authority; absence is
-    /// unavailable evidence, never a successful close. Its opaque receipts
-    /// remain independently matchable after the host retires this slot.
-    pub fn original_carrier_owner(
-        &self,
-        ordinal: usize,
-    ) -> Option<zero_platform_tokio::controlled_carrier::CarrierOwnerRegistration> {
-        self.live
-            .get()?
-            .as_ref()
-            .ok()?
-            .resources
-            .original_carrier_owner(ordinal)
-    }
-    pub fn original_packet_owner(
-        &self,
-        ordinal: usize,
-    ) -> Option<zero_platform_tokio::controlled_carrier::PacketProviderRegistration> {
-        self.live
-            .get()?
-            .as_ref()
-            .ok()?
-            .resources
-            .original_packet_owner(ordinal)
-    }
-    pub fn original_metadata_owner(
-        &self,
-        ordinal: usize,
-    ) -> Option<zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolRegistration>
-    {
-        self.live
-            .get()?
-            .as_ref()
-            .ok()?
-            .resources
-            .original_metadata_owner(ordinal)
-    }
-    pub fn new(
-        id: ComponentId,
-        generation: ResourceGeneration,
-        recipe: ValidatedRecipe,
-        dial: zero_traits::DialPolicy,
-    ) -> Self {
-        Self::from_recipe(
-            id,
-            generation,
-            recipe.component_recipe(),
-            dial,
-            recipe.legacy_connect_stage(),
-        )
-    }
-    pub fn from_recipe(
-        id: ComponentId,
-        generation: ResourceGeneration,
-        recipe: ComponentRecipe,
-        dial: zero_traits::DialPolicy,
-        legacy_connect_stage: &'static str,
-    ) -> Self {
-        Self::from_bound_recipe(
-            id,
-            generation,
-            recipe,
-            dial,
-            legacy_connect_stage,
-            Arc::from([]),
-        )
-    }
-    pub fn from_bound_recipe(
-        id: ComponentId,
-        generation: ResourceGeneration,
-        recipe: ComponentRecipe,
-        dial: zero_traits::DialPolicy,
-        legacy_connect_stage: &'static str,
-        dependencies: Arc<[ComponentInstanceId]>,
-    ) -> Self {
-        Self {
-            id,
-            generation,
-            recipe,
-            dependencies,
-            dependency_slots: OnceLock::new(),
-            legacy_connect_stage,
-            dial,
-            cancel: CancellationToken::new(),
-            users: Arc::new(users::Users::new(id)),
-            user_roots: OnceLock::new(),
-            admission: OnceLock::new(),
-            admission_owner: Arc::new(()),
-            live: OnceCell::new(),
-            start_gate: Mutex::new(()),
-            owned_start_gate: std::sync::Mutex::new(()),
-            #[cfg(any(target_os = "linux", windows))]
-            prepaid_process: OnceLock::new(),
-            owned_start: OnceLock::new(),
-            owned_start_host: OnceLock::new(),
-            start_wake: Arc::default(),
-            originals: OnceLock::new(),
-            packet_source: Arc::new(OnceLock::new()),
-        }
-    }
-    /// Cold recipes remain reusable; revoked or failed runtime owners do not.
-    /// This observes the actual persistent initializer, not a synthetic health flag.
-    pub(in crate::component) fn can_reuse(&self) -> bool {
-        !self.cancel.is_cancelled()
-            && self.owned_start_failure().is_none()
-            && match self.live.get() {
-                None => true,
-                Some(Err(_)) => false,
-                Some(Ok(live)) => !matches!(live.started.get(), Some(Err(_))),
-            }
-    }
-    pub(in crate::component) fn matches_scope_identity(
-        &self,
-        expected: Option<&zero_platform_tokio::contract::scope::TaskScopeIdentity>,
-    ) -> bool {
-        match (self.live.get(), expected) {
-            (None, None) => true,
-            (Some(Ok(live)), Some(expected)) => live.tasks.scope_identity().same_scope(expected),
-            _ => false,
-        }
-    }
-    /// Actual successful lifecycle start, never a cold spec or a close proof.
-    pub(in crate::component) fn has_started(&self) -> bool {
-        !self.cancel.is_cancelled()
-            && self.task_fault().is_none()
-            && matches!(self.live.get(), Some(Ok(live)) if matches!(live.started.get(), Some(Ok(()))))
-    }
-    /// Cold activation policy only. This mints no Process/native capability.
-    pub(in crate::component) fn demand_process_endpoint_ordinal(&self) -> Option<usize> {
-        demand_process_endpoint_ordinal(self.recipe.spec())
-    }
-
-    pub(in crate::component) fn is_unbuilt_demand_process(&self) -> bool {
-        self.demand_process_endpoint_ordinal().is_some()
-            && self.live.get().is_none()
-            && !self.cancel.is_cancelled()
-            && self.task_fault().is_none()
-    }
-    pub fn instance_id(&self) -> ComponentInstanceId {
-        ComponentInstanceId {
-            component: self.id,
-            generation: self.generation,
-        }
-    }
     pub(in crate::component) fn own_user_root(&self) -> Arc<users::Users> {
         self.users.clone()
     }

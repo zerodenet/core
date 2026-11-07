@@ -195,6 +195,16 @@ fn stack_io_error(source: zero_stack::ClientTcpStackError) -> io::Error {
         | Error::InvalidMtu
         | Error::UnknownLocalAddress
         | Error::AddressFamilyMismatch => io::ErrorKind::InvalidInput,
+        Error::PacketMemory(memory) => match memory {
+            zero_traits::PacketDeriveError::Busy | zero_traits::PacketDeriveError::Capacity => {
+                io::ErrorKind::WouldBlock
+            }
+            zero_traits::PacketDeriveError::Revoked => io::ErrorKind::BrokenPipe,
+            zero_traits::PacketDeriveError::Unreserved => io::ErrorKind::Unsupported,
+            zero_traits::PacketDeriveError::Overflow
+            | zero_traits::PacketDeriveError::LayoutMismatch
+            | zero_traits::PacketDeriveError::AlreadyDerived => io::ErrorKind::InvalidInput,
+        },
         Error::ConnectionLimit => io::ErrorKind::WouldBlock,
         Error::OutboundClosed => io::ErrorKind::BrokenPipe,
         Error::ConnectTimeout => io::ErrorKind::TimedOut,

@@ -2,7 +2,7 @@
 
 use std::time::Instant;
 use zero_stack::{
-    OwnedFragmentOutcome, OwnedFragmentReassembler, UserTcpStack, UserUdpStack, packet,
+    packet, OwnedFragmentOutcome, OwnedFragmentReassembler, UserTcpStack, UserUdpStack,
 };
 
 use super::IcmpEchoRelay;
@@ -82,12 +82,18 @@ pub(super) async fn feed_inner_packet(
     } else {
         usize::from(mtu)
     };
-    if let Some(response) = packet::build_icmp_mtu_response(&packet, effective_mtu) {
+    let mtu_response =
+        if packet.len() <= effective_mtu && packet::parse_icmp_echo_request(&packet).is_some() {
+            None
+        } else {
+            packet::IcmpErrorSpec::for_packet(&packet, effective_mtu, false)
+        };
+    if let Some(response) = mtu_response {
         traffic.drop_inner(
             peer_identity.as_deref(),
             zero_api::TrafficDropReason::FragmentRejected,
         );
-        traffic.send_response(responses, response, peer_identity.as_deref());
+        traffic.send_error_spec(responses, response, peer_identity.as_deref());
         return;
     }
     let Some(destination) = packet::ip_destination(&packet) else {
@@ -99,8 +105,8 @@ pub(super) async fn feed_inner_packet(
     };
     let protocol = packet::ip_protocol(&packet);
     if local_destination && packet::parse_icmp_echo_request(&packet).is_some() {
-        if let Some(response) = packet::build_local_icmp_echo_reply(&packet, effective_mtu) {
-            traffic.send_response(responses, response, peer_identity.as_deref());
+        if let Some(response) = packet::IcmpEchoPacketSpec::local(&packet, effective_mtu) {
+            traffic.send_echo_spec(responses, response, peer_identity.as_deref());
         } else {
             traffic.drop_inner(
                 peer_identity.as_deref(),
@@ -166,6 +172,9 @@ pub(super) async fn feed_inner_packet(
                             translated,
                             facts.clone(),
                             return_mtu,
+                            responses
+                                .wire_memory()
+                                .expect("actual Source main validates memory before IO"),
                             frame,
                             route,
                             source,
@@ -222,7 +231,20 @@ pub(super) async fn feed_inner_packet(
                             observer,
                         );
                         if let Some(response) = observed.response {
-                            traffic.send_response(responses, response, peer_identity.as_deref());
+                            match responses.allocate_transmit(response.len()) {
+                                Ok(mut owned) => {
+                                    owned.copy_from_slice(&response);
+                                    traffic.send_response(
+                                        responses,
+                                        owned,
+                                        peer_identity.as_deref(),
+                                    );
+                                }
+                                Err(_) => traffic.drop_inner(
+                                    peer_identity.as_deref(),
+                                    zero_api::TrafficDropReason::QueueFull,
+                                ),
+                            }
                         }
                         return;
                     }
@@ -261,24 +283,24 @@ pub(super) async fn feed_inner_packet(
                 if !pins.permits_peer(&packet, &PacketPlane::DirectEcho, peer_identity.clone()) {
                     continue;
                 }
-                if echo.dispatch_direct(&packet, effective_mtu.min(u16::MAX as usize) as u16) {
-                    pins.record_peers(
-                        &packet,
-                        PacketPlane::DirectEcho,
-                        peer_identity.clone(),
-                        None,
-                    );
-                    return;
-                }
-                break;
+                pins.record_peers(
+                    &packet,
+                    PacketPlane::DirectEcho,
+                    peer_identity.clone(),
+                    None,
+                );
+                echo.dispatch_direct_owned(packet, effective_mtu.min(u16::MAX as usize) as u16);
+                return;
             }
             PacketRouteTarget::Block => {
                 traffic.drop_inner(
                     peer_identity.as_deref(),
                     zero_api::TrafficDropReason::PolicyRejected,
                 );
-                if let Some(response) = packet::build_icmp_response(&packet, effective_mtu) {
-                    traffic.send_response(responses, response, peer_identity.as_deref());
+                if let Some(response) =
+                    packet::IcmpErrorSpec::for_packet(&packet, effective_mtu, false)
+                {
+                    traffic.send_error_spec(responses, response, peer_identity.as_deref());
                 }
                 return;
             }
@@ -290,7 +312,7 @@ pub(super) async fn feed_inner_packet(
         peer_identity.as_deref(),
         zero_api::TrafficDropReason::NoRoute,
     );
-    if let Some(response) = packet::build_icmp_response(&packet, effective_mtu) {
-        traffic.send_response(responses, response, peer_identity.as_deref());
+    if let Some(response) = packet::IcmpErrorSpec::for_packet(&packet, effective_mtu, false) {
+        traffic.send_error_spec(responses, response, peer_identity.as_deref());
     }
 }

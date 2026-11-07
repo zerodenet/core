@@ -334,6 +334,10 @@ impl Send {
         Ok(())
     }
 
+    pub fn has_buffered_frames(&self) -> bool {
+        self.prioritize.has_buffered_frames()
+    }
+
     pub fn poll_complete<T, B>(
         &mut self,
         cx: &mut Context,

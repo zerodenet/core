@@ -42,7 +42,17 @@ impl Pump {
         let mut accepting = true;
         loop {
             tokio::select! {
-                result=driver.as_mut()=>return result,
+                result=driver.as_mut()=>{
+                    result?;
+                    // Seal new logical admission, then retain every accepted
+                    // work item through its original read/write return guards.
+                    receiver.close();
+                    while let Some(Work { read, write }) = receiver.recv().await {
+                        workers.push(Box::pin(async move { tokio::join!(read, write); }));
+                    }
+                    while workers.next().await.is_some() {}
+                    return Ok(());
+                },
                 command=receiver.recv(),if accepting=>match command {
                     Some(Work{read,write})=>workers.push(Box::pin(async move {tokio::join!(read,write);})),
                     None=>accepting=false,

@@ -7,6 +7,8 @@ mod fixture;
 mod mux;
 #[path = "material/mux_material.rs"]
 mod mux_material;
+#[path = "material/read_progress.rs"]
+mod read_progress;
 #[path = "material/udp.rs"]
 mod udp;
 use fixture::*;

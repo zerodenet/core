@@ -109,6 +109,24 @@ impl IpPacket {
     pub fn payload_mut(&mut self) -> &mut [u8] {
         &mut self.payload
     }
+    /// Reserve this original's complete finite transmit responsibility before
+    /// queueing. On error its payload/cookie/ingress remain the same original.
+    /// This delegates memory custody only; it grants no IO or task authority.
+    pub fn prepare_transmit_buffers(
+        &mut self,
+        frames: usize,
+        bytes: usize,
+    ) -> Result<(), zero_traits::PacketDeriveError> {
+        self.payload.prepare_transmit(frames, bytes)
+    }
+    /// Split only storage already paid for by this actual original. The
+    /// payload owner cannot be replaced through this projection.
+    pub fn try_derive_payload_buffers(
+        &self,
+        lengths: &[usize],
+    ) -> Result<alloc::vec::Vec<PacketBuffer>, zero_traits::PacketDeriveError> {
+        self.payload.try_derive_zeroed(lengths)
+    }
     pub fn family(&self) -> IpFamily {
         self.family
     }

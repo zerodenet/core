@@ -509,6 +509,15 @@ impl Prioritize {
         }
     }
 
+    /// Exact eligible send work, not uncredited buffered application bytes.
+    /// Pending capacity is advanced by the existing window-update handlers;
+    /// an empty send/open queue cannot make it progress in poll_complete.
+    pub fn has_buffered_frames(&self) -> bool {
+        !self.pending_send.is_empty()
+            || !self.pending_open.is_empty()
+            || self.in_flight_data_frame != InFlightData::Nothing
+    }
+
     pub fn poll_complete<T, B>(
         &mut self,
         cx: &mut Context,

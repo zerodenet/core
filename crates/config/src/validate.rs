@@ -662,6 +662,32 @@ fn validate_runtime(
             )));
         }
     }
+    for (name, limit, minimum, maximum) in [
+        (
+            "inbound_max_tasks_per_carrier",
+            runtime.effective_inbound_max_tasks_per_carrier(520),
+            1,
+            4096,
+        ),
+        (
+            "inbound_max_resources_per_carrier",
+            runtime.effective_inbound_max_resources_per_carrier(257),
+            0,
+            65536,
+        ),
+        (
+            "inbound_max_in_flight_requests",
+            runtime.effective_inbound_max_in_flight_requests(256),
+            1,
+            65536,
+        ),
+    ] {
+        if !(minimum..=maximum).contains(&limit) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between {minimum} and {maximum}"
+            )));
+        }
+    }
     if runtime.event_log_capacity == 0 {
         return Err(ConfigError::InvalidRuntime(
             "`runtime.event_log_capacity` must be greater than 0".to_owned(),

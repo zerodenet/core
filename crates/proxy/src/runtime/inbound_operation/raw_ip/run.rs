@@ -62,6 +62,10 @@ pub(in crate::runtime) async fn run(
     let AcceptedRequest::Packet(accepted) = request else {
         return Err(std::io::Error::other("endpoint source did not hand off Packet").into());
     };
+    let memory = accepted.packet_memory().ok_or_else(|| {
+        std::io::Error::other("actual Packet Source omitted its original allocation view/layout")
+    })?;
+    memory.view.check_open().map_err(std::io::Error::other)?;
     let link_mtu = accepted
         .link_mtu()
         .ok_or_else(|| std::io::Error::other("packet source omitted link MTU"))?;
@@ -119,7 +123,7 @@ pub(in crate::runtime) async fn run(
             .ok_or_else(|| {
                 std::io::Error::other("Packet source wire lacks its original registration")
             })?;
-        route.bind_actual_packet_source(actual)?;
+        route.bind_actual_packet_source(actual, memory.clone())?;
     }
     #[cfg(test)]
     eprintln!(
@@ -131,7 +135,13 @@ pub(in crate::runtime) async fn run(
     let mut sending: Option<send::Pending> = None;
     let (response_tx, mut responses) = mpsc::channel::<zero_traits::PacketBuffer>(256);
     let response_tx: zero_stack::packet_output::PacketSender =
-        zero_stack::packet_output::PacketSender::from(response_tx).with_return_mtu(link_mtu);
+        zero_stack::packet_output::PacketSender::from(response_tx)
+            .with_return_mtu(link_mtu)
+            .with_packet_memory_view(
+                memory.view,
+                crate::runtime::raw_ip::memory::wire_layout(memory.layout),
+            )
+            .map_err(std::io::Error::other)?;
     let (tcp, udp) = UserNetworkStack::new_with_packet_output_and_task_owner(
         response_tx.clone(),
         zero_stack::tcp_mss_for_mtu(link_mtu),

@@ -99,6 +99,15 @@ where
             incoming=conn.accept()=>incoming,
         };
         let Some(incoming) = incoming else {
+            // Stop accepting new application streams without discarding DATA
+            // already decoded into one of this original task's bounded FIFOs.
+            drop(tx);
+            while !io_jobs.is_empty() {
+                tokio::select! { biased;
+                    _ = cancel.cancelled() => return Ok(()),
+                    _ = io_jobs.next() => {},
+                }
+            }
             return Ok(());
         };
         let (request, mut respond) = incoming.map_err(failure)?;

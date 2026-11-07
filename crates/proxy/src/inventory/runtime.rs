@@ -2,7 +2,7 @@ use zero_config::RuntimeConfig;
 use zero_engine::RouteMode;
 use zero_engine::{EngineError, ResolvedLeafOutbound};
 
-use super::service::{ServiceNode, endpoint};
+use super::service::{endpoint, ServiceNode};
 use super::{PreparedTcpCandidateExecution, ProtocolInventory};
 use crate::component::catalog::ComponentPlan;
 use crate::protocol_registry::OutboundAdapterContext;
@@ -13,7 +13,7 @@ use crate::runtime::tcp_dispatch::operation::{
 #[cfg(feature = "udp-runtime")]
 use crate::runtime::udp_dispatch::operation::PreparedUdpFlowOperation;
 use crate::transport::TcpOutboundFailure;
-use zero_core::{Address, request::Destination};
+use zero_core::{request::Destination, Address};
 use zero_platform_tokio::contract::dns::DnsQueryRole;
 
 pub(crate) struct ClaimedInventoryLeaf<'a> {
@@ -269,10 +269,24 @@ impl ProtocolInventory {
             mtu: config.runtime.network.mtu,
             stack_options: crate::runtime::raw_ip::RawIpStackOptions::from_config(
                 &config.runtime.network.udp_receive_queue,
-            ).with_packet_return_limits(
+            )
+            .with_packet_native_read_limits(
+                config
+                    .runtime
+                    .effective_packet_native_read_total_max_frames(),
+                config
+                    .runtime
+                    .effective_packet_native_read_total_max_bytes(),
+            )
+            .with_packet_transmit_limits(
+                config.runtime.effective_packet_transmit_total_max_frames(),
+                config.runtime.effective_packet_transmit_total_max_bytes(),
+            )
+            .with_packet_return_limits(
                 config.runtime.effective_packet_return_max_frames(),
                 config.runtime.effective_packet_return_max_bytes(),
-            ).with_packet_return_totals(
+            )
+            .with_packet_return_totals(
                 self.devices.packet_return_totals.clone(),
                 config.runtime.effective_packet_return_total_max_frames(),
                 config.runtime.effective_packet_return_total_max_bytes(),

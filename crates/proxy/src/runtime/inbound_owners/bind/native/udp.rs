@@ -16,6 +16,8 @@ pub(in crate::runtime::inbound_owners) struct NativeDatagramGrant {
     originals: Option<Arc<zero_runtime::HostOriginalBudgets>>,
     #[cfg(feature = "raw-ip-runtime")]
     packet_reads: Option<Arc<crate::component::instance::HostPacketReadReservation>>,
+    #[cfg(feature = "raw-ip-runtime")]
+    packet_memory: std::sync::OnceLock<zero_platform_tokio::contract::packet::PacketSourceMemory>,
     addresses: std::sync::OnceLock<Arc<[std::net::SocketAddr]>>,
     declaration: ResourceDeclaration,
     attempts: NonZeroUsize,
@@ -73,6 +75,8 @@ impl NativeDatagramGrant {
             originals: None,
             #[cfg(feature = "raw-ip-runtime")]
             packet_reads: None,
+            #[cfg(feature = "raw-ip-runtime")]
+            packet_memory: std::sync::OnceLock::new(),
             addresses,
             declaration: declaration.clone(),
             attempts,

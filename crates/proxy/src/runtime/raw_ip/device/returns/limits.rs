@@ -3,7 +3,7 @@ use super::*;
 impl PacketReturns {
     pub(crate) fn with_limits(
         mut self,
-        options: &super::super::RawIpStackOptions,
+        options: &crate::runtime::raw_ip::RawIpStackOptions,
     ) -> std::io::Result<Self> {
         // Explicit standalone library construction owns this Root policy.
         use zero_tun::packet_memory::PacketMemoryLimit;
@@ -33,7 +33,7 @@ impl PacketReturns {
     }
     pub(crate) fn with_host_limits(
         mut self,
-        options: &super::super::RawIpStackOptions,
+        options: &crate::runtime::raw_ip::RawIpStackOptions,
     ) -> std::io::Result<Self> {
         use zero_tun::packet_memory::PacketMemoryLimit;
         let expected = [

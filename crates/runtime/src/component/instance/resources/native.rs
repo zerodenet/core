@@ -9,22 +9,19 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::Instant;
 use zero_core::{component::ComponentId, request::Destination};
 use zero_platform_tokio::contract::{
-    BoxFuture, CancellationToken, ChannelError, Reason,
     component::{GrantedDatagramListener, ProcessRequest, ResourceAccess, ResourceDeclaration},
     packet::BoxPacketSession,
+    BoxFuture, CancellationToken, ChannelError, Reason,
 };
 
 pub struct HostResources {
-    dependency_slots: std::sync::OnceLock<Arc<[std::sync::Weak<crate::component::instance::ComponentSlot>]>>,
+    dependency_slots:
+        std::sync::OnceLock<Arc<[std::sync::Weak<crate::component::instance::ComponentSlot>]>>,
     source_pause:
         std::sync::OnceLock<Arc<zero_platform_tokio::contract::packet::PacketSourcePause>>,
     originals: Arc<crate::HostOriginalBudgets>,
     original_tasks: Option<zero_platform_tokio::contract::scope::WeakTaskRegistrar>,
-    packet_source: Arc<
-        std::sync::OnceLock<
-            zero_platform_tokio::controlled_carrier::CarrierOrigin,
-        >,
-    >,
+    packet_source: Arc<std::sync::OnceLock<zero_platform_tokio::controlled_carrier::CarrierOrigin>>,
     component: ComponentId,
     instance: Option<zero_core::component::ComponentInstanceId>,
     icmp: Option<super::icmp::HostIcmpProbeOwner>,
@@ -103,8 +100,8 @@ struct State {
 // production activation remains gated until that separate transaction exists.
 mod bound_datagram;
 mod carrier;
-mod dependency;
 mod coverage;
+mod dependency;
 mod evidence;
 mod files;
 mod listener;
@@ -120,7 +117,9 @@ pub use listener::HostDatagramListenerOwner;
 mod read_workspaces;
 mod shutdown;
 mod sockets;
-pub use read_workspaces::{HostPacketReadReservation, packet_datagram_read_spec};
+pub use read_workspaces::{
+    packet_datagram_control_spec, packet_datagram_read_spec, HostPacketReadReservation,
+};
 
 /// Closing the grant phase does not claim that its children have exited.
 pub struct StartAccess(Arc<HostResources>);
@@ -196,7 +195,10 @@ impl ResourceAccess for HostResources {
         endpoint: &Destination,
         binding: &zero_platform_tokio::contract::network::UpstreamBinding,
         grant: &zero_platform_tokio::controlled_carrier::CarrierGrant,
-    ) -> Result<zero_platform_tokio::controlled_carrier::loan::CarrierDependencyLoanIssuer, ChannelError> {
+    ) -> Result<
+        zero_platform_tokio::controlled_carrier::loan::CarrierDependencyLoanIssuer,
+        ChannelError,
+    > {
         self.registered_dependency_stream_issuer(dependency, endpoint, binding, grant)
     }
 
@@ -208,7 +210,10 @@ impl ResourceAccess for HostResources {
         if self.instance != Some(source.instance()) || source.is_retired() {
             return Err(self.denied());
         }
-        source.reserve_original_totals(self.original_tasks.as_ref().ok_or_else(|| self.denied())?, &self.originals.carrier)
+        source.reserve_original_totals(
+            self.original_tasks.as_ref().ok_or_else(|| self.denied())?,
+            &self.originals.carrier,
+        )
     }
     fn install_logical_packet_source(
         &self,
@@ -218,14 +223,21 @@ impl ResourceAccess for HostResources {
         if self.instance != Some(source.instance())
             || source.is_retired()
             || !source.has_original_total(&self.originals.carrier)
-            || !self.original_tasks.as_ref().is_some_and(|tasks|
-                tasks.scope_identity().same_scope(source.device().scope()))
+            || !self
+                .original_tasks
+                .as_ref()
+                .is_some_and(|tasks| tasks.scope_identity().same_scope(source.device().scope()))
         {
             return Err(self.denied());
         }
-        let source = zero_platform_tokio::controlled_carrier::CarrierOrigin::from_logical_packet(source);
+        let source =
+            zero_platform_tokio::controlled_carrier::CarrierOrigin::from_logical_packet(source);
         if let Some(actual) = self.packet_source.get() {
-            return if actual.same_original(&source) { Ok(()) } else { Err(self.denied()) };
+            return if actual.same_original(&source) {
+                Ok(())
+            } else {
+                Err(self.denied())
+            };
         }
         self.packet_source.set(source).map_err(|_| self.denied())
     }
@@ -242,6 +254,14 @@ impl ResourceAccess for HostResources {
     ) -> Result<[zero_tun::packet_memory::NativeReadGrant; 2], ChannelError> {
         self.require_start()?;
         self.reads.take(datagram)
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    fn take_packet_datagram_control(
+        &self,
+        datagram: usize,
+    ) -> Result<Option<zero_tun::packet_memory::NativeReadGrant>, ChannelError> {
+        self.require_start()?;
+        self.reads.take_control(datagram)
     }
     fn packet_carrier_origin(
         &self,
