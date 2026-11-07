@@ -476,33 +476,6 @@ impl EngineEventLog {
         self.push_generated(event);
     }
 
-    pub(crate) fn flow_snapshot_event(
-        &self,
-        sessions: &[ActiveSession],
-        session_registry_revision: u64,
-        principals: &[zero_api::PrincipalFlowSnapshot],
-    ) -> RawApiEvent {
-        let now_ms = unix_timestamp_ms();
-        let watermark = self.latest_sequence();
-        let records = sessions
-            .iter()
-            .map(|session| active_flow_record(session, FlowState::Active, now_ms))
-            .collect::<Vec<_>>();
-        let mut event = ApiEvent::new(
-            format!("{}:{}", event_type::FLOW_SNAPSHOT, watermark),
-            event_type::FLOW_SNAPSHOT,
-            now_ms,
-            json!({
-                "watermark": watermark,
-                "session_registry_revision": session_registry_revision,
-                "principal_flows": principals,
-                "records": records,
-            }),
-        );
-        event.sequence = Some(watermark);
-        self.qualify_generated(event)
-    }
-
     pub(crate) fn prepare_flow_completed(
         &self,
         record: &CompletedSessionRecord,

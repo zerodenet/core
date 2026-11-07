@@ -1,7 +1,6 @@
 //! Actual principal index membership and immutable values, under registry guard.
 use super::*;
 use serde::{ser::SerializeSeq, Serialize, Serializer};
-use zero_runtime::configuration::ControlBudgetPermit;
 #[derive(Serialize)]
 struct PrincipalRow<'a> {
     principal_key: &'a str,
@@ -14,14 +13,6 @@ pub(crate) struct PrincipalQueryRows<'a> {
     rows: Vec<PrincipalRow<'a>>,
 }
 impl PrincipalFlowIndex {
-    pub(in crate::session::registry) fn freeze_query(
-        &self,
-        workspace: &mut ControlBudgetPermit,
-    ) -> std::io::Result<PrincipalQueryRows<'_>> {
-        self.freeze_query_paid(&mut crate::runtime_query::workspace::RowCredit::Control(
-            workspace,
-        ))
-    }
     pub(in crate::session::registry) fn freeze_query_paid(
         &self,
         workspace: &mut crate::runtime_query::workspace::RowCredit<'_>,

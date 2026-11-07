@@ -37,13 +37,6 @@ impl Engine {
         self.event_log.prepare_subscriber(filter)
     }
 
-    pub(crate) fn flow_snapshot_event(&self) -> RawApiEvent {
-        let (sessions, session_registry_revision, principals) =
-            self.session_registry.flow_snapshot();
-        self.event_log
-            .flow_snapshot_event(&sessions, session_registry_revision, &principals)
-    }
-
     pub(crate) fn emit_event(&self, event: RawApiEvent) {
         self.event_log.push_external(event);
     }

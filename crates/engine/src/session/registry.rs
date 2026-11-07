@@ -258,24 +258,6 @@ impl SessionRegistry {
             .snapshot()
     }
 
-    pub(crate) fn flow_snapshot(
-        &self,
-    ) -> (
-        Vec<ActiveSession>,
-        u64,
-        Vec<zero_api::PrincipalFlowSnapshot>,
-    ) {
-        let state = self.inner.lock().expect("session registry lock poisoned");
-        let mut sessions = state
-            .sessions
-            .values()
-            .map(|session| session.snapshot())
-            .collect::<Vec<_>>();
-        sessions.sort_by_key(|session| session.id);
-        let (revision, principals) = state.principal_flows.snapshot();
-        (sessions, revision, principals)
-    }
-
     pub fn dirty_snapshot(&self) -> Vec<ActiveSession> {
         self.inner
             .lock()

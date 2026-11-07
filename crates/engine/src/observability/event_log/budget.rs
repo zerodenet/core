@@ -3,7 +3,6 @@
 use super::*;
 use std::{io, ops::Deref};
 mod limits;
-pub(crate) use limits::PreparedStatisticsLimits;
 const HISTORY_STATS_BYTES: usize = 8 * 1024 * 1024;
 pub(super) const SUBSCRIBER_STATS_BYTES: usize = 1024 * 1024;
 fn stats_size(event: &RawApiEvent) -> usize {

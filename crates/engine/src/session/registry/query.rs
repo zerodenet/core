@@ -197,4 +197,3 @@ impl ActiveQueryRows<'_> {
 }
 
 mod traffic;
-pub(crate) use traffic::SessionTrafficRows;
