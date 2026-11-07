@@ -3,7 +3,8 @@
 use super::*;
 use crate::runtime::raw_ip::PreparedWireReceive;
 pub(super) async fn finish(
-    operation: &mut Wire,
+    codec: &mut dyn RawIpInboundDevice,
+    endpoint: Option<&RawIpInboundEndpoint>,
     received: PreparedWireReceive<RawIpInboundDispatch>,
     source: Option<std::net::SocketAddr>,
     proxied_peer: Option<usize>,
@@ -18,10 +19,7 @@ pub(super) async fn finish(
     let expected = proxied_peer.is_none() || proxied_peer == peer;
     if data.allowed && expected {
         let device = peer.and_then(|peer| {
-            operation
-                .endpoint
-                .as_ref()
-                .and_then(|endpoint| endpoint.peers.borrow().devices.get(peer).cloned())
+            endpoint.and_then(|endpoint| endpoint.peers.borrow().devices.get(peer).cloned())
         });
         if let Some(device) = device {
             let prepared = device
@@ -32,7 +30,7 @@ pub(super) async fn finish(
                 // No Tunn/device mutex is held across the table-lock await.
                 // Here the actual table guard stays held only across the short
                 // final sameSession+replay commit and synchronous TCP consume.
-                if let Err(error) = operation.device.commit_prepared_datagram(&data, source) {
+                if let Err(error) = codec.commit_prepared_datagram(&data, source) {
                     tracing::debug!(
                         ?error,
                         "prepared wire Data lost actual Session/replay admission"
@@ -71,7 +69,7 @@ pub(super) async fn finish(
             return Err(failure.source);
         }
     }
-    if let Err(error) = operation.device.commit_prepared_datagram(&data, source) {
+    if let Err(error) = codec.commit_prepared_datagram(&data, source) {
         tracing::debug!(
             ?error,
             "prepared wire Data lost actual Session/replay admission"

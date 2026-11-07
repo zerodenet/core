@@ -208,7 +208,7 @@ pub(super) async fn run(
                     }
                     Err(failure) => return Err(failure.source),
                 };
-                let Some(dispatch) = prepared::finish(&mut operation,prepared,source,proxied_peer,&read_memory.0[0],&traffic).await? else {continue;};
+                let Some(dispatch) = prepared::finish(operation.device.as_mut(),operation.endpoint.as_ref(),prepared,source,proxied_peer,&read_memory.0[0],&traffic).await? else {continue;};
                 if let Some(peer) = dispatch.peer_index { timers.update(peer, operation.device.timer_schedule(peer)); }
                 if dispatch.authenticated { traffic.peer(dispatch.peer_index).peer_rx(TrafficPlane::Outer, size); }
                 traffic.peer(dispatch.peer_index).dropped_count(TrafficPlane::Inner, true, zero_api::TrafficDropReason::SourceRejected, dispatch.source_rejected_packets);

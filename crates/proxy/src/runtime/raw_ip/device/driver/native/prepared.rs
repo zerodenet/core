@@ -15,37 +15,39 @@ pub(super) async fn finish(
     // anything to a matched application's actual Stack consumer.
     let source_matches = sender.is_none_or(|sender| sender.is_ipv4() == device.endpoint.is_ipv4());
     if data.allowed && source_matches {
-        let prepared = device
-            .tcp
-            .prepare_correlated_owned(&data.packet, read)
-            .await
-            .map_err(std::io::Error::other)?;
-        if let Some(prepared) = prepared {
-            if let Some(routes) = device.returns.fence_tcp_delivery(&data.packet) {
-                if let Err(error) = device.tunnel.commit_prepared_datagram(&data) {
-                    tracing::debug!(
-                        ?error,
-                        "prepared wire Data lost actual Session/replay admission"
-                    );
-                    return Ok(None);
-                }
-                drop(routes);
-                device
-                    .traffic
-                    .rx(TrafficPlane::Inner, data.packet.len(), true);
+        {
+            let prepared = device
+                .tcp
+                .prepare_correlated_owned(&data.packet, read)
+                .await
+                .map_err(std::io::Error::other)?;
+            if let Some(prepared) = prepared {
+                if let Some(routes) = device.returns.fence_tcp_delivery(&data.packet) {
+                    if let Err(error) = device.tunnel.commit_prepared_datagram(&data) {
+                        tracing::debug!(
+                            ?error,
+                            "prepared wire Data lost actual Session/replay admission"
+                        );
+                        return Ok(None);
+                    }
+                    drop(routes);
+                    device
+                        .traffic
+                        .rx(TrafficPlane::Inner, data.packet.len(), true);
 
-                device
-                    .health
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .last_authenticated_packet = Some(Instant::now());
-                assert!(
-                    prepared.consume(),
-                    "same actual tuple stayed locked through commit"
-                );
-                return Ok(Some((Vec::new(), true)));
+                    device
+                        .health
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .last_authenticated_packet = Some(Instant::now());
+                    assert!(
+                        prepared.consume(),
+                        "same actual tuple stayed locked through commit"
+                    );
+                    return Ok(Some((Vec::new(), true)));
+                }
             }
-        }
+        } // Return the actual optional tuple guard before fallback admission.
         if let Err(error) = data.admit_forward() {
             let failure = data.rejected(error);
             if matches!(
