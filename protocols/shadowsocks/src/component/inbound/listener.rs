@@ -19,7 +19,6 @@ use zero_platform_tokio::{
 };
 mod datagram;
 mod work;
-use work::peer_limits;
 mod plugin;
 pub struct Options {
     listen: Destination,

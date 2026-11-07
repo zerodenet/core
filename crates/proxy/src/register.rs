@@ -153,7 +153,7 @@ pub(crate) fn compiled_registries_with_network(
                         .candidate()
                         .map(|candidate| &candidate.runtime)
                         .unwrap_or(&defaults);
-                    crate::adapters::http::inbound::component_options_in_runtime(input, runtime)
+                    crate::adapters::http::component_options_in_runtime(input, runtime)
                         .map_err(Into::into)
                 },
             )
