@@ -1,6 +1,11 @@
 # 控制面兼容性与破坏性变更
 
 
+第二轮控制预算续作保持V1控制信封、事件、命令超时、ACK/revision和CLI/FFI；新增可选
+control消息字段省略不导出。IPC/HTTP/SSE/gRPC消费者与原Connection、Scope和序列化输出
+原件接线仍在开发；新字段和局部测试不表示职责域关闭。详情见
+[控制原请求预算续作](../design/v0.0.3/compatibility.md#控制原请求与序列化输出预算续作)。
+
 本文记录会影响 GUI、SDK、面板、事件 Sink 或进程内 Rust 集成的控制面语义变化。公开接口与事件说明由 [ZeroDeNet 文档仓库](https://github.com/zerodenet/docs)维护；本文只维护 Core 的版本边界和迁移要求。
 
 第二轮续作的内部 Rust 错误转发须保留 `ChannelError` 可选的结构化 cleanup receipt；

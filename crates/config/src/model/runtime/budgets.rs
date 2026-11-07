@@ -284,3 +284,9 @@ impl RuntimeOptionsConfig {
             .unwrap_or(4 * 1024 * 1024)
     }
 }
+
+impl RuntimeOptionsConfig {
+    pub fn effective_control_sse_max_event_frames(&self) -> usize {
+        self.control_sse_max_event_frames.unwrap_or(32)
+    }
+}

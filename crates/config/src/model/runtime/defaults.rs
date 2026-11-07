@@ -58,6 +58,7 @@ impl Default for RuntimeOptionsConfig {
             control_ipc_max_pending_commands: None,
             control_max_pending_commands: None,
             control_ipc_max_event_frames: None,
+            control_sse_max_event_frames: None,
             control_grpc_max_requests: None,
             control_grpc_max_streams_per_connection: None,
             control_grpc_max_request_bytes: None,

@@ -3,6 +3,11 @@ use super::*;
 pub(super) fn validate(runtime: &RuntimeOptionsConfig) -> Result<(), ConfigError> {
     for (name, value, max) in [
         (
+            "control_sse_max_event_frames",
+            runtime.effective_control_sse_max_event_frames(),
+            4096,
+        ),
+        (
             "control_max_in_flight_request_bytes",
             runtime.effective_control_max_in_flight_request_bytes(),
             268435456,

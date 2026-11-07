@@ -1,6 +1,6 @@
-//! The root adapter charges complete serialized event frames until Tonic takes
-//! custody in `poll_next`. Hyper's finite H2 send buffers remain separate from
-//! this queue; handoff is not proof of a physical write or native close.
+//! The root adapter prepays the original queued event and encoded byte storage.
+//! Production handoff transfers the same lease into the actual encoder/wire
+//! owner; poll_next is never a physical write or native-close receipt.
 use super::*;
 use prost::Message;
 use std::{
@@ -24,13 +24,23 @@ pub(super) fn defaults() -> Arc<ControlBudget> {
 pub(super) struct QueuedEvent {
     pub(super) event: Result<PbEvent, Status>,
     pub(super) _charge: Option<ControlBudgetPermit>,
+    pub(super) encoded: Option<(
+        Arc<crate::messages::Record>,
+        usize,
+        Arc<crate::messages::output::Lease>,
+    )>,
 }
 pub(super) struct Events(pub(super) mpsc::Receiver<QueuedEvent>);
 impl futures_core::Stream for Events {
     type Item = Result<PbEvent, Status>;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.0.poll_recv(cx) {
-            Poll::Ready(Some(event)) => Poll::Ready(Some(event.event)),
+            Poll::Ready(Some(event)) => {
+                if let Some((original, frame, lease)) = event.encoded {
+                    original.enqueue(frame, lease);
+                }
+                Poll::Ready(Some(event.event))
+            }
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
@@ -87,6 +97,39 @@ pub(super) fn reserve(
         // budget may admit it; stop/disconnect still release the real worker.
         match owner.budget.reserve(ControlCharge::QueuedEventBytes(bytes)) {
             Ok(permit) => return Ok(Some(permit)),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(25))
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+pub(super) fn reserve_message(
+    owner: &Subscriptions,
+    original: Option<&Arc<crate::messages::Record>>,
+    bytes: usize,
+    closed: impl Fn() -> bool,
+) -> io::Result<
+    Option<(
+        Option<ControlBudgetPermit>,
+        Option<Arc<crate::messages::output::Lease>>,
+    )>,
+> {
+    let Some(original) = original else {
+        return reserve(owner, bytes, closed)
+            .map(|charge| charge.map(|charge| (Some(charge), None)));
+    };
+    loop {
+        if owner.stop.load(Ordering::Acquire) || closed() {
+            return Ok(None);
+        }
+        // Both actual owners must be prepaid before JSON or Prost allocate.
+        // Composite admission is atomic: failure holds no partial allowance
+        // and an ordered event never waits for its own duplicate raw charge.
+        let attempt = original.encoded(bytes, ControlCharge::QueuedEventBytes(bytes));
+        match attempt {
+            Ok(encoded) => return Ok(Some((None, Some(encoded)))),
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                 std::thread::sleep(Duration::from_millis(25))
             }

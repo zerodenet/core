@@ -25,10 +25,9 @@ impl CarrierServiceGrant {
             && self
                 .binding
                 .matches_direct_service(&self.endpoint, &self.upstream)
-            && self
-                .binding
-                .registration()
-                .matches_adoption(&super::CarrierAdoption { slot: slot.clone() })
+            && self.binding.registration().matches_adoption(
+                &crate::controlled_carrier::CarrierAdoption { slot: slot.clone() },
+            )
             && self
                 .binding
                 .scope_identity()

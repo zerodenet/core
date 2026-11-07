@@ -4,22 +4,25 @@ use super::*;
 pub enum ControlConnectionCharge {
     PendingCommand,
     EventFrame,
+    SseFrame,
     GrpcStream,
 }
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Usage {
     commands: usize,
     events: usize,
+    sse: usize,
     grpc: usize,
     closed: bool,
 }
 impl Usage {
     fn empty(self) -> bool {
-        self.commands == 0 && self.events == 0 && self.grpc == 0
+        self.commands == 0 && self.events == 0 && self.grpc == 0 && self.sse == 0
     }
     fn fits(self, limits: ControlBudgetLimits) -> bool {
         self.commands <= limits.messages.ipc_pending_commands
             && self.events <= limits.messages.ipc_event_frames
+            && self.sse <= limits.messages.sse_event_frames
             && self.grpc <= limits.messages.grpc_streams
     }
 }
@@ -72,6 +75,7 @@ impl ControlConnectionBudget {
                 &mut local.commands
             }
             ControlConnectionCharge::EventFrame => &mut local.events,
+            ControlConnectionCharge::SseFrame => &mut local.sse,
             ControlConnectionCharge::GrpcStream => {
                 used.grpc_requests = used.grpc_requests.checked_add(1).ok_or_else(capacity)?;
                 &mut local.grpc
@@ -122,6 +126,7 @@ impl Drop for ControlConnectionPermit {
         let counter = match self.charge {
             ControlConnectionCharge::PendingCommand => &mut local.commands,
             ControlConnectionCharge::EventFrame => &mut local.events,
+            ControlConnectionCharge::SseFrame => &mut local.sse,
             ControlConnectionCharge::GrpcStream => &mut local.grpc,
         };
         *counter = counter
@@ -132,7 +137,7 @@ impl Drop for ControlConnectionPermit {
         }
         let counter = match self.charge {
             ControlConnectionCharge::PendingCommand => Some(&mut state.used.pending_commands),
-            ControlConnectionCharge::EventFrame => None,
+            ControlConnectionCharge::EventFrame | ControlConnectionCharge::SseFrame => None,
             ControlConnectionCharge::GrpcStream => Some(&mut state.used.grpc_requests),
         };
         if let Some(counter) = counter {

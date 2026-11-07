@@ -33,7 +33,10 @@ async fn get(handle: &ProxyHandle, path: &str, permissions: Vec<Permission>) -> 
     let RouteResult::Respond(status, body) = result else {
         panic!("expected JSON response");
     };
-    (status, serde_json::from_slice(&body).unwrap())
+    (
+        status,
+        serde_json::from_slice(&body.bytes_for_test()).unwrap(),
+    )
 }
 
 #[tokio::test]
@@ -110,7 +113,7 @@ async fn endpoint_http_control_accepts_instance_condition_and_returns_conflict_w
         else {
             panic!("wrong response")
         };
-        let error: Value = serde_json::from_slice(&body).unwrap();
+        let error: Value = serde_json::from_slice(&body.bytes_for_test()).unwrap();
         assert!(status.contains(expected_status));
         assert_eq!(error["error"]["code"], expected_code);
         if expected_code == "conflict" {
@@ -159,7 +162,10 @@ async fn statistics_http_query_and_reset_enforce_permissions_and_epoch_precondit
         let RouteResult::Respond(status, body) = result else {
             panic!("expected JSON")
         };
-        (status, serde_json::from_slice(&body).unwrap())
+        (
+            status,
+            serde_json::from_slice(&body.bytes_for_test()).unwrap(),
+        )
     }
     let query = json!({"traffic_stat":{"scope":{"kind":"global"}}});
     let (status, denied) = post(&handle, "/api/v1/query", query.clone(), Permission::Control).await;

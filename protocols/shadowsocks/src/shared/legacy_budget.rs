@@ -177,5 +177,5 @@ impl LegacyReplayBudgetProposal {
 }
 
 #[cfg(test)]
-#[path = "../../tests/legacy_budget.rs"]
+#[path = "../../tests/legacy_replay/budget.rs"]
 mod tests;

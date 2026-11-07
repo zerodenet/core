@@ -65,6 +65,7 @@ pub fn ipc_error(
 }
 
 /// Construct an error response from an `ApiError`, with optional request id.
+#[cfg(test)]
 pub fn ipc_api_error(id: Option<serde_json::Value>, error: &zero_api::ApiError) -> ApiResponse<()> {
     ApiResponse::<()>::from_api_error(error).with_id(id)
 }

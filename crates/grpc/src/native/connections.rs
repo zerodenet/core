@@ -9,6 +9,17 @@ pub(crate) struct Connections {
     entries: Mutex<BTreeMap<u64, (AcceptedTcpClaim, ControlBudgetPermit)>>,
 }
 impl Connections {
+    pub(crate) fn local_budget(
+        &self,
+        claim: &AcceptedTcpClaim,
+    ) -> io::Result<zero_runtime::configuration::ControlConnectionBudget> {
+        self.entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&claim.id())
+            .and_then(|(_, original)| original.connection_budget())
+            .ok_or_else(|| io::Error::other("original gRPC connection budget is absent"))
+    }
     pub(crate) fn before(&self, budget: &Arc<ControlBudget>) -> Result<(), ChannelError> {
         let mut acquiring = self
             .acquiring

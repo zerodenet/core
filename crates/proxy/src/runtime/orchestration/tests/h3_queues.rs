@@ -56,6 +56,7 @@ async fn web(address: std::net::SocketAddr) {
     endpoint.set_default_client_config(
         zero_transport::quic::client_config(true, None, &[b"h3".to_vec()], None).unwrap(),
     );
+    eprintln!("actual H3 web client original local={:?}",endpoint.local_addr().unwrap());
     let connection = endpoint
         .connect(address, "localhost")
         .unwrap()
@@ -157,11 +158,13 @@ async fn configured_h3_queue_owners_use_real_web_auth_tcp_and_retire_source_befo
         assert!(remote.engine().active_sessions().is_empty() && remote.engine().completed_sessions().is_empty(),"masquerade/authentication is not a business Session");
         let client_config=RuntimeConfig::parse(&serde_json::json!({"runtime":{"hysteria2_max_entries":1},"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"outbounds":[{"tag":"pool","protocol":{"type":"hysteria2","server":"127.0.0.1","server_name":"localhost","port":address.port(),"password":"actual","insecure":true}}],"route":{"final":{"type":"route","outbound":"pool"}}}).to_string()).unwrap();
         let client=Proxy::new(client_config).unwrap();let running=client.spawn();let entry=ready(&client,"entry").await;let front=*entry.original_listener_address.get().unwrap();let echo=TcpListener::bind("127.0.0.1:0").await.unwrap();let port=echo.local_addr().unwrap().port();
-        let (first,peer)=tokio::join!(socks(front,port),echo.accept());let mut first=first.unwrap();let mut first_peer=peer.unwrap().0;live(&mut first,&mut first_peer).await;let native=metadata(&client);
+        let (first,peer)=tokio::join!(socks(front,port),echo.accept());let mut first=first.unwrap();let mut first_peer=peer.unwrap().0;live(&mut first,&mut first_peer).await;let native=metadata(&client);eprintln!("actual HY2 client native original endpoints={:?}",native.endpoints());
         let (second,peer)=tokio::join!(socks(front,port),echo.accept());let mut second=second.unwrap();let mut second_peer=peer.unwrap().0;live(&mut second,&mut second_peer).await;live(&mut first,&mut first_peer).await;
         assert!(native.same_original(&metadata(&client)),"queue1 does not create a second authenticated endpoint/pool");assert!(native.closed().is_none());
         drop(first);drop(second);drop(first_peer);drop(second_peer);running.shutdown().await.unwrap();closed(&entry);let native_closed=native.closed().unwrap();assert!(native_closed.matches(&native) && native_closed.had_native_acquisition());assert!(native.owner().closed().unwrap().matches(native.owner()));assert_eq!(client.protocols.runtime_host().original_budgets().carrier.snapshot().charged,0,"same originals users/drivers/registration ACK returned");
-        timeout(Duration::from_secs(5),async {while !original.acquisition_idle_for_test() {tokio::task::yield_now().await;}}).await.unwrap();
+        let idle=timeout(Duration::from_secs(5),async {while !original.acquisition_idle_for_test() {tokio::task::yield_now().await;}}).await;
+        if idle.is_err() { eprintln!("actual H3 source running={} terminal={:?}",original.is_running(),original.terminal_for_test().map(|closed|closed.identity()));original.peer_tasks_for_test().diagnose_actual_retirement(); }
+        idle.unwrap();
         config.runtime.hysteria2_h3_max_pending_classifications=Some(2);config.runtime.hysteria2_h3_max_pending_tcp_streams=Some(2);config.runtime.hysteria2_h3_max_pending_web_streams=Some(2);config.runtime.hysteria2_h3_max_pending_web_requests=Some(2);
         let handle=ProxyHandle::new(zero_engine::EngineHandle::new(remote.engine().clone()),remote.clone());handle.apply_runtime_config_and_wait(config.clone(),Duration::from_secs(5)).await.unwrap();closed(&original);let fresh=ready(&remote,"source").await;assert_ne!(fresh.identity(),original.identity());queues(&config,2);web(*fresh.original_listener_address.get().unwrap()).await;
         remote_running.shutdown().await.unwrap();closed(&fresh);assert_eq!(remote.protocols.runtime_host().original_budgets().carrier.snapshot().charged,0);
