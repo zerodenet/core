@@ -86,7 +86,8 @@ async fn actual_failed_connection_retains_decoded_tail_until_original_fifo_retur
                 .unwrap();
             let failure = AsyncWriteExt::flush(&mut stream).await.unwrap_err();
             assert!(original_h2(&failure)
-                .is_some_and(|error| error.reason() == Some(h2::Reason::INTERNAL_ERROR)));
+                .is_some_and(|error| error.reason() == Some(h2::Reason::INTERNAL_ERROR)),
+                "same original INTERNAL_ERROR is required: {failure:?}");
             assert!(
                 !task.is_finished(),
                 "actual driver failure cannot drop its still-blocked original read worker"
@@ -96,11 +97,13 @@ async fn actual_failed_connection_retains_decoded_tail_until_original_fifo_retur
             assert_eq!(received.len(), expected.len());
             assert!(received == expected, "decoded tail or byte ordering changed");
             assert!(original_h2(&failure)
-                .is_some_and(|error| error.reason() == Some(h2::Reason::INTERNAL_ERROR)));
+                .is_some_and(|error| error.reason() == Some(h2::Reason::INTERNAL_ERROR)),
+                "same original INTERNAL_ERROR is required: {failure:?}");
             drop(stream);
             let failure = task.await.unwrap().unwrap_err();
             assert!(original_h2(&failure)
-                .is_some_and(|error| error.reason() == Some(h2::Reason::INTERNAL_ERROR)));
+                .is_some_and(|error| error.reason() == Some(h2::Reason::INTERNAL_ERROR)),
+                "same original INTERNAL_ERROR is required: {failure:?}");
         }
     })
     .await

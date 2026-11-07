@@ -163,6 +163,7 @@ where
             read_tx,
             multi,
             false,
+            flush.clone(),
         )));
         let mut stream = GrpcStream::new(
             read_rx,
