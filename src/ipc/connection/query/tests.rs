@@ -108,6 +108,7 @@ fn actual_runtime_and_stats_are_encoded_before_guards_leave_and_only_output_byte
     ));
     for request in [
         QueryRequest::Stats(Default::default()),
+        QueryRequest::PrincipalFlows(Default::default()),
         QueryRequest::ActiveFlows(zero_api::FlowListQuery {
             limit: None,
             filter: Default::default(),
