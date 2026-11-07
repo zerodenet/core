@@ -27,7 +27,7 @@ pub struct PacketSocket {
 mod borrowed;
 mod continuation;
 mod retire;
-pub use borrowed::{BorrowedPacketSegment, RejectedBorrowedPacketSegment};
+pub use borrowed::{BorrowedPacketReturned, BorrowedPacketSegment, RejectedBorrowedPacketSegment};
 /// Unique queues returned by the actual native worker before the next hop.
 /// A receiver cannot be copied or concurrently attached to two originals.
 pub struct PacketQueues(Option<Channels>, Arc<continuation::PacketIdentity>);

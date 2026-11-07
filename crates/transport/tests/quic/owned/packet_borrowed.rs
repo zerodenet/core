@@ -33,13 +33,18 @@ fn instance(id: u64) -> ComponentInstanceId {
 
 #[tokio::test]
 async fn borrowed_packet_uses_actual_udp_and_holds_queues_until_original_scope_ack() {
-    actual_borrowed_wire(false).await;
+    actual_borrowed_wire(false, false).await;
 }
 #[tokio::test]
 async fn cancelled_host_keeps_same_borrowed_driver_for_final_accepted_fifo_and_actual_ack() {
-    actual_borrowed_wire(true).await;
+    actual_borrowed_wire(true, false).await;
 }
-async fn actual_borrowed_wire(cancelled: bool) {
+#[tokio::test]
+async fn failed_original_borrowed_driver_returns_real_queues_and_native_proof_with_same_fault_after_held_ack(
+) {
+    actual_borrowed_wire(false, true).await;
+}
+async fn actual_borrowed_wire(cancelled: bool, faulted: bool) {
     timeout(Duration::from_secs(5), async {
         let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let remote = peer.local_addr().unwrap();
@@ -163,7 +168,15 @@ async fn actual_borrowed_wire(cancelled: bool) {
         assert_eq!(count, 1);
         assert_eq!(metadata[0].addr, remote);
         assert_eq!(&bytes[..metadata[0].len], b"same packet return");
-        if cancelled {
+        if faulted {
+            // Revoke this actual donor while its real UDP receive is live.
+            // No fake protocol report or fabricated task outcome is injected.
+            while !segment.actual_receive_pending() {
+                tokio::task::yield_now().await;
+            }
+            assert!(!segment.driver().unwrap().is_joined());
+            original.request_retirement();
+        } else if cancelled {
             scope.begin_shutdown();
             receiver_host.cancel();
             assert!(
@@ -211,6 +224,11 @@ async fn actual_borrowed_wire(cancelled: bool) {
             segment.stop();
         }
         let receipt = scope.next_receipt().await.unwrap();
+        let actual_failure = receipt.result().err();
+        assert_eq!(actual_failure.is_some(), faulted);
+        if let Some(source) = &actual_failure {
+            assert_eq!(source.reason, Reason::Io);
+        }
         assert!(!segment
             .driver()
             .unwrap()
@@ -230,7 +248,26 @@ async fn actual_borrowed_wire(cancelled: bool) {
             "original controller remains strongly held before ACK"
         );
         scope.acknowledge(&receipt).unwrap();
-        let _same_queues = segment.retire(end()).await.unwrap();
+        let _same_queues = if faulted {
+            let returned = segment.retire_outcome(end()).await.unwrap();
+            let (queues, joined, report) = returned.into_parts();
+            let joined = joined.expect("same actual failed packet driver");
+            assert_eq!(joined.id(), receipt.joined().id());
+            assert!(Arc::ptr_eq(
+                &joined.result().unwrap_err(),
+                actual_failure.as_ref().unwrap()
+            ));
+            assert!(joined.failure_accepted());
+            assert!(joined.registration_released());
+            assert!(report.is_complete());
+            assert!(report
+                .failed_tasks
+                .iter()
+                .any(|failure| failure.id == joined.id()));
+            queues
+        } else {
+            segment.retire(end()).await.unwrap()
+        };
         assert!(adopted
             .closed()
             .unwrap()
