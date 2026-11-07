@@ -118,7 +118,8 @@ async fn run(
                 services.control_budget(),
             )?;
             services.install_grpc(grpc.clone())?;
-            grpc.start(ipc_handle.clone()).await?;
+            grpc.start_with_engine(ipc_handle.clone(), ipc_handle.engine_handle().clone())
+                .await?;
         }
         Ok::<(), Box<dyn Error>>(())
     }

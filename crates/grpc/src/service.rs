@@ -5,6 +5,7 @@ pub(super) struct ControlService<H> {
     handle: H,
     auth: Option<GrpcServerAuth>,
     subscriptions: Arc<Subscriptions>,
+    engine: Option<zero_engine::EngineHandle>,
 }
 
 impl<H> ControlService<H> {
@@ -17,7 +18,12 @@ impl<H> ControlService<H> {
             handle,
             auth,
             subscriptions,
+            engine: None,
         }
+    }
+    pub(super) fn with_engine(mut self, engine: Option<zero_engine::EngineHandle>) -> Self {
+        self.engine = engine;
+        self
     }
 
     fn is_authorized<T>(&self, request: &Request<T>) -> bool {
@@ -46,6 +52,11 @@ where
         let req = request.into_inner();
         let query: zero_api::QueryRequest = serde_json::from_slice(&req.payload)
             .map_err(|e| Status::invalid_argument(format!("query parse error: {e}")))?;
+        if let (Some(engine), Some(original)) = (&self.engine, &original) {
+            if let Some(result) = original.config_query(engine, &query).await {
+                return result.map(|payload| Response::new(QueryResponse { payload }));
+            }
+        }
         let result = self
             .handle
             .query(query)

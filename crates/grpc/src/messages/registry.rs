@@ -13,6 +13,7 @@ pub(crate) struct Record {
     input: Mutex<Option<ControlBudgetPermit>>,
     pub(super) output: super::output::Outbox,
     pub(super) command: super::command::Command,
+    pub(super) status: Mutex<Option<ControlBudgetPermit>>,
 }
 pub(super) struct Lifetime {
     _permit: ControlConnectionPermit,
@@ -108,6 +109,7 @@ impl Requests {
             input: Mutex::new(None),
             output: Default::default(),
             command: Default::default(),
+            status: Mutex::new(None),
         });
         self.originals
             .lock()
