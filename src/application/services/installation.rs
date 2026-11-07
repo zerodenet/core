@@ -80,7 +80,7 @@ impl ApplicationServices {
             state.network_generation_started = true;
             state.dispatcher = Some(
                 zero_connector::prepare_kernel_event_dispatcher_paused_with_network(
-                    self.engine.clone(),
+                    zero_engine::EngineHandle::new(self.engine.clone()),
                     target.api.clone(),
                     target.source_dir.clone(),
                     zero_connector::EventDispatcherOptions::default(),
