@@ -155,7 +155,14 @@ async fn exchange(client: &Running) {
     io.shutdown().await.unwrap();
     eprintln!("actual gRPC MUX exchange phase=upload halfclosed");
     let mut received = Vec::new();
-    io.read_to_end(&mut received).await.unwrap();
+    {
+        let mut observed = super::read_progress::ReadProgress::new(
+            &mut io,
+            &client.proxy,
+            "VLESS cached gRPC MUX reverse",
+        );
+        observed.read_to_end(&mut received).await.unwrap();
+    }
     eprintln!(
         "actual gRPC MUX exchange phase=reverse EOF bytes={}",
         received.len()
