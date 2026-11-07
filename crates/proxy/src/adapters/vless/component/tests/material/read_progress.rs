@@ -44,6 +44,7 @@ impl<R: AsyncRead + Unpin> AsyncRead for ReadProgress<'_, R> {
 }
 impl<R> Drop for ReadProgress<'_, R> {
     fn drop(&mut self) {
+        flow_boundaries(self.proxy, self.label);
         eprintln!(
             "actual {} bytes={} EOF={} activeFlows={} completedFailures={:?}",
             self.label,
@@ -58,4 +59,30 @@ impl<R> Drop for ReadProgress<'_, R> {
                 .collect::<Vec<_>>()
         );
     }
+}
+
+/// Same Engine snapshots at timeout, without polling or retaining a flow lease.
+pub(super) struct FlowProgress {
+    proxy: Proxy,
+    label: &'static str,
+}
+impl FlowProgress {
+    pub(super) fn new(proxy: &Proxy, label: &'static str) -> Self {
+        Self {
+            proxy: proxy.clone(),
+            label,
+        }
+    }
+}
+impl Drop for FlowProgress {
+    fn drop(&mut self) {
+        flow_boundaries(&self.proxy, self.label);
+    }
+}
+fn flow_boundaries(proxy: &Proxy, label: &str) {
+    let active = proxy.engine().active_sessions();
+    let completed = proxy.engine().completed_sessions();
+    eprintln!("actual {label} active boundaries (id,port,up,down,inRx,inTx,outRx,outTx)={:?}; completed boundaries={:?}",
+        active.iter().map(|flow|(flow.id,flow.port,flow.bytes_up,flow.bytes_down,flow.inbound_rx_bytes,flow.inbound_tx_bytes,flow.outbound_rx_bytes,flow.outbound_tx_bytes)).collect::<Vec<_>>(),
+        completed.iter().map(|flow|(flow.id,flow.port,flow.bytes_up,flow.bytes_down,flow.inbound_rx_bytes,flow.inbound_tx_bytes,flow.outbound_rx_bytes,flow.outbound_tx_bytes)).collect::<Vec<_>>());
 }
