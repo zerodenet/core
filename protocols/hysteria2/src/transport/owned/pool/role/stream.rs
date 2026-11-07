@@ -30,7 +30,7 @@ pub(super) fn loan(stream: Stream) -> StreamLoan {
     });
     StreamLoan::new(
         Box::pin(View(shared.clone())),
-        Box::new(Control(shared)),
+        Box::new(Control(shared)).into(),
         original,
     )
 }

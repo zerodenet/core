@@ -69,7 +69,11 @@ impl NativeTcpStream {
         // The new persistent controller now owns the real retirement operation.
         // Returning the view alone must not abandon its ordered close barrier.
         self.stream.defer_retirement();
-        Ok(StreamLoan::new(Box::pin(self), Box::new(control), original))
+        Ok(StreamLoan::new(
+            Box::pin(self),
+            Box::new(control).into(),
+            original,
+        ))
     }
 }
 impl Control {

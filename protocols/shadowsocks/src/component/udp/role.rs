@@ -151,7 +151,7 @@ pub struct Control {
 }
 enum ControlKind {
     Cached(logical::Control),
-    Borrowed(Box<dyn DynChannelControl>),
+    Borrowed(zero_platform_tokio::contract::lifecycle::BoxChannelControl),
 }
 impl ChannelControl for Control {
     fn revoked(&self) -> zero_platform_tokio::contract::BoxFuture<'static, ()> {
