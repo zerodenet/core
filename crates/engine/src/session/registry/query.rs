@@ -42,7 +42,13 @@ impl SessionQueryGuard<'_> {
         &self,
         workspace: &mut ControlBudgetPermit,
     ) -> std::io::Result<super::PrincipalQueryRows<'_>> {
-        self.0.principal_flows.freeze_query(workspace)
+        self.principals_paid(&mut workspace::RowCredit::Control(workspace))
+    }
+    pub(crate) fn principals_paid(
+        &self,
+        workspace: &mut workspace::RowCredit<'_>,
+    ) -> std::io::Result<super::PrincipalQueryRows<'_>> {
+        self.0.principal_flows.freeze_query_paid(workspace)
     }
     pub(crate) fn contains(&self, id: u64) -> bool {
         self.0.sessions.contains_key(&id)
@@ -53,6 +59,20 @@ impl SessionQueryGuard<'_> {
         limit: usize,
         id: Option<u64>,
         workspace: &mut ControlBudgetPermit,
+    ) -> std::io::Result<ActiveQueryRows<'q>> {
+        self.freeze_paid(
+            filter,
+            limit,
+            id,
+            &mut workspace::RowCredit::Control(workspace),
+        )
+    }
+    pub(crate) fn freeze_paid<'q>(
+        &'q self,
+        filter: Option<&zero_api::FlowFilter>,
+        limit: usize,
+        id: Option<u64>,
+        workspace: &mut workspace::RowCredit<'_>,
     ) -> std::io::Result<ActiveQueryRows<'q>> {
         let matches = |entry: &ActiveSessionEntry| {
             id.is_none_or(|id| entry.id == id) && matches_filter(entry, filter)
@@ -81,7 +101,7 @@ impl SessionQueryGuard<'_> {
             }
         }
         let selected = selected.into_sorted_vec();
-        let mut rows = workspace::vector::<Frozen<'_>>(count, workspace)?;
+        let mut rows = workspace::vector_paid::<Frozen<'_>>(count, workspace)?;
         for selected in selected {
             let entry = selected.0;
             let now = unix_timestamp_ms();

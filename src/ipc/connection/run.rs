@@ -221,7 +221,20 @@ where
                     // request `id` is moved exactly once (no clone) and
                     // "subscribed" truthfully reflects engine state.
                     let (subscriber, wants_snapshot) =
-                        handle.engine_handle().subscribe_control_live(filter);
+                        match handle.engine_handle().subscribe_control_live(filter) {
+                            Ok(actual) => actual,
+                            Err(error) => {
+                                let code = if error.code == zero_api::ApiErrorCode::Conflict {
+                                    "resource_exhausted"
+                                } else {
+                                    "subscribe_failed"
+                                };
+                                let resp = ipc_error(id, code, error.to_string());
+                                frames::write_response_until(&writer, &resp, &budget, &stop)
+                                    .await?;
+                                continue;
+                            }
+                        };
                     let initial = if wants_snapshot {
                         let initial_slot = match local.reserve(
                             zero_runtime::configuration::ControlConnectionCharge::EventFrame,

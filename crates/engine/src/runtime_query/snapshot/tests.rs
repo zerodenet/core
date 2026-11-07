@@ -50,7 +50,7 @@ fn original_snapshot_matches_owned_library_wire_and_never_inserts_a_replay_seque
     let handle = crate::EngineHandle::new(engine.clone());
     let legacy = handle.subscribe(Default::default()).unwrap();
     let mut expected = serde_json::to_value(legacy.try_recv().unwrap()).unwrap();
-    let (live, wants_snapshot) = handle.subscribe_control_live(Default::default());
+    let (live, wants_snapshot) = handle.subscribe_control_live(Default::default()).unwrap();
     assert!(wants_snapshot && live.try_recv_retained().is_none());
     let sequence = engine.latest_event_sequence();
     let book = ControlBudget::new(ControlBudgetLimits::from_runtime(&Default::default()));

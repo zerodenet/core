@@ -168,6 +168,42 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
             256 * 1024 * 1024,
         ),
         (
+            "event_subscriber_max_pending_events",
+            RuntimeOptionsConfig::effective_event_subscriber_max_pending_events,
+            1024,
+            1024,
+        ),
+        (
+            "event_subscriber_total_max_pending_events",
+            RuntimeOptionsConfig::effective_event_subscriber_total_max_pending_events,
+            65536,
+            1048576,
+        ),
+        (
+            "event_subscriber_max_registrations",
+            RuntimeOptionsConfig::effective_event_subscriber_max_registrations,
+            4096,
+            65536,
+        ),
+        (
+            "event_subscriber_total_stats_max_bytes",
+            RuntimeOptionsConfig::effective_event_subscriber_total_stats_max_bytes,
+            67108864,
+            268435456,
+        ),
+        (
+            "event_subscriber_max_filter_bytes",
+            RuntimeOptionsConfig::effective_event_subscriber_max_filter_bytes,
+            65536,
+            1048576,
+        ),
+        (
+            "event_subscriber_total_max_storage_bytes",
+            RuntimeOptionsConfig::effective_event_subscriber_total_max_storage_bytes,
+            8388608,
+            268435456,
+        ),
+        (
             "event_subscriber_stats_max_bytes",
             RuntimeOptionsConfig::effective_event_subscriber_stats_max_bytes,
             1024 * 1024,

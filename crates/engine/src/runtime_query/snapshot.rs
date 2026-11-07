@@ -27,8 +27,20 @@ impl EngineFlowSnapshotGuard<'_> {
         &'a self,
         credit: &mut ControlBudgetPermit,
     ) -> io::Result<EngineFlowSnapshot<'a>> {
-        let active = self.active.freeze(None, usize::MAX, None, credit)?;
-        let principals = self.active.principals(credit)?;
+        self.freeze_paid(&mut workspace::RowCredit::Control(credit))
+    }
+    pub(crate) fn freeze_subscriber<'a>(
+        &'a self,
+        credit: &mut crate::observability::SubscriberStorage,
+    ) -> io::Result<EngineFlowSnapshot<'a>> {
+        self.freeze_paid(&mut workspace::RowCredit::Subscriber(credit))
+    }
+    fn freeze_paid<'a>(
+        &'a self,
+        credit: &mut workspace::RowCredit<'_>,
+    ) -> io::Result<EngineFlowSnapshot<'a>> {
+        let active = self.active.freeze_paid(None, usize::MAX, None, credit)?;
+        let principals = self.active.principals_paid(credit)?;
         Ok(EngineFlowSnapshot {
             guard: self,
             active,
@@ -120,3 +132,54 @@ impl Serialize for EngineFlowSnapshot<'_> {
 }
 #[cfg(test)]
 mod tests;
+
+mod measure;
+impl EngineFlowSnapshot<'_> {
+    /// The genuine owned EventSource API materializes its one original after
+    /// this same subscriber paid both frozen workspace and owned envelope.
+    pub(crate) fn materialize_subscriber(
+        &self,
+        credit: &mut crate::observability::SubscriberStorage,
+    ) -> io::Result<zero_api::RawApiEvent> {
+        use std::fmt::Write;
+        let payload = self.payload();
+        let heap = measure::heap(&payload).map_err(io::Error::other)?;
+        let basis = &self.guard.basis;
+        let id_len = measure::display_len(Identity(basis)).map_err(io::Error::other)?;
+        let strings = zero_api::EVENT_SCHEMA_ID
+            .len()
+            .checked_add(self.event_type().len())
+            .and_then(|n| n.checked_add(basis.core_instance_id.len()))
+            .and_then(|n| n.checked_add(id_len))
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "initial envelope storage overflow",
+                )
+            })?;
+        credit.grow(heap.checked_add(strings).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "initial envelope storage overflow",
+            )
+        })?)?;
+        let mut event_id = String::new();
+        event_id
+            .try_reserve_exact(id_len)
+            .map_err(io::Error::other)?;
+        write!(&mut event_id, "{}", Identity(basis)).expect("prepaid original identity");
+        Ok(zero_api::RawApiEvent {
+            schema_id: zero_api::EVENT_SCHEMA_ID.to_owned(),
+            event_id,
+            event_type: self.event_type().to_owned(),
+            occurred_at_unix_ms: basis.occurred_at,
+            core_instance_id: Some(basis.core_instance_id.to_owned()),
+            config_revision: Some(basis.config_revision),
+            source_id: None,
+            sequence: Some(basis.watermark),
+            principal_key: None,
+            labels: Default::default(),
+            payload: serde_json::to_value(payload).map_err(io::Error::other)?,
+        })
+    }
+}

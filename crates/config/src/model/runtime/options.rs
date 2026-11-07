@@ -267,6 +267,19 @@ pub struct RuntimeOptionsConfig {
     /// One MiB by default; independent of control serialized output custody.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub event_subscriber_stats_max_bytes: Option<usize>,
+    // Same Engine subscriber originals; count includes dequeued/retiring custody.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_subscriber_max_pending_events: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_subscriber_total_max_pending_events: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_subscriber_max_registrations: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_subscriber_total_stats_max_bytes: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_subscriber_max_filter_bytes: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_subscriber_total_max_storage_bytes: Option<usize>,
     /// Same-kernel Windows pipe payload workspaces, including native pending
     /// read/write and queued buffers. Default2MiB, on demand; not RSS or events.
     #[serde(default, skip_serializing_if = "Option::is_none")]

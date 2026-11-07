@@ -656,6 +656,45 @@ fn validate_runtime(
             )));
         }
     }
+    // Actual subscriber queue/count/filter books, independent of replay history.
+    for (name, limit, maximum) in [
+        (
+            "event_subscriber_max_pending_events",
+            runtime.effective_event_subscriber_max_pending_events(),
+            1024,
+        ),
+        (
+            "event_subscriber_total_max_pending_events",
+            runtime.effective_event_subscriber_total_max_pending_events(),
+            1048576,
+        ),
+        (
+            "event_subscriber_max_registrations",
+            runtime.effective_event_subscriber_max_registrations(),
+            65536,
+        ),
+        (
+            "event_subscriber_total_stats_max_bytes",
+            runtime.effective_event_subscriber_total_stats_max_bytes(),
+            268435456,
+        ),
+        (
+            "event_subscriber_max_filter_bytes",
+            runtime.effective_event_subscriber_max_filter_bytes(),
+            1048576,
+        ),
+        (
+            "event_subscriber_total_max_storage_bytes",
+            runtime.effective_event_subscriber_total_max_storage_bytes(),
+            268435456,
+        ),
+    ] {
+        if !(1..=maximum).contains(&limit) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between 1 and {maximum}"
+            )));
+        }
+    }
     for (name, limit) in [
         (
             "event_log_stats_max_bytes",

@@ -67,70 +67,13 @@ impl History {
         }
     }
 }
-/// The queued value releases its reservation on consumption or receiver drop.
-pub(crate) struct QueuedEvent {
-    pub(crate) event: Arc<RawApiEvent>,
-    _reservation: Reservation,
-}
-struct Reservation {
-    bytes: usize,
-    budget: Arc<AtomicUsize>,
-}
-impl QueuedEvent {
-    pub(crate) fn into_event(self) -> RawApiEvent {
-        // Queues and history share immutable storage. The owned API clones only
-        // when another owner remains; an evicted, uniquely held event moves out.
-        Arc::unwrap_or_clone(self.event)
-    }
-}
-impl Drop for Reservation {
-    fn drop(&mut self) {
-        self.budget.fetch_sub(self.bytes, Ordering::Relaxed);
-    }
-}
-#[derive(Debug)]
-pub(crate) struct Subscriber {
-    tx: SyncSender<QueuedEvent>,
-    filter: EventFilter,
-    budget: Arc<AtomicUsize>,
-    pub(super) stats_limit: usize,
-}
-impl Subscriber {
-    pub(crate) fn new(tx: SyncSender<QueuedEvent>, filter: EventFilter) -> Self {
-        Self {
-            tx,
-            filter,
-            budget: Arc::new(AtomicUsize::new(0)),
-            stats_limit: SUBSCRIBER_STATS_BYTES,
-        }
-    }
-    pub(super) fn send(&self, event: &Arc<RawApiEvent>, bytes: usize) -> bool {
-        if !matches_filter(event, &self.filter) {
-            return true;
-        }
-        if self
-            .budget
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
-                used.checked_add(bytes)
-                    .filter(|next| *next <= self.stats_limit)
-            })
-            .is_err()
-        {
-            return true;
-        }
-        let queued = QueuedEvent {
-            event: event.clone(),
-            _reservation: Reservation {
-                bytes,
-                budget: self.budget.clone(),
-            },
-        };
-        match self.tx.try_send(queued) {
-            Ok(()) | Err(TrySendError::Full(_)) => true,
-            Err(TrySendError::Disconnected(_)) => false,
-        }
-    }
-}
+mod subscriber;
+#[cfg(test)]
+use subscriber::Subscriber;
+pub(crate) use subscriber::{
+    PreparedSubscriber, QueuedEvent, SubscriberLimits, SubscriberRegistration, SubscriberRegistry,
+    SubscriberStorage,
+};
 pub(super) fn size(event: &RawApiEvent) -> usize {
     stats_size(event)
 }

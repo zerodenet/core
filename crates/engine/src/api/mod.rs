@@ -52,7 +52,7 @@ impl EventSource for Engine {
     type Stream = EventSubscriber;
 
     fn subscribe(&self, filter: EventFilter) -> zero_api::ApiResult<Self::Stream> {
-        Ok(EventSubscriber::subscribe(self, filter))
+        EventSubscriber::subscribe(self, filter)
     }
 
     fn latest(&self, limit: usize, filter: EventFilter) -> zero_api::ApiResult<Vec<RawApiEvent>> {

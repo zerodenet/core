@@ -23,9 +23,7 @@ fn would_block(error: EngineError) {
 fn same_original_history_and_queued_event_survive_rejected_byte_shrink() {
     let log = EngineEventLog::default();
     let (tx, rx) = std::sync::mpsc::sync_channel(2);
-    let subscriber = Subscriber::new(tx, filter());
-    let pending = subscriber.budget.clone();
-    log.subscribe(subscriber);
+    let (_registration, pending) = log.test_subscriber(tx, filter(), 2).unwrap();
     log.push_external(event());
     let queued = rx.recv().unwrap();
     let original = queued.event.clone();
@@ -68,7 +66,7 @@ fn same_original_history_and_queued_event_survive_rejected_byte_shrink() {
 fn ordinary_engine_cold_limits_and_hot_grow_use_the_same_actual_history_and_subscriber() {
     let engine = Engine::new(config(1024, 1024)).unwrap();
     let (tx, rx) = std::sync::mpsc::sync_channel(4);
-    engine.subscribe_events(Subscriber::new(tx, filter()));
+    let (_registration_1, _) = engine.test_subscribe_events(tx, filter(), 4).unwrap();
     engine.emit_event(event());
     assert!(engine.events_snapshot(&filter()).is_empty());
     assert!(rx.try_recv().is_err());
@@ -85,9 +83,7 @@ fn ordinary_engine_cold_limits_and_hot_grow_use_the_same_actual_history_and_subs
 fn ordinary_reload_is_busy_until_the_original_subscription_returns_its_pending_bytes() {
     let engine = Engine::new(config(65536, 65536)).unwrap();
     let (tx, rx) = std::sync::mpsc::sync_channel(4);
-    let subscriber = Subscriber::new(tx, filter());
-    let book = subscriber.budget.clone();
-    engine.subscribe_events(subscriber);
+    let (_registration, book) = engine.test_subscribe_events(tx, filter(), 4).unwrap();
     engine.emit_event(event());
     let actual = rx.recv().unwrap();
     let retained = actual.event.clone();
@@ -110,7 +106,7 @@ fn ordinary_reload_is_busy_until_the_original_subscription_returns_its_pending_b
     // The same old subscriber and a newly registered subscriber both see the
     // installed limit. Their original queues/history are not replaced.
     let (tx2, rx2) = std::sync::mpsc::sync_channel(1);
-    engine.subscribe_events(Subscriber::new(tx2, filter()));
+    let (_registration_2, _) = engine.test_subscribe_events(tx2, filter(), 1).unwrap();
     engine.emit_event(event());
     assert!(rx.try_recv().is_err() && rx2.try_recv().is_err());
     assert!(engine
@@ -122,7 +118,7 @@ fn ordinary_reload_is_busy_until_the_original_subscription_returns_its_pending_b
 fn final_publication_rechecks_bytes_added_after_pure_preparation_without_trimming_old_history() {
     let engine = Engine::new(config(65536, 65536)).unwrap();
     let (tx, rx) = std::sync::mpsc::sync_channel(2);
-    engine.subscribe_events(Subscriber::new(tx, filter()));
+    let (_registration_3, _) = engine.test_subscribe_events(tx, filter(), 2).unwrap();
     let mut target = config(65536, 1);
     target.runtime.event_log_capacity = 1;
     let prepared = zero_runtime::configuration::PreparedConfiguration::prepare_owned(

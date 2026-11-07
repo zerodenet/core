@@ -38,8 +38,8 @@ impl EngineHandle {
 
     /// Push an event to all active subscribers.
     ///
-    /// Stale subscribers (those whose receivers have been dropped) are
-    /// removed lazily.
+    /// Receiver retirement removes its exact logical registration immediately;
+    /// already transferred event originals retain their own reservation.
     pub fn emit(&self, event: RawApiEvent) {
         self.engine.emit_event(event);
     }
@@ -47,12 +47,15 @@ impl EngineHandle {
     /// Production control adapters register this exact live receiver before
     /// encoding their prepaid original initial flow snapshot. The returned
     /// flag selects that existing snapshot responsibility, never closure/IO.
-    pub fn subscribe_control_live(&self, filter: EventFilter) -> (EventSubscriber, bool) {
+    pub fn subscribe_control_live(
+        &self,
+        filter: EventFilter,
+    ) -> ApiResult<(EventSubscriber, bool)> {
         let initial = wants_flow_snapshot(&filter);
-        (
-            EventSubscriber::subscribe_live(&self.engine, filter),
+        Ok((
+            EventSubscriber::subscribe_live(&self.engine, filter)?,
             initial,
-        )
+        ))
     }
 }
 
@@ -72,7 +75,7 @@ impl EventSource for EngineHandle {
     type Stream = EventSubscriber;
 
     fn subscribe(&self, filter: EventFilter) -> ApiResult<Self::Stream> {
-        Ok(EventSubscriber::subscribe(&self.engine, filter))
+        EventSubscriber::subscribe(&self.engine, filter)
     }
 
     fn latest(&self, limit: usize, filter: EventFilter) -> ApiResult<Vec<RawApiEvent>> {
@@ -95,27 +98,33 @@ impl EventSource for EngineHandle {
 /// events matching the subscriber's filter are yielded; others are
 /// silently skipped.
 pub struct EventSubscriber {
-    initial: Mutex<VecDeque<RawApiEvent>>,
+    initial: Mutex<VecDeque<initial::InitialEvent>>,
     rx: mpsc::Receiver<crate::observability::QueuedEvent>,
-    filter: EventFilter,
+    registration: crate::observability::SubscriberRegistration,
 }
 
 impl EventSubscriber {
-    pub(crate) fn subscribe(engine: &Engine, filter: EventFilter) -> Self {
-        let mut subscriber = Self::subscribe_live(engine, filter);
-        if wants_flow_snapshot(&subscriber.filter) {
-            subscriber.initial = Mutex::new(VecDeque::from([engine.flow_snapshot_event()]));
+    pub(crate) fn subscribe(engine: &Engine, filter: EventFilter) -> ApiResult<Self> {
+        let mut subscriber = Self::subscribe_live(engine, filter)?;
+        if wants_flow_snapshot(subscriber.registration.filter()) {
+            let initial =
+                initial::prepare(engine, &subscriber.registration).map_err(subscription_error)?;
+            subscriber.initial = Mutex::new(VecDeque::from([initial]));
         }
-        subscriber
+        Ok(subscriber)
     }
-    fn subscribe_live(engine: &Engine, filter: EventFilter) -> Self {
+    fn subscribe_live(engine: &Engine, filter: EventFilter) -> ApiResult<Self> {
+        // Original book/storage precedes this exact physical channel allocation.
+        let prepared = engine
+            .prepare_event_subscriber(filter)
+            .map_err(subscription_error)?;
         let (tx, rx) = mpsc::sync_channel(1024);
-        engine.subscribe_events(crate::observability::Subscriber::new(tx, filter.clone()));
-        Self {
+        let registration = prepared.install(tx).map_err(subscription_error)?;
+        Ok(Self {
             initial: Mutex::new(VecDeque::new()),
             rx,
-            filter,
-        }
+            registration,
+        })
     }
 
     /// Block until the next matching event arrives.
@@ -129,11 +138,11 @@ impl EventSubscriber {
             .unwrap_or_else(|error| error.into_inner())
             .pop_front()
         {
-            return Some(event);
+            return Some(event.event);
         }
         loop {
             let event = self.rx.recv().ok()?.into_event();
-            if matches_event(&event, &self.filter) {
+            if matches_event(&event, self.registration.filter()) {
                 return Some(event);
             }
         }
@@ -147,11 +156,11 @@ impl EventSubscriber {
             .unwrap_or_else(|error| error.into_inner())
             .pop_front()
         {
-            return Some(event);
+            return Some(event.event);
         }
         loop {
             let event = self.rx.try_recv().ok()?.into_event();
-            if matches_event(&event, &self.filter) {
+            if matches_event(&event, self.registration.filter()) {
                 return Some(event);
             }
         }
@@ -201,3 +210,14 @@ fn matches_event(event: &RawApiEvent, filter: &EventFilter) -> bool {
     }
     true
 }
+
+fn subscription_error(error: std::io::Error) -> zero_api::ApiError {
+    let code = match error.kind() {
+        std::io::ErrorKind::WouldBlock => zero_api::ApiErrorCode::Conflict,
+        std::io::ErrorKind::InvalidInput => zero_api::ApiErrorCode::InvalidArgument,
+        _ => zero_api::ApiErrorCode::Internal,
+    };
+    zero_api::ApiError::new(code, error.to_string())
+}
+
+mod initial;

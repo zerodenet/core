@@ -30,8 +30,11 @@ impl Engine {
         )
     }
 
-    pub(crate) fn subscribe_events(&self, subscriber: crate::observability::Subscriber) {
-        self.event_log.subscribe(subscriber);
+    pub(crate) fn prepare_event_subscriber(
+        &self,
+        filter: EventFilter,
+    ) -> std::io::Result<crate::observability::PreparedSubscriber> {
+        self.event_log.prepare_subscriber(filter)
     }
 
     pub(crate) fn flow_snapshot_event(&self) -> RawApiEvent {
@@ -151,5 +154,20 @@ impl Engine {
                 .expect("sink status lock poisoned")
                 .clone(),
         }
+    }
+}
+
+#[cfg(test)]
+impl Engine {
+    pub(crate) fn test_subscribe_events(
+        &self,
+        tx: std::sync::mpsc::SyncSender<crate::observability::QueuedEvent>,
+        filter: EventFilter,
+        slots: usize,
+    ) -> std::io::Result<(
+        crate::observability::SubscriberRegistration,
+        std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    )> {
+        self.event_log.test_subscriber(tx, filter, slots)
     }
 }

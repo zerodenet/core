@@ -119,9 +119,9 @@ impl Engine {
             routing,
             source: _,
         } = prepared;
-        self.event_log.validate_statistics_limits(
+        self.event_log.validate_subscriber_limits(
             config.runtime.effective_event_log_stats_max_bytes(),
-            config.runtime.effective_event_subscriber_stats_max_bytes(),
+            crate::observability::SubscriberLimits::from_runtime(&config.runtime),
         )?;
         self.packet_routes
             .prepare_limit(config.runtime.effective_packet_route_max_routes())?;
@@ -221,15 +221,12 @@ impl Engine {
         let packet_limit = self
             .packet_routes
             .prepare_limit(snapshot.config.runtime.effective_packet_route_max_routes())?;
-        let statistics = self.event_log.prepare_statistics_limits(
+        let statistics = self.event_log.prepare_subscriber_limits(
             snapshot
                 .config
                 .runtime
                 .effective_event_log_stats_max_bytes(),
-            snapshot
-                .config
-                .runtime
-                .effective_event_subscriber_stats_max_bytes(),
+            crate::observability::SubscriberLimits::from_runtime(&snapshot.config.runtime),
         )?;
         // Every remaining metadata mutation is infallible. History/subscriber
         // guards precede the Root book, matching query prepayment lock order.

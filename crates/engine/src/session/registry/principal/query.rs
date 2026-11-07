@@ -18,7 +18,15 @@ impl PrincipalFlowIndex {
         &self,
         workspace: &mut ControlBudgetPermit,
     ) -> std::io::Result<PrincipalQueryRows<'_>> {
-        let mut rows = crate::runtime_query::workspace::vector::<PrincipalRow<'_>>(
+        self.freeze_query_paid(&mut crate::runtime_query::workspace::RowCredit::Control(
+            workspace,
+        ))
+    }
+    pub(in crate::session::registry) fn freeze_query_paid(
+        &self,
+        workspace: &mut crate::runtime_query::workspace::RowCredit<'_>,
+    ) -> std::io::Result<PrincipalQueryRows<'_>> {
+        let mut rows = crate::runtime_query::workspace::vector_paid::<PrincipalRow<'_>>(
             self.active.len(),
             workspace,
         )?;

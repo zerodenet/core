@@ -3,14 +3,14 @@ use super::*;
 pub struct RetainedEvent(Original);
 enum Original {
     Queued(crate::observability::QueuedEvent),
-    Initial(RawApiEvent),
+    Initial(super::initial::InitialEvent),
 }
 impl std::ops::Deref for RetainedEvent {
     type Target = RawApiEvent;
     fn deref(&self) -> &RawApiEvent {
         match &self.0 {
             Original::Queued(event) => &event.event,
-            Original::Initial(event) => event,
+            Original::Initial(event) => &event.event,
         }
     }
 }
@@ -28,13 +28,13 @@ impl RetainedEvent {
     pub fn into_shared(self) -> std::sync::Arc<RawApiEvent> {
         match self.0 {
             Original::Queued(event) => event.event,
-            Original::Initial(event) => std::sync::Arc::new(event),
+            Original::Initial(event) => std::sync::Arc::new(event.event),
         }
     }
     pub(super) fn into_event(self) -> RawApiEvent {
         match self.0 {
             Original::Queued(event) => event.into_event(),
-            Original::Initial(event) => event,
+            Original::Initial(event) => event.event,
         }
     }
 }
@@ -55,7 +55,7 @@ impl EventSubscriber {
         }
         loop {
             let original = self.rx.try_recv().ok()?;
-            if matches_event(&original.event, &self.filter) {
+            if matches_event(&original.event, self.registration.filter()) {
                 return Some(RetainedEvent::from_queued(original));
             }
         }
@@ -74,7 +74,7 @@ impl EventSubscriber {
                 return Err(mpsc::RecvTimeoutError::Timeout);
             }
             let original = self.rx.recv_timeout(remaining)?;
-            if matches_event(&original.event, &self.filter) {
+            if matches_event(&original.event, self.registration.filter()) {
                 return Ok(RetainedEvent::from_queued(original));
             }
         }

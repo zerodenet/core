@@ -94,7 +94,7 @@ impl<S: EventSource> Source<S> {
     ) -> zero_api::ApiResult<(Subscriber<S::Stream>, Option<u64>)> {
         #[cfg(feature = "kernel-events")]
         if let Some(kernel) = &self.kernel {
-            let (live, _) = kernel.subscribe_control_live(EventFilter::default());
+            let (live, _) = kernel.subscribe_control_live(EventFilter::default())?;
             // Persistent sinks never consume flow.snapshot's payload. Preserve
             // its post-registration cursor directly, without constructing it.
             let baseline = kernel.inner().latest_event_sequence();

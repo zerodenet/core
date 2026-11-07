@@ -821,3 +821,48 @@ FFI 和客户端面板工作流保持原契约，最终资格尚未取得。TEMP
 没有扩大其 outer_udp_proxy/reconnect 边界。未发布或部署。
 
 - Round2 Rust integration: Scope panic sources now retain the exact `Arc<tokio::task::JoinError>` through `TaskJoinError`; its `Error::source` exposes the original join error. Internal consumers that directly downcast the immediate source must follow this wrapper. This does not change V1 command/config/event or wire fields. Command cleanup, caller ACK and byte custody are separate; supplied control-book owners retire the shared command Scope after their actual frontends join.
+
+
+### Engine event subscriber custody and limits
+
+The existing Engine subscriber registry now owns one original filter, exact logical
+registration, physical queue workspace and retained queued-event reservations.
+Dropping a receiver removes that registration without requiring another published
+event. Taking a retained event out of its queue does not return its pending-count
+or statistics-byte allowance; `into_shared` transfers the same immutable original
+after its next owner has prepaid custody. This is logical event custody, never an
+I/O close or TaskScope completion receipt.
+
+Six optional runtime fields preserve omitted export shape:
+
+| Field | Default | Range | Unit |
+| --- | ---: | ---: | --- |
+| `event_subscriber_max_pending_events` | 1024 | 1–1024 | queued/dequeued retained events per original subscriber |
+| `event_subscriber_total_max_pending_events` | 65536 | 1–1048576 | retained queued events across that Engine |
+| `event_subscriber_max_registrations` | 4096 | 1–65536 | active/pending/retiring original subscriber books |
+| `event_subscriber_total_stats_max_bytes` | 64 MiB | 1–256 MiB | existing serialized statistics payload allowance, overall |
+| `event_subscriber_max_filter_bytes` | 64 KiB | 1–1 MiB | actual original filter Vec/String capacities |
+| `event_subscriber_total_max_storage_bytes` | 8 MiB | 1–256 MiB | queue arrays, filter/book/registry storage and genuine owned initial envelope/workspace |
+
+The existing per-subscriber statistics default remains 1 MiB. The std channel
+retains its original 1024 physical slots, allocated only when that actual
+subscriber is created; logical pending limits can grow on the same queue.
+Registration/queue maxima are independent admission dimensions, not upfront
+allocation counts. New overall defaults are kernel policy, not upstream defaults
+or RSS limits. Fixed opaque std synchronization metadata is bounded by actual
+registration count; the byte ledger measures its declared payload/storage envelope.
+
+A genuine owned initial snapshot keeps its independent same-Engine storage
+reservation through retained delivery and does not consume an old queued-event
+slot. Production HTTP/IPC/gRPC and Connector continue their existing direct live
+subscription/borrowed initial encoding paths. Budget refusal returns the existing
+API error envelope/status, never a false subscription acknowledgement or fallback
+subscription. `EngineHandle::subscribe_control_live` now returns `ApiResult`;
+embedded Rust callers must handle admission failure. Existing EventSource wire
+shapes remain unchanged.
+
+Cold construction, pure candidate validation and final configuration publication
+consume these same books. Shrink is Busy while actual retained originals exceed
+the target; growth preserves the original channel/filter/event identities. Dead
+weak registration/vector allocation remains charged until actually destroyed or
+compacted. No live event, statistics history or filter is evicted to fit a limit.

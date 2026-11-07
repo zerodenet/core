@@ -290,3 +290,5 @@ impl RuntimeOptionsConfig {
         self.control_sse_max_event_frames.unwrap_or(32)
     }
 }
+
+mod subscriber;

@@ -8,7 +8,9 @@ pub use retained_replay::RetainedReplay;
 #[cfg(test)]
 #[path = "../../tests/event_identity/mod.rs"]
 mod identity_tests;
-pub(crate) use budget::{QueuedEvent, Subscriber};
+pub(crate) use budget::{
+    PreparedSubscriber, QueuedEvent, SubscriberLimits, SubscriberRegistration, SubscriberStorage,
+};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc::SyncSender, mpsc::TrySendError, Arc, Mutex};
@@ -40,7 +42,7 @@ pub struct EngineEventLog {
     next_sequence: AtomicU64,
     next_identity: AtomicU64,
     inner: Mutex<budget::History>,
-    subscribers: Mutex<Vec<Subscriber>>,
+    subscribers: Arc<Mutex<budget::SubscriberRegistry>>,
 }
 
 impl Default for EngineEventLog {
@@ -98,7 +100,7 @@ impl EngineEventLog {
             next_sequence: AtomicU64::new(1),
             next_identity: AtomicU64::new(1),
             inner: Mutex::new(budget::History::default()),
-            subscribers: Mutex::new(Vec::new()),
+            subscribers: Arc::new(Mutex::new(Default::default())),
         }
     }
 
@@ -588,13 +590,11 @@ impl EngineEventLog {
             .unwrap_or(0)
     }
 
-    pub(crate) fn subscribe(&self, mut subscriber: Subscriber) {
-        let mut subscribers = self
-            .subscribers
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        subscriber.stats_limit = self.subscriber_stats_limit.load(Ordering::Relaxed);
-        subscribers.push(subscriber);
+    pub(crate) fn prepare_subscriber(
+        &self,
+        filter: EventFilter,
+    ) -> std::io::Result<PreparedSubscriber> {
+        PreparedSubscriber::prepare(&self.subscribers, filter)
     }
 
     pub(crate) fn push_external(&self, event: RawApiEvent) {
@@ -635,7 +635,7 @@ impl EngineEventLog {
         self.subscribers
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .retain(|subscriber| subscriber.send(&event, bytes));
+            .send(&event, bytes);
     }
 }
 

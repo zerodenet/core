@@ -177,7 +177,19 @@ where
                 let Some(original) = original.as_ref() else {
                     return Err(Status::internal("original accepted subscription absent"));
                 };
-                let (subscriber, wants_snapshot) = engine.subscribe_control_live(filter);
+                let (subscriber, wants_snapshot) = match engine.subscribe_control_live(filter) {
+                    Ok(actual) => actual,
+                    Err(error) => {
+                        let code = match error.code {
+                            zero_api::ApiErrorCode::Conflict => tonic::Code::ResourceExhausted,
+                            zero_api::ApiErrorCode::InvalidArgument => tonic::Code::InvalidArgument,
+                            _ => tonic::Code::Internal,
+                        };
+                        return Err(
+                            error_status(&original, code, "subscribe failed: ", &error).await
+                        );
+                    }
+                };
                 if wants_snapshot {
                     initial = Some(
                         original

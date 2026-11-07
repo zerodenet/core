@@ -204,7 +204,10 @@ pub fn events_stream(
             super::sse::frame_len(catch_up.event(index)).map(|bytes| maximum.max(bytes))
         })
         .map_err(replay_capacity)?;
-    let (live, wants_snapshot) = handle.engine_handle().subscribe_control_live(filter);
+    let (live, wants_snapshot) = handle
+        .engine_handle()
+        .subscribe_control_live(filter)
+        .map_err(|error| (api_error_status(&error), HttpBody::BareError(error)))?;
     let ordered_slot = if wants_snapshot || catchup_bytes != 0 {
         Some(
             local

@@ -1,30 +1,22 @@
-//! Atomic limits on the original history and subscriber byte books.
+//! Pure preparation and infallible commit on the original history/subscriber books.
 use super::*;
 const MAX_BYTES: usize = 256 * 1024 * 1024;
 fn validate(
     history: &History,
-    subscribers: &[Subscriber],
+    subscribers: &mut SubscriberRegistry,
     history_bytes: usize,
-    subscriber_bytes: usize,
+    limits: SubscriberLimits,
 ) -> io::Result<()> {
-    if !(1..=MAX_BYTES).contains(&history_bytes) || !(1..=MAX_BYTES).contains(&subscriber_bytes) {
+    if !(1..=MAX_BYTES).contains(&history_bytes) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "invalid statistics byte limits",
+            "invalid statistics history byte limit",
         ));
     }
     if history.stats_bytes > history_bytes {
         return Err(busy("history", history.stats_bytes, history_bytes));
     }
-    for subscriber in subscribers {
-        // Consumers only decrease this original book outside the subscribers
-        // lock. No concurrent producer can charge a subscriber while we hold it.
-        let used = subscriber.budget.load(Ordering::Relaxed);
-        if used > subscriber_bytes {
-            return Err(busy("subscriber", used, subscriber_bytes));
-        }
-    }
-    Ok(())
+    subscribers.check_limits(limits)
 }
 #[derive(Debug)]
 struct Busy {
@@ -53,64 +45,76 @@ fn busy(owner: &'static str, retained: usize, proposed: usize) -> io::Error {
     )
 }
 impl EngineEventLog {
-    pub(crate) fn validate_statistics_limits(
+    pub(crate) fn validate_subscriber_limits(
         &self,
         history_bytes: usize,
-        subscriber_bytes: usize,
+        limits: SubscriberLimits,
     ) -> io::Result<()> {
         let history = self.inner.lock().unwrap_or_else(|error| error.into_inner());
-        let subscribers = self
+        let mut subscribers = self
             .subscribers
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        validate(&history, &subscribers, history_bytes, subscriber_bytes)
+        validate(&history, &mut subscribers, history_bytes, limits)
     }
-    /// Follows the actual push lock order, retaining the real books until all
-    /// configuration participants have passed their final fallible checks.
-    pub(crate) fn prepare_statistics_limits(
+    /// No limit/history/queue content changes before every participant passed
+    /// its final check. The same actual guards survive through the pure commit.
+    pub(crate) fn prepare_subscriber_limits(
         &self,
         history_bytes: usize,
-        subscriber_bytes: usize,
+        limits: SubscriberLimits,
     ) -> io::Result<PreparedStatisticsLimits<'_>> {
         let history = self.inner.lock().unwrap_or_else(|error| error.into_inner());
-        let subscribers = self
+        let mut subscribers = self
             .subscribers
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        validate(&history, &subscribers, history_bytes, subscriber_bytes)?;
+        validate(&history, &mut subscribers, history_bytes, limits)?;
         Ok(PreparedStatisticsLimits {
             history,
             subscribers,
             log: self,
             history_bytes,
-            subscriber_bytes,
+            limits,
         })
     }
+    pub(crate) fn configure_subscriber_limits(
+        &self,
+        history_bytes: usize,
+        limits: SubscriberLimits,
+    ) -> io::Result<()> {
+        self.prepare_subscriber_limits(history_bytes, limits)?
+            .commit();
+        Ok(())
+    }
+    #[cfg(test)]
     pub(crate) fn configure_statistics_limits(
         &self,
         history_bytes: usize,
         subscriber_bytes: usize,
     ) -> io::Result<()> {
-        self.prepare_statistics_limits(history_bytes, subscriber_bytes)?
-            .commit();
-        Ok(())
+        let mut limits = self
+            .subscribers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .current_limits();
+        limits.stats = subscriber_bytes;
+        self.configure_subscriber_limits(history_bytes, limits)
     }
 }
 pub(crate) struct PreparedStatisticsLimits<'a> {
     history: std::sync::MutexGuard<'a, History>,
-    subscribers: std::sync::MutexGuard<'a, Vec<Subscriber>>,
+    subscribers: std::sync::MutexGuard<'a, SubscriberRegistry>,
     log: &'a EngineEventLog,
     history_bytes: usize,
-    subscriber_bytes: usize,
+    limits: SubscriberLimits,
 }
 impl PreparedStatisticsLimits<'_> {
     pub(crate) fn commit(mut self) {
         self.history.stats_limit = self.history_bytes;
-        for subscriber in self.subscribers.iter_mut() {
-            subscriber.stats_limit = self.subscriber_bytes;
-        }
+        self.subscribers.install_limits(self.limits);
         self.log
             .subscriber_stats_limit
-            .store(self.subscriber_bytes, Ordering::Relaxed);
+            .store(self.limits.stats, Ordering::Relaxed);
     }
 }

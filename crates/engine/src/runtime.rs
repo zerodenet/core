@@ -158,9 +158,9 @@ impl Engine {
         let event_log_capacity = config.runtime.event_log_capacity;
         let config_revision = Arc::new(AtomicU64::new(1));
         let event_log = EngineEventLog::shared(event_log_capacity, config_revision.clone());
-        event_log.configure_statistics_limits(
+        event_log.configure_subscriber_limits(
             config.runtime.effective_event_log_stats_max_bytes(),
-            config.runtime.effective_event_subscriber_stats_max_bytes(),
+            crate::observability::SubscriberLimits::from_runtime(&config.runtime),
         )?;
 
         info!(
