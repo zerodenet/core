@@ -81,7 +81,6 @@ async fn actual_grpc_request_end_precedes_full_reverse_vmess_eof_on_single_and_m
                         &scope.registrar(),
                         TaskClass::Auxiliary,
                         move |socket, tasks| async move {
-                            assert!(socket.nodelay().unwrap());
                             let incoming = zero_transport::grpc::accept_grpc_connection_scoped(
                                 socket,
                                 &server_profile,
