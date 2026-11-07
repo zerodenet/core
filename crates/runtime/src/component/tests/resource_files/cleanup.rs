@@ -74,7 +74,7 @@ async fn interrupted_protocol_cleanup_retains_actual_file_join_and_scope_receipt
     let entered = Arc::new(Notify::new());
     let release = Arc::new(Notify::new());
     let owner = Arc::new(tokio::sync::Mutex::new(Owner {
-        resource_failures: Default::default(),
+        protocol_failures: crate::component::instance::resources::DeclaredReceiver::protocol(),
         instance: ComponentInstance {
             lifecycle: erase_lifecycle(Protocol {
                 listener: Some(listener),
@@ -175,7 +175,7 @@ async fn a_confirmed_protocol_close_is_not_repeated_when_file_join_was_interrupt
     let calls = Arc::new(AtomicUsize::new(0));
     let scope = TaskScope::suspended_hosted(tokio::runtime::Handle::current(), None);
     let owner = Arc::new(tokio::sync::Mutex::new(Owner {
-        resource_failures: Default::default(),
+        protocol_failures: crate::component::instance::resources::DeclaredReceiver::protocol(),
         instance: ComponentInstance {
             lifecycle: erase_lifecycle(Protocol {
                 listener: Some(listener),
