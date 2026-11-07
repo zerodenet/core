@@ -47,6 +47,16 @@ async fn probe_attempt_capacity_failure_closes_main_and_never_invents_smaller_ca
         panic!("original main must be positively closed")
     };
     assert_eq!(Some(main.reservation()), error.reservation);
+    assert!(owner.main.confirms_settled_acquisition(&error));
+    let unverified = DatagramAcquisitionError::unverified(
+        error.reservation,
+        error.outcome,
+        error.source.clone(),
+    );
+    assert!(
+        !owner.main.confirms_settled_acquisition(&unverified),
+        "equal diagnostic id/outcome/source is not original native evidence"
+    );
     assert_eq!(owner.occupied_main(), 0);
     assert_eq!(owner.occupied_probes(), 0);
     let report = owner.take_report();
