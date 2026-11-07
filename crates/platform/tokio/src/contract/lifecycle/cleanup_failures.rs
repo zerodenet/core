@@ -142,5 +142,5 @@ fn same_receipt(source: &ChannelError, receipt: &CleanupFailureReceipt) -> bool 
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/cleanup_failures.rs"]
+#[path = "../../../tests/cleanup_failures.rs"]
 mod tests;
