@@ -87,6 +87,7 @@ async fn ordinary_native_grpc_uses_the_same_engine_view_and_original_error_shape
             let response: Result<tonic::Response<crate::QueryResponse>, tonic::Status> = client
                 .unary(
                     tonic::Request::new(crate::QueryRequest {
+                        method: "query".into(),
                         payload: serde_json::to_vec(&query).unwrap(),
                     }),
                     tonic::codegen::http::uri::PathAndQuery::from_static(
