@@ -271,6 +271,10 @@ pub struct RuntimeOptionsConfig {
     /// One MiB by default; independent of control serialized output custody.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub event_subscriber_stats_max_bytes: Option<usize>,
+    /// Same-kernel Windows pipe payload workspaces, including native pending
+    /// read/write and queued buffers. Default2MiB, on demand; not RSS or events.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_pipe_max_workspace_bytes: Option<usize>,
     /// Global URL used by end-to-end outbound latency probes.
     #[serde(default)]
     pub latency_test_url: Option<String>,
@@ -294,7 +298,6 @@ pub struct RuntimeOptionsConfig {
 
 pub const DEFAULT_LATENCY_TEST_URL: &str = "http://www.gstatic.com/generate_204";
 pub const DEFAULT_EVENT_LOG_CAPACITY: usize = 1024;
-
 
 mod budgets;
 mod defaults;

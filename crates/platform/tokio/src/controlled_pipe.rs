@@ -102,6 +102,12 @@ fn failure(error: io::Error) -> ChannelError {
     ChannelError::new(Stage::Receive, Reason::Io, Impact::Session).with_source(error)
 }
 impl ControlledPipeOwner {
+    /// Complete finite payload envelope of this exact provider: the native
+    /// pending buffer and two queued chunks in each direction. This excludes
+    /// OS pipe buffers/allocator overhead, and grants no native/Scope authority.
+    pub const fn workspace_bytes() -> usize {
+        CHUNK * (READ_SLOTS + WRITE_SLOTS + 2)
+    }
     /// The caller installs this cold owner and its connection/worker charge
     /// before invoking open. No OS handle/thread is created by construction.
     pub fn new(path: PathBuf, tasks: TaskRegistrar) -> Self {
@@ -197,12 +203,23 @@ impl ControlledPipeOwner {
             if std_joined && scope_joined && !self.0.view.load(Ordering::Acquire) {
                 let mut wake = lock(&self.0.wake);
                 *wake = None;
-                let acquired = {
+                let (acquired, workspaces) = {
                     let mut native = lock(&self.0.native);
                     let acquired = native.acquired();
                     native.close()?;
-                    acquired
+                    (acquired, native.release_workspaces())
                 };
+                drop(wake);
+                let queues = {
+                    let mut state = lock(&self.0.state);
+                    (
+                        std::mem::take(&mut state.read),
+                        std::mem::take(&mut state.write),
+                    )
+                };
+                // Retained diagnostic owner clones cannot pin payload capacity
+                // after positive close. No memory refund is a close receipt.
+                drop((workspaces, queues));
                 let closed = Arc::new(PipeClosed {
                     original: Arc::downgrade(&self.0),
                     acquired,

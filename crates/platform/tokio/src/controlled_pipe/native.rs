@@ -60,6 +60,13 @@ pub(super) fn signal(event: usize) -> io::Result<()> {
     }
 }
 impl Native {
+    pub(super) fn release_workspaces(&mut self) -> (Vec<u8>, Vec<u8>) {
+        debug_assert!(!self.read.pending && !self.write.pending);
+        (
+            std::mem::take(&mut self.read.bytes),
+            std::mem::take(&mut self.write.bytes),
+        )
+    }
     pub(super) fn acquired(&self) -> bool {
         self.ever_acquired
     }

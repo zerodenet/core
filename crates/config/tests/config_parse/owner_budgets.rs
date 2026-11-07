@@ -16,7 +16,13 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 62] = [
+    let fields: [BudgetField; 63] = [
+        (
+            "control_pipe_max_workspace_bytes",
+            RuntimeOptionsConfig::effective_control_pipe_max_workspace_bytes,
+            2 * 1024 * 1024,
+            256 * 1024 * 1024,
+        ),
         (
             "direct_max_originals",
             RuntimeOptionsConfig::effective_direct_max_originals,

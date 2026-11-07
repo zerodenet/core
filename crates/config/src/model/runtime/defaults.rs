@@ -49,6 +49,7 @@ impl Default for RuntimeOptionsConfig {
             hysteria2_max_entries: None,
             hysteria2_max_udp_sessions: None,
             hysteria2_udp_pending_bytes: None,
+            control_pipe_max_workspace_bytes: None,
             control_max_connections: None,
             control_max_subscriptions: None,
             control_max_queued_event_bytes: None,
@@ -86,4 +87,3 @@ impl Default for RuntimeOptionsConfig {
         }
     }
 }
-

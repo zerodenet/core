@@ -10,6 +10,7 @@ pub struct ControlBudgetLimits {
     pub connections: usize,
     pub subscriptions: usize,
     pub queued_event_bytes: usize,
+    pub pipe_workspace_bytes: usize,
 }
 impl ControlBudgetLimits {
     pub fn from_runtime(runtime: &zero_config::RuntimeOptionsConfig) -> Self {
@@ -17,6 +18,7 @@ impl ControlBudgetLimits {
             connections: runtime.effective_control_max_connections(),
             subscriptions: runtime.effective_control_max_subscriptions(),
             queued_event_bytes: runtime.effective_control_max_queued_event_bytes(),
+            pipe_workspace_bytes: runtime.effective_control_pipe_max_workspace_bytes(),
         }
     }
 }
@@ -25,12 +27,14 @@ pub struct ControlBudgetUsage {
     pub connections: usize,
     pub subscriptions: usize,
     pub queued_event_bytes: usize,
+    pub pipe_workspace_bytes: usize,
 }
 #[derive(Clone, Copy)]
 pub enum ControlCharge {
     Connection,
     Subscription,
     QueuedEventBytes(usize),
+    PipeWorkspaceBytes(usize),
 }
 #[derive(Debug)]
 struct Pending {
@@ -70,6 +74,7 @@ fn fits(used: ControlBudgetUsage, limits: ControlBudgetLimits) -> bool {
     used.connections <= limits.connections
         && used.subscriptions <= limits.subscriptions
         && used.queued_event_bytes <= limits.queued_event_bytes
+        && used.pipe_workspace_bytes <= limits.pipe_workspace_bytes
 }
 impl ControlBudget {
     pub fn new(limits: ControlBudgetLimits) -> Arc<Self> {
@@ -108,6 +113,7 @@ impl ControlBudget {
             ControlCharge::Connection => (&mut used.connections, 1),
             ControlCharge::Subscription => (&mut used.subscriptions, 1),
             ControlCharge::QueuedEventBytes(bytes) => (&mut used.queued_event_bytes, bytes),
+            ControlCharge::PipeWorkspaceBytes(bytes) => (&mut used.pipe_workspace_bytes, bytes),
         };
         *counter = counter.checked_add(cost).ok_or_else(capacity)?;
         if !fits(used, state.limits)
@@ -227,6 +233,9 @@ impl Drop for ControlBudgetPermit {
             ControlCharge::Connection => (&mut state.used.connections, 1),
             ControlCharge::Subscription => (&mut state.used.subscriptions, 1),
             ControlCharge::QueuedEventBytes(bytes) => (&mut state.used.queued_event_bytes, bytes),
+            ControlCharge::PipeWorkspaceBytes(bytes) => {
+                (&mut state.used.pipe_workspace_bytes, bytes)
+            }
         };
         *counter = counter
             .checked_sub(cost)

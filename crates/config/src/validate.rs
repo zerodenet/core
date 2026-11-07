@@ -597,6 +597,11 @@ fn validate_runtime(
             )));
         }
     }
+    if !(1..=256 * 1024 * 1024).contains(&runtime.effective_control_pipe_max_workspace_bytes()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.control_pipe_max_workspace_bytes must be between 1 and 268435456".into(),
+        ));
+    }
     if !(1024..=64 * 1024 * 1024).contains(&runtime.effective_control_max_queued_event_bytes()) {
         return Err(ConfigError::InvalidRuntime(
             "runtime.control_max_queued_event_bytes must be between 1024 and 67108864".into(),

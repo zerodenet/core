@@ -302,3 +302,19 @@ CLI/FFI 与客户端面板协议保持。
 
 这些是开发中源码接续，尚非完整职责域或统一候选资格。TEMP 软件原件转交、适用
 helper、剩余调用者/旧执行链删除和必要回归继续，唯一 TEMP 范围不扩大。
+
+## 同一控制原件的 Pipe 工作区额度续作
+
+可选 `runtime.control_pipe_max_workspace_bytes` 默认2MiB，范围1..=256MiB，
+省略仍不导出。Windows Pipe 的原 Entry 在首次 native open 前向同 ControlBudget
+预付该 provider 的完整 payload 工作区（原 pending read/write 各一份，加各自两个
+队列位置，当前合计24576字节）；这不是OS pipe buffer/RSS测量，也不借事件字节额度。
+确认原始 handle关闭、std worker及Scope真实join、原连接任务归还和Host ACK后才释放
+原连接/工作区账额。未知清理始终保留原件；已关闭provider显式丢弃原payload Vec，
+诊断owner clone不能让已退额度的工作区继续驻留。任务body/EOF/Drop不充当关闭凭据。
+
+进程内Rust `ControlBudgetLimits` 与 `ControlBudgetUsage` 新增
+`pipe_workspace_bytes`，`ControlCharge` 新增 `PipeWorkspaceBytes(usize)`；
+自定义literal按实际root提供额度，普通生产装配由既定runtime配置投影。
+V1配置/API/events、CLI/FFI、ACK/revision/订阅和计量语义保持。
+代码与真实Windows回归已补，当前尚待该输入编译和真实平台验证，不算G8或整轮关闭。

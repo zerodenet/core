@@ -2,6 +2,10 @@
 use super::*;
 
 impl RuntimeOptionsConfig {
+    pub fn effective_control_pipe_max_workspace_bytes(&self) -> usize {
+        self.control_pipe_max_workspace_bytes
+            .unwrap_or(2 * 1024 * 1024)
+    }
     pub fn effective_inbound_max_accepted_sockets(&self) -> usize {
         self.inbound_max_accepted_sockets.unwrap_or(4096)
     }

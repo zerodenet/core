@@ -11,6 +11,7 @@ fn budget() -> Arc<ControlBudget> {
         connections: 2,
         subscriptions: 1,
         queued_event_bytes: 1024,
+        pipe_workspace_bytes: 2 * 1024 * 1024,
     })
 }
 fn handles() -> (zero_engine::EngineHandle, ProxyHandle) {
@@ -71,6 +72,7 @@ fn originals_closed(originals: &[Arc<owner::Entry>]) {
             .worker()
             .expect("same actual Scope join guard");
         assert!(worker.is_joined());
+        assert!(worker.try_joined().unwrap().registration_released());
         worker.try_joined().unwrap().result().unwrap();
     }
 }
@@ -100,6 +102,10 @@ async fn pending_named_pipe_subscription_joins_workers_before_returning_native_c
         assert_eq!(event["payload"]["wire"], "original");
         let originals = actual_pending(&owner).await;
         assert_eq!(budget.usage().connections, 2);
+        assert_eq!(
+            budget.usage().pipe_workspace_bytes,
+            2 * ControlledPipeOwner::workspace_bytes()
+        );
         assert_eq!(budget.usage().subscriptions, 1);
         assert!(originals
             .iter()
@@ -112,6 +118,73 @@ async fn pending_named_pipe_subscription_joins_workers_before_returning_native_c
         budget.close_admission();
         budget.confirm_released().unwrap();
         drop(client);
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn pipe_workspace_capacity_precedes_native_and_refund_waits_for_real_host_ack() {
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        let cost = ControlledPipeOwner::workspace_bytes();
+        let mut limits = budget().limits();
+        limits.pipe_workspace_bytes = cost - 1;
+        let small = ControlBudget::new(limits);
+        let mut scope = TaskScope::suspended_hosted(
+            tokio::runtime::Handle::current(),
+            std::num::NonZeroUsize::new(1),
+        );
+        scope.enable_registration().unwrap();
+        let originals = Originals::default();
+        let path = path();
+        assert_eq!(
+            originals
+                .prepare(&path, scope.registrar(), &small)
+                .err()
+                .unwrap()
+                .kind(),
+            io::ErrorKind::WouldBlock
+        );
+        assert!(originals.is_empty());
+        assert_eq!(small.usage().connections, 0);
+        assert_eq!(small.usage().pipe_workspace_bytes, 0);
+        limits.pipe_workspace_bytes = cost;
+        let budget = ControlBudget::new(limits);
+        let entry = originals
+            .prepare(&path, scope.registrar(), &budget)
+            .unwrap();
+        let view = entry.original.open().await.unwrap();
+        while !entry.original.pending_io().0 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(budget.usage().pipe_workspace_bytes, cost);
+        let worker = entry.original.worker().unwrap();
+        drop(view);
+        let receipt = scope.next_receipt().await.unwrap();
+        let joined = receipt.joined();
+        assert!(worker.matches_joined(joined) && !joined.registration_released());
+        joined.result().unwrap();
+        // std and Scope joining/native closure remain independent of ACK.
+        let closed = entry
+            .original
+            .close(super::super::owner::close_deadline())
+            .await
+            .unwrap();
+        assert!(entry.original.matches_closed(&closed) && closed.had_native_acquisition());
+        assert!(entry.original.std_worker_joined());
+        assert_eq!(
+            originals.reap(true).await.unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        assert_eq!(budget.usage().connections, 1);
+        assert_eq!(budget.usage().pipe_workspace_bytes, cost);
+        scope.acknowledge(&receipt).unwrap();
+        assert!(worker.try_joined().unwrap().registration_released());
+        originals.reap(true).await.unwrap();
+        assert!(originals.is_empty());
+        assert_eq!(budget.usage().pipe_workspace_bytes, 0);
+        budget.close_admission();
+        budget.confirm_released().unwrap();
     })
     .await
     .unwrap();

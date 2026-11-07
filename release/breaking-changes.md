@@ -28,6 +28,13 @@ Catalog 停旧、额度安装及真实网络代次后的 cold refresh；取消�
 预算保留省略导出和协议原默认；V1 消费者无需修改。具体 Rust 接线与开发中资格边界见
 [同原件 Packet 内存与 Source 生产预算](../design/v0.0.3/compatibility.md#同原件-packet-内存与-source-生产预算续作)。
 
+Windows Pipe 原件工作区新增可选生产总字节额度
+`runtime.control_pipe_max_workspace_bytes`（默认2MiB，省略不导出），由既有
+ControlBudget按实际provider预付并保留到原件/任务/Host ACK确认。
+进程内Rust `ControlBudgetLimits/Usage` 新增 `pipe_workspace_bytes` 字段和对应charge；
+V1/API/events、CLI/FFI与消费者无需改动。具体计额及尚待资格边界见
+[控制原件工作区](../design/v0.0.3/compatibility.md#同一控制原件的-pipe-工作区额度续作)。
+
 ## 消费者如何判断兼容性
 
 外部消费者连接内核后应依次检查：
