@@ -1,6 +1,6 @@
 use super::*;
 fn endpoint_handle() -> (ProxyHandle, Arc<ControlBudget>) {
-    let config=zero_config::RuntimeConfig::parse(r#"{"inbounds":[{"tag":"wg/a","listen":{"host":"127.0.0.1","port":0},"protocol":{"type":"wireguard","private_key":"0101010101010101010101010101010101010101010101010101010101010101","addresses":["10.0.0.1/32"],"peers":[{"public_key":"de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f","allowed_ips":["10.0.0.0/24"]}]}}],"route":{"final":{"type":"direct"}}}"#).unwrap();
+    let config=zero_config::RuntimeConfig::parse(r#"{"inbounds":[{"tag":"wg/a","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"wireguard","private_key":"0101010101010101010101010101010101010101010101010101010101010101","addresses":["10.0.0.1/32"],"peers":[{"public_key":"de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f","allowed_ips":["10.0.0.0/24"]}]}}],"route":{"final":{"type":"direct"}}}"#).unwrap();
     let proxy = zero_proxy::Proxy::new(config).unwrap();
     let book = proxy.application_control_budget();
     (

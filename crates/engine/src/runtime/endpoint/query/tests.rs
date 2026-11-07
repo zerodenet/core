@@ -4,7 +4,7 @@ use zero_api::{QueryService, TrafficMetric, TrafficPlane, TrafficScope};
 use zero_runtime::configuration::{ControlBudget, ControlBudgetLimits, ControlCharge};
 fn config() -> zero_config::RuntimeConfig {
     zero_config::RuntimeConfig::parse(&serde_json::json!({
-        "endpoints":[{"tag":"same-雪","directions":{"inbound":true,"outbound":true},"listen":{"host":"127.0.0.1","port":0},
+        "endpoints":[{"tag":"same-雪","directions":{"inbound":true,"outbound":true},"listen":{"address":"127.0.0.1","port":0},
             "protocol":{"type":"wireguard","private_key":"0101010101010101010101010101010101010101010101010101010101010101","addresses":["10.0.0.1/32"],
                 "peers":[{"public_key":"de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f","endpoint":"127.0.0.1:51820","allowed_ips":["0.0.0.0/0"]}]}}],
         "route":{"final":{"type":"direct"}}
