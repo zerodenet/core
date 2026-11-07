@@ -262,12 +262,13 @@ impl PeerResources {
         self.peer_stacks
             .iter()
             .map(|owner| {
-                let device = owner
-                    .device()
-                    .filter(|device| device.is_usable())
-                    .ok_or_else(|| {
-                        super::invalid("current linked original stack is unavailable")
-                    })?;
+                // Retirement observes this same retained original even after
+                // its IO admission has closed. A closed device still owns its
+                // users/queues/Scope debt; it is not an unavailable owner and
+                // cannot be replaced by a new or guessed healthy device.
+                let device = owner.device().ok_or_else(|| {
+                    super::invalid("current linked original stack is unavailable")
+                })?;
                 Ok((device, origin.clone()))
             })
             .collect()

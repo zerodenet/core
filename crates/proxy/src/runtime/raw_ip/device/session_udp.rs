@@ -123,6 +123,13 @@ impl Shared {
         }
     }
     fn poll_pending(&self, cx: &mut Context<'_>) -> Poll<Result<(), ClientUdpSendError>> {
+        let sender = self
+            .original
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .socket
+            .sender();
+        let _notifications = sender.defer_memory_notifications();
         let mut state = self
             .state
             .lock()
