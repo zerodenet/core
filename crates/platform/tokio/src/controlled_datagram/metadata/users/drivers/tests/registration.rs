@@ -28,7 +28,7 @@ async fn actual_delivered_registration_wait_survives_cancel_foreign_receiver_and
         assert!(host.local_failure_accepted() && !received.joined.registration_released());
         assert!(
             receiver
-                .wait_registration_released(&received, Instant::now())
+                .wait_delivery_registration_released(&received, Instant::now())
                 .await
                 .is_err(),
             "untransferred body cannot be a registration handoff"
@@ -39,7 +39,7 @@ async fn actual_delivered_registration_wait_survives_cancel_foreign_receiver_and
             DriverOwner::new(scope.registrar(), NonZeroUsize::new(1).unwrap());
         assert_eq!(
             foreign
-                .wait_registration_released(&retained, Instant::now())
+                .wait_delivery_registration_released(&retained, Instant::now())
                 .await
                 .unwrap_err()
                 .reason,
@@ -52,7 +52,7 @@ async fn actual_delivered_registration_wait_survives_cancel_foreign_receiver_and
             };
             let mut wait = Box::pin(
                 receiver
-                    .wait_registration_released(&retained, Instant::now() + Duration::from_secs(1)),
+                    .wait_delivery_registration_released(&retained, Instant::now() + Duration::from_secs(1)),
             );
             poll_fn(|cx| {
                 assert!(wait.as_mut().poll(cx).is_pending());
@@ -69,7 +69,7 @@ async fn actual_delivered_registration_wait_survives_cancel_foreign_receiver_and
         assert!(!retained.joined.registration_released());
         drop(deferred);
         let released = receiver
-            .wait_registration_released(&retained, Instant::now() + Duration::from_secs(1))
+            .wait_delivery_registration_released(&retained, Instant::now() + Duration::from_secs(1))
             .await
             .unwrap();
         assert_eq!(released.id(), id);
@@ -81,7 +81,7 @@ async fn actual_delivered_registration_wait_survives_cancel_foreign_receiver_and
         owner.reclaim_received();
         assert_eq!(owner.task_status().retained, 0);
         let again = receiver
-            .wait_registration_released(&retained, Instant::now() + Duration::from_secs(1))
+            .wait_delivery_registration_released(&retained, Instant::now() + Duration::from_secs(1))
             .await
             .unwrap();
         assert_eq!(again.id(), id); // Same private token, never missing-row proof.

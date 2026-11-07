@@ -2,7 +2,7 @@
 //! task consumer, completion slice, failure acceptance or native permission.
 use super::*;
 impl<O: DriverKind, B: Send + Sync + 'static> DriverExitReceiver<O, B> {
-    pub async fn wait_registration_released(
+    pub async fn wait_delivery_registration_released(
         &self,
         delivery: &DriverDelivery<B>,
         deadline: Instant,
