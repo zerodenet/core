@@ -62,13 +62,17 @@ fn capacity_rejection_and_original_not_found_errors_leave_no_engine_guard_or_byt
     limits.messages.response_bytes_total = 1;
     let budget = ControlBudget::new(limits);
     let request = QueryRequest::Config(Default::default());
-    assert_eq!(
-        prepare(&handle, &request, None, &budget)
-            .err()
-            .unwrap()
-            .kind(),
-        io::ErrorKind::WouldBlock
-    );
+    let error = prepare(&handle, &request, None, &budget).err().unwrap();
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    assert!(input::is_invalid_input_frame(&error));
+    let capacity = error
+        .get_ref()
+        .unwrap()
+        .source()
+        .unwrap()
+        .downcast_ref::<io::Error>()
+        .unwrap();
+    assert_eq!(capacity.kind(), io::ErrorKind::WouldBlock);
     assert_eq!(budget.usage().response_bytes, 0);
     handle
         .engine_handle()
