@@ -159,7 +159,7 @@ impl PacketDriverMetadataLimits {
     }
 }
 pub(in crate::component) fn owns_packet_driver_metadata(spec: &ComponentSpec) -> bool {
-    spec.roles.contains(&zero_core::component::RoleKind::Packet)
+    spec.roles.contains(&zero_core::component::RoleId::Packet)
         || spec.resources.iter().any(|resource| {
             matches!(
                 resource,

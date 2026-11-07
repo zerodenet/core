@@ -162,7 +162,7 @@ impl HostResources {
             report.resource_failures.push(fault);
         }
     }
-    pub(super) fn retain_resource_error(&self, source: Arc<ChannelError>) {
+    pub(in crate::component) fn retain_resource_error(&self, source: Arc<ChannelError>) {
         if let Some(instance) = self.instance {
             self.cancel.cancel();
             self.declared_failures.original(instance, source);
