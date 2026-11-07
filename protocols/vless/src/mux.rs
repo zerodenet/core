@@ -131,6 +131,7 @@ enum MuxServerEvent {
         origin: Option<origin::Origin>,
         global_id: Option<[u8; 8]>,
         initial_payload: Vec<u8>,
+        initial_data: bool,
     },
     Data {
         session_id: u16,
@@ -153,6 +154,7 @@ enum VlessInboundMuxAction {
         session: Box<Session>,
         global_id: Option<[u8; 8]>,
         initial_payload: Vec<u8>,
+        initial_data: bool,
     },
     Data {
         session_id: u16,
@@ -765,13 +767,15 @@ impl VlessInboundMuxStreams {
                 session,
                 global_id,
                 initial_payload,
+                initial_data,
             } => {
                 if self.contains_stream(session_id) {
                     mux.reject_inbound_stream(stream, session_id).await?;
                     return Ok(None);
                 }
                 let (up_rx, termination_probe) = self.open_stream(session_id, &session);
-                if !initial_payload.is_empty()
+                if (!initial_payload.is_empty()
+                    || (session.network == Network::Udp && initial_data))
                     && !self.push_stream_data(session_id, None, initial_payload)?
                 {
                     self.close_inbound_stream(session_id, true);
@@ -1240,6 +1244,7 @@ impl From<MuxServerEvent> for VlessInboundMuxAction {
                 origin,
                 global_id,
                 initial_payload,
+                initial_data,
             } => match target.into_session().map(|mut session| {
                 if let Some(origin) = origin {
                     origin.apply(&mut session);
@@ -1251,6 +1256,7 @@ impl From<MuxServerEvent> for VlessInboundMuxAction {
                     session: Box::new(session),
                     global_id,
                     initial_payload,
+                    initial_data,
                 },
                 Err(_) => Self::Unknown { session_id },
             },
@@ -1302,6 +1308,7 @@ impl MuxServer {
                     origin: frame.origin,
                     global_id: frame.global_id,
                     initial_payload: frame.payload,
+                    initial_data: frame.options & OPTION_DATA != 0,
                 })
             }
             STATUS_KEEP if frame.options & OPTION_DATA == 0 => Ok(MuxServerEvent::KeepAlive),

@@ -28,3 +28,6 @@ fn inbound_writer_uses_configured_byte_limit() {
         .expect_err("response beyond configured byte limit must fail");
     assert!(error.to_string().contains("byte limit"));
 }
+
+#[path = "tests/empty_packet.rs"]
+mod empty_packet;
