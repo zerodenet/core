@@ -17,6 +17,9 @@ use zero_platform_tokio::contract::{
     scope::{TaskExit, TaskScope},
 };
 
+mod observation;
+pub use observation::{ApplyObservation, ApplyObservationGuard};
+
 #[derive(Default)]
 pub struct ApplyOwner {
     closing: AtomicBool,
@@ -37,6 +40,7 @@ impl std::fmt::Debug for ApplyOwner {
 struct Owner {
     scope: Option<TaskScope>,
     occupied: bool,
+    registration: Option<zero_platform_tokio::contract::scope::TaskJoinWitness>,
     failure: Option<TaskFailure>,
 }
 struct Completion(Arc<ApplyOwner>);
@@ -49,6 +53,7 @@ impl Drop for Completion {
 impl Owner {
     fn record(&mut self, exit: TaskExit) {
         self.occupied = false;
+        self.registration = None;
         if let Err(error) = exit.result {
             self.failure.get_or_insert(TaskFailure {
                 id: exit.id,
@@ -119,13 +124,17 @@ impl ApplyOwner {
         if self.is_closing() {
             return Err("proxy configuration owner is stopping".to_owned());
         }
+        let observation = ApplyObservation::current();
+        if let Some(observation) = &observation {
+            observation.settle_previous().await?;
+        }
         // No mutation has been accepted while this caller waits. Once acquired,
         // this exact guard moves into the owned task before the first await.
         let guard = serial.lock_owned().await;
         let mut owner = self.owner.lock().await;
         owner.join().await?;
         self.completed.store(false, Ordering::Release);
-        let receive = {
+        let (start, receive) = {
             // Acceptance and stop share one short gate. No await while held.
             let _accept = self
                 .commit_gate
@@ -142,10 +151,17 @@ impl ApplyOwner {
             });
             let (send, receive) = tokio::sync::oneshot::channel();
             let completion = Completion(self.clone());
-            scope
+            let (start, started) = tokio::sync::oneshot::channel();
+            if let Some(observation) = &observation {
+                observation.begin(self)?;
+            }
+            let registration = scope
                 .registrar()
-                .spawn(TaskClass::Critical, async move {
+                .spawn_tracked(TaskClass::Critical, async move {
                     let _completion = completion;
+                    if started.await.is_err() {
+                        return Ok(());
+                    }
                     let _guard = guard;
                     let result = work.await;
                     // A lost acknowledgement does not cancel commit or compensation.
@@ -153,12 +169,22 @@ impl ApplyOwner {
                     Ok(())
                 })
                 .map_err(|source| {
+                    if let Some(observation) = &observation {
+                        observation.rejected();
+                    }
                     format!("configuration transaction was not accepted: {source}")
                 })?;
             owner.occupied = true;
-            receive
+            owner.registration = Some(registration.1.clone());
+            if let Some(observation) = &observation {
+                observation.install(registration.1);
+            }
+            (start, receive)
         };
+        // Work enters only after the owner and request observer both retain
+        // the same actual registration, with enclosing locks already released.
         drop(owner);
+        let _ = start.send(());
         receive.await.map_err(|_| {
             "configuration transaction ended without an acknowledgement; query current state"
                 .to_owned()

@@ -4,7 +4,7 @@ pub mod component;
 pub mod configuration;
 mod host;
 mod original_budgets;
-pub use apply_owner::ApplyOwner;
+pub use apply_owner::{ApplyObservation, ApplyObservationGuard, ApplyOwner};
 pub use host::RuntimeHost;
 pub use original_budgets::HostOriginalBudgets;
 
