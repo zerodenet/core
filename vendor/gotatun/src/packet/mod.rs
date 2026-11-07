@@ -134,6 +134,8 @@ struct PacketInner {
     #[cfg(feature = "zero-owned-packets")]
     _cipher: Option<Box<Packet>>,
     #[cfg(feature = "zero-owned-packets")]
+    _owned_padding: Option<usize>,
+    #[cfg(feature = "zero-owned-packets")]
     _prior: Option<Box<Packet>>,
     #[cfg(feature = "zero-owned-packets")]
     _source: Option<std::sync::Arc<zero_traits::PacketBuffer>>,
@@ -179,6 +181,8 @@ impl<T: IntoBytes + FromBytes + KnownLayout + Immutable + ?Sized> Packet<T> {
                 _custody: None,
                 #[cfg(feature = "zero-owned-packets")]
                 _cipher: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _owned_padding: None,
                 #[cfg(feature = "zero-owned-packets")]
                 _prior: None,
                 #[cfg(feature = "zero-owned-packets")]
@@ -283,6 +287,8 @@ impl Default for Packet<[u8]> {
                 #[cfg(feature = "zero-owned-packets")]
                 _cipher: None,
                 #[cfg(feature = "zero-owned-packets")]
+                _owned_padding: None,
+                #[cfg(feature = "zero-owned-packets")]
                 _prior: None,
                 #[cfg(feature = "zero-owned-packets")]
                 _source: None,
@@ -323,6 +329,8 @@ impl Packet<[u8]> {
                 #[cfg(feature = "zero-owned-packets")]
                 _cipher: None,
                 #[cfg(feature = "zero-owned-packets")]
+                _owned_padding: None,
+                #[cfg(feature = "zero-owned-packets")]
                 _prior: None,
                 #[cfg(feature = "zero-owned-packets")]
                 _source: None,
@@ -341,6 +349,8 @@ impl Packet<[u8]> {
                 _custody: None,
                 #[cfg(feature = "zero-owned-packets")]
                 _cipher: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _owned_padding: None,
                 #[cfg(feature = "zero-owned-packets")]
                 _prior: None,
                 #[cfg(feature = "zero-owned-packets")]
@@ -629,6 +639,8 @@ impl<Kind: ?Sized> Clone for Packet<Kind> {
                 _custody: None,
                 #[cfg(feature = "zero-owned-packets")]
                 _cipher: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _owned_padding: None,
                 #[cfg(feature = "zero-owned-packets")]
                 _prior: None,
                 #[cfg(feature = "zero-owned-packets")]

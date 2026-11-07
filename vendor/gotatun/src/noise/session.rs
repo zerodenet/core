@@ -235,7 +235,13 @@ impl Session {
         if self.sending_key_counter.load(Ordering::Relaxed) >= REJECT_AFTER_MESSAGES {
             return Err(packet);
         }
-        let len = WgData::OVERHEAD + packet.len();
+        #[cfg(feature = "zero-owned-packets")]
+        let padded = packet
+            .owned_padding()
+            .unwrap_or(packet.owned_plaintext().len());
+        #[cfg(not(feature = "zero-owned-packets"))]
+        let padded = packet.len();
+        let len = WgData::OVERHEAD + padded;
 
         // Prepare a buffer to hold our the WgData packet and our encapsulated payload.
         // TODO: we can remove this allocation by pre-allocating some extra
@@ -264,9 +270,14 @@ impl Session {
             .with_counter(sending_key_counter);
 
         // Copy inner packet into place.
-        debug_assert_eq!(packet.len(), data.encrypted_encapsulated_packet_mut().len());
-        data.encrypted_encapsulated_packet_mut()
-            .copy_from_slice(&packet);
+        #[cfg(feature = "zero-owned-packets")]
+        let source = packet.owned_plaintext();
+        #[cfg(not(feature = "zero-owned-packets"))]
+        let source = packet.as_ref();
+        let plaintext = data.encrypted_encapsulated_packet_mut();
+        debug_assert!(source.len() <= plaintext.len());
+        plaintext[..source.len()].copy_from_slice(source);
+        plaintext[source.len()..].fill(0);
 
         let mut nonce = [0u8; 12];
         nonce[4..12].copy_from_slice(&sending_key_counter.to_le_bytes());

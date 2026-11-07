@@ -45,6 +45,48 @@ impl Packet {
             .ok_or(zero_traits::PacketDeriveError::Unreserved)?
             .try_derive_zeroed(lengths)
     }
+    /// The owned producer has prepaid its one complete ciphertext allocation.
+    /// Padding is written into that output payload, never another plaintext Vec.
+    pub fn install_owned_padding(&mut self, padded: usize) -> Result<(), ()> {
+        if !self.has_owned_custody()
+            || padded < self.len()
+            || padded - self.len() >= 16
+            || padded % 16 != 0
+        {
+            return Err(());
+        }
+        self.inner._owned_padding = Some(padded);
+        Ok(())
+    }
+    /// Retain the actual immutable/engine-backed IP source without copying it
+    /// into a separate padded plaintext allocation. This placeholder is used
+    /// only by the owned transport encapsulation path; ciphertext is prepaid.
+    pub fn install_owned_plaintext(
+        &mut self,
+        source: zero_traits::PacketBuffer,
+        padded: usize,
+    ) -> Result<(), zero_traits::PacketBuffer> {
+        if !self.inner.buf.is_empty()
+            || self.inner._source.is_some()
+            || source.is_empty()
+            || padded < source.len()
+            || padded - source.len() >= 16
+            || padded % 16 != 0
+        {
+            return Err(source);
+        }
+        self.inner._source = Some(std::sync::Arc::new(source));
+        self.inner._owned_padding = Some(padded);
+        Ok(())
+    }
+    pub(crate) fn owned_plaintext(&self) -> &[u8] {
+        if self.inner._owned_padding.is_some() {
+            if let Some(source) = &self.inner._source {
+                return source.as_ref().as_ref();
+            }
+        }
+        &self.inner.buf
+    }
     pub fn install_prepaid_cipher(&mut self, cipher: Packet) -> Result<(), Packet> {
         if self.inner._cipher.is_some() {
             return Err(cipher);
@@ -94,6 +136,9 @@ impl Packet {
 }
 
 impl<T: ?Sized> Packet<T> {
+    pub(crate) fn owned_padding(&self) -> Option<usize> {
+        self.inner._owned_padding
+    }
     pub(crate) fn has_owned_custody(&self) -> bool {
         self.inner._custody.is_some()
             || self.inner._prior.is_some()

@@ -244,7 +244,9 @@ impl<R: RngCore + Send> Tunn<R> {
         self.refresh_expiration();
         let current = self.current;
         #[cfg(feature = "zero-owned-packets")]
-        if self.sessions[current % N_SESSIONS].is_some() && self.owned_control && packet.is_empty()
+        if self.sessions[current % N_SESSIONS].is_some()
+            && self.owned_control
+            && packet.owned_plaintext().is_empty()
         {
             let control = match self.take_owned_control_packet(WgData::OVERHEAD) {
                 Ok(control) => control,
@@ -559,6 +561,12 @@ impl<R: RngCore + Send> Tunn<R> {
 /// Using the MTU from the TUN device instead is a simpler, more reasonable, approach.
 /// `wireguard-go` uses this same method.
 fn pad_to_x16(mut packet: Packet, tun_mtu: &mut MtuWatcher) -> Packet {
+    #[cfg(feature = "zero-owned-packets")]
+    if packet.owned_padding().is_some() {
+        // The owned producer already fixed and prepaid this same padding/wire
+        // layout. Writing occurs only inside its existing cipher allocation.
+        return packet;
+    }
     if packet.len().is_multiple_of(16) {
         return packet;
     }
