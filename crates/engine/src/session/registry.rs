@@ -1,6 +1,8 @@
 //! Active session registry, accounting, cancellation, and snapshots.
 
 mod principal;
+mod query;
+pub(crate) use query::{ActiveQueryRows, SessionQueryGuard};
 mod traffic;
 
 use std::collections::HashMap;

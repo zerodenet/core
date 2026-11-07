@@ -4,6 +4,20 @@ use super::Engine;
 use crate::{ActiveSession, CompletedSessionRecord};
 
 impl Engine {
+    pub(crate) fn query_data_roots(
+        &self,
+    ) -> (
+        &crate::session::SessionRegistry,
+        &crate::session::CompletedSessionHistory,
+        &crate::observability::EngineStats,
+    ) {
+        (
+            &self.session_registry,
+            &self.completed_sessions,
+            &self.stats,
+        )
+    }
+
     pub(crate) fn subscribe_events(&self, subscriber: crate::observability::Subscriber) {
         self.event_log.subscribe(subscriber);
     }
