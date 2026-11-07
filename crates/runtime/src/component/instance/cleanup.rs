@@ -95,6 +95,7 @@ impl Owner {
         // before asking that exact provider for final declaration evidence.
         pending.io.append(resources.take_returned_bound_io());
         let evidence = resources.io_evidence();
+        evidence.retain_carrier_task_failures(&mut pending.report);
         if let Some(source) = evidence.sticky_faults.first() {
             return Err(super::retained(source.clone()));
         }

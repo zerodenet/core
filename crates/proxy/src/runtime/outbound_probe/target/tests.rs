@@ -77,5 +77,8 @@ async fn actual_cold_target_panic_keeps_native_source_and_recovers_through_same_
   }).await;eprintln!("actual cold target: same public maintenance returned {result:?}");result});
   let(mut peer,_)=tokio::select!{biased;accepted=listener.accept()=>accepted.unwrap(),result=&mut next=>panic!("fresh actual target ended before original TCP accept: {result:?}")};assert!(next.await.unwrap().unwrap().is_ok());
   assert_eq!(peer.read(&mut bytes).await.unwrap(),0);assert!(proxy.protocols.current_components(&config).is_none());
+  let archived=old.shutdown(Instant::now()+Duration::from_secs(2)).await.unwrap_err();
+  assert!(owns(&archived,&source),"retired original plan lost the exact task failure after fresh native use: {archived:?}");
+  assert!(owns(&returned,&source));assert_eq!(carrier.observe().unwrap().retained(),0);
  }).await.unwrap();
 }

@@ -196,3 +196,36 @@ impl HostResources {
         }
     }
 }
+
+impl HostIoEvidence {
+    /// Keep the original joined task source in the existing cleanup receiver.
+    /// The real task identity/class are not native completion evidence. The
+    /// TaskMonitor may already have delivered this exact task; retain it once.
+    pub(in crate::component) fn retain_carrier_task_failures(
+        &self,
+        report: &mut zero_platform_tokio::contract::lifecycle::CloseReport,
+    ) {
+        for joined in self
+            .carriers
+            .iter()
+            .filter_map(|entry| entry.first_caller_failure.as_ref())
+        {
+            let Some(source) = super::carrier::critical_caller_fault(joined) else {
+                continue;
+            };
+            if !report
+                .failed_tasks
+                .iter()
+                .any(|failure| failure.id == joined.id())
+            {
+                report
+                    .failed_tasks
+                    .push(zero_platform_tokio::contract::lifecycle::TaskFailure {
+                        id: joined.id(),
+                        class: joined.class(),
+                        error: crate::component::instance::retained(source),
+                    });
+            }
+        }
+    }
+}

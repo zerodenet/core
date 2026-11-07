@@ -184,12 +184,9 @@ impl CarrierDeclarations {
                             proof.users = CarrierUsersEvidence::Confirmed;
                         }
                         proof.first_caller_failure = receipt.first_caller_failure();
-                        if proof.first_fault.is_none() {
-                            proof.first_fault = proof
-                                .first_caller_failure
-                                .as_ref()
-                                .and_then(critical_caller_fault);
-                        }
+                        // A joined caller failure remains an actual task outcome.
+                        // It cannot invalidate independent native/users receipts
+                        // or become a sticky acquisition/close failure.
                     }
                     if let Some(observation) = actual.observe() {
                         proof.owner_available = true;
@@ -253,7 +250,8 @@ impl CarrierDeclarations {
 
 // The caller's real failure remains in first_caller_failure. Business Auxiliary
 // errors do not turn a successfully closed shared carrier into a native fault;
-// actual Critical worker failures still fail the owning resource.
+// actual Critical worker failures are handed to the retained CloseReport,
+// independently of native completion.
 pub(in crate::component) fn critical_caller_fault(
     joined: &zero_platform_tokio::contract::scope::TaskJoined,
 ) -> Option<Arc<ChannelError>> {
