@@ -897,9 +897,6 @@ impl Inner {
         T: AsyncWrite + Unpin,
         B: Buf,
     {
-        let mut send_buffer = send_buffer.inner.lock().unwrap();
-        let send_buffer = &mut *send_buffer;
-
         // Send WINDOW_UPDATE frames first
         //
         // TODO: It would probably be better to interleave updates w/ data
@@ -909,14 +906,23 @@ impl Inner {
             .recv
             .poll_complete(cx, &mut self.store, &mut self.counts, dst))?;
 
-        // Send any other pending frames
-        ready!(self.actions.send.poll_complete(
-            cx,
-            send_buffer,
-            &mut self.store,
-            &mut self.counts,
-            dst
-        ))?;
+        if self.actions.send.has_buffered_frames() {
+            // The original queued/reset/partial-DATA path retains its exact
+            // Store checks, queue ordering and last-frame reclamation.
+            let mut send_buffer = send_buffer.inner.lock().unwrap();
+            ready!(self.actions.send.poll_complete(
+                cx,
+                &mut *send_buffer,
+                &mut self.store,
+                &mut self.counts,
+                dst
+            ))?;
+        } else {
+            // WINDOW_UPDATE/control bytes may be buffered by recv or the
+            // original poll_ready stage. Flush the same codec/native IO even
+            // when the send store has no frame to inspect or reclaim.
+            ready!(dst.flush(cx))?;
+        }
 
         // Nothing else to do, track the task
         self.actions.task = Some(cx.waker().clone());
