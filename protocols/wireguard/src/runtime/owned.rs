@@ -27,8 +27,9 @@ impl std::error::Error for OwnedTunnelFailure {
     }
 }
 impl PeerTunnel {
-    /// Pure actual codec lengths. The host admits these original allocations
-    /// before enqueue; this computes no grant and performs no IO/allocation.
+    /// Pure padded plaintext/wire lengths. Owned transmission writes padding
+    /// directly into the admitted ciphertext; only the second length is another
+    /// allocation. This creates no grant or IO and preserves the public shape.
     pub fn transmit_buffer_lengths(&self, length: usize) -> Result<[usize; 2], TunnelError> {
         if length == 0 {
             return Err(TunnelError::EmptyPacket);
@@ -82,16 +83,8 @@ impl PeerTunnel {
                 original: Some(packet),
             });
         }
-        let mut buffers = match packet.try_derive_zeroed(&lengths) {
-            Ok(buffers)
-                if buffers.len() == 2
-                    && buffers
-                        .iter()
-                        .zip(lengths)
-                        .all(|(buffer, length)| buffer.len() == length) =>
-            {
-                buffers
-            }
+        let mut buffers = match packet.try_derive_zeroed(&[lengths[1]]) {
+            Ok(buffers) if buffers.len() == 1 && buffers[0].len() == lengths[1] => buffers,
             Ok(_) => {
                 return Err(OwnedTunnelFailure {
                     error: TunnelError::Engine,
@@ -108,9 +101,6 @@ impl PeerTunnel {
             }
         };
         let cipher = buffers.pop().expect("same admitted ciphertext");
-        let mut padded = buffers.pop().expect("same admitted plaintext");
-        padded[..packet.len()].copy_from_slice(&packet);
-        padded[packet.len()..].fill(0);
         let cipher = match Packet::from_owned_buffer(cipher) {
             Ok(cipher) => cipher,
             Err(_) => {
@@ -121,25 +111,21 @@ impl PeerTunnel {
                 })
             }
         };
-        let mut padded = match Packet::from_owned_buffer(padded) {
-            Ok(padded) => padded,
-            Err(_) => {
-                return Err(OwnedTunnelFailure {
-                    error: TunnelError::Engine,
-                    storage: Some(PacketDeriveError::Unreserved),
-                    original: Some(packet),
-                })
-            }
-        };
-        // Both actual codec buffers are already allocated. The SDK consumes
-        // this exact cipher buffer and keeps the prior packet in its output.
-        padded
+        // Keep any actual immutable/engine-backed source allocation intact.
+        // The SDK copies its bytes and zero padding into this one paid cipher
+        // output; no padded plaintext copy or movable-Vec fallback is needed.
+        let mut plaintext = Packet::default();
+        plaintext
             .install_prepaid_cipher(cipher)
             .unwrap_or_else(|_| unreachable!("one actual admitted cipher"));
-        padded
-            .retain_source(packet)
-            .unwrap_or_else(|_| unreachable!("one actual source allocation"));
-        let result = self.engine.handle_outgoing_packet(padded, None);
+        if let Err(packet) = plaintext.install_owned_plaintext(packet, lengths[0]) {
+            return Err(OwnedTunnelFailure {
+                error: TunnelError::Engine,
+                storage: Some(PacketDeriveError::LayoutMismatch),
+                original: Some(packet),
+            });
+        }
+        let result = self.engine.handle_outgoing_packet(plaintext, None);
         result
             .map(|packet| self.collect_result(TunnResult::WriteToNetwork(packet)))
             .unwrap_or_else(|| Ok(Vec::new()))
