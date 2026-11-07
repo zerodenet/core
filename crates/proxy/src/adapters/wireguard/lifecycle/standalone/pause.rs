@@ -5,6 +5,7 @@ impl WireguardAdapter {
     pub(crate) async fn fence_standalone_acquisition(
         &self,
         deadline: tokio::time::Instant,
+        stopping: Option<&crate::component::catalog::ReplacementUsersPause>,
     ) -> Result<Vec<crate::runtime::packet_route::host::NativeDeviceFenced>, EngineError> {
         let roots = {
             let current = self
@@ -22,7 +23,16 @@ impl WireguardAdapter {
         };
         let mut pauses = Vec::new();
         for root in roots {
-            for peer in &root.peers {
+            for (index, peer) in root.peers.iter().enumerate() {
+                if let Some(stopping) = stopping {
+                    let original =
+                        zero_platform_tokio::controlled_carrier::CarrierOrigin::from_listener(
+                            root.original(index).map_err(std::io::Error::other)?,
+                        );
+                    if !stopping.stops_instance(original.instance()) {
+                        continue;
+                    }
+                }
                 let pause = peer
                     .pause
                     .get()

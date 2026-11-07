@@ -88,8 +88,21 @@ impl Original {
     pub(super) fn prepare_reader(
         &self,
         grant: zero_tun::packet_memory::NativeReadGrant,
+        capacity: usize,
     ) -> std::io::Result<zero_tun::OwnedWintunReadWork> {
-        self.owner.prepare_read_work(grant)
+        self.owner.prepare_read_work_with_capacity(
+            grant,
+            u32::try_from(capacity)
+                .map_err(|_| std::io::Error::other("SDK ring capacity overflow"))?,
+        )
+    }
+    #[cfg(windows)]
+    pub(super) fn ring_request_finished(&self) -> bool {
+        self.owner.ring_request_finished()
+    }
+    #[cfg(windows)]
+    pub(super) fn session_allocation_returned(&self) -> bool {
+        self.owner.session_allocation_returned()
     }
     #[cfg(target_os = "macos")]
     pub(super) fn prepare_macos_workspaces(

@@ -62,6 +62,31 @@ impl EndSessionReceipt {
         &self.identity
     }
 }
+/// Issued only for the actual null WintunStartSession return: no Session
+/// handle was acquired. It is not Adapter/Event/worker closure evidence.
+#[derive(Debug)]
+pub struct SessionNotAcquired {
+    source: std::io::Error,
+}
+impl SessionNotAcquired {
+    pub(crate) fn from_null() -> Self {
+        // Capture the original failing syscall immediately; classification
+        // does not replace or discard its native error source.
+        Self {
+            source: std::io::Error::last_os_error(),
+        }
+    }
+}
+impl std::fmt::Display for SessionNotAcquired {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "WintunStartSession returned no Session: {}", self.source)
+    }
+}
+impl std::error::Error for SessionNotAcquired {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
 /// Event setup failed after the original native session was acquired and
 /// explicitly ended. This is neither NoAcquire nor a user/thread close proof.
 #[derive(Debug)]

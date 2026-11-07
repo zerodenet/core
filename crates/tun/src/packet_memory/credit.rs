@@ -15,6 +15,7 @@ impl Drop for Credit {
             Lane::Returns => &mut state.returns,
             Lane::Native => &mut state.native,
             Lane::Transmit => &mut state.transmit,
+            Lane::RequestedRing => &mut state.ring.requested,
         };
         current.occupied.frames -= self.frames;
         current.occupied.bytes -= self.bytes;

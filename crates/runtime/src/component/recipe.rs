@@ -37,6 +37,7 @@ pub struct ComponentRecipe {
     component_task_total: Option<usize>,
     packet_windows_ring_limits: Option<accounting::PacketWindowsRingLimits>,
     packet_path: Option<PacketPathFacts>,
+    packet_metadata_limits: Option<accounting::PacketDriverMetadataLimits>,
 }
 impl ComponentRecipe {
     /// Options have already been validated by their owning factory/adapter.
@@ -54,6 +55,7 @@ impl ComponentRecipe {
             component_task_total: None,
             packet_windows_ring_limits: None,
             packet_path: None,
+            packet_metadata_limits: None,
         }
     }
     pub fn spec(&self) -> &ComponentSpec {

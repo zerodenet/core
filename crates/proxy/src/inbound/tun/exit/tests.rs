@@ -54,6 +54,7 @@ async fn projection(failed: bool) {
         "projection-only".into(),
         NonZeroUsize::new(2).unwrap(),
         crate::inbound::tun::statistics::TunTraffic::prepare(proxy.engine(), "projection-only"),
+        proxy.engine().config().as_ref(),
     )
     .unwrap();
     let metadata = options.state();

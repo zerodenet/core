@@ -10,6 +10,7 @@ impl ResourcePreparation<'_> {
         let process = self.process_limits_for(recipe.spec())?;
         let preparation = self.preparation_limits_for(recipe.spec())?;
         let buffers = self.buffer_limits_for(recipe.spec())?;
+        let metadata = self.packet_metadata_limits_for(recipe.spec())?;
         let tasks = self.component_task_total_for(recipe.spec())?;
         let rings = self.packet_windows_ring_limits_for(recipe.spec())?;
         Ok(recipe
@@ -17,6 +18,7 @@ impl ResourcePreparation<'_> {
             .with_process_limits(process)
             .with_preparation_limits(preparation)
             .with_buffer_limits(buffers)
+            .with_packet_metadata_limits(metadata)
             .with_component_task_total(tasks)
             .with_packet_windows_ring_limits(rings))
     }
@@ -42,12 +44,21 @@ impl ResourcePreparation<'_> {
     ) -> Result<Option<super::super::recipe::accounting::PacketWindowsRingLimits>, BuildError> {
         #[cfg(windows)]
         {
-            use zero_platform_tokio::contract::component::ResourceDeclaration;
+            use zero_platform_tokio::contract::component::{
+                PacketDeviceBinding, ResourceDeclaration,
+            };
             let Some(candidate) = self.candidate() else {
                 return Ok(None);
             };
             if !spec.resources.iter().any(|resource| {
-                matches!(resource, ResourceDeclaration::ControlledPacketDevice { .. })
+                matches!(
+                    resource,
+                    ResourceDeclaration::ControlledPacketDevice {
+                        binding: PacketDeviceBinding::Create { .. }
+                            | PacketDeviceBinding::ExistingWindows { .. },
+                        ..
+                    }
+                )
             }) {
                 return Ok(None);
             }
@@ -152,5 +163,24 @@ impl ResourcePreparation<'_> {
         }
         crate::component::recipe::accounting::PreparationLimits::from_runtime(&candidate.runtime)
             .map(Some)
+    }
+}
+
+impl ResourcePreparation<'_> {
+    pub(super) fn packet_metadata_limits_for(
+        &self,
+        spec: &ComponentSpec,
+    ) -> Result<Option<crate::component::recipe::accounting::PacketDriverMetadataLimits>, BuildError>
+    {
+        let Some(candidate) = self.candidate() else {
+            return Ok(None);
+        };
+        if !crate::component::recipe::accounting::owns_packet_driver_metadata(spec) {
+            return Ok(None);
+        }
+        crate::component::recipe::accounting::PacketDriverMetadataLimits::from_runtime(
+            &candidate.runtime,
+        )
+        .map(Some)
     }
 }

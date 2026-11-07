@@ -55,6 +55,8 @@ pub(super) fn order_with_loans(
                     || slot.recipe.process_limits() != previous.recipe.process_limits()
                     || slot.recipe.preparation_limits() != previous.recipe.preparation_limits()
                     || slot.recipe.buffer_limits() != previous.recipe.buffer_limits()
+                    || slot.recipe.packet_metadata_limits()
+                        != previous.recipe.packet_metadata_limits()
                     || slot.recipe.component_task_total() != previous.recipe.component_task_total()
                     || slot.recipe.packet_windows_ring_limits()
                         != previous.recipe.packet_windows_ring_limits()

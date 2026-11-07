@@ -81,6 +81,18 @@ impl InboundOwnerRegistry {
                 .component_tasks
                 .clone(),
         )?);
+        #[cfg(feature = "raw-ip-runtime")]
+        let requested_ring = prepared
+            .resources()
+            .iter()
+            .any(super::packet_source::requested_ring_declaration)
+            || protocols.source_requested_ring_dependencies(config, &dependencies)?;
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        let requested_ring = false;
+        owner
+            .requested_ring_source_class
+            .set(requested_ring)
+            .map_err(|_| io("actual Source SDK declaration class already installed"))?;
         owner
             .source_dependencies
             .set(dependencies)

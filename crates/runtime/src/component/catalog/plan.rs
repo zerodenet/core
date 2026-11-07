@@ -1,5 +1,6 @@
 //! Dependency-ordered start and confirmed retirement of the actual owners.
 mod carrier;
+mod packet_device_class;
 mod packet_source;
 #[cfg(any(target_os = "linux", windows))]
 mod process_endpoint;

@@ -118,7 +118,7 @@ pub(in crate::runtime) fn ss_budget_changed(old: &RuntimeConfig, next: &RuntimeC
         return true;
     }
     #[cfg(feature = "raw-ip-runtime")]
-    if packet_budget_changed(old, next) {
+    if packet_budget_changed(old, next) || windows_ring_budget_changed(old, next) {
         return true;
     }
     false
@@ -156,9 +156,23 @@ pub(in crate::runtime) fn packet_budget_changed(old: &RuntimeConfig, next: &Runt
             != next.runtime.effective_packet_native_read_total_max_frames()
         || old.runtime.effective_packet_native_read_total_max_bytes()
             != next.runtime.effective_packet_native_read_total_max_bytes()
-        || windows_ring_budget_changed(old, next)
+        || old
+            .runtime
+            .effective_packet_driver_metadata_total_max_allocations()
+            != next
+                .runtime
+                .effective_packet_driver_metadata_total_max_allocations()
+        || old
+            .runtime
+            .effective_packet_driver_metadata_total_max_bytes()
+            != next
+                .runtime
+                .effective_packet_driver_metadata_total_max_bytes()
 }
-fn windows_ring_budget_changed(old: &RuntimeConfig, next: &RuntimeConfig) -> bool {
+pub(in crate::runtime) fn windows_ring_budget_changed(
+    old: &RuntimeConfig,
+    next: &RuntimeConfig,
+) -> bool {
     #[cfg(windows)]
     {
         old.runtime.effective_packet_windows_ring_capacity()
@@ -194,6 +208,8 @@ pub(super) async fn pause_sources<'a>(
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
     #[cfg(feature = "raw-ip-runtime")]
     let packet_changed = packet_budget_changed(previous, next) || network_restart;
+    #[cfg(feature = "raw-ip-runtime")]
+    let ring_changed = windows_ring_budget_changed(previous, next);
     #[cfg(not(feature = "raw-ip-runtime"))]
     let _ = next;
     let carrier_changed = carrier_budget_changed(previous, next) || network_restart;
@@ -212,7 +228,9 @@ pub(super) async fn pause_sources<'a>(
             || crate::adapters::metadata::metadata_source_budget_changed(input, previous, next)
             || crate::adapters::metadata::h3_source_budget_changed(input, previous, next);
         #[cfg(feature = "raw-ip-runtime")]
-        let needed = needed || packet_changed && original.has_packet_source_pause();
+        let needed = needed
+            || packet_changed && original.has_packet_source_pause()
+            || ring_changed && original.requested_ring_source()?;
         if !needed {
             continue;
         }
@@ -228,7 +246,7 @@ pub(super) async fn pause_sources<'a>(
         }
     }
     #[cfg(feature = "raw-ip-runtime")]
-    if packet_changed || carrier_changed {
+    if packet_changed || carrier_changed || ring_changed {
         if let Some(original) = proxy
             .inbound_owners
             .owner(crate::runtime::inbound_owners::system_tun::SYSTEM_TUN_OWNER)
@@ -257,7 +275,7 @@ pub(super) async fn pause_sources<'a>(
             .map_err(std::io::Error::other)?,
     );
     #[cfg(feature = "raw-ip-runtime")]
-    let direct = if packet_changed || carrier_changed {
+    let direct = if packet_changed || carrier_changed || ring_changed {
         proxy
             .protocols
             .fence_direct_packet_acquisition(deadline)
@@ -266,10 +284,17 @@ pub(super) async fn pause_sources<'a>(
         None
     };
     #[cfg(feature = "wireguard")]
-    let standalone = if packet_changed || carrier_changed {
+    let standalone = if packet_changed || carrier_changed || ring_changed {
         proxy
             .protocols
-            .fence_standalone_packet_acquisition(deadline)
+            .fence_standalone_packet_acquisition(
+                deadline,
+                if packet_changed || carrier_changed {
+                    None
+                } else {
+                    Some(&user_pause)
+                },
+            )
             .await?
     } else {
         Vec::new()
@@ -278,6 +303,7 @@ pub(super) async fn pause_sources<'a>(
     for (device, origin) in proxy.protocols.actual_packet_flow_sources(previous)? {
         let affected = packet_changed
             || carrier_changed
+            || ring_changed && user_pause.stops_instance(origin.instance())
             || mains.iter().any(|(_, main)| {
                 main.instance() == origin.instance()
                     && origin

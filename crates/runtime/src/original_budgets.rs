@@ -52,6 +52,10 @@ impl HostOriginalBudgets {
                 != target.effective_packet_transmit_total_max_frames()
             || current.effective_packet_transmit_total_max_bytes()
                 != target.effective_packet_transmit_total_max_bytes()
+            || current.effective_packet_driver_metadata_total_max_allocations()
+                != target.effective_packet_driver_metadata_total_max_allocations()
+            || current.effective_packet_driver_metadata_total_max_bytes()
+                != target.effective_packet_driver_metadata_total_max_bytes()
         {
             return true;
         }
@@ -145,8 +149,26 @@ impl HostOriginalBudgets {
             },
         ];
         #[cfg(feature = "raw-ip-runtime")]
+        let metadata_limit = zero_tun::packet_memory::PacketMetadataLayout::new(
+            runtime.effective_packet_driver_metadata_total_max_allocations(),
+            runtime.effective_packet_driver_metadata_total_max_bytes(),
+        );
+        #[cfg(all(feature = "raw-ip-runtime", windows))]
+        let rings = Some(zero_tun::packet_memory::RequestedRingLimits {
+            capacity: runtime.effective_packet_windows_ring_capacity(),
+            total_requested_bytes: runtime.effective_packet_windows_ring_total_max_bytes(),
+        });
+        #[cfg(all(feature = "raw-ip-runtime", not(windows)))]
+        let rings = None;
+        #[cfg(feature = "raw-ip-runtime")]
         self.packet
-            .check_limits(packet_limits[0], packet_limits[1], packet_limits[2])
+            .check_all_original_limits(
+                packet_limits[0],
+                packet_limits[1],
+                packet_limits[2],
+                metadata_limit,
+                rings,
+            )
             .map_err(|source| prepare_error(std::io::Error::other(source)))?;
         // Auxiliary workers use this same book without source admission.
         // Its atomic checked install must run before changing any of the
@@ -188,7 +210,13 @@ impl HostOriginalBudgets {
             .map_err(prepare_error)?;
         #[cfg(feature = "raw-ip-runtime")]
         self.packet
-            .install_limits(packet_limits[0], packet_limits[1], packet_limits[2])
+            .install_all_original_limits(
+                packet_limits[0],
+                packet_limits[1],
+                packet_limits[2],
+                metadata_limit,
+                rings,
+            )
             .map_err(|source| prepare_error(std::io::Error::other(source)))?;
         #[cfg(not(any(target_os = "linux", windows)))]
         let _ = runtime;

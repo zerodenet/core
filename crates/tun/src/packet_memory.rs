@@ -1,6 +1,13 @@
 //! Concrete packet payload credits shared by the one kernel memory owner.
 //! These counters own no queue, worker, native handle or close evidence.
 mod credit;
+mod requested_ring;
+pub use requested_ring::{RequestedRingCapacityCredit, RequestedRingLimits, RequestedRingSnapshot};
+mod metadata;
+pub use metadata::{
+    PacketMetadataArc, PacketMetadataAttachment, PacketMetadataCredit, PacketMetadataLayout,
+    PacketMetadataSnapshot, PacketMetadataVec, PacketMetadataWeak,
+};
 mod notifications;
 pub use notifications::{PacketMemoryNotifications, PacketRootNotifications};
 mod view;
@@ -28,32 +35,19 @@ pub struct PacketMemorySnapshot {
     pub limit: PacketMemoryLimit,
     pub occupied: PacketMemoryLimit,
 }
-/// Busy is recoverable after actual memory release; Capacity cannot be made
-/// satisfiable by waiting under this installed policy. Paused grants no bytes.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PacketMemoryError {
-    Capacity,
-    Busy,
-    Overflow,
-    Paused,
-    Stopped,
-}
-impl std::fmt::Display for PacketMemoryError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "actual packet payload memory: {self:?}")
-    }
-}
-impl std::error::Error for PacketMemoryError {}
+pub use zero_traits::packet_metadata::PacketMemoryError;
 #[derive(Clone, Copy)]
 enum Lane {
     Returns,
     Native,
     Transmit,
+    RequestedRing,
 }
 struct State {
     returns: PacketMemorySnapshot,
     native: PacketMemorySnapshot,
     transmit: PacketMemorySnapshot,
+    ring: RequestedRingSnapshot,
     paused: bool,
 }
 /// Constructed once beside the kernel's Devices and passed into its existing
@@ -61,6 +55,7 @@ struct State {
 /// Independent library callers explicitly own their own configured instance.
 pub struct PacketReturnTotals {
     state: Mutex<State>,
+    metadata: Arc<zero_traits::packet_metadata::PacketMetadataCounter>,
     changed: Notify,
     blocking: Condvar,
     notifications: notifications::Notifications,
@@ -95,7 +90,24 @@ impl PacketReturnTotals {
         native: PacketMemoryLimit,
         transmit: PacketMemoryLimit,
     ) -> Self {
-        Self {
+        Self::new_with_metadata(
+            returns,
+            native,
+            transmit,
+            PacketMetadataLayout::new(16384, 16777216),
+        )
+        .expect("valid default concrete metadata policy")
+    }
+    /// Explicit library policy. Ordinary Host assembly supplies its one
+    /// accepted actual Root; consumers never construct a replacement Root.
+    pub fn new_with_metadata(
+        returns: PacketMemoryLimit,
+        native: PacketMemoryLimit,
+        transmit: PacketMemoryLimit,
+        metadata: PacketMetadataLayout,
+    ) -> Result<Self, PacketMemoryError> {
+        let metadata = zero_traits::packet_metadata::PacketMetadataCounter::new_owned(metadata)?;
+        Ok(Self {
             state: Mutex::new(State {
                 returns: PacketMemorySnapshot {
                     limit: returns,
@@ -118,12 +130,14 @@ impl PacketReturnTotals {
                         bytes: 0,
                     },
                 },
+                ring: RequestedRingSnapshot::default(),
                 paused: false,
             }),
+            metadata,
             changed: Notify::new(),
             blocking: Condvar::new(),
             notifications: notifications::Notifications::default(),
-        }
+        })
     }
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
         self.state
@@ -201,6 +215,7 @@ impl PacketReturnTotals {
             Lane::Returns => &state.returns,
             Lane::Native => &state.native,
             Lane::Transmit => &state.transmit,
+            Lane::RequestedRing => unreachable!("ring requests use their exact scalar admission"),
         };
         if frames > current.limit.frames || bytes > current.limit.bytes {
             return Err(PacketMemoryError::Capacity);
@@ -217,6 +232,7 @@ impl PacketReturnTotals {
             Lane::Returns => &mut state.returns,
             Lane::Native => &mut state.native,
             Lane::Transmit => &mut state.transmit,
+            Lane::RequestedRing => unreachable!("ring requests use their exact scalar admission"),
         };
         current.occupied.frames += frames;
         current.occupied.bytes += bytes;

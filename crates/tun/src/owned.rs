@@ -34,6 +34,10 @@ impl OwnedTunIdentity {
             }),
         }
     }
+    #[cfg(windows)]
+    pub(crate) fn matches_wintun_session_end(&self, receipt: &wintun::EndSessionReceipt) -> bool {
+        self.inner.session.same_owner(receipt.identity())
+    }
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub(crate) fn from_fd(descriptor: std::os::fd::RawFd) -> Self {
         Self {

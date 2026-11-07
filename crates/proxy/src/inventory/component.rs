@@ -89,6 +89,23 @@ impl super::ProtocolInventory {
         .map_err(|error| std::io::Error::other(error).into())
     }
 
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn source_requested_ring_dependencies(
+        &self,
+        config: &Arc<RuntimeConfig>,
+        dependencies: &[zero_core::component::ComponentInstanceId],
+    ) -> Result<bool, zero_engine::EngineError> {
+        let plan = self
+            .host
+            .components()
+            .prepared_candidate(config)
+            .ok_or_else(|| {
+                std::io::Error::other("actual source device class has no same cold plan")
+            })?
+            .map_err(|source| std::io::Error::other(retained(source)))?;
+        plan.has_requested_ring_dependencies(dependencies)
+            .map_err(|source| std::io::Error::other(source).into())
+    }
     pub(crate) fn current_components(
         &self,
         config: &Arc<RuntimeConfig>,
@@ -254,9 +271,15 @@ impl super::ProtocolInventory {
         recovering: bool,
     ) -> Result<Arc<ComponentPlan>, SharedError> {
         self.host.components().prepare_restarting_device_resources(
-            config.clone(), recovering, |resources| {
-                let deferred = self.devices.prepare_component_resources(&config, resources)?;
-                let sources = self.devices.source_component_dependencies(&config, resources)?;
+            config.clone(),
+            recovering,
+            |resources| {
+                let deferred = self
+                    .devices
+                    .prepare_component_resources(&config, resources)?;
+                let sources = self
+                    .devices
+                    .source_component_dependencies(&config, resources)?;
                 resources.set_source_dependencies(sources)?;
                 if recovering {
                     let aliases = self.devices.device_alias_overrides(&config, resources)?;
@@ -271,9 +294,15 @@ impl super::ProtocolInventory {
         &'a self,
         config: Arc<RuntimeConfig>,
         deadline: tokio::time::Instant,
-    ) -> Result<zero_runtime::component::catalog::PreparedComponentStart<'a>, zero_engine::EngineError> {
+    ) -> Result<
+        zero_runtime::component::catalog::PreparedComponentStart<'a>,
+        zero_engine::EngineError,
+    > {
         self.finish_previous_device_publication(deadline).await?;
-        self.host.components().prepare_resource_start(config, deadline).await
+        self.host
+            .components()
+            .prepare_resource_start(config, deadline)
+            .await
             .map_err(|source| std::io::Error::other(source).into())
     }
     #[cfg(feature = "raw-ip-runtime")]
@@ -286,12 +315,19 @@ impl super::ProtocolInventory {
         // These are the first pass's actual never-built pending recipes, not
         // the committed device publication. Release only their real wrappers.
         self.devices.release_component_resources(&config)?;
-        prepared.refresh_device_resources(deadline, |resources| {
-            let deferred = self.devices.prepare_component_resources(&config, resources)?;
-            let sources = self.devices.source_component_dependencies(&config, resources)?;
-            resources.set_source_dependencies(sources)?;
-            Ok(deferred)
-        }).await.map_err(|source| std::io::Error::other(source).into())
+        prepared
+            .refresh_device_resources(deadline, |resources| {
+                let deferred = self
+                    .devices
+                    .prepare_component_resources(&config, resources)?;
+                let sources = self
+                    .devices
+                    .source_component_dependencies(&config, resources)?;
+                resources.set_source_dependencies(sources)?;
+                Ok(deferred)
+            })
+            .await
+            .map_err(|source| std::io::Error::other(source).into())
     }
     pub(crate) fn prepare_recovered_device_components(
         &self,

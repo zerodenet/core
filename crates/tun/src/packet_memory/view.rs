@@ -78,6 +78,27 @@ impl PacketMemoryView {
             .root
             .transmit_packet(original, derived_frames, derived_bytes)
     }
+    /// Prepay a concrete owning Source/driver layout before constructing its
+    /// heap objects. No IO, Scope, native receipt or policy setter is issued.
+    /// Existing prepaid credits remain owned after this view is revoked.
+    pub fn reserve_driver_metadata(
+        &self,
+        layout: PacketMetadataLayout,
+    ) -> Result<PacketMetadataCredit, PacketMemoryError> {
+        let state = self
+            .original
+            .0
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.revoked {
+            return Err(PacketMemoryError::Stopped);
+        }
+        self.original.0.root.reserve_driver_metadata(layout)
+    }
+    pub fn driver_metadata(&self) -> PacketMetadataSnapshot {
+        self.original.0.root.driver_metadata()
+    }
     pub async fn changed(&self) {
         let changed = self.original.0.root.notified();
         tokio::pin!(changed);

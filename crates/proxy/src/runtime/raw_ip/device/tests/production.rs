@@ -242,3 +242,6 @@ mod standalone;
 
 #[path = "production/full_transmit.rs"]
 mod full_transmit;
+
+#[path = "production/requested_ring.rs"]
+mod requested_ring;

@@ -77,6 +77,7 @@ impl Proxy {
             start.tag.clone(),
             limit,
             native_io.clone(),
+            &config,
         )
         .map_err(io::Error::other)?;
         let metadata = source.state();

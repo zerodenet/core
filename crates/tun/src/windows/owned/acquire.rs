@@ -79,10 +79,10 @@ impl OwnedWintunOwner {
             if !configure {
                 super::super::existing::validate_host_configuration(name, addresses, mtu)?;
             }
+            let capacity = state.ring_capacity;
+            state.ring_attempted = true; // BEFORE the exact SDK invocation
             let adapter = state.adapter.as_ref().expect("original adapter installed");
-            let session = adapter
-                .start_session(wintun::MAX_RING_CAPACITY)
-                .map_err(io::Error::from)?;
+            let session = adapter.start_session(capacity).map_err(io::Error::from)?;
             state.identity = Some(OwnedTunIdentity::from_wintun(
                 session.owned_identity(),
                 adapter.owned_identity(),

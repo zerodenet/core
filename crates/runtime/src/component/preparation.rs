@@ -24,6 +24,7 @@ use zero_platform_tokio::contract::{
 struct Key {
     namespace: &'static str,
     identity: Arc<[u8]>,
+    packet_metadata_limits: Option<super::recipe::accounting::PacketDriverMetadataLimits>,
     accounting_limit: Option<usize>,
     process_limits: Option<super::recipe::accounting::ProcessLimits>,
     preparation_limits: Option<super::recipe::accounting::PreparationLimits>,
@@ -170,6 +171,7 @@ impl<'a> ResourcePreparation<'a> {
                 || recipe.process_limits() != old.recipe.process_limits()
                 || recipe.preparation_limits() != old.recipe.preparation_limits()
                 || recipe.buffer_limits() != old.recipe.buffer_limits()
+                || recipe.packet_metadata_limits() != old.recipe.packet_metadata_limits()
                 || recipe.component_task_total() != old.recipe.component_task_total()
                 || recipe.packet_windows_ring_limits() != old.recipe.packet_windows_ring_limits()
             {
@@ -220,6 +222,9 @@ impl<'a> ResourcePreparation<'a> {
         let Ok(buffer_limits) = self.buffer_limits_for(spec) else {
             return false;
         };
+        let Ok(packet_metadata_limits) = self.packet_metadata_limits_for(spec) else {
+            return false;
+        };
         let Ok(component_task_total) = self.component_task_total_for(spec) else {
             return false;
         };
@@ -228,6 +233,7 @@ impl<'a> ResourcePreparation<'a> {
         };
         let key = Key {
             namespace,
+            packet_metadata_limits,
             accounting_limit,
             process_limits,
             preparation_limits,
@@ -255,6 +261,7 @@ impl<'a> ResourcePreparation<'a> {
             || old.recipe.process_limits() != process_limits
             || old.recipe.preparation_limits() != preparation_limits
             || old.recipe.buffer_limits() != buffer_limits
+            || old.recipe.packet_metadata_limits() != packet_metadata_limits
             || old.recipe.component_task_total() != component_task_total
             || old.recipe.packet_windows_ring_limits() != packet_windows_ring_limits
             || !old.matches_scope_identity(scope)
@@ -489,6 +496,7 @@ impl<'a> ResourcePreparation<'a> {
             process_limits: recipe.process_limits(),
             preparation_limits: recipe.preparation_limits(),
             buffer_limits: recipe.buffer_limits(),
+            packet_metadata_limits: recipe.packet_metadata_limits(),
             component_task_total: recipe.component_task_total(),
             packet_windows_ring_limits: recipe.packet_windows_ring_limits(),
             identity: recipe.spec().static_identity.clone(),

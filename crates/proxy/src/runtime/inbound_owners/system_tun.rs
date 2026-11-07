@@ -75,6 +75,14 @@ impl InboundOwnerRegistry {
                 .clone(),
         )?;
         owner.shared_scope_children = true;
+        owner
+            .requested_ring_source_class
+            .set(
+                spec.resources
+                    .iter()
+                    .any(super::packet_source::requested_ring_declaration),
+            )
+            .map_err(|_| std::io::Error::other("same System TUN device class already installed"))?;
         let owner = Arc::new(owner);
         owner.begin_listener_installation();
         active.insert(SYSTEM_TUN_OWNER.into(), owner.clone());

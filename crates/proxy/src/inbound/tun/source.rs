@@ -90,6 +90,7 @@ impl SystemTunSourceOptions {
         tag: String,
         scope_task_limit: NonZeroUsize,
         native_io: Arc<dyn zero_traits::IoObserver>,
+        runtime: &zero_config::RuntimeConfig,
     ) -> Result<Arc<Self>, ChannelError> {
         if resource_name.is_empty()
             || addresses.is_empty()
@@ -106,6 +107,23 @@ impl SystemTunSourceOptions {
         identity.update(format!(
             "{resource_name:?}{binding:?}{addresses:?}{mtu:?}{tag:?}{scope_task_limit:?}"
         ));
+        // Only this actual ControlledPacketDevice source uses an SDK Session.
+        // Linux/macOS keep the same identity when Windows-only policy changes.
+        #[cfg(windows)]
+        if matches!(
+            &binding,
+            PacketDeviceBinding::Create { .. } | PacketDeviceBinding::ExistingWindows { .. }
+        ) {
+            identity.update(format!(
+                "requested-ring:{}:{}",
+                runtime.runtime.effective_packet_windows_ring_capacity(),
+                runtime
+                    .runtime
+                    .effective_packet_windows_ring_total_max_bytes()
+            ));
+        }
+        #[cfg(not(windows))]
+        let _ = runtime;
         Ok(Arc::new(Self {
             spec: ComponentSpec {
                 owner: ResourceOwner::Component,

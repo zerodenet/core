@@ -124,6 +124,14 @@ impl RuntimeOptionsConfig {
     pub fn effective_packet_native_read_total_max_bytes(&self) -> usize {
         self.packet_native_read_total_max_bytes.unwrap_or(16777216)
     }
+    pub fn effective_packet_driver_metadata_total_max_allocations(&self) -> usize {
+        self.packet_driver_metadata_total_max_allocations
+            .unwrap_or(16384)
+    }
+    pub fn effective_packet_driver_metadata_total_max_bytes(&self) -> usize {
+        self.packet_driver_metadata_total_max_bytes
+            .unwrap_or(16777216)
+    }
     pub fn effective_ss_udp_replay_max_windows(&self) -> usize {
         self.ss_udp_replay_max_windows.unwrap_or(8192)
     }

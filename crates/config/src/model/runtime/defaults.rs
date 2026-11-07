@@ -34,6 +34,8 @@ impl Default for RuntimeOptionsConfig {
             packet_transmit_total_max_bytes: None,
             packet_native_read_total_max_frames: None,
             packet_native_read_total_max_bytes: None,
+            packet_driver_metadata_total_max_allocations: None,
+            packet_driver_metadata_total_max_bytes: None,
             ss_udp_replay_max_windows: None,
             ss_udp_max_senders: None,
             ss_udp_max_associations: None,

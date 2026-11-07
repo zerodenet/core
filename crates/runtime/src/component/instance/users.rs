@@ -19,6 +19,7 @@ pub(in crate::component) struct Users {
 }
 /// A reversible admission barrier; it is never evidence of original closure.
 pub(in crate::component) struct PausedUsers {
+    pub(in crate::component) actual_instance: Option<ComponentInstanceId>,
     owner: Arc<Users>,
     _receivers: Vec<zero_platform_tokio::controlled_carrier::CarrierAdoption>,
 }

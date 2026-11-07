@@ -156,6 +156,16 @@ pub struct RuntimeOptionsConfig {
     /// Original native read/workspace allocation bytes across that same root.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub packet_native_read_total_max_bytes: Option<usize>,
+    /// Actual Packet driver/Source metadata heap allocations across the same
+    /// Kernel root. Pending/failed/retiring records and surviving weak headers
+    /// remain charged; this is neither an FD total nor a task limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_driver_metadata_total_max_allocations: Option<usize>,
+    /// Requested owning metadata layouts/capacities in bytes, including new
+    /// Arc headers/tables/fault payloads. Foreign original Arc payloads retain
+    /// their original owner's responsibility. Default16MiB; on demand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_driver_metadata_total_max_bytes: Option<usize>,
     /// Authenticated UDP2022 fixed replay windows in the same SS adapter; live history is never evicted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ss_udp_replay_max_windows: Option<usize>,

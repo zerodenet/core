@@ -16,7 +16,7 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 75] = [
+    let fields: [BudgetField; 77] = [
         (
             "packet_route_max_routes",
             RuntimeOptionsConfig::effective_packet_route_max_routes,
@@ -376,6 +376,18 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
             RuntimeOptionsConfig::effective_packet_transmit_total_max_bytes,
             67108864,
             1073741824,
+        ),
+        (
+            "packet_driver_metadata_total_max_allocations",
+            RuntimeOptionsConfig::effective_packet_driver_metadata_total_max_allocations,
+            16384,
+            1048576,
+        ),
+        (
+            "packet_driver_metadata_total_max_bytes",
+            RuntimeOptionsConfig::effective_packet_driver_metadata_total_max_bytes,
+            16777216,
+            268435456,
         ),
         (
             "packet_native_read_total_max_frames",

@@ -3,6 +3,7 @@ mod acquire;
 mod close;
 mod io_view;
 mod reader;
+mod ring;
 use crate::{OwnedTunIdentity, TunCloseReceipt};
 pub use io_view::OwnedWintunIo;
 pub use reader::{
@@ -22,6 +23,8 @@ pub enum WintunAcquisitionOutcome {
 }
 struct State {
     attempted: bool,
+    ring_capacity: u32,
+    ring_attempted: bool,
     name: String,
     adapter: Option<Arc<wintun::Adapter>>,
     session: Option<Arc<wintun::Session>>,
@@ -56,6 +59,8 @@ impl OwnedWintunOwner {
         Arc::new(Self {
             state: Mutex::new(State {
                 attempted: false,
+                ring_capacity: wintun::MAX_RING_CAPACITY,
+                ring_attempted: false,
                 name: String::new(),
                 adapter: None,
                 session: None,

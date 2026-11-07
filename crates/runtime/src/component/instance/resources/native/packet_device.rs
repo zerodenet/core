@@ -252,3 +252,7 @@ impl std::error::Error for NativeSource {
     any(target_os = "linux", target_os = "macos")
 ))]
 mod tests;
+
+#[cfg(all(test, feature = "raw-ip-runtime", windows))]
+#[path = "packet_device/tests/windows_ring.rs"]
+mod windows_ring_tests;

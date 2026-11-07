@@ -218,7 +218,9 @@ impl Adapter {
         let result = unsafe { self.wintun.WintunStartSession(self.adapter.0, capacity) };
 
         if result.is_null() {
-            Err("WintunStartSession failed".into())
+            Err(Error::Io(std::io::Error::other(
+                session::SessionNotAcquired::from_null(),
+            )))
         } else {
             // Install the original native session before fallible event setup.
             // Failure must explicitly end it, rather than lose the only handle.

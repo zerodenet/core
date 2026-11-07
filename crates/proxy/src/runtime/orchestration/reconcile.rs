@@ -44,6 +44,7 @@ impl OrchestrationState {
             let next = new_snapshot.config();
             let requested = proxy.has_tun_packet_budget_recovery()
                 || budget_barrier::packet_budget_changed(old, next)
+                || budget_barrier::windows_ring_budget_changed(old, next)
                 || budget_barrier::carrier_budget_changed(old, next)
                 || old.runtime.system_tun_task_limit != next.runtime.system_tun_task_limit
                 || old.runtime.tun != next.runtime.tun
@@ -305,16 +306,36 @@ impl OrchestrationState {
             budget_barrier::ss_source_budget_changed(self.applied_snapshot.config(), &new_config);
         let mut charged_source_changes = std::collections::BTreeSet::new();
         #[cfg(feature = "raw-ip-runtime")]
-        if budget_barrier::packet_budget_changed(self.applied_snapshot.config(), &new_config) {
-            for input in &self.applied_snapshot.config().inbounds {
-                if proxy
-                    .inbound_owners
-                    .owner(&input.tag)
-                    .is_some_and(|owner| owner.has_packet_source_custody())
-                {
-                    // A live Source owns its native-read/workspace promises
-                    // even while it admits no business. Idle pause is not their
-                    // release: require this exact old Source's StopOld receipt.
+        {
+            let packet =
+                budget_barrier::packet_budget_changed(self.applied_snapshot.config(), &new_config);
+            let ring = budget_barrier::windows_ring_budget_changed(
+                self.applied_snapshot.config(),
+                &new_config,
+            );
+            let previous_config = self.applied_snapshot.config().clone();
+            for input in &previous_config.inbounds {
+                let Some(owner) = proxy.inbound_owners.owner(&input.tag) else {
+                    continue;
+                };
+                let ring_source = if ring {
+                    match owner.requested_ring_source() {
+                        Ok(owns) => owns,
+                        Err(source) => {
+                            self.reject_before_start(
+                                proxy,
+                                &new_snapshot,
+                                source.to_string(),
+                                budget_changed,
+                            )
+                            .await;
+                            return;
+                        }
+                    }
+                } else {
+                    false
+                };
+                if packet && owner.has_packet_source_custody() || ring_source {
                     charged_source_changes.insert(input.tag.clone());
                 }
             }

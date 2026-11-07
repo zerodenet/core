@@ -66,6 +66,7 @@ pub(crate) struct InboundOwner {
     #[cfg(feature = "raw-ip-runtime")]
     pub(super) source_input: OnceLock<[u8; 32]>,
     pub(super) source_dependencies: OnceLock<Arc<[ComponentInstanceId]>>,
+    pub(super) requested_ring_source_class: OnceLock<bool>,
     pub(super) inbound_resources: Mutex<
         Option<std::sync::Weak<dyn zero_platform_tokio::contract::component::ResourceAccess>>,
     >,
@@ -300,6 +301,7 @@ impl InboundOwner {
             #[cfg(feature = "raw-ip-runtime")]
             source_input: OnceLock::new(),
             source_dependencies: OnceLock::new(),
+            requested_ring_source_class: OnceLock::new(),
             inbound_resources: Mutex::new(None),
             #[cfg(feature = "raw-ip-runtime")]
             packet_source: Arc::new(Mutex::new(None)),
@@ -530,6 +532,16 @@ impl InboundOwner {
 
 #[cfg(feature = "raw-ip-runtime")]
 impl InboundOwner {
+    /// Frozen from the actual Source's declarations plus that same cold pass's
+    /// exact dependency generations. No native/readiness proof follows.
+    pub(in crate::runtime) fn requested_ring_source(&self) -> Result<bool, EngineError> {
+        self.requested_ring_source_class
+            .get()
+            .copied()
+            .ok_or_else(|| {
+                std::io::Error::other("actual Source device declaration class is unknown").into()
+            })
+    }
     pub(in crate::runtime) fn has_packet_source_pause(&self) -> bool {
         self.packet_pause.get().is_some()
     }

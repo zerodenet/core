@@ -88,6 +88,7 @@ pub(super) fn reserve(
         "budget".into(),
         limit,
         Arc::new(NoNativeIo),
+        proxy.engine().config().as_ref(),
     )
     .unwrap();
     let metadata = options.state();

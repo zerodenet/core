@@ -9,6 +9,16 @@ pub struct ReplacementUsersPause {
     pub(super) candidate: std::sync::Weak<ComponentPlan>,
 }
 impl ReplacementUsersPause {
+    /// This exact old generation was put under THIS actual candidate's user
+    /// barrier. Observation selects a real fence only; it proves no close/IO.
+    pub fn stops_instance(&self, instance: zero_core::component::ComponentInstanceId) -> bool {
+        self.candidate.upgrade().is_some()
+            && self
+                ._roots
+                .iter()
+                .any(|root| root.actual_instance == Some(instance))
+    }
+
     /// A Source preflight may classify only its exact stored flow loan whose
     /// cached receiver was proved to belong to this actual StopOld set. Counts
     /// remain charged; real view return, Source checkpoints and joins follow.
@@ -180,12 +190,15 @@ impl ComponentCatalog {
                 .cloned()
                 .collect::<Vec<_>>();
             for slot in &stopping {
-                roots.push(slot.own_user_root().try_pause_receivers(|lease| {
-                    receiver::retained(&old, slot, &stopping, lease)
-                }).map_err(|mut source| {
-                    source.component.get_or_insert(slot.id);
-                    source
-                })?);
+                let mut root = slot
+                    .own_user_root()
+                    .try_pause_receivers(|lease| receiver::retained(&old, slot, &stopping, lease))
+                    .map_err(|mut source| {
+                        source.component.get_or_insert(slot.id);
+                        source
+                    })?;
+                root.actual_instance = Some(slot.instance_id());
+                roots.push(root);
             }
         }
         Ok(ReplacementUsersPause {

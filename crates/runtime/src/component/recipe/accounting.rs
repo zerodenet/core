@@ -137,6 +137,51 @@ impl ComponentRecipe {
     }
 }
 
+/// Concrete metadata policy on actual packet producers, never IO authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(in crate::component) struct PacketDriverMetadataLimits {
+    allocations: usize,
+    bytes: usize,
+}
+impl PacketDriverMetadataLimits {
+    pub(in crate::component) fn from_runtime(
+        runtime: &zero_config::RuntimeOptionsConfig,
+    ) -> Result<Self, BuildError> {
+        let allocations = runtime.effective_packet_driver_metadata_total_max_allocations();
+        let bytes = runtime.effective_packet_driver_metadata_total_max_bytes();
+        if !(1..=1048576).contains(&allocations) || !(1..=268435456).contains(&bytes) {
+            return Err(super::super::instance::invalid(
+                zero_platform_tokio::contract::Reason::InvalidConfig,
+                "invalid actual packet-driver metadata limits",
+            ));
+        }
+        Ok(Self { allocations, bytes })
+    }
+}
+pub(in crate::component) fn owns_packet_driver_metadata(spec: &ComponentSpec) -> bool {
+    spec.roles.contains(&zero_core::component::RoleKind::Packet)
+        || spec.resources.iter().any(|resource| {
+            matches!(
+                resource,
+                R::ControlledPacketDevice { .. } | R::PacketDatagramReads { .. }
+            )
+        })
+}
+impl ComponentRecipe {
+    pub(in crate::component) fn with_packet_metadata_limits(
+        mut self,
+        limits: Option<PacketDriverMetadataLimits>,
+    ) -> Self {
+        self.packet_metadata_limits = limits;
+        self
+    }
+    pub(in crate::component) fn packet_metadata_limits(
+        &self,
+    ) -> Option<PacketDriverMetadataLimits> {
+        self.packet_metadata_limits
+    }
+}
+
 /// Original SDK request and shared requested bytes; not mapped memory or RSS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(in crate::component) struct PacketWindowsRingLimits {

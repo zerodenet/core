@@ -101,9 +101,14 @@ impl Devices {
     pub(crate) async fn fence_standalone_packet_acquisition(
         &self,
         deadline: tokio::time::Instant,
+        stopping: Option<&crate::component::catalog::ReplacementUsersPause>,
     ) -> Result<Vec<crate::runtime::packet_route::host::NativeDeviceFenced>, EngineError> {
         match &self.wireguard {
-            Some(wireguard) => wireguard.fence_standalone_acquisition(deadline).await,
+            Some(wireguard) => {
+                wireguard
+                    .fence_standalone_acquisition(deadline, stopping)
+                    .await
+            }
             None => Ok(Vec::new()),
         }
     }

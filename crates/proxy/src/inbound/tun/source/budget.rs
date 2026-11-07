@@ -78,6 +78,7 @@ async fn one_actual_main_slot_rejects_native_tun_driver_before_any_native_acquis
         )
         .unwrap(),
         io,
+        proxy.engine().config().as_ref(),
     )
     .unwrap();
     let state = options.state();

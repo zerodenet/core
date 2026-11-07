@@ -35,6 +35,23 @@ impl OwnedWintunOwner {
         self: &Arc<Self>,
         grant: NativeReadGrant,
     ) -> io::Result<OwnedWintunReadWork> {
+        self.prepare_read_work_with_capacity(grant, wintun::MAX_RING_CAPACITY)
+    }
+    /// Host passes the capacity of its original prepaid request. Existing
+    /// explicit libraries retain the original MAX-capacity constructor above.
+    pub fn prepare_read_work_with_capacity(
+        self: &Arc<Self>,
+        grant: NativeReadGrant,
+        capacity: u32,
+    ) -> io::Result<OwnedWintunReadWork> {
+        if !(wintun::MIN_RING_CAPACITY..=wintun::MAX_RING_CAPACITY).contains(&capacity)
+            || !capacity.is_power_of_two()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid actual SDK ring request",
+            ));
+        }
         let mut state = self.state();
         if state.attempted
             || state.prepared_reader.is_some()
@@ -46,6 +63,7 @@ impl OwnedWintunOwner {
                 "same Wintun reader already attempted",
             ));
         }
+        state.ring_capacity = capacity;
         // This is the original bounded read channel, not a new buffer pool.
         // The prepaid exclusive workspace bounds real outstanding payloads.
         let (sender, receiver) = mpsc::channel(256);

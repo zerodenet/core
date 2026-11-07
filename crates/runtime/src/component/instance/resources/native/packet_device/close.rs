@@ -63,29 +63,43 @@ impl PacketDeviceOwner {
                 return self.unfinished("same SDK reader join is pending");
             }
             let closed = tokio::time::timeout_at(deadline, self.original.close()).await;
+            {
+                let mut state = self
+                    .state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                match closed {
+                    Err(_) => {
+                        return self.unfinished_locked("original native Packet close is pending")
+                    }
+                    Ok(Err(source)) => {
+                        state.close_fault.get_or_insert_with(|| {
+                            Arc::new(
+                                error(
+                                    self.identity.instance().component,
+                                    Reason::Io,
+                                    "original Packet close retained its actual source",
+                                )
+                                .with_source(NativeSource(source)),
+                            )
+                        });
+                    }
+                    Ok(Ok(receipt)) => state.receipt = receipt,
+                }
+                if state.receipt.is_none() {
+                    state.receipt = self.original.receipt();
+                }
+            }
+            #[cfg(windows)]
+            if !self.memory.settle_ring(&self.original, deadline).await {
+                return self.unfinished(
+                    "same SDK ring request still retains original session/registration ACK",
+                );
+            }
             let mut state = self
                 .state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            match closed {
-                Err(_) => return self.unfinished_locked("original native Packet close is pending"),
-                Ok(Err(source)) => {
-                    state.close_fault.get_or_insert_with(|| {
-                        Arc::new(
-                            error(
-                                self.identity.instance().component,
-                                Reason::Io,
-                                "original Packet close retained its actual source",
-                            )
-                            .with_source(NativeSource(source)),
-                        )
-                    });
-                }
-                Ok(Ok(receipt)) => state.receipt = receipt,
-            }
-            if state.receipt.is_none() {
-                state.receipt = self.original.receipt();
-            }
             if !self.original.physical_confirmed(state.issued.as_ref()) {
                 return self.unfinished_locked("original Packet native close remains unconfirmed");
             }

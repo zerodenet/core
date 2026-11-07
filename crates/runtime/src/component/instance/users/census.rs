@@ -57,6 +57,7 @@ impl Users {
         // release its original counter while StopOld is still holding the guard.
         drop(leases);
         Ok(PausedUsers {
+            actual_instance: None,
             owner: self.clone(),
             _receivers: receivers,
         })

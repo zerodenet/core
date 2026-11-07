@@ -414,6 +414,17 @@ fn validate_runtime(
             "runtime.packet_transmit_total_max_bytes must be between 1 and 1073741824".into(),
         ));
     }
+    if !(1..=1048576).contains(&runtime.effective_packet_driver_metadata_total_max_allocations()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.packet_driver_metadata_total_max_allocations must be between 1 and 1048576"
+                .into(),
+        ));
+    }
+    if !(1..=268435456).contains(&runtime.effective_packet_driver_metadata_total_max_bytes()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.packet_driver_metadata_total_max_bytes must be between 1 and 268435456".into(),
+        ));
+    }
     if !(1..=65536).contains(&runtime.effective_packet_native_read_total_max_frames()) {
         return Err(ConfigError::InvalidRuntime(
             "runtime.packet_native_read_total_max_frames must be between 1 and 65536".into(),
@@ -865,7 +876,8 @@ fn validate_runtime(
     let rings = runtime.effective_packet_windows_ring_total_max_bytes();
     if !(131072..=1073741824).contains(&rings) {
         return Err(ConfigError::InvalidRuntime(
-            "runtime.packet_windows_ring_total_max_bytes must be between 131072 and 1073741824".into(),
+            "runtime.packet_windows_ring_total_max_bytes must be between 131072 and 1073741824"
+                .into(),
         ));
     }
     // Total below one request is a real admission failure, not invalid syntax.

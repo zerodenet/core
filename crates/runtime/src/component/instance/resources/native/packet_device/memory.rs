@@ -2,12 +2,18 @@
 use super::*;
 use zero_platform_tokio::contract::scope::{HostedCallbacks, WeakTaskRegistrar};
 use zero_tun::packet_memory::NativeReadGrant;
+#[cfg(windows)]
+mod ring;
 pub(super) struct Memory {
     roots: Arc<crate::HostOriginalBudgets>,
     tasks: Option<WeakTaskRegistrar>,
     reads: Mutex<Option<Vec<NativeReadGrant>>>,
     #[cfg(target_os = "windows")]
     reader: Mutex<Option<TaskJoinWitness>>,
+    #[cfg(windows)]
+    ring: Mutex<Option<zero_tun::packet_memory::RequestedRingCapacityCredit>>,
+    #[cfg(windows)]
+    session_metadata: Mutex<Option<zero_tun::packet_memory::PacketMetadataCredit>>,
 }
 impl Memory {
     pub(super) fn new(
@@ -20,6 +26,10 @@ impl Memory {
             reads: Mutex::new(None),
             #[cfg(target_os = "windows")]
             reader: Mutex::new(None),
+            #[cfg(windows)]
+            ring: Mutex::new(None),
+            #[cfg(windows)]
+            session_metadata: Mutex::new(None),
         }
     }
     pub(super) fn callbacks(&self) -> Option<HostedCallbacks> {
@@ -32,6 +42,8 @@ impl Memory {
         original: &original::Original,
         component: zero_core::component::ComponentId,
     ) -> Result<NativeReadGrant, ChannelError> {
+        #[cfg(windows)]
+        self.prepare_ring(component)?;
         #[cfg(target_os = "macos")]
         let (reads, macos_write) = {
             // Utun's four-byte AF prefix needs its original fixed backend
@@ -118,7 +130,14 @@ impl Memory {
                     )
                     .with_source(source)
                 })?;
-            let work = original.prepare_reader(grant).map_err(|source| {
+            let capacity = self
+                .ring
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_ref()
+                .expect("same preinstalled SDK request")
+                .capacity();
+            let work = original.prepare_reader(grant, capacity).map_err(|source| {
                 error(component, Reason::Io, "same SDK reader preparation failed")
                     .with_source(source)
             })?;

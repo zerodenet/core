@@ -1,5 +1,21 @@
 //! Reuse only a live original Source whose full installed input is unchanged.
 use super::*;
+/// Same finite declaration's actual Windows SDK branch only. Identity/class
+/// is not native acquisition, task registration, or a closed receipt.
+pub(super) fn requested_ring_declaration(
+    resource: &zero_platform_tokio::contract::component::ResourceDeclaration,
+) -> bool {
+    use zero_platform_tokio::contract::component::{PacketDeviceBinding, ResourceDeclaration};
+    cfg!(windows)
+        && matches!(
+            resource,
+            ResourceDeclaration::ControlledPacketDevice {
+                binding: PacketDeviceBinding::Create { .. }
+                    | PacketDeviceBinding::ExistingWindows { .. },
+                ..
+            }
+        )
+}
 pub(crate) fn input_identity(input: &zero_config::InboundConfig) -> Result<[u8; 32], EngineError> {
     use sha2::{Digest, Sha256};
     // Opaque configuration hashing only: the host does not parse protocol
