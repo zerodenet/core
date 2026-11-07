@@ -130,7 +130,14 @@ impl ApplyOwner {
         }
         // No mutation has been accepted while this caller waits. Once acquired,
         // this exact guard moves into the owned task before the first await.
-        let guard = serial.lock_owned().await;
+        let caller_stop = ApplyObservation::caller_stop();
+        let guard = match &caller_stop {
+            Some(stop) => tokio::select! { biased;
+                _ = stop.cancelled() => return Err("configuration caller cancelled before acceptance".to_owned()),
+                guard = serial.lock_owned() => guard,
+            },
+            None => serial.lock_owned().await,
+        };
         let mut owner = self.owner.lock().await;
         owner.join().await?;
         self.completed.store(false, Ordering::Release);
@@ -142,6 +149,9 @@ impl ApplyOwner {
                 .expect("configuration commit gate poisoned");
             if self.is_closing() {
                 return Err("proxy configuration owner is stopping".to_owned());
+            }
+            if caller_stop.as_ref().is_some_and(|stop| stop.is_cancelled()) {
+                return Err("configuration caller cancelled before acceptance".to_owned());
             }
             let scope = owner.scope.get_or_insert_with(|| {
                 TaskScope::new(

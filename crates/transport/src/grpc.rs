@@ -102,8 +102,8 @@ fn build_grpc_stream(
     let (read_tx, read_rx) = mpsc::channel::<io::Result<Vec<u8>>>(64);
 
     let progress = std::sync::Arc::new(progress::Progress::default());
-    spawn_grpc_write_relay(send_stream, write_rx, progress.clone(), true, flush);
-    spawn_grpc_read_relay(recv_stream, read_tx, multi);
+    spawn_grpc_write_relay(send_stream, write_rx, progress.clone(), true, flush.clone());
+    spawn_grpc_read_relay(recv_stream, read_tx, multi, flush);
 
     Ok(GrpcStream::new(
         read_rx,
@@ -132,8 +132,9 @@ fn spawn_grpc_read_relay(
     recv_stream: h2::RecvStream,
     read_tx: mpsc::Sender<io::Result<Vec<u8>>>,
     multi: bool,
+    flush: std::sync::Arc<crate::native_flush::Flushed>,
 ) {
-    tokio::spawn(read_grpc_hunks(recv_stream, read_tx, multi, false));
+    tokio::spawn(read_grpc_hunks(recv_stream, read_tx, multi, false, flush));
 }
 
 #[cfg(test)]

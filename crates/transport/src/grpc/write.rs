@@ -46,7 +46,10 @@ pub(super) async fn write_grpc_hunks(
     }
     .await;
     if let Err(error) = result {
-        progress.fail(error);
+        // Connection teardown can make H2 return a secondary stream error.
+        // Keep the actual first native/keepalive failure already retained by
+        // this same physical IO, including its real timeout kind/source Arc.
+        progress.fail(flush.check().err().unwrap_or(error));
     }
     progress.finish();
 }

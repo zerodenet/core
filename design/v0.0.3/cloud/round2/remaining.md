@@ -1,4 +1,105 @@
+## 2026-11-07 07:30 UTC：控制实际视图与原 H2 故障
+
+本节是开发输入索引，五域仍未完成；没有最终候选、同 head CI 或最终下载归档。
+同锁仍为 bb045365baf88f40277e4b87e2941e4990eb630841dd1cd2b2d0de3709d0b0fb。
+
+- `4f8270cf188710685d36678c01833c6e66d3d74b` 根目标 all-features bin/tests check
+  exit0/373.85s，日志 e82ad2ddbcf3273dc30096341f3b6ab7a5303145e1cfa60066dd2f77768dea57；
+  仅类型检查，尚未覆盖后来的 Engine 借阅生产消费者。
+- `81f6d2c874fe4d21c8a9371d2c4651224c5e4270` Engine/Grpc/Transport no-run
+  exit0/4.26s，日志 6a1e3617f5cf08d67734953c6973ea0b0872808015e2b0894341389105566a8e。
+  同产物 Engine borrowed config/policy/generation 3 PASS（a448cfca747f6f24f01280e94a4ab43e1bb766b683b3e1ef489d64a0bdf3bf4b），
+  gRPC19 PASS（0b0dcb8be63ebcc2bf3629e14958de1ac2361f8b5069800f7ebb5457fde91660）；
+  Transport gRPC42 PASS/2 FAIL，实际 GOAWAY 错误及 keepalive 原超时类型不符，
+  日志5a0dededfa9a3424ac2d0f13a9270af622ee87137e6ad49cea6954c807f8c2b6。
+- `0b0b54c3084bdc633fc84e3c46a5bc03c3d3a2ff` gRPC19 PASS，9.89s含build，
+  日志a36e1e2b1b8bd355e37531a629097accf3da09d22e0ff319479848ebb17e1941。
+  实际错误状态存储在格式化前预付，真实 quota Pending 后返还，header clone 在同 Scope
+  join 后仍持额度；请求、原物理 close 和输出存储分别验。
+- `70915945f5d0a9851b98291e27e8b125932a2f28` Transport gRPC44 PASS，44.75s含build，
+  日志f06b9d11b8d1b32a7afd5cc4c43b47a48199a30879f8c789dc9f2f62b4f7de97。
+  同原 Flushed 的第一物理故障传递给原 read/write，连接错误不丢已解码 worker/tail；
+  新真实 GOAWAY、旧 keepalive 原类型均通过。普通 VMess 尚待下一 Proxy 输入复验。
+
+前三份编译失败分别保留：0ae692 gRPC fixture 缺 protobuf method；756ed Engine 测试
+需借阅传参；3ca3 Engine 测试需先归还原 view。修复均追加提交，没有改目标/断言/期限。
+`a3abaa0eddcd49309283c396ce41f0cba29904f4` 已排实际 root bin 测试产物构建，尚无结果。
+该输入包含 A exact DNS normal profile cancellation d571e5f 与后续注释修正；预算/CA/material
+仍 active Busy。原 DNS 查询、Native/Scope/新 bootstrap 断言未改，尚未运行新 Proxy 资格。
+
+当前余项：A完整DNS detour/删除及 Runtime/Flows 等 DTO；B 全合法出站、QUIC/Nav、
+无observer/SOCKS/process、同Host队列字节配置；C完整Packet/Source/retainer/preflight/TUN；
+M共享接线/G8和剩余总额度。C外部完整草案未激活，B→C cold formatter v2待完整消费者。
+真实 GUI、特权 TUN、跨平台和1c1g另验，TEMP仍仅原outer_udp_proxy/重连历史。
+
+## 2026-11-07 续作：7fff 实际 Proxy、f1e 控制与 4f827 清理
+
+本次再次核对 origin 为 `https://github.com/zerodenet/core.git`；远端 integration
+仍是 `59615e69ea5a413d657a873157ea4adf8f204a90`。无 reset、变基或强推。
+下面均为开发定向，五个完整职责域仍未完成，无统一最终候选/同 head CI/最终下载归档。
+
+实际验证锁均为 `bb045365baf88f40277e4b87e2941e4990eb630841dd1cd2b2d0de3709d0b0fb`，
+Rust 1.99.0。命令、逐文件输入、工具、环境、原始日志及产物摘要保留在对应 harness input/result。
+
+| 实际 checkout | 命令/结果 | 原始日志 SHA-256 |
+| --- | --- | --- |
+| `7fff412cabefc7e072b244ddf27e88af3692dc66` | Proxy all-features lib --no-run exit0，746.64s，jobs1；产物 c69edfbc43d71082a8f6f1b4d8258798b87ccf169eeaf30bd8c48afa93ad2426 | a49ef1f1bd2e32f8c30abf1b498f57567330ec74d52d34566aa66faa34fe339b |
+| 同7fff，同一产物 | H3 0/1 FAIL，实际 Task19 remote 与 HY2 native 原端点一致，非 web peer | bb071236f3e0185392537e8807348d5c30161e51ca510159e664f1a725fcb7f8 |
+| 同7fff，同一产物 | VLESS 6 PASS，含原 owner MUX material 失败恢复 | c203f40eabf70da678836a16efc38376aaaef4dc9ac993e730cb145f214c4cdf |
+| 同7fff，同一产物 | VMess 2 PASS/3 FAIL；真实 raw TLS tail 和 MUX 通过；gRPC/relay 仍正确前缀261120/262144后 Receive Io | a98bf855be665316708063dd48a8861664a7fd344eb11e77a3820bae79a6599d |
+| 同7fff，同一产物 | DNS49 PASS/1 FAIL，normal profile replacement 已返回实际query/blocking仍live；原query未退出 | b0bed239ffa30d73c86813f9b9887771337a5b2fafc4a9afa4b3118cd0c60052 |
+| 同7fff，同一产物 | fullTX 0/1 FAIL，DuplicateInboundListen port0，未触达WG ACK；fixture修复f693已普通合入，不能据此声称ACK已验 | 1cd7d5dce31e4c70cc3a7fca77074699f83d40c09afaeba1764d32b6b6ab5f2f |
+| 同7fff，同一产物 | Packet ordinary budget/input-only 1 PASS | aeff5c465cd1938b2fe603e43f209f3c7f6661fbf9a84293434978886314e5e6 |
+| `f1e8d72fa06b0258ec37d6cb90c2d051a72b48b3` | gRPC all-features lib 17 PASS，含真实空闲断订阅worker回收、锁外退款、同Apply原注册观察 | 3fc206e5662976e65a1365706c9183ddb2aec6f0320f619e6e8e0b59ac3d49d1 |
+| `4f8270cf188710685d36678c01833c6e66d3d74b` | transport all-features lib packet group 4 PASS，真实Scope取消后原FIFO data/close按序送达、actualjoin/issuerreceipt和Nativeclose分别确认 | 0bf940480638d64186ea718a296069a8238b9c03a50922ac9e336019b48f024f |
+
+Proxy前两次构建均中断：实际僵尸wait_status=9，无成功结果/资格；未确认信号来源，
+不能归因为OOM。v3 detached原命令成功；没有提高生产容量、栈、测试期限或弱化断言。
+`4f8270c` 保留同清理Aux直到最终endpoint实际users/drivers退出后封住原FIFO并排空；
+UDP hop用原队列有限前缀，非第二池。仅transport定向已验，普通H3尚未重验。
+
+当前完整调用者仍按下表及 execution.md 冻结：A DNS资源/设备detour与旧链删除；
+B全部合法transport/MUX/Mieru、动态BND双原件、无observer custody、process和计量；
+C完整Packet Source/预付/设备/TUN/独立WG provider与helper；控制全部DTO及G8恢复；
+实际各owner生产总额度。A现复用control角色，B/C各自继续完整域，M唯一共享写入与排队。
+TEMP-WG-OUTER-UDP-01单独保留，其余实现缺口均未改列平台待验或新增豁免。
+
 # 第二轮续作：剩余生产调用者冻结
+
+## 接续检查点 2026-11-07 06:49 UTC（五域继续实施）
+
+M普通集成源码为 `2aa63ed41d9705bfc94944ccb9e1cc37e8648124`。同一次实际Apply观察前置
+`eaa2742df`与A完整HTTP/IPC消费者 `b35780bcbce7183329f339fe34b9e54601279c2f`已成对接入；
+M `7fff412cabefc7e072b244ddf27e88af3692dc66`接通gRPC同原记录，保原15s wire超时，之后
+由原任务继续取得该次真实TaskJoined及同原错误，而非wait_idle借另一任务。无实际run
+有明确NoAcceptedWork；原blocking closure只携观察元数据，不另造执行任务或宿主。
+后续 `2aa63ed41`将gRPC实际连接退款通知移出custody锁并加强原真accept/close回归，未编测。
+
+精确 `7fff412cabefc7e072b244ddf27e88af3692dc66`、Rust1.99.0、同bb045365锁：六包 lib及
+vmess_contracts no-run exit0/99.15s，日志SHA `a82516b4f9739c0874ca5d9225e26c30ee516acec907725341c233fad84a3393`。
+同产物定向运行见 `m-7fff-serial-regressions.json`：SS固定workspace4项（其中一项实际遍历
+全部现有cipher/地址/负载与安全状态）、HY2 1、Mieru 1、VMess TCP原framing/半关闭/真实
+Pending取消14、gRPC真实原件/事件/同Apply16、ApplyOwner原4加新4共8，均选中且通过，
+源码及实际Cargo.lock不变。这不是全部普通调用者、HTTP/IPC运行或五域完成资格。
+
+此前d995小编译exit101/20.72s为两个新真实IO fixture缺原AsyncSocket的Sync约束，原始
+日志SHA `c87f1ac89db237d3ab2c90243cda0529028b6fb6349f004eaccf794002ca3c2d`；仅fixture
+补界后在上述7fff取证，生产接口未收窄。SS/Mieru更早失败继续保留。
+
+7fff普通Proxy构建首次会话消失，原wrapper没有result JSON；日志停于编译、没有资格。
+关联同启动时间残留Cargo256561/rustc257028的真实kernel wait_status均9（SIGKILL/-9），
+M未发送终止信号；cgroup memory峰近16GiB、oom_kill0，不能据此确认OOM原因。原始
+`m-proxy-vmess-material-recovery-dns-h3-and-full-transmit-artifacts-interruption.json`保存冻结
+输入、日志SHA `d93e7438ee027284a6da3f02f0052c70b52ae70bba54b329645400b234997b74`、真实
+wait status及环境快照。确认无live Cargo/rustc后，同源重跑仅将CARGO_BUILD_JOBS降到1，
+并每10秒追加原始进程/内存采样；生产配置、测试栈、断言、期限和协议目标均未变，当前
+仍在构建。后续不得用首批不完整产物冒充这个输入的普通生产资格。
+
+必要前置已经接入不等于Kernel消费者完成：C完整PacketCaller/cold Source/RX全层预付/
+多peer声明/reconnect仍未激活；B完整QUIC/Nav、其余出站、process与transport实际字节额度
+仍在实现；A DNS完整donor/旧链删除、控制Engine DTO首次物化前预算及剩余投影继续推进。
+当前无统一最终候选、同head最终CI或最终下载归档；TEMP原范围不变。
+
 
 ## 接续检查点 2026-11-07 06:05 UTC（未冻结候选）
 

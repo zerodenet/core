@@ -1,8 +1,15 @@
 //! Pure observation metadata for one original control-command invocation.
 use super::*;
-use zero_platform_tokio::contract::scope::{TaskJoinWitness, TaskJoined};
+use zero_platform_tokio::contract::{
+    scope::{TaskJoinWitness, TaskJoined},
+    CancellationToken,
+};
 
-tokio::task_local! { static CURRENT: ApplyObservation; }
+struct Invocation {
+    observation: ApplyObservation,
+    stop: Option<CancellationToken>,
+}
+tokio::task_local! { static CURRENT: Invocation; }
 
 /// Keep in the actual request record outside its work/panic boundary. This
 /// contains no executor, IO/admission authority, cancellation or replacement
@@ -26,7 +33,7 @@ enum Original {
 }
 /// Metadata held by the already existing original blocking worker, not a task
 /// or permission to create one. Dropping it never certifies a task joined.
-pub struct ApplyObservationGuard(ApplyObservation);
+pub struct ApplyObservationGuard(ApplyObservation, Option<CancellationToken>);
 impl std::fmt::Debug for ApplyObservation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ApplyObservation").finish_non_exhaustive()
@@ -37,7 +44,15 @@ impl ApplyObservation {
         Self::default()
     }
     pub(super) fn current() -> Option<Self> {
-        CURRENT.try_with(Clone::clone).ok()
+        CURRENT.try_with(|current| current.observation.clone()).ok()
+    }
+    /// The existing control caller's stop signal only. This grants no IO,
+    /// cleanup receipt, admission or permission to cancel an accepted Apply.
+    pub fn caller_stop() -> Option<CancellationToken> {
+        CURRENT
+            .try_with(|current| current.stop.clone())
+            .ok()
+            .flatten()
     }
     fn enter(&self) -> ApplyObservationGuard {
         let mut state = self.0.state.lock().expect("apply observation poisoned");
@@ -45,14 +60,46 @@ impl ApplyObservation {
             .producers
             .checked_add(1)
             .expect("finite command producers");
-        ApplyObservationGuard(self.clone())
+        ApplyObservationGuard(self.clone(), Self::caller_stop())
     }
     /// Poll the same existing command future in its own observation context.
     /// All normal, parse/error, cancellation and panic exits release this
     /// producer. No accepted registration then means KnownNoAcceptedWork.
     pub async fn scope<T>(&self, work: impl Future<Output = T>) -> T {
+        self.scope_context(Self::caller_stop(), work).await
+    }
+    /// Carry the same real caller stop through existing async/blocking work.
+    /// Accepted configuration work keeps its original completion ownership.
+    pub async fn scope_with_stop<T>(
+        &self,
+        stop: CancellationToken,
+        work: impl Future<Output = T>,
+    ) -> T {
+        self.scope_context(Some(stop), work).await
+    }
+    /// Attach an explicit caller stop to the current invocation when present;
+    /// a standalone caller only creates observation metadata, never an owner.
+    pub async fn with_caller_stop<T>(stop: CancellationToken, work: impl Future<Output = T>) -> T {
+        Self::current()
+            .unwrap_or_default()
+            .scope_with_stop(stop, work)
+            .await
+    }
+    async fn scope_context<T>(
+        &self,
+        stop: Option<CancellationToken>,
+        work: impl Future<Output = T>,
+    ) -> T {
         let _producer = self.enter();
-        CURRENT.scope(self.clone(), work).await
+        CURRENT
+            .scope(
+                Invocation {
+                    observation: self.clone(),
+                    stop,
+                },
+                work,
+            )
+            .await
     }
     /// Capture before handing the same existing worker to spawn_blocking.
     /// The captured producer survives loss of its async waiter's future.
@@ -169,7 +216,13 @@ impl ApplyObservation {
 impl ApplyObservationGuard {
     /// Carry metadata across the existing blocking worker's synchronous body.
     pub fn run_sync<T>(self, work: impl FnOnce() -> T) -> T {
-        CURRENT.sync_scope(self.0.clone(), work)
+        CURRENT.sync_scope(
+            Invocation {
+                observation: self.0.clone(),
+                stop: self.1.clone(),
+            },
+            work,
+        )
     }
 }
 impl Drop for ApplyObservationGuard {

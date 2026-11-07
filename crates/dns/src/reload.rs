@@ -13,6 +13,7 @@ pub(super) struct PreparedDnsReload {
     retired: AtomicBool,
     generation: u64,
     unchanged: bool,
+    native_profile_changed: bool,
     donor_pause: std::sync::Mutex<Option<Arc<crate::DnsDonorPause>>>,
 }
 /// A token for one actual prepared DNS candidate. It contains no synthetic

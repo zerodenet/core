@@ -4,10 +4,23 @@ pub(super) async fn read_grpc_hunks(
     read_tx: mpsc::Sender<io::Result<Vec<u8>>>,
     multi: bool,
     require_status: bool,
+    flush: std::sync::Arc<crate::native_flush::Flushed>,
 ) {
     if let Err(error) = receive(recv_stream, &read_tx, multi, require_status).await {
-        let _ = read_tx.send(Err(error)).await;
+        send_failure(&read_tx, &flush, error).await;
     }
+}
+
+pub(super) async fn send_failure(
+    read_tx: &mpsc::Sender<io::Result<Vec<u8>>>,
+    flush: &crate::native_flush::Flushed,
+    error: io::Error,
+) {
+    // The retained physical connection failure precedes H2's derived stream
+    // error after that connection is dropped. Decoded DATA is still queued
+    // first; only the terminal error uses the same actual original source.
+    let original = flush.check().err().unwrap_or(error);
+    let _ = read_tx.send(Err(original)).await;
 }
 
 async fn receive(

@@ -67,6 +67,7 @@ pub(super) fn cold(addr: SocketAddr) -> io::Result<(TaskScope, ControlledTcpList
 pub(super) async fn run<H>(
     mut listener: ControlledTcpListener,
     handle: H,
+    engine: Option<zero_engine::EngineHandle>,
     auth: Option<GrpcServerAuth>,
     tls: Option<tokio_rustls::TlsAcceptor>,
     mut shutdown: tokio::sync::oneshot::Receiver<()>,
@@ -80,11 +81,9 @@ where
     // schema ceiling only lets explicitly raised optional limits take effect.
     let svc = tonic::transport::Server::builder()
         .add_service(
-            ControlServer::new(ControlService::new(
-                handle,
-                auth,
-                owner.subscriptions.clone(),
-            ))
+            ControlServer::new(
+                ControlService::new(handle, auth, owner.subscriptions.clone()).with_engine(engine),
+            )
             .max_decoding_message_size(256 * 1024 * 1024),
         )
         .into_service();
@@ -99,6 +98,9 @@ where
     let work = catch_work(async {
         loop {
             tokio::select! { biased;
+                _ = owner.subscriptions.changed.notified() => {
+                    owner.subscriptions.reap_completed().await?;
+                }
                 exit = scope.next_exit() => {
                     if let Some(exit) = exit {
                         receiver.observe_joined(exit.id);
@@ -143,8 +145,10 @@ where
                                 };
                                 parts.extensions.insert(original.clone());
                                 let request = hyper::Request::from_parts(parts, tonic::body::boxed(body));
-                                svc.call(request).await.map(|response| response.map(|body|
-                                    tonic::body::boxed(crate::messages::Output::new(body, original)))).map_err(std::io::Error::other)
+                                svc.call(request).await.map(|mut response| {
+                                    original.retain_status_header(response.headers_mut());
+                                    response.map(|body| tonic::body::boxed(crate::messages::Output::new(body, original)))
+                                }).map_err(std::io::Error::other)
                             }) as std::pin::Pin<Box<dyn Future<Output = io::Result<hyper::Response<tonic::body::BoxBody>>> + Send + 'static>>
                         });
                         let mut builder = hyper::server::conn::http2::Builder::new(executor);

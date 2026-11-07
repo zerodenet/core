@@ -22,9 +22,9 @@ pub(super) fn prepare_stream(
         progress.clone(),
         false,
         Some(response.downgrade()),
-        flush,
+        flush.clone(),
     ));
-    let read = Box::pin(read_response(response, read_tx, multi));
+    let read = Box::pin(read_response(response, read_tx, multi, flush));
     let stream = GrpcStream::new(
         read_rx,
         tokio_util::sync::PollSender::new(write_tx),
@@ -40,20 +40,24 @@ async fn read_response(
     resp_future: super::response::Head,
     read_tx: mpsc::Sender<io::Result<Vec<u8>>>,
     multi: bool,
+    flush: std::sync::Arc<crate::native_flush::Flushed>,
 ) {
     let resp = match tokio::select! { _ = read_tx.closed() => return, response = futures_util::future::poll_fn(|cx|resp_future.poll(cx)) => response }
     {
         Ok(resp) => resp,
         Err(error) => {
-            let _ = read_tx.send(Err(error)).await;
+            read::send_failure(&read_tx, &flush, error).await;
             return;
         }
     };
     let status = resp.status();
     if status != http::StatusCode::OK {
-        let _ = read_tx
-            .send(Err(io::Error::other(format!("gRPC HTTP status {status}"))))
-            .await;
+        read::send_failure(
+            &read_tx,
+            &flush,
+            io::Error::other(format!("gRPC HTTP status {status}")),
+        )
+        .await;
         return;
     }
     let content_type = resp
@@ -65,20 +69,23 @@ async fn read_response(
         || content_type.starts_with("application/grpc+")
         || content_type.starts_with("application/grpc;"))
     {
-        let _ = read_tx
-            .send(Err(io::Error::new(
+        read::send_failure(
+            &read_tx,
+            &flush,
+            io::Error::new(
                 io::ErrorKind::InvalidData,
                 "invalid gRPC response content type",
-            )))
-            .await;
+            ),
+        )
+        .await;
         return;
     }
     let header_status = resp.headers().contains_key("grpc-status");
     if header_status {
         if let Err(error) = read::status(resp.headers()) {
-            let _ = read_tx.send(Err(error)).await;
+            read::send_failure(&read_tx, &flush, error).await;
             return;
         }
     }
-    read_grpc_hunks(resp.into_body(), read_tx, multi, !header_status).await;
+    read_grpc_hunks(resp.into_body(), read_tx, multi, !header_status, flush).await;
 }

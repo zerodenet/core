@@ -16,6 +16,7 @@ pub(super) struct Command {
     work: Mutex<Option<Work>>,
     credit: Mutex<Option<ControlBudgetPermit>>,
     fault: AtomicBool,
+    stop: tokio_util::sync::CancellationToken,
     observation: zero_runtime::ApplyObservation,
     operation: OnceLock<zero_platform_tokio::contract::scope::TaskJoined>,
 }
@@ -44,22 +45,32 @@ impl Record {
             *retained = Some(credit);
         }
         let observation = self.command.observation.clone();
+        let stop = self.command.stop.clone();
         *self
             .command
             .work
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Box::pin(async move {
             observation
-                .scope(async move { handle.execute_acknowledged(command).await })
+                .scope_with_stop(
+                    stop,
+                    async move { handle.execute_acknowledged(command).await },
+                )
                 .await
         }));
-        std::future::poll_fn(|cx| self.command.poll(cx))
+        let result = std::future::poll_fn(|cx| self.command.poll(cx))
             .await
-            .ok_or_else(|| tonic::Status::internal("original gRPC command result absent"))?
-            .map_err(|error| tonic::Status::internal(error.to_string()))
+            .ok_or_else(|| tonic::Status::internal("original gRPC command result absent"))?;
+        match result {
+            Ok(result) => Ok(result),
+            Err(error) => Err(self.error_status(tonic::Code::Internal, "", &error).await),
+        }
     }
 }
 impl Command {
+    pub(super) fn stop_business(&self) {
+        self.stop.cancel();
+    }
     fn poll(
         &self,
         cx: &mut Context<'_>,

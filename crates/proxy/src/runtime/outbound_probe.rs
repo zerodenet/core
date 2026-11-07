@@ -1,5 +1,8 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, OnceLock,
+};
 
 use futures_util::future::{BoxFuture, FutureExt, Shared};
 use zero_engine::{ResolvedOutbound, TargetId};
@@ -17,38 +20,8 @@ const OUTBOUND_PROBE_MAX_TIMEOUT_MS: u64 = 60_000;
 
 type SharedProbeFuture = Shared<BoxFuture<'static, Result<u64, OutboundProbeError>>>;
 
-struct SharedProbeEntry {
-    future: SharedProbeFuture,
-    waiters: usize,
-}
-
-struct SharedProbeWaiter {
-    probes: Arc<Mutex<HashMap<ProbeKey, SharedProbeEntry>>>,
-    key: ProbeKey,
-    future: SharedProbeFuture,
-}
-
-impl Drop for SharedProbeWaiter {
-    fn drop(&mut self) {
-        let mut probes = self
-            .probes
-            .lock()
-            .expect("shared outbound probe lock poisoned");
-        let Some(entry) = probes.get_mut(&self.key) else {
-            return;
-        };
-        let removed = if entry.waiters <= 1 {
-            probes.remove(&self.key)
-        } else {
-            entry.waiters -= 1;
-            None
-        };
-        drop(probes);
-        // A last waiter cancels a real host task. Never run its waker while
-        // holding the shared-call map; the actual owner retains cleanup credit.
-        drop(removed);
-    }
-}
+mod shared;
+use shared::{ProbeOriginal, SharedProbeEntry, SharedProbeWaiter};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct OutboundProbeDeadline {
@@ -125,6 +98,33 @@ impl OutboundProbeRuntime {
             target_id,
             request,
             crate::runtime::tcp_dispatch::TcpDispatchIntent::DiagnosticProbe,
+            None,
+        )
+        .await
+    }
+
+    pub(crate) async fn probe_target_tag_until(
+        &self,
+        target_tag: &str,
+        request: &OutboundProbeRequest,
+        stop: &zero_platform_tokio::contract::CancellationToken,
+    ) -> Result<u64, OutboundProbeError> {
+        let target_id = self
+            .services
+            .snapshot()
+            .plan()
+            .target_id(target_tag)
+            .ok_or_else(|| {
+                OutboundProbeError::new(
+                    "target_not_found",
+                    format!("outbound probe target `{target_tag}` was not found"),
+                )
+            })?;
+        self.probe_target_with_intent(
+            target_id,
+            request,
+            crate::runtime::tcp_dispatch::TcpDispatchIntent::DiagnosticProbe,
+            Some(stop),
         )
         .await
     }
@@ -138,6 +138,7 @@ impl OutboundProbeRuntime {
             target_id,
             request,
             crate::runtime::tcp_dispatch::TcpDispatchIntent::PolicyProbe,
+            None,
         )
         .await
     }
@@ -147,6 +148,7 @@ impl OutboundProbeRuntime {
         target_id: TargetId,
         request: &OutboundProbeRequest,
         intent: crate::runtime::tcp_dispatch::TcpDispatchIntent,
+        stop: Option<&zero_platform_tokio::contract::CancellationToken>,
     ) -> Result<u64, OutboundProbeError> {
         let target_tag = self.target_tag(target_id).ok_or_else(|| {
             OutboundProbeError::new(
@@ -170,31 +172,40 @@ impl OutboundProbeRuntime {
                 .expect("shared outbound probe lock poisoned");
             probes.get_mut(&key).map(|entry| {
                 entry.waiters += 1;
-                entry.future.clone()
+                (entry.future.clone(), entry.original.clone())
             })
         };
-        let future = if let Some(existing) = existing {
+        let (future, original) = if let Some(existing) = existing {
             existing
         } else {
-            let credit = zero_runtime::reserve_probe().await.map_err(|source| {
-                OutboundProbeError::new("probe_unavailable", source.to_string())
-            })?;
+            let reserve = zero_runtime::reserve_probe();
+            tokio::pin!(reserve);
+            let credit = match stop {
+                Some(stop) => tokio::select! { biased;
+                    _ = stop.cancelled() => return Err(cancelled_probe()),
+                    credit = &mut reserve => credit,
+                },
+                None => reserve.await,
+            }
+            .map_err(|source| OutboundProbeError::new("probe_unavailable", source.to_string()))?;
             let mut probes = self
                 .shared_probes
                 .lock()
                 .expect("shared outbound probe lock poisoned");
             if let Some(existing) = probes.get_mut(&key) {
                 existing.waiters += 1;
-                let future = existing.future.clone();
+                let future = (existing.future.clone(), existing.original.clone());
                 drop(probes);
                 drop(credit);
                 future
             } else {
                 let runtime = self.clone();
                 let request = request.clone();
+                let original = Arc::new(ProbeOriginal::default());
+                let accepted = original.clone();
                 let future = async move {
                     runtime
-                        .run_accepted_probe(target_id, request, intent, credit)
+                        .run_accepted_probe(target_id, request, intent, credit, accepted)
                         .await
                 }
                 .boxed()
@@ -204,18 +215,33 @@ impl OutboundProbeRuntime {
                     SharedProbeEntry {
                         future: future.clone(),
                         waiters: 1,
+                        original: original.clone(),
                     },
                 );
-                future
+                (future, original)
             }
         };
-        let waiter = SharedProbeWaiter {
+        let mut waiter = SharedProbeWaiter {
             probes: self.shared_probes.clone(),
             key,
             future,
+            original,
+            attached: true,
         };
 
-        let result = waiter.future.clone().await;
+        let result = match stop {
+            Some(stop) => tokio::select! { biased;
+                _ = stop.cancelled() => {
+                    // Stop this caller immediately. Only the last coalesced
+                    // caller cancels the same actual host call. Keep polling
+                    // its original future through real Native/Scope cleanup.
+                    waiter.detach();
+                    waiter.future.clone().await
+                },
+                result = waiter.future.clone() => result,
+            },
+            None => waiter.future.clone().await,
+        };
         drop(waiter);
         result
     }
@@ -234,6 +260,16 @@ impl OutboundProbeRuntime {
             .engine()
             .target_tag_in_snapshot(self.services.snapshot(), target_id)
     }
+}
+
+fn cancelled_probe() -> OutboundProbeError {
+    OutboundProbeError::from_engine(
+        std::io::Error::new(
+            std::io::ErrorKind::Interrupted,
+            "diagnostic caller cancelled",
+        )
+        .into(),
+    )
 }
 
 fn probe_deadline_for_dns(dns: Option<&zero_config::DnsConfig>) -> OutboundProbeDeadline {
@@ -280,3 +316,7 @@ mod tests;
 #[cfg(test)]
 #[path = "outbound_probe/ownership_tests.rs"]
 mod ownership_tests;
+
+#[cfg(test)]
+#[path = "outbound_probe/control_stop_tests.rs"]
+mod control_stop_tests;

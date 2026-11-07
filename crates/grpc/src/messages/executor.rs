@@ -51,6 +51,7 @@ where
                         // Keep the same accepted stream task and original
                         // command future through its real final ACK, even if
                         // Hyper has dropped the disconnected response handler.
+                        held.command.stop_business();
                         let operation = held.command.drain().await;
                         if let Err(payload) = work {
                             std::panic::resume_unwind(payload);

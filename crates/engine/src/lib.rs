@@ -1,4 +1,5 @@
 mod api;
+mod config_query;
 mod error;
 mod groups;
 pub use groups::{GroupSelectionBinding, GroupSelectionChanged, SelectionChange};
@@ -10,6 +11,7 @@ mod runtime;
 mod session;
 
 pub use api::{register_build_features, EngineHandle, EventSubscriber};
+pub use config_query::{EngineConfigQuery, MissingPolicy};
 pub use error::EngineError;
 pub type EventsSinceResult = zero_api::EventReplay;
 // Re-export snapshot types from zero-api so downstream code doesn't need

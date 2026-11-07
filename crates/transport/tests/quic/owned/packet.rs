@@ -111,3 +111,86 @@ async fn packet_segment_returns_real_views_and_join_before_original_native_close
 #[cfg(target_os = "linux")]
 #[path = "packet_metadata.rs"]
 mod metadata;
+
+#[tokio::test]
+async fn cancelled_scope_keeps_original_packet_worker_until_final_fifo_drains_and_joins() {
+    let mut scope = TaskScope::new(tokio::runtime::Handle::current(), bound(1));
+    let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let address = peer.local_addr().unwrap();
+    let mut native = native_owner();
+    let mut grant = native.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+    let local = grant.tx.local_addr().unwrap();
+    let (issuer, claim) = grant
+        .control
+        .claim_views(scope.registrar().scope_identity())
+        .unwrap();
+    let observation = grant.control.take_observation().unwrap();
+    let (socket, queues) = PacketSocket::prepare(address).unwrap();
+    let mut segment = PacketSegment::prepare(
+        GrantedMetadataListener {
+            scope: scope.registrar().scope_identity(),
+            rx: grant.rx,
+            tx: grant.tx,
+            observation,
+            users_claim: Some(claim),
+        },
+        queues,
+        scope.registrar(),
+        address,
+        address,
+    )
+    .unwrap_or_else(|_| panic!("same original native and Scope"));
+    segment.start().unwrap();
+    // Current-thread scheduling leaves the actual worker unpolled here. A
+    // cancelled business Scope still owes these actual accepted wire frames.
+    scope.begin_shutdown();
+    for bytes in [b"accepted data".as_slice(), b"endpoint close".as_slice()] {
+        socket
+            .socket
+            .try_send(&quinn::udp::Transmit {
+                destination: address,
+                ecn: None,
+                contents: bytes,
+                segment_size: None,
+                src_ip: None,
+            })
+            .unwrap();
+    }
+    let end = Instant::now() + Duration::from_secs(1);
+    let (retired, exit) = tokio::join!(segment.retire_final(end), scope.next_exit());
+    exit.unwrap().result.unwrap();
+    let (_, receipt) = retired.unwrap();
+    assert!(issuer.validates_users(&receipt, &scope.registrar()));
+    for expected in [b"accepted data".as_slice(), b"endpoint close".as_slice()] {
+        let mut bytes = [0; 64];
+        let (size, source) = tokio::time::timeout_at(end, peer.recv_from(&mut bytes))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(&bytes[..size], expected);
+        assert_eq!(source, local);
+    }
+    assert_eq!(
+        socket
+            .socket
+            .try_send(&quinn::udp::Transmit {
+                destination: address,
+                ecn: None,
+                contents: b"late",
+                segment_size: None,
+                src_ip: None,
+            })
+            .unwrap_err()
+            .kind(),
+        std::io::ErrorKind::BrokenPipe
+    );
+    assert_eq!(
+        native.occupied_main(),
+        1,
+        "drained FIFO and Scope join do not close the original"
+    );
+    let closed = grant.control.close().unwrap();
+    assert_eq!(closed.reservation(), grant.control.reservation());
+    assert_eq!(native.take_report().main.confirmed_closed, 1);
+    assert!(scope.shutdown(end).await.is_complete());
+}

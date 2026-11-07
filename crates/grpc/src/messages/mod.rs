@@ -1,5 +1,6 @@
 //! The existing H2 stream task retains its concrete request and wire owners.
 mod command;
+mod config_query;
 mod executor;
 mod input;
 pub(super) mod output;

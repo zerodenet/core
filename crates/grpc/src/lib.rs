@@ -128,6 +128,27 @@ impl GrpcHandle {
     where
         H: CommandService + QueryService + EventSource + Clone + Send + Sync + 'static,
     {
+        self.start_original(handle, None).await
+    }
+    /// Borrow production configuration/policy values from this same Engine.
+    pub async fn start_with_engine<H>(
+        &self,
+        handle: H,
+        engine: zero_engine::EngineHandle,
+    ) -> Result<(), Box<dyn std::error::Error>>
+    where
+        H: CommandService + QueryService + EventSource + Clone + Send + Sync + 'static,
+    {
+        self.start_original(handle, Some(engine)).await
+    }
+    async fn start_original<H>(
+        &self,
+        handle: H,
+        engine: Option<zero_engine::EngineHandle>,
+    ) -> Result<(), Box<dyn std::error::Error>>
+    where
+        H: CommandService + QueryService + EventSource + Clone + Send + Sync + 'static,
+    {
         if self.started.swap(true, Ordering::AcqRel) {
             return Err(std::io::Error::other("gRPC original owner already started").into());
         }
@@ -149,7 +170,7 @@ impl GrpcHandle {
             started
                 .await
                 .map_err(|_| std::io::Error::other("gRPC startup gate closed"))?;
-            native::run(listener, handle, auth, tls, shutdown_rx, originals).await
+            native::run(listener, handle, engine, auth, tls, shutdown_rx, originals).await
         }));
         begin
             .send(())
