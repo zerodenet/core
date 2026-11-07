@@ -231,3 +231,6 @@ mod packet;
 
 #[path = "production/standalone.rs"]
 mod standalone;
+
+#[path = "production/full_transmit.rs"]
+mod full_transmit;
