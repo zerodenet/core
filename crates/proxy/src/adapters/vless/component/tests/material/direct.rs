@@ -127,6 +127,8 @@ async fn ordinary_direct_first_relay_uses_same_native_owner_and_real_node_loan_f
             }).await.unwrap();
             assert!(flow.failure.is_none());
             assert_eq!((flow.bytes_up,flow.bytes_down),(payload.len() as u64,payload.len() as u64));
+            assert_eq!((flow.inbound_rx_bytes,flow.inbound_tx_bytes,flow.outbound_rx_bytes,flow.outbound_tx_bytes),
+                (payload.len() as u64,payload.len() as u64,payload.len() as u64,payload.len() as u64));
             client.close().await;
             for original in originals {assert!(original.owner.closed().unwrap().matches(&original.owner));assert!(original.owner.users_closed().unwrap().matches(&original.owner));}
             remote.close().await;
