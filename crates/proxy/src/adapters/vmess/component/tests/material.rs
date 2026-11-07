@@ -18,6 +18,7 @@ async fn ordinary_raw_ws_and_grpc_keep_exact_material_native_users_and_ack_throu
                 std::fs::write(&ca_path, cert.cert.pem()).unwrap();
                 let remote = server(kind, &cert_path, &key_path).await;
                 let client = client(kind, backend, remote.address, &ca_path).await;
+                eprintln!("actual VMess mode={kind} backend={backend} phase=first TCP");
                 let (owner, first) = echo(&client).await;
                 wait_returned(&owner, &first).await;
                 std::fs::remove_file(&ca_path).unwrap();
@@ -26,6 +27,7 @@ async fn ordinary_raw_ws_and_grpc_keep_exact_material_native_users_and_ack_throu
                 let (same, second) = echo(&client).await;
                 assert!(!first.same_original(&second));
                 wait_returned(&same, &second).await;
+                eprintln!("actual VMess mode={kind} backend={backend} phase=network TCP complete");
                 // New configuration candidates must not inherit by path equality.
                 // A rejected parse restores the prior authorized immutable recipe.
                 std::fs::write(&ca_path, b"this is not an authorized CA certificate").unwrap();
@@ -38,6 +40,7 @@ async fn ordinary_raw_ws_and_grpc_keep_exact_material_native_users_and_ack_throu
                         .is_err(),
                     "fresh candidate must actually read and validate the changed CA"
                 );
+                eprintln!("actual VMess mode={kind} backend={backend} phase=restored TCP");
                 let (restored, third) = echo(&client).await;
                 wait_returned(&restored, &third).await;
                 eprintln!("actual MUX mode={kind} backend={backend} phase=actual host shutdown");
@@ -86,6 +89,7 @@ async fn ordinary_mux_full_tls_transports_use_same_protocol_file_material_and_ca
                 let next_driver = cached_driver(&next_owner, &next);
                 assert!(!original.same_original(&next));
                 assert!(original.matches_closed(&original.closed().unwrap()));
+                eprintln!("actual VMess mode={kind} backend={backend} phase=network TCP complete");
                 std::fs::write(&ca, b"not an authorized CA").unwrap();
                 let candidate = (*client.proxy.engine().config()).clone();
                 assert!(client
@@ -93,6 +97,7 @@ async fn ordinary_mux_full_tls_transports_use_same_protocol_file_material_and_ca
                     .apply_runtime_config_and_wait(candidate, std::time::Duration::from_secs(5))
                     .await
                     .is_err());
+                eprintln!("actual VMess mode={kind} backend={backend} phase=restored TCP");
                 let (restored, fresh) = echo(&client).await;
                 let fresh_driver = cached_driver(&restored, &fresh);
                 eprintln!("actual MUX mode={kind} backend={backend} phase=actual host shutdown");
