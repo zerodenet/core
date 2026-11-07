@@ -13,6 +13,37 @@ module.exports = async ({ github, context, core }) => {
   });
   const records = [];
   let unavailable = false;
+  // The downloadable capsule must contain the caller/deletion/dependency
+  // ledgers themselves, not only hashes of files a reviewer must fetch later.
+  const ledgerFiles = [];
+  const round2 = 'design/v0.0.3/cloud/round2';
+  const requiredLedgers = [
+    `${round2}/README.md`, `${round2}/remaining.md`, `${round2}/execution.md`,
+    `${round2}/verification.md`, `${round2}/acceptance.md`,
+    'design/v0.0.3/compatibility.md', 'release/breaking-changes.md',
+  ];
+  const ledgerPaths = new Set(requiredLedgers);
+  function findLedgers(directory) {
+    if (!fs.existsSync(directory)) return;
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const filename = path.join(directory, entry.name);
+      if (entry.isDirectory()) findLedgers(filename);
+      else if (entry.isFile() && entry.name.endsWith('.md')) ledgerPaths.add(filename);
+    }
+  }
+  findLedgers(round2);
+  for (const source of [...ledgerPaths].sort()) {
+    if (!fs.existsSync(source)) {
+      unavailable = true;
+      ledgerFiles.push({ source, unavailable: 'required versioned delivery ledger is absent' });
+      continue;
+    }
+    const bytes = fs.readFileSync(source);
+    const filename = path.join('ledgers', source);
+    fs.mkdirSync(path.dirname(path.join(output, filename)), { recursive: true });
+    fs.writeFileSync(path.join(output, filename), bytes);
+    ledgerFiles.push({ source, file: filename, sha256: sha(bytes) });
+  }
   for (const job of jobs) {
     const record = { id: job.id, name: job.name, status: job.status,
       conclusion: job.conclusion, started_at: job.started_at,
@@ -75,7 +106,8 @@ module.exports = async ({ github, context, core }) => {
     run_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
     'candidate.Cargo.lock_sha256': sha(fixture), expected_lock_sha256: expectedLock,
     scheduled_checks: JSON.parse(process.env.ROUND2_CHECK_RESULTS ?? '{}'),
-    jobs: records, inputs, mismatched_inputs: [...mismatched.map(input => input.file), ...mismatchedFiles],
+    jobs: records, inputs, ledgers: ledgerFiles,
+    mismatched_inputs: [...mismatched.map(input => input.file), ...mismatchedFiles],
     qualification: 'actual per-job results; skipped/cancelled/missing checks grant no qualification' };
   fs.writeFileSync(path.join(output, 'workflow-results.json'), JSON.stringify(record, null, 2) + '\n');
   scan(output);
