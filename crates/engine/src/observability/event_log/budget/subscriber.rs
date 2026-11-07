@@ -34,7 +34,7 @@ impl Subscriber {
         };
         let queued = QueuedEvent {
             event: event.clone(),
-            reservation,
+            _reservation: reservation,
         };
         match self.tx.try_send(queued) {
             Ok(()) | Err(TrySendError::Full(_)) => true,

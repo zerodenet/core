@@ -115,7 +115,7 @@ impl Drop for Reservation {
 /// into_shared explicitly transfers that original to a prepaid new receiver.
 pub(crate) struct QueuedEvent {
     pub(crate) event: Arc<RawApiEvent>,
-    pub(super) reservation: Reservation,
+    pub(super) _reservation: Reservation,
 }
 impl QueuedEvent {
     pub(crate) fn into_event(self) -> RawApiEvent {
