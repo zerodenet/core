@@ -266,7 +266,13 @@ pub(super) async fn udp_echo_with<T>(client: &Running, inspect: impl FnOnce() ->
     let target = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let port = target.local_addr().unwrap().port();
     let codec = socks5::udp::Socks5InboundUdpCodec;
-    for payload in [&b"same actual VMess MUX"[..], &b""[..]] {
+    for payload in [
+        &b""[..],
+        &b"first VMess packet"[..],
+        &b""[..],
+        &b"last VMess packet"[..],
+        &b""[..],
+    ] {
         let wire = codec
             .encode_response_to_client(&zero_core::Address::Ipv4([127, 0, 0, 1]), port, payload)
             .unwrap();

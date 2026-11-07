@@ -22,9 +22,20 @@ impl zero_transport::pooled_driver::datagram::PacketIo for DatagramIo {
             return Err(std::io::ErrorKind::InvalidInput.into());
         }
         if frame.payload.is_empty() {
+            use zero_platform_tokio::contract::{
+                ChannelError, DeliveryState, Impact, Reason, Stage,
+            };
+            let mut rejected =
+                ChannelError::new(Stage::Send, Reason::Unsupported, Impact::Datagram).with_source(
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "Trojan MUX does not support empty raw UDP packets",
+                    ),
+                );
+            rejected.delivery = DeliveryState::NotSubmitted;
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "Trojan MUX does not support empty raw UDP packets",
+                rejected,
             ));
         }
         let payload = frame.payload.as_ref();

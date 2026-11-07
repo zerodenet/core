@@ -18,7 +18,7 @@ async fn ordinary_trojan_carriers_drain_large_half_closed_tcp_and_real_datagrams
             let client = client(kind, remote.address).await;
             let (owner, original) = echo(&client).await;
             wait_returned(&owner, &original).await;
-            let (udp_owner, udp_original) = datagrams(&client).await;
+            let (udp_owner, udp_original) = datagrams(&client, &remote, false).await;
             assert!(owner.same_owner(&udp_owner));
             assert!(!original.same_original(&udp_original));
             client.close().await;
@@ -50,7 +50,7 @@ async fn ordinary_trojan_mux_full_transports_reuse_the_same_original_and_driver_
             let first_driver = cached_driver(&owner, &original);
             let (same, reused) = echo(&client).await;
             assert!(owner.same_owner(&same) && original.same_original(&reused));
-            let (udp_owner, udp) = datagrams(&client).await;
+            let (udp_owner, udp) = datagrams(&client, &remote, true).await;
             assert!(owner.same_owner(&udp_owner) && original.same_original(&udp));
             assert!(original.closed().is_none() && !first_driver.is_joined());
             client.proxy.egress_interface.invalidate_network();
@@ -78,6 +78,8 @@ async fn ordinary_trojan_mux_full_transports_reuse_the_same_original_and_driver_
 
 async fn datagrams(
     client: &Running,
+    remote: &Running,
+    mux: bool,
 ) -> (
     zero_platform_tokio::controlled_carrier::CarrierOwnerRegistration,
     zero_platform_tokio::controlled_carrier::CarrierOriginObservation,
@@ -106,11 +108,54 @@ async fn datagrams(
     let target = peer.local_addr().unwrap();
     let codec = socks5::udp::Socks5InboundUdpCodec;
     let mut original = None;
-    for payload in [&b"first"[..], &b""[..], &b"reuse"[..]] {
+    let mut remote_session = None;
+    for payload in [
+        &b""[..],
+        &b"first"[..],
+        &b""[..],
+        &b"reuse"[..],
+        &b""[..],
+        &b"last"[..],
+    ] {
         let wire = codec
             .encode_response_to_client(&Address::Ipv4([127, 0, 0, 1]), target.port(), payload)
             .unwrap();
         socket.send_to(&wire, relay).await.unwrap();
+        if mux && payload.is_empty() {
+            // The fixed baseline has no raw MUX empty-packet delivery. Reject
+            // this packet only; subsequent valid wire must keep this association.
+            if original.is_none() {
+                tokio::time::timeout(Duration::from_secs(3), async {
+                    loop {
+                        if client
+                            .proxy
+                            .engine()
+                            .completed_sessions()
+                            .iter()
+                            .any(|flow| {
+                                flow.network == zero_core::Network::Udp
+                                    && flow.failure.as_ref().is_some_and(|failure| {
+                                        failure.message.contains(
+                                            "Trojan MUX does not support empty raw UDP packets",
+                                        )
+                                    })
+                            })
+                        {
+                            break;
+                        }
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .expect("actual initial validation error observed");
+                assert_eq!(
+                    peer.try_recv(&mut [0; 1]).unwrap_err().kind(),
+                    std::io::ErrorKind::WouldBlock
+                );
+                original = Some(capture(&client.proxy));
+            }
+            continue;
+        }
         let mut buffer = [0; 65536];
         let (size, sender) =
             tokio::time::timeout(Duration::from_secs(4), peer.recv_from(&mut buffer))
@@ -135,6 +180,26 @@ async fn datagrams(
         assert_eq!(address, Address::Ipv4([127, 0, 0, 1]));
         assert_eq!(port, target.port());
         assert_eq!(received.as_slice(), payload);
+        let sessions: Vec<_> = remote
+            .proxy
+            .engine()
+            .active_sessions()
+            .into_iter()
+            .filter(|flow| flow.network == zero_core::Network::Udp && flow.port == target.port())
+            .map(|flow| flow.id)
+            .collect();
+        assert_eq!(
+            sessions.len(),
+            1,
+            "same actual remote UDP association remains live"
+        );
+        match remote_session {
+            Some(id) => assert_eq!(
+                sessions[0], id,
+                "an unsupported packet must not replace the established association"
+            ),
+            None => remote_session = Some(sessions[0]),
+        }
     }
     drop(socket);
     drop(control);
