@@ -566,7 +566,7 @@ impl Proxy {
             Ok(plan) => Ok(plan),
             Err(error) if strict => Err(EngineError::Io(error)),
             Err(error) => {
-                warn!(error = %error, "TUN DNS route protection unavailable; DNS hijack disabled");
+                tracing::warn!(error = %error, "TUN DNS route protection unavailable; DNS hijack disabled");
                 Ok((false, Vec::new()))
             }
         }
@@ -757,7 +757,7 @@ async fn finalize_tun_runtime_exit(proxy: &Proxy, id: u64) {
     match route_cleanup {
         Ok(()) => clear_egress_control(&proxy.egress_interface, "tun_runtime_exited"),
         Err(error) => {
-            warn!(%error, "retaining TUN physical egress after route cleanup failure");
+            tracing::warn!(%error, "retaining TUN physical egress after route cleanup failure");
             let mut last_error = proxy.tun_last_error.lock().unwrap();
             let error = format!("TUN route cleanup failed after runtime exit: {error}");
             *last_error = Some(match last_error.take() {
