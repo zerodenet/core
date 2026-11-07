@@ -1,5 +1,5 @@
 use crate::validation::{PluginConfig, PluginMode};
-pub(super) fn config() -> PluginConfig {
+pub(crate) fn config() -> PluginConfig {
     PluginConfig {
         command: "python3".into(), options: None, mode: PluginMode::TcpOnly,
         args: vec!["-c".into(), "import os,socket,time; s=socket.socket(); s.bind((os.environ['SS_LOCAL_HOST'],int(os.environ['SS_LOCAL_PORT']))); s.listen(); time.sleep(60)".into()],

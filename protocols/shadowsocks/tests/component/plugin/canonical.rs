@@ -38,7 +38,7 @@ async fn canonical_process_native_generation_needs_matching_native_and_real_defe
         let mut old_scope =
             TaskScope::suspended_hosted(tokio::runtime::Handle::current(), NonZeroUsize::new(1));
         old_scope.enable_registration().unwrap();
-        let old_grant = Arc::new(Grant::for_scope(&old_scope, 1));
+        let old_grant = Arc::new(Grant::for_scope(&old_scope.registrar(), 1));
         let mut old = scoped(old_scope.registrar(), old_grant.clone(), options(&state), 1).unwrap();
         old.lifecycle.start(deadline()).await.unwrap();
         let original = old_grant.originals.lock().unwrap()[0].clone();
@@ -53,13 +53,13 @@ async fn canonical_process_native_generation_needs_matching_native_and_real_defe
         let closed = original.wait_closed(deadline()).await.unwrap().unwrap();
         assert!(closed.matches(&original));
         assert!(closed.had_native_acquisition());
-        old_grant.confirm_closed(&old_scope);
+        old_grant.confirm_closed(&old_scope.registrar());
         state.clear_plugins();
         let mut next_scope = TaskScope::new(
             tokio::runtime::Handle::current(),
             NonZeroUsize::new(1).unwrap(),
         );
-        let next_grant = Arc::new(Grant::for_scope(&next_scope, 2));
+        let next_grant = Arc::new(Grant::for_scope(&next_scope.registrar(), 2));
         assert_eq!(
             scoped(
                 next_scope.registrar(),
