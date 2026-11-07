@@ -4,6 +4,9 @@ use super::Engine;
 use crate::{ActiveSession, CompletedSessionRecord};
 
 impl Engine {
+    pub(crate) fn control_snapshot_basis(&self) -> crate::observability::SnapshotBasis<'_> {
+        self.event_log.flow_snapshot_basis()
+    }
     pub(crate) fn traffic_query_roots(
         &self,
     ) -> (

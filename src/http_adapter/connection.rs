@@ -97,6 +97,7 @@ async fn serve_request(
     } else {
         None
     };
+    let local = original.connection_budget();
     let route = if let Some(observation) = &observation {
         // This original handler retains the accepted operation through its
         // actual completion/rollback ACK. The same caller signal also detaches
@@ -108,11 +109,11 @@ async fn serve_request(
         observation
             .scope_with_stop(
                 stop.clone(),
-                router::route_with_budget(&request, &handle, &auth_ctx, &budget),
+                router::route_with_budget(&request, &handle, &auth_ctx, &budget, &local),
             )
             .await
     } else {
-        tokio::select! {_=stop.cancelled()=>return Ok(()),result=router::route_with_budget(&request,&handle,&auth_ctx,&budget)=>result}
+        tokio::select! {_=stop.cancelled()=>return Ok(()),result=router::route_with_budget(&request,&handle,&auth_ctx,&budget,&local)=>result}
     };
     match route {
         RouteResult::Reject(error) => Err(error),
@@ -131,7 +132,7 @@ async fn serve_request(
                 Duration::from_secs(30),
                 stop.cancelled_owned(),
                 budget,
-                original.connection_budget(),
+                local,
             )
             .await
         }

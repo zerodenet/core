@@ -171,10 +171,22 @@ where
             .budget
             .reserve(zero_runtime::configuration::ControlCharge::Subscription)
             .map_err(|error| Status::resource_exhausted(error.to_string()))?;
+        let mut initial = None;
         let subscribed = match &self.source.engine {
-            Some(engine) => engine
-                .subscribe(filter)
-                .map(event_source::Subscriber::Engine),
+            Some(engine) => {
+                let Some(original) = original.as_ref() else {
+                    return Err(Status::internal("original accepted subscription absent"));
+                };
+                let (subscriber, wants_snapshot) = engine.subscribe_control_live(filter);
+                if wants_snapshot {
+                    initial = Some(
+                        original
+                            .initial_snapshot(engine)
+                            .map_err(|error| Status::resource_exhausted(error.to_string()))?,
+                    );
+                }
+                Ok(event_source::Subscriber::Engine(subscriber))
+            }
             None => self
                 .handle
                 .subscribe(filter)
@@ -194,6 +206,11 @@ where
         };
 
         let (tx, rx) = mpsc::channel::<budget::QueuedEvent>(64);
+        if let Some(initial) = initial {
+            tx.try_send(initial).map_err(|_| {
+                Status::internal("initial item was not admitted to its same empty ordered channel")
+            })?;
+        }
 
         let subscriptions = self.subscriptions.clone();
         let mut jobs = subscriptions.jobs.lock().unwrap();

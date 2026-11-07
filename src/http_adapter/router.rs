@@ -20,7 +20,7 @@ pub enum RouteResult {
     Reject(io::Error),
     Respond(String, HttpBody),
     Sse {
-        subscriber: zero_engine::EventSubscriber,
+        subscriber: super::sse::Subscription,
         catch_up: zero_engine::RetainedReplay,
     },
 }
@@ -31,11 +31,12 @@ pub async fn route_with_budget(
     handle: &ProxyHandle,
     auth_ctx: &AuthContext,
     budget: &Arc<zero_runtime::configuration::ControlBudget>,
+    local: &zero_runtime::configuration::ControlConnectionBudget,
 ) -> RouteResult {
     if let Some(result) = prepared::route(request, handle, auth_ctx, budget) {
         return result;
     }
-    route_inner(request, handle, auth_ctx, budget).await
+    route_inner(request, handle, auth_ctx, budget, local).await
 }
 
 /// Route the request to the appropriate handler, enforcing permissions.
@@ -50,13 +51,22 @@ pub async fn route(
             &zero_config::RuntimeOptionsConfig::default(),
         ),
     );
-    route_inner(request, handle, auth_ctx, &budget).await
+    let connection = budget
+        .reserve(zero_runtime::configuration::ControlCharge::Connection)
+        .unwrap();
+    let local = connection.connection_budget().unwrap();
+    let mut result = route_inner(request, handle, auth_ctx, &budget, &local).await;
+    if let RouteResult::Sse { subscriber, .. } = &mut result {
+        subscriber._connection = Some(connection);
+    }
+    result
 }
 async fn route_inner(
     request: &HttpRequest,
     handle: &ProxyHandle,
     auth_ctx: &AuthContext,
     budget: &Arc<zero_runtime::configuration::ControlBudget>,
+    local: &zero_runtime::configuration::ControlConnectionBudget,
 ) -> RouteResult {
     let method = request.method.as_str();
     let path = request.path.as_str();
@@ -97,7 +107,7 @@ async fn route_inner(
                 if let Some(denied) = require_permission(auth_ctx, Permission::Read) {
                     return denied;
                 }
-                match handlers::events_stream(handle, query, &request.headers, budget) {
+                match handlers::events_stream(handle, query, &request.headers, budget, local) {
                     Ok((subscriber, catch_up)) => RouteResult::Sse {
                         subscriber,
                         catch_up,

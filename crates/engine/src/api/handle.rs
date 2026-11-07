@@ -43,6 +43,17 @@ impl EngineHandle {
     pub fn emit(&self, event: RawApiEvent) {
         self.engine.emit_event(event);
     }
+
+    /// Production control adapters register this exact live receiver before
+    /// encoding their prepaid original initial flow snapshot. The returned
+    /// flag selects that existing snapshot responsibility, never closure/IO.
+    pub fn subscribe_control_live(&self, filter: EventFilter) -> (EventSubscriber, bool) {
+        let initial = wants_flow_snapshot(&filter);
+        (
+            EventSubscriber::subscribe_live(&self.engine, filter),
+            initial,
+        )
+    }
 }
 
 impl QueryService for EngineHandle {
@@ -91,15 +102,17 @@ pub struct EventSubscriber {
 
 impl EventSubscriber {
     pub(crate) fn subscribe(engine: &Engine, filter: EventFilter) -> Self {
+        let mut subscriber = Self::subscribe_live(engine, filter);
+        if wants_flow_snapshot(&subscriber.filter) {
+            subscriber.initial = Mutex::new(VecDeque::from([engine.flow_snapshot_event()]));
+        }
+        subscriber
+    }
+    fn subscribe_live(engine: &Engine, filter: EventFilter) -> Self {
         let (tx, rx) = mpsc::sync_channel(1024);
         engine.subscribe_events(crate::observability::Subscriber::new(tx, filter.clone()));
-        let initial = if wants_flow_snapshot(&filter) {
-            VecDeque::from([engine.flow_snapshot_event()])
-        } else {
-            VecDeque::new()
-        };
         Self {
-            initial: Mutex::new(initial),
+            initial: Mutex::new(VecDeque::new()),
             rx,
             filter,
         }

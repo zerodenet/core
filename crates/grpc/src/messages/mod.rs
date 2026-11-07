@@ -39,6 +39,7 @@ pub(super) fn request<T>(
 #[path = "../tests/encoded_bytes.rs"]
 mod tests;
 
+mod initial_snapshot;
 #[cfg(feature = "proxy-control")]
 mod proxy_query;
 mod traffic_query;

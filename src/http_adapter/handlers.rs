@@ -10,7 +10,7 @@ use super::{body::HttpBody, response::api_error_status};
 use zero_api::ApiResponse;
 
 type HttpApiError = (&'static str, HttpBody);
-type EventStream = (zero_engine::EventSubscriber, zero_engine::RetainedReplay);
+type EventStream = (super::sse::Subscription, zero_engine::RetainedReplay);
 
 mod endpoint;
 pub use endpoint::{endpoint_get, endpoints_list};
@@ -160,6 +160,7 @@ pub fn events_stream(
     query: &str,
     headers: &[(String, String)],
     budget: &std::sync::Arc<zero_runtime::configuration::ControlBudget>,
+    local: &zero_runtime::configuration::ControlConnectionBudget,
 ) -> Result<EventStream, HttpApiError> {
     let mut filter = EventFilter::default();
     if let Some(types) = parse_query_param(query, "types") {
@@ -198,14 +199,54 @@ pub fn events_stream(
         None => zero_engine::RetainedReplay::empty(),
     };
 
-    match handle.subscribe(filter) {
-        Ok(subscriber) => Ok((subscriber, catch_up)),
-        Err(error) => {
-            let status = api_error_status(&error);
-            let body = HttpBody::BareError(error);
-            Err((status, body))
-        }
-    }
+    let catchup_bytes = (0..catch_up.len())
+        .try_fold(0usize, |maximum, index| {
+            super::sse::frame_len(catch_up.event(index)).map(|bytes| maximum.max(bytes))
+        })
+        .map_err(replay_capacity)?;
+    let (live, wants_snapshot) = handle.engine_handle().subscribe_control_live(filter);
+    let ordered_slot = if wants_snapshot || catchup_bytes != 0 {
+        Some(
+            local
+                .reserve(zero_runtime::configuration::ControlConnectionCharge::SseFrame)
+                .map_err(replay_capacity)?,
+        )
+    } else {
+        None
+    };
+    let (initial, catchup_credit) = if wants_snapshot {
+        let (initial, credit) = crate::ipc::owner::prepare_initial_snapshot(
+            handle.engine_handle(),
+            budget,
+            crate::ipc::owner::EventFraming::Sse,
+            catchup_bytes,
+        )
+        .map_err(replay_capacity)?;
+        (Some(initial), credit)
+    } else {
+        let credit = if catchup_bytes == 0 {
+            None
+        } else {
+            Some(
+                budget
+                    .reserve(
+                        zero_runtime::configuration::ControlCharge::QueuedEventBytes(catchup_bytes),
+                    )
+                    .map_err(replay_capacity)?,
+            )
+        };
+        (None, credit)
+    };
+    Ok((
+        super::sse::Subscription {
+            live,
+            initial,
+            catchup_credit,
+            ordered_slot,
+            _connection: None,
+        },
+        catch_up,
+    ))
 }
 
 fn replay_capacity(error: io::Error) -> HttpApiError {

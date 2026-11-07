@@ -9,7 +9,10 @@ mod plan;
 mod principal;
 mod runtime;
 pub(crate) mod runtime_query;
-pub use runtime_query::{EngineRuntimeQuery, EngineRuntimeQueryGuard, MissingFlow};
+pub use runtime_query::{
+    EngineFlowSnapshot, EngineFlowSnapshotGuard, EngineRuntimeQuery, EngineRuntimeQueryGuard,
+    MissingFlow,
+};
 mod traffic_query;
 pub use traffic_query::{EngineTrafficQuery, EngineTrafficQueryGuard, TrafficQueryError};
 mod session;

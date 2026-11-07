@@ -8,6 +8,28 @@ impl ControlBudget {
     }
 }
 impl ControlBudgetPermit {
+    /// Transfer an already admitted part of this same ordered event operation.
+    /// No admission, refund, wake, native or task proof is produced here.
+    pub fn split_queued_event_bytes(&mut self, bytes: usize) -> io::Result<ControlBudgetPermit> {
+        let ControlCharge::QueuedEventBytes(held) = self.charge else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "original event storage required",
+            ));
+        };
+        let remaining = held.checked_sub(bytes).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "event transfer exceeds prepaid storage",
+            )
+        })?;
+        self.charge = ControlCharge::QueuedEventBytes(remaining);
+        Ok(ControlBudgetPermit {
+            owner: self.owner.clone(),
+            charge: ControlCharge::QueuedEventBytes(bytes),
+            connection: None,
+        })
+    }
     /// Transfer already prepaid response storage to its actual retained byte
     /// owner. This neither admits new storage nor refunds/wakes the Root book.
     /// The original holder returns only the separately destroyed workspace.

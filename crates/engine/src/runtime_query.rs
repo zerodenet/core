@@ -12,6 +12,8 @@ mod address;
 mod body;
 mod legacy;
 mod record;
+mod snapshot;
+pub use snapshot::{EngineFlowSnapshot, EngineFlowSnapshotGuard};
 pub(crate) mod row;
 pub(crate) mod workspace;
 #[derive(Clone, Copy)]

@@ -7,6 +7,25 @@ use zero_runtime::configuration::ControlBudgetLimits;
 use zero_runtime::configuration::{ControlBudget, ControlBudgetPermit, ControlCharge};
 mod catch_up;
 pub use catch_up::CatchUp;
+pub struct Subscription {
+    pub(crate) live: zero_engine::EventSubscriber,
+    pub(crate) initial: Option<crate::ipc::owner::EncodedEvent>,
+    pub(crate) catchup_credit: Option<ControlBudgetPermit>,
+    pub(crate) ordered_slot: Option<zero_runtime::configuration::ControlConnectionPermit>,
+    pub(crate) _connection: Option<ControlBudgetPermit>,
+}
+#[cfg(test)]
+impl From<zero_engine::EventSubscriber> for Subscription {
+    fn from(live: zero_engine::EventSubscriber) -> Self {
+        Self {
+            live,
+            initial: None,
+            catchup_credit: None,
+            ordered_slot: None,
+            _connection: None,
+        }
+    }
+}
 const SSE_HEADERS: &str = concat!(
     "HTTP/1.1 200 OK\r\n",
     "Content-Type: text/event-stream\r\n",
@@ -15,10 +34,12 @@ const SSE_HEADERS: &str = concat!(
     "Access-Control-Allow-Origin: *\r\n",
     "\r\n"
 );
-fn frame_len(event: &RawApiEvent) -> io::Result<usize> {
+pub(crate) fn frame_len(event: &RawApiEvent) -> io::Result<usize> {
     let json = crate::ipc::owner::serialized_len(event)?;
     Ok(json
-        + event.sequence.map_or(0, |id| 5 + id.to_string().len())
+        + event
+            .sequence
+            .map_or(0, |id| 5 + id.max(1).ilog10() as usize + 1)
         + 8
         + event.event_type.len()
         + 6
@@ -68,13 +89,20 @@ pub async fn run_sse_stream(
 /// Frame bytes are charged before allocation and remain through the actual write.
 pub async fn run_sse_stream_with_budget(
     mut stream: impl tokio::io::AsyncWrite + Unpin,
-    subscriber: zero_engine::EventSubscriber,
+    subscriber: impl Into<Subscription>,
     catch_up: impl Into<CatchUp>,
     heartbeat_interval: Duration,
     shutdown: impl std::future::Future + Send,
     budget: Arc<ControlBudget>,
     local: zero_runtime::configuration::ControlConnectionBudget,
 ) -> io::Result<()> {
+    let Subscription {
+        live: subscriber,
+        mut initial,
+        catchup_credit,
+        ordered_slot,
+        _connection,
+    } = subscriber.into();
     let catch_up = catch_up.into();
     let mut shutdown = Box::pin(shutdown);
     let stop = CancellationToken::new();
@@ -84,7 +112,9 @@ pub async fn run_sse_stream_with_budget(
     // This actual ordered catch-up operation reserves its one working frame
     // before the existing worker can queue new events. It keeps that slot
     // between catch-up frames, preventing N=1 from waiting on its own later queue.
-    let mut catchup_slot = if catch_up.is_empty() {
+    let mut catchup_slot = if ordered_slot.is_some() {
+        ordered_slot
+    } else if catch_up.is_empty() && initial.is_none() {
         None
     } else {
         Some(local.reserve(zero_runtime::configuration::ControlConnectionCharge::SseFrame)?)
@@ -96,7 +126,9 @@ pub async fn run_sse_stream_with_budget(
     let catchup_bytes = (0..catch_up.len()).try_fold(0usize, |maximum, index| {
         frame_len(catch_up.event(index)).map(|size| maximum.max(size))
     })?;
-    let mut catchup_charge = if catchup_bytes == 0 {
+    let mut catchup_charge = if catchup_credit.is_some() {
+        catchup_credit
+    } else if catchup_bytes == 0 {
         None
     } else {
         Some(loop {
@@ -183,6 +215,9 @@ pub async fn run_sse_stream_with_budget(
         }
         drop(catch_up);
         drop(catchup_charge.take());
+        if let Some(initial) = initial.take() {
+            tokio::select! { _ = &mut shutdown => return Ok(()), result = stream.write_all(&initial.bytes) => result? }
+        }
         drop(catchup_slot.take());
         loop {
             let item = tokio::select! { _ = &mut shutdown => break, item = event_rx.recv() => item };

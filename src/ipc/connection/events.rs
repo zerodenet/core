@@ -5,6 +5,13 @@ struct QueuedFrame {
     _bytes: ControlBudgetPermit,
     _slot: zero_runtime::configuration::ControlConnectionPermit,
 }
+enum Pending {
+    Initial(
+        super::super::owner::EncodedEvent,
+        zero_runtime::configuration::ControlConnectionPermit,
+    ),
+    Original(zero_engine::RetainedEvent, usize, ControlBudgetPermit),
+}
 pub(super) struct EventJobs {
     bridge: Option<tokio::task::JoinHandle<()>>,
     writer: Option<tokio::task::JoinHandle<io::Result<()>>>,
@@ -19,6 +26,10 @@ impl EventJobs {
     pub(super) fn start<W>(
         &mut self,
         subscriber: <ProxyHandle as EventSource>::Stream,
+        mut initial: Option<(
+            super::super::owner::EncodedEvent,
+            zero_runtime::configuration::ControlConnectionPermit,
+        )>,
         writer: Arc<TokioMutex<BufWriter<W>>>,
         stop: CancellationToken,
         budget: Arc<ControlBudget>,
@@ -43,7 +54,9 @@ impl EventJobs {
                 if cancel_for_task.is_cancelled() || event_tx.is_closed() {
                     break;
                 }
-                if let Some(event) = subscriber.try_recv_retained() {
+                let prepared = if let Some((initial, slot)) = initial.take() {
+                    Some(Pending::Initial(initial, slot))
+                } else if let Some(event) = subscriber.try_recv_retained() {
                     // Serialize the full ApiEvent envelope (same format
                     // as SSE) so consumers use one parsing code path
                     // for both channels.
@@ -58,11 +71,19 @@ impl EventJobs {
                     ) else {
                         break;
                     };
-                    let frame_slot = loop {
-                        if cancel_for_task.is_cancelled() || event_tx.is_closed() {
-                            return;
-                        }
-                        match event_local.reserve(
+                    Some(Pending::Original(event, bytes, charge))
+                } else {
+                    None
+                };
+                if let Some(prepared) = prepared {
+                    let (prepared, frame_slot) = match prepared {
+                        Pending::Initial(frame, slot) => (frame, slot),
+                        Pending::Original(event, bytes, charge) => {
+                            let frame_slot = loop {
+                                if cancel_for_task.is_cancelled() || event_tx.is_closed() {
+                                    return;
+                                }
+                                match event_local.reserve(
                             zero_runtime::configuration::ControlConnectionCharge::EventFrame,
                         ) {
                             Ok(slot) => break slot,
@@ -71,13 +92,22 @@ impl EventJobs {
                             }
                             Err(_) => return,
                         }
+                            };
+                            let frame = super::frames::serialize_measured(&event, bytes)
+                                .expect("measured event envelope serialization");
+                            (
+                                super::super::owner::EncodedEvent {
+                                    bytes: frame,
+                                    credit: charge,
+                                },
+                                frame_slot,
+                            )
+                        }
                     };
-                    let frame = super::frames::serialize_measured(&event, bytes)
-                        .expect("measured event envelope serialization");
                     if event_tx
                         .blocking_send(QueuedFrame {
-                            bytes: frame,
-                            _bytes: charge,
+                            bytes: prepared.bytes,
+                            _bytes: prepared.credit,
                             _slot: frame_slot,
                         })
                         .is_err()

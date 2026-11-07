@@ -73,17 +73,30 @@ fn varint_len(mut value: usize) -> usize {
 }
 /// Measure borrowed original fields before allocating their protobuf copies.
 pub(super) fn original_frame_len(event: &zero_api::RawApiEvent) -> io::Result<usize> {
+    fields_frame_len(
+        &event.event_type,
+        event.event_id.len(),
+        event.occurred_at_unix_ms,
+        payload_len(&event.payload)?,
+    )
+}
+pub(super) fn fields_frame_len(
+    event_type: &str,
+    event_id_bytes: usize,
+    occurred_at: u64,
+    payload: usize,
+) -> io::Result<usize> {
     let mut bytes = 5usize;
-    for field in [&event.event_type, &event.event_id] {
-        if !field.is_empty() {
+    for size in [event_type.len(), event_id_bytes] {
+        if size != 0 {
             bytes = bytes
-                .checked_add(1 + varint_len(field.len()))
-                .and_then(|n| n.checked_add(field.len()))
+                .checked_add(1 + varint_len(size))
+                .and_then(|n| n.checked_add(size))
                 .ok_or_else(|| io::Error::other("gRPC event field length overflow"))?;
         }
     }
-    if event.occurred_at_unix_ms != 0 {
-        let mut value = event.occurred_at_unix_ms;
+    if occurred_at != 0 {
+        let mut value = occurred_at;
         let mut length = 1;
         while value >= 128 {
             value >>= 7;
@@ -93,7 +106,6 @@ pub(super) fn original_frame_len(event: &zero_api::RawApiEvent) -> io::Result<us
             .checked_add(1 + length)
             .ok_or_else(|| io::Error::other("gRPC event timestamp overflow"))?;
     }
-    let payload = payload_len(&event.payload)?;
     bytes
         .checked_add(1 + varint_len(payload))
         .and_then(|n| n.checked_add(payload))

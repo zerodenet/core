@@ -219,27 +219,50 @@ where
                     // Ack only after the subscription actually succeeds, so the
                     // request `id` is moved exactly once (no clone) and
                     // "subscribed" truthfully reflects engine state.
-                    match handle.subscribe(filter) {
-                        Ok(subscriber) => {
-                            subscribed = true;
-                            subscription_charge = Some(charge);
-                            let resp = ipc_ok(id, "subscribed");
-                            frames::write_response_until(&writer, &resp, &budget, &stop).await?;
-                            event_jobs.start(
-                                subscriber,
-                                writer.clone(),
-                                stop.clone(),
-                                budget.clone(),
-                                local.clone(),
-                            );
+                    let (subscriber, wants_snapshot) =
+                        handle.engine_handle().subscribe_control_live(filter);
+                    let initial = if wants_snapshot {
+                        let initial_slot = match local.reserve(
+                            zero_runtime::configuration::ControlConnectionCharge::EventFrame,
+                        ) {
+                            Ok(slot) => slot,
+                            Err(error) => {
+                                let resp = ipc_error(id, "resource_exhausted", error.to_string());
+                                frames::write_response_until(&writer, &resp, &budget, &stop)
+                                    .await?;
+                                continue;
+                            }
+                        };
+                        match super::super::owner::prepare_initial_snapshot(
+                            handle.engine_handle(),
+                            &budget,
+                            super::super::owner::EventFraming::Ipc,
+                            0,
+                        ) {
+                            Ok((frame, _)) => Some((frame, initial_slot)),
+                            Err(error) => {
+                                let resp = ipc_error(id, "resource_exhausted", error.to_string());
+                                frames::write_response_until(&writer, &resp, &budget, &stop)
+                                    .await?;
+                                continue;
+                            }
                         }
-                        Err(error) => {
-                            let resp = super::super::owner::BorrowedErrorResponse::new(
-                                id.as_ref(),
-                                &error,
-                            );
-                            frames::write_response_until(&writer, &resp, &budget, &stop).await?;
-                        }
+                    } else {
+                        None
+                    };
+                    {
+                        subscribed = true;
+                        subscription_charge = Some(charge);
+                        let resp = ipc_ok(id, "subscribed");
+                        frames::write_response_until(&writer, &resp, &budget, &stop).await?;
+                        event_jobs.start(
+                            subscriber,
+                            initial,
+                            writer.clone(),
+                            stop.clone(),
+                            budget.clone(),
+                            local.clone(),
+                        );
                     }
                 }
             }

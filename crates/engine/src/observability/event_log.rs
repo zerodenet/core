@@ -48,6 +48,16 @@ impl Default for EngineEventLog {
 }
 
 impl EngineEventLog {
+    pub(crate) fn flow_snapshot_basis(&self) -> SnapshotBasis<'_> {
+        SnapshotBasis {
+            epoch: self.event_epoch,
+            identity: self.next_identity.fetch_add(1, Ordering::Relaxed),
+            watermark: self.latest_sequence(),
+            occurred_at: unix_timestamp_ms(),
+            core_instance_id: &self.core_instance_id,
+            config_revision: self.config_revision.load(Ordering::Acquire),
+        }
+    }
     pub(crate) fn push_endpoint_state_changed(&self, fact: &crate::runtime::EndpointFact) {
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -625,6 +635,15 @@ impl EngineEventLog {
             .unwrap_or_else(|e| e.into_inner())
             .retain(|subscriber| subscriber.send(&event, bytes));
     }
+}
+
+pub(crate) struct SnapshotBasis<'a> {
+    pub(crate) epoch: u128,
+    pub(crate) identity: u64,
+    pub(crate) watermark: u64,
+    pub(crate) occurred_at: u64,
+    pub(crate) core_instance_id: &'a str,
+    pub(crate) config_revision: u64,
 }
 
 fn passive_health_target(target: &Address) -> String {

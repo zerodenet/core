@@ -1,6 +1,8 @@
 //! Retained original control tasks and their existing cleanup helpers.
 use std::{io, sync::Arc};
 mod encoded;
+mod initial_snapshot;
+pub(crate) use initial_snapshot::{prepare_initial_snapshot, EncodedEvent, EventFraming};
 mod error;
 mod message;
 pub(crate) use encoded::{encode_response, EncodedResponse};
