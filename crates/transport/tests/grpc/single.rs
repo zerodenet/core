@@ -60,3 +60,6 @@ fn single_client_cold_validation_checks_the_full_service_set() {
     profile.service_names.clear();
     assert!(validate_single_client_profile(&profile, "localhost").is_err());
 }
+
+#[path = "single/drain.rs"]
+mod drain;
