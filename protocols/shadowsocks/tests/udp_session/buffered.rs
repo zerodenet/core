@@ -260,3 +260,7 @@ fn fixed_workspace_reserves_every_actual_eih_key_before_sender_state_changes() {
     );
     assert_eq!(u64::from_be_bytes(header[8..].try_into().unwrap()), 1);
 }
+
+#[cfg(feature = "blake3")]
+#[path = "buffered/workspace.rs"]
+mod workspace;
