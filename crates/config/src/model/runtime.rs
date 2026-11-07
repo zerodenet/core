@@ -295,6 +295,15 @@ pub struct RuntimeOptionsConfig {
 impl Default for RuntimeOptionsConfig {
     fn default() -> Self {
         Self {
+            inbound_max_accepted_sockets: None,
+            inbound_max_datagram_associations: None,
+            inbound_max_datagram_peers: None,
+            inbound_max_packets_per_peer: None,
+            inbound_max_pending_sends: None,
+            inbound_max_bind_attempts: None,
+            inbound_max_target_sockets: None,
+            inbound_max_file_sessions: None,
+            inbound_max_handoff_probe_attempts: None,
             file_read_max_bytes: None,
             native_mux_max_carriers: None,
             native_stream_max_originals: None,

@@ -42,7 +42,7 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for ObservedIo<S> {
         self.flush.bind(cx);
         Pin::new(&mut self.io).poll_write(cx, buf)
     }
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
         this.flush.poll(&mut this.io, cx)
     }
