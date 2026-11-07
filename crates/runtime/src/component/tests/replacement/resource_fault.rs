@@ -90,11 +90,11 @@ async fn actual_cleanup_deadline_is_archived_before_ack_and_same_original_late_j
             !witness.is_joined(),
             "the original driver still owns its returned-view continuation"
         );
-        let resources = &old.order[0].live.get().unwrap().as_ref().unwrap().resources;
-        assert!(
-            resources.io_evidence().physical_confirmed(),
-            "actual provider close remains independently visible"
-        );
+        let actual_provider_receipts = old.close_evidence.lock().unwrap();
+        let actual_report = &actual_provider_receipts[&old.order[0].instance_id()];
+        assert_eq!(actual_report.closed_io.len(), 1,
+            "the actual single declared listener provider supplied its original native close receipt");
+        drop(actual_provider_receipts);
         state
             .release
             .lock()
