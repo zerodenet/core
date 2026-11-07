@@ -33,7 +33,15 @@ impl UpstreamOpener for Root {
         binding: &UpstreamBinding,
         adoption: zero_platform_tokio::controlled_carrier::CarrierAdoption,
     ) -> Result<(), ChannelError> {
-        self.validate_pending_carrier(binding, &adoption)?;
+        self.owner()?;
+        if binding != &self.binding {
+            return Err(invalid(Reason::StalePlan, "Direct pending binding changed"));
+        }
+        // The same waiting caller retains its receiver before it borrows this
+        // Direct donor. That receiver belongs to a later selected role, so it
+        // cannot be validated as Direct's own native original. The actual
+        // caller ledger revalidates its complete selected role graph below;
+        // validate_pending_carrier remains the separate narrow donor check.
         self.waiting
             .as_ref()
             .ok_or_else(|| {
