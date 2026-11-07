@@ -250,6 +250,31 @@ pub(super) fn destination(peer: SocketAddr) -> zero_core::request::Destination {
     )
 }
 pub(super) fn error(source: std::io::Error) -> BuildError {
+    // Actual query/driver receivers already return this same error Arc. Keep
+    // that identity/receipt instead of inventing a new close-error wrapper on
+    // every retirement observation. No arbitrary Error::source callback runs.
+    if let Some(original) = source
+        .get_ref()
+        .and_then(|source| source.downcast_ref::<Arc<BuildError>>())
+    {
+        return BuildError::retained(original.clone());
+    }
+    if source
+        .get_ref()
+        .is_some_and(|source| source.is::<BuildError>())
+    {
+        let kind = source.kind();
+        return match source.into_inner() {
+            Some(payload) => match payload.downcast::<BuildError>() {
+                Ok(original) => *original,
+                Err(payload) => wrap(std::io::Error::new(kind, payload)),
+            },
+            None => wrap(std::io::Error::from(kind)),
+        };
+    }
+    wrap(source)
+}
+fn wrap(source: std::io::Error) -> BuildError {
     zero_platform_tokio::contract::ChannelError::new(
         zero_platform_tokio::contract::Stage::Close,
         zero_platform_tokio::contract::Reason::Io,
