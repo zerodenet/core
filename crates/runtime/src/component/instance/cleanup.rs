@@ -46,8 +46,24 @@ impl Owner {
                     return Ok(());
                 }
                 match timeout_at(deadline, instance.lifecycle.shutdown(deadline)).await {
-                    Ok(Ok(report)) => {
+                    Ok(Ok(mut report)) => {
                         let complete = report.is_complete();
+                        // A producer can need local fault acceptance before its
+                        // own real driver finishes. Receive exact protocol rows
+                        // now, before join! waits on any sibling/Scope collector.
+                        report.resource_failures.retain(|child| {
+                            if child.instance == instance_id
+                                && child.controller == zero_platform_tokio::contract::lifecycle::ResourceFailurePhase::ProtocolLifecycle
+                            {
+                                protocol_failures.child(instance_id, child.clone());
+                                false
+                            } else {
+                                true
+                            }
+                        });
+                        if let Some(canonical) = protocol_failures.get() {
+                            report.resource_failures.push(canonical);
+                        }
                         persist(report);
                         *protocol_closed = complete;
                         Ok(())
