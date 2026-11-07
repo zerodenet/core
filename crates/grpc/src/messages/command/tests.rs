@@ -113,10 +113,9 @@ async fn actual_raw_join_error_is_retained_before_the_same_request_task_reports_
         assert_eq!(budget.usage().pending_commands, 0);
         assert_eq!(budget.usage().grpc_requests, 0);
         drop((local, connection));
-        assert!(scope
-            .shutdown(crate::native::deadline())
-            .await
-            .is_complete());
+        scope.begin_shutdown();
+        assert!(scope.next_receipt().await.is_none());
+        assert!(scope.is_joined() && scope.is_drained());
         budget
             .command_owner()
             .shutdown(crate::native::deadline())
