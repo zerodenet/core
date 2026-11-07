@@ -1563,5 +1563,5 @@ pub(crate) mod dispatch;
 pub use channel::Hysteria2UdpChannel;
 
 #[cfg(test)]
-#[path = "../tests/udp_buffered.rs"]
+#[path = "../tests/udp/buffered.rs"]
 mod buffered_tests;
