@@ -130,6 +130,16 @@ Linux 进程原件续作增加内核 Rust 的 cold owned-process grant，保留�
 
 ## Unreleased
 
+### 同一原件清理故障与实际退休
+
+内部 Rust `CloseReport` 增加 `resource_failures`；完整 struct literal 需提供该字段或使用
+`..Default::default()`。实际组件的协议控制器、声明资源控制器故障以真实 instance 和
+controller phase 进入既有 Plan 归档，不再伪装为任务失败。TaskId 和 TaskFailure 语义保持。
+故障接收与原件、逻辑用户、Scope join/Host ACK 是独立事实；缺少匹配关闭凭据继续阻止
+替换。同一原件晚清理完成后可以推进退休，原始故障仍交给原 supervisor，不因恢复删除。
+对应回归位于 `crates/runtime/src/component/tests/replacement/resource_fault.rs`。
+V1 配置/API/events、CLI、FFI 及面板 wire 形状保持，无需消费者迁移。
+
 ### 第二轮内部 Datagram 原件转交续作
 
 进程内 Rust `ResourceDeclaration` 新增借入专用 `ControlledServiceDatagram`；穷举实现需

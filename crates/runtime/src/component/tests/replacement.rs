@@ -13,6 +13,8 @@ mod generations;
 mod native;
 #[path = "replacement/publication.rs"]
 mod publication;
+#[path = "replacement/resource_fault.rs"]
+mod resource_fault;
 
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(3)
@@ -38,11 +40,11 @@ fn plan(slots: Vec<Arc<ComponentSlot>>) -> Arc<ComponentPlan> {
         close_evidence: Default::default(),
     })
 }
-fn original_failure(error: &ChannelError) -> &Arc<plan::PlanTaskFailure> {
+fn original_failure(error: &ChannelError) -> &Arc<plan::PlanFailure> {
     error
         .source()
         .unwrap()
-        .downcast_ref::<Arc<plan::PlanTaskFailure>>()
+        .downcast_ref::<Arc<plan::PlanFailure>>()
         .unwrap()
 }
 
@@ -80,10 +82,18 @@ async fn cancelled_task_retirement_keeps_the_same_batch_real_scope_and_original_
         .next()
         .unwrap()
         .clone();
-    assert_eq!(failure.0.id, panic.task.lock().unwrap().unwrap());
-    assert_eq!(failure.0.class, TaskClass::Critical);
+    assert_eq!(
+        failure.task().expect("actual original task failure").id,
+        panic.task.lock().unwrap().unwrap()
+    );
+    assert_eq!(
+        failure.task().expect("actual original task failure").class,
+        TaskClass::Critical
+    );
     let native_id = panic.native_task.lock().unwrap().unwrap();
-    let join = crate::component::tests::source::<tokio::task::JoinError>(&failure.0.error);
+    let join = crate::component::tests::source::<tokio::task::JoinError>(
+        &failure.task().expect("actual original task failure").error,
+    );
     assert!(join.is_panic());
     assert_eq!(join.id(), native_id);
     let source_address = std::ptr::from_ref(join);
@@ -116,8 +126,12 @@ async fn cancelled_task_retirement_keeps_the_same_batch_real_scope_and_original_
     assert!(batch.released());
     assert!(Arc::ptr_eq(&supervisor[0], &failure));
     assert!(Arc::ptr_eq(original_failure(&reported), &failure));
-    let retained_join =
-        crate::component::tests::source::<tokio::task::JoinError>(&supervisor[0].0.error);
+    let retained_join = crate::component::tests::source::<tokio::task::JoinError>(
+        &supervisor[0]
+            .task()
+            .expect("actual original task failure")
+            .error,
+    );
     assert_eq!(std::ptr::from_ref(retained_join), source_address);
     // This rejects the failed attempt; only the next explicit retry starts target.
     assert!(!next.started.load(Ordering::Acquire));
@@ -194,10 +208,13 @@ async fn typed_receipt_reissues_after_unaccepted_publication_error_but_cannot_re
         weak.upgrade().is_none(),
         "published original task failures cannot retain the old plan"
     );
-    assert!(
-        crate::component::tests::source::<tokio::task::JoinError>(&supervisor[0].0.error)
-            .is_panic()
-    );
+    assert!(crate::component::tests::source::<tokio::task::JoinError>(
+        &supervisor[0]
+            .task()
+            .expect("actual original task failure")
+            .error
+    )
+    .is_panic());
 }
 
 #[tokio::test]
@@ -252,9 +269,15 @@ async fn native_declaration_confirms_original_close_without_erasing_its_real_sco
         .next()
         .unwrap()
         .clone();
-    assert_eq!(failure.0.class, TaskClass::Critical);
+    assert_eq!(
+        failure.task().expect("actual original task failure").class,
+        TaskClass::Critical
+    );
     assert!(!failure.reported());
-    assert!(crate::component::tests::source::<tokio::task::JoinError>(&failure.0.error).is_panic());
+    assert!(crate::component::tests::source::<tokio::task::JoinError>(
+        &failure.task().expect("actual original task failure").error
+    )
+    .is_panic());
     assert!(!candidate.started.load(Ordering::Acquire));
     assert!(catalog.commit(&target, || Ok(())).is_err());
     assert!(catalog.shutdown(deadline()).await.is_err());

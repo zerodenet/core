@@ -16,16 +16,16 @@ struct Part {
 #[derive(Debug)]
 pub(super) struct DeclaredComponentTerminal {
     instances: Box<[ComponentInstanceId]>,
-    failures: Box<[Arc<plan::PlanTaskFailure>]>,
+    failures: Box<[Arc<plan::PlanFailure>]>,
 }
 impl DeclaredComponentTerminal {
-    pub(super) fn failure(&self) -> Option<&Arc<plan::PlanTaskFailure>> {
+    pub(super) fn failure(&self) -> Option<&Arc<plan::PlanFailure>> {
         self.failures().first()
     }
     pub(super) fn instances(&self) -> &[ComponentInstanceId] {
         &self.instances
     }
-    pub(super) fn failures(&self) -> &[Arc<plan::PlanTaskFailure>] {
+    pub(super) fn failures(&self) -> &[Arc<plan::PlanFailure>] {
         &self.failures
     }
 }
@@ -235,9 +235,9 @@ impl Replacement {
             let mut instances = BTreeSet::new();
             for part in &self.parts {
                 instances.extend(part.instances.iter().copied());
-                for failure in part.plan.task_faults(&part.instances) {
+                for failure in part.plan.retirement_faults(&part.instances) {
                     if !failure.reported() {
-                        failures.entry(failure.0.id).or_insert(failure);
+                        failures.entry(failure.key()).or_insert(failure);
                     }
                 }
             }

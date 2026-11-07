@@ -46,9 +46,7 @@ struct Resource {
     stopped: AtomicBool,
     native_on_driver_exit: bool,
     requires_scope_join: bool,
-    exit_fault: OnceLock<SharedError>,
-    shutdown_fault: OnceLock<SharedError>,
-    cleanup_fault: OnceLock<SharedError>,
+    cleanup_failures: zero_platform_tokio::contract::lifecycle::ResourceCleanupFailures,
 }
 pub(crate) struct InboundOwner {
     #[cfg(feature = "raw-ip-runtime")]
@@ -387,9 +385,7 @@ impl InboundOwner {
             stopped: AtomicBool::new(false),
             native_on_driver_exit,
             requires_scope_join,
-            exit_fault: OnceLock::new(),
-            shutdown_fault: OnceLock::new(),
-            cleanup_fault: OnceLock::new(),
+            cleanup_failures: Default::default(),
         }));
         Ok(())
     }

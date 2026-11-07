@@ -82,7 +82,7 @@ async fn earlier_main_fault_preserves_same_cleanup_payload_and_ack_before_origin
                 .find(|resource| resource.identity == identity)
                 .unwrap();
             assert!(!resource.stopped.load(Ordering::Acquire));
-            let fault = resource.cleanup_fault.get().unwrap().clone();
+            let fault = resource.cleanup_failures.receipt_failure().unwrap().clone();
             assert!(fault
                 .cleanup_failure_receipt()
                 .unwrap()

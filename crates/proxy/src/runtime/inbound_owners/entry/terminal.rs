@@ -16,10 +16,14 @@ pub(crate) struct InboundTerminal {
     tasks: Box<[InboundTaskFailure]>,
     client_failure: Option<zero_platform_tokio::contract::scope::TaskJoined>,
     native_bound_failures: Box<[SharedError]>,
+    resource_failures: Box<[Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>]>,
 }
 impl InboundTerminal {
     pub(in crate::runtime::inbound_owners) fn publish(&self) {
         self.observation.publish();
+        for failure in &self.resource_failures {
+            failure.confirm_reported();
+        }
     }
     pub(crate) fn identity(&self) -> ComponentInstanceId {
         self.identity
@@ -188,6 +192,16 @@ impl InboundOwner {
         self.identity
     }
     pub(super) fn retain_resource_failures(&self, report: &mut CloseReport) {
+        for failure in &report.resource_failures {
+            // These are actual nested Slot controller faults, not synthetic
+            // TaskFailure IDs. The same report remains strongly retained by
+            // this Source and later its physical terminal.
+            self.failure
+                .lock()
+                .expect("inbound failure poisoned")
+                .get_or_insert_with(|| failure.source.clone());
+        }
+
         for task in std::mem::take(&mut report.failed_tasks) {
             let source = Arc::new(task.error);
             self.failure
@@ -327,7 +341,17 @@ impl InboundOwner {
                             .iter()
                             .flat_map(|resource| resource.cleanup_failures()),
                     );
+                    let resource_failures = self
+                        .report
+                        .lock()
+                        .expect("inbound close report poisoned")
+                        .resource_failures
+                        .clone()
+                        .into_boxed_slice();
+                    native_bound_failures
+                        .extend(resource_failures.iter().map(|fault| fault.source.clone()));
                     Arc::new(InboundTerminal {
+                        resource_failures,
                         native_bound_failures: native_bound_failures.into_boxed_slice(),
                         client_failure: self.client_failure.get().cloned(),
                         identity: self.identity,

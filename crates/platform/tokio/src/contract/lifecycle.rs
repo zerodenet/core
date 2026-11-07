@@ -1,4 +1,8 @@
 use std::future::Future;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use tokio::time::Instant;
 use zero_core::component::TaskId;
 
@@ -29,11 +33,46 @@ pub enum Unfinished {
     Recovery(String),
 }
 
+/// The two actual concrete controllers driven by one component Owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ResourceFailurePhase {
+    ProtocolLifecycle,
+    DeclaredResources,
+}
+/// Typed resource failure only, never a fabricated task/physical-close proof.
+#[derive(Debug)]
+pub struct ResourceFailure {
+    pub instance: zero_core::component::ComponentInstanceId,
+    pub controller: ResourceFailurePhase,
+    pub source: Arc<ChannelError>,
+    reported: AtomicBool,
+}
+impl ResourceFailure {
+    pub fn new(
+        instance: zero_core::component::ComponentInstanceId,
+        controller: ResourceFailurePhase,
+        source: Arc<ChannelError>,
+    ) -> Self {
+        Self {
+            instance,
+            controller,
+            source,
+            reported: false.into(),
+        }
+    }
+    pub fn reported(&self) -> bool {
+        self.reported.load(Ordering::Acquire)
+    }
+    pub fn confirm_reported(&self) {
+        self.reported.store(true, Ordering::Release);
+    }
+}
 /// Evidence from the owner. Cancellation, abort and Drop are not completion.
 #[derive(Debug, Default)]
 pub struct CloseReport {
     pub exited_tasks: Vec<TaskId>,
     pub failed_tasks: Vec<TaskFailure>,
+    pub resource_failures: Vec<Arc<ResourceFailure>>,
     pub closed_io: Vec<String>,
     pub released_resources: Vec<String>,
     pub recovered_resources: Vec<String>,
@@ -47,6 +86,15 @@ impl CloseReport {
     pub fn append(&mut self, mut other: Self) {
         self.exited_tasks.append(&mut other.exited_tasks);
         self.failed_tasks.append(&mut other.failed_tasks);
+        for failure in other.resource_failures {
+            if !self
+                .resource_failures
+                .iter()
+                .any(|same| Arc::ptr_eq(same, &failure))
+            {
+                self.resource_failures.push(failure);
+            }
+        }
         self.closed_io.append(&mut other.closed_io);
         self.released_resources
             .append(&mut other.released_resources);
@@ -59,7 +107,9 @@ impl CloseReport {
 pub trait ChannelControl: Send {
     /// Observe original logical retirement only. Default controllers declare no
     /// such event; this is never native close, driver join or a release receipt.
-    fn revoked(&self) -> BoxFuture<'static, ()> { Box::pin(std::future::pending()) }
+    fn revoked(&self) -> BoxFuture<'static, ()> {
+        Box::pin(std::future::pending())
+    }
 
     /// Attempt only immediately available cleanup on this same controller.
     /// Pending work remains owned; no timer or completion evidence is invented.
@@ -86,7 +136,9 @@ pub trait ChannelControl: Send {
 pub trait DynChannelControl: Send {
     /// Observe original logical retirement only. Default controllers declare no
     /// such event; this is never native close, driver join or a release receipt.
-    fn revoked(&self) -> BoxFuture<'static, ()> { Box::pin(std::future::pending()) }
+    fn revoked(&self) -> BoxFuture<'static, ()> {
+        Box::pin(std::future::pending())
+    }
 
     /// Attempt only immediately available cleanup on this same controller.
     /// Pending work remains owned; no timer or completion evidence is invented.
@@ -108,7 +160,9 @@ pub trait DynChannelControl: Send {
 
 struct ErasedControl<T>(T);
 impl<T: ChannelControl> DynChannelControl for ErasedControl<T> {
-    fn revoked(&self) -> BoxFuture<'static, ()> { self.0.revoked() }
+    fn revoked(&self) -> BoxFuture<'static, ()> {
+        self.0.revoked()
+    }
 
     fn try_close(&mut self) -> Result<CloseReport, ChannelError> {
         self.0.try_close()
@@ -159,3 +213,6 @@ impl<T: ResourceLifecycle> DynResourceLifecycle for ErasedLifecycle<T> {
 pub fn erase_lifecycle(owner: impl ResourceLifecycle + 'static) -> Box<dyn DynResourceLifecycle> {
     Box::new(ErasedLifecycle(owner))
 }
+
+mod cleanup_failures;
+pub use cleanup_failures::{CleanupFailurePhase, ResourceCleanupFailures};

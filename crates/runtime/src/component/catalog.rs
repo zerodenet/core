@@ -50,7 +50,7 @@ pub struct ComponentPlan {
     deferred_devices: std::collections::BTreeSet<ComponentId>,
     device_pass: bool,
     // Actual failed exits survive consumption of a slot's one-shot close report.
-    failures: Mutex<BTreeMap<zero_core::component::TaskId, Arc<plan::PlanTaskFailure>>>,
+    failures: Mutex<BTreeMap<plan::FailureKey, Arc<plan::PlanFailure>>>,
     // Canonical IDs from this exact assembly; no old recipes or runtime owners.
     shared_identities: super::SharedResourceIdentities,
     source_dependencies: super::preparation::SourceDependencyDeclarations,

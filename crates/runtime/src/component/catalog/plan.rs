@@ -4,56 +4,9 @@ mod packet_source;
 #[cfg(any(target_os = "linux", windows))]
 mod process_endpoint;
 use super::*;
-use zero_platform_tokio::contract::lifecycle::TaskFailure;
 
-#[derive(Debug)]
-pub(super) struct PlanTaskFailure(
-    pub(super) TaskFailure,
-    pub(super) zero_core::component::ComponentInstanceId,
-    AtomicBool,
-);
-impl std::fmt::Display for PlanTaskFailure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "component task {} ({:?}) failed: {}",
-            self.0.id.0, self.0.class, self.0.error
-        )
-    }
-}
-impl std::error::Error for PlanTaskFailure {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.0.error)
-    }
-}
-impl PlanTaskFailure {
-    pub(super) fn new(
-        failure: TaskFailure,
-        instance: zero_core::component::ComponentInstanceId,
-    ) -> Self {
-        Self(failure, instance, AtomicBool::new(false))
-    }
-    pub(super) fn reported(&self) -> bool {
-        self.2.load(Ordering::Acquire)
-    }
-    pub(super) fn confirm_reported(&self) {
-        let _ = self
-            .2
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire);
-    }
-    pub(super) fn retained(self: &Arc<Self>) -> ChannelError {
-        let original = &self.0.error;
-        let mut error = ChannelError::new(original.stage, original.reason, original.impact);
-        error.component = original.component;
-        error.session = original.session;
-        error.delivery = original.delivery;
-        error.retry = original.retry;
-        if let Some(receipt) = original.cleanup_failure_receipt() {
-            error = error.with_cleanup_failure_receipt(receipt.clone());
-        }
-        error.with_source(self.clone())
-    }
-}
+mod failure;
+pub(super) use failure::{FailureKey, PlanFailure};
 
 impl std::fmt::Debug for ComponentPlan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

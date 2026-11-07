@@ -95,6 +95,8 @@ struct Live {
     resources: Arc<HostResources>,
 }
 struct Owner {
+    resource_failures:
+        [std::sync::OnceLock<Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>>; 2],
     instance: ComponentInstance,
     pending_close: Option<Box<PendingClose>>,
     protocol_closed: bool,
@@ -175,7 +177,7 @@ impl ComponentSlot {
                 let mut owner = live.owner.lock().await;
                 owner
                     .shutdown(
-                        self.id,
+                        self.instance_id(),
                         deadline,
                         &live.resources,
                         &live.tasks,

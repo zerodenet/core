@@ -58,10 +58,18 @@ async fn cancelled_plan_shutdown_retains_actual_join_failure_after_report_consum
         .next()
         .unwrap()
         .clone();
-    assert_eq!(original.0.id, panic.task.lock().unwrap().unwrap());
-    assert_eq!(original.0.class, TaskClass::Critical);
+    assert_eq!(
+        original.task().expect("actual original task failure").id,
+        panic.task.lock().unwrap().unwrap()
+    );
+    assert_eq!(
+        original.task().expect("actual original task failure").class,
+        TaskClass::Critical
+    );
     let native_id = panic.native_id.lock().unwrap().unwrap();
-    let join = crate::component::tests::source::<tokio::task::JoinError>(&original.0.error);
+    let join = crate::component::tests::source::<tokio::task::JoinError>(
+        &original.task().expect("actual original task failure").error,
+    );
     assert!(join.is_panic());
     assert_eq!(join.id(), native_id);
     let source_address = std::ptr::from_ref(join);
@@ -77,10 +85,12 @@ async fn cancelled_plan_shutdown_retains_actual_join_failure_after_report_consum
         let retained = error
             .source()
             .unwrap()
-            .downcast_ref::<Arc<plan::PlanTaskFailure>>()
+            .downcast_ref::<Arc<plan::PlanFailure>>()
             .unwrap();
         assert!(Arc::ptr_eq(retained, &original));
-        let join = crate::component::tests::source::<tokio::task::JoinError>(&retained.0.error);
+        let join = crate::component::tests::source::<tokio::task::JoinError>(
+            &retained.task().expect("actual original task failure").error,
+        );
         assert_eq!(std::ptr::from_ref(join), source_address);
         assert_eq!(join.id(), native_id);
     }
