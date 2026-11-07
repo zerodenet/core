@@ -122,11 +122,15 @@ pub(super) fn spawn_carrier(
         .ok_or_else(|| std::io::Error::other("missing carrier Scope"))?;
     let registrar = host.peer_registrar();
     let limits = context.limits;
+    #[cfg(test)]
+    let actual_remote=facts.effective_source;
     let admitted=context.peers.spawn_bound(host,move |binding| {
         let resources=group.resource_context(binding.clone(),ingress);
         async move {
             let stopped=binding.cancellation();
             let task=binding.wait_bound().await.map_err(std::io::Error::other)?;
+            #[cfg(test)]
+            eprintln!("actual carrier original peer task {task:?} remote={actual_remote:?} local={local:?}");
             let witness=binding.join_witness().ok_or_else(||std::io::Error::other("carrier original witness absent"))?;
             let graph=zero_platform_tokio::AcceptedPeerScope::for_carrier(&registrar,task,witness,stopped.clone(),limits.max_tasks_per_peer,limits.max_resources_per_peer,local).map_err(std::io::Error::other)?;
             let tasks=graph.tasks();
