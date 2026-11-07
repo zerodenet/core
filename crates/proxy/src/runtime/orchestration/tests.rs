@@ -179,3 +179,19 @@ mod tcp_transport;
 
 #[cfg(all(feature = "vless", feature = "vmess", feature = "trojan"))]
 mod native_mux;
+
+#[cfg(all(feature = "vless", feature = "hysteria2"))]
+mod metadata_budgets;
+
+#[cfg(all(
+    feature = "socks5",
+    feature = "http",
+    feature = "mixed",
+    feature = "vless",
+    feature = "vmess",
+    feature = "trojan",
+    feature = "mieru",
+    feature = "shadowsocks",
+    feature = "hysteria2"
+))]
+mod inbound_work_limits;

@@ -84,7 +84,7 @@ async fn metadata_source_config_changes_retire_actual_native_and_scope_before_fr
             let mut config=configuration(protocol);
             let proxy=Proxy::new(config.clone()).unwrap();
             declared(&proxy,&config,3,16,2,8,1);
-            let running:RunningProxy=proxy.clone().spawn();let handle:ProxyHandle=running.handle();
+            let running:RunningProxy=proxy.clone().spawn();let handle=ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()),proxy.clone());
             let old=ready(&proxy).await;
             let old_identity=old.identity();assert!(old.terminal_for_test().is_none());
             config.runtime.metadata_max_probe_sockets=Some(3);
