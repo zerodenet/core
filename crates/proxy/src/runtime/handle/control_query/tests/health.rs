@@ -29,7 +29,7 @@ fn actual_health_peer_rows_are_paid_before_allocation_and_labels_stay_in_origina
     assert_eq!(book.usage().response_bytes, 0);
     drop(workspace);
     limits.messages.response_bytes_total = 4096;
-    book.prepare_limits(limits).unwrap().commit().unwrap();
+    book.prepare(limits).unwrap().commit().unwrap();
     let mut workspace = book.reserve(ControlCharge::ResponseBytes(0)).unwrap();
     let view = handle.control_health_query(&mut workspace).unwrap();
     assert_eq!(view.rows.len(), 1);

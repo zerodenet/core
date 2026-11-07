@@ -26,7 +26,7 @@ fn actual_compiled_capabilities_need_prepaid_workspace_and_preserve_every_discov
     assert_eq!(book.usage().response_bytes, 0);
     drop(workspace);
     limits.messages.response_bytes_total = 128 * 1024;
-    book.prepare_limits(limits).unwrap().commit().unwrap();
+    book.prepare(limits).unwrap().commit().unwrap();
     let held = book
         .reserve(ControlCharge::ResponseBytes(128 * 1024 - 1))
         .unwrap();
