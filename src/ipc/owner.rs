@@ -26,14 +26,15 @@ pub(crate) async fn catch_work<F: std::future::Future>(
     .await
 }
 
-/// Observe only the same accepted configuration registration. Preserve its
-/// original typed task fault independently of the command's wire result.
+/// Consume this same Work's real Apply/raw blocking/cleanup observations.
+/// Preserve every original typed source independently of its wire result.
 pub(crate) async fn wait_command_operation(
     observation: &zero_runtime::ApplyObservation,
 ) -> io::Result<()> {
-    match observation.wait_joined().await {
+    let joined = observation.wait_joined().await;
+    match observation.completion_fault(joined.as_ref()) {
         None => Ok(()),
-        Some(joined) => joined.result().map_err(io::Error::other),
+        Some(faults) => Err(faults.into_io_error()),
     }
 }
 
@@ -213,3 +214,7 @@ impl std::error::Error for PanicCleanup {
         self.cleanup.first().map(|error| error as _)
     }
 }
+
+#[cfg(test)]
+#[path = "owner/tests/invocation.rs"]
+mod invocation_tests;
