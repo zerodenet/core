@@ -133,6 +133,24 @@ impl Users {
     pub(super) fn transferred(&self) -> bool {
         self.transferred_owned
     }
+    /// Exact pre-native transferred Service preparation. Never binds a
+    /// Business caller, changes custody class or accepts another same-Scope task.
+    pub(super) fn preparing_transferred_for(&self, caller: &TaskJoinWitness) -> bool {
+        self.issued
+            && self.live
+            && self.transferred_owned
+            && !self.driver_owned
+            && !self.acquired
+            && self.caller.is_none()
+            && self.preparation.as_ref().is_some_and(|preparation| {
+                preparation.expected_caller.is_none()
+                    && !preparation.published.load(Ordering::Acquire)
+                    && preparation
+                        .auxiliary
+                        .get()
+                        .is_some_and(|actual| actual.same_registration(caller))
+            })
+    }
     pub(super) fn bind(&mut self, witness: TaskJoinWitness) -> bool {
         if !self.issued || self.driver_owned || self.transferred_owned {
             return false;
