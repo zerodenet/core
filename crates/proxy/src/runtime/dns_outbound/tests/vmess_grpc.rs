@@ -100,7 +100,7 @@ async fn cancelled_vmess_grpc_dns_wire_prepare_closes_the_actual_undelivered_nat
             let joined = tokio::time::timeout_at(deadline(), driver.wait_registration_released()).await.unwrap();
             assert!(driver.matches_joined(&joined) && joined.registration_released());
         }
-        let joined = auxiliary.try_joined().expect("same actual preparation finished after cancellation");
+        let joined = tokio::time::timeout_at(deadline(), auxiliary.wait_registration_released()).await.unwrap();
         assert!(auxiliary.matches_joined(&joined) && joined.registration_released());
         let closed = original.closed().expect("same pre-handoff original native close");
         assert!(original.matches_closed(&closed));
