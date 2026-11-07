@@ -18,7 +18,7 @@ use zero_platform_tokio::{
         scope::TaskScope,
         CancellationToken, Reason,
     },
-    controlled_carrier::{CarrierOwner, NativeCarrierOpener},
+    controlled_carrier::{CarrierOriginalTotals, CarrierOwner, NativeCarrierOpener},
     EgressInterfaceControl,
 };
 fn end() -> Instant {
@@ -68,10 +68,14 @@ async fn actual_borrowed_wire(cancelled: bool, faulted: bool) {
         let mut scope =
             TaskScope::suspended_hosted(tokio::runtime::Handle::current(), Some(bound(1)));
         scope.enable_registration().unwrap();
+        let totals = CarrierOriginalTotals::new(bound(2));
+        let buffers = totals.buffer_budget();
+        let (socket, queues) =
+            PacketSocket::prepare_with_budget(remote, buffers.clone(), &[]).unwrap();
         let mut donor = CarrierOwner::new(instance(935), bound(1), &host);
         donor
             .registration()
-            .bind_declared(
+            .bind_declared_with_totals(
                 &ResourceDeclaration::ControlledDatagramCarrier {
                     endpoint: endpoint.clone(),
                     binding: direct.clone(),
@@ -79,6 +83,7 @@ async fn actual_borrowed_wire(cancelled: bool, faulted: bool) {
                 },
                 &donor_scope.registrar(),
                 &host,
+                &totals,
             )
             .unwrap();
         donor.start(end()).await.unwrap();
@@ -101,7 +106,7 @@ async fn actual_borrowed_wire(cancelled: bool, faulted: bool) {
         let mut receiver = CarrierOwner::new(instance(936), bound(1), &cleanup);
         receiver
             .registration()
-            .bind_declared(
+            .bind_declared_with_totals(
                 &ResourceDeclaration::ControlledServiceDatagram {
                     endpoint: endpoint.clone(),
                     dial: direct.dial.clone(),
@@ -109,6 +114,7 @@ async fn actual_borrowed_wire(cancelled: bool, faulted: bool) {
                 },
                 &scope.registrar(),
                 &receiver_host,
+                &totals,
             )
             .unwrap();
         receiver.start(end()).await.unwrap();
@@ -132,7 +138,6 @@ async fn actual_borrowed_wire(cancelled: bool, faulted: bool) {
             .receiver_adoption()
             .unwrap()
             .same_slot(&adopted));
-        let (socket, queues) = PacketSocket::prepare(remote).unwrap();
         let mut segment =
             match BorrowedPacketSegment::prepare(borrowed, view, queues, scope.registrar(), remote)
             {
@@ -295,6 +300,15 @@ async fn actual_borrowed_wire(cancelled: bool, faulted: bool) {
         scope.begin_shutdown();
         assert!(scope.is_drained());
         assert!(donor_scope.shutdown(end()).await.is_complete());
+        assert_eq!(totals.snapshot().charged, 0);
+        assert!(
+            buffers.used_bytes() > 0,
+            "returned unique queues retain their actual scratch"
+        );
+        drop(_same_queues);
+        drop(socket);
+        drop(segment);
+        assert_eq!(buffers.used_bytes(), 0);
     })
     .await
     .unwrap();

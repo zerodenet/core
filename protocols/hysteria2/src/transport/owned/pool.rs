@@ -131,7 +131,12 @@ impl PoolFactory {
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
+        let buffers = context
+            .resources
+            .carrier_buffer_budget()
+            .ok_or_else(|| error(Stage::Prepare, Reason::Unsupported))?;
         let generation = Arc::new(Generation {
+            buffers,
             instance: context.instance(),
             profiles: options.profiles.clone(),
             upstreams,
@@ -167,6 +172,7 @@ struct Owner {
     attempted: bool,
 }
 pub(super) struct Generation {
+    buffers: zero_platform_tokio::controlled_carrier::CarrierBufferBudget,
     instance: ComponentInstanceId,
     profiles: Arc<[PoolProfile]>,
     upstreams: Vec<UpstreamTransport>,

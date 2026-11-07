@@ -141,3 +141,54 @@ fn too_small_original_root_refuses_the_whole_peak_without_partial_admission() {
     );
     assert_eq!(book.used_bytes(), 0);
 }
+
+#[test]
+fn actual_native_bound_growth_wakes_the_same_writer_without_a_root_refund() {
+    let book = book(8);
+    let actual = book.try_working_set(shape()).unwrap();
+    let lane = actual.transmit();
+    let wake = Arc::new(Reenter(book.clone(), AtomicUsize::new(0)));
+    let waker = Waker::from(wake.clone());
+    let mut context = Context::from_waker(&waker);
+    let mut writer = Box::pin(lane.reserve(4));
+    assert!(writer.as_mut().poll(&mut context).is_pending());
+    lane.try_grow_bound(4).unwrap();
+    assert_eq!(book.used_bytes(), 8);
+    assert!(wake.1.load(Ordering::Acquire) > 0);
+    let original = match writer.as_mut().poll(&mut context) {
+        Poll::Ready(Ok(original)) => original,
+        other => panic!("same native bound must progress: {other:?}"),
+    };
+    assert!(original.is_working());
+    assert_eq!(original.bytes(), 4);
+    drop(original);
+    drop(writer);
+    drop(lane);
+    drop(actual);
+    assert_eq!(book.used_bytes(), 0);
+}
+
+#[test]
+fn a_larger_hop_keeps_its_outstanding_frame_and_top_up_until_real_return() {
+    let book = book(8);
+    let actual = book.try_working_set(shape()).unwrap();
+    let lane = actual.transmit();
+    let old = frame(lane.try_reserve(2).unwrap());
+    lane.try_grow_bound(4).unwrap();
+    assert_eq!(old.data.capacity(), 2);
+    assert_eq!(lane.bound(), 4);
+    assert_eq!(book.used_bytes(), 8);
+    assert_eq!(
+        lane.try_grow_bound(5).unwrap_err().kind(),
+        io::ErrorKind::WouldBlock
+    );
+    assert_eq!(lane.bound(), 4);
+    drop(old);
+    let new = lane.try_reserve(4).unwrap();
+    assert!(new.is_working());
+    assert_eq!(new.bytes(), 4);
+    drop(new);
+    drop(lane);
+    drop(actual);
+    assert_eq!(book.used_bytes(), 0);
+}

@@ -25,6 +25,7 @@ async fn port_hopping_rotates_sockets_keeps_previous_replies_and_releases_on_dro
         datagram_queue::send(
             socket,
             Packet {
+                _credit: None,
                 bytes: b"ping".to_vec(),
                 peer,
                 metadata: None,

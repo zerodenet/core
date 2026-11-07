@@ -23,6 +23,7 @@ pub struct PacketSocket {
     identity: Arc<continuation::PacketIdentity>,
     pub(super) socket: Arc<dyn quinn::AsyncUdpSocket>,
     pub(super) callbacks: Arc<callbacks::Broker>,
+    memory: Option<Arc<datagram_queue::memory::Shared>>,
 }
 mod borrowed;
 mod continuation;
@@ -57,10 +58,19 @@ impl PacketSocket {
         mut self,
         masks: &[crate::finalmask::udp::Mask],
     ) -> io::Result<Self> {
+        if self.memory.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "owned packet masks must be prepaid with their original queue",
+            ));
+        }
         super::HostedMetadataSocket::validate_stateless_masks(masks)?;
         self.socket = crate::finalmask::Socket::wrap(self.socket, masks, false)?;
         Ok(self)
     }
+    /// Explicit standalone queue, also used by the native/borrowed transport
+    /// fixtures. Ordinary owning factories use their same Host byte book via
+    /// `prepare_with_budget`; missing Host resources never select this path.
     pub fn prepare(logical: SocketAddr) -> io::Result<(Self, PacketQueues)> {
         let callbacks = callbacks::Broker::new(1)?;
         let local = SocketAddr::new(
@@ -85,7 +95,38 @@ impl PacketSocket {
             Self {
                 socket,
                 callbacks,
+                memory: None,
                 identity: identity.clone(),
+            },
+            PacketQueues(Some(channels), identity),
+        ))
+    }
+    /// Actual owning factory path. Its original Root prepays the minimum
+    /// scratch/codec/copy working set before opening native resources.
+    pub fn prepare_with_budget(
+        logical: SocketAddr,
+        book: zero_platform_tokio::controlled_carrier::CarrierBufferBudget,
+        masks: &[crate::finalmask::udp::Mask],
+    ) -> io::Result<(Self, PacketQueues)> {
+        let memory = datagram_queue::memory::Memory::prepare(book, masks)?;
+        let shared = memory.shared.clone();
+        let callbacks = callbacks::Broker::new(1)?;
+        let local = SocketAddr::new(
+            if logical.is_ipv4() {
+                std::net::Ipv4Addr::UNSPECIFIED.into()
+            } else {
+                std::net::Ipv6Addr::UNSPECIFIED.into()
+            },
+            0,
+        );
+        let (socket, channels) = datagram_queue::prepare_budgeted_channels(local, logical, memory);
+        let identity = Arc::new(continuation::PacketIdentity::default());
+        Ok((
+            Self {
+                identity: identity.clone(),
+                socket,
+                callbacks,
+                memory: Some(shared),
             },
             PacketQueues(Some(channels), identity),
         ))
@@ -125,6 +166,18 @@ impl PacketSegment {
                 grant,
                 queues,
             ));
+        }
+        if let Some(memory) = queues
+            .0
+            .as_ref()
+            .and_then(|channels| channels.memory.as_ref())
+        {
+            // Real native GSO capability is known now. Reserve its complete
+            // legal batch peak before any endpoint/packet driver can start.
+            if let Err(source) = memory.shared.grow_native(capabilities.transmit_segments) {
+                grant.users_claim = Some(claim);
+                return Err(fail(source, grant, queues));
+            }
         }
         let source = match super::HostedMetadataSocket::new(grant, &tasks) {
             Ok(source) => source,
@@ -247,7 +300,12 @@ impl PacketSegment {
                                 caps.maximum_transmit_segments=caps.maximum_transmit_segments.max(transmit);
                             }
                         },
-                        packets=datagram_queue::receive_native(socket.as_ref())=>for mut packet in packets? {
+                        packets=async {
+                            match channels.memory.as_mut() {
+                                Some(memory) => datagram_queue::receive_budgeted(socket.as_ref(), &mut memory.receive, true).await,
+                                None => datagram_queue::receive_native(socket.as_ref()).await,
+                            }
+                        }=>for mut packet in packets? {
                             if packet.peer==peer {packet.peer=logical;let _=channels.incoming.try_send(packet);}
                         },
                     }

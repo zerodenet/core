@@ -128,3 +128,6 @@ async fn original_fault_blocks_reuse_without_fake_task_and_actual_close_allows_f
 
 #[path = "resource_fault_supervision/protocol.rs"]
 mod protocol;
+
+#[path = "resource_fault_supervision/protocol_child.rs"]
+mod protocol_child;

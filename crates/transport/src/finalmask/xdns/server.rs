@@ -47,7 +47,7 @@ impl Server {
                 payload.push(packet);
             }
         }
-        Ok(Some(Packet {
+        Ok(Some(Packet { _credit: None,
             bytes: codec::response(record.message, &payload)?,
             peer: record.peer,
             metadata: None,
@@ -82,19 +82,19 @@ pub(super) async fn run(
                 if state.queued_bytes+packet.bytes.len()>16*1024*1024 {continue;}
                 let Some(client)=state.client(packet.peer) else {continue;};
                 if client.packets.len()>=512 {continue;}
-                let n=packet.bytes.len();client.packets.push_back(packet.bytes);state.queued_bytes+=n;
-                if state.pending.as_ref().is_some_and(|pending|pending.client==packet.peer) {state.flush(&inner).await?;}
+                let n=packet.bytes.len();let original_peer=packet.peer;client.packets.push_back(packet.into_unbudgeted_bytes());state.queued_bytes+=n;
+                if state.pending.as_ref().is_some_and(|pending|pending.client==original_peer) {state.flush(&inner).await?;}
             }
             received=queue::receive(inner.as_ref())=>{
                 for packet in received? {
                     let Ok(message)=wire::parse(&packet.bytes) else {continue;};
                     let Some((response,id,packets))=codec::response_for(message,&domain) else {continue;};
                     state.flush(&inner).await?;
-                    let Some(id)=id else {queue::send(&inner,Packet {bytes:codec::response(response,&[])?,peer:packet.peer,metadata:None}).await?;continue;};
+                    let Some(id)=id else {queue::send(&inner,Packet { _credit: None,bytes:codec::response(response,&[])?,peer:packet.peer,metadata:None}).await?;continue;};
                     let peer=codec::client_address(id);
                     let Some(client)=state.client(peer) else {continue;};
                     let ready=!client.packets.is_empty();
-                    for bytes in packets {let _=channels.incoming.try_send(Packet {bytes,peer,metadata:None});}
+                    for bytes in packets {let _=channels.incoming.try_send(Packet { _credit: None,bytes,peer,metadata:None});}
                     state.pending=Some(Pending {message:response,peer:packet.peer,client:peer});
                     if ready {state.flush(&inner).await?;} else {deadline.as_mut().reset(Instant::now()+Duration::from_secs(1));}
                 }

@@ -11,7 +11,7 @@ pub(in crate::component) struct DeclaredReceiver {
     canonical: std::sync::OnceLock<Arc<ResourceFailure>>,
     causes: Arc<Causes>,
 }
-#[derive(Default, Debug)]
+#[derive(Default)]
 struct Causes {
     first: std::sync::OnceLock<Arc<ChannelError>>,
     sources: Mutex<Vec<Cause>>,
@@ -20,6 +20,21 @@ struct Causes {
 enum Cause {
     Original(Arc<ChannelError>),
     Child(Arc<ResourceFailure>),
+}
+impl fmt::Debug for Causes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let count = self
+            .sources
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len();
+        // Guard is gone before invoking the formatter. Never call foreign
+        // ChannelError/payload Debug while holding this actual receiver lock.
+        f.debug_struct("ActualResourceCauses")
+            .field("retained", &count)
+            .field("has_first", &self.first.get().is_some())
+            .finish_non_exhaustive()
+    }
 }
 impl fmt::Display for Causes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -41,6 +56,18 @@ impl Default for DeclaredReceiver {
     }
 }
 impl DeclaredReceiver {
+    // Clone only the existing pure capsule. Never poll providers, collect a
+    // snapshot, cancel admission, accept a receipt or close an original.
+    pub(super) fn sources(
+        &self,
+        instance: zero_core::component::ComponentInstanceId,
+    ) -> zero_platform_tokio::contract::lifecycle::DeclaredResourceSources {
+        zero_platform_tokio::contract::lifecycle::DeclaredResourceSources::from_host(
+            instance,
+            self.causes.clone(),
+        )
+    }
+
     pub(in crate::component) fn protocol() -> Self {
         Self {
             controller: ResourceFailurePhase::ProtocolLifecycle,

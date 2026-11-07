@@ -278,3 +278,6 @@ pub use cleanup_failures::{CleanupFailurePhase, ResourceCleanupFailures};
 
 mod original_failures;
 pub use original_failures::OriginalProtocolFailures;
+
+mod declared_sources;
+pub use declared_sources::DeclaredResourceSources;

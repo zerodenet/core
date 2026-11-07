@@ -397,6 +397,13 @@ pub trait ResourceAccess: Send + Sync {
         ))
     }
 
+    /// Pure sources of this exact Host declaration graph. Only its outer
+    /// protocol lifecycle may retain this capsule; never feed it back into the
+    /// same declaration receiver. No collection, IO, ACK or close authority.
+    fn declared_resource_sources(&self) -> Option<super::lifecycle::DeclaredResourceSources> {
+        None
+    }
+
     /// The same Host's pure buffer accounting. This confers no acquisition,
     /// IO, task, native-close, logical-user or Scope authority. Missing actual
     /// production accounting cannot fall back to an independent local book.

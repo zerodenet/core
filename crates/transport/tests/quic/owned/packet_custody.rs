@@ -78,13 +78,19 @@ async fn same_packet_endpoint_registers_late_real_driver_and_keeps_native_n_unti
             .unwrap();
         let permit = grants.reserve(&caller).unwrap();
         let original = permit.origin();
+        let buffers = totals.buffer_budget();
+        let (socket, queues) =
+            PacketSocket::prepare_with_budget(remote, buffers.clone(), &[]).unwrap();
+        assert!(
+            buffers.used_bytes() > 0,
+            "same Root prepays before the original setup gate can open native IO"
+        );
         assert!(begin.send((permit, caller.clone())).is_ok());
         let (permit, grant) = published.await.unwrap();
         let setup = scope.next_receipt().await.unwrap();
         assert!(caller.matches_joined(setup.joined()) && setup.result().is_ok());
         scope.acknowledge(&setup).unwrap();
         caller.wait_registration_released().await;
-        let (socket, queues) = PacketSocket::prepare(remote).unwrap();
         let wire = socket.socket.clone();
         let mut segment = PacketSegment::prepare(grant, queues, tasks.clone(), remote, remote)
             .unwrap_or_else(|_| panic!("same actual native claim"));
@@ -176,6 +182,16 @@ async fn same_packet_endpoint_registers_late_real_driver_and_keeps_native_n_unti
         assert!(registration.closed().unwrap().matches(&registration));
         scope.begin_shutdown();
         assert!(scope.is_drained());
+        assert!(
+            buffers.used_bytes() > 0,
+            "native N does not refund retained queue backing"
+        );
+        drop(_queues);
+        drop(wire);
+        drop(owner);
+        drop(_handle);
+        drop(segment);
+        assert_eq!(buffers.used_bytes(), 0);
     })
     .await
     .unwrap();

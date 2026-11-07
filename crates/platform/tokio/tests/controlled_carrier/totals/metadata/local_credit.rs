@@ -225,6 +225,22 @@ async fn final_metadata_owner_waits_external_actual_host_ack_after_real_native_u
         assert!(caller.matches_joined(receipt.joined()) && receipt.result().is_ok());
         assert!(original.closed().unwrap().matches(&original));
         assert!(!receipt.joined().registration_released());
+        for _ in 0..32 {
+            let pending = metadata
+                .shutdown_after_registration_ack(tokio::time::Instant::now())
+                .await
+                .unwrap();
+            assert!(
+                !pending.is_complete(),
+                "real withheld ACK is unfinished, never a fake fault"
+            );
+            assert!(pending.failed_tasks.is_empty() && pending.resource_failures.is_empty());
+            assert!(!receipt.joined().registration_released());
+            assert!(original.closed().unwrap().matches(&original));
+            assert_eq!(grants.retained(), Some(1));
+            assert_eq!(totals.snapshot().charged, 1);
+            assert!(registration.closed().is_none());
+        }
         let mut closing = Box::pin(metadata.shutdown_after_registration_ack(deadline()));
         std::future::poll_fn(|cx| {
             assert!(closing.as_mut().poll(cx).is_pending());

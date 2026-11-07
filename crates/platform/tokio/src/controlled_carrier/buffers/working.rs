@@ -9,10 +9,15 @@ pub struct CarrierBufferWorkingShape {
 }
 #[derive(Debug)]
 struct Slot {
-    available: Mutex<Option<CarrierBufferCredit>>,
+    state: Mutex<WorkingState>,
     changed: tokio::sync::Notify,
-    bound: usize,
     book: CarrierBufferBudget,
+}
+#[derive(Debug)]
+struct WorkingState {
+    available: Option<CarrierBufferCredit>,
+    top_up: Option<CarrierBufferCredit>,
+    bound: usize,
 }
 #[derive(Clone, Debug)]
 pub struct CarrierBufferWorkingLane(Arc<Slot>);
@@ -57,8 +62,11 @@ impl CarrierBufferBudget {
         let transmit = credit.split_off(shape.transmit_working_bytes)?;
         let lane = |credit: CarrierBufferCredit| {
             CarrierBufferWorkingLane(Arc::new(Slot {
-                bound: credit.bytes(),
-                available: Mutex::new(Some(credit)),
+                state: Mutex::new(WorkingState {
+                    bound: credit.bytes(),
+                    available: Some(credit),
+                    top_up: None,
+                }),
                 changed: tokio::sync::Notify::new(),
                 book: self.clone(),
             }))
@@ -83,18 +91,64 @@ impl CarrierBufferWorkingSet {
 }
 impl CarrierBufferWorkingLane {
     pub fn bound(&self) -> usize {
-        self.0.bound
-    }
-    fn take_working(&self, bytes: usize) -> Option<CarrierBufferFrameCredit> {
-        if bytes > self.0.bound {
-            return None;
-        }
-        let credit = self
-            .0
-            .available
+        self.0
+            .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take()?;
+            .bound
+    }
+    /// Extend the same prepaid lane when the original native grant reveals its
+    /// real GSO bound, before that hop starts business IO. An outstanding frame
+    /// keeps its exact ticket; the added backing joins it only on actual return.
+    pub fn try_grow_bound(&self, bound: usize) -> io::Result<()> {
+        let previous = self.bound();
+        if bound <= previous {
+            return Ok(());
+        }
+        let mut extra = match self.0.book.try_reserve(bound - previous) {
+            Ok(extra) => extra,
+            Err(_) if self.bound() >= bound => return Ok(()),
+            Err(source) => return Err(source),
+        };
+        let spent = {
+            let mut state = self
+                .0
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let needed = bound.saturating_sub(state.bound);
+            if needed == 0 {
+                None
+            } else {
+                let additional = extra.split_off(needed)?;
+                let spent = if let Some(available) = state.available.as_mut() {
+                    Some(absorb(available, additional))
+                } else if let Some(top_up) = state.top_up.as_mut() {
+                    Some(absorb(top_up, additional))
+                } else {
+                    state.top_up = Some(additional);
+                    None
+                };
+                state.bound = bound;
+                spent
+            }
+        };
+        // Even unused reservations can wake a reentrant original writer.
+        drop(spent);
+        drop(extra);
+        self.0.changed.notify_waiters();
+        Ok(())
+    }
+    fn take_working(&self, bytes: usize) -> Option<CarrierBufferFrameCredit> {
+        let mut state = self
+            .0
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if bytes > state.bound {
+            return None;
+        }
+        let credit = state.available.take()?;
         Some(CarrierBufferFrameCredit {
             credit: Some(credit),
             return_to: Some(self.0.clone()),
@@ -119,14 +173,6 @@ impl CarrierBufferWorkingLane {
     {
         let actual = self.clone();
         async move {
-            if bytes > actual.0.bound {
-                return actual
-                    .0
-                    .book
-                    .reserve(bytes)
-                    .await
-                    .map(CarrierBufferFrameCredit::extra);
-            }
             loop {
                 let returned = actual.0.changed.notified();
                 tokio::pin!(returned);
@@ -162,25 +208,42 @@ impl CarrierBufferFrameCredit {
 }
 impl Drop for CarrierBufferFrameCredit {
     fn drop(&mut self) {
-        let Some(credit) = self.credit.take() else {
+        let Some(mut credit) = self.credit.take() else {
             return;
         };
         match &self.return_to {
             Some(slot) => {
-                let previous = slot
-                    .available
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .replace(credit);
-                assert!(
-                    previous.is_none(),
-                    "the same unique working credit returned once"
-                );
+                let spent = {
+                    let mut state = slot
+                        .state
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let spent = state.top_up.take().map(|extra| absorb(&mut credit, extra));
+                    let previous = state.available.replace(credit);
+                    assert!(
+                        previous.is_none(),
+                        "the same unique working credit returned once"
+                    );
+                    spent
+                };
+                drop(spent);
                 slot.changed.notify_waiters();
             }
             None => drop(credit),
         }
     }
+}
+
+// Both tickets are issued by this exact lane's original book. Leave the empty
+// moved ticket to its caller so its destructor never runs under the lane lock.
+fn absorb(target: &mut CarrierBufferCredit, mut extra: CarrierBufferCredit) -> CarrierBufferCredit {
+    assert!(target.book.same_budget(&extra.book));
+    target.bytes = target
+        .bytes
+        .checked_add(extra.bytes)
+        .expect("prepaid original byte total");
+    extra.bytes = 0;
+    extra
 }
 
 #[cfg(test)]
