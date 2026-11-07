@@ -145,14 +145,11 @@ impl OwnedDnsQueryTasks {
                 .cloned()
                 .collect::<Vec<_>>();
             if originals.is_empty() {
-                return self
-                    .0
-                    .state
-                    .lock()
-                    .expect("DNS query tasks poisoned")
-                    .first_failure
-                    .as_ref()
-                    .map_or(Ok(()), |source| Err(io::Error::other(source.clone())));
+                // first_failure also names this caller or another independent
+                // pool driver. It is not a still-running descendant. Keep the
+                // actual source with its canonical receiver and require local
+                // acceptance plus real Host ACK instead of replaying it forever.
+                return self.confirm_failure_reception();
             }
             for original in originals {
                 let registration = async {
@@ -170,11 +167,21 @@ impl OwnedDnsQueryTasks {
                     .await
                     .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?
                 {
-                    tokio::time::timeout_at(end, registration.witness.wait())
+                    let joined = tokio::time::timeout_at(end, registration.witness.wait())
                         .await
-                        .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?
-                        .result()
-                        .map_err(io::Error::other)?;
+                        .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
+                    if !registration.witness.matches_joined(&joined) {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "DNS descendant original join mismatch",
+                        ));
+                    }
+                    if joined.result().is_err() {
+                        // Receive that exact failed registration, but continue
+                        // joining the other real children before reporting an
+                        // outstanding fault-delivery/ACK obligation.
+                        self.reap();
+                    }
                 }
             }
             // A child can register its own blocking work just before its join.
