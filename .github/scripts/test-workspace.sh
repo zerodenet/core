@@ -1,11 +1,21 @@
 #!/usr/bin/env bash
 # Keep the failing test details visible through the checks API as well as job logs.
 set -euo pipefail
-log_file=$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/zero-workspace-tests.XXXXXX")
-trap 'rm -f "$log_file"' EXIT
+round2_capture=false
+if [[ ${ZERO_ROUND2:-false} == true && -z ${ZERO_TEST_ARGS:-} ]]; then
+    round2_capture=true
+    mkdir -p .round2-evidence/tests
+    log_file=$(mktemp .round2-evidence/tests/workspace.XXXXXX.log)
+else
+    log_file=$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/zero-workspace-tests.XXXXXX")
+    trap 'rm -f "$log_file"' EXIT
+fi
 started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 started_seconds=$SECONDS
 echo "TEST_START $started_at"
+if [[ "$round2_capture" == true ]]; then
+    python3 .github/scripts/round2-test-evidence.py start "$log_file" "$@"
+fi
 set +e
 "$@" 2>&1 | tee "$log_file"
 command_status=("${PIPESTATUS[@]}")
@@ -13,6 +23,9 @@ set -e
 status=${command_status[0]}
 if [[ "$status" -eq 0 ]]; then status=${command_status[1]}; fi
 echo "TEST_END $(date -u +%Y-%m-%dT%H:%M:%SZ) exit=$status seconds=$((SECONDS - started_seconds))"
+if [[ "$round2_capture" == true ]]; then
+    python3 .github/scripts/round2-test-evidence.py finish "$log_file" "$status"
+fi
 if [[ "$status" -eq 0 ]]; then
     exit 0
 fi
