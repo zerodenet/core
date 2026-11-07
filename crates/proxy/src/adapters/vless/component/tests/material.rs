@@ -39,14 +39,14 @@ async fn ordinary_h2_and_upgrade_use_the_same_owned_file_material_across_network
                 // A rejected parse restores the prior authorized immutable recipe.
                 std::fs::write(&ca_path, b"this is not an authorized CA certificate").unwrap();
                 let candidate = (*client.proxy.engine().config()).clone();
-                assert!(
-                    client
-                        .handle()
-                        .apply_runtime_config_and_wait(candidate, std::time::Duration::from_secs(5))
-                        .await
-                        .is_err(),
-                    "fresh candidate must actually read and validate the changed CA"
-                );
+                let rejected = client
+                    .handle()
+                    .apply_runtime_config_and_wait(candidate, std::time::Duration::from_secs(5))
+                    .await;
+                if let Err(error) = &rejected {
+                    eprintln!("actual bad-CA candidate mode={kind} backend={backend} complete apply/recovery error: {error}");
+                }
+                assert!(rejected.is_err(), "fresh candidate must actually read and validate the changed CA");
                 let (restored, third) = echo(&client).await;
                 wait_returned(&restored, &third).await;
                 client.close().await;

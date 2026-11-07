@@ -32,14 +32,14 @@ async fn ordinary_raw_ws_and_grpc_keep_exact_material_native_users_and_ack_throu
                 // A rejected parse restores the prior authorized immutable recipe.
                 std::fs::write(&ca_path, b"this is not an authorized CA certificate").unwrap();
                 let candidate = (*client.proxy.engine().config()).clone();
-                assert!(
-                    client
-                        .handle()
-                        .apply_runtime_config_and_wait(candidate, std::time::Duration::from_secs(5))
-                        .await
-                        .is_err(),
-                    "fresh candidate must actually read and validate the changed CA"
-                );
+                let rejected = client
+                    .handle()
+                    .apply_runtime_config_and_wait(candidate, std::time::Duration::from_secs(5))
+                    .await;
+                if let Err(error) = &rejected {
+                    eprintln!("actual bad-CA candidate mode={kind} backend={backend} complete apply/recovery error: {error}");
+                }
+                assert!(rejected.is_err(), "fresh candidate must actually read and validate the changed CA");
                 eprintln!("actual VMess mode={kind} backend={backend} phase=restored TCP");
                 let (restored, third) = echo(&client).await;
                 wait_returned(&restored, &third).await;
@@ -92,11 +92,14 @@ async fn ordinary_mux_full_tls_transports_use_same_protocol_file_material_and_ca
                 eprintln!("actual VMess mode={kind} backend={backend} phase=network TCP complete");
                 std::fs::write(&ca, b"not an authorized CA").unwrap();
                 let candidate = (*client.proxy.engine().config()).clone();
-                assert!(client
+                let rejected = client
                     .handle()
                     .apply_runtime_config_and_wait(candidate, std::time::Duration::from_secs(5))
-                    .await
-                    .is_err());
+                    .await;
+                if let Err(error) = &rejected {
+                    eprintln!("actual bad-CA candidate mode={kind} backend={backend} complete apply/recovery error: {error}");
+                }
+                assert!(rejected.is_err(), "fresh candidate must actually read and validate the changed CA");
                 eprintln!("actual VMess mode={kind} backend={backend} phase=restored TCP");
                 let (restored, fresh) = echo(&client).await;
                 let fresh_driver = cached_driver(&restored, &fresh);

@@ -34,11 +34,14 @@ async fn ordinary_mux_raw_ws_h2_and_upgrade_keep_same_file_material_original_dri
                 assert!(original.matches_closed(&original.closed().unwrap()));
                 std::fs::write(&ca, b"not an authorized CA").unwrap();
                 let candidate = (*client.proxy.engine().config()).clone();
-                assert!(client
+                let rejected = client
                     .handle()
                     .apply_runtime_config_and_wait(candidate, std::time::Duration::from_secs(5))
-                    .await
-                    .is_err());
+                    .await;
+                if let Err(error) = &rejected {
+                    eprintln!("actual bad-CA candidate mode={kind} backend={backend} complete apply/recovery error: {error}");
+                }
+                assert!(rejected.is_err(), "fresh candidate must actually read and validate the changed CA");
                 let (restored, fresh) = echo(&client).await;
                 let fresh_driver = cached_driver(&restored, &fresh);
                 eprintln!("actual MUX mode={kind} backend={backend} phase=actual host shutdown");
