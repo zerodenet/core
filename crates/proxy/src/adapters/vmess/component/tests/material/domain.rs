@@ -54,7 +54,29 @@ async fn ordinary_grpc_domain_refusal_closes_same_setup_before_next_original_wit
                 let failed = first.original().clone();
                 let first_setup = first.auxiliary().unwrap().clone();
                 assert!(!first_setup.is_joined());
-                bootstrap.answer_ips(false, false, &[IpAddress::V4([127,0,0,2]), IpAddress::V4([127,0,0,1])]);
+                // This fixture keeps the real default PreferIpv4 policy:
+                // one Node resolution concurrently asks A and AAAA. Return
+                // the actual IPv4 candidate pair and an empty IPv6 answer,
+                // rather than leaving AAAA to time out and later mistaking
+                // that already-issued family query for a second resolution.
+                let other = tokio::select! {
+                    query = node.request() => query,
+                    result = &mut opening => panic!("ordinary Business ended before both actual Node address-family responses: {}", result.0.instance().component.0),
+                };
+                let first_question = zero_dns::udp::parse_dns_question(&bootstrap.query).unwrap();
+                let other_question = zero_dns::udp::parse_dns_question(&other.query).unwrap();
+                assert_eq!(first_question.domain, "node.example");
+                assert_eq!(other_question.domain, first_question.domain);
+                let mut kinds = [first_question.query_type, other_question.query_type];
+                kinds.sort_unstable();
+                assert_eq!(kinds, [1,28], "one exact A/AAAA pair for the whole Node resolution");
+                for (query, kind) in [(bootstrap, first_question.query_type), (other, other_question.query_type)] {
+                    if kind == 1 {
+                        query.answer_ips(false, false, &[IpAddress::V4([127,0,0,2]), IpAddress::V4([127,0,0,1])]);
+                    } else {
+                        query.answer_ips(false, false, &[]);
+                    }
+                }
                 let (same, original) = opening.await;
                 assert!(owner.same_owner(&same));
                 (owner, original, failed, first_setup)
