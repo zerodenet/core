@@ -137,13 +137,11 @@ async fn same_native_loan_observes_late_actual_close_and_ack_after_original_help
         // loan's failed/pending control is needed to observe this exact close.
         let completed = adoption.retire(deadline()).await.unwrap();
         assert!(completed.is_complete());
-        assert!(
-            completed
-                .failed_tasks
-                .iter()
-                .any(|(failed_id, _, source)| *failed_id == id
-                    && Arc::ptr_eq(source, &original_error))
-        );
+        assert!(completed.failed_tasks.iter().any(|failed| failed.id == id
+            && failed
+                .error
+                .retained_source()
+                .is_some_and(|source| Arc::ptr_eq(source, &original_error))));
 
         assert!(loan.owner.closed().unwrap().matches(&loan.owner));
         assert!(Arc::ptr_eq(&failed.result().unwrap_err(), &original_error));
