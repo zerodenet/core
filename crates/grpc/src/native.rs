@@ -11,7 +11,7 @@ use zero_platform_tokio::contract::{
     scope::{TaskClass, TaskScope},
     ChannelError, Impact, Reason, Stage,
 };
-use zero_platform_tokio::{AcceptedTasks, ControlledTcpListener, ControlledTcpListenerOwner};
+use zero_platform_tokio::{ControlledTcpListener, ControlledTcpListenerOwner};
 
 pub(super) const MAX_CONNECTIONS: usize = 4096;
 const MAX_STREAMS: u32 = 32;

@@ -63,7 +63,10 @@ async fn actual_encoded_bytes_clones_and_slices_keep_storage_after_the_original_
         assert!(witness.matches_joined(&witness.try_joined().unwrap()));
         assert!(witness.try_joined().unwrap().registration_released());
         originals.confirm_released().unwrap();
-        assert!(scope.is_drained());
+        assert!(scope
+            .shutdown(crate::native::deadline())
+            .await
+            .is_complete());
         assert!(
             budget.usage().response_bytes > 0,
             "the emitted original allocation remains held by its actual Bytes slice"

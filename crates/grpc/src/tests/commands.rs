@@ -112,7 +112,7 @@ async fn disconnected_wire_command_keeps_input_and_command_credit_until_actual_f
         let owner = crate::prepare_with_budget("127.0.0.1:0".parse().unwrap(), GrpcServerSecurity::default(), budget.clone()).unwrap();
         owner.start(service.clone()).await.unwrap();
         let mut client = client(&owner).await;
-        let request = tonic::Request::new(ExecuteRequest { payload: br#"{"method":"fakeip.clear","params":{}}"#.to_vec() });
+        let request = tonic::Request::new(ExecuteRequest { method: "fakeip.clear".into(), payload: br#"{"method":"fakeip.clear","params":{}}"#.to_vec() });
         let mut call = Box::pin(client.unary::<_, ExecuteResponse, _>(request, tonic::codegen::http::uri::PathAndQuery::from_static("/zero.api.v1.Control/Execute"), tonic::codec::ProstCodec::default()));
         tokio::select! { _=service.pending.notified()=>{}, result=&mut call=>panic!("wire command finished before its final ACK: {result:?}") }
         assert!(!service.acknowledged.load(Ordering::Acquire));
@@ -133,7 +133,7 @@ async fn disconnected_wire_command_keeps_input_and_command_credit_until_actual_f
         shutdown.await.unwrap();
         assert!(service.acknowledged.load(Ordering::Acquire));
         assert!(owner.retirement_complete());
-        assert!(owner.originals.scope.lock().await.is_drained());
+        assert!(owner.originals.scope.lock().await.shutdown(crate::native::deadline()).await.is_complete());
         assert_eq!(owner.originals.original.lock().await.confirmed_close_count(), 1);
         budget.close_admission();
         budget.confirm_released().unwrap();
@@ -155,6 +155,7 @@ async fn actual_wire_decoder_enforces_configured_limit_before_the_typed_query_ru
         owner.start(service.clone()).await.unwrap();
         let mut client = client(&owner).await;
         let request = tonic::Request::new(QueryRequest {
+            method: "health".into(),
             payload: vec![b' '; 128],
         });
         let result: Result<tonic::Response<QueryResponse>, _> = client
@@ -188,6 +189,7 @@ async fn actual_wire_query_keeps_the_existing_json_protobuf_and_native_retiremen
         owner.start(service.clone()).await.unwrap();
         let mut client = client(&owner).await;
         let request = tonic::Request::new(QueryRequest {
+            method: "health".into(),
             payload: br#"{"health":{}}"#.to_vec(),
         });
         let result: tonic::Response<QueryResponse> = client

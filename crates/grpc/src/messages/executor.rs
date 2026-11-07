@@ -7,6 +7,7 @@ use zero_platform_tokio::{
 };
 use zero_runtime::configuration::ControlConnectionBudget;
 
+#[derive(Clone)]
 pub(crate) struct StreamExecutor {
     pub(crate) tasks: AcceptedTasks,
     pub(crate) stop: CancellationToken,

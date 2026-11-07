@@ -214,5 +214,7 @@ impl Drop for GrpcHandle {
     }
 }
 
+mod subscriptions;
+use subscriptions::Subscriptions;
 mod service;
 use service::ControlService;
