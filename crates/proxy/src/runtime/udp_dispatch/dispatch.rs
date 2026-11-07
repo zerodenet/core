@@ -61,7 +61,9 @@ impl UdpDispatch {
                 Ok(session_id)
             }
             Err(error) => {
-                self.flow_start_backoff.record_failure(key, Instant::now());
+                if !crate::runtime::udp_flow::result::packet_rejected_before_submission(&error) {
+                    self.flow_start_backoff.record_failure(key, Instant::now());
+                }
                 Err(error)
             }
         }

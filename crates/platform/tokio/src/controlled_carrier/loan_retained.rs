@@ -7,6 +7,7 @@ pub struct CarrierLoanRetained {
     receiver: Weak<Slot>,
     loan: Weak<tokio::sync::Mutex<super::loan::LoanOwner>>,
     origin: CarrierOrigin,
+    related: Option<Weak<super::loan::RelatedControl>>,
 }
 impl CarrierAdoption {
     /// Available even after a post-adoption validation error. Cleanup can find
@@ -17,6 +18,7 @@ impl CarrierAdoption {
             receiver: Arc::downgrade(&self.slot),
             loan: Arc::downgrade(state.loan.as_ref()?),
             origin: state.loan_origin.as_ref()?.clone(),
+            related: state.loan_related.clone(),
         })
     }
 }
@@ -29,6 +31,26 @@ impl CarrierIo {
     }
 }
 impl CarrierLoanRetained {
+    /// Read-only custody in the actual installed loan's sealed parent chain.
+    /// This neither closes a Source nor substitutes for its driver/user joins.
+    pub fn retains_origin(&self, expected: &CarrierOrigin) -> bool {
+        if self.receiver_slot().is_none() {
+            return false;
+        }
+        let mut current = Some(self.origin.clone());
+        let mut seen: Vec<CarrierOrigin> = Vec::new();
+        while let Some(origin) = current {
+            if origin.same_original(expected) {
+                return true;
+            }
+            if seen.iter().any(|previous| previous.same_original(&origin)) {
+                return false;
+            }
+            current = origin.parent().cloned();
+            seen.push(origin);
+        }
+        false
+    }
     fn receiver_slot(&self) -> Option<Arc<Slot>> {
         let receiver = self.receiver.upgrade()?;
         let valid = {
@@ -56,13 +78,27 @@ impl CarrierLoanRetained {
     /// the supplied original in its sealed lineage. It cannot authorize I/O,
     /// register a driver, or prove that either original has closed.
     pub fn retains(&self, pending: &CarrierAdoption) -> bool {
-        if self.receiver_slot().is_none() {
+        let Some(receiver) = self.receiver_slot() else {
             return false;
+        };
+        if let Some(related) = &self.related {
+            let matches = receiver
+                .state()
+                .loan_related
+                .as_ref()
+                .is_some_and(|actual| Weak::ptr_eq(actual, related));
+            if matches
+                && related
+                    .upgrade()
+                    .is_some_and(|actual| actual.names(pending))
+            {
+                return true;
+            }
         }
         let mut current = Some(self.origin.clone());
         let mut seen: Vec<CarrierOrigin> = Vec::new();
         while let Some(origin) = current {
-            if origin.names_adoption(pending) {
+            if origin.names_adoption(pending) || origin.retains_related_control(pending) {
                 return true;
             }
             if seen.iter().any(|previous| previous.same_original(&origin)) {

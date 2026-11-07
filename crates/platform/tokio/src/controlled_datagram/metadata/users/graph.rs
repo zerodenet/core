@@ -1,6 +1,9 @@
 //! A unique claim binds the existing actual ledgers, not another manager.
 use super::{
-    drivers::{Admission, DriverExitReceiver, DriverKind, DriverOwner},
+    drivers::{
+        Admission, DriverExitReceiver, DriverKind, DriverOwner, RegistrationIter,
+        RegistrationSequence,
+    },
     LogicalUsers,
 };
 use crate::{
@@ -26,6 +29,8 @@ pub struct MetadataUsersCompletion<O: DriverKind, B: Send + Sync + 'static>(Arc<
 #[derive(Clone)]
 pub struct MetadataUsersClosedReceipt {
     pub(in crate::controlled_datagram::metadata) views: MetadataViewsClosedReceipt,
+    registrations: RegistrationSequence,
+    related_registrations: Option<RegistrationSequence>,
 }
 impl fmt::Debug for MetadataUsersClosedReceipt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -78,17 +83,35 @@ impl<O: DriverKind, B: Send + Sync + 'static> Clone for MetadataUsersCompletion<
     }
 }
 impl<O: DriverKind, B: Send + Sync + 'static> MetadataUsersCompletion<O, B> {
+    /// Independent library completion keeps its original snapshot semantics.
     pub fn try_closed(&self) -> Option<MetadataUsersClosedReceipt> {
         // Cancelled admission prevents a successful acquire after this zero
         // check. Transient cancelled CAS attempts cannot return a real user.
         if !self.0.users.cancellation().is_cancelled() || self.0.users.active() != 0 {
             return None;
         }
-        if !self.0.drivers.completion_matches(&self.0.views.0.scope) {
-            return None;
-        }
+        let registrations = self
+            .0
+            .drivers
+            .completion_registrations(&self.0.views.0.scope)?;
         Some(MetadataUsersClosedReceipt {
             views: self.0.views.try_closed()?,
+            registrations: RegistrationSequence::Library(registrations),
+            related_registrations: None,
+        })
+    }
+    /// Kernel completion references the same sealed original driver map after
+    /// the real receiver transferred all output bodies. It allocates no copy
+    /// of registrations and cannot retain their IO/Scope through a body.
+    pub fn try_owned_closed(&self) -> Option<MetadataUsersClosedReceipt> {
+        if !self.0.users.cancellation().is_cancelled() || self.0.users.active() != 0 {
+            return None;
+        }
+        let registrations = self.0.drivers.owned_registration_completion()?;
+        Some(MetadataUsersClosedReceipt {
+            views: self.0.views.try_closed()?,
+            registrations: RegistrationSequence::Original(registrations),
+            related_registrations: None,
         })
     }
 }
@@ -101,6 +124,8 @@ impl UnstartedMetadataCompletion {
     pub fn try_closed(&self) -> Option<MetadataUsersClosedReceipt> {
         Some(MetadataUsersClosedReceipt {
             views: self.0.try_closed()?,
+            registrations: RegistrationSequence::Empty,
+            related_registrations: None,
         })
     }
 }
@@ -123,3 +148,43 @@ impl crate::contract::component::GrantedMetadataListener {
 
 #[cfg(test)]
 mod tests;
+
+impl MetadataUsersClosedReceipt {
+    /// Actual original registrations behind this users receipt. Native close,
+    /// logical return and local failure reception precede Host publication ACK.
+    /// Already reclaimed registrations were removed only after their real ACK.
+    pub fn registrations(&self) -> RegistrationIter {
+        self.registrations.iter()
+    }
+}
+
+impl MetadataUsersClosedReceipt {
+    /// Add the actual continued endpoint ledger only after its admission is
+    /// sealed and all real drivers have joined and been received. Native view
+    /// closure remains this original unique claim's independent fact.
+    pub fn with_related_driver_receipt(
+        mut self,
+        closed: super::drivers::DriverRegistrationsClosed,
+    ) -> Result<Self, Self> {
+        if self.related_registrations.is_some() || !self.views.0.scope.same_scope(&closed.scope) {
+            return Err(self);
+        }
+        self.related_registrations = Some(RegistrationSequence::Original(closed));
+        Ok(self)
+    }
+    /// Cursor over the independent original endpoint ledger. Kernel producers
+    /// attach the same sealed record storage, never a copied registration slice.
+    pub fn related_registrations(&self) -> RegistrationIter {
+        self.related_registrations
+            .as_ref()
+            .unwrap_or(&RegistrationSequence::Empty)
+            .iter()
+    }
+}
+
+impl MetadataUsersClosedReceipt {
+    /// Same original unique native view claim; read-only, not IO/ACK authority.
+    pub fn same_original(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.views.0, &other.views.0)
+    }
+}

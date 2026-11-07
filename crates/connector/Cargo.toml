@@ -10,7 +10,8 @@ homepage.workspace = true
 
 [features]
 default = []
-event-dispatcher = ["dep:rusqlite", "dep:zero-platform-tokio"]
+event-dispatcher = ["dep:rusqlite", "dep:zero-platform-tokio", "dep:zero-runtime"]
+kernel-events = ["event-dispatcher", "dep:zero-engine"]
 sink-jsonl = ["event-dispatcher"]
 webhook = [
     "event-dispatcher",
@@ -44,8 +45,10 @@ tokio.workspace = true
 tower-service = { version = "0.3", optional = true }
 tracing.workspace = true
 webpki-roots = { version = "1", optional = true }
+zero-engine = { path = "../engine", optional = true }
 zero-api = { path = "../api" }
 zero-config = { path = "../config" }
+zero-runtime = { path = "../runtime", optional = true }
 zero-platform-tokio = { path = "../platform/tokio", optional = true }
 
 [dev-dependencies]

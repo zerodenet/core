@@ -6,7 +6,7 @@ async fn native_mux_interrupted_cleanup_retains_original_and_blocks_rebuild_unti
         for protocol in ["vless","vmess","trojan"] {
             let server=Server::start(protocol).await;
             let proxy=Proxy::from_engine_with_background(zero_engine::Engine::new(config(protocol,server.fixture.front.port())).unwrap(),true).unwrap();
-            start_components(&proxy).await;
+            let running=start_components(&proxy).await;
             let mut held=connect(&proxy,server.fixture.echo.port()).await.unwrap(); echo(&mut held).await;
             let registration=registration(&proxy);
             let observation=registration.observe().unwrap();
@@ -34,6 +34,7 @@ async fn native_mux_interrupted_cleanup_retains_original_and_blocks_rebuild_unti
             assert!(original.matches_closed(&original.closed().unwrap()));
             assert!(registration.closed().unwrap().matches(&registration));
             assert!(registration.users_closed().unwrap().matches(&registration));
+            running.shutdown().await.unwrap();
             server.close().await;
         }
     }).await.unwrap();

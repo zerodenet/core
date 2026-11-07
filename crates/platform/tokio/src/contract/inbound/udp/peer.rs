@@ -20,6 +20,11 @@ impl DatagramPeerRetirement {
     pub fn release_after_cleanup(&self) {
         self.0.store(true, Ordering::Release);
     }
+    /// Identity of the same original peer/source/generation retirement slot.
+    /// This observation grants no cleanup authority or native/task receipt.
+    pub fn same_retirement(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
     pub fn is_released(&self) -> bool {
         self.0.load(Ordering::Acquire)
     }
@@ -72,6 +77,8 @@ impl DatagramPeerAdmission {
     }
 }
 struct Shared {
+    retirement: DatagramPeerRetirement,
+    authenticated_association: Option<u64>,
     cancel: CancellationToken,
     users: AtomicUsize,
     changed: Notify,
@@ -109,15 +116,18 @@ pub(super) fn make(
     packets: mpsc::Receiver<PeerPacket>,
     cancel: CancellationToken,
     idle: Duration,
+    authenticated_association: Option<u64>,
 ) -> (DatagramPeer, DatagramPeerRetirement) {
+    let retirement = DatagramPeerRetirement(Arc::new(AtomicBool::new(false)));
     let shared = Arc::new(Shared {
+        retirement: retirement.clone(),
+        authenticated_association,
         cancel,
         idle,
         users: AtomicUsize::new(2),
         changed: Notify::new(),
         activity: StdMutex::new(Instant::now()),
     });
-    let retirement = DatagramPeerRetirement(Arc::new(AtomicBool::new(false)));
     (
         DatagramPeer {
             tx: PeerTx {
@@ -136,7 +146,22 @@ pub(super) fn make(
         retirement,
     )
 }
+impl PeerControl {
+    /// The exact slot released by the original host after real peer cleanup.
+    /// Logical view return, cancellation and Drop do not release it.
+    pub fn retirement(&self) -> DatagramPeerRetirement {
+        self.0.retirement.clone()
+    }
+}
 impl DatagramPeer {
+    pub fn retirement(&self) -> DatagramPeerRetirement {
+        self.control.retirement()
+    }
+    /// The opaque association already selected from this source's actual
+    /// decoded packet. It does not identify a protocol credential or grant IO.
+    pub fn authenticated_association(&self) -> Option<u64> {
+        self.control.0.authenticated_association
+    }
     pub(super) fn control(&self) -> PeerControl {
         self.control.clone()
     }

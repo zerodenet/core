@@ -18,6 +18,8 @@ pub use crate::CipherKind;
 mod extra_aead;
 mod identity;
 pub mod legacy;
+mod legacy_budget;
+pub use legacy_budget::{LegacyReplayBudget, LegacyReplayBudgetProposal};
 mod target;
 pub(crate) use identity::cache_identity;
 pub(crate) use target::complete_tcp_target;
@@ -42,8 +44,10 @@ pub(crate) use udp_wire::{
 #[cfg(feature = "blake3")]
 #[path = "shared/replay.rs"]
 mod replay;
+#[cfg(feature = "blake3")]
+pub(crate) use replay::ReplaySaltPoolWeak;
 #[cfg(all(feature = "crypto", feature = "blake3"))]
-pub use replay::ReplaySaltPool;
+pub use replay::{ReplayBudget, ReplaySaltPool};
 
 /// Per-session UDP replay protection for Shadowsocks 2022 (SIP022 3.2.4).
 ///
@@ -61,6 +65,7 @@ pub(crate) mod legacy_replay;
 
 mod address;
 mod aead;
+pub(crate) use aead::buffered::transform as aead_udp_buffered;
 #[cfg(feature = "blake3")]
 mod block;
 #[cfg(feature = "blake3")]
@@ -73,7 +78,7 @@ pub use address::*;
 pub use aead::{aead_decrypt, aead_encrypt};
 pub(crate) use aead::{aead_decrypt_udp, aead_encrypt_udp};
 #[cfg(feature = "blake3")]
-use block::{decrypt_aes_2022_header, encrypt_aes_2022_header};
+pub(crate) use block::{decrypt_aes_2022_header, encrypt_aes_2022_header};
 #[cfg(feature = "blake3")]
 use eih::encode_udp_2022_identity_headers;
 #[cfg(feature = "blake3")]

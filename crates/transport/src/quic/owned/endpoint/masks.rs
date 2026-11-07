@@ -4,7 +4,7 @@ use crate::quic::owned::OwnedDriverOrigin;
 impl OwnedEndpointOwner {
     /// The real owner/claim is already installed before native mask acquisition
     /// or the first actual driver registration. Failed preparation stays owned.
-    pub(crate) fn start_masks(
+    pub fn start_masks(
         &mut self,
         masks: &[crate::finalmask::udp::Mask],
         resources: &dyn zero_platform_tokio::contract::component::ResourceAccess,
@@ -29,7 +29,9 @@ impl OwnedEndpointOwner {
         }
         Ok(())
     }
-    pub(crate) fn shutdown_driver_tasks(&self) -> Vec<zero_core::component::TaskId> {
+    /// The actual registered drivers in consumer-before-mask shutdown order.
+    /// These identities are observations, never task-join or close receipts.
+    pub fn shutdown_driver_tasks(&self) -> Vec<zero_core::component::TaskId> {
         let mut ids = self.drivers.tasks();
         ids.sort_by_key(|id| match self.drivers.origin(*id) {
             Some(OwnedDriverOrigin::Mask { ordinal, .. }) => (1, std::cmp::Reverse(ordinal)),
@@ -37,7 +39,9 @@ impl OwnedEndpointOwner {
         });
         ids
     }
-    pub(crate) async fn stop_mask_driver(
+    /// Request this owner's mask stop after its real logical users return.
+    /// The owning protocol must still receive, join and ACK the actual driver.
+    pub async fn stop_mask_driver(
         &self,
         id: zero_core::component::TaskId,
         deadline: Instant,

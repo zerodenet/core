@@ -96,6 +96,8 @@ impl PacketRx for Rx {
     }
 }
 impl DynChannelControl for Control {
+    fn revoked(&self) -> BoxFuture<'static, ()> { self._lease.cancellation() }
+
     fn cancel(&self, reason: CloseReason) {
         self.inner.cancel(reason);
     }

@@ -28,6 +28,7 @@ impl ChildKind {
 #[derive(Clone)]
 pub(crate) struct NativeObligations(Arc<Mutex<State>>);
 struct State {
+    scope: Option<zero_platform_tokio::contract::scope::TaskScopeIdentity>,
     closing: bool,
     next: u64,
     limits: [usize; 3],
@@ -36,6 +37,10 @@ struct State {
 }
 struct Record {
     kind: ChildKind,
+    admission_active: usize,
+    business_admitted: bool,
+    no_business_admission: bool,
+    dns: Option<dns::DnsOriginal>,
     entered: bool,
     retiring: bool,
     caller: Option<Arc<crate::runtime::inbound_owners::HostPeerBinding>>,
@@ -44,6 +49,7 @@ struct Record {
     carrier_owner: Option<zero_platform_tokio::controlled_carrier::CarrierOwnerRegistration>,
     additional_carriers: Vec<zero_platform_tokio::controlled_carrier::CarrierAdoption>,
     carrier_conflict: bool,
+    pending_carriers: Vec<pending::Claim>,
     gateways: usize,
     uncovered_gateway: bool,
     datagram: Option<crate::runtime::inbound_owners::PeerBoundDatagramRegistration>,
@@ -54,8 +60,15 @@ pub(crate) struct NativePermit {
 }
 
 impl NativeObligations {
+    pub(super) async fn quiescent(&self, deadline: Instant) -> Result<bool, ChannelError> {
+        self.settle_joined(deadline).await?;
+        let state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        Ok(state.records.is_empty() && state.first_source.is_none() && !state.closing)
+    }
+
     pub(crate) fn new(tcp: usize, udp: usize, dns: usize) -> Self {
         Self(Arc::new(Mutex::new(State {
+            scope: None,
             closing: false,
             next: 0,
             limits: [tcp, udp, dns],
@@ -80,7 +93,7 @@ impl NativeObligations {
             .count()
             >= state.limits[kind.index()]
         {
-            return Err(rejected(Reason::Capacity));
+            return Err(crate::runtime::raw_ip::tasks::capacity::rejected());
         }
         let id = state
             .next
@@ -91,6 +104,10 @@ impl NativeObligations {
             id,
             Record {
                 kind,
+                admission_active: 0,
+                business_admitted: false,
+                no_business_admission: false,
+                dns: None,
                 entered: false,
                 retiring: false,
                 caller: None,
@@ -99,6 +116,7 @@ impl NativeObligations {
                 carrier_owner: None,
                 additional_carriers: Vec::new(),
                 carrier_conflict: false,
+                pending_carriers: Vec::new(),
                 gateways: 0,
                 uncovered_gateway: false,
                 datagram: None,
@@ -110,10 +128,18 @@ impl NativeObligations {
         })
     }
     fn stop(&self) {
-        self.0
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .closing = true;
+        let calls = {
+            let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+            state.closing = true;
+            state
+                .records
+                .values()
+                .filter_map(|record| record.dns.as_ref().map(|original| original.call.clone()))
+                .collect::<Vec<_>>()
+        };
+        for call in calls {
+            call.cancel();
+        }
     }
 }
 #[derive(Clone)]
@@ -124,6 +150,10 @@ pub(crate) struct NativeRegistration {
 mod business;
 mod carrier;
 mod completion;
+mod dns;
+pub(crate) use dns::DnsSourceCaller;
+mod admission;
+mod pending;
 mod registration;
 impl NativePermit {
     pub(crate) fn registration(&self) -> NativeRegistration {
@@ -193,14 +223,22 @@ impl Drop for NativePermit {
             .0
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        if let Some(record) = state.records.get_mut(&self.id) {
+        let call = if let Some(record) = state.records.get_mut(&self.id) {
             if record.entered {
                 record.retiring = true;
+                record.dns.as_ref().map(|original| original.call.clone())
             } else {
                 // This exact reserved operation never entered its gateway.
                 // No future or error-kind inference and no native-close claim.
                 state.records.remove(&self.id);
+                None
             }
+        } else {
+            None
+        };
+        drop(state);
+        if let Some(call) = call {
+            call.cancel();
         }
     }
 }

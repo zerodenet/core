@@ -1,5 +1,5 @@
 use crate::resources::{DispatcherResources, FileView};
-use std::io::{self, BufReader, Seek};
+use std::io::{self, BufReader, Read, Seek};
 use std::path::Path;
 
 use serde::de::IgnoredAny;
@@ -33,6 +33,14 @@ fn scan(
         .metadata()
         .map_err(|error| io_error(path, error))?
         .len();
+    scan_snapshot(path, file, bytes, resources)
+}
+fn scan_snapshot(
+    path: &Path,
+    file: &mut (impl Read + Seek),
+    bytes: u64,
+    resources: &DispatcherResources,
+) -> ConnectorResult<Replay> {
     file.rewind().map_err(|error| io_error(path, error))?;
     // Bound the view to the open inode's initial length. A live writer can
     // append or atomically compact without making inspection chase its tail.
@@ -129,20 +137,23 @@ pub(super) fn read_pending(
     Ok((replay.pending, replay.records, recovery))
 }
 
+#[cfg(test)]
 pub(crate) fn inspect_path(path: &Path) -> ConnectorResult<OutboxInspection> {
-    let resources = DispatcherResources::default();
-    let mut file = resources
-        .open(|| std::fs::File::open(path))
-        .map_err(|error| io_error(path, error))?;
-    let replay = scan(path, &mut file, &resources)?;
-    let result = OutboxInspection {
+    crate::state::inspect_outbox_path(path)
+}
+/// Scan this same source-owned snapshot; its caller retains both original IO
+/// and this existing disposable index until every exit has driven real close.
+pub(crate) fn inspect_snapshot(
+    path: &Path,
+    reader: &mut (impl Read + Seek),
+    bytes: u64,
+    resources: &DispatcherResources,
+) -> ConnectorResult<OutboxInspection> {
+    let replay = scan_snapshot(path, reader, bytes, resources)?;
+    Ok(OutboxInspection {
         bytes: replay.bytes,
         records: replay.records,
         pending: replay.pending.len(),
         recoverable_partial_tail: replay.valid_bytes < replay.bytes,
-    };
-    drop(replay);
-    drop(file);
-    resources.close().map_err(|error| io_error(path, error))?;
-    Ok(result)
+    })
 }

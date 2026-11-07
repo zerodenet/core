@@ -5,11 +5,20 @@ mod driver;
 mod endpoint;
 mod health;
 mod maintenance;
+mod quiescence;
 mod returns;
+mod session_tcp;
+mod session_udp;
+mod standard;
+pub(crate) use standard::PacketFlowBorrow;
+mod standard_packet;
+pub(crate) use returns::ReturnSource;
+pub(crate) use standard_packet::PacketSubmission;
 #[cfg(test)]
 mod tests;
 mod translation;
 mod wire;
+pub(crate) use wire::WireStackRecipe;
 mod workers;
 
 use std::{
@@ -34,7 +43,7 @@ use super::{RawIpTunnel, RawIpWireCarrier};
 use driver::{run_device, Device};
 pub(crate) use endpoint::{EndpointPacket, EndpointStackOwner, EndpointStackRecipe};
 use health::DeviceHealth;
-pub(crate) use returns::PacketReturns;
+pub(crate) use returns::{PacketReturnTotals, PacketReturns};
 
 pub(super) struct ForwardedPackets {
     return_channel: zero_stack::packet_output::PacketSender,
@@ -54,9 +63,17 @@ pub(crate) struct SharedRawIpDevice {
     ready: watch::Receiver<Option<Result<(), String>>>,
     task: Arc<workers::DeviceWorkers>,
     carrier: Option<Arc<dyn RawIpWireCarrier>>,
+    packet_wire_memory: Option<zero_stack::packet_output::memory::PacketWireMemory>,
 }
 
 impl SharedRawIpDevice {
+    #[cfg(test)]
+    pub(crate) fn test_original_worker_witnesses(
+        &self,
+    ) -> Vec<zero_platform_tokio::contract::scope::TaskJoinWitness> {
+        self.task.test_original_witnesses()
+    }
+
     pub(crate) fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)
     }

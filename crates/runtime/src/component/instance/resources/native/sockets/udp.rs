@@ -3,12 +3,12 @@ use super::*;
 use std::{io, num::NonZeroUsize};
 use zero_platform_tokio::{
     contract::{
-        lifecycle::{CloseReport, Unfinished},
         DeliveryState, RetryClass, Stage,
+        lifecycle::{CloseReport, Unfinished},
     },
     controlled_datagram::{
-        listener::ControlledDatagramListenerControl, AcquisitionOutcome, ControlledDatagramOwner,
-        DatagramOwnerReport,
+        AcquisitionOutcome, ControlledDatagramOwner, DatagramOwnerReport,
+        listener::ControlledDatagramListenerControl,
     },
 };
 
@@ -48,6 +48,19 @@ impl DatagramGrant {
             confirmed: 0,
             reported: false,
             acquisition_source: None,
+        })
+    }
+    pub(in crate::component) fn bind_source_totals(
+        &mut self,
+        binding: zero_platform_tokio::controlled_datagram::SourceDatagramTotalsBinding,
+    ) -> Result<(), ChannelError> {
+        self.owner.bind_source_totals(binding).map_err(|source| {
+            ChannelError::new(
+                Stage::Prepare,
+                Reason::StalePlan,
+                zero_platform_tokio::contract::Impact::Component,
+            )
+            .with_source(source)
         })
     }
     pub(in crate::component) fn known_no_acquisition(&self) -> bool {
@@ -110,6 +123,27 @@ impl DatagramGrant {
                 ))
             }
         }
+    }
+    pub(in crate::component) fn register_provider(
+        &self,
+        instance: zero_core::component::ComponentInstanceId,
+        tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+    ) -> io::Result<zero_platform_tokio::controlled_datagram::provider::DatagramProviderRegistration>
+    {
+        self.control
+            .as_ref()
+            .ok_or_else(|| io::Error::other("original listener controller is not acquired"))?
+            .register_provider(instance, tasks)
+    }
+    pub(in crate::component) fn register_driver(
+        &self,
+        original: &zero_platform_tokio::controlled_datagram::listener::DatagramListenerIdentity,
+        witness: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> io::Result<zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin> {
+        self.control
+            .as_ref()
+            .ok_or_else(|| io::Error::other("original listener controller is not acquired"))?
+            .register_driver(original, witness)
     }
     pub(in crate::component) fn revoke(&self) {
         if let Some(control) = &self.control {

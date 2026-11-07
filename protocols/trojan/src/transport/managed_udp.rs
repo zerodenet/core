@@ -78,14 +78,15 @@ impl TrojanManagedUdpFlowResume {
             let Some(binding) = self.mux_pool.installed_root_binding().await? else {
                 return Ok(None);
             };
+            let leaf = self.clone();
             self.protocol
-                .open_native_mux_flow(session, &self.mux_pool, binding, |raw| async move {
-                    self.transport
-                        .open_relay_with_profile(
+                .open_native_mux_flow(session, &self.mux_pool, binding, move |raw| async move {
+                    leaf.transport
+                        .open_owned_relay_with_profile(
                             TcpRelayStream::new(zero_transport::pooled_driver::ExclusiveIo::new(
                                 raw,
                             )),
-                            self.protocol.native_tls_profile(),
+                            leaf.protocol.native_tls_profile(),
                         )
                         .await
                 })

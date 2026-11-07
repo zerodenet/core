@@ -157,64 +157,71 @@ impl ResolverBackend {
         }
     }
 
-    pub(crate) async fn exchange(
-        &self,
-        query: &[u8],
-        detour: Option<&str>,
-        connector: Option<&dyn DnsOutboundConnector>,
+    /// One original backend attempt. Keep its concrete transport future at
+    /// this execution boundary, rather than exporting the entire native graph
+    /// through every resolver/coalescing caller's auto-Send proof.
+    pub(crate) fn exchange<'a>(
+        &'a self,
+        query: &'a [u8],
+        detour: Option<&'a str>,
+        connector: Option<&'a dyn DnsOutboundConnector>,
         family: AddressFamily,
-    ) -> io::Result<Vec<u8>> {
-        let _ = (detour, connector);
-        match self {
-            Self::System(resolver) => system_exchange(resolver, query, family).await,
-            #[cfg(feature = "udp")]
-            Self::Udp {
-                resolver,
-                tcp_addrs,
-                egress,
-            } => {
-                if let Some(outbound) = detour {
-                    if let Some(connector) = connector {
-                        match exchange_detoured_udp(tcp_addrs, query, outbound, connector).await {
-                            Ok(response) if !parse_response(query, &response)?.truncated => {
-                                return Ok(response);
+    ) -> zero_platform_tokio::contract::BoxFuture<'a, io::Result<Vec<u8>>> {
+        Box::pin(async move {
+            let _ = (detour, connector);
+            match self {
+                Self::System(resolver) => system_exchange(resolver, query, family).await,
+                #[cfg(feature = "udp")]
+                Self::Udp {
+                    resolver,
+                    tcp_addrs,
+                    egress,
+                } => {
+                    if let Some(outbound) = detour {
+                        if let Some(connector) = connector {
+                            match exchange_detoured_udp(tcp_addrs, query, outbound, connector).await
+                            {
+                                Ok(response) if !parse_response(query, &response)?.truncated => {
+                                    return Ok(response);
+                                }
+                                Ok(_) => {}
+                                Err(error) if error.kind() == io::ErrorKind::Unsupported => {}
+                                Err(error) => return Err(error),
                             }
-                            Ok(_) => {}
-                            Err(error) if error.kind() == io::ErrorKind::Unsupported => {}
-                            Err(error) => return Err(error),
                         }
+                        return exchange_tcp_many(tcp_addrs, query, egress, detour, connector)
+                            .await;
                     }
-                    return exchange_tcp_many(tcp_addrs, query, egress, detour, connector).await;
-                }
-                let response = resolver.exchange(query).await?;
-                if !parse_response(query, &response)?.truncated {
-                    return Ok(response);
-                }
-                if resolver.is_owned() {
-                    return Err(io::Error::new(
+                    let response = resolver.exchange(query).await?;
+                    if !parse_response(query, &response)?.truncated {
+                        return Ok(response);
+                    }
+                    if resolver.is_owned() {
+                        return Err(io::Error::new(
                         io::ErrorKind::Unsupported,
                         "truncated owned DNS UDP requires a separately authorized native TCP root",
                     ));
+                    }
+                    exchange_tcp_many(tcp_addrs, query, egress, None, None).await
                 }
-                exchange_tcp_many(tcp_addrs, query, egress, None, None).await
-            }
-            #[cfg(feature = "doh")]
-            Self::Doh(resolver) => resolver.exchange(query, detour, connector).await,
-            #[cfg(feature = "dot")]
-            Self::Dot(resolver) => resolver.exchange(query, detour, connector).await,
-            #[cfg(feature = "doq")]
-            Self::Doq(resolver) if detour.is_none() => {
-                match connector.and_then(|connector| connector.quic_bidi()) {
-                    Some(provider) => resolver.exchange_hosted(query, provider).await,
-                    None => resolver.exchange(query).await,
+                #[cfg(feature = "doh")]
+                Self::Doh(resolver) => resolver.exchange(query, detour, connector).await,
+                #[cfg(feature = "dot")]
+                Self::Dot(resolver) => resolver.exchange(query, detour, connector).await,
+                #[cfg(feature = "doq")]
+                Self::Doq(resolver) if detour.is_none() => {
+                    match connector.and_then(|connector| connector.quic_bidi()) {
+                        Some(provider) => resolver.exchange_hosted(query, provider).await,
+                        None => resolver.exchange(query).await,
+                    }
                 }
+                #[cfg(feature = "doq")]
+                Self::Doq(_) => Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "DoQ detour requires a proxy-aware UDP/QUIC carrier",
+                )),
             }
-            #[cfg(feature = "doq")]
-            Self::Doq(_) => Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "DoQ detour requires a proxy-aware UDP/QUIC carrier",
-            )),
-        }
+        })
     }
 
     pub(crate) fn register_owners(
@@ -487,5 +494,7 @@ use dot::DotDnsResolver;
 mod doq;
 #[cfg(feature = "doq")]
 pub(crate) use doq::owner::EndpointOwner as DoqEndpointOwner;
+#[cfg(feature = "doq")]
+pub use doq::DnsQuicCleanupFailure;
 #[cfg(feature = "doq")]
 use doq::DoqDnsResolver;

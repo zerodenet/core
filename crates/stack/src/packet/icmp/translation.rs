@@ -3,20 +3,35 @@
 use std::net::IpAddr;
 
 use super::{icmpv6_checksum, parse_icmp_echo_reply, parse_icmp_echo_request};
-use crate::packet::{checksum, transport_header, IPPROTO_ICMP, IPPROTO_ICMPV6};
+use crate::packet::{
+    checksum, quoted_transport_header, transport_header, IPPROTO_ICMP, IPPROTO_ICMPV6,
+};
 
 /// Preserve the IP header, options, hop limit and payload of an Echo request.
 pub fn translate_echo_request(packet: &[u8], local: IpAddr, id: u16) -> Option<Vec<u8>> {
+    let mut output = vec![0; transport_header(packet)?.end];
+    translate_echo_request_into(packet, local, id, &mut output)?;
+    Some(output)
+}
+pub fn translate_echo_request_into(
+    packet: &[u8],
+    local: IpAddr,
+    id: u16,
+    output: &mut [u8],
+) -> Option<()> {
     parse_icmp_echo_request(packet)?;
     let header = transport_header(packet)?;
     if packet[0] >> 4 == 4 && checksum(&packet[..header.offset]) != 0 {
         return None;
     }
-    let mut translated = packet[..header.end].to_vec();
-    set_address(&mut translated, local, true)?;
-    translated[header.offset + 4..header.offset + 6].copy_from_slice(&id.to_be_bytes());
-    repair_checksums(&mut translated)?;
-    Some(translated)
+    if output.len() != header.end {
+        return None;
+    }
+    output.copy_from_slice(&packet[..header.end]);
+    set_address(output, local, true)?;
+    output[header.offset + 4..header.offset + 6].copy_from_slice(&id.to_be_bytes());
+    repair_checksums(output)?;
+    Some(())
 }
 
 /// Identify a reply or error quoting a translated Echo request.
@@ -31,10 +46,23 @@ pub fn echo_response_key(packet: &[u8]) -> Option<(IpAddr, IpAddr, u16)> {
 /// Restore only a checksum-valid response matching this exact request.
 /// ICMP errors retain their router source, type/code, MTU and quoted length.
 pub fn restore_echo_response(packet: &[u8], original: &[u8], translated: &[u8]) -> Option<Vec<u8>> {
+    let mut output = vec![0; transport_header(packet)?.end];
+    restore_echo_response_into(packet, original, translated, &mut output)?;
+    Some(output)
+}
+pub fn restore_echo_response_into(
+    packet: &[u8],
+    original: &[u8],
+    translated: &[u8],
+    output: &mut [u8],
+) -> Option<()> {
     let request = parse_icmp_echo_request(original)?;
     let probe = parse_icmp_echo_request(translated)?;
     let header = transport_header(packet)?;
-    let mut restored = packet[..header.end].to_vec();
+    if output.len() != header.end {
+        return None;
+    }
+    output.copy_from_slice(&packet[..header.end]);
     if packet[0] >> 4 == 4 && checksum(&packet[..header.offset]) != 0 {
         return None;
     }
@@ -45,7 +73,7 @@ pub fn restore_echo_response(packet: &[u8], original: &[u8], translated: &[u8]) 
         {
             return None;
         }
-        restored[header.offset + 4..header.offset + 6].copy_from_slice(&request.message[4..6]);
+        output[header.offset + 4..header.offset + 6].copy_from_slice(&request.message[4..6]);
     } else {
         let (local, remote, id, sequence) = quoted_echo(packet)?;
         if local != probe.source
@@ -61,11 +89,11 @@ pub fn restore_echo_response(packet: &[u8], original: &[u8], translated: &[u8]) 
         }
         // Restore the original header and transport checksum together, even
         // when the error quotes only the mandated first eight ICMP bytes.
-        restored[header.offset + 8..].copy_from_slice(&original[..quote.len()]);
+        output[header.offset + 8..].copy_from_slice(&original[..quote.len()]);
     }
-    set_address(&mut restored, request.source, false)?;
-    repair_checksums(&mut restored)?;
-    Some(restored)
+    set_address(output, request.source, false)?;
+    repair_checksums(output)?;
+    Some(())
 }
 
 fn quoted_echo(packet: &[u8]) -> Option<(IpAddr, IpAddr, u16, [u8; 2])> {
@@ -86,26 +114,8 @@ fn quoted_echo(packet: &[u8]) -> Option<(IpAddr, IpAddr, u16, [u8; 2])> {
     if !valid {
         return None;
     }
-    // Quotes may be truncated. Normalize the advertised length for the
-    // existing bounded IP/extension-header parser; do not recreate it here.
-    let mut quote = message[8..].to_vec();
-    let length = u16::try_from(quote.len()).ok()?;
-    match quote.first()? >> 4 {
-        4 if quote.len() >= 20 => {
-            let fragment = u16::from_be_bytes([quote[6], quote[7]]);
-            if fragment & 0x1fff != 0 {
-                return None;
-            }
-            // A first fragment still quotes the Echo header. The common
-            // parser requires a complete transport; normalize MF only in
-            // this private quote copy, never in the forwarded packet.
-            quote[6] &= !0x20;
-            quote[2..4].copy_from_slice(&length.to_be_bytes());
-        }
-        6 if quote.len() >= 40 => quote[4..6].copy_from_slice(&(length - 40).to_be_bytes()),
-        _ => return None,
-    }
-    let inner = transport_header(&quote)?;
+    let quote = &message[8..];
+    let inner = quoted_transport_header(quote)?;
     let echo = quote.get(inner.offset..inner.end)?;
     if inner.src != outer.dst
         || echo.len() < 8

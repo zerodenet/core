@@ -40,3 +40,55 @@ pub(crate) async fn start<S>(
     // This camouflage delay is independent of the registered job's lifetime.
     tokio::time::sleep(delay).await;
 }
+
+/// The ordinary wrapper's actual original owns this handoff. Explicit fixed
+/// library factories keep their original Scope executor through start().
+pub(crate) async fn start_owned<S>(
+    stream: S,
+    host: String,
+    plan: zero_transport::http_navigation::Plan,
+    tasks: TaskRegistrar,
+    admission: Arc<SessionAdmission>,
+    upstream: zero_platform_tokio::contract::network::UpstreamTransport,
+    call: zero_platform_tokio::contract::network::CarrierContext,
+) where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    if !upstream.has_preparation_job_owner() {
+        start(stream, host, plan, tasks, admission).await;
+        return;
+    }
+    let grant = match upstream.reserve_preparation_job(&call) {
+        Ok(grant) => grant,
+        Err(source) => {
+            tracing::debug!(%source,"original navigation admission rejected");
+            return;
+        }
+    };
+    stage(stream, host, plan, grant);
+}
+/// Same IO, actual original grant and unchanged60s/process safety bounds.
+/// No task or native grant is created by this protocol-owned preparation.
+pub(crate) fn stage<S>(
+    stream: S,
+    host: String,
+    plan: zero_transport::http_navigation::Plan,
+    grant: zero_platform_tokio::controlled_carrier::CarrierPreparationJob,
+) where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let Some(prepared) =
+        zero_transport::http_navigation::prepare_owned(stream, host, plan, grant.clone())
+    else {
+        return;
+    };
+    let (delay, job) = prepared.into_parts();
+    let work = Box::pin(async move {
+        job.await.map_err(|source| {
+            ChannelError::new(Stage::Handshake, Reason::Io, Impact::Component).with_source(source)
+        })
+    });
+    if let Err(source) = grant.stage(delay, work) {
+        tracing::debug!(%source,"same original navigation staging rejected");
+    }
+}

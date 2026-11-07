@@ -152,7 +152,33 @@ pub(super) fn originals(
         .expect("actual per-connection gRPC donor")
         .clone();
     assert!(original.parent().is_none());
-    assert!(original.driver().is_some());
+    let driver = original.driver().expect("actual per-connection H2 driver");
+    let zero_platform_tokio::controlled_carrier::CarrierOriginOwner::Carrier(owner) =
+        original.owner()
+    else {
+        panic!("actual ordinary Node carrier owner");
+    };
+    let observed = owner.observe().unwrap();
+    let slot = observed
+        .slots()
+        .iter()
+        .find(|slot| {
+            slot.driver()
+                .is_some_and(|(_, actual)| actual.same_registration(driver))
+        })
+        .expect("same original driver's registered slot");
+    let auxiliary = slot.auxiliary().expect("same original Node preparation");
+    assert!(auxiliary
+        .scope_identity()
+        .same_scope(&driver.scope_identity()));
+    assert!(auxiliary
+        .scope_identity()
+        .same_scope(&owner.bound().unwrap().scope_identity()));
+    let joined = auxiliary
+        .try_joined()
+        .expect("real preparation finished before delivery");
+    assert!(auxiliary.matches_joined(&joined) && joined.registration_released());
+    joined.result().unwrap();
     (child, original)
 }
 pub(super) fn closed(child: &CarrierOrigin, original: &CarrierOrigin) {

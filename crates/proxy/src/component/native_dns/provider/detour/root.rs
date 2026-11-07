@@ -6,8 +6,11 @@ use zero_platform_tokio::{
     controlled_carrier::{CarrierGrants, ResolvingCarrierOpener},
 };
 mod controlled;
+mod direct;
+#[cfg(any(target_os = "linux", windows))]
+mod process;
 pub(super) struct Root {
-    native: ResolvingCarrierOpener,
+    native: Option<ResolvingCarrierOpener>,
     binding: UpstreamBinding,
     endpoint: Destination,
     node_dns: Arc<dyn zero_platform_tokio::contract::dns::DnsService>,
@@ -23,6 +26,9 @@ pub(super) struct Root {
     current: std::sync::Weak<crate::runtime::current_services::CurrentServiceSource>,
     roles: Vec<zero_core::component::RoleInstanceId>,
     candidates: tokio::sync::Mutex<Option<controlled::Candidates>>,
+    invocation: CarrierContext,
+    direct_endpoint: Option<Destination>,
+    waiting: std::sync::OnceLock<zero_platform_tokio::contract::network::PendingCarrierObserver>,
 }
 impl Root {
     #[allow(clippy::too_many_arguments)]
@@ -36,18 +42,19 @@ impl Root {
         pending: Arc<Mutex<Vec<Arc<custody::NativeUse>>>>,
         caller: TaskJoinWitness,
         cancel: CancellationToken,
+        invocation: CarrierContext,
         current: std::sync::Weak<crate::runtime::current_services::CurrentServiceSource>,
         roles: Vec<zero_core::component::RoleInstanceId>,
     ) -> Result<Self, ChannelError> {
         Ok(Self {
-            native: ResolvingCarrierOpener::new(
+            native: Some(ResolvingCarrierOpener::new(
                 grants.registration().instance(),
                 binding.clone(),
                 endpoint.clone(),
                 services.native_node_dns(),
                 Arc::new(services.egress_control()),
                 services.observer(),
-            )?,
+            )?),
             binding,
             endpoint,
             node_dns: services.native_node_dns(),
@@ -63,7 +70,26 @@ impl Root {
             current,
             roles,
             candidates: Default::default(),
+            invocation,
+            direct_endpoint: None,
+            waiting: Default::default(),
         })
+    }
+    /// Publish only a weak observer of this same query ledger. The temporary
+    /// transport neither opens I/O nor registers another owner or task.
+    pub(super) fn track(self: &Arc<Self>) {
+        let waiting =
+            UpstreamTransport::new(self.binding.clone(), self.clone()).pending_carrier_observer();
+        assert!(
+            self.waiting.set(waiting).is_ok(),
+            "one observer per actual DNS root"
+        );
+    }
+    /// A device donor needs the same actual pending ledger, but no
+    /// authorization to dial a second native Stream behind that device.
+    pub(super) fn observer_only(mut self) -> Self {
+        self.native = None;
+        self
     }
     fn check_pending(
         &self,
@@ -80,7 +106,7 @@ impl Root {
             || self.egress.generation() != binding.network_generation.0
             || self.cancel.is_cancelled()
             || self.caller.is_joined()
-            || !self.caller.scope_identity().registration_open()
+            || !self.caller.scope_identity().resource_open()
             || self
                 .grants
                 .registration()
@@ -137,8 +163,150 @@ impl DynChannelControl for Control {
     }
 }
 impl UpstreamOpener for Root {
+    fn open_controlled_stream_loan(
+        &self,
+        binding: &UpstreamBinding,
+        request: zero_platform_tokio::contract::network::ControlledStreamRequest,
+    ) -> BoxFuture<'_, Result<StreamLoan, ChannelError>> {
+        let binding = binding.clone();
+        Box::pin(async move {
+            self.direct_transport(&binding)?
+                .open_controlled_stream_loan(request)
+                .await
+        })
+    }
+    fn open_controlled_stream(
+        &self,
+        binding: &UpstreamBinding,
+        request: zero_platform_tokio::contract::network::ControlledStreamRequest,
+    ) -> BoxFuture<'_, Result<BoxStream, ChannelError>> {
+        let binding = binding.clone();
+        Box::pin(async move {
+            self.direct_transport(&binding)?
+                .open_controlled_stream(request)
+                .await
+        })
+    }
+    #[cfg(any(target_os = "linux", windows))]
+    fn acquire_process_endpoint_stream(
+        &self,
+        binding: &UpstreamBinding,
+        request: zero_platform_tokio::contract::network::ProcessEndpointStreamRequest,
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::controlled_carrier::CarrierIo, ChannelError>>
+    {
+        self.process_stream(binding.clone(), request)
+    }
+    #[cfg(any(target_os = "linux", windows))]
+    fn acquire_process_endpoint_datagram(
+        &self,
+        binding: &UpstreamBinding,
+        request: zero_platform_tokio::contract::network::ProcessEndpointDatagramRequest,
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::controlled_carrier::CarrierDatagram, ChannelError>>
+    {
+        self.process_datagram(binding.clone(), request)
+    }
+
+    fn packet_caller(
+        &self,
+        binding: &UpstreamBinding,
+        identity: &zero_platform_tokio::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<TaskJoinWitness, ChannelError> {
+        let failure = || {
+            crate::component::instance::invalid(
+                zero_platform_tokio::contract::Reason::StalePlan,
+                "Packet caller differs from its actual DNS query source",
+            )
+        };
+        if binding != &self.binding
+            || call.session.is_some()
+            || call.cancel.is_cancelled()
+            || self.cancel.is_cancelled()
+            || self.caller.is_joined()
+            || !self.caller.scope_identity().resource_open()
+            || self.egress.generation() != binding.network_generation.0
+            || !matches!(identity, zero_platform_tokio::contract::context::RequestIdentity::Service(facts)
+                if facts.origin == zero_core::request::ServiceOrigin::Runtime
+                && facts.purpose == zero_core::request::ServicePurpose::DnsQuery)
+            || self
+                .grants
+                .registration()
+                .bound()
+                .is_none_or(|bound| bound.host_cancelled())
+        {
+            return Err(failure());
+        }
+        let source = self.current.upgrade().ok_or_else(failure)?;
+        let services = source.runtime_services().map_err(|_| failure())?;
+        let execution = services.execution();
+        let plan = execution.components.as_ref().map_err(|_| failure())?;
+        for role in &self.roles {
+            plan.role_slot(*role)
+                .and_then(|slot| slot.service_admission())
+                .ok_or_else(failure)?
+                .check_current()?;
+        }
+        Ok(self.caller.clone())
+    }
+
+    fn resolve_packet_target(
+        &self,
+        binding: &UpstreamBinding,
+        destination: Destination,
+        identity: zero_platform_tokio::contract::context::RequestIdentity,
+        call: CarrierContext,
+    ) -> BoxFuture<'_, Result<Vec<std::net::SocketAddr>, ChannelError>> {
+        let binding = binding.clone();
+        Box::pin(async move {
+            if binding != self.binding
+                || self.cancel.is_cancelled()
+                || self.caller.is_joined()
+                || self.egress.generation() != binding.network_generation.0
+                || !matches!(&identity, zero_platform_tokio::contract::context::RequestIdentity::Service(facts) if matches!(facts.purpose, zero_core::request::ServicePurpose::DnsQuery | zero_core::request::ServicePurpose::Bootstrap))
+            {
+                return Err(crate::component::instance::invalid(
+                    zero_platform_tokio::contract::Reason::StalePlan,
+                    "Packet DNS target differs from its actual query source",
+                ));
+            }
+            tokio::select! { biased;
+                _ = self.cancel.cancelled() => Err(crate::component::instance::invalid(zero_platform_tokio::contract::Reason::Cancelled, "actual DNS caller stopped")),
+                result = crate::protocol_registry::UpstreamConnectServices::resolve_packet_with(destination, identity, call, self.node_dns.as_ref()) => result,
+            }
+        })
+    }
+
+    fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
+        if binding != &self.binding || self.cancel.is_cancelled() || self.caller.is_joined() {
+            return None;
+        }
+        let source = self.current.upgrade()?;
+        let services = source.runtime_services().ok()?;
+        services
+            .execution()
+            .components
+            .as_ref()
+            .ok()?
+            .pending_carrier_capacity(&self.roles)
+            .ok()
+    }
+
     fn has_pending_carrier_observer(&self) -> bool {
         true
+    }
+    fn validate_pending_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        adoption: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        self.check_pending(binding, adoption)?;
+        self.pending_carrier_capacity(binding).ok_or_else(|| {
+            crate::component::instance::invalid(
+                zero_platform_tokio::contract::Reason::StalePlan,
+                "DNS pending graph capacity is no longer available",
+            )
+        })?;
+        Ok(())
     }
     fn retain_pending_carrier(
         &self,
@@ -146,6 +314,12 @@ impl UpstreamOpener for Root {
         adoption: zero_platform_tokio::controlled_carrier::CarrierAdoption,
     ) -> Result<(), ChannelError> {
         self.check_pending(binding, &adoption)?;
+        let ceiling = self.pending_carrier_capacity(binding).ok_or_else(|| {
+            crate::component::instance::invalid(
+                zero_platform_tokio::contract::Reason::StalePlan,
+                "DNS pending graph capacity is no longer available",
+            )
+        })?;
         let mut pending = self.pending.lock().expect("DNS pending originals poisoned");
         // Candidate retries share one actual caller. Completed earlier native
         // attempts are not concurrent occupancy or a retained query history.
@@ -166,15 +340,8 @@ impl UpstreamOpener for Root {
         }) {
             return Ok(());
         }
-        // A selected path has finitely many roles and at most one in-progress
-        // donor plus its actual receiver per hop. Actual query/driver scopes
-        // independently bound the number of callers; completed history is absent.
-        let ceiling = self.roles.len().checked_mul(2).ok_or_else(|| {
-            crate::component::instance::invalid(
-                zero_platform_tokio::contract::Reason::Capacity,
-                "DNS pending path capacity overflow",
-            )
-        })?;
+        // Metadata follows actual declared original owners, including a
+        // negotiated TCP/UDP pair. It grants no additional native capacity.
         if pending
             .iter()
             .filter(|entry| entry.task.same_registration(&self.caller))
@@ -197,10 +364,7 @@ impl UpstreamOpener for Root {
         Ok(())
     }
     fn supports_controlled_stream(&self) -> bool {
-        // Direct's multi-candidate request carries its Business-only owner.
-        // DNS services use this root's declared BackgroundControl original;
-        // prepare/acquire still accept an independently validated actual grant.
-        false
+        self.direct_transport(&self.binding).is_ok()
     }
     fn carrier_dns_generation(&self) -> Option<zero_platform_tokio::contract::dns::DnsGeneration> {
         Some(self.node_dns.generation())
@@ -212,6 +376,12 @@ impl UpstreamOpener for Root {
         call: CarrierContext,
         grant: zero_platform_tokio::controlled_carrier::CarrierGrant,
     ) -> Result<zero_platform_tokio::controlled_carrier::PreparedCarrier, ChannelError> {
+        if self.native.is_none() {
+            return Err(crate::component::instance::invalid(
+                zero_platform_tokio::contract::Reason::Unsupported,
+                "DNS datagram observer cannot prepare a native Stream",
+            ));
+        }
         if endpoint != self.endpoint {
             return Err(crate::component::instance::invalid(
                 zero_platform_tokio::contract::Reason::StalePlan,
@@ -229,7 +399,7 @@ impl UpstreamOpener for Root {
                 return Err(crate::component::instance::invalid(
                     zero_platform_tokio::contract::Reason::Unsupported,
                     "DNS domain root requires its actual asynchronous Node resolver",
-                ))
+                ));
             }
         };
         self.retain_pending_carrier(binding, grant.adoption())?;
@@ -307,6 +477,13 @@ impl UpstreamOpener for Root {
             }
             let candidates = self
                 .native
+                .as_ref()
+                .ok_or_else(|| {
+                    crate::component::instance::invalid(
+                        zero_platform_tokio::contract::Reason::Unsupported,
+                        "DNS datagram observer does not authorize native Stream acquisition",
+                    )
+                })?
                 .resolve_controlled_carrier(&binding, endpoint, call)
                 .await?;
             let mut last = None;

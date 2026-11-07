@@ -54,12 +54,12 @@ async fn actual_hy2_auth_exchange_and_sealed_udp_keep_the_original_canonical_use
         assert_eq!(response.payload(), b"actual HY2 datagram");
 
         owner.begin_shutdown();
-        receive_all(&fixture, &owner, &mut receiver).await;
+        let _deliveries = receive_all(&fixture, &owner, &mut receiver).await;
         drop(owner);
         drop(sender);
-        assert!(completion.try_closed().is_none(), "actual datagram connection user survives all original driver joins and authentication sender release");
+        assert!(completion.try_owned_closed().is_none(), "actual datagram connection user survives all original driver joins and authentication sender release");
         drop(datagrams);
-        let receipt = completion.try_closed().unwrap();
+        let receipt = completion.try_owned_closed().unwrap();
         assert!(!fixture.resources().io_evidence().physical_confirmed());
         fixture.confirm_users(receipt, &tasks).unwrap();
         assert!(fixture.shutdown().await.is_complete());

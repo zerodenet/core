@@ -11,7 +11,7 @@ use zero_platform_tokio::contract::{
     scope::{TaskClass, TaskScope},
     ChannelError, Impact, Reason, Stage,
 };
-use zero_platform_tokio::{AcceptedTasks, ControlledTcpListener, ControlledTcpListenerOwner};
+use zero_platform_tokio::{ControlledTcpListener, ControlledTcpListenerOwner};
 
 pub(super) const MAX_CONNECTIONS: usize = 4096;
 const MAX_STREAMS: u32 = 32;
@@ -22,28 +22,8 @@ pub(super) fn deadline() -> tokio::time::Instant {
 fn io_error(error: impl std::error::Error + Send + Sync + 'static) -> ChannelError {
     ChannelError::new(Stage::Receive, Reason::Io, Impact::Session).with_source(error)
 }
+use crate::messages::StreamExecutor;
 #[derive(Clone)]
-struct StreamExecutor {
-    tasks: AcceptedTasks,
-    stop: CancellationToken,
-}
-impl<F> hyper::rt::Executor<F> for StreamExecutor
-where
-    F: Future + Send + 'static,
-    F::Output: Send + 'static,
-{
-    fn execute(&self, future: F) {
-        let stop = self.stop.clone();
-        if let Err(error) = self.tasks.spawn(TaskClass::Auxiliary, move |_| async move {
-            tokio::select! { _ = stop.cancelled() => {}, _ = future => {} }
-            Ok(())
-        }) {
-            // Admission failed before this new stream became a task. Dropping
-            // only its future resets that stream; active streams stay owned.
-            tracing::warn!(%error, "new gRPC H2 stream task rejected by its original entry");
-        }
-    }
-}
 struct StopOnDrop(CancellationToken);
 impl Drop for StopOnDrop {
     fn drop(&mut self) {
@@ -87,6 +67,7 @@ pub(super) fn cold(addr: SocketAddr) -> io::Result<(TaskScope, ControlledTcpList
 pub(super) async fn run<H>(
     mut listener: ControlledTcpListener,
     handle: H,
+    source: source::OriginalSource,
     auth: Option<GrpcServerAuth>,
     tls: Option<tokio_rustls::TlsAcceptor>,
     mut shutdown: tokio::sync::oneshot::Receiver<()>,
@@ -95,12 +76,16 @@ pub(super) async fn run<H>(
 where
     H: CommandService + QueryService + EventSource + Clone + Send + Sync + 'static,
 {
+    // The original-body observer enforces each admitted configured limit
+    // before the pinned decoder allocates. Its default remains 4 MiB; this
+    // schema ceiling only lets explicitly raised optional limits take effect.
     let svc = tonic::transport::Server::builder()
-        .add_service(ControlServer::new(ControlService::new(
-            handle,
-            auth,
-            owner.subscriptions.clone(),
-        )))
+        .add_service(
+            ControlServer::new(
+                ControlService::new(handle, auth, owner.subscriptions.clone()).with_source(source),
+            )
+            .max_decoding_message_size(256 * 1024 * 1024),
+        )
         .into_service();
     let receiver = owner
         .original
@@ -113,9 +98,13 @@ where
     let work = catch_work(async {
         loop {
             tokio::select! { biased;
+                _ = owner.subscriptions.changed.notified() => {
+                    owner.subscriptions.reap_completed().await?;
+                }
                 exit = scope.next_exit() => {
                     if let Some(exit) = exit {
                         receiver.observe_joined(exit.id);
+                        owner.requests.reap();
                         owner.connections.reap(&receiver).await?;
                         if let Err(error) = exit.result {
                             if error.reason == Reason::Internal && error.impact == Impact::Component { failure.get_or_insert_with(|| io::Error::other(error)); break; }
@@ -130,18 +119,35 @@ where
                         Err(error) if error.reason == Reason::Capacity => { tokio::time::sleep(Duration::from_millis(25)).await; continue; }
                         Err(error) => return Err(io::Error::other(error)),
                     };
-                    owner.connections.installed(accepted.claim());
+                    let claim = accepted.claim();
+                    owner.connections.installed(claim.clone());
+                    let connection = owner.connections.local_budget(&claim)?;
+                    let requests = owner.requests.clone();
                     let svc = svc.clone();
                     let tls = tls.clone();
                     let stop = owner.stop.child_token();
                     accepted.spawn_handler_bound(TaskClass::Auxiliary, move |socket, tasks| async move {
                         let _stop = StopOnDrop(stop.clone());
-                        let executor = StreamExecutor { tasks, stop: stop.clone() };
+                        let executor = StreamExecutor { tasks, stop: stop.clone(), connection, requests };
                         let service = hyper::service::service_fn(move |request: hyper::Request<hyper::body::Incoming>| {
                             let mut svc = svc.clone();
-                            let future = svc.call(request.map(tonic::body::boxed));
                             Box::pin(async move {
-                                future.await.map(|response| response.map(tonic::body::boxed)).map_err(std::io::Error::other)
+                                // Hyper constructs this service future in the
+                                // connection, then polls it in its original
+                                // accepted stream task. Capture that context
+                                // here, never from the parent's task number.
+                                let original = crate::messages::current().ok_or_else(||
+                                    io::Error::other("original gRPC stream registration absent"))?;
+                                let (mut parts, incoming) = request.into_parts();
+                                let body = match crate::messages::Input::new(incoming, original.clone()) {
+                                    Ok(body) => body,
+                                    Err(status) => return Ok(status.into_http()),
+                                };
+                                parts.extensions.insert(original.clone());
+                                let request = hyper::Request::from_parts(parts, tonic::body::boxed(body));
+                                let mut response=svc.call(request).await.map_err(std::io::Error::other)?;
+                                original.retain_status_header(response.headers_mut())?;
+                                Ok(response.map(|body| tonic::body::boxed(crate::messages::Output::new(body, original))))
                             }) as std::pin::Pin<Box<dyn Future<Output = io::Result<hyper::Response<tonic::body::BoxBody>>> + Send + 'static>>
                         });
                         let mut builder = hyper::server::conn::http2::Builder::new(executor);
@@ -167,12 +173,14 @@ where
     scope.begin_shutdown();
     while let Some(exit) = scope.next_exit().await {
         receiver.observe_joined(exit.id);
+        owner.requests.reap();
         if let Err(error) = exit.result {
             if error.impact == Impact::Component {
                 failure.get_or_insert_with(|| io::Error::other(error));
             }
         }
     }
+    owner.requests.reap();
     // The listener view outlives original protocol work; graph cancellation
     // cannot drop its retained subscription cleanup futures prematurely.
     drop(listener);
@@ -198,7 +206,9 @@ where
     owner.connections.confirm_all_closed();
     failure.map_or(Ok(()), Err)
 }
-async fn catch_work<F: Future>(work: F) -> Result<F::Output, Box<dyn std::any::Any + Send>> {
+pub(super) async fn catch_work<F: Future>(
+    work: F,
+) -> Result<F::Output, Box<dyn std::any::Any + Send>> {
     let mut work = std::pin::pin!(work);
     std::future::poll_fn(|cx| {
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work.as_mut().poll(cx))) {

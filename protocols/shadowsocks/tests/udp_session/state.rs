@@ -34,7 +34,7 @@ async fn responses_keep_per_client_counters_and_reclaim_idle_entries() {
     assert_eq!(responses.next(1).unwrap(), (a.0, 2));
     tokio::time::advance(Duration::from_secs(300)).await;
     responses.prune();
-    assert!(responses.0.is_empty());
+    assert!(responses.is_empty());
 }
 
 #[test]

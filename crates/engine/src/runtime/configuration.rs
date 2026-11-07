@@ -119,6 +119,12 @@ impl Engine {
             routing,
             source: _,
         } = prepared;
+        self.event_log.validate_subscriber_limits(
+            config.runtime.effective_event_log_stats_max_bytes(),
+            crate::observability::SubscriberLimits::from_runtime(&config.runtime),
+        )?;
+        self.packet_routes
+            .prepare_limit(config.runtime.effective_packet_route_max_routes())?;
         let current = self.runtime_snapshot();
         if current.config.runtime.principal_quota_state_path
             != config.runtime.principal_quota_state_path
@@ -164,11 +170,41 @@ impl Engine {
         self.install_prepared_snapshot(snapshot, true)
     }
 
+    /// Same actual Host control candidate joins the final Engine metadata
+    /// publication. No protocol configuration or execution authority is added.
+    /// Caller publishes the same control candidate's deferred wake/restart
+    /// after every enclosing Host/catalog publication guard is released.
+    pub fn publish_prepared_snapshot_with_control(
+        &self,
+        snapshot: Arc<super::EngineRuntimeSnapshot>,
+        control: Option<&zero_runtime::configuration::ControlBudgetCandidate>,
+    ) -> Result<(), EngineError> {
+        self.install_snapshot_with_control(snapshot, true, control)
+    }
+
     fn install_prepared_snapshot(
         &self,
         snapshot: Arc<super::EngineRuntimeSnapshot>,
         reconcile_live_choices: bool,
     ) -> Result<(), EngineError> {
+        self.install_snapshot_with_control(snapshot, reconcile_live_choices, None)
+    }
+    fn install_snapshot_with_control(
+        &self,
+        snapshot: Arc<super::EngineRuntimeSnapshot>,
+        reconcile_live_choices: bool,
+        control: Option<&zero_runtime::configuration::ControlBudgetCandidate>,
+    ) -> Result<(), EngineError> {
+        if control.is_some_and(|candidate| {
+            candidate.limits()
+                != zero_runtime::configuration::ControlBudgetLimits::from_runtime(
+                    &snapshot.config.runtime,
+                )
+        }) {
+            return Err(EngineError::InvalidPlan {
+                message: "configuration differs from its original control candidate".into(),
+            });
+        }
         let mut current = self
             .runtime_snapshot
             .write()
@@ -179,6 +215,25 @@ impl Engine {
                     .to_owned(),
             });
         }
+        // Recheck under the actual byte books before mutating any selector,
+        // mode, policy, capacity, configuration or publication state. Event
+        // producers may have charged new bytes since the pure preparation.
+        let packet_limit = self
+            .packet_routes
+            .prepare_limit(snapshot.config.runtime.effective_packet_route_max_routes())?;
+        let statistics = self.event_log.prepare_subscriber_limits(
+            snapshot
+                .config
+                .runtime
+                .effective_event_log_stats_max_bytes(),
+            crate::observability::SubscriberLimits::from_runtime(&snapshot.config.runtime),
+        )?;
+        // Every remaining metadata mutation is infallible. History/subscriber
+        // guards precede the Root book, matching query prepayment lock order.
+        if let Some(candidate) = control {
+            candidate.commit_deferred()?;
+        }
+        statistics.commit();
         let waiters = if reconcile_live_choices
             && !Arc::ptr_eq(
                 &snapshot.outbound_group_state,
@@ -198,7 +253,9 @@ impl Engine {
         self.event_log
             .set_capacity(snapshot.config.runtime.event_log_capacity);
         let publication = snapshot.publication.clone();
+        packet_limit.commit();
         *current = snapshot;
+        drop(packet_limit);
         drop(current);
         publication.publish();
         for waiter in waiters {
@@ -253,3 +310,6 @@ impl Engine {
         revision
     }
 }
+
+#[cfg(test)]
+mod control_publication_tests;

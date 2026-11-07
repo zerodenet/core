@@ -59,7 +59,7 @@ async fn actual_redirect_chunked_cache_and_fresh_cache_preserve_relative_rules()
     });
     let slot = BootstrapSlot::new();
     let source = Arc::new(ConfigurationSource::new(&path));
-    let config = slot
+    let (config, _preparation) = slot
         .load(source.clone(), path.to_str().unwrap())
         .await
         .unwrap();
@@ -104,7 +104,7 @@ async fn actual_http_failure_closes_candidate_before_handing_off_stale_cache() {
     });
     let source = Arc::new(ConfigurationSource::new(&path));
     let slot = BootstrapSlot::new();
-    let config = slot
+    let (config, _preparation) = slot
         .load(source.clone(), path.to_str().unwrap())
         .await
         .unwrap();

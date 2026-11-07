@@ -2,12 +2,29 @@ use super::*;
 impl Entry {
     pub(super) fn close(self: &Arc<Self>) -> Result<IcmpCloseReceipt, Arc<std_io::Error>> {
         self.cancel.cancel();
-        let mut native = self.native();
+        self.close_native(self.native())
+    }
+    pub(super) fn try_close(
+        self: &Arc<Self>,
+    ) -> Option<Result<IcmpCloseReceipt, Arc<std_io::Error>>> {
+        self.cancel.cancel();
+        if self
+            .creation_running
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return None;
+        }
+        Some(self.close_native(relay::NativeGuard::try_lock(self)?))
+    }
+    fn close_native(
+        self: &Arc<Self>,
+        mut native: relay::NativeGuard<'_>,
+    ) -> Result<IcmpCloseReceipt, Arc<std_io::Error>> {
         match &*native {
             Native::Closed => {
                 return Ok(IcmpCloseReceipt {
                     entry: self.clone(),
-                })
+                });
             }
             Native::Reserved | Native::NeverAcquired => {
                 *native = Native::NeverAcquired;

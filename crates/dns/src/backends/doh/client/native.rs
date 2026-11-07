@@ -1,6 +1,6 @@
 //! Native setup and H2 driving occur under the same original registration.
 use super::*;
-use crate::{native::NativeDnsProvider, OwnedDnsQueryTasks};
+use crate::{OwnedDnsQueryTasks, native::NativeDnsProvider};
 use tokio::time::Instant;
 impl DohDnsResolver {
     pub(in super::super) async fn ready_native_client(
@@ -9,6 +9,7 @@ impl DohDnsResolver {
         detour: Option<&str>,
         provider: Arc<dyn NativeDnsProvider>,
         end: Instant,
+        dynamic_candidates: Option<&[SocketAddr]>,
     ) -> io::Result<ReadyClient> {
         self.owner.ensure_open()?;
         let key = ConnectionKey {
@@ -35,6 +36,9 @@ impl DohDnsResolver {
             .await
             .retain(|entry| entry.key.addr != key.addr);
         self.owner.drain_retired(end).await?;
+        if dynamic_candidates.is_some() {
+            self.make_candidate_room(end).await?;
+        }
         self.owner.ensure_open()?;
         #[cfg(feature = "test-support")]
         self.test_io_started
@@ -83,6 +87,11 @@ impl DohDnsResolver {
                 };
                 OwnedDnsQueryTasks::record_native(loan.owner.original())?;
                 let (io, owner) = (loan.io, loan.owner);
+                driver
+                    .native
+                    .get()
+                    .expect("installed DoH owner")
+                    .record_original(&owner)?;
                 // Retain the actual LoanOwner before TLS/H2 can suspend.
                 *driver
                     .native

@@ -15,6 +15,9 @@ use zero_engine::Engine;
 use zero_platform_tokio::EgressInterfaceControl;
 
 pub(crate) struct CurrentServiceSource {
+    #[cfg(feature = "tls-ech-runtime")]
+    pub(crate) ech_owner:
+        Arc<std::sync::OnceLock<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>>,
     engine: Engine,
     resolver: Weak<DnsSystem>,
     protocols: WeakProtocolInventory,
@@ -38,6 +41,8 @@ impl CurrentServiceSource {
         retired_datagrams: &Arc<RetiredDatagrams>,
     ) -> Self {
         Self {
+            #[cfg(feature = "tls-ech-runtime")]
+            ech_owner: Arc::new(std::sync::OnceLock::new()),
             engine,
             resolver: Arc::downgrade(resolver),
             protocols: protocols.downgrade(),
@@ -62,6 +67,30 @@ impl CurrentServiceSource {
         self.egress_interface.generation()
     }
 
+    /// Observe retained cleanup custody without preparing the Engine's pending
+    /// configuration or admitting a caller against a historical role.
+    pub(crate) fn validate_owned_carrier_adoption(
+        &self,
+        role: zero_core::component::RoleInstanceId,
+        adoption: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> io::Result<()> {
+        self.protocols()?
+            .runtime_host()
+            .components()
+            .validate_owned_carrier_adoption(role, adoption)
+            .map_err(io::Error::other)
+    }
+    pub(crate) fn validate_owned_carrier_instance(
+        &self,
+        consumer: zero_core::component::ComponentInstanceId,
+        adoption: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> io::Result<()> {
+        self.protocols()?
+            .runtime_host()
+            .components()
+            .validate_owned_carrier_instance(consumer, adoption)
+            .map_err(io::Error::other)
+    }
     pub(crate) fn runtime_services(self: &Arc<Self>) -> io::Result<TcpRuntimeServices> {
         let resolver = self
             .resolver

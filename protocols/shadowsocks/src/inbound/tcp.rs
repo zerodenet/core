@@ -17,17 +17,16 @@ impl ShadowsocksInboundTcpState {
     pub(super) fn new(
         cipher: crate::shared::CipherKind,
         limits: crate::validation::StateLimits,
+        #[cfg(feature = "blake3")] replay_pool: Arc<crate::shared::ReplaySaltPool>,
     ) -> Self {
+        let _ = limits;
         #[cfg(not(feature = "blake3"))]
-        let _ = (cipher, limits);
+        let _ = cipher;
         Self {
             #[cfg(feature = "blake3")]
             cipher,
             #[cfg(feature = "blake3")]
-            replay_pool: Arc::new(crate::shared::ReplaySaltPool::configured(
-                crate::shared::ReplaySaltPool::DEFAULT_TTL,
-                limits.tcp_replay_capacity,
-            )),
+            replay_pool,
         }
     }
 

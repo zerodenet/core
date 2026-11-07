@@ -59,9 +59,43 @@ impl ComponentPlan {
                         let mut failures =
                             self.failures.lock().expect("component failures poisoned");
                         for failure in report.failed_tasks.drain(..) {
-                            failures.entry(failure.id).or_insert_with(|| {
-                                Arc::new(plan::PlanTaskFailure::new(failure, identity))
-                            });
+                            failures
+                                .entry(plan::FailureKey::Task(failure.id))
+                                .or_insert_with(|| {
+                                    Arc::new(plan::PlanFailure::new(failure, identity))
+                                });
+                        }
+                    }
+                    let mut actual_resource_fault = None;
+                    for failure in &report.resource_failures {
+                        if failure.instance != identity {
+                            return Err(invalid(
+                                Reason::StalePlan,
+                                "resource failure belongs to another actual slot",
+                            ));
+                        }
+                        let actual = {
+                            let mut failures =
+                                self.failures.lock().expect("component failures poisoned");
+                            failures
+                                .entry(plan::FailureKey::Resource(identity, failure.controller))
+                                .or_insert_with(|| {
+                                    Arc::new(plan::PlanFailure::resource(failure.clone()))
+                                })
+                                .clone()
+                        };
+                        actual_resource_fault.get_or_insert_with(|| actual.clone());
+                        // Persist the exact source in the existing canonical archive
+                        // before acknowledging the original provider receipt.
+                        // Publication uses the same row after full real close.
+                        if let Some(receipt) = failure.source.cleanup_failure_receipt() {
+                            if actual
+                                .original()
+                                .cleanup_failure_receipt()
+                                .is_some_and(|same| same.same_receipt(receipt))
+                            {
+                                receipt.acknowledge_retained(&failure.source);
+                            }
                         }
                     }
                     let complete = report.is_complete();
@@ -73,6 +107,9 @@ impl ComponentPlan {
                     } else {
                         blocked.extend(self.retirement_dependencies(slot));
                         pending.get_or_insert_with(|| {
+                            if let Some(actual) = actual_resource_fault {
+                                return actual.retained();
+                            }
                             let mut error =
                                 invalid(Reason::Timeout, "component cleanup remains unfinished");
                             error.stage = zero_platform_tokio::contract::Stage::Close;
@@ -105,15 +142,15 @@ impl ComponentPlan {
         instances.is_subset(&closed)
     }
 
-    pub(super) fn task_faults(
+    pub(super) fn retirement_faults(
         &self,
         instances: &BTreeSet<ComponentInstanceId>,
-    ) -> Vec<Arc<plan::PlanTaskFailure>> {
+    ) -> Vec<Arc<plan::PlanFailure>> {
         self.failures
             .lock()
             .expect("component failures poisoned")
             .values()
-            .filter(|failure| instances.contains(&failure.1))
+            .filter(|failure| instances.contains(&failure.instance()))
             .cloned()
             .collect()
     }

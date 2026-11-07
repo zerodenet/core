@@ -48,7 +48,7 @@ async fn hysteria2_configured_actual_entry_budget_rejects_active_pressure_reclai
     tokio::time::timeout(Duration::from_secs(25), async {
         let server = Server::new().await;
         let mut config = zero_config::RuntimeConfig::parse(&serde_json::json!({
-            "runtime":{"hysteria2_max_entries":1},
+            "runtime":{"hysteria2_max_entries":1,"metadata_max_probe_sockets":3,"metadata_max_probe_attempts":16,"metadata_max_send_calls":3,"quic_shared_endpoint_max_users":32},
             "outbounds":[
                 {"tag":"hy","protocol":{"type":"hysteria2","server":"127.0.0.1","port":server.port,"password":"p","insecure":true}},
                 {"tag":"other","protocol":{"type":"hysteria2","server":"127.0.0.1","port":server.port,"password":"p","insecure":true}}
@@ -57,6 +57,11 @@ async fn hysteria2_configured_actual_entry_budget_rejects_active_pressure_reclai
         }).to_string()).unwrap();
         let (proxy, running, handle) = super::reload::running(config.clone()).await;
         assert_eq!(server.authenticated.load(Ordering::SeqCst), 0, "capacity is not native preallocation");
+        let plan=proxy.tcp_runtime_services().execution().components.clone().unwrap();
+        let actual=plan.configured("hy").unwrap();
+        let metadata=actual.dependency_instances().iter().find_map(|id| plan.component(id.component)).unwrap();
+        let limits=metadata.recipe.spec().resources.iter().find_map(|r| match r {zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier {limits,..}=>Some(*limits),_=>None}).expect("same actual authenticated pool");
+        assert_eq!((limits.probe_sockets.get(),limits.probe_attempts_per_initialization.get(),limits.concurrent_send_calls.get(),limits.write_pollers.get()),(3,16,3,2));
         let first = open(&proxy, "hy", 1).await.unwrap();
         echo(&first).await;
         let root = first.owner.original().clone();

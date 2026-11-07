@@ -4,7 +4,7 @@ mod export;
 mod handle;
 mod view;
 
-pub use handle::{EngineHandle, EventSubscriber};
+pub use handle::{EngineHandle, EventSubscriber, RetainedEvent};
 
 use std::sync::OnceLock;
 
@@ -52,7 +52,7 @@ impl EventSource for Engine {
     type Stream = EventSubscriber;
 
     fn subscribe(&self, filter: EventFilter) -> zero_api::ApiResult<Self::Stream> {
-        Ok(EventSubscriber::subscribe(self, filter))
+        EventSubscriber::subscribe(self, filter)
     }
 
     fn latest(&self, limit: usize, filter: EventFilter) -> zero_api::ApiResult<Vec<RawApiEvent>> {
@@ -431,6 +431,31 @@ fn validate_config_command(
     })
 }
 
+pub const CONTROL_CAPABILITY_FEATURES: &[&str] = &[
+    "traffic_observation_v1",
+    "traffic_failed_flow_counters_v1",
+    "traffic_peer_flow_bindings_v1",
+    "traffic_packet_pin_activity_v1",
+    "traffic_period_reset_v1",
+    "traffic_scopes_sampling_v1",
+    "query",
+    "config_snapshot",
+    "runtime_snapshot",
+    "flow_snapshot",
+    "policy_snapshot",
+    "runtime_generation",
+    "operation_correlation",
+    "event_recovery",
+    "principal_flow_observations_v1",
+    "urltest_tolerance",
+    "route_bypass_v1",
+];
+
+/// The original immutable build registration, borrowed without a cloned DTO.
+pub fn control_build_features() -> &'static [String] {
+    BUILD_FEATURES.get().map_or(&[], Vec::as_slice)
+}
+
 fn capabilities() -> ApiCapabilities {
     let mut capabilities = ApiCapabilities::new();
     capabilities.traffic_statistics = Some(Default::default());
@@ -443,25 +468,10 @@ fn capabilities() -> ApiCapabilities {
         kind: "none".to_owned(),
         enabled: false,
     }];
-    capabilities.features = vec![
-        "traffic_observation_v1".to_owned(),
-        "traffic_failed_flow_counters_v1".to_owned(),
-        "traffic_peer_flow_bindings_v1".to_owned(),
-        "traffic_packet_pin_activity_v1".to_owned(),
-        "traffic_period_reset_v1".to_owned(),
-        "traffic_scopes_sampling_v1".to_owned(),
-        "query".to_owned(),
-        "config_snapshot".to_owned(),
-        "runtime_snapshot".to_owned(),
-        "flow_snapshot".to_owned(),
-        "policy_snapshot".to_owned(),
-        "runtime_generation".to_owned(),
-        "operation_correlation".to_owned(),
-        "event_recovery".to_owned(),
-        "principal_flow_observations_v1".to_owned(),
-        "urltest_tolerance".to_owned(),
-        "route_bypass_v1".to_owned(),
-    ];
+    capabilities.features = CONTROL_CAPABILITY_FEATURES
+        .iter()
+        .map(|value| (*value).to_owned())
+        .collect();
     capabilities.build_features = build_features;
     capabilities.permissions = vec![Permission::Read];
     capabilities

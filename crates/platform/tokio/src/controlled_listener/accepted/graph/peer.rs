@@ -18,7 +18,7 @@ pub(super) struct Ledger {
 /// exact original host registration. It owns no task set or native socket.
 #[derive(Clone)]
 pub struct AcceptedPeerScope {
-    users: Arc<Users>,
+    pub(super) users: Arc<Users>,
     task: Arc<OnceLock<(TaskId, TaskJoinWitness)>>,
     admission: Option<DatagramPeerAdmission>,
     control: Option<PeerControl>,
@@ -76,6 +76,8 @@ impl DatagramPeerAdmission {
             Node {
                 witness: witness.clone(),
                 primary: true,
+                process: None,
+                process_helper: false,
             },
         );
         let origin = Arc::new(OnceLock::new());
@@ -142,6 +144,8 @@ impl AcceptedPeerScope {
             Node {
                 witness: witness.clone(),
                 primary: true,
+                process: None,
+                process_helper: false,
             },
         );
         let origin = Arc::new(OnceLock::new());

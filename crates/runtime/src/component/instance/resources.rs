@@ -13,6 +13,9 @@ mod native;
 pub use icmp::{HostIcmpProbeGrant, HostIcmpProbeOwner};
 pub use native::HostDatagramListenerOwner;
 pub use native::HostResources;
+pub use native::{
+    packet_datagram_control_spec, packet_datagram_read_spec, HostPacketReadReservation,
+};
 mod outbound_datagram;
 pub use outbound_datagram::HostOutboundDatagramResources;
 

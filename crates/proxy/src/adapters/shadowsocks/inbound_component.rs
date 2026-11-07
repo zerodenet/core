@@ -4,6 +4,7 @@ impl ShadowsocksAdapter {
     pub(crate) fn inbound_options(
         &self,
         inbound: &InboundConfig,
+        runtime: &zero_config::RuntimeOptionsConfig,
     ) -> Result<
         ::shadowsocks::component::inbound::listener::Options,
         crate::component::RegistrationError,
@@ -35,6 +36,14 @@ impl ShadowsocksAdapter {
                 *replay_attack,
                 *state_limits,
             )
+            .and_then(|prepared| {
+                prepared.with_replay_budget_limit(runtime.effective_ss_tcp_replay_max_salts())
+            })
+            .and_then(|prepared| prepared.with_udp_budget_limits(super::udp_budget_limits(runtime)))
+            .and_then(|prepared| {
+                prepared
+                    .with_legacy_replay_budget_limit(runtime.effective_ss_legacy_replay_max_bytes())
+            })
             .map_err(|source| zero_config::ConfigError::InvalidInbound(source.to_string()))?;
         let endpoint =
             zero_core::address::socket_addr(&inbound.listen.address, inbound.listen.port);
@@ -48,9 +57,18 @@ impl ShadowsocksAdapter {
         );
         let identity = serde_json::to_vec(inbound)
             .map_err(|source| zero_config::ConfigError::InvalidInbound(source.to_string()))?;
-        Ok(
+        let options =
             ::shadowsocks::component::inbound::listener::Options::new(listen, prepared, &identity)
-                .with_plugin(plugin.clone()),
-        )
+                .with_plugin(plugin.clone());
+        let limits = crate::adapters::source_budgets::limits(runtime, options.source_limits());
+        options
+            .with_inbound_source_limits(limits)?
+            .with_inbound_work_limits(
+                std::num::NonZeroUsize::new(runtime.effective_inbound_max_tasks_per_carrier(1))
+                    .unwrap(),
+                runtime.effective_inbound_max_resources_per_carrier(0),
+                std::num::NonZeroUsize::new(1).unwrap(),
+            )
+            .map_err(crate::component::RegistrationError::Planning)
     }
 }

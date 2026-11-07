@@ -4,8 +4,11 @@ pub(super) fn spawn_grpc_write_relay(
     receiver: mpsc::Receiver<Vec<u8>>,
     progress: std::sync::Arc<super::progress::Progress>,
     server: bool,
+    flush: std::sync::Arc<crate::native_flush::Flushed>,
 ) {
-    tokio::spawn(write_grpc_hunks(sender, receiver, progress, server, None));
+    tokio::spawn(write_grpc_hunks(
+        sender, receiver, progress, server, None, flush,
+    ));
 }
 pub(super) async fn write_grpc_hunks(
     mut sender: h2::SendStream<Bytes>,
@@ -13,6 +16,7 @@ pub(super) async fn write_grpc_hunks(
     progress: std::sync::Arc<super::progress::Progress>,
     server: bool,
     response: Option<super::response::ClosedHead>,
+    flush: std::sync::Arc<crate::native_flush::Flushed>,
 ) {
     let result = async {
         while let Some(data) = receiver.recv().await {
@@ -21,6 +25,7 @@ pub(super) async fn write_grpc_hunks(
             frame.extend_from_slice(&grpc_frame_header(hunk.len()));
             frame.extend_from_slice(&hunk);
             write_h2_data(&mut sender, Bytes::from(frame), response.as_ref()).await?;
+            drain(&mut sender, &flush).await?;
             progress.commit(data.len());
         }
         if server {
@@ -36,11 +41,15 @@ pub(super) async fn write_grpc_hunks(
                 }
             }
         }
+        drain(&mut sender, &flush).await?;
         Ok::<_, io::Error>(())
     }
     .await;
     if let Err(error) = result {
-        progress.fail(error);
+        // Connection teardown can make H2 return a secondary stream error.
+        // Keep the actual first native/keepalive failure already retained by
+        // this same physical IO, including its real timeout kind/source Arc.
+        progress.fail(flush.check().err().unwrap_or(error));
     }
     progress.finish();
 }
@@ -67,4 +76,16 @@ async fn write_h2_data(
         sender.send_data(chunk, false).map_err(io::Error::other)?;
     }
     Ok(())
+}
+
+async fn drain(
+    sender: &mut h2::SendStream<Bytes>,
+    flush: &crate::native_flush::Flushed,
+) -> io::Result<()> {
+    flush.check()?;
+    futures_util::future::poll_fn(|cx| sender.poll_send_drained(cx))
+        .await
+        .map_err(io::Error::other)?;
+    let epoch = flush.request()?;
+    flush.wait(epoch).await
 }

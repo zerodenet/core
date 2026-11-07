@@ -102,7 +102,17 @@ async fn eviction_through_a_clone_removes_cached_connections() {
     pool.pool
         .lock()
         .expect("pool lock")
-        .insert((bridge.scope.clone(), key), connection);
+        .insert((bridge.scope.clone(), key, None), connection);
     bridge.evict_all();
     assert!(pool.pool.lock().expect("pool lock").is_empty());
 }
+
+#[path = "tests/half_close.rs"]
+mod half_close;
+
+#[cfg(feature = "runtime")]
+#[path = "tests/cancelled.rs"]
+mod cancelled;
+
+#[path = "tests/response.rs"]
+mod response;

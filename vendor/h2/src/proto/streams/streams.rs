@@ -7,7 +7,7 @@ use crate::frame::{self, Frame, Reason};
 use crate::proto::{peer, Error, Initiator, Open, Peer, WindowSize};
 use crate::{client, proto, server};
 
-use bytes::{Buf, Bytes};
+use bytes::{Buf, Bytes, BytesMut};
 use http::{HeaderMap, Request, Response};
 use std::task::{Context, Poll, Waker};
 use tokio::io::AsyncWrite;
@@ -897,9 +897,6 @@ impl Inner {
         T: AsyncWrite + Unpin,
         B: Buf,
     {
-        let mut send_buffer = send_buffer.inner.lock().unwrap();
-        let send_buffer = &mut *send_buffer;
-
         // Send WINDOW_UPDATE frames first
         //
         // TODO: It would probably be better to interleave updates w/ data
@@ -909,14 +906,23 @@ impl Inner {
             .recv
             .poll_complete(cx, &mut self.store, &mut self.counts, dst))?;
 
-        // Send any other pending frames
-        ready!(self.actions.send.poll_complete(
-            cx,
-            send_buffer,
-            &mut self.store,
-            &mut self.counts,
-            dst
-        ))?;
+        if self.actions.send.has_buffered_frames() {
+            // The original queued/reset/partial-DATA path retains its exact
+            // Store checks, queue ordering and last-frame reclamation.
+            let mut send_buffer = send_buffer.inner.lock().unwrap();
+            ready!(self.actions.send.poll_complete(
+                cx,
+                &mut *send_buffer,
+                &mut self.store,
+                &mut self.counts,
+                dst
+            ))?;
+        } else {
+            // WINDOW_UPDATE/control bytes may be buffered by recv or the
+            // original poll_ready stage. Flush the same codec/native IO even
+            // when the send store has no frame to inspect or reclaim.
+            ready!(dst.flush(cx))?;
+        }
 
         // Nothing else to do, track the task
         self.actions.task = Some(cx.waker().clone());
@@ -1328,6 +1334,13 @@ impl<B> StreamRef<B> {
         me.actions.send.poll_capacity(cx, &mut stream)
     }
 
+    pub fn poll_send_drained(&mut self, cx: &Context) -> Poll<Result<(), crate::Error>> {
+        let mut me = self.opaque.inner.lock().unwrap();
+        let me = &mut *me;
+        let mut stream = me.store.resolve(self.opaque.key);
+        me.actions.send.poll_send_drained(cx, &mut stream)
+    }
+
     /// Request to be notified for if a `RST_STREAM` is received for this stream.
     pub(crate) fn poll_reset(
         &mut self,
@@ -1348,6 +1361,70 @@ impl<B> StreamRef<B> {
 
     pub fn stream_id(&self) -> StreamId {
         self.opaque.stream_id()
+    }
+}
+
+impl StreamRef<Bytes> {
+    pub fn poll_send_data(
+        &mut self,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+        buffer: &mut BytesMut,
+        limit: usize,
+    ) -> Poll<Option<Result<usize, crate::Error>>> {
+        let limit = limit.min(bytes.len()).min(16 * 1024);
+        if limit == 0 {
+            return Poll::Ready(Some(Ok(0)));
+        }
+        let mut me = self.opaque.inner.lock().unwrap();
+        let me = &mut *me;
+        let mut stream = me.store.resolve(self.opaque.key);
+        let actions = &mut me.actions;
+        if !stream.state.is_send_streaming() {
+            return match stream.state.ensure_reason(proto::PollReset::Streaming) {
+                Ok(Some(reason)) => Poll::Ready(Some(Err(reason.into()))),
+                Err(error) => Poll::Ready(Some(Err(error))),
+                Ok(None) => Poll::Ready(None),
+            };
+        }
+        // Inspect the actual credit, rather than a cached grant or just an
+        // increase notification. No driver can change it before this commit.
+        let available = actions.send.capacity(&mut stream) as usize;
+        stream.send_capacity_inc = false;
+        if available == 0 {
+            stream.wait_send(cx);
+            return Poll::Pending;
+        }
+        let n = limit.min(available);
+        let data = if n == 1 {
+            static VALUES: [u8; 256] = {
+                let mut values = [0; 256];
+                let mut index = 0;
+                while index < 256 {
+                    values[index] = index as u8;
+                    index += 1;
+                }
+                values
+            };
+            let value = usize::from(bytes[0]);
+            Bytes::from_static(&VALUES[value..value + 1])
+        } else {
+            buffer.clear();
+            buffer.reserve(n);
+            buffer.extend_from_slice(&bytes[..n]);
+            buffer.split().freeze()
+        };
+        let mut send_buffer = self.send_buffer.inner.lock().unwrap();
+        let send_buffer = &mut *send_buffer;
+        // Retain the original frame queue, prioritization and stream-count
+        // transitions; this is the same commit as send_data, with no new queue.
+        let result = me.counts.transition(stream, |counts, stream| {
+            let frame = frame::Data::new(stream.id, data);
+            actions
+                .send
+                .send_data(frame, send_buffer, stream, counts, &mut actions.task)
+        });
+        Poll::Ready(Some(result.map(|()| n).map_err(Into::into)))
     }
 }
 

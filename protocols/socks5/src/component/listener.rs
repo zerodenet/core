@@ -25,6 +25,35 @@ pub struct InboundOptions {
     identity: Arc<[u8]>,
 }
 impl InboundOptions {
+    pub fn source_limits(&self) -> InboundSourceLimits {
+        InboundSourceLimits {
+            accepted_sockets: self.accepted.max_sockets,
+            bind_attempts: self.max_bind_attempts,
+            pending_sends: self.max_pending_sends,
+            ..Default::default()
+        }
+    }
+    pub fn with_inbound_source_limits(
+        mut self,
+        limits: InboundSourceLimits,
+    ) -> Result<Self, ChannelError> {
+        let limits = limits.validate()?;
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"actual-source-limits-v1");
+        for value in [
+            limits.accepted_sockets,
+            limits.bind_attempts,
+            limits.pending_sends,
+        ] {
+            identity.extend_from_slice(&value.get().to_le_bytes());
+        }
+        self.identity = identity.into();
+        self.accepted.max_sockets = limits.accepted_sockets;
+        self.max_bind_attempts = limits.bind_attempts;
+        self.max_pending_sends = limits.pending_sends;
+        Ok(self)
+    }
+
     pub fn new<'a>(
         listen: Destination,
         accepted: AcceptedTcpLimits,
@@ -72,6 +101,27 @@ impl InboundOptions {
             acceptor: Socks5InboundAcceptor::from_options_refs(users),
             identity: identity.into(),
         })
+    }
+    pub fn with_inbound_work_limits(
+        mut self,
+        tasks: NonZeroUsize,
+        resources: usize,
+    ) -> Result<Self, BuildError> {
+        if !(2..=4096).contains(&tasks.get()) || !(2..=65536).contains(&resources) {
+            return Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                Impact::Component,
+            ));
+        }
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"actual-inbound-work-limits-v1");
+        identity.extend_from_slice(&tasks.get().to_le_bytes());
+        identity.extend_from_slice(&resources.to_le_bytes());
+        self.identity = identity.into();
+        self.accepted.max_tasks_per_socket = tasks;
+        self.accepted.max_resources_per_socket = resources;
+        Ok(self)
     }
     pub fn acceptor(&self) -> Socks5InboundAcceptor {
         self.acceptor.clone()

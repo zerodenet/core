@@ -168,7 +168,7 @@ impl ResourceLifecycle for Owner {
             }
         }
         for owner in &self.generation.metadata {
-            report.append(owner.shutdown()?);
+            report.append(owner.shutdown_after_registration_ack(end).await?);
         }
         if report.is_complete() {
             let retired_entries = std::mem::take(&mut *self.generation.entries.lock().unwrap());

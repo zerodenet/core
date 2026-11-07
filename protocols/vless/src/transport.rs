@@ -7,6 +7,7 @@
 mod inbound;
 mod leaf;
 mod managed_udp;
+mod navigation;
 mod options;
 mod outbound;
 mod profile;

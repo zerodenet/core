@@ -41,6 +41,7 @@ impl MetadataOwner {
             views: BTreeMap::new(),
             pending_main: None,
             pending_probes: None,
+            source_changed: Arc::new(tokio::sync::Notify::new()),
         })
     }
     pub fn bind(
@@ -126,7 +127,7 @@ impl MetadataOwner {
             pollers,
             sends: tokio::sync::Semaphore::new(self.limits.concurrent_send_calls.get()),
             send_limit: self.limits.concurrent_send_calls,
-            views: Views::new(),
+            views: Views::new(self.source_changed.clone()),
             outbound_peer,
         });
         self.views
@@ -150,7 +151,8 @@ impl MetadataOwner {
     }
     fn reap(&mut self) {
         self.main.reap_confirmed();
-        self.views.retain(|id, _| self.main.retains(*id));
+        self.views
+            .retain(|id, shared| self.main.retains(*id) || !shared.views.empty());
     }
     pub fn occupied_main(&mut self) -> usize {
         self.reap();

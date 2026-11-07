@@ -1,3 +1,4 @@
+pub(crate) mod buffered;
 use super::*;
 impl CipherKind {
     fn ring_algorithm(self) -> Result<&'static ring::aead::Algorithm, Error> {

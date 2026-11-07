@@ -311,6 +311,9 @@ impl Stream {
         debug_assert!(self.buffered_send_data >= len as usize);
         self.buffered_send_data -= len as usize;
         self.requested_send_capacity -= len;
+        if self.buffered_send_data == 0 && self.pending_send.is_empty() {
+            self.notify_send();
+        }
 
         tracing::trace!(
             "  sent stream data; available={}; buffered={}; id={:?}; max_buffer_size={} prev={}",

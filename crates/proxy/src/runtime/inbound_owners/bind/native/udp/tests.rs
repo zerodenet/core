@@ -165,3 +165,7 @@ async fn resolved_udp_candidates_retry_only_after_original_failed_bind_is_closed
         .iter()
         .any(|io| io.contains("2 originals explicitly closed")));
 }
+
+#[cfg(feature = "raw-ip-runtime")]
+#[path = "tests/read_budget.rs"]
+mod read_budget;

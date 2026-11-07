@@ -6,6 +6,8 @@ mod hook;
 mod lifecycle;
 mod observation;
 mod registry;
+pub(crate) use completed::CompletedQueryGuard;
+pub(crate) use registry::{ActiveQueryRows, PrincipalQueryRows, SessionQueryGuard};
 mod traffic;
 
 pub(crate) use admitted::AdmissionLife;

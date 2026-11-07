@@ -1,3 +1,5 @@
+mod owned;
+pub(crate) use owned::{OwnedWireFailure, OwnedWireResult, PreparedWireData, PreparedWireReceive};
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
@@ -12,6 +14,60 @@ pub(crate) enum RawIpAction {
 }
 
 pub(crate) trait RawIpTunnel: Send {
+    fn initiate_handshake_owned(
+        &mut self,
+        control: zero_traits::PacketBuffer,
+        _memory: &zero_tun::packet_memory::PacketDatagramWorkspaces,
+    ) -> OwnedWireResult<Vec<RawIpAction>> {
+        OwnedWireResult::unsupported(None, control)
+    }
+    fn send_ip_packet_owned(
+        &mut self,
+        packet: zero_traits::PacketBuffer,
+        control: zero_traits::PacketBuffer,
+        _memory: &zero_tun::packet_memory::PacketDatagramWorkspaces,
+    ) -> OwnedWireResult<Vec<RawIpAction>> {
+        OwnedWireResult::unsupported(Some(packet), control)
+    }
+    fn receive_datagram_owned(
+        &mut self,
+        _source: Option<SocketAddr>,
+        datagram: zero_traits::PacketBuffer,
+        _decode: zero_tun::packet_memory::NativeReadBuffer,
+        control: zero_traits::PacketBuffer,
+        _memory: &zero_tun::packet_memory::PacketDatagramWorkspaces,
+    ) -> OwnedWireResult<(Vec<RawIpAction>, bool)> {
+        OwnedWireResult::unsupported(Some(datagram), control)
+    }
+    fn prepare_datagram_owned(
+        &mut self,
+        source: Option<SocketAddr>,
+        datagram: zero_traits::PacketBuffer,
+        decode: zero_tun::packet_memory::NativeReadBuffer,
+        control: zero_traits::PacketBuffer,
+        memory: &zero_tun::packet_memory::PacketDatagramWorkspaces,
+    ) -> OwnedWireResult<PreparedWireReceive<(Vec<RawIpAction>, bool)>> {
+        self.receive_datagram_owned(source, datagram, decode, control, memory)
+            .map(PreparedWireReceive::Complete)
+    }
+    fn commit_prepared_datagram(&mut self, _data: &PreparedWireData) -> Result<(), EngineError> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "codec has no prepared Data operation",
+        )
+        .into())
+    }
+    fn tick_owned(
+        &mut self,
+        control: zero_traits::PacketBuffer,
+        _memory: &zero_tun::packet_memory::PacketDatagramWorkspaces,
+    ) -> OwnedWireResult<Vec<RawIpAction>> {
+        OwnedWireResult::unsupported(None, control)
+    }
+    /// The actual protocol queue only; unknown legacy tunnels cannot ACK idle.
+    fn quiescent(&self) -> bool {
+        false
+    }
     fn initiate_handshake(&mut self) -> Result<Vec<RawIpAction>, EngineError>;
     fn send_ip_packet(&mut self, packet: &[u8]) -> Result<Vec<RawIpAction>, EngineError>;
     fn receive_datagram(

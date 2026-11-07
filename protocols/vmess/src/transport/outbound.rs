@@ -1,3 +1,4 @@
+mod material;
 use std::{
     future::Future,
     path::{Path, PathBuf},
@@ -65,6 +66,7 @@ impl OwnedVmessTransportOptions {
 #[derive(Debug, Clone)]
 pub struct OwnedVmessOutboundTransportPlan {
     grpc_state: Option<std::sync::Arc<crate::component::grpc::registry::State>>,
+    material: crate::component::material::Registry,
     server: String,
     port: u16,
     transport: OwnedVmessTransportOptions,
@@ -94,6 +96,7 @@ impl OwnedVmessOutboundTransportPlan {
     {
         Self {
             grpc_state: None,
+            material: Default::default(),
             server: server.to_owned(),
             port,
             transport: OwnedVmessTransportOptions::from_profile_refs(source_dir, tls, ws, grpc),

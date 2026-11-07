@@ -165,7 +165,7 @@ test('workflow contracts preserve coverage and avoid root-owned build artifacts'
   }
   assert.match(ci, /bash scripts\/test-workspace\.sh/);
   const testEntry = readFileSync('scripts/test-workspace.sh', 'utf8');
-  assert.match(testEntry, /cargo test --workspace --all-features --no-fail-fast/);
+  assert.match(testEntry, /cargo test --locked --workspace --all-features --no-fail-fast/);
   assert.match(testEntry, /check-test-layout\.py/);
   assert.match(ci, /cargo clippy --workspace --all-targets --all-features/);
   assert.match(ci, /Check representative minimal feature surfaces/);

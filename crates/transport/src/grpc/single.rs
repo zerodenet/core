@@ -39,6 +39,7 @@ impl PreparedSingleClient {
             sender,
             mut driver,
             active,
+            flush,
         } = prepared::prepare_connection(io, profile.clone(), peer_settings).await?;
         // The original H2 future must also progress if readiness waits for SETTINGS.
         let ready = sender.ready();
@@ -57,7 +58,7 @@ impl PreparedSingleClient {
             mut stream,
             read,
             write,
-        } = prepared_stream::prepare_stream(send, response, profile.multi_mode);
+        } = prepared_stream::prepare_stream(send, response, profile.multi_mode, flush);
         active.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         stream.active = Some(active);
         let driver = Box::pin(async move {
@@ -68,7 +69,17 @@ impl PreparedSingleClient {
             };
             tokio::pin!(workers);
             tokio::select! {
-                result=driver.as_mut()=>result,
+                result=driver.as_mut()=>{
+                    // Preserve the original connection result while its hunk
+                    // workers still own decoded DATA or a pending error send.
+                    // An actual connection error is not return of those views.
+                    // H2 may have completed its graceful transport while read
+                    // still owns decoded DATA blocked on the same bounded FIFO.
+                    // The original task keeps that worker until the real view
+                    // drains it or returns. Connection EOF is not worker return.
+                    workers.await;
+                    result
+                },
                 _=&mut workers=>{
                     drop(sender);
                     driver.await

@@ -64,12 +64,17 @@ async fn taskless_stream_loan_requires_original_control_and_returned_native_cust
         fixture.grants.reserve().err().unwrap().reason,
         Reason::Capacity
     );
+    assert!(!loan.owner.try_close().unwrap().is_complete());
+    assert_eq!(fixture.owner.retained(), 1);
     drop(loan.io);
     assert!(
         original.closed().is_none(),
         "returning a view does not execute original native close"
     );
-    assert!(loan.owner.close(deadline()).await.unwrap().is_complete());
+    let report = loan.owner.try_close().unwrap();
+    assert!(report.is_complete());
+    assert_eq!(report.closed_io.len(), 1);
+    assert!(loan.owner.try_close().unwrap().closed_io.is_empty());
     assert!(loan.owner.closed().unwrap().matches(&loan.owner));
     assert!(original.closed().unwrap().matches(&original));
     assert!(adoption.closed().unwrap().driver_exit().is_none());

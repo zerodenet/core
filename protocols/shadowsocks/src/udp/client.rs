@@ -4,12 +4,13 @@ use super::session::{ReceiveWindows, SenderSession};
 use crate::shared::CipherKind;
 use zero_core::{Address, Error};
 use zero_traits::{DatagramCodec, UdpDatagramFraming};
+mod buffered;
 
 #[cfg(feature = "blake3")]
 #[derive(Debug, Default)]
 struct Session {
     sender: SenderSession,
-    received: ReceiveWindows,
+    received: Option<ReceiveWindows>,
 }
 
 #[derive(Clone)]
@@ -24,20 +25,12 @@ pub struct ShadowsocksDatagramCodec {
 impl ShadowsocksDatagramCodec {
     pub fn with_state_limits(mut self, limits: crate::validation::StateLimits) -> Self {
         self.limits = limits;
-        #[cfg(feature = "blake3")]
-        {
-            self.state = std::sync::Arc::new(std::sync::Mutex::new(Session {
-                sender: Default::default(),
-                received: ReceiveWindows::with_limits(limits),
-            }));
-        }
         self
     }
 
-    pub fn with_replay_policy(self, policy: crate::validation::ReplayPolicy) -> Self {
-        self.with_replay_guard(crate::shared::legacy_replay::LegacyReplay::new(
-            policy, false,
-        ))
+    pub fn with_replay_policy(mut self, policy: crate::validation::ReplayPolicy) -> Self {
+        self.replay = self.replay.clone().with_policy(policy);
+        self
     }
     pub(crate) fn with_replay_guard(
         mut self,
@@ -72,7 +65,10 @@ impl DatagramCodec<Address> for ShadowsocksDatagramCodec {
                 .state
                 .lock()
                 .map_err(|_| Error::Protocol("ss: UDP session poisoned"))?;
-            state.received.prune();
+            if let Some(received) = &mut state.received {
+                received.prune();
+            }
+            state.sender.use_budget(&self.replay.udp_replay_budget())?;
             let session = state.sender.next()?;
             return crate::shared::encode_udp_request_with_session(
                 self.cipher,
@@ -97,6 +93,40 @@ impl DatagramCodec<Address> for ShadowsocksDatagramCodec {
             },
         )
     }
+    fn encode_buffer_lengths(
+        &self,
+        target: &Address,
+        _port: u16,
+        payload_len: usize,
+    ) -> Result<Vec<usize>, zero_traits::DatagramCodecBufferError<Error>> {
+        self.encoded_lengths(target, payload_len)
+    }
+    fn encode_buffered(
+        &self,
+        target: &Address,
+        port: u16,
+        payload: &[u8],
+        buffers: &mut [zero_traits::PacketBuffer],
+    ) -> Result<zero_traits::DatagramCodecOutput, zero_traits::DatagramCodecBufferError<Error>>
+    {
+        self.encode_reserved(target, port, payload, buffers)
+    }
+    fn decode_buffer_lengths(
+        &self,
+        wire_len: usize,
+    ) -> Result<Vec<usize>, zero_traits::DatagramCodecBufferError<Error>> {
+        self.decoded_lengths(wire_len)
+    }
+    fn decode_buffered(
+        &self,
+        wire: &[u8],
+        buffers: &mut [zero_traits::PacketBuffer],
+    ) -> Result<
+        Option<(Address, u16, zero_traits::DatagramCodecOutput)>,
+        zero_traits::DatagramCodecBufferError<Error>,
+    > {
+        self.decode_reserved(wire, buffers)
+    }
     fn decode(&self, data: &[u8]) -> Option<(Address, u16, Vec<u8>)> {
         #[cfg(feature = "blake3")]
         if self.cipher.is_blake3() {
@@ -108,7 +138,10 @@ impl DatagramCodec<Address> for ShadowsocksDatagramCodec {
             }
             if !state
                 .received
-                .accept(packet.session_id, packet.packet_id)
+                .get_or_insert_with(|| {
+                    ReceiveWindows::with_budget(self.limits, self.replay.udp_replay_budget())
+                })
+                .accept_with_limits(packet.session_id, packet.packet_id, self.limits)
                 .ok()?
             {
                 return None;
@@ -146,3 +179,7 @@ impl core::fmt::Debug for ShadowsocksDatagramCodec {
             .finish_non_exhaustive()
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/udp_session/buffered.rs"]
+mod buffered_tests;

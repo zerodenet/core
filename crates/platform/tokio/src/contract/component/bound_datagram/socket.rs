@@ -1,8 +1,8 @@
 use super::super::super::{DeliveryState, Impact, Reason, Stage};
 use super::*;
 use crate::{
-    controlled_datagram::{DatagramCloseReceipt, DatagramReservationId},
     EgressInterface,
+    controlled_datagram::{DatagramCloseReceipt, DatagramReservationId},
 };
 use std::{
     future::poll_fn,
@@ -22,7 +22,8 @@ impl DatagramBindingGuard {
 }
 /// A unique I/O view. Neither the raw socket nor a global opener can be recovered.
 pub struct BoundDatagramSocket {
-    socket: ControlledDatagramSocket,
+    socket: Option<ControlledDatagramSocket>,
+    returned: BoundDatagramView,
     binding: DatagramBindingId,
     selection: EgressSelection,
     authorization: Arc<dyn DatagramBindingAuthorization>,
@@ -31,7 +32,7 @@ impl fmt::Debug for BoundDatagramSocket {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BoundDatagramSocket")
             .field("binding", &self.binding)
-            .field("reservation", &self.socket.reservation())
+            .field("reservation", &self.socket().reservation())
             .finish_non_exhaustive()
     }
 }
@@ -40,15 +41,54 @@ fn stale(stage: Stage) -> ChannelError {
     failure.delivery = DeliveryState::NotSubmitted;
     failure
 }
+/// Observation of the original unique IO view's actual return. Its flag is
+/// set after dropping that IO view, independently of native close/Scope joins.
+#[derive(Clone)]
+pub struct BoundDatagramView {
+    original: crate::controlled_datagram::ControlledDatagramIdentity,
+    returned: Arc<std::sync::atomic::AtomicBool>,
+}
+impl BoundDatagramView {
+    pub fn is_returned(&self) -> bool {
+        self.returned.load(std::sync::atomic::Ordering::Acquire)
+    }
+    pub fn matches_control(
+        &self,
+        control: &crate::controlled_datagram::ControlledDatagramControl,
+    ) -> bool {
+        self.original.matches_control(control)
+    }
+}
 impl BoundDatagramSocket {
+    fn socket(&self) -> &ControlledDatagramSocket {
+        self.socket.as_ref().expect("live unique original UDP view")
+    }
+    fn socket_mut(&mut self) -> &mut ControlledDatagramSocket {
+        self.socket.as_mut().expect("live unique original UDP view")
+    }
+    pub fn return_observation(&self) -> BoundDatagramView {
+        self.returned.clone()
+    }
+
+    /// Read the sealed registration of this same acquired original. The binding
+    /// ID or a peer address cannot manufacture a provider or native-close proof.
+    pub fn original(&self) -> Option<crate::controlled_datagram::provider::NativeDatagramOrigin> {
+        self.socket().original_provider()?.origin()
+    }
+
     pub(super) fn new(
         socket: ControlledDatagramSocket,
         binding: DatagramBindingId,
         selection: EgressSelection,
         authorization: Arc<dyn DatagramBindingAuthorization>,
     ) -> Self {
+        let returned = BoundDatagramView {
+            original: socket.identity(),
+            returned: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
         Self {
-            socket,
+            socket: Some(socket),
+            returned,
             binding,
             selection,
             authorization,
@@ -64,10 +104,10 @@ impl BoundDatagramSocket {
         &self.binding
     }
     pub fn reservation(&self) -> DatagramReservationId {
-        self.socket.reservation()
+        self.socket().reservation()
     }
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
-        self.socket.local_addr()
+        self.socket().local_addr()
     }
     pub fn egress_interface(&self) -> Option<&EgressInterface> {
         self.selection.interface()
@@ -76,7 +116,7 @@ impl BoundDatagramSocket {
         &mut self,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> io::Result<()> {
-        self.socket.set_observer(observer)
+        self.socket_mut().set_observer(observer)
     }
     fn validate_send(&self, peer: SocketAddr) -> Result<(), ChannelError> {
         let generation = NetworkGeneration(self.selection.generation());
@@ -87,7 +127,7 @@ impl BoundDatagramSocket {
             || selected.interface() != self.selection.interface()
             || peer.is_ipv6()
                 != self
-                    .socket
+                    .socket()
                     .local_addr()
                     .map_err(|source| stale(Stage::Send).with_source(source))?
                     .is_ipv6()
@@ -106,7 +146,7 @@ impl BoundDatagramSocket {
         if let Err(source) = self.validate_send(peer) {
             return Poll::Ready(Err(io::Error::other(source)));
         }
-        self.socket.poll_send_to_addr(cx, bytes, peer)
+        self.socket().poll_send_to_addr(cx, bytes, peer)
     }
     pub async fn send_to_addr(&self, bytes: &[u8], peer: SocketAddr) -> io::Result<usize> {
         poll_fn(|cx| self.poll_send_to_addr(cx, bytes, peer)).await
@@ -131,13 +171,22 @@ impl BoundDatagramSocket {
             }
             return Poll::Ready(Err(io::Error::other(source)));
         }
-        self.socket.poll_recv_from_addr(cx, bytes)
+        self.socket().poll_recv_from_addr(cx, bytes)
     }
     pub async fn recv_from_addr(&self, bytes: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
         poll_fn(|cx| self.poll_recv_from_addr(cx, bytes)).await
     }
     /// Physical evidence only; the provider alone consumes its owner's receipt.
     pub fn close(&self) -> Result<DatagramCloseReceipt, Arc<io::Error>> {
-        self.socket.close()
+        self.socket().close()
+    }
+}
+
+impl Drop for BoundDatagramSocket {
+    fn drop(&mut self) {
+        drop(self.socket.take());
+        self.returned
+            .returned
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 }

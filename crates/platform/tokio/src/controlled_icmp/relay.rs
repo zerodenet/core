@@ -3,8 +3,8 @@ use super::*;
 use std::{
     ops::{Deref, DerefMut},
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
         Weak,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     task::{Wake, Waker},
 };
@@ -35,6 +35,21 @@ pub(super) struct NativeGuard<'a> {
     guard: Option<MutexGuard<'a, Native>>,
 }
 impl<'a> NativeGuard<'a> {
+    pub(super) fn try_lock(entry: &'a Entry) -> Option<Self> {
+        entry.wakes.critical.fetch_add(1, Ordering::SeqCst);
+        let guard = match entry.native.try_lock() {
+            Ok(guard) => guard,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                entry.wakes.leave();
+                return None;
+            }
+        };
+        Some(Self {
+            entry,
+            guard: Some(guard),
+        })
+    }
     pub(super) fn lock(entry: &'a Entry) -> Self {
         entry.wakes.critical.fetch_add(1, Ordering::SeqCst);
         let guard = entry

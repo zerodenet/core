@@ -1,5 +1,6 @@
 //! Actual canonical native holders close in the original registered driver.
 use super::*;
+mod cleanup_receiver;
 mod start;
 use crate::runtime::inbound_owners::bind::tests::{lease, proxy};
 use std::error::Error;
@@ -124,6 +125,8 @@ async fn work_panic_closes_same_original_then_resumes_in_the_same_registered_tas
         assert_eq!(fault.class, TaskClass::Critical);
         let original = fault
             .source
+            .source()
+            .unwrap()
             .source()
             .unwrap()
             .downcast_ref::<tokio::task::JoinError>()

@@ -42,6 +42,19 @@ impl InboundListenerRuntime {
     ) -> Option<crate::runtime::inbound_operation::raw_ip::PacketSourceContext> {
         self.host.as_ref()?.packet_source()
     }
+    /// Bind the same typed source owner while preserving its real routing tag.
+    /// System TUN's registry reservation is not a configured inbound tag.
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(in crate::runtime) fn with_source_owner(
+        mut self,
+        owner: &crate::runtime::inbound_owners::InboundOwner,
+    ) -> Self {
+        self.host = Some(owner.task_access());
+        self.route_factory.resources = owner.inbound_resources();
+        self.route_factory = self.route_factory.with_inbound_instance(owner.identity());
+        self.ready = Some(owner.readiness());
+        self
+    }
     pub(crate) fn with_inbound_instance(
         mut self,
         identity: zero_core::component::ComponentInstanceId,
@@ -73,7 +86,6 @@ impl InboundListenerRuntime {
         }
     }
 
-    #[cfg(feature = "managed-datagram-runtime")]
     pub(crate) fn host_control(
         &self,
     ) -> Option<&crate::runtime::inbound_owners::InboundTaskAccess> {
@@ -93,12 +105,25 @@ impl InboundListenerRuntime {
 #[derive(Clone)]
 pub(crate) struct InboundListenerRuntimeFactory {
     restoring: bool,
+    restart_sources: bool,
     preparing: Option<std::sync::Arc<crate::runtime::inbound_owners::PreparingInbounds>>,
     owners: std::sync::Arc<crate::runtime::inbound_owners::InboundOwnerRegistry>,
     shared: SharedIngressRuntimeServices,
 }
 
 impl InboundListenerRuntimeFactory {
+    pub(crate) fn for_source_network_restart(mut self) -> Self {
+        self.restart_sources = true;
+        self
+    }
+    pub(crate) fn source_network_restart(&self) -> bool {
+        self.restart_sources
+    }
+    pub(crate) fn with_prepared_components(&self) -> Result<Self, zero_engine::EngineError> {
+        let mut factory = self.clone();
+        factory.shared = self.shared.with_prepared_components()?;
+        Ok(factory)
+    }
     /// Only last-known-good compensation selects restoration; equal inbound
     /// fields in an ordinary candidate may still change its dependencies.
     pub(crate) fn for_recovery(mut self) -> Self {
@@ -108,6 +133,24 @@ impl InboundListenerRuntimeFactory {
     }
     pub(crate) fn is_restoring(&self) -> bool {
         self.restoring
+    }
+
+    pub(in crate::runtime) fn source_dependencies_changed(
+        &self,
+        input: &zero_config::InboundConfig,
+    ) -> Result<bool, zero_engine::EngineError> {
+        if self.restart_sources {
+            return Ok(true);
+        }
+        #[cfg(feature = "raw-ip-runtime")]
+        {
+            self.shared.source_dependencies_changed(&self.owners, input)
+        }
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        {
+            let _ = input;
+            Ok(false)
+        }
     }
 
     pub(crate) fn config_handle(&self) -> std::sync::Arc<zero_config::RuntimeConfig> {
@@ -123,6 +166,7 @@ impl InboundListenerRuntimeFactory {
     }
     pub(crate) fn without_preparing(mut self) -> Self {
         self.preparing = None;
+        self.restart_sources = false;
         self
     }
     pub(crate) fn register_preparing(
@@ -154,6 +198,7 @@ impl InboundListenerRuntimeFactory {
             shared,
             owners,
             restoring: false,
+            restart_sources: false,
             preparing: None,
         }
     }

@@ -145,3 +145,265 @@ async fn actual_pending_accept_cancellation_releases_its_endpoint_clone_without_
         io::ErrorKind::NotConnected
     );
 }
+
+#[tokio::test]
+async fn actual_three_view_admission_waits_without_closing_live_stream_or_consuming_next_stream() {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let mut scope = TaskScope::new(tokio::runtime::Handle::current(), bound(3));
+        let native = socket();
+        let retained = native.socket();
+        let (mut owner, mut receiver) = OwnedEndpointOwner::new(
+            native,
+            scope.registrar(),
+            OwnedEndpointLimits {
+                drivers: bound(3),
+                users: bound(4),
+            },
+        );
+        let (server_config, client_config) = configs();
+        let handle = owner
+            .start(Default::default(), Some(server_config), None)
+            .unwrap();
+        // The peer is a genuine independent wire endpoint, not another view
+        // charged to the server's four-user book.
+        let mut peer = quinn::Endpoint::client("127.0.0.1:0".parse().unwrap()).unwrap();
+        peer.set_default_client_config(client_config);
+        let (client, connection) = tokio::join!(
+            peer.connect(handle.local_addr().unwrap(), "localhost")
+                .unwrap(),
+            handle.accept(),
+        );
+        let client = client.unwrap();
+        let connection = connection.unwrap();
+        assert_eq!(owner.active_users(), 1);
+        let (mut tx, mut rx) = client.open_bi().await.unwrap();
+        tx.write_all(b"one").await.unwrap();
+        let (original, send, recv) = connection.accept_bi_with_connection().await.unwrap();
+        let mut first = crate::quic::owned::OwnedBiStream::from_streams(original, send, recv);
+        let mut bytes = [0; 3];
+        first.read_exact(&mut bytes).await.unwrap();
+        assert_eq!(&bytes, b"one");
+        assert_eq!(owner.active_users(), 4);
+        let (mut next_tx, mut next_rx) = client.open_bi().await.unwrap();
+        next_tx.write_all(b"two").await.unwrap();
+        let mut waiting = Box::pin(connection.accept_bi_with_connection());
+        poll_fn(|cx| {
+            assert!(
+                waiting.as_mut().poll(cx).is_pending(),
+                "three real views must fit before native accept"
+            );
+            Poll::Ready(())
+        })
+        .await;
+        assert_eq!(owner.active_users(), 4, "waiting acquired no partial views");
+        // The existing stream keeps working while the next stream waits.
+        tx.write_all(b"old").await.unwrap();
+        first.read_exact(&mut bytes).await.unwrap();
+        assert_eq!(&bytes, b"old");
+        first.write_all(b"yes").await.unwrap();
+        rx.read_exact(&mut bytes).await.unwrap();
+        assert_eq!(&bytes, b"yes");
+        drop(waiting);
+        assert_eq!(
+            owner.active_users(),
+            4,
+            "cancelling a waiter does not retire an old view"
+        );
+        assert!(retained.local_addr().is_ok());
+        assert!(!owner.driver_status().unjoined.is_empty());
+        drop(first);
+        assert_eq!(
+            owner.active_users(),
+            1,
+            "only actual stream/connection view destruction returns its three permits"
+        );
+        let (original, send, recv) = connection.accept_bi_with_connection().await.unwrap();
+        let mut second = crate::quic::owned::OwnedBiStream::from_streams(original, send, recv);
+        second.read_exact(&mut bytes).await.unwrap();
+        assert_eq!(
+            &bytes, b"two",
+            "cancelled admission did not consume the queued raw stream"
+        );
+        second.write_all(b"new").await.unwrap();
+        next_rx.read_exact(&mut bytes).await.unwrap();
+        assert_eq!(&bytes, b"new");
+        assert_eq!(owner.active_users(), 4);
+        let mut stopped = Box::pin(connection.accept_bi_with_connection());
+        poll_fn(|cx| {
+            assert!(stopped.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        owner.begin_shutdown();
+        assert!(
+            stopped.await.is_err(),
+            "same endpoint stop wakes the original capacity wait"
+        );
+        assert_eq!(owner.active_users(), 4, "stop is not actual view return");
+        assert_eq!(
+            owner.shutdown(Instant::now()).await.unwrap_err().reason,
+            Reason::Timeout
+        );
+        assert!(
+            retained.local_addr().is_ok(),
+            "held views forbid native close"
+        );
+        drop(second);
+        drop(connection);
+        assert_eq!(owner.active_users(), 0);
+        drop(tx);
+        drop(rx);
+        drop(next_tx);
+        drop(next_rx);
+        drop(client);
+        peer.close(0u32.into(), b"normal peer retirement");
+        peer.wait_idle().await;
+        let (report, classes) = tokio::join!(
+            owner.shutdown(Instant::now() + Duration::from_secs(3)),
+            collect(&mut scope, &mut receiver, 2),
+        );
+        let report = report.unwrap();
+        assert!(report.is_complete());
+        assert_eq!(report.confirmed_main, 1);
+        assert_eq!(
+            classes
+                .iter()
+                .filter(|class| **class == TaskClass::Critical)
+                .count(),
+            1
+        );
+        assert_eq!(
+            classes
+                .iter()
+                .filter(|class| **class == TaskClass::Auxiliary)
+                .count(),
+            1
+        );
+        assert_eq!(
+            retained.local_addr().unwrap_err().kind(),
+            io::ErrorKind::NotConnected
+        );
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn ordinary_incoming_wait_preserves_existing_datagram_wire_and_returns_only_real_users() {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let mut scope = TaskScope::new(tokio::runtime::Handle::current(), bound(3));
+        let native = socket();
+        let retained = native.socket();
+        let (mut owner, mut receiver) = OwnedEndpointOwner::new(
+            native,
+            scope.registrar(),
+            OwnedEndpointLimits {
+                drivers: bound(3),
+                users: bound(2),
+            },
+        );
+        let (server_config, client_config) = configs();
+        let handle = owner
+            .start(Default::default(), Some(server_config), None)
+            .unwrap();
+        let address = handle.local_addr().unwrap();
+        let mut peer = quinn::Endpoint::client("127.0.0.1:0".parse().unwrap()).unwrap();
+        peer.set_default_client_config(client_config);
+        let (client, first) =
+            tokio::join!(peer.connect(address, "localhost").unwrap(), handle.accept());
+        let client = client.unwrap();
+        let first = first.unwrap();
+        let mut send = client.open_uni().await.unwrap();
+        send.write_all(b"view").await.unwrap();
+        let mut view = first.accept_uni().await.unwrap();
+        let mut bytes = [0; 4];
+        view.read_exact(&mut bytes).await.unwrap();
+        assert_eq!(&bytes, b"view");
+        assert_eq!(owner.active_users(), 2);
+        let mut next = Box::pin(peer.connect(address, "localhost").unwrap());
+        poll_fn(|cx| {
+            assert!(next.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        let mut blocked = Box::pin(handle.accept_incoming_wait());
+        poll_fn(|cx| {
+            assert!(blocked.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        client
+            .send_datagram(bytes::Bytes::from_static(b"old"))
+            .unwrap();
+        assert_eq!(&first.read_datagram().await.unwrap()[..], b"old");
+        first
+            .send_datagram(bytes::Bytes::from_static(b"yes"))
+            .unwrap();
+        assert_eq!(&client.read_datagram().await.unwrap()[..], b"yes");
+        assert_eq!(owner.active_users(), 2);
+        drop(blocked);
+        assert_eq!(
+            owner.active_users(),
+            2,
+            "cancel did not return either actual old user"
+        );
+        drop(view);
+        assert_eq!(owner.active_users(), 1);
+        let (client_next, incoming) = tokio::join!(next, async {
+            handle
+                .accept_incoming_wait()
+                .await
+                .unwrap()
+                .establish()
+                .await
+                .unwrap()
+        });
+        let client_next = client_next.unwrap();
+        assert_eq!(owner.active_users(), 2);
+        client_next
+            .send_datagram(bytes::Bytes::from_static(b"new"))
+            .unwrap();
+        assert_eq!(&incoming.read_datagram().await.unwrap()[..], b"new");
+        owner.begin_shutdown();
+        assert_eq!(
+            owner.shutdown(Instant::now()).await.unwrap_err().reason,
+            Reason::Timeout
+        );
+        assert!(retained.local_addr().is_ok());
+        drop(first);
+        drop(incoming);
+        drop(send);
+        drop(client);
+        drop(client_next);
+        peer.close(0u32.into(), b"original peer done");
+        peer.wait_idle().await;
+        assert_eq!(owner.active_users(), 0);
+        let (report, classes) = tokio::join!(
+            owner.shutdown(Instant::now() + Duration::from_secs(3)),
+            collect(&mut scope, &mut receiver, 3)
+        );
+        let report = report.unwrap();
+        assert!(report.is_complete());
+        assert_eq!(report.confirmed_main, 1);
+        assert_eq!(
+            classes
+                .iter()
+                .filter(|class| **class == TaskClass::Critical)
+                .count(),
+            1
+        );
+        assert_eq!(
+            classes
+                .iter()
+                .filter(|class| **class == TaskClass::Auxiliary)
+                .count(),
+            2
+        );
+        assert_eq!(
+            retained.local_addr().unwrap_err().kind(),
+            io::ErrorKind::NotConnected
+        );
+    })
+    .await
+    .unwrap();
+}

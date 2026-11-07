@@ -40,7 +40,7 @@ async fn replay_capacity_never_evicts_a_live_session_and_retains_future_boundary
     assert!(sessions.accept(MAX_REPLAY_SESSIONS as u64, 0).is_err());
     tokio::time::advance(Duration::from_secs(1)).await;
     sessions.prune();
-    assert!(sessions.entries.is_empty());
+    assert!(sessions.0.is_empty());
     assert!(sessions.accept(MAX_REPLAY_SESSIONS as u64, 0).unwrap());
 }
 

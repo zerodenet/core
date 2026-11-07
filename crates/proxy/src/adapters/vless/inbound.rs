@@ -1,6 +1,37 @@
 //! Validated config projection; supported sources use the existing standard factory.
 use super::*;
 impl VlessAdapter {
+    pub(crate) fn inbound_options_in_runtime(
+        &self,
+        inbound: &InboundConfig,
+        source_dir: Option<&std::path::Path>,
+        runtime: &zero_config::RuntimeOptionsConfig,
+    ) -> Result<::vless::component::inbound::listener::Options, crate::component::RegistrationError>
+    {
+        let n = |value| std::num::NonZeroUsize::new(value).expect("validated runtime budget");
+        self.inbound_options(inbound, source_dir)?
+            .with_metadata_limits(
+                n(runtime.effective_metadata_max_probe_sockets(2)),
+                n(runtime.effective_metadata_max_probe_attempts(8)),
+                n(runtime.effective_metadata_max_send_calls(2)),
+            )
+            .and_then(|options| {
+                options.with_quic_limits(
+                    n(runtime.effective_quic_source_max_connections()),
+                    n(runtime.effective_quic_shared_endpoint_max_users()),
+                )
+            })
+            .map_err(|source| {
+                zero_platform_tokio::contract::ChannelError::new(
+                    zero_platform_tokio::contract::Stage::Prepare,
+                    zero_platform_tokio::contract::Reason::InvalidConfig,
+                    zero_platform_tokio::contract::Impact::Component,
+                )
+                .with_source(source)
+                .into()
+            })
+    }
+
     pub(super) fn listener_request(
         &self,
         inbound: &InboundConfig,

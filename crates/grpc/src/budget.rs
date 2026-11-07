@@ -1,8 +1,7 @@
-//! The root adapter charges complete serialized event frames until Tonic takes
-//! custody in `poll_next`. Hyper's finite H2 send buffers remain separate from
-//! this queue; handoff is not proof of a physical write or native close.
+//! The root adapter prepays the original queued event and encoded byte storage.
+//! Production handoff transfers the same lease into the actual encoder/wire
+//! owner; poll_next is never a physical write or native-close receipt.
 use super::*;
-use prost::Message;
 use std::{
     io,
     pin::Pin,
@@ -17,18 +16,30 @@ pub(super) fn defaults() -> Arc<ControlBudget> {
         connections: 256,
         subscriptions: 256,
         queued_event_bytes: 1024 * 1024,
+        pipe_workspace_bytes: 2 * 1024 * 1024,
+        messages: Default::default(),
     })
 }
 pub(super) struct QueuedEvent {
     pub(super) event: Result<PbEvent, Status>,
     pub(super) _charge: Option<ControlBudgetPermit>,
+    pub(super) encoded: Option<(
+        Arc<crate::messages::Record>,
+        usize,
+        Arc<crate::messages::output::Lease>,
+    )>,
 }
 pub(super) struct Events(pub(super) mpsc::Receiver<QueuedEvent>);
 impl futures_core::Stream for Events {
     type Item = Result<PbEvent, Status>;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.0.poll_recv(cx) {
-            Poll::Ready(Some(event)) => Poll::Ready(Some(event.event)),
+            Poll::Ready(Some(event)) => {
+                if let Some((original, frame, lease)) = event.encoded {
+                    original.enqueue(frame, lease);
+                }
+                Poll::Ready(Some(event.event))
+            }
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
@@ -60,15 +71,44 @@ fn varint_len(mut value: usize) -> usize {
     }
     bytes
 }
-pub(super) fn frame_len(event: &PbEvent, payload: &serde_json::Value) -> io::Result<usize> {
-    let bytes = payload_len(payload)?;
-    // `event.payload` is still empty. Field 4 has a one-byte key; include the
-    // protobuf length prefix and gRPC's five-byte message header before allocate.
-    event
-        .encoded_len()
-        .checked_add(1 + varint_len(bytes))
-        .and_then(|base| base.checked_add(bytes))
-        .and_then(|base| base.checked_add(5))
+/// Measure borrowed original fields before allocating their protobuf copies.
+pub(super) fn original_frame_len(event: &zero_api::RawApiEvent) -> io::Result<usize> {
+    fields_frame_len(
+        &event.event_type,
+        event.event_id.len(),
+        event.occurred_at_unix_ms,
+        payload_len(&event.payload)?,
+    )
+}
+pub(super) fn fields_frame_len(
+    event_type: &str,
+    event_id_bytes: usize,
+    occurred_at: u64,
+    payload: usize,
+) -> io::Result<usize> {
+    let mut bytes = 5usize;
+    for size in [event_type.len(), event_id_bytes] {
+        if size != 0 {
+            bytes = bytes
+                .checked_add(1 + varint_len(size))
+                .and_then(|n| n.checked_add(size))
+                .ok_or_else(|| io::Error::other("gRPC event field length overflow"))?;
+        }
+    }
+    if occurred_at != 0 {
+        let mut value = occurred_at;
+        let mut length = 1;
+        while value >= 128 {
+            value >>= 7;
+            length += 1;
+        }
+        bytes = bytes
+            .checked_add(1 + length)
+            .ok_or_else(|| io::Error::other("gRPC event timestamp overflow"))?;
+    }
+    bytes
+        .checked_add(1 + varint_len(payload))
+        .and_then(|n| n.checked_add(payload))
         .ok_or_else(|| io::Error::other("gRPC event frame length overflow"))
 }
 pub(super) fn reserve(
@@ -92,3 +132,39 @@ pub(super) fn reserve(
         }
     }
 }
+
+pub(super) fn reserve_message(
+    owner: &Subscriptions,
+    original: Option<&Arc<crate::messages::Record>>,
+    bytes: usize,
+    closed: impl Fn() -> bool,
+) -> io::Result<
+    Option<(
+        Option<ControlBudgetPermit>,
+        Option<Arc<crate::messages::output::Lease>>,
+    )>,
+> {
+    let Some(original) = original else {
+        return reserve(owner, bytes, closed)
+            .map(|charge| charge.map(|charge| (Some(charge), None)));
+    };
+    loop {
+        if owner.stop.load(Ordering::Acquire) || closed() {
+            return Ok(None);
+        }
+        // Both actual owners must be prepaid before JSON or Prost allocate.
+        // Composite admission is atomic: failure holds no partial allowance
+        // and an ordered event never waits for its own duplicate raw charge.
+        let attempt = original.encoded(bytes, ControlCharge::QueuedEventBytes(bytes));
+        match attempt {
+            Ok(encoded) => return Ok(Some((None, Some(encoded)))),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(25))
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

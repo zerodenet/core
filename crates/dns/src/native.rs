@@ -44,8 +44,45 @@ pub trait NativeDnsQuicControl: Send {
     >;
 }
 
+/// Existing UDP DNS semantics: packet-capable detours lend their datagram,
+/// while stream detours retain the existing length-prefixed DNS wire form.
+/// The host chooses once, before either real I/O operation is submitted.
+pub enum NativeDnsUdpLoan {
+    Datagram(DatagramLoan),
+    Stream(StreamLoan),
+}
+
 /// Executable native I/O, not a Service label or a declaration-only capability.
 pub trait NativeDnsProvider: Send + Sync {
+    /// Exact original host generation and Scope, for cold preservation checks.
+    /// This is observation only, never task/native acquisition or closure.
+    fn host_scope(
+        &self,
+    ) -> Option<(
+        zero_core::component::ComponentInstanceId,
+        zero_platform_tokio::contract::scope::TaskScopeIdentity,
+    )> {
+        None
+    }
+
+    /// Existing actual Default/Node sources, for pool custody matching only.
+    fn source_roots(&self) -> Option<(Arc<NativeDnsSource>, Arc<NativeDnsSource>)> {
+        None
+    }
+    fn prepare_ech_endpoint(
+        &self,
+        _endpoint: crate::EchDnsEndpoint,
+        _caller: TaskJoinWitness,
+        _cancel: CancellationToken,
+        _end: Instant,
+    ) -> BoxFuture<'_, io::Result<Vec<SocketAddr>>> {
+        Box::pin(async {
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "ECH endpoint has no declared host original",
+            ))
+        })
+    }
     fn budget(&self) -> Option<Arc<NativeDnsBudget>> {
         None
     }
@@ -55,6 +92,12 @@ pub trait NativeDnsProvider: Send + Sync {
     /// Invoked by the same real query/driver task after its I/O future drops.
     /// Stand-alone providers retain their explicit lifecycle; the actual kernel
     /// provider consumes its registered originals here, without another task.
+    /// Positive read-only evidence from this exact provider's actual caller
+    /// native/logical ledger, independent of a retained typed worker fault.
+    /// Descendant joins/native obligations are checked separately by the budget.
+    fn query_native_retirement_complete(&self, _caller: &TaskJoinWitness) -> bool {
+        false
+    }
     fn finish_query(&self, _caller: TaskJoinWitness) -> BoxFuture<'_, io::Result<()>> {
         Box::pin(async { Ok(()) })
     }
@@ -91,6 +134,26 @@ pub trait NativeDnsProvider: Send + Sync {
                 io::ErrorKind::Unsupported,
                 "DNS detour has no original provider",
             ))
+        })
+    }
+    fn detour_udp(
+        &self,
+        outbound: String,
+        peer: SocketAddr,
+        caller: TaskJoinWitness,
+        cancel: CancellationToken,
+        end: Instant,
+    ) -> BoxFuture<'_, io::Result<NativeDnsUdpLoan>> {
+        Box::pin(async move {
+            if !self.owns_detour(&outbound) {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "DNS UDP detour has no original provider",
+                ));
+            }
+            self.detour_stream(outbound, peer, caller, cancel, end)
+                .await
+                .map(|(loan, _)| NativeDnsUdpLoan::Stream(loan))
         })
     }
     /// Called after the actual driver joins. The provider settles its retained
@@ -157,14 +220,6 @@ impl fmt::Debug for NativeDnsSource {
     }
 }
 impl NativeDnsSource {
-    pub(crate) fn owns_detour(&self, outbound: &str) -> bool {
-        match self.provider() {
-            Ok(provider) => provider.owns_detour(outbound),
-            // A missing original host is a terminal admission failure, never
-            // permission to run a submitted query through a naked connector.
-            Err(_) => true,
-        }
-    }
     /// Settle old actual registrations if this purpose is assembled. A source
     /// with no installed provider grants no resource and has nothing to poll;
     /// the RuntimeHost retains withdrawn owners through its replacement barrier.
@@ -243,6 +298,11 @@ impl NativeDnsSource {
                 )
             })
     }
+    /// Installed original Scope identity only; supplies no acquisition grant.
+    pub fn owns_tasks(&self, tasks: &OwnedDnsQueryTasks) -> bool {
+        self.provider()
+            .is_ok_and(|provider| provider.tasks().same_owner(tasks))
+    }
     pub(crate) fn tasks(&self) -> io::Result<OwnedDnsQueryTasks> {
         Ok(self.provider()?.tasks())
     }
@@ -259,6 +319,26 @@ impl NativeDnsSource {
                 end,
             )
             .await
+    }
+    #[cfg(feature = "udp")]
+    pub(crate) async fn exchange_ech_udp(
+        &self,
+        peer: SocketAddr,
+        query: &[u8],
+        end: Instant,
+    ) -> wire::Attempt {
+        let context = self.provider().and_then(|provider| {
+            Ok((
+                provider,
+                OwnedDnsQueryTasks::current_witness()?,
+                OwnedDnsQueryTasks::current_cancellation()?,
+            ))
+        });
+        let (provider, caller, cancel) = match context {
+            Ok(value) => value,
+            Err(source) => return wire::Attempt::blocked(source),
+        };
+        wire::exchange_ech_udp(provider.as_ref(), peer, query, caller, cancel, end).await
     }
     pub(crate) fn exchange<'a>(
         &'a self,

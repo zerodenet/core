@@ -1,6 +1,8 @@
 //! DNS-owned persistent resources survive resolver publication and caller drop.
 //! This registry is state-only at construction and never creates a runtime.
 #[cfg(feature = "doh")]
+mod ech;
+#[cfg(feature = "doh")]
 use crate::backends::DohDriverOwner;
 #[cfg(feature = "doq")]
 use crate::backends::DoqEndpointOwner;
@@ -20,6 +22,10 @@ pub(crate) struct TransportOwners {
 #[cfg(feature = "doh")]
 #[derive(Default)]
 struct DohOwners {
+    endpoints: Vec<(
+        crate::ech::pool::DohKey,
+        Arc<crate::backends::ResolverBackend>,
+    )>,
     closing: bool,
     owners: Vec<Arc<DohDriverOwner>>,
 }
@@ -30,6 +36,15 @@ struct DoqOwners {
     owners: Vec<Arc<DoqEndpointOwner>>,
 }
 impl TransportOwners {
+    #[cfg(feature = "doh")]
+    pub(crate) fn actual_doh_owners(&self) -> Vec<Arc<DohDriverOwner>> {
+        self.doh
+            .lock()
+            .expect("DNS DoH owners poisoned")
+            .owners
+            .clone()
+    }
+
     pub(crate) async fn shutdown_host_pools(
         &self,
         tasks: &crate::OwnedDnsQueryTasks,
@@ -186,11 +201,13 @@ impl TransportOwners {
             let owners = {
                 let mut state = self.doh.lock().expect("DNS DoH owners poisoned");
                 state.closing = true;
-                for owner in &state.owners {
-                    owner.retire();
-                }
                 state.owners.clone()
             };
+            // Original cancellation wakes may re-enter this registry. Its
+            // closing fence is installed before delivering them, lock-free.
+            for owner in &owners {
+                owner.retire();
+            }
             let mut failure = None;
             for owner in owners {
                 if let Err(source) = owner.shutdown(deadline).await {

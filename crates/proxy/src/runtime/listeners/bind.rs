@@ -29,8 +29,10 @@ pub(super) async fn bind_listener(
     shutdown: watch::Sender<bool>,
     attempts: NonZeroUsize,
 ) -> Result<PendingInbound, EngineError> {
-    let prepared =
-        protocols.prepare_inbound_bind(runtime_factory.listener_config(inbound), source_dir)?;
+    let prepared = protocols.prepare_inbound_bind_in_config(
+        runtime_factory.listener_config(inbound),
+        &runtime_factory.config_handle(),
+    )?;
     bind_prepared_listener(
         protocols,
         runtime_factory,

@@ -25,7 +25,7 @@ async fn native_mux_standard_datagram_preserves_packets_and_shares_actual_tcp_po
                 true,
             )
             .unwrap();
-            start_components(&proxy).await;
+            let running = start_components(&proxy).await;
             let mut tcp = connect(&proxy, server.fixture.echo.port()).await.unwrap();
             echo(&mut tcp).await;
             let registration = registration(&proxy);
@@ -94,6 +94,7 @@ async fn native_mux_standard_datagram_preserves_packets_and_shares_actual_tcp_po
             assert!(registration.closed().unwrap().matches(&registration));
             assert!(registration.users_closed().unwrap().matches(&registration));
             udp.close().await;
+            running.shutdown().await.unwrap();
             server.close().await;
         }
     })
@@ -112,7 +113,7 @@ async fn native_mux_datagram_multiple_targets_and_invalid_packets_do_not_change_
                 true,
             )
             .unwrap();
-            start_components(&proxy).await;
+            let running = start_components(&proxy).await;
             let multiple = open(&proxy, 30, DatagramTargets::Multiple).await;
             if protocol == "trojan" {
                 assert!(multiple.is_err());
@@ -205,6 +206,7 @@ async fn native_mux_datagram_multiple_targets_and_invalid_packets_do_not_change_
                 .unwrap();
             udp.close().await;
             other.close().await;
+            running.shutdown().await.unwrap();
             server.close().await;
         }
     })

@@ -1,7 +1,8 @@
-//! Host detour contract. Control traffic has no fabricated business session.
+//! Explicit standalone detour wiring. Host-bound resolvers use their actual
+//! NativeDnsProvider and never fall back to this library connector.
 use std::{fmt, future::Future, io, net::SocketAddr, pin::Pin, sync::Arc};
 use tokio::time::Instant;
-use zero_platform_tokio::contract::{context::with_deadline, CancellationToken};
+use zero_platform_tokio::contract::{CancellationToken, context::with_deadline};
 
 pub type DnsOutboundConnectFuture =
     Pin<Box<dyn Future<Output = io::Result<zero_platform_tokio::TcpRelayStream>> + Send + 'static>>;
@@ -12,6 +13,11 @@ pub type DnsOutboundDatagramFuture =
 /// The host implementation owns the typed roles, endpoints, policies and live
 /// selection captures. Checking it must never resolve or advance scheduling.
 pub trait DnsCarrierBinding: fmt::Debug + Send + Sync {
+    /// The exact roles whose returned IO still holds real host user leases.
+    /// This is historical observation, never admission or a native receipt.
+    fn component_instances(&self) -> Option<Vec<zero_core::component::ComponentInstanceId>> {
+        None
+    }
     fn check_current(&self) -> io::Result<()>;
     /// Completes with the original revocation cause. The existing pool driver
     /// polls this inline; implementations must not spawn detached observers.
@@ -53,6 +59,8 @@ pub trait DnsQuicBidiConnector: fmt::Debug + Send + Sync {
     ) -> DnsOutboundCarrierFuture;
 }
 
+/// Library caller-supplied detour execution. Installing this connector does
+/// not grant host I/O; a resolver bound to NativeDnsSource never invokes it.
 pub trait DnsOutboundConnector: fmt::Debug + Send + Sync {
     /// Absence preserves the staged legacy path. Once a real capability is
     /// selected its errors must not fall back to a naked UDP/QUIC acquisition.

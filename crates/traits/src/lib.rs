@@ -5,7 +5,7 @@ extern crate alloc;
 mod dial;
 pub use dial::{canonicalize_ip, AddressFamily, DialPolicy, DialPolicyError};
 mod packet_buffer;
-pub use packet_buffer::{PacketBuffer, PacketStorage};
+pub use packet_buffer::{PacketBuffer, PacketDerivation, PacketDeriveError, PacketStorage};
 mod observation;
 pub use observation::{IoObserver, PacketDropReason};
 mod fallback;
@@ -25,13 +25,13 @@ pub use udp_flow::{ProtocolRelayTwoStreamUdpFlowLeaf, ProtocolUdpFlowLeaf};
 use alloc::{sync::Arc, vec::Vec};
 use core::sync::atomic::{AtomicU8, Ordering};
 pub use protocol::{
-    BrowserDialerSettings, ClientTlsProfile, DatagramCodec, DeferredTcpTunnelProtocol,
-    GrpcTransportProfile, H2TransportProfile, HttpUpgradeTransportProfile, InboundFallbackProfile,
-    ProtocolCapabilityDescriptor, ProtocolCapabilityLevel, ProtocolCapabilityState,
-    ProtocolMetadata, ProtocolNetworkCapability, ServerTlsProfile, SplitHttpTransportProfile,
-    StreamMuxTransportHints, TcpSessionProtocol, TcpTunnelProtocol, UdpDatagramFraming,
-    UdpPacketFraming, UdpPacketPath, UdpPacketStreamFraming, UdpPacketTunnelProtocol,
-    UdpRelayProtocol, WebSocketTransportProfile,
+    BrowserDialerSettings, ClientTlsProfile, DatagramCodec, DatagramCodecBufferError,
+    DatagramCodecOutput, DeferredTcpTunnelProtocol, GrpcTransportProfile, H2TransportProfile,
+    HttpUpgradeTransportProfile, InboundFallbackProfile, ProtocolCapabilityDescriptor,
+    ProtocolCapabilityLevel, ProtocolCapabilityState, ProtocolMetadata, ProtocolNetworkCapability,
+    ServerTlsProfile, SplitHttpTransportProfile, StreamMuxTransportHints, TcpSessionProtocol,
+    TcpTunnelProtocol, UdpDatagramFraming, UdpPacketFraming, UdpPacketPath, UdpPacketStreamFraming,
+    UdpPacketTunnelProtocol, UdpRelayProtocol, WebSocketTransportProfile,
 };
 pub use protocol::{InboundTransport, TransportKind};
 

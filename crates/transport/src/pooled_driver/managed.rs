@@ -14,17 +14,20 @@ use tokio::{sync::Notify, time::Instant};
 use zero_core::component::ComponentInstanceId;
 use zero_platform_tokio::{
     contract::{
-        network::{CarrierContext, UpstreamTransport},
+        network::{CarrierContext, PendingCarrierObserver, UpstreamBinding, UpstreamTransport},
         scope::{TaskClass, TaskRegistrar},
-        CancellationToken, ChannelError, Reason, Stage,
+        CancellationToken, Reason, Stage,
     },
     controlled_carrier::{CarrierGrants, CarrierIo},
 };
 pub struct ManagedPool {
     pub(super) instance: ComponentInstanceId,
+    pub(super) stream_dependency: Option<ComponentInstanceId>,
     pub(super) options: Arc<PoolOptions>,
     pub(super) upstream: UpstreamTransport,
     pub(super) tasks: TaskRegistrar,
+    pub(super) resources:
+        std::sync::Weak<dyn zero_platform_tokio::contract::component::ResourceAccess>,
     pub(super) grants: CarrierGrants,
     pub(super) cancel: CancellationToken,
     pub(super) ready: AtomicBool,
@@ -62,6 +65,11 @@ impl ManagedPool {
         }
         Ok(Operation(self.clone()))
     }
+    /// Read-only exact actual lower-stream dependency. This is neither a loan
+    /// nor authority; acquisition still validates and adopts the strong owner.
+    pub fn stream_dependency(&self) -> Option<ComponentInstanceId> {
+        self.stream_dependency
+    }
     pub fn instance(&self) -> ComponentInstanceId {
         self.instance
     }
@@ -92,157 +100,207 @@ impl ManagedPool {
         }
         Ok(())
     }
-    pub(super) fn harvest(&self) {
-        let records = self.records.lock().unwrap().clone();
-        for record in records {
-            record.receive_available();
-        }
-        self.records
-            .lock()
-            .unwrap()
-            .retain(|record| !record.closed());
-    }
-    async fn reap(&self, deadline: Instant) -> Result<(), ChannelError> {
-        let records = self.records.lock().unwrap().clone();
-        for record in records {
-            record.receive_available();
-            if !record.opening.load(Ordering::Acquire) && record.done.load(Ordering::Acquire) {
-                let report = record.original.retire(deadline).await?;
-                let complete = report.is_complete();
-                self.settled.lock().unwrap().append(report);
-                if !complete || !record.closed() {
-                    return Err(failure(self.instance, Stage::Close, Reason::Capacity));
-                }
-            }
-        }
-        self.harvest();
-        Ok(())
-    }
-    /// The record and its actual original controller precede the first await.
-    /// Preparation returns the same raw carrier's driver plus logical handles.
-    pub async fn open<C, F, Fut>(
+    /// Fixed resourceful library callers retain inline setup. Their original
+    /// protocol driver still belongs to their actual supplied TaskScope.
+    pub async fn open_owned<C, F, Fut>(
         self: &Arc<Self>,
         profile: &str,
-        binding: &zero_platform_tokio::contract::network::UpstreamBinding,
+        binding: &UpstreamBinding,
         prepare: F,
     ) -> Result<(C, Arc<Physical>), crate::RuntimeError>
     where
-        F: FnOnce(CarrierIo) -> Fut,
-        Fut: Future<Output = Result<(C, Driver), crate::RuntimeError>>,
+        C: Send + 'static,
+        F: FnOnce(CarrierIo) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<(C, Driver), crate::RuntimeError>> + Send + 'static,
+    {
+        self.open_observed(
+            profile,
+            binding,
+            CarrierContext {
+                session: None,
+                deadline: None,
+                cancel: self.cancel.child_token(),
+            },
+            None,
+            prepare,
+        )
+        .await
+    }
+    /// Actual protocol caller supplies its cancellation/deadline and weak
+    /// waiting ledger. The pool owns the separate BackgroundControl setup task;
+    /// a successfully installed shared driver never inherits the first caller.
+    pub async fn open_observed<C, F, Fut>(
+        self: &Arc<Self>,
+        profile: &str,
+        binding: &UpstreamBinding,
+        mut call: CarrierContext,
+        waiting: Option<PendingCarrierObserver>,
+        prepare: F,
+    ) -> Result<(C, Arc<Physical>), crate::RuntimeError>
+    where
+        C: Send + 'static,
+        F: FnOnce(CarrierIo) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<(C, Driver), crate::RuntimeError>> + Send + 'static,
     {
         self.check(profile)?;
+        let rejected = if call.cancel.is_cancelled() {
+            Some(Reason::Cancelled)
+        } else if call.deadline.is_some_and(|end| Instant::now() >= end) {
+            Some(Reason::Timeout)
+        } else {
+            None
+        };
+        if let Some(reason) = rejected {
+            let mut error = failure(self.instance, Stage::Prepare, reason);
+            error.delivery = zero_platform_tokio::contract::DeliveryState::NotSubmitted;
+            return Err(std::io::Error::other(error).into());
+        }
         let deadline = Instant::now()
             .checked_add(self.options.open_budget)
             .ok_or_else(|| std::io::Error::other("carrier deadline overflow"))?;
-        self.reap(deadline).await.map_err(std::io::Error::other)?;
-        if self.records.lock().unwrap().len() >= self.options.limit.get() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::WouldBlock,
-                "live or retiring carrier pool is full",
-            )
-            .into());
-        }
-        let mut grant = self.grants.reserve().map_err(std::io::Error::other)?;
-        let view = grant.claim_driver_view().map_err(std::io::Error::other)?;
-        let record = Physical::new(grant.adoption(), self);
-        {
-            let mut records = self.records.lock().unwrap();
-            records.push(record.clone());
-        }
-        let _opening = Opening(record.clone());
-        let preparing = async {
-            let selected = self
-                .upstream
-                .select_background_carrier(
-                    Some(binding.clone()),
-                    CarrierContext {
-                        session: None,
-                        deadline: Some(deadline),
-                        cancel: record.stop.clone(),
-                    },
+        call.deadline = Some(
+            call.deadline
+                .map_or(deadline, |actual| actual.min(deadline)),
+        );
+        let deadline = call.deadline.unwrap();
+        let candidates =
+            (binding.prefix.is_empty() && self.stream_dependency.is_none()).then(|| {
+                super::candidates::Candidates::new(CarrierContext {
+                    session: None,
+                    deadline: call.deadline,
+                    cancel: call.cancel.clone(),
+                })
+            });
+        let prepare = Arc::new(Mutex::new(Some(prepare)));
+        loop {
+            self.reap_ready().map_err(std::io::Error::other)?;
+            if self.records.lock().unwrap().len() >= self.options.limit.get() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "live or retiring carrier pool is full",
                 )
-                .await
-                .map_err(std::io::Error::other)?;
-            if selected.binding() != binding {
-                return Err(std::io::Error::other(failure(
-                    self.instance,
-                    Stage::Prepare,
-                    Reason::StalePlan,
-                ))
                 .into());
             }
-            self.verify_epoch(binding)?;
-            let raw = if binding.prefix.is_empty() {
-                let candidates = selected
-                    .resolve_controlled_carrier(
-                        self.options.endpoint.clone(),
-                        CarrierContext {
-                            session: None,
-                            deadline: Some(deadline),
-                            cancel: record.stop.clone(),
-                        },
-                    )
-                    .await
-                    .map_err(std::io::Error::other)?;
-                if candidates.len() != 1 {
-                    return Err(std::io::Error::other(failure(
-                        self.instance,
-                        Stage::Prepare,
-                        Reason::StalePlan,
-                    ))
-                    .into());
-                }
-                candidates
-                    .prepare_stream(0, grant)
-                    .map_err(std::io::Error::other)?
-                    .open(deadline)
-                    .await
-                    .map_err(std::io::Error::other)?
-                    .into_parts()
-                    .0
+            let mut grant = self.grants.reserve().map_err(std::io::Error::other)?;
+            let view = if self.options.preparation_jobs {
+                grant.claim_preparing_driver_view().map(|(view, _)| view)
             } else {
-                let call = CarrierContext {
-                    session: None,
-                    deadline: Some(deadline),
-                    cancel: record.stop.clone(),
-                };
-                let loan = selected
-                    .borrow_stream(self.options.endpoint.clone(), call.clone())
-                    .await
-                    .map_err(std::io::Error::other)?;
-                grant
-                    .adopt_stream_loan(binding, self.options.endpoint.clone(), &call, loan)
-                    .map_err(std::io::Error::other)?
-            };
-            let tagged = raw.prepare_driver(prepare).await?;
-            self.verify_epoch(binding)?;
-            Ok::<_, crate::RuntimeError>(tagged)
-        };
-        let tagged = tokio::select! { biased;
-            _ = self.cancel.cancelled() => return Err(std::io::Error::other(failure(self.instance, Stage::Dial, Reason::Revoked)).into()),
-            result = tokio::time::timeout_at(deadline, preparing) => result.map_err(|source| std::io::Error::new(std::io::ErrorKind::TimedOut, source))??,
-        };
-        let (connection, driver) = tagged.split(|parts| parts);
-        let body = Body(record.clone());
-        let cancel = record.stop.clone();
-        let (_, witness) = record
-            .original
-            .spawn_driver(
-                &self.tasks,
-                TaskClass::Auxiliary,
-                driver,
-                |driver| async move {
-                    let _body = body;
-                    let _view = view;
-                    tokio::select! { biased; _=cancel.cancelled()=>{}, _=driver=>{} }
-                    Ok(())
-                },
-            )
+                grant.claim_driver_view()
+            }
             .map_err(std::io::Error::other)?;
-        *record.witness.lock().unwrap() = Some(witness);
-        record.registered.store(true, Ordering::Release);
-        self.check(profile)?;
-        Ok((connection, record))
+            let record = Physical::new(
+                grant.adoption(),
+                grant.cancellation(),
+                view,
+                self,
+                binding.clone(),
+            );
+            self.records.lock().unwrap().push(record.clone());
+            let opening = Opening(record.clone());
+            let waiting = waiting
+                .clone()
+                .or_else(|| self.upstream.observed_pending_carrier());
+            if let Some(waiting) = &waiting {
+                waiting
+                    .retain(record.original.clone())
+                    .map_err(std::io::Error::other)?;
+            }
+            let owner = self.clone();
+            let original = record.clone();
+            let selected = binding.clone();
+            let context = call.clone();
+            let actual_prepare = prepare.clone();
+            let actual_candidates = candidates.clone();
+            let operation = move |caller| {
+                owner.prepare_original(
+                    original,
+                    selected,
+                    context,
+                    grant,
+                    waiting,
+                    caller,
+                    actual_candidates,
+                    actual_prepare,
+                )
+            };
+            let preparing = async {
+                if self.options.scoped_preparation {
+                    super::setup::run(self, &record, move |caller| operation(Some(caller))).await
+                } else {
+                    operation(None).await
+                }
+            };
+            let scope_cancel = self.tasks.cancellation();
+            let result = tokio::select! {biased;
+                _=self.cancel.cancelled()=>Err(failure(self.instance,Stage::Prepare,Reason::Revoked)),
+                _=scope_cancel.cancelled()=>Err(failure(self.instance,Stage::Prepare,Reason::Revoked)),
+                _=call.cancel.cancelled()=>Err(failure(self.instance,Stage::Prepare,Reason::Cancelled)),
+                result=tokio::time::timeout_at(deadline,preparing)=>result.unwrap_or_else(|source|Err(failure(self.instance,Stage::Prepare,Reason::Timeout).with_source(source))),
+            };
+            match result {
+                Ok(tagged) => {
+                    let (connection, driver) = tagged.split(|parts| parts);
+                    let body = Body(record.clone());
+                    let cancel = record.stop.clone();
+                    let (_, witness) = record
+                        .original
+                        .spawn_driver(
+                            &self.tasks,
+                            TaskClass::Auxiliary,
+                            driver,
+                            |driver| async move {
+                                let _body = body;
+                                tokio::select! {biased;_=cancel.cancelled()=>{},_=driver=>{}}
+                                Ok(())
+                            },
+                        )
+                        .map_err(std::io::Error::other)?;
+                    self.publish_prepared_driver(&record, &witness)
+                        .map_err(std::io::Error::other)?;
+                    *record.witness.lock().unwrap() = Some(witness);
+                    record.registered.store(true, Ordering::Release);
+                    drop(opening);
+                    self.check(profile)?;
+                    return Ok((connection, record));
+                }
+                Err(source) => {
+                    drop(opening);
+                    if let Some(delay) = record.rejected_delay.get() {
+                        // Job ownership was sealed before returning this real
+                        // auth error. Caller delay/cancellation does not revoke
+                        // the independent same-Scope original job.
+                        tokio::select! {biased;
+                            _=call.cancel.cancelled()=>{},
+                            _=tokio::time::sleep_until(deadline)=>{},
+                            _=tokio::time::sleep(*delay)=>{},
+                        }
+                        return Err(std::io::Error::other(source).into());
+                    }
+                    let unused_prepare = { prepare.lock().unwrap().is_some() };
+                    let retry =
+                        zero_platform_tokio::controlled_carrier::original_connect_error(&source)
+                            .is_some()
+                            && unused_prepare
+                            && match &candidates {
+                                Some(candidates) => candidates.has_next().await,
+                                None => false,
+                            };
+                    if !retry {
+                        return Err(std::io::Error::other(source).into());
+                    }
+                    self.settle_failed(&record, deadline)
+                        .await
+                        .map_err(std::io::Error::other)?;
+                    if !record.closed() {
+                        return Err(std::io::Error::other(
+                            failure(self.instance, Stage::Close, Reason::Capacity)
+                                .with_source(source),
+                        )
+                        .into());
+                    }
+                }
+            }
+        }
     }
 }
 pub struct Operation(Arc<ManagedPool>);

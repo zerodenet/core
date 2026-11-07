@@ -3,7 +3,7 @@ use super::{
     MAX_PENDING_CONCURRENT_IPC_COMMANDS,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::{io, sync::Arc};
 use tokio::io::{AsyncBufReadExt, BufReader, BufWriter};
 use tokio::sync::{oneshot, Mutex};
 use zero_api::{
@@ -59,7 +59,6 @@ async fn concurrent_commands_overlap_and_keep_response_ids_paired() {
                 }),
             )
             .await
-            .unwrap();
         }));
     }
 
@@ -107,16 +106,44 @@ async fn concurrent_command_queue_is_bounded_and_cancellable() {
     let cancellation = cancelled.clone();
     assert!(tasks.try_spawn(async move {
         let _guard = CancellationGuard(cancellation);
+        use std::{
+            future::{poll_fn, Future},
+            task::Poll,
+        };
+        use tokio::io::AsyncReadExt;
+        let (mut read, _held_peer) = tokio::io::duplex(1);
+        let mut byte = [0];
+        let pending = read.read(&mut byte);
+        tokio::pin!(pending);
+        poll_fn(|cx| {
+            assert!(pending.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
         started_tx.send(()).unwrap();
-        std::future::pending::<()>().await;
+        // The production Probe owner consumes this exact caller signal and
+        // still finishes its native/Scope work before this command returns.
+        zero_runtime::ApplyObservation::caller_stop()
+            .expect("original connection stop metadata")
+            .cancelled()
+            .await;
+        Ok(())
     }));
     started_rx.await.unwrap();
 
     for _ in 1..MAX_PENDING_CONCURRENT_IPC_COMMANDS {
-        assert!(tasks.try_spawn(std::future::pending()));
+        assert!(tasks.try_spawn(async {
+            zero_runtime::ApplyObservation::caller_stop()
+                .expect("original connection stop metadata")
+                .cancelled()
+                .await;
+            Ok(())
+        }));
     }
-    assert!(!tasks.try_spawn(async {}));
+    assert!(!tasks.try_spawn(async { Ok(()) }));
 
     tasks.cancel_all().await.unwrap();
     assert!(cancelled.load(Ordering::SeqCst));
 }
+
+mod probe_stop;

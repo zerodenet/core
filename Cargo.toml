@@ -38,10 +38,11 @@ status-api = ["dep:percent-encoding"]
 event-dispatcher = [
     "dep:zero-connector",
     "zero-connector/event-dispatcher",
+    "zero-connector/kernel-events",
 ]
 sink-jsonl = ["event-dispatcher", "zero-connector/sink-jsonl"]
 connector = ["event-dispatcher", "zero-connector/webhook"]
-grpc-api = ["dep:zero-grpc"]
+grpc-api = ["dep:zero-grpc", "zero-grpc/proxy-control"]
 
 [workspace]
 members = [

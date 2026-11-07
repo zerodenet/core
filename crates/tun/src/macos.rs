@@ -8,14 +8,15 @@
 use std::io;
 use std::net::IpAddr;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
 use tokio::io::unix::AsyncFd;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::TunDevice;
+mod address;
 mod creation;
+use address::ipv4_peer;
+mod io_driver;
+pub(crate) mod memory;
 
 // XNU system controls
 const SYSPROTO_CONTROL: libc::c_int = 2; // SYSPROTO_CONTROL
@@ -30,7 +31,8 @@ pub struct Utun {
     name: String,
     fd: AsyncFd<OwnedFd>,
     owned: crate::OwnedTunIdentity,
-    read_buffer: Vec<u8>,
+    read_buffer: memory::Buffer,
+    write_buffer: memory::Buffer,
     read_start: usize,
     read_end: usize,
 }
@@ -65,13 +67,23 @@ impl Utun {
         name: String,
         owned: crate::OwnedTunIdentity,
     ) -> io::Result<Self> {
+        Self::register_with_memory(fd, name, owned, None)
+    }
+    pub(crate) fn register_with_memory(
+        fd: OwnedFd,
+        name: String,
+        owned: crate::OwnedTunIdentity,
+        memory: Option<memory::Buffers>,
+    ) -> io::Result<Self> {
+        let memory = memory.unwrap_or_else(memory::Buffers::library);
         // SAFETY: the owned original is stable for this async registration.
         let fd = unsafe { AsyncFd::register(fd) }?;
         Ok(Self {
             name,
             owned,
             fd,
-            read_buffer: vec![0; 65_540],
+            read_buffer: memory.read,
+            write_buffer: memory.write,
             read_start: 0,
             read_end: 0,
         })
@@ -108,7 +120,8 @@ impl Utun {
             name,
             owned: crate::OwnedTunIdentity::from_fd(fd.get_ref().as_raw_fd()),
             fd,
-            read_buffer: vec![0_u8; 65_540],
+            read_buffer: memory::Buffer::library(),
+            write_buffer: memory::Buffer::library(),
             read_start: 0,
             read_end: 0,
         })
@@ -263,167 +276,5 @@ impl TunDevice for Utun {
     }
 }
 
-pub(crate) fn ipv4_peer(
-    address: std::net::Ipv4Addr,
-    mask: IpAddr,
-) -> io::Result<std::net::Ipv4Addr> {
-    let IpAddr::V4(mask) = mask else {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "macOS IPv4 TUN address requires an IPv4 netmask",
-        ));
-    };
-    let address = u32::from(address);
-    let mask = u32::from(mask);
-    let network = address & mask;
-    let last = network | !mask;
-    let peer = if address < last {
-        address + 1
-    } else if address > network {
-        address - 1
-    } else {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "macOS IPv4 TUN subnet must contain a distinct point-to-point peer",
-        ));
-    };
-    Ok(peer.into())
-}
-
 #[cfg(test)]
 mod tests;
-
-// ── Async I/O ─────────────────────────────────────────────────────────
-
-impl AsyncRead for Utun {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        let this = self.get_mut();
-        if this.read_start < this.read_end {
-            let size = (this.read_end - this.read_start).min(buf.remaining());
-            buf.put_slice(&this.read_buffer[this.read_start..this.read_start + size]);
-            this.read_start += size;
-            return Poll::Ready(Ok(()));
-        }
-        loop {
-            let packet_ptr = this.read_buffer.as_mut_ptr();
-            let packet_capacity = this.read_buffer.len();
-            let mut guard = match this.fd.poll_read_ready(cx) {
-                Poll::Ready(Ok(g)) => g,
-                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-                Poll::Pending => return Poll::Pending,
-            };
-            match guard.try_io(|inner| {
-                let ret = unsafe {
-                    libc::read(
-                        inner.get_ref().as_raw_fd(),
-                        packet_ptr as *mut libc::c_void,
-                        packet_capacity,
-                    )
-                };
-                if ret < 0 {
-                    Err(io::Error::last_os_error())
-                } else {
-                    Ok(ret as usize)
-                }
-            }) {
-                Ok(Ok(n)) => {
-                    if n <= 4 {
-                        return Poll::Ready(Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "utun packet is missing the address-family header",
-                        )));
-                    }
-                    this.read_start = 4;
-                    this.read_end = n;
-                    let size = (n - 4).min(buf.remaining());
-                    buf.put_slice(&this.read_buffer[4..4 + size]);
-                    this.read_start += size;
-                    return Poll::Ready(Ok(()));
-                }
-                Ok(Err(e)) => return Poll::Ready(Err(e)),
-                Err(_) => continue,
-            }
-        }
-    }
-}
-
-impl AsyncWrite for Utun {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        let family = match buf.first().map(|byte| byte >> 4) {
-            Some(4) => libc::AF_INET as u32,
-            Some(6) => libc::AF_INET6 as u32,
-            _ => {
-                return Poll::Ready(Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "utun write requires an IPv4 or IPv6 packet",
-                )))
-            }
-        };
-        let mut framed = Vec::with_capacity(buf.len() + 4);
-        framed.extend_from_slice(&family.to_be_bytes());
-        framed.extend_from_slice(buf);
-        loop {
-            let mut guard = match self.fd.poll_write_ready(cx) {
-                Poll::Ready(Ok(g)) => g,
-                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-                Poll::Pending => return Poll::Pending,
-            };
-            match guard.try_io(|inner| {
-                let ret = unsafe {
-                    libc::write(
-                        inner.get_ref().as_raw_fd(),
-                        framed.as_ptr() as *const libc::c_void,
-                        framed.len(),
-                    )
-                };
-                if ret < 0 {
-                    Err(io::Error::last_os_error())
-                } else {
-                    Ok(ret as usize)
-                }
-            }) {
-                Ok(Ok(n)) if n == framed.len() => return Poll::Ready(Ok(buf.len())),
-                Ok(Ok(_)) => {
-                    return Poll::Ready(Err(io::Error::new(
-                        io::ErrorKind::WriteZero,
-                        "partial utun packet write",
-                    )))
-                }
-                Ok(Err(e)) => return Poll::Ready(Err(e)),
-                Err(_) => continue,
-            }
-        }
-    }
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(Ok(()))
-    }
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(Ok(()))
-    }
-}
-
-fn run_ifconfig(arguments: &[String]) -> io::Result<()> {
-    let program = if std::path::Path::new("/sbin/ifconfig").exists() {
-        "/sbin/ifconfig"
-    } else {
-        "ifconfig"
-    };
-    let output = crate::macos_privilege::output(program, arguments)
-        .map_err(|error| io::Error::new(error.kind(), format!("execute `{program}`: {error}")))?;
-    if output.status.success() {
-        return Ok(());
-    }
-    Err(io::Error::other(format!(
-        "`ifconfig {}` failed: {}",
-        arguments.join(" "),
-        String::from_utf8_lossy(&output.stderr).trim()
-    )))
-}

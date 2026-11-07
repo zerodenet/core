@@ -20,6 +20,13 @@ pub struct ValidatedRecipe {
     recipe: ComponentRecipe,
 }
 impl ValidatedRecipe {
+    pub(in crate::component) fn with_packet_path_facts(
+        mut self,
+        facts: super::PacketPathFacts,
+    ) -> Self {
+        self.recipe = self.recipe.with_packet_path_facts(facts);
+        self
+    }
     pub fn component_recipe(&self) -> ComponentRecipe {
         self.recipe.clone()
     }
@@ -64,7 +71,10 @@ where
         resources: &mut ResourcePreparation<'_>,
     ) -> Result<ValidatedRecipe, RegistrationError> {
         let options = Arc::new((self.decode_validate)(input, resources)?);
-        let recipe = ComponentRecipe::from_validated(self.factory.clone(), options);
+        let recipe = resources.project_carrier_total(ComponentRecipe::from_validated(
+            self.factory.clone(),
+            options,
+        ))?;
         Ok(ValidatedRecipe {
             legacy_connect_stage: "connect_component",
             descriptor: self.descriptor,

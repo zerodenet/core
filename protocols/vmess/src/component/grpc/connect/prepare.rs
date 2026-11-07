@@ -5,27 +5,29 @@ use zero_platform_tokio::{
     contract::scope::TaskClass,
     controlled_carrier::{CarrierIo, CarrierUserView},
 };
+pub(super) type Prepared = zero_platform_tokio::controlled_carrier::CarrierDriver<
+    zero_transport::grpc::PreparedSingleClient,
+>;
 impl Managed {
-    pub(super) async fn prepare_stream(
+    pub(super) async fn prepare_transport(
         &self,
         io: CarrierIo,
-        record: Arc<Record>,
-        prepared_tls: Option<zero_transport::tls::PreparedClient>,
+        prepared_tls: Option<zero_transport::tls::OwnedPreparedClient>,
         context: &OpenContext,
-        user_view: Option<CarrierUserView>,
-        epoch: (
-            zero_core::component::NetworkGeneration,
-            Option<zero_platform_tokio::contract::dns::DnsGeneration>,
-        ),
-    ) -> Result<zero_transport::TcpRelayStream, ChannelError> {
+    ) -> Result<Prepared, ChannelError> {
         let owner = self;
         let session = context.session_identity()?;
         let preparing = io.prepare_driver(|io| async {
             let io = zero_transport::TcpRelayStream::new(crate::component::carrier::Carrier::new(
                 Box::pin(io),
             ));
+            let prepared_tls = if let Some(material) = &owner.options.base.material {
+                Some(material.prepare(owner.ech_resolver.as_deref()).await?)
+            } else {
+                prepared_tls
+            };
             let io = if let Some(prepared) = prepared_tls {
-                prepared.connect(io, &owner.options.base.server).await?
+                prepared.connect(io).await?
             } else if let Some(tls) = &owner.options.base.tls {
                 zero_transport::tls::connect_tls_stream(io, tls, None, &owner.options.base.server)
                     .await?
@@ -59,6 +61,21 @@ impl Managed {
                 })
             })
             .await?;
+        Ok(tag)
+    }
+    pub(super) fn finish_stream(
+        &self,
+        tag: Prepared,
+        record: Arc<Record>,
+        context: &OpenContext,
+        user_view: Option<CarrierUserView>,
+        epoch: (
+            zero_core::component::NetworkGeneration,
+            Option<zero_platform_tokio::contract::dns::DnsGeneration>,
+        ),
+    ) -> Result<zero_transport::TcpRelayStream, ChannelError> {
+        let owner = self;
+        let session = context.session_identity()?;
         let (io, driver) = tag.split(zero_transport::grpc::PreparedSingleClient::into_parts);
         let body = Body(record.clone());
         let stop = record.stop.clone();

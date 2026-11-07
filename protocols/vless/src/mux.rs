@@ -131,6 +131,7 @@ enum MuxServerEvent {
         origin: Option<origin::Origin>,
         global_id: Option<[u8; 8]>,
         initial_payload: Vec<u8>,
+        initial_data: bool,
     },
     Data {
         session_id: u16,
@@ -153,6 +154,7 @@ enum VlessInboundMuxAction {
         session: Box<Session>,
         global_id: Option<[u8; 8]>,
         initial_payload: Vec<u8>,
+        initial_data: bool,
     },
     Data {
         session_id: u16,
@@ -466,6 +468,10 @@ impl InboundMuxUdpRelay for VlessInboundMuxUdpRelay {
 pub(crate) struct VlessInboundMuxWriter {
     down_tx: mpsc::Sender<BufferedMuxResponse<VlessInboundMuxDownlink>>,
     backlog: MuxResponseBacklog,
+    #[cfg(feature = "runtime")]
+    pending_ends: std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<u16>>>,
+    #[cfg(feature = "runtime")]
+    end_changed: std::sync::Arc<tokio::sync::Notify>,
 }
 
 #[cfg(feature = "reality")]
@@ -480,7 +486,7 @@ struct VlessInboundMuxStreamState {
     network: MuxNetwork,
     target: Address,
     port: u16,
-    upload: mpsc::UnboundedSender<Vec<u8>>,
+    upload: Option<mpsc::UnboundedSender<Vec<u8>>>,
     termination_probe: zero_core::InboundMuxUdpTerminationProbe,
 }
 
@@ -687,7 +693,7 @@ impl VlessInboundMuxStreams {
                 network,
                 target: session.target.clone(),
                 port: session.port,
-                upload: tx,
+                upload: Some(tx),
                 termination_probe: termination_probe.clone(),
             },
         );
@@ -716,7 +722,23 @@ impl VlessInboundMuxStreams {
                 crate::udp::encode_udp_flow_packet(&stream.target, stream.port, &payload)?
             }
         };
-        Ok(stream.upload.send(payload).is_ok())
+        Ok(stream
+            .upload
+            .as_ref()
+            .is_some_and(|upload| upload.send(payload).is_ok()))
+    }
+
+    fn end_inbound_upload(&mut self, session_id: u16) -> bool {
+        let Some(stream) = self.streams.get_mut(&session_id) else {
+            return false;
+        };
+        if stream.network == MuxNetwork::Tcp {
+            // Keep this same SID and downlink until its actual response END.
+            // Sender closure drains accepted DATA then exposes upload EOF.
+            stream.upload.take().is_some()
+        } else {
+            self.close_inbound_stream(session_id, true)
+        }
     }
 
     fn close_inbound_stream(&mut self, session_id: u16, explicit_end: bool) -> bool {
@@ -749,13 +771,15 @@ impl VlessInboundMuxStreams {
                 session,
                 global_id,
                 initial_payload,
+                initial_data,
             } => {
                 if self.contains_stream(session_id) {
                     mux.reject_inbound_stream(stream, session_id).await?;
                     return Ok(None);
                 }
                 let (up_rx, termination_probe) = self.open_stream(session_id, &session);
-                if !initial_payload.is_empty()
+                if (!initial_payload.is_empty()
+                    || (session.network == Network::Udp && initial_data))
                     && !self.push_stream_data(session_id, None, initial_payload)?
                 {
                     self.close_inbound_stream(session_id, true);
@@ -776,12 +800,13 @@ impl VlessInboundMuxStreams {
                 payload,
             } => {
                 if !self.push_stream_data(session_id, target, payload)? {
+                    self.close_inbound_stream(session_id, true);
                     mux.end_inbound_stream(stream, session_id).await?;
                 }
                 Ok(None)
             }
             VlessInboundMuxAction::End { session_id } => {
-                self.close_inbound_stream(session_id, true);
+                self.end_inbound_upload(session_id);
                 Ok(None)
             }
             VlessInboundMuxAction::Unknown { session_id } => {
@@ -877,7 +902,12 @@ impl VlessInboundMuxWriter {
         down_tx: mpsc::Sender<BufferedMuxResponse<VlessInboundMuxDownlink>>,
         backlog: MuxResponseBacklog,
     ) -> Self {
-        Self { down_tx, backlog }
+        Self {
+            down_tx,
+            backlog,
+            pending_ends: Default::default(),
+            end_changed: Default::default(),
+        }
     }
 
     fn channel(
@@ -1047,7 +1077,7 @@ pub(crate) fn encode_end_frame(session_id: u16) -> Result<Vec<u8>, Error> {
     codec::encode_end_frame(session_id)
 }
 
-#[cfg(feature = "reality")]
+#[cfg(all(test, feature = "reality"))]
 pub(crate) async fn read_mux_frame_tokio<R>(reader: &mut R) -> Result<MuxFrame, Error>
 where
     R: tokio::io::AsyncRead + Unpin,
@@ -1223,6 +1253,7 @@ impl From<MuxServerEvent> for VlessInboundMuxAction {
                 origin,
                 global_id,
                 initial_payload,
+                initial_data,
             } => match target.into_session().map(|mut session| {
                 if let Some(origin) = origin {
                     origin.apply(&mut session);
@@ -1234,6 +1265,7 @@ impl From<MuxServerEvent> for VlessInboundMuxAction {
                     session: Box::new(session),
                     global_id,
                     initial_payload,
+                    initial_data,
                 },
                 Err(_) => Self::Unknown { session_id },
             },
@@ -1285,6 +1317,7 @@ impl MuxServer {
                     origin: frame.origin,
                     global_id: frame.global_id,
                     initial_payload: frame.payload,
+                    initial_data: frame.options & OPTION_DATA != 0,
                 })
             }
             STATUS_KEEP if frame.options & OPTION_DATA == 0 => Ok(MuxServerEvent::KeepAlive),
@@ -1352,3 +1385,6 @@ impl MuxServer {
             .map_err(|_| Error::Io("failed to write MUX end frame"))
     }
 }
+
+#[cfg(feature = "reality")]
+mod pending_end;

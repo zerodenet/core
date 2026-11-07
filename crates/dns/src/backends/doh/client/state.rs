@@ -12,6 +12,8 @@ use zero_platform_tokio::contract::CancellationToken;
 pub(in super::super) struct ClientState {
     pub(in super::super) native: std::sync::OnceLock<super::super::native::NativeClient>,
     usable: AtomicBool,
+    #[cfg(feature = "test-support")]
+    pub(in super::super) panic_original_driver: CancellationToken,
     pub(in super::super) reusable: bool,
     pub(in super::super) leases: AtomicUsize,
     pub(in super::super) cancel: CancellationToken,
@@ -21,6 +23,27 @@ pub(in super::super) struct ClientState {
     generation: u64,
 }
 impl ClientState {
+    pub(in super::super) fn retained_instances(
+        &self,
+    ) -> io::Result<Vec<zero_core::component::ComponentInstanceId>> {
+        let native = self
+            .native
+            .get()
+            .ok_or_else(|| io::Error::other("actual DoH native client unavailable"))?;
+        if native.retired() {
+            return Ok(Vec::new());
+        }
+        let mut instances = native
+            .retained_instances()?
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+        if let Some(binding) = self.binding.get() {
+            instances.extend(binding.component_instances().ok_or_else(|| {
+                io::Error::other("actual detour cannot observe its retained role instances")
+            })?);
+        }
+        Ok(instances.into_iter().collect())
+    }
     pub(in super::super) fn new(
         changed: Arc<tokio::sync::Notify>,
         binding: Option<Arc<dyn DnsCarrierBinding>>,
@@ -31,6 +54,8 @@ impl ClientState {
         Self {
             native: Default::default(),
             usable: AtomicBool::new(true),
+            #[cfg(feature = "test-support")]
+            panic_original_driver: CancellationToken::new(),
             reusable: direct || binding.is_some(),
             leases: AtomicUsize::new(0),
             cancel: CancellationToken::new(),
@@ -41,9 +66,10 @@ impl ClientState {
         }
     }
     pub(in super::super) fn retire(&self) {
-        self.usable.store(false, Ordering::Release);
-        self.cancel.cancel();
-        self.changed.notify_waiters();
+        if self.usable.swap(false, Ordering::AcqRel) {
+            self.cancel.cancel();
+            self.changed.notify_waiters();
+        }
     }
     pub(super) fn ensure_current(&self) -> io::Result<()> {
         if self.egress.generation() != self.generation {
@@ -57,6 +83,17 @@ impl ClientState {
             return Err(io::Error::new(
                 io::ErrorKind::ConnectionAborted,
                 "DoH connection was retired",
+            ));
+        }
+        if self
+            .native
+            .get()
+            .is_some_and(|native| !native.retains_live_original())
+        {
+            self.retire();
+            return Err(io::Error::new(
+                io::ErrorKind::ConnectionAborted,
+                "DoH actual driver/native custody is no longer retained",
             ));
         }
         if let Some(binding) = self.binding.get() {

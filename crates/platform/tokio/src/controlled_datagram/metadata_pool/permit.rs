@@ -114,8 +114,56 @@ impl MetadataPoolPermit {
             )
         })
     }
+    /// Native/users close remains independently observable. Only this owner's
+    /// local reservation credit waits for every actual registration's Host ACK.
+    pub(super) fn release_registration_credit(&self) -> bool {
+        if self.0.closed.get().is_none() {
+            return false;
+        }
+        let (caller, users) = {
+            let Ok(native) = self.0.native() else {
+                return false;
+            };
+            (self.0.caller.clone(), native.confirmed.clone())
+        };
+        // Kernel receipts clone only the same sealed original record storage.
+        // Iterate its real witnesses outside this owner's/native locks.
+        let released = |witness: &TaskJoinWitness| {
+            witness.try_joined().is_some_and(|joined| {
+                witness.matches_joined(&joined) && joined.registration_released()
+            })
+        };
+        if !released(&caller)
+            || users.as_ref().is_some_and(|users| {
+                !users
+                    .registrations()
+                    .iter()
+                    .chain(users.related_registrations())
+                    .all(|witness| released(&witness))
+            })
+        {
+            return false;
+        }
+        if let Some(owner) = self.0.owner.upgrade() {
+            let removed = {
+                let mut state = owner.state.lock().expect("metadata pool poisoned");
+                if state
+                    .slots
+                    .get(&self.0.ordinal)
+                    .is_some_and(|actual| Arc::ptr_eq(actual, &self.0))
+                {
+                    state.slots.remove(&self.0.ordinal)
+                } else {
+                    None
+                }
+            };
+            drop(removed);
+        }
+        true
+    }
     pub(super) fn close_stored(&self) -> Result<Option<MetadataPoolClosed>, ChannelError> {
         if let Some(receipt) = self.origin().closed() {
+            self.release_registration_credit();
             return Ok(Some(receipt));
         }
         let mut native = self.0.native()?;
@@ -157,14 +205,8 @@ impl MetadataPoolPermit {
                     .confirmed_native
                     .store(true, std::sync::atomic::Ordering::Release);
             }
-            let removed = owner
-                .state
-                .lock()
-                .expect("metadata pool poisoned")
-                .slots
-                .remove(&self.0.ordinal);
-            drop(removed);
         }
+        self.release_registration_credit();
         Ok(self.origin().closed())
     }
 }

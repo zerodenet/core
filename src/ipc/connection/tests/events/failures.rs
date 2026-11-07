@@ -65,6 +65,8 @@ async fn non_disconnect_event_write_failure_keeps_its_typed_source_after_actual_
         connections: 1,
         subscriptions: 1,
         queued_event_bytes: 1024 * 1024,
+        pipe_workspace_bytes: 2 * 1024 * 1024,
+        messages: Default::default(),
     });
     let server = FailingEvents {
         io: server,

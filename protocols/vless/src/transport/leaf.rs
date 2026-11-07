@@ -1,3 +1,5 @@
+#[cfg(feature = "reality")]
+mod grpc;
 mod native;
 mod relay;
 mod reverse;
@@ -29,6 +31,7 @@ pub struct VlessOutboundLeaf {
     protocol: crate::outbound::PreparedVlessOutboundRequestBundle,
     mux_pool: crate::mux_pool::MuxConnectionPool,
     preconnect: Option<super::runtime::preconnect::Access>,
+    navigation_reality: Option<crate::reality::PreparedRealityClient>,
 }
 
 impl VlessOutboundLeaf {
@@ -101,6 +104,8 @@ impl VlessOutboundLeaf {
         leaf.transport.share_xhttp_pool(runtime, tag);
         leaf.transport.share_browser_dialer(runtime);
         leaf.transport.set_download(download, runtime, tag);
+        leaf.transport
+            .bind_material_registry(runtime.client_material.clone());
         leaf.transport.set_encryption(protocol.encryption)?;
         leaf.transport.mkcp = mkcp;
         leaf.transport.hysteria = hysteria
@@ -162,6 +167,23 @@ impl VlessOutboundLeaf {
         THttp: HttpUpgradeTransportProfile + ?Sized,
         TSplit: SplitHttpTransportProfile + ?Sized,
     {
+        let navigation_reality = reality
+            .map(|profile| {
+                crate::reality::PreparedRealityClient::from_options(
+                    crate::reality::RealityClientOptions {
+                        spider_x: &profile.spider_x,
+                        hybrid_key_exchange: profile.hybrid_key_exchange,
+                        mldsa65_verify: profile.mldsa65_verify.as_deref(),
+                        public_key: &profile.public_key,
+                        short_id: &profile.short_id,
+                        server_name: profile.server_name.as_deref().unwrap_or(server),
+                        cipher_suites: &profile.cipher_suites,
+                        client_fingerprint: &profile.client_fingerprint,
+                    },
+                )
+                .map_err(|_| zero_core::Error::Config("invalid REALITY client policy"))
+            })
+            .transpose()?;
         let transport = OwnedVlessOutboundTransportPlan::from_profile_refs(
             source_dir,
             server,
@@ -187,7 +209,9 @@ impl VlessOutboundLeaf {
                 mux_response_backlog_bytes,
                 transport.mux_transport_hints(),
             )?;
-        Ok(Self::new(tag, server, port, transport, protocol, mux_pool))
+        let mut leaf = Self::new(tag, server, port, transport, protocol, mux_pool);
+        leaf.navigation_reality = navigation_reality;
+        Ok(leaf)
     }
 
     pub(super) fn new(
@@ -207,6 +231,7 @@ impl VlessOutboundLeaf {
             mux_pool,
             relay_pools: Default::default(),
             preconnect: None,
+            navigation_reality: None,
         }
     }
 
@@ -214,19 +239,6 @@ impl VlessOutboundLeaf {
     /// this leaf. This does not confirm that its old users or I/O have closed.
     pub fn check_retained_carrier_owner(&self) -> Result<(), RuntimeError> {
         self.relay_pools.check_current()
-    }
-
-    /// Library-only recipe over this leaf's original, fully keyed direct pool.
-    #[cfg(feature = "reality")]
-    pub(crate) fn native_grpc_options(
-        &self,
-        runtime: &VlessTransportRuntime,
-        dial: zero_traits::DialPolicy,
-        carriers: std::num::NonZeroUsize,
-        streams: std::num::NonZeroUsize,
-    ) -> Result<zero_transport::grpc::NativePoolOptions, RuntimeError> {
-        self.transport
-            .native_grpc_options(runtime, dial, carriers, streams)
     }
 
     pub fn tag(&self) -> &str {
@@ -327,6 +339,7 @@ impl VlessOutboundLeaf {
             self.protocol.udp_direct_flow_plan(),
             self.owned_transport_plan(),
             self.preconnect.clone(),
+            self.navigation_reality.clone(),
         )
     }
 
@@ -336,6 +349,7 @@ impl VlessOutboundLeaf {
             self.protocol.udp_relay_paired_transport_plan(),
             self.owned_transport_plan(),
             None,
+            self.navigation_reality.clone(),
         )
     }
 
@@ -345,6 +359,7 @@ impl VlessOutboundLeaf {
             self.protocol.udp_relay_final_hop_plan(),
             self.owned_transport_plan(),
             None,
+            self.navigation_reality.clone(),
         )
     }
 }

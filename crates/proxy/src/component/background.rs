@@ -15,12 +15,16 @@ use zero_platform_tokio::{
         stream::BoxStream,
         BoxFuture, ChannelError, Reason,
     },
-    controlled_carrier::ResolvingCarrierOpener,
     EgressInterfaceControl,
 };
 
+#[cfg(feature = "vless")]
+pub(crate) mod grpc;
+mod pending;
 pub(crate) mod pool;
 pub(crate) mod stateless;
+#[cfg(any(feature = "vless", feature = "vmess"))]
+pub(crate) mod tls_material;
 
 pub(crate) struct BackgroundNetwork {
     pub(crate) egress: EgressInterfaceControl,
@@ -68,6 +72,16 @@ impl BackgroundCarrier {
     }
 }
 impl UpstreamOpener for BackgroundCarrier {
+    fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
+        self.declared_pending_capacity(binding).ok()
+    }
+    fn validate_pending_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        adoption: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        self.validate_pending_original(binding, adoption)
+    }
     fn open_datagram(
         &self,
         _: &UpstreamBinding,
@@ -106,6 +120,38 @@ impl UpstreamOpener for BackgroundCarrier {
         waiting: PendingCarrierObserver,
     ) -> BoxFuture<'_, Result<UpstreamTransport, ChannelError>> {
         self.select(binding, call, Some(waiting))
+    }
+    fn resolve_packet_target(
+        &self,
+        binding: &UpstreamBinding,
+        destination: Destination,
+        identity: zero_platform_tokio::contract::context::RequestIdentity,
+        call: CarrierContext,
+    ) -> BoxFuture<'_, Result<Vec<std::net::SocketAddr>, ChannelError>> {
+        let binding = binding.clone();
+        Box::pin(async move {
+            if call.cancel.is_cancelled()
+                || binding.dial != self.initial.dial
+                || binding.network_generation.0 != self.network.egress.generation()
+            {
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "background packet target binding changed",
+                ));
+            }
+            let source = self.network.current_services().map_err(|source| {
+                invalid(Reason::Revoked, "packet target source retired").with_source(source)
+            })?;
+            let services = source.runtime_services().map_err(|source| {
+                invalid(Reason::Revoked, "packet target services retired").with_source(source)
+            })?;
+            // Preserve the actual identity/call. This delegates metadata DNS to
+            // the existing host source; it never selects or opens a new socket.
+            services
+                .upstream_observed(&self.tag)
+                .resolve_inner_packet_target(destination, identity, call)
+                .await
+        })
     }
     fn open_stream(
         &self,
@@ -166,21 +212,14 @@ impl BackgroundCarrier {
                 ));
             }
             if binding.prefix.is_empty() {
-                let resolver = self
-                    .network
-                    .resolver
-                    .get()
-                    .and_then(Weak::upgrade)
-                    .ok_or_else(invalid)?;
-                let observer = services.outbound_io(&self.tag, zero_api::TrafficPlane::Outer);
-                let opener = ResolvingCarrierOpener::new(
-                    self.instance,
-                    binding.clone(),
+                let opener = super::stream_bridge::network::NodeOpener::new(
+                    services.upstream_observed(&self.tag),
                     self.endpoint.clone(),
-                    resolver,
-                    Arc::new(self.network.egress.clone()),
-                    observer,
-                )?;
+                )
+                .with_plan(services.components.as_ref().ok().map(Arc::downgrade))
+                .with_pending(binding.clone(), waiting)
+                .with_service_call(call)
+                .with_carrier_owner(self.instance);
                 Ok(UpstreamTransport::new(binding, Arc::new(opener)))
             } else {
                 let nodes = services.protocols().background_nodes(&services, &binding)?;

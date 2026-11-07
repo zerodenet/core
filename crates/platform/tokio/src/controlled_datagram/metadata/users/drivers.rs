@@ -14,7 +14,11 @@ use std::{
     },
 };
 use zero_core::component::TaskId;
+mod body;
+mod completion;
 mod reception;
+pub(in crate::controlled_datagram::metadata::users) use completion::RegistrationSequence;
+pub use completion::{DriverRegistrationsClosed, RegistrationIter};
 mod registration;
 pub use reception::{DriverDelivery, DriverExitReceiver};
 
@@ -27,7 +31,7 @@ pub struct DriverOwner<O: DriverKind, B: Send + Sync + 'static> {
 struct Shared<O: DriverKind, B: Send + Sync + 'static> {
     registrar: TaskRegistrar,
     limit: NonZeroUsize,
-    state: Mutex<State<O, B>>,
+    state: Arc<Mutex<State<O, B>>>,
     changed: tokio::sync::Notify,
 }
 struct State<O: DriverKind, B: Send + Sync + 'static> {
@@ -40,8 +44,9 @@ struct State<O: DriverKind, B: Send + Sync + 'static> {
 }
 struct Record<O: DriverKind, B: Send + Sync + 'static> {
     origin: O,
+    owner: Weak<Mutex<State<O, B>>>,
     registration: Mutex<Option<(TaskId, TaskJoinWitness)>>,
-    body: Mutex<Option<Arc<B>>>,
+    body: Mutex<body::BodyState<B>>,
     received: Mutex<Option<TaskJoined>>,
     delivered: AtomicBool,
 }
@@ -93,14 +98,14 @@ impl<O: DriverKind, B: Send + Sync + 'static> DriverOwner<O, B> {
             registrar,
             limit: max_retained_drivers,
             changed: tokio::sync::Notify::new(),
-            state: Mutex::new(State {
+            state: Arc::new(Mutex::new(State {
                 pending: 0,
                 retired: false,
                 records: BTreeMap::new(),
                 rejected: None,
                 reclaimed: 0,
                 count_overflowed: false,
-            }),
+            })),
         });
         (
             Self {
@@ -225,22 +230,52 @@ impl<O: DriverKind, B: Send + Sync + 'static> DriverOwner<O, B> {
     }
     pub fn body(&self, id: TaskId) -> Option<Arc<B>> {
         let record = self.shared.state.lock().unwrap().records.get(&id)?.clone();
-        let body = record.body.lock().unwrap().clone();
+        let body = record.body.lock().unwrap().current();
         body
     }
     /// Reclaim only actual joined and explicitly received records. Hosted
     /// publication credit remains held until the real host acknowledges it.
     pub fn reclaim_received(&self) {
+        let candidates: Vec<_> = self
+            .shared
+            .state
+            .lock()
+            .unwrap()
+            .records
+            .iter()
+            .map(|(id, record)| (*id, record.clone()))
+            .collect();
+        let ready: Vec<_> = candidates
+            .into_iter()
+            .filter(|(_, record)| {
+                if !record.delivered.load(Ordering::Acquire) {
+                    return false;
+                }
+                let witness = record
+                    .registration
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .map(|(_, witness)| witness.clone());
+                witness.is_some_and(|witness| {
+                    witness.try_joined().is_some_and(|joined| {
+                        witness.matches_joined(&joined) && joined.registration_released()
+                    })
+                })
+            })
+            .collect();
         let retired = {
             let mut state = self.shared.state.lock().unwrap();
-            let ids: Vec<_> = state
-                .records
-                .iter()
-                .filter_map(|(id, record)| record.delivered.load(Ordering::Acquire).then_some(*id))
-                .collect();
-            let mut retired = Vec::with_capacity(ids.len());
-            for id in ids {
-                retired.push(state.records.remove(&id).unwrap());
+            let mut retired = Vec::with_capacity(ready.len());
+            for (id, original) in ready.iter() {
+                if !state
+                    .records
+                    .get(id)
+                    .is_some_and(|actual| Arc::ptr_eq(actual, original))
+                {
+                    continue;
+                }
+                retired.push(state.records.remove(id).unwrap());
                 match state.reclaimed.checked_add(1) {
                     Some(count) => state.reclaimed = count,
                     None => state.count_overflowed = true,
@@ -268,38 +303,3 @@ pub use admission::{Admission, WeakDrivers};
 
 #[cfg(test)]
 mod tests;
-
-impl<O: DriverKind, B: Send + Sync + 'static> Clone for DriverOwner<O, B> {
-    fn clone(&self) -> Self {
-        Self {
-            shared: self.shared.clone(),
-        }
-    }
-}
-impl<O: DriverKind, B: Send + Sync + 'static> DriverOwner<O, B> {
-    pub(super) fn completion_matches(
-        &self,
-        scope: &crate::contract::scope::TaskScopeIdentity,
-    ) -> bool {
-        let state = self.shared.state.lock().unwrap();
-        state.retired
-            && state.pending == 0
-            && !state.count_overflowed
-            && scope.same_scope(&self.shared.registrar.scope_identity())
-            && state.records.values().all(|record| {
-                if !record.delivered.load(Ordering::Acquire) {
-                    return false;
-                }
-                let registration = record.registration.lock().unwrap();
-                let received = record.received.lock().unwrap();
-                match (registration.as_ref(), received.as_ref()) {
-                    (Some((id, witness)), Some(received)) => {
-                        *id == received.id()
-                            && scope.same_scope(&witness.scope_identity())
-                            && witness.matches_joined(received)
-                    }
-                    _ => false,
-                }
-            })
-    }
-}

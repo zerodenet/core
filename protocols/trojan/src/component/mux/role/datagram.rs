@@ -66,7 +66,7 @@ impl Outbound {
             ));
         }
         let leaf = self.selected_leaf(&context)?;
-        let opening = leaf.open_native_mux_udp(context.upstream.binding().clone());
+        let opening = leaf.open_native_mux_udp(&context);
         let opened=tokio::select! {biased;
             _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
             _=context.cancel.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),

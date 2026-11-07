@@ -1,8 +1,12 @@
+#[path = "fixtures/background.rs"]
+mod background;
+#[path = "fixtures/totals.rs"]
+mod totals;
 use super::*;
+use background::BackgroundRoot;
 pub(super) fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(4)
 }
-pub(super) struct Denied;
 fn denied<T: Send + 'static>() -> BoxFuture<'static, Result<T, BuildError>> {
     Box::pin(async {
         Err(ChannelError::new(
@@ -11,33 +15,6 @@ fn denied<T: Send + 'static>() -> BoxFuture<'static, Result<T, BuildError>> {
             Impact::Component,
         ))
     })
-}
-impl ResourceAccess for Denied {
-    fn read_file(
-        &self,
-        _: std::path::PathBuf,
-        _: usize,
-    ) -> BoxFuture<'_, Result<Vec<u8>, BuildError>> {
-        denied()
-    }
-    fn listen_tcp(
-        &self,
-        _: Destination,
-    ) -> BoxFuture<'_, Result<zero_platform_tokio::ControlledTcpListener, BuildError>> {
-        denied()
-    }
-    fn listen_datagram(
-        &self,
-        _: Destination,
-    ) -> BoxFuture<
-        '_,
-        Result<zero_platform_tokio::contract::component::GrantedDatagramListener, BuildError>,
-    > {
-        denied()
-    }
-    fn open_device(&self, _: Arc<str>) -> BoxFuture<'_, Result<BoxPacketSession, BuildError>> {
-        denied()
-    }
 }
 #[derive(Debug, Default)]
 pub(super) struct Traffic {
@@ -66,6 +43,7 @@ pub(super) struct Fixture {
     pub(super) actual: ComponentInstanceId,
     pub(super) binding: UpstreamBinding,
     pub(super) traffic: Arc<Traffic>,
+    egress: Arc<EgressInterfaceControl>,
 }
 impl Fixture {
     pub(super) fn cold(
@@ -78,6 +56,9 @@ impl Fixture {
         let pool = GrpcPool::default();
         Self::on_pool(pool, peer, carriers, streams, tls, observer)
     }
+    pub(super) fn scoped(peer: std::net::SocketAddr, streams: usize) -> Self {
+        Self::on_pool_setup(GrpcPool::default(), peer, 1, streams, None, (None, true))
+    }
     pub(super) fn on_pool(
         pool: GrpcPool,
         peer: std::net::SocketAddr,
@@ -86,6 +67,45 @@ impl Fixture {
         tls: Option<OwnedClientTlsProfile>,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> Self {
+        Self::on_pool_setup(pool, peer, carriers, streams, tls, (observer, false))
+    }
+    pub(super) fn background(
+        pool: GrpcPool,
+        peer: std::net::SocketAddr,
+        carriers: usize,
+        streams: usize,
+        actual: ComponentInstanceId,
+    ) -> Self {
+        Self::on_pool_recipe(
+            pool,
+            peer,
+            carriers,
+            streams,
+            None,
+            (None, true),
+            Some(actual),
+        )
+    }
+    fn on_pool_setup(
+        pool: GrpcPool,
+        peer: std::net::SocketAddr,
+        carriers: usize,
+        streams: usize,
+        tls: Option<OwnedClientTlsProfile>,
+        setup: (Option<Arc<dyn zero_traits::IoObserver>>, bool),
+    ) -> Self {
+        Self::on_pool_recipe(pool, peer, carriers, streams, tls, setup, None)
+    }
+    fn on_pool_recipe(
+        pool: GrpcPool,
+        peer: std::net::SocketAddr,
+        carriers: usize,
+        streams: usize,
+        tls: Option<OwnedClientTlsProfile>,
+        setup: (Option<Arc<dyn zero_traits::IoObserver>>, bool),
+        background: Option<ComponentInstanceId>,
+    ) -> Self {
+        let (observer, scoped) = setup;
         let cap = NonZeroUsize::new(carriers).unwrap();
         let scope = TaskScope::new(tokio::runtime::Handle::current(), cap);
         let egress = Arc::new(EgressInterfaceControl::default());
@@ -94,10 +114,10 @@ impl Fixture {
             dial: Default::default(),
             network_generation: NetworkGeneration(egress.generation()),
         };
-        let actual = ComponentInstanceId {
+        let actual = background.unwrap_or(ComponentInstanceId {
             component: ComponentId(810),
             generation: ResourceGeneration(4),
-        };
+        });
         let traffic = Arc::new(Traffic::default());
         let upstream = UpstreamTransport::new(
             binding.clone(),
@@ -106,39 +126,54 @@ impl Fixture {
                     actual,
                     binding.clone(),
                     peer,
-                    egress,
+                    egress.clone(),
                     Some(observer.unwrap_or_else(|| traffic.clone())),
                 )
                 .unwrap(),
             ),
         );
-        let options = Arc::new(
-            NativePoolOptions::from_pool(
-                &pool,
-                NativePoolSettings {
-                    server: peer.ip().to_string(),
-                    port: peer.port(),
-                    grpc: crate::profile::OwnedGrpcProfile {
-                        service_names: vec!["owned".into()],
-                        multi_mode: true,
-                        ..Default::default()
-                    },
-                    tls,
-                    dial: binding.dial.clone(),
+        let upstream = if background.is_some() {
+            UpstreamTransport::new(binding.clone(), Arc::new(BackgroundRoot(upstream)))
+        } else {
+            upstream
+        };
+        let prepare = if background.is_some() {
+            NativePoolOptions::for_background_pool
+        } else {
+            NativePoolOptions::from_pool
+        };
+        let options = prepare(
+            &pool,
+            NativePoolSettings {
+                server: peer.ip().to_string(),
+                port: peer.port(),
+                grpc: crate::profile::OwnedGrpcProfile {
+                    service_names: vec!["owned".into()],
+                    multi_mode: true,
+                    ..Default::default()
                 },
-                cap,
-                NonZeroUsize::new(streams).unwrap(),
-            )
-            .unwrap(),
-        );
+                tls,
+                dial: binding.dial.clone(),
+            },
+            cap,
+            NonZeroUsize::new(streams).unwrap(),
+        )
+        .unwrap();
+        let options = Arc::new(if scoped {
+            options.with_scoped_preparation()
+        } else {
+            options
+        });
+        let cancel = CancellationToken::new();
+        let tasks = scope.registrar();
         let context = BuildContext {
             component: actual.component,
             generation: actual.generation,
             dependencies: Arc::from([]),
             roles: ComponentRoleIds::default(),
-            resources: Arc::new(Denied),
-            tasks: scope.registrar(),
-            cancel: CancellationToken::new(),
+            resources: granted(&options, actual, &tasks, &cancel),
+            tasks,
+            cancel,
             background_carrier: Some(upstream),
         };
         let owner = NativePoolFactory.build(options.clone(), context).unwrap();
@@ -150,6 +185,7 @@ impl Fixture {
             actual,
             binding,
             traffic,
+            egress,
         }
     }
     pub(super) async fn start(&mut self) {
@@ -157,7 +193,7 @@ impl Fixture {
     }
     pub(super) fn demand(&self) -> Demand {
         Demand {
-            deadline: deadline(),
+            deadline: Some(deadline()),
             cancel: CancellationToken::new(),
             binding: self.binding.clone(),
         }
@@ -170,5 +206,70 @@ impl Fixture {
         let (protocol, tasks) =
             tokio::join!(self.owner.lifecycle.shutdown(end), self.scope.shutdown(end));
         (protocol.unwrap(), tasks)
+    }
+}
+
+/// Actual test allocator: exact canonical declaration, instance and real Scope.
+/// It grants no socket, I/O, driver or close receipt; NativeCarrierOpener still
+/// owns the original connect and the test consumes its real controller later.
+struct Granted {
+    declaration: zero_platform_tokio::contract::component::ResourceDeclaration,
+    instance: ComponentInstanceId,
+    scope: zero_platform_tokio::contract::scope::TaskScopeIdentity,
+    cancel: Arc<CancellationToken>,
+}
+pub(super) fn granted(
+    options: &NativePoolOptions,
+    instance: ComponentInstanceId,
+    tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+    cancel: &CancellationToken,
+) -> Arc<dyn ResourceAccess> {
+    Arc::new(Granted {
+        declaration: NativePoolFactory.describe(options).resources[0].clone(),
+        instance,
+        scope: tasks.scope_identity(),
+        cancel: Arc::new(cancel.clone()),
+    })
+}
+impl ResourceAccess for Granted {
+    fn register_controlled_carrier(
+        &self,
+        ordinal: usize,
+        registration: zero_platform_tokio::controlled_carrier::CarrierOwnerRegistration,
+        tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+    ) -> Result<zero_platform_tokio::controlled_carrier::CarrierOwnerBinding, BuildError> {
+        if ordinal != 0 || registration.instance() != self.instance || !self.scope.matches(tasks) {
+            return Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::StalePlan,
+                Impact::Component,
+            ));
+        }
+        registration.bind_declared(&self.declaration, tasks, &self.cancel)
+    }
+    fn read_file(
+        &self,
+        _: std::path::PathBuf,
+        _: usize,
+    ) -> BoxFuture<'_, Result<Vec<u8>, BuildError>> {
+        denied()
+    }
+    fn listen_tcp(
+        &self,
+        _: Destination,
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::ControlledTcpListener, BuildError>> {
+        denied()
+    }
+    fn listen_datagram(
+        &self,
+        _: Destination,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::contract::component::GrantedDatagramListener, BuildError>,
+    > {
+        denied()
+    }
+    fn open_device(&self, _: Arc<str>) -> BoxFuture<'_, Result<BoxPacketSession, BuildError>> {
+        denied()
     }
 }

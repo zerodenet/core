@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use crate::crypto::aead::{Aad, CHACHA20_POLY1305, LessSafeKey, Nonce, UnboundKey};
+use crate::crypto::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use crate::{
     noise::errors::WireGuardError,
     noise::index_table::Index,
@@ -208,7 +208,7 @@ impl Session {
     }
 
     /// Returns true if receiving counter is good to use, and marks it as used {
-    fn receiving_counter_mark(&self, counter: u64) -> Result<(), WireGuardError> {
+    pub(super) fn receiving_counter_mark(&self, counter: u64) -> Result<(), WireGuardError> {
         let mut counter_validator = self.receiving_key_counter.lock();
         let ret = counter_validator.mark_did_receive(counter);
         if ret.is_ok() {
@@ -235,14 +235,31 @@ impl Session {
         if self.sending_key_counter.load(Ordering::Relaxed) >= REJECT_AFTER_MESSAGES {
             return Err(packet);
         }
-        let sending_key_counter = self.sending_key_counter.fetch_add(1, Ordering::Relaxed);
-
-        let len = WgData::OVERHEAD + packet.len();
+        #[cfg(feature = "zero-owned-packets")]
+        let padded = packet
+            .owned_padding()
+            .unwrap_or(packet.owned_plaintext().len());
+        #[cfg(not(feature = "zero-owned-packets"))]
+        let padded = packet.len();
+        let len = WgData::OVERHEAD + padded;
 
         // Prepare a buffer to hold our the WgData packet and our encapsulated payload.
         // TODO: we can remove this allocation by pre-allocating some extra
         // space at the beginning of `packet`s allocation, and using that.
+        #[cfg(feature = "zero-owned-packets")]
+        let mut packet = packet;
+        #[cfg(feature = "zero-owned-packets")]
+        let mut buf = match packet.take_prepaid_cipher(len) {
+            Ok(Some(cipher)) => cipher,
+            Ok(None) if !packet.has_owned_custody() => Packet::from_bytes(BytesMut::zeroed(len)),
+            Ok(None) | Err(()) => return Err(packet),
+        };
+        #[cfg(not(feature = "zero-owned-packets"))]
         let mut buf = Packet::from_bytes(BytesMut::zeroed(len));
+
+        // A failed owned-buffer admission must leave the security counter
+        // untouched. All actual output storage is now present and validated.
+        let sending_key_counter = self.sending_key_counter.fetch_add(1, Ordering::Relaxed);
 
         let data = WgData::mut_from_bytes(buf.buf_mut())
             .expect("buffer size is at least WgData::OVERHEAD");
@@ -253,9 +270,14 @@ impl Session {
             .with_counter(sending_key_counter);
 
         // Copy inner packet into place.
-        debug_assert_eq!(packet.len(), data.encrypted_encapsulated_packet_mut().len());
-        data.encrypted_encapsulated_packet_mut()
-            .copy_from_slice(&packet);
+        #[cfg(feature = "zero-owned-packets")]
+        let source = packet.owned_plaintext();
+        #[cfg(not(feature = "zero-owned-packets"))]
+        let source = packet.as_ref();
+        let plaintext = data.encrypted_encapsulated_packet_mut();
+        debug_assert!(source.len() <= plaintext.len());
+        plaintext[..source.len()].copy_from_slice(source);
+        plaintext[source.len()..].fill(0);
 
         let mut nonce = [0u8; 12];
         nonce[4..12].copy_from_slice(&sending_key_counter.to_le_bytes());
@@ -271,6 +293,12 @@ impl Session {
             .expect("encryption must succeed");
 
         data.tag_mut().copy_from_slice(tag.as_ref());
+        #[cfg(feature = "zero-owned-packets")]
+        if packet.has_owned_custody() || buf.has_owned_custody() {
+            // Ciphertext keeps both its actual allocation owner and the
+            // original plaintext/queued packet until its real consumer ends.
+            buf.retain_prior(packet);
+        }
 
         // this won't panic since we've correctly initialized a WgData packet
         let packet = buf.try_into_wg().expect("is a wireguard packet");
@@ -284,8 +312,18 @@ impl Session {
     /// Decapsulate `packet` and return the decrypted data.
     pub(super) fn receive_packet_data(
         &self,
-        mut packet: Packet<WgData>,
+        packet: Packet<WgData>,
     ) -> Result<Packet, WireGuardError> {
+        let (packet, counter) = self.prepare_packet_data(packet)?;
+        self.receiving_counter_mark(counter)?;
+        Ok(packet)
+    }
+    /// Authentication and plaintext custody only. No replay/timer/session
+    /// mutation is committed until the actual caller has admitted all memory.
+    pub(super) fn prepare_packet_data(
+        &self,
+        mut packet: Packet<WgData>,
+    ) -> Result<(Packet, u64), WireGuardError> {
         if packet.header.receiver_idx.get() != self.receiving_index.value() {
             return Err(WireGuardError::WrongIndex);
         }
@@ -320,9 +358,7 @@ impl Session {
         buf.advance(WgDataHeader::LEN);
         buf.truncate(decrypted_len);
 
-        // After decryption is done, check counter again, and mark as received
-        self.receiving_counter_mark(counter)?;
-        Ok(packet)
+        Ok((packet, counter))
     }
 
     /// Returns the estimated downstream packet loss for this session
@@ -355,6 +391,29 @@ mod tests {
             unreachable!("is a wireguard data packet");
         };
         packet
+    }
+
+    #[cfg(feature = "zero-owned-packets")]
+    #[test]
+    fn missing_owned_cipher_does_not_commit_sending_counter() {
+        let session = test_session();
+        let packet = Packet::from_owned_buffer(vec![0_u8; 16].into())
+            .unwrap_or_else(|_| panic!("unique test plaintext"));
+        let mut original = match session.format_packet_data(packet) {
+            Err(original) => original,
+            Ok(_) => panic!("owned plaintext has no admitted ciphertext"),
+        };
+        assert_eq!(session.sending_key_counter.load(Ordering::Relaxed), 0);
+        let cipher = Packet::from_owned_buffer(vec![0_u8; WgData::OVERHEAD + 16].into())
+            .unwrap_or_else(|_| panic!("unique test ciphertext"));
+        original
+            .install_prepaid_cipher(cipher)
+            .unwrap_or_else(|_| panic!("same original has no previous cipher"));
+        let output = session
+            .format_packet_data(original)
+            .expect("same plaintext can retry");
+        assert_eq!(output.header.counter.get(), 0);
+        assert_eq!(session.sending_key_counter.load(Ordering::Relaxed), 1);
     }
 
     /// The receive path must reject a counter at/beyond REJECT_AFTER_MESSAGES before decryption,

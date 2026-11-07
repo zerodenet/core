@@ -208,19 +208,25 @@ impl Counts {
 
     // TODO: move this to macro?
     pub fn transition_after(&mut self, mut stream: store::Ptr, is_reset_counted: bool) {
+        let current = &*stream;
         tracing::trace!(
             "transition_after; stream={:?}; state={:?}; is_closed={:?}; \
              pending_send_empty={:?}; buffered_send_data={}; \
              num_recv={}; num_send={}",
-            stream.id,
-            stream.state,
-            stream.is_closed(),
-            stream.pending_send.is_empty(),
-            stream.buffered_send_data,
+            current.id,
+            current.state,
+            current.is_closed(),
+            current.pending_send.is_empty(),
+            current.buffered_send_data,
             self.num_recv_streams,
             self.num_send_streams
         );
 
+        // is_released also requires is_closed. An active original cannot
+        // unlink/decrement/release here; avoid resolving its key a second time.
+        if !current.is_closed() {
+            return;
+        }
         if stream.is_closed() {
             if !stream.is_pending_reset_expiration() {
                 stream.unlink();

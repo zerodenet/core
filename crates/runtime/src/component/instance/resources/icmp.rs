@@ -11,8 +11,8 @@ use tokio::time::Instant;
 use zero_core::component::ComponentInstanceId;
 use zero_platform_tokio::{
     contract::{
-        component::ResourceDeclaration, lifecycle::CloseReport, CancellationToken, ChannelError,
-        DeliveryState, Impact, Reason, Stage,
+        CancellationToken, ChannelError, DeliveryState, Impact, Reason, Stage,
+        component::ResourceDeclaration, lifecycle::CloseReport,
     },
     controlled_icmp::{ControlledIcmpOwner, IcmpOwnerReport},
 };
@@ -127,6 +127,32 @@ impl HostIcmpProbeOwner {
                 }),
             }),
         }
+    }
+    pub fn bind_original_budgets(
+        &self,
+        root: &Arc<zero_platform_tokio::controlled_carrier::CarrierOriginalTotals>,
+        scope: zero_platform_tokio::contract::scope::ScopeRetirementObservation,
+    ) -> Result<(), ChannelError> {
+        self.shared
+            .try_state()?
+            .native
+            .bind_original_totals(
+                zero_platform_tokio::controlled_icmp::IcmpTotalsBinding::new(
+                    root,
+                    self.shared.instance,
+                    scope,
+                    self.shared.cancel.clone(),
+                ),
+            )
+            .map_err(|source| {
+                error(
+                    self.shared.instance,
+                    Stage::Prepare,
+                    Reason::StalePlan,
+                    "ICMP original accounting cannot change",
+                )
+                .with_source(source)
+            })
     }
     pub fn grant(&self) -> HostIcmpProbeGrant {
         HostIcmpProbeGrant {

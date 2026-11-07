@@ -16,6 +16,7 @@ async fn close_slot_until(
     deadline: Instant,
     wait_users: bool,
 ) -> Result<CloseReport, BuildError> {
+    crate::controlled_carrier::preparation::cancel_staged(slot);
     // Cleanup is the persistent local receiver even when the original
     // request was cancelled before observing its auxiliary result.
     match timeout_at(
@@ -37,6 +38,25 @@ async fn close_slot_until(
             })
         }
     }
+    // Only this original's sealed noncached job is received here. Its real
+    // Scope result must be retained before local acceptance can wake the Host.
+    match timeout_at(
+        deadline,
+        crate::controlled_carrier::preparation::accept_job_exit(slot),
+    )
+    .await
+    {
+        Ok(result) => result?,
+        Err(_) => {
+            return Ok(CloseReport {
+                unfinished: vec![Unfinished::Resource(format!(
+                    "{} preparation job join",
+                    slot.label()
+                ))],
+                ..Default::default()
+            })
+        }
+    }
     let _closing = match timeout_at(deadline, slot.closing.lock()).await {
         Ok(guard) => guard,
         Err(_) => {
@@ -46,6 +66,23 @@ async fn close_slot_until(
             })
         }
     };
+    // The same original control cannot be closed underneath its negotiated
+    // Datagram. Its retained related slot owns the separate native receipt;
+    // source ancestry and logical caller settlement remain independent.
+    let related = { slot.state().related_child.clone() };
+    if let Some(child) = related {
+        child.cancel.cancel();
+        child.notify();
+        let report = Box::pin(close_slot_until(&child, deadline, wait_users)).await?;
+        if !report.is_complete() {
+            return Ok(report);
+        }
+        if wait_users {
+            if let Some(owner) = slot.owner.upgrade() {
+                owner.state().confirmed.append(report);
+            }
+        }
+    }
     loop {
         let changed = slot.changed.notified();
         tokio::pin!(changed);
@@ -82,6 +119,17 @@ async fn close_slot_until(
                 return Ok(CloseReport {
                     unfinished: vec![Unfinished::Resource(format!(
                         "{} caller/view closure remains unconfirmed",
+                        slot.label()
+                    ))],
+                    ..Default::default()
+                });
+            }
+            // Native/UsersClosed are already independently observable. Only
+            // removal/refunding waits for the original caller's actual Host ACK.
+            if !crate::controlled_carrier::caller_credit::wait(slot, deadline).await {
+                return Ok(CloseReport {
+                    unfinished: vec![Unfinished::Resource(format!(
+                        "{} caller registration ACK",
                         slot.label()
                     ))],
                     ..Default::default()
@@ -199,6 +247,7 @@ async fn close_slot_until(
                 state.closed = true;
                 state.pending_close = Some(report);
             }
+            slot.confirm_native_closed();
             slot.notify();
             continue;
         }

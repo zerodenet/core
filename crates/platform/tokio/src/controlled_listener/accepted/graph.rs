@@ -12,6 +12,7 @@ use std::{
 };
 use zero_core::component::TaskId;
 mod caller;
+mod capacity;
 mod peer;
 pub use peer::AcceptedPeerScope;
 mod carriers;
@@ -19,6 +20,7 @@ mod inbound;
 mod receiver;
 pub(super) mod resources;
 pub use resources::AcceptedResource;
+mod process;
 mod spawn;
 pub use caller::{AcceptedCaller, AcceptedOrigin};
 pub(crate) use inbound::PendingTcp;
@@ -32,6 +34,10 @@ pub(super) struct Authority {
     pub(super) max_resources: usize,
 }
 impl Authority {
+    pub(super) fn matches_original_scope(&self, scope: &TaskScopeIdentity) -> bool {
+        self.scope.same_scope(scope)
+    }
+
     pub(super) fn new(registrar: &TaskRegistrar, max_tasks: NonZeroUsize) -> Self {
         Self {
             scope: registrar.scope_identity(),
@@ -53,11 +59,17 @@ pub(super) struct Users {
     logical_dirty: AtomicBool,
     carrier_cleanup: AsyncMutex<()>,
     local: OnceLock<std::net::SocketAddr>,
+    pending_acks: Mutex<Vec<TaskJoinWitness>>,
+    lookup_totals: OnceLock<(
+        zero_core::component::ComponentInstanceId,
+        Weak<crate::controlled_carrier::CarrierOriginalTotals>,
+    )>,
 }
 #[derive(Default)]
 struct State {
     primary: bool,
     spawning: usize,
+    lookup_spawning: usize,
     sealed: bool,
     unaccounted: bool,
     tasks: BTreeMap<TaskId, Node>,
@@ -68,6 +80,8 @@ struct State {
 struct Node {
     witness: TaskJoinWitness,
     primary: bool,
+    process: Option<Arc<crate::LocalProcessLookup>>,
+    process_helper: bool,
 }
 /// A unique byte view disappearing is independent of every actual task join.
 pub(super) struct ViewUse(Arc<Users>);
@@ -103,6 +117,8 @@ impl Users {
             logical_dirty: AtomicBool::new(false),
             carrier_cleanup: AsyncMutex::new(()),
             local: OnceLock::new(),
+            pending_acks: Mutex::default(),
+            lookup_totals: OnceLock::new(),
         }
     }
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
@@ -121,6 +137,7 @@ impl Users {
         self.state().unaccounted = true;
     }
     pub(super) fn status(&self) -> AcceptedTcpUsers {
+        self.reap_process_lookups();
         let (sealed, pending, unaccounted, tasks, resources, carriers) = {
             let state = self.state();
             (
@@ -157,6 +174,7 @@ impl Users {
     pub(super) async fn retire(&self, deadline: Instant) -> bool {
         self.state().sealed = true;
         self.cancel.cancel();
+        self.cancel_process_lookups();
         self.revoke_resources();
         self.revoke_carriers();
         let tasks: Vec<_> = self
@@ -172,6 +190,9 @@ impl Users {
             {
                 return false;
             }
+        }
+        if !self.retire_process_lookups(deadline).await {
+            return false;
         }
         loop {
             let changed = self.changed.notified();

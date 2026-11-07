@@ -1,5 +1,6 @@
 //! Active client-side TCP over a bounded raw-IP packet channel.
 
+mod quiescence;
 use std::{
     collections::HashMap,
     net::{IpAddr, SocketAddr},
@@ -24,7 +25,11 @@ const FIRST_EPHEMERAL_PORT: u16 = 49_152;
 const EPHEMERAL_PORT_COUNT: usize = 16_384;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
+mod control_receive;
+mod opening;
 mod receive;
+pub use control_receive::ClientTcpControlReceive;
+pub use opening::{ClientTcpClosed, ClientTcpOpening, ClientTcpSocketControl};
 
 #[cfg(test)]
 mod tests;
@@ -40,6 +45,23 @@ pub enum ClientTcpStackError {
     ConnectTimeout,
     ConnectionReset,
     DestinationUnreachable,
+    PacketMemory(zero_traits::PacketDeriveError),
+    /// Actual receive backing could not be admitted before any SYN submission.
+    ReceiveMemory(zero_traits::PacketDeriveError),
+}
+
+impl std::fmt::Display for ClientTcpStackError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "client TCP stack: {self:?}")
+    }
+}
+impl std::error::Error for ClientTcpStackError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::PacketMemory(source) | Self::ReceiveMemory(source) => Some(source),
+            _ => None,
+        }
+    }
 }
 
 pub struct ClientTcpStack {
@@ -55,6 +77,11 @@ pub struct ClientTcpStack {
 }
 
 impl ClientTcpStack {
+    /// The original Source/Device driver observes this same retained cause.
+    pub fn output_failure(&self) -> Option<Arc<zero_traits::PacketDeriveError>> {
+        self.control_packets.failure()
+    }
+
     /// Actual active connection ceiling; retiring transferred users may still
     /// occupy their owning host's admission budget after this table drains.
     pub const CONNECTION_LIMIT: usize = MAX_TCP_CONNECTIONS;
@@ -105,6 +132,19 @@ impl ClientTcpStack {
         )
     }
 
+    pub fn new_output_with_task_owner(
+        local_addresses: Vec<IpAddr>,
+        outbound: crate::packet_output::PacketSender,
+        mtu: u16,
+        owner: Arc<dyn crate::TcpTaskOwner>,
+    ) -> Result<Self, ClientTcpStackError> {
+        Self::new_with_output_and_tasks(
+            local_addresses,
+            outbound,
+            mtu,
+            crate::task_owner::TcpTaskSpawner::owned(owner),
+        )
+    }
     fn new_with_output_and_tasks(
         local_addresses: Vec<IpAddr>,
         outbound: crate::packet_output::PacketSender,
@@ -148,6 +188,19 @@ impl ClientTcpStack {
         remote: SocketAddr,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> Result<UserTcpStream, ClientTcpStackError> {
+        self.connect_original(local_ip, remote, observer, None)
+            .await
+    }
+    async fn connect_original(
+        &self,
+        local_ip: IpAddr,
+        remote: SocketAddr,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
+        original: Option<&ClientTcpSocketControl>,
+    ) -> Result<UserTcpStream, ClientTcpStackError> {
+        if original.is_some_and(ClientTcpSocketControl::is_stopped) {
+            return Err(ClientTcpStackError::OutboundClosed);
+        }
         if !self.local_addresses.contains(&local_ip) {
             return Err(ClientTcpStackError::UnknownLocalAddress);
         }
@@ -157,60 +210,83 @@ impl ClientTcpStack {
         if self.revoked.load(Ordering::Acquire) || !self.control_packets.ensure_worker() {
             return Err(ClientTcpStackError::OutboundClosed);
         }
-        let mut connections = self.connections.lock().await;
-        if self.revoked.load(Ordering::Acquire) {
+        let (key, connection_id, send_control, syn, ready, iss) = {
+            let locked = self.connections.lock().await;
+            #[cfg(feature = "packet-memory")]
+            let _memory_notifications = self.outbound.defer_memory_notifications();
+            let mut connections = locked;
+            if self.revoked.load(Ordering::Acquire) {
+                return Err(ClientTcpStackError::OutboundClosed);
+            }
+            let half_open = connections
+                .values()
+                .filter(|connection| connection.connect_waiter.is_some())
+                .count();
+            if connections.len() >= MAX_TCP_CONNECTIONS
+                || half_open >= MAX_TCP_HALF_OPEN_CONNECTIONS
+            {
+                return Err(ClientTcpStackError::ConnectionLimit);
+            }
+            let start = usize::from(rand::random_range(0..EPHEMERAL_PORT_COUNT as u16));
+            let Some((key, local_port)) = (0..EPHEMERAL_PORT_COUNT).find_map(|offset| {
+                let port = FIRST_EPHEMERAL_PORT + ((start + offset) % EPHEMERAL_PORT_COUNT) as u16;
+                let key = (remote.ip(), remote.port(), local_ip, port);
+                (!connections.contains_key(&key)).then_some((key, port))
+            }) else {
+                return Err(ClientTcpStackError::ConnectionLimit);
+            };
+            let iss = next_iss();
+            let connection_id = NEXT_CONNECTION_ID.fetch_add(1, Ordering::Relaxed);
+            let (waiter, ready) = oneshot::channel();
+            let receive_buffer = Arc::new(
+                TcpReceiveBuffer::new_for_output(TCP_RECEIVE_BUFFER_BYTES, &self.outbound)
+                    .map_err(ClientTcpStackError::ReceiveMemory)?,
+            );
+            let send_control = Arc::new(TcpSendControl::new_network(iss, 0, self.mss));
+            let syn = super::output::CachedPacket::build(
+                packet::TcpPacketSpec {
+                    source: local_ip,
+                    destination: remote.ip(),
+                    source_port: local_port,
+                    destination_port: remote.port(),
+                    sequence: iss,
+                    acknowledgment: 0,
+                    flags: tcp_flags::SYN,
+                    window: receive_buffer.window(),
+                    mss: Some(self.mss),
+                    payload: &[],
+                },
+                &self.outbound,
+            )
+            .map_err(ClientTcpStackError::PacketMemory)?;
+            if let Some(original) = original {
+                original.install(key, connection_id, send_control.clone())?;
+            }
+            connections.insert(
+                key,
+                Conn {
+                    id: connection_id,
+                    state: TcpState::SynSent,
+                    snd_nxt: Arc::new(AtomicU32::new(iss.wrapping_add(1))),
+                    send_control: send_control.clone(),
+                    rcv_nxt: Arc::new(AtomicU32::new(0)),
+                    receive_buffer,
+                    last_active: Instant::now(),
+                    fin_sent: Arc::new(AtomicBool::new(false)),
+                    peer_mss: default_peer_mss(remote.ip()),
+                    path_mtu: None,
+                    connect_waiter: Some(waiter),
+                    peer_identity: None,
+                    observer: observer.clone(),
+                },
+            );
+            drop(connections);
+            (key, connection_id, send_control, syn, ready, iss)
+        };
+        if original.is_some_and(ClientTcpSocketControl::is_stopped) {
+            drop(self.remove_connection(&key).await);
             return Err(ClientTcpStackError::OutboundClosed);
         }
-        let half_open = connections
-            .values()
-            .filter(|connection| connection.connect_waiter.is_some())
-            .count();
-        if connections.len() >= MAX_TCP_CONNECTIONS || half_open >= MAX_TCP_HALF_OPEN_CONNECTIONS {
-            return Err(ClientTcpStackError::ConnectionLimit);
-        }
-        let start = usize::from(rand::random_range(0..EPHEMERAL_PORT_COUNT as u16));
-        let Some((key, local_port)) = (0..EPHEMERAL_PORT_COUNT).find_map(|offset| {
-            let port = FIRST_EPHEMERAL_PORT + ((start + offset) % EPHEMERAL_PORT_COUNT) as u16;
-            let key = (remote.ip(), remote.port(), local_ip, port);
-            (!connections.contains_key(&key)).then_some((key, port))
-        }) else {
-            return Err(ClientTcpStackError::ConnectionLimit);
-        };
-        let iss = next_iss();
-        let connection_id = NEXT_CONNECTION_ID.fetch_add(1, Ordering::Relaxed);
-        let (waiter, ready) = oneshot::channel();
-        let receive_buffer = Arc::new(TcpReceiveBuffer::new(TCP_RECEIVE_BUFFER_BYTES));
-        let send_control = Arc::new(TcpSendControl::new_network(iss, 0, self.mss));
-        let syn = packet::build_tcp_with_mss_and_window(
-            local_ip,
-            remote.ip(),
-            local_port,
-            remote.port(),
-            iss,
-            0,
-            tcp_flags::SYN,
-            self.mss,
-            receive_buffer.window(),
-        );
-        connections.insert(
-            key,
-            Conn {
-                id: connection_id,
-                state: TcpState::SynSent,
-                snd_nxt: Arc::new(AtomicU32::new(iss.wrapping_add(1))),
-                send_control: send_control.clone(),
-                rcv_nxt: Arc::new(AtomicU32::new(0)),
-                receive_buffer,
-                last_active: Instant::now(),
-                fin_sent: Arc::new(AtomicBool::new(false)),
-                peer_mss: default_peer_mss(remote.ip()),
-                path_mtu: None,
-                connect_waiter: Some(waiter),
-                peer_identity: None,
-                observer: observer.clone(),
-            },
-        );
-        drop(connections);
         send_control.track_segment(iss.wrapping_add(1), syn.clone());
         if !self.task_spawner.spawn(run_retransmission_worker(
             Arc::downgrade(&self.connections),
@@ -223,21 +299,34 @@ impl ClientTcpStack {
                 .downgrade(),
         )) {
             send_control.expire();
-            self.connections.lock().await.remove(&key);
+            drop(self.remove_connection(&key).await);
             return Err(ClientTcpStackError::OutboundClosed);
         }
         if !self
             .control_packets
             .clone()
             .with_observer(observer)
-            .try_send(syn)
+            .try_send_cached(&syn)
         {
-            self.connections.lock().await.remove(&key);
-            return Err(ClientTcpStackError::OutboundClosed);
+            drop(self.remove_connection(&key).await);
+            return Err(match self.control_packets.failure() {
+                Some(source) => ClientTcpStackError::PacketMemory(*source),
+                None => ClientTcpStackError::OutboundClosed,
+            });
         }
+        let ready = async {
+            match original {
+                Some(original) => tokio::select! {
+                    biased;
+                    _ = original.cancelled() => None,
+                    result = ready => result.ok(),
+                },
+                None => ready.await.ok(),
+            }
+        };
         match tokio::time::timeout(CONNECT_TIMEOUT, ready).await {
-            Ok(Ok(stream)) => Ok(stream),
-            Ok(Err(_)) => match send_control.io_error().map(|error| error.kind()) {
+            Ok(Some(stream)) => Ok(stream),
+            Ok(None) => match send_control.io_error().map(|error| error.kind()) {
                 Some(std::io::ErrorKind::TimedOut) => Err(ClientTcpStackError::ConnectTimeout),
                 Some(std::io::ErrorKind::BrokenPipe) => Err(ClientTcpStackError::OutboundClosed),
                 Some(std::io::ErrorKind::NetworkUnreachable) => {
@@ -246,7 +335,7 @@ impl ClientTcpStack {
                 _ => Err(ClientTcpStackError::ConnectionReset),
             },
             Err(_) => {
-                self.connections.lock().await.remove(&key);
+                drop(self.remove_connection(&key).await);
                 Err(ClientTcpStackError::ConnectTimeout)
             }
         }
@@ -287,7 +376,10 @@ impl ClientTcpStack {
             error.quoted_source.ip,
             error.quoted_source.port,
         );
-        let mut connections = self.connections.lock().await;
+        let locked = self.connections.lock().await;
+        #[cfg(feature = "packet-memory")]
+        let _memory_notifications = self.outbound.defer_memory_notifications();
+        let mut connections = locked;
         let observed_match = bytes.is_some() && connections.contains_key(&key);
         if let Some(connection) = connections.get(&key) {
             if let (Some(observer), Some(bytes)) = (&connection.observer, bytes) {
@@ -348,6 +440,34 @@ impl ClientTcpStack {
         packet::fragment_ip_packet_owned(raw_packet, mtu, identification)
     }
 
+    /// Observed Host output retains its actual storage and prepaid transform
+    /// envelope through learned PMTU changes and every asynchronous send.
+    pub async fn fragment_outbound_packet_buffer(
+        &self,
+        packet: zero_traits::PacketBuffer,
+    ) -> Result<Vec<zero_traits::PacketBuffer>, packet::PacketFragmentFailure> {
+        #[cfg(feature = "packet-memory")]
+        if self.outbound.has_packet_memory() {
+            let Some(mtu) = self.outbound_packet_mtu(&packet).await else {
+                return Err(packet::PacketFragmentFailure {
+                    cause: zero_traits::PacketDeriveError::LayoutMismatch,
+                    original: packet,
+                });
+            };
+            let identification = self.next_fragment_id.fetch_add(1, Ordering::Relaxed);
+            return packet::fragment_ip_packet_prepaid(packet, mtu, identification);
+        }
+        // Explicit standalone Vec-channel constructors keep their existing
+        // library responsibility. Hosted assembly requires a memory binding
+        // before constructing this stack; Unreserved never selects this arm.
+        Ok(self
+            .fragment_outbound_packet_owned(packet.into_vec())
+            .await
+            .into_iter()
+            .map(Into::into)
+            .collect())
+    }
+
     async fn outbound_packet_mtu(&self, raw_packet: &[u8]) -> Option<usize> {
         let tcp = packet::parse_tcp(raw_packet)?;
         let key = (tcp.dst.ip, tcp.dst.port, tcp.src.ip, tcp.src.port);
@@ -365,17 +485,18 @@ impl ClientTcpStack {
         self.control_packets
             .clone()
             .with_observer(conn.observer.clone())
-            .try_send(packet::build_tcp_with_window(
-                rev.0,
-                rev.2,
-                rev.1,
-                rev.3,
-                conn.snd_nxt.load(Ordering::Acquire),
-                conn.rcv_nxt.load(Ordering::Acquire),
-                tcp_flags::ACK,
-                conn.receive_buffer.window(),
-                &[],
-            ));
+            .try_send_spec(packet::TcpPacketSpec {
+                source: rev.0,
+                destination: rev.2,
+                source_port: rev.1,
+                destination_port: rev.3,
+                sequence: conn.snd_nxt.load(Ordering::Acquire),
+                acknowledgment: conn.rcv_nxt.load(Ordering::Acquire),
+                flags: tcp_flags::ACK,
+                window: conn.receive_buffer.window(),
+                mss: None,
+                payload: &[],
+            });
     }
 
     /// Fence new client flows synchronously. This is not a worker join.
@@ -385,9 +506,18 @@ impl ClientTcpStack {
 
     /// Fail every original client flow and wake its read/write/connect waiters.
     /// The task owner must still separately join its admitted worker futures.
+    async fn remove_connection(&self, key: &ConnKey) -> Option<Conn> {
+        let mut connections = self.connections.lock().await;
+        let retired = connections.remove(key);
+        drop(connections);
+        retired
+    }
     pub async fn shutdown(&self) {
         self.revoke();
-        let mut connections = self.connections.lock().await;
+        let locked = self.connections.lock().await;
+        #[cfg(feature = "packet-memory")]
+        let _memory_notifications = self.outbound.defer_memory_notifications();
+        let mut connections = locked;
         for (_, connection) in connections.drain() {
             connection.send_control.observe_transport_closed();
             connection.receive_buffer.close();
@@ -395,7 +525,10 @@ impl ClientTcpStack {
     }
 
     pub async fn cleanup_idle(&self, timeout: Duration) {
-        let mut connections = self.connections.lock().await;
+        let locked = self.connections.lock().await;
+        #[cfg(feature = "packet-memory")]
+        let _memory_notifications = self.outbound.defer_memory_notifications();
+        let mut connections = locked;
         connections.retain(|_, conn| {
             let keep = conn.last_active.elapsed() < timeout;
             if !keep {

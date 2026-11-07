@@ -5,6 +5,30 @@ impl ControlledTcpListener {
     pub async fn accept_owned(&mut self) -> Result<(AcceptedTcp, SocketAddr), ChannelError> {
         self.accept_owned_with(|| {}).await
     }
+    /// Ordinary Source admission waits on the same original local/global books.
+    /// The finite library rejection API remains available as accept_owned().
+    pub async fn accept_owned_wait(&mut self) -> Result<(AcceptedTcp, SocketAddr), ChannelError> {
+        loop {
+            match self.accept_owned().await {
+                Ok(accepted) => return Ok(accepted),
+                Err(source)
+                    if source.stage == Stage::Prepare
+                        && source.reason == Reason::Capacity
+                        && source.delivery == DeliveryState::NotSubmitted =>
+                {
+                    let pool = self.shared.accepted.as_ref().ok_or_else(|| {
+                        failure(
+                            Stage::Prepare,
+                            Reason::Unsupported,
+                            "accepted TCP authority was not installed",
+                        )
+                    })?;
+                    pool.wait_capacity().await?;
+                }
+                Err(source) => return Err(source),
+            }
+        }
+    }
     /// Charge an actual native candidate immediately before polling accept.
     /// A known Pending/no-native result returns that charge. After acquisition,
     /// error or unwind, the caller keeps it until this original entry closes.
@@ -82,12 +106,29 @@ impl ControlledTcpListener {
             };
             // Preinstalled before Tokio's native accept AND its consuming child
             // registration. An unwind leaves this same sentinel charged.
-            reservation.entry.state().phase = Phase::Acquiring;
+            let charge = {
+                let mut entry = reservation.entry.state();
+                entry.phase = Phase::Acquiring;
+                match pool.reserve_original(&reservation.entry) {
+                    Ok(charge) => charge,
+                    Err(error) => {
+                        entry.phase = Phase::Waiting;
+                        drop(entry);
+                        drop(state);
+                        drop(critical);
+                        no_native();
+                        return Poll::Ready(Err(error));
+                    }
+                }
+            };
             match listener.poll_accept(cx) {
                 Poll::Pending => {
                     reservation.entry.state().phase = Phase::Waiting;
                     drop(state);
                     drop(critical);
+                    if let Some(charge) = charge {
+                        charge.release_settled();
+                    }
                     no_native();
                     Poll::Pending
                 }

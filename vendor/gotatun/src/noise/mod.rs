@@ -21,10 +21,12 @@ pub mod index_table;
 /// Rate limiting for handshake initiation packets.
 pub mod rate_limiter;
 
+#[cfg(feature = "zero-owned-packets")]
+mod owned;
 mod session;
 mod timers;
 
-use rand::{RngCore, SeedableRng, rngs::StdRng};
+use rand::{rngs::StdRng, RngCore, SeedableRng};
 use zerocopy::IntoBytes;
 
 use crate::noise::errors::WireGuardError;
@@ -38,6 +40,10 @@ use crate::packet::{Packet, WgCookieReply, WgData, WgHandshakeInit, WgHandshakeR
 use crate::tun::MtuWatcher;
 use crate::x25519;
 
+#[cfg(feature = "zero-owned-packets")]
+mod prepared_data;
+#[cfg(feature = "zero-owned-packets")]
+pub use prepared_data::PreparedDataCommit;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
@@ -70,7 +76,7 @@ pub struct Tunn<R: RngCore + Send = StdRng> {
     /// The handshake currently in progress.
     handshake: handshake::Handshake,
     /// The [`N_SESSIONS`] most recent sessions.
-    sessions: [Option<session::Session>; N_SESSIONS],
+    sessions: [Option<std::sync::Arc<session::Session>>; N_SESSIONS],
     /// Index of the most recently used session.
     current: usize,
     /// Counter for slot selection when inserting new sessions.
@@ -78,6 +84,10 @@ pub struct Tunn<R: RngCore + Send = StdRng> {
     session_counter: usize,
     /// Queue to store blocked packets.
     packet_queue: VecDeque<Packet>,
+    #[cfg(feature = "zero-owned-packets")]
+    owned_control: bool,
+    #[cfg(feature = "zero-owned-packets")]
+    control_workspace: Option<Packet>,
 
     /// Keeps tabs on the expiring timers.
     timers: timers::Timers,
@@ -111,6 +121,11 @@ impl Tunn<StdRng> {
 }
 
 impl<R: RngCore + Send> Tunn<R> {
+    /// Existing queued inner payloads, without draining/expiring cryptographic state.
+    pub fn queued_packet_count(&self) -> usize {
+        self.packet_queue.len()
+    }
+
     /// Create a new tunnel using own private key and the peer public key.
     pub fn new_with_rng(
         static_private: x25519::StaticSecret,
@@ -138,6 +153,10 @@ impl<R: RngCore + Send> Tunn<R> {
             rx_bytes: Default::default(),
 
             packet_queue: VecDeque::new(),
+            #[cfg(feature = "zero-owned-packets")]
+            owned_control: false,
+            #[cfg(feature = "zero-owned-packets")]
+            control_workspace: None,
             timers: Timers::new(persistent_keepalive),
 
             rate_limiter,
@@ -224,8 +243,23 @@ impl<R: RngCore + Send> Tunn<R> {
     /// Returns `Err(original_packet)` if there is no active session, or if the active session's
     /// sending counter has reached `REJECT_AFTER_MESSAGES`.
     pub fn encapsulate_with_session(&mut self, packet: Packet) -> Result<Packet<WgData>, Packet> {
+        #[cfg(feature = "zero-owned-packets")]
+        let mut packet = packet;
         self.refresh_expiration();
         let current = self.current;
+        #[cfg(feature = "zero-owned-packets")]
+        if self.sessions[current % N_SESSIONS].is_some()
+            && self.owned_control
+            && packet.owned_plaintext().is_empty()
+        {
+            let control = match self.take_owned_control_packet(WgData::OVERHEAD) {
+                Ok(control) => control,
+                Err(_) => return Err(packet),
+            };
+            packet
+                .install_prepaid_cipher(control)
+                .unwrap_or_else(|_| unreachable!("new control packet has one actual cipher"));
+        }
         if let Some(ref session) = self.sessions[current % N_SESSIONS] {
             // Send the packet using an established session
             let packet = session.format_packet_data(packet)?;
@@ -296,6 +330,12 @@ impl<R: RngCore + Send> Tunn<R> {
 
         let mut p = p.into_bytes();
         p.truncate(0);
+        #[cfg(feature = "zero-owned-packets")]
+        if self.owned_control {
+            let control = self.take_owned_control_packet(WgData::OVERHEAD)?;
+            p.install_prepaid_cipher(control)
+                .map_err(|_| WireGuardError::DestinationBufferTooSmall)?;
+        }
 
         let keepalive_packet = session
             .format_packet_data(p)
@@ -351,7 +391,7 @@ impl<R: RngCore + Send> Tunn<R> {
     /// If the slot was occupied, the old session (and its [`Index`](index_table::Index)) is dropped,
     /// which automatically frees the index from the shared table.
     fn put_session(&mut self, slot: usize, session: session::Session) {
-        self.sessions[slot % N_SESSIONS] = Some(session);
+        self.sessions[slot % N_SESSIONS] = Some(std::sync::Arc::new(session));
     }
 
     /// Decrypt a data packet, and return a [`TunnResult::WriteToTunnel`] (`Ipv4` or `Ipv6`) if
@@ -420,6 +460,17 @@ impl<R: RngCore + Send> Tunn<R> {
 
         let starting_new_handshake = !self.handshake.is_in_progress();
 
+        #[cfg(feature = "zero-owned-packets")]
+        let packet = if self.owned_control {
+            let control = self
+                .take_owned_control_packet(std::mem::size_of::<WgHandshakeInit>())
+                .ok()?;
+            self.handshake
+                .format_handshake_initiation_into(Some(control))
+        } else {
+            self.handshake.format_handshake_initiation()
+        };
+        #[cfg(not(feature = "zero-owned-packets"))]
         let packet = self.handshake.format_handshake_initiation();
         tracing::debug!("Sending handshake_initiation");
 
@@ -514,6 +565,12 @@ impl<R: RngCore + Send> Tunn<R> {
 /// Using the MTU from the TUN device instead is a simpler, more reasonable, approach.
 /// `wireguard-go` uses this same method.
 fn pad_to_x16(mut packet: Packet, tun_mtu: &mut MtuWatcher) -> Packet {
+    #[cfg(feature = "zero-owned-packets")]
+    if packet.owned_padding().is_some() {
+        // The owned producer already fixed and prepaid this same padding/wire
+        // layout. Writing occurs only inside its existing cipher allocation.
+        return packet;
+    }
     if packet.len().is_multiple_of(16) {
         return packet;
     }
@@ -542,7 +599,7 @@ mod tests {
     use std::net::{Ipv4Addr, SocketAddr};
 
     #[cfg(feature = "mock_instant")]
-    use crate::noise::timers::{MAX_JITTER, REKEY_AFTER_TIME, REKEY_TIMEOUT, TimerName};
+    use crate::noise::timers::{TimerName, MAX_JITTER, REKEY_AFTER_TIME, REKEY_TIMEOUT};
     use crate::packet::Ipv4;
 
     const HANDSHAKE_RATE_LIMIT: u64 = 100;

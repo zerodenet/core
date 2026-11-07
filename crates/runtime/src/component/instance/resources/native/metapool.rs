@@ -170,7 +170,12 @@ impl HostResources {
                 );
             }
         }
-        let result = actual.bind_declared(declaration, tasks, &self.metapools.cancel);
+        let result = actual.bind_declared_with_totals(
+            declaration,
+            tasks,
+            &self.metapools.cancel,
+            &self.originals.carrier,
+        );
         let result = result.and_then(|()| {
             let state = self
                 .state

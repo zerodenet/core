@@ -13,7 +13,9 @@ pub(crate) fn next_ingress_id() -> u64 {
 
 pub(crate) mod host;
 mod session;
+mod standard;
 pub(crate) use session::{PacketPlane, PacketSessionPins};
+pub(crate) use standard::PacketRoleSessions;
 
 /// Inert, already materialized executors. This data grants no device access;
 /// each executor still checks the actual pool generation at execution.

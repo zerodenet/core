@@ -1,3 +1,8 @@
+pub mod owned_process;
+#[cfg(any(unix, windows))]
+pub mod parent_input;
+#[cfg(feature = "native-packet-origin")]
+pub use zero_tun::packet_memory;
 pub mod contract;
 pub mod controlled_icmp;
 pub mod rate_limit;
@@ -36,12 +41,18 @@ use zero_traits::{
 
 pub mod controlled_carrier;
 pub mod controlled_datagram;
+#[cfg(windows)]
+mod controlled_pipe;
 mod controlled_tcp;
 mod datagram;
+mod original_poll;
 #[cfg(windows)]
 mod windows_socket;
-#[cfg(any(unix, windows))]
+#[cfg(windows)]
+pub use controlled_pipe::{ControlledPipe, ControlledPipeOwner, PipeClosed, PipeNativeFailures};
 pub use controlled_tcp::PendingTcpConnect;
+#[cfg(any(unix, windows))]
+pub use controlled_tcp::{InboundTargetClosed, InboundTargetNativeOwner, InboundTargetSocketPool};
 #[cfg(unix)]
 pub use controlled_tcp::{PendingUnixAccept, PendingUnixConnect};
 #[cfg(unix)]
@@ -64,9 +75,11 @@ mod system_dns;
 use egress::{bind_tcp_to_interface, bind_udp_to_interface, datagram_bind_address};
 pub use egress::{
     EgressBindingReason, EgressFamilySnapshot, EgressInterface, EgressInterfaceControl,
-    EgressRouteLookupStatus, EgressSelection,
+    EgressReadObservation, EgressRouteLookupStatus, EgressSelection,
 };
-pub use process::{lookup_local_tcp_process, lookup_local_udp_process, LocalProcessInfo};
+pub use process::{
+    LocalProcessInfo, LocalProcessLookup, LocalProcessLookupStart, LocalProcessTransport,
+};
 pub use system_dns::system_dns_servers;
 
 #[derive(Debug)]

@@ -157,11 +157,30 @@ impl ManagedState {
         self.changed.notify_waiters();
     }
     pub(crate) fn harvest_closed(&self) {
-        self.state
-            .lock()
-            .unwrap()
-            .records
-            .retain(|record| !record.closed(self.instance));
+        let records = self.state.lock().unwrap().records.clone();
+        let confirmed = records
+            .into_iter()
+            .filter(|record| record.closed(self.instance))
+            .collect::<Vec<_>>();
+        let removed = {
+            let mut state = self.state.lock().unwrap();
+            let mut removed = Vec::new();
+            let mut index = 0;
+            while index < state.records.len() {
+                if confirmed
+                    .iter()
+                    .any(|record| Arc::ptr_eq(record, &state.records[index]))
+                {
+                    removed.push(state.records.remove(index));
+                } else {
+                    index += 1;
+                }
+            }
+            removed
+        };
+        // Even positive closure does not authorize final protocol/loan drops
+        // underneath the one actual owner census lock.
+        drop(removed);
     }
     pub(crate) async fn retire_finished(
         &self,

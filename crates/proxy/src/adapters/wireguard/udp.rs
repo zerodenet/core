@@ -11,6 +11,8 @@ use zero_engine::EngineError;
 
 use crate::runtime::raw_ip::{RawIpAction, RawIpOutboundPlan, RawIpPeerPlan, RawIpTunnel};
 
+mod codec;
+
 pub(super) struct WireguardRawIpPlan {
     profile: Arc<PreparedOutbound>,
     peer_identities: Vec<Arc<str>>,
@@ -140,75 +142,6 @@ struct WireguardRawIpTunnel {
     tunnel: PeerTunnel,
     profile: Arc<PreparedOutbound>,
     peer_index: usize,
-}
-
-impl RawIpTunnel for WireguardRawIpTunnel {
-    fn initiate_handshake(&mut self) -> Result<Vec<RawIpAction>, EngineError> {
-        self.tunnel
-            .initiate_handshake()
-            .map(convert)
-            .map_err(tunnel_error)
-    }
-
-    fn send_ip_packet(&mut self, packet: &[u8]) -> Result<Vec<RawIpAction>, EngineError> {
-        self.tunnel
-            .send_ip_packet(packet)
-            .map(convert)
-            .map_err(tunnel_error)
-    }
-
-    fn receive_datagram(
-        &mut self,
-        source: Option<std::net::SocketAddr>,
-        datagram: &[u8],
-    ) -> Result<Vec<RawIpAction>, EngineError> {
-        self.tunnel
-            .receive_datagram(source, datagram)
-            .map(convert)
-            .map_err(tunnel_error)
-    }
-
-    fn receive_datagram_with_authentication(
-        &mut self,
-        source: Option<std::net::SocketAddr>,
-        datagram: &[u8],
-    ) -> Result<(Vec<RawIpAction>, bool), EngineError> {
-        self.tunnel
-            .receive_datagram_with_authentication(source, datagram)
-            .map(|received| (convert(received.actions), received.authenticated))
-            .map_err(tunnel_error)
-    }
-
-    fn tick(&mut self) -> Result<Vec<RawIpAction>, EngineError> {
-        self.tunnel.tick().map(convert).map_err(tunnel_error)
-    }
-
-    fn timer_enabled(&self) -> bool {
-        self.tunnel.timer_enabled()
-    }
-
-    fn timer_schedule(&self) -> crate::runtime::raw_ip::timer::TimerSchedule {
-        self.tunnel.next_timer_delay().into()
-    }
-
-    fn allows_source(&self, source: IpAddr) -> bool {
-        self.profile
-            .allows_authenticated_source(self.peer_index, source)
-    }
-
-    fn time_since_last_handshake(&self) -> Option<std::time::Duration> {
-        self.tunnel.time_since_last_handshake()
-    }
-}
-
-fn convert(actions: Vec<TunnelAction>) -> Vec<RawIpAction> {
-    actions
-        .into_iter()
-        .map(|action| match action {
-            TunnelAction::SendNetwork(packet) => RawIpAction::SendNetwork(packet),
-            TunnelAction::ReceiveIp { packet, source } => RawIpAction::ReceiveIp { packet, source },
-        })
-        .collect()
 }
 
 fn tunnel_error(error: wireguard::runtime::TunnelError) -> EngineError {

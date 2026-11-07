@@ -67,6 +67,12 @@ async fn pending(
     assert!(Arc::ptr_eq(&state.applied_snapshot, &snapshot));
     assert!(Arc::ptr_eq(&proxy.engine().runtime_snapshot(), &previous));
     assert!(!snapshot.configuration_publication().is_committed());
+    let source_services = proxy.tcp_runtime_services_for_snapshot(snapshot.clone())
+        .with_current_snapshot();
+    assert!(Arc::ptr_eq(&source_services.snapshot_handle(), &snapshot),
+        "the actual Ready Source must initialize from its frozen target, while Engine remains old");
+    assert!(source_services.ensure_configuration_committed().is_err(),
+        "the correct target snapshot grants no Business before the actual commit");
     snapshot
 }
 async fn commit(proxy: &Proxy, snapshot: Arc<EngineRuntimeSnapshot>) {

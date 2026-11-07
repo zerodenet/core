@@ -5,6 +5,8 @@ use crate::adapters::identity::NamedProtocolAdapter;
 #[cfg(feature = "http")]
 pub(super) mod inbound;
 #[cfg(feature = "http")]
+pub(crate) use inbound::component_options_in_runtime;
+#[cfg(all(test, feature = "http"))]
 pub(crate) use inbound::component_options;
 
 #[cfg(feature = "http")]

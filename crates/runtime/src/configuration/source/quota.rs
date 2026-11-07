@@ -1,5 +1,7 @@
 //! Durable quota bytes belong to the same deployment source; the Engine owns
 //! accounting and its actual persistence worker, never an original file handle.
+mod lock_error;
+mod worker;
 use super::*;
 use std::{
     fs::{OpenOptions, TryLockError},
@@ -13,6 +15,7 @@ pub struct QuotaStorage {
     source: Weak<ConfigurationSource>,
     path: PathBuf,
     lease: Mutex<Lease>,
+    worker: worker::WorkerReceiver,
 }
 #[derive(Default)]
 struct Lease {
@@ -37,8 +40,16 @@ impl Drop for RetainUnknownOnUnwind {
         }
     }
 }
+#[derive(Debug)]
+struct RetainedQuotaSource(Arc<io::Error>);
+impl std::fmt::Display for RetainedQuotaSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { self.0.fmt(f) }
+}
+impl std::error::Error for RetainedQuotaSource {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> { Some(self.0.as_ref()) }
+}
 fn retained(source: &Arc<io::Error>) -> io::Error {
-    io::Error::new(source.kind(), source.clone())
+    io::Error::new(source.kind(), RetainedQuotaSource(source.clone()))
 }
 #[derive(Debug)]
 struct AcquisitionCleanupFailure {
@@ -80,6 +91,17 @@ impl ConfigurationSource {
         path: &Path,
         decode: impl FnOnce(&mut dyn std::io::Read) -> io::Result<T>,
     ) -> io::Result<(u64, io::Result<T>)> {
+        self.inspect_file_snapshot(path,decode)
+    }
+
+    /// Streaming inspection by the actual quota inspector and CLI binary hash.
+    /// The decoder only borrows Read; no original handle escapes, and results
+    /// return only after a matching native close on this same source's slot.
+    pub fn inspect_file_snapshot<T>(
+        self: &Arc<Self>,
+        path: &Path,
+        decode: impl FnOnce(&mut dyn std::io::Read) -> io::Result<T>,
+    ) -> io::Result<(u64, io::Result<T>)> {
         super::super::startup::with_source(self.clone(), || {
             self.ensure_resource_io_available()?;
             self.io.with_file(
@@ -109,11 +131,15 @@ impl ConfigurationSource {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(previous) = slot.as_ref() {
                 previous.confirm_closed()?;
+                if let Some(failure) = previous.report_worker_failure() {
+                    return Err(failure);
+                }
             }
             let storage = Arc::new(QuotaStorage {
                 source: Arc::downgrade(self),
                 path,
                 lease: Mutex::new(Lease::default()),
+                worker: Default::default(),
             });
             *slot = Some(storage.clone());
             drop(slot);
@@ -203,7 +229,7 @@ impl QuotaStorage {
             match lease.original.as_ref().unwrap().try_lock() {
                 Ok(()) => { lease.acquired = true; Ok(()) }
                 Err(TryLockError::WouldBlock) => Err(io::Error::new(io::ErrorKind::WouldBlock, format!("principal quota state `{}` is already owned by another Zero process (lock `{}`)", self.path.display(), path.display()))),
-                Err(TryLockError::Error(error)) => Err(io::Error::new(error.kind(), format!("failed to acquire principal quota state lock `{}` for `{}`: {error}", path.display(), self.path.display()))),
+                Err(TryLockError::Error(error)) => Err(lock_error::retain(&self.path, &path, error)),
             }
         })();
         lease.opening = false;

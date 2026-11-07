@@ -1,13 +1,20 @@
 //! Install or retain actual prepared peer originals after deferred startup.
 use super::*;
+mod proxied;
 impl WireguardAdapter {
     pub(super) async fn prepare_devices_inner(
         &self,
         outbounds: &[&OutboundConfig],
         inbounds: &[InboundConfig],
-        context: OutboundDevicePreparationContext,
+        mut context: OutboundDevicePreparationContext,
         cold: Option<Arc<pending_map::PendingEntries>>,
     ) -> Result<PreparedWireguardDevices, EngineError> {
+        context.stack_options = context.stack_options.with_packet_wire_memory(
+            zero_stack::packet_output::memory::PacketWireMemory::PaddedEnvelope {
+                multiple: 16,
+                overhead: 32,
+            },
+        );
         if cold.is_none() {
             PendingEndpoints::ensure_available(&self.pending_endpoints)?;
         }
@@ -21,9 +28,31 @@ impl WireguardAdapter {
         let desired = selected
             .iter()
             .map(|(outbound, _, identity, plan)| {
-                let count = self.prepared_peer_count(
-                    outbound, inbounds, plan, *identity, generation, &context,
-                )?;
+                let count = if matches!(
+                    outbound.protocol,
+                    OutboundProtocolConfig::Wireguard {
+                        inbound_tag: None,
+                        outer_udp_proxy: None,
+                        ..
+                    }
+                ) {
+                    cold.as_ref()
+                        .and_then(|candidate| {
+                            candidate
+                                .standalone
+                                .lock()
+                                .unwrap_or_else(|error| error.into_inner())
+                                .get(&outbound.tag)
+                                .map(|candidate| candidate.root.peers.len())
+                        })
+                        .ok_or_else(|| {
+                            invalid("plain standalone WireGuard has no actual cold component root")
+                        })?
+                } else {
+                    self.prepared_peer_count(
+                        outbound, inbounds, plan, *identity, generation, &context,
+                    )?
+                };
                 Ok((outbound.tag.clone(), (*identity, generation, count)))
             })
             .collect::<Result<HashMap<_, _>, EngineError>>()?;
@@ -46,6 +75,17 @@ impl WireguardAdapter {
                 } => cold
                     .as_ref()
                     .is_some_and(|candidate| candidate.contains_key(tag)),
+                OutboundProtocolConfig::Wireguard {
+                    inbound_tag: None,
+                    outer_udp_proxy: None,
+                    ..
+                } => cold.as_ref().is_some_and(|candidate| {
+                    candidate
+                        .standalone
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .contains_key(&outbound.tag)
+                }),
                 _ => false,
             };
             let prepared_traffic = (!canonical)
@@ -113,6 +153,68 @@ impl WireguardAdapter {
                 profiles.insert(
                     outbound.tag.clone(),
                     CachedProfile {
+                        graph: None,
+                        packet: self.packet_operations(
+                            &outbound.tag,
+                            device_identity,
+                            plan.clone(),
+                        ),
+                        identity,
+                        device_identity,
+                        plan,
+                    },
+                );
+                continue;
+            }
+            if outer_udp_proxy.is_none() {
+                let root = cold
+                    .as_ref()
+                    .and_then(|candidate| {
+                        candidate
+                            .standalone
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner())
+                            .get(&outbound.tag)
+                            .map(|candidate| candidate.root.clone())
+                    })
+                    .ok_or_else(|| {
+                        invalid(
+                            "plain standalone WireGuard cannot start through its old UDP executor",
+                        )
+                    })?;
+                for peer in 0..root.peers.len() {
+                    let device = root.device(peer).map_err(std::io::Error::other)?;
+                    let retained = self
+                        .pool
+                        .reusable_cell(&outbound.tag, peer, device_identity, generation)
+                        .filter(|cell| {
+                            cell.get()
+                                .is_some_and(|current| Arc::ptr_eq(current, &device))
+                        });
+                    let (cell, fresh) = match retained {
+                        Some(cell) => (cell, false),
+                        None => {
+                            let cell = Arc::new(OnceCell::new());
+                            cell.set(device).map_err(|_| {
+                                invalid("standalone original peer was already installed")
+                            })?;
+                            (cell, true)
+                        }
+                    };
+                    staged.insert(
+                        outbound.tag.clone(),
+                        peer,
+                        device_identity,
+                        generation,
+                        cell,
+                        fresh,
+                        false,
+                    )?;
+                }
+                profiles.insert(
+                    outbound.tag.clone(),
+                    CachedProfile {
+                        graph: Some(Arc::downgrade(&root)),
                         packet: self.packet_operations(
                             &outbound.tag,
                             device_identity,
@@ -130,117 +232,23 @@ impl WireguardAdapter {
             if context.disabled_outbounds.contains(&outbound.tag) {
                 continue;
             }
-            for peer_index in 0..plan.peer_count() {
-                if staged.len() >= crate::runtime::raw_ip::MAX_RAW_IP_DEVICES {
-                    return Err(invalid("raw-IP device limit exceeded"));
-                }
-                if let Some(cell) =
-                    self.pool
-                        .reusable_cell(&outbound.tag, peer_index, device_identity, generation)
-                {
-                    staged.insert(
-                        outbound.tag.clone(),
-                        peer_index,
-                        device_identity,
-                        generation,
-                        cell,
-                        false,
-                        outer_udp_proxy.is_some(),
-                    )?;
-                    continue;
-                }
-                let (host, port) = plan
-                    .peer_endpoint(peer_index)
-                    .ok_or_else(|| invalid("unknown WireGuard peer"))?;
-                let address = match host.parse::<IpAddr>() {
-                    Ok(IpAddr::V4(ip)) => Address::Ipv4(ip.octets()),
-                    Ok(IpAddr::V6(ip)) => Address::Ipv6(ip.octets()),
-                    Err(_) => Address::Domain(host.to_owned()),
-                };
-                let endpoint = match upstream
-                    .resolve_node_address(&address, port, "WireGuard peer endpoint")
-                    .await
-                {
-                    Ok(endpoint) => endpoint,
-                    Err(error) => {
-                        if matches!(address, Address::Domain(_)) {
-                            self.pool.mark_endpoint_unresolved(
-                                &outbound.tag,
-                                peer_index,
-                                device_identity,
-                            );
-                        }
-                        return Err(error);
-                    }
-                };
-                self.pool
-                    .clear_endpoint_unresolved(&outbound.tag, peer_index, device_identity);
-                let tunnel = plan.build_tunnel(peer_index)?;
-                let meter = meters
-                    .as_ref()
-                    .map(|(endpoint, peers)| {
-                        crate::runtime::raw_ip::RawIpTraffic::new(
-                            endpoint.clone(),
-                            peers.get(peer_index).cloned(),
-                        )
-                    })
-                    .unwrap_or_default()
-                    .with_global(
-                        context
-                            .traffic
-                            .traffic_meter(&zero_api::TrafficScope::Global),
-                    );
-                let device = if let Some(proxy_tag) = outer_udp_proxy {
-                    let operation = context.packet_paths.get(proxy_tag).ok_or_else(|| {
-                        invalid(format!(
-                            "WireGuard outer_udp_proxy `{proxy_tag}` has no persistent bidirectional UDP packet path"
-                        ))
-                    })?;
-                    let operation = &operation.operation;
-                    let path = operation
-                        .build_carrier(context.packet_path_services.clone())
-                        .await?;
-                    SharedRawIpDevice::start_metered(
-                        plan.local_addresses(),
-                        plan.mtu(),
-                        endpoint,
-                        Arc::new(ProxiedRawIpWireCarrier::new(
-                            path,
-                            operation.clone(),
-                            context.packet_path_services.clone(),
-                        )),
-                        tunnel,
-                        context.stack_options.clone().with_traffic(meter),
-                    )
-                } else {
-                    let socket = upstream.bind_datagram_socket(endpoint).await?;
-                    SharedRawIpDevice::start_metered(
-                        plan.local_addresses(),
-                        plan.mtu(),
-                        endpoint,
-                        Arc::new(crate::runtime::raw_ip::DirectRawIpWireCarrier::new(socket)),
-                        tunnel,
-                        context.stack_options.clone().with_traffic(meter),
-                    )
-                }
-                .map_err(|error| invalid(format!("raw-IP device: {error:?}")))?;
-                let cell = Arc::new(OnceCell::new());
-                cell.set(device.clone())
-                    .map_err(|_| invalid("duplicate WireGuard peer device"))?;
-                staged.insert(
-                    outbound.tag.clone(),
-                    peer_index,
+            self.prepare_proxied_peers(
+                proxied::ProxiedPreparation {
+                    outbound,
+                    plan: &plan,
+                    context: &context,
                     device_identity,
                     generation,
-                    cell,
-                    true,
-                    outer_udp_proxy.is_some(),
-                )?;
-                device.wait_ready().await?;
-            }
+                    meters: &meters,
+                    outer_udp_proxy,
+                },
+                &mut staged,
+            )
+            .await?;
             profiles.insert(
                 outbound.tag.clone(),
                 CachedProfile {
+                    graph: None,
                     packet: self.packet_operations(&outbound.tag, device_identity, plan.clone()),
                     identity,
                     device_identity,

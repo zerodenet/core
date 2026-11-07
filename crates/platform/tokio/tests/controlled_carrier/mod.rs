@@ -116,6 +116,7 @@ mod opening;
 #[path = "origin.rs"]
 mod origin;
 mod taskless;
+mod totals;
 
 mod registration;
 
@@ -139,3 +140,29 @@ mod resolution;
 mod service;
 #[path = "service_wire.rs"]
 mod service_wire;
+
+mod related;
+
+mod related_custody;
+
+mod direct_service;
+
+mod retirement_progress;
+
+#[path = "credit.rs"]
+mod credit;
+
+#[path = "association_business.rs"]
+mod association_business;
+
+#[path = "receiver.rs"]
+mod receiver;
+
+mod service_receiver;
+
+mod dependency_receiver;
+
+mod service_datagram_receiver;
+
+#[path = "preparation_jobs.rs"]
+mod preparation_jobs;

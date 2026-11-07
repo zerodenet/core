@@ -16,6 +16,7 @@ use wireguard::{
 use zero_config::{InboundConfig, InboundProtocolConfig, WireguardSecret};
 use zero_engine::EngineError;
 
+mod codec;
 pub(crate) mod cold;
 mod device;
 mod recovery;
@@ -26,6 +27,8 @@ use crate::runtime::inbound_operation::{
 };
 use crate::runtime::raw_ip::{EndpointPacket, RawIpWireCarrier, SharedRawIpDevice};
 pub(super) use device::LiveInboundDevice;
+mod io;
+pub(in crate::adapters::wireguard) use io::EndpointIoRecipe;
 
 pub(super) struct LinkedEndpoint {
     pub(super) listen: zero_config::ListenConfig,
@@ -33,9 +36,8 @@ pub(super) struct LinkedEndpoint {
     pub(super) io_incarnation: AtomicU64,
     pub(super) state: Mutex<LinkedEndpointState>,
     pub(super) sender: watch::Sender<mpsc::Sender<EndpointPacket>>,
-    peers: watch::Sender<Arc<EndpointPeerState>>,
-    packets: Mutex<Option<mpsc::Receiver<EndpointPacket>>>,
-    active: Arc<AtomicBool>,
+    io: Arc<io::EndpointIo>,
+    pending_peers: Mutex<Option<Arc<EndpointPeerState>>>,
     owned_resources: OnceLock<Arc<super::lifecycle::PeerResources>>,
 }
 
@@ -64,8 +66,8 @@ impl LinkedEndpointUpdate {
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         self.link.live.replace(self.device, self.inbound_identity);
-        let revision = self.link.peers.borrow().revision.wrapping_add(1);
-        self.link.peers.send_replace(Arc::new(EndpointPeerState {
+        let revision = self.link.io.peers.borrow().revision.wrapping_add(1);
+        self.link.io.peers.send_replace(Arc::new(EndpointPeerState {
             revision,
             devices: self.devices.clone(),
             initial_endpoints: self.endpoints,
@@ -80,118 +82,6 @@ impl LinkedEndpointUpdate {
         state.identity = self.identity;
         state.generation = self.generation;
         state.devices = self.devices;
-    }
-}
-
-impl LinkedEndpoint {
-    pub(super) fn owned_resources(&self) -> Option<Arc<super::lifecycle::PeerResources>> {
-        self.owned_resources.get().cloned()
-    }
-    pub(super) fn install_owned_resources(
-        &self,
-        resources: Arc<super::lifecycle::PeerResources>,
-    ) -> Result<(), EngineError> {
-        if let Some(current) = self.owned_resources.get() {
-            if Arc::ptr_eq(current, &resources) {
-                return Ok(());
-            }
-            return Err(invalid(
-                "linked endpoint already belongs to another resource owner",
-            ));
-        }
-        self.owned_resources
-            .set(resources)
-            .map_err(|_| invalid("linked resource owner changed during installation"))
-    }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
-        )
-    )]
-    pub(super) fn outer_carriers(&self) -> Vec<Arc<dyn RawIpWireCarrier>> {
-        self.peers
-            .borrow()
-            .carriers
-            .iter()
-            .flatten()
-            .cloned()
-            .collect()
-    }
-    pub(super) fn reused_carriers(&self) -> Vec<Option<Arc<dyn RawIpWireCarrier>>> {
-        self.peers.borrow().carriers.clone()
-    }
-    pub(super) fn carrier_owners_match(
-        &self,
-        owners: &[Arc<crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot>],
-    ) -> bool {
-        let peers = self.peers.borrow();
-        peers.carriers.len() <= owners.len()
-            && peers.carriers.iter().zip(owners).all(|(carrier, owner)| {
-                carrier.as_ref().is_none_or(|carrier| {
-                    carrier
-                        .native_owner()
-                        .is_some_and(|actual| Arc::ptr_eq(&actual, owner))
-                })
-            })
-    }
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn new(
-        identity: [u8; 32],
-        generation: u64,
-        listen: zero_config::ListenConfig,
-        live: Arc<LiveInboundDevice>,
-        devices: Vec<Arc<SharedRawIpDevice>>,
-        endpoints: Vec<Option<SocketAddr>>,
-        carriers: Vec<Option<Arc<dyn RawIpWireCarrier>>>,
-        sender: watch::Sender<mpsc::Sender<EndpointPacket>>,
-        packets: mpsc::Receiver<EndpointPacket>,
-    ) -> Self {
-        let (peers, _) = watch::channel(Arc::new(EndpointPeerState {
-            revision: 0,
-            devices: devices.clone(),
-            initial_endpoints: endpoints,
-            carriers: carriers.clone(),
-        }));
-        Self {
-            listen,
-            live,
-            io_incarnation: AtomicU64::new(crate::runtime::raw_ip::next_incarnation()),
-            state: Mutex::new(LinkedEndpointState {
-                identity,
-                generation,
-                devices,
-            }),
-            sender,
-            peers,
-            packets: Mutex::new(Some(packets)),
-            active: Arc::new(AtomicBool::new(false)),
-            owned_resources: OnceLock::new(),
-        }
-    }
-
-    fn take_endpoint(&self) -> Result<RawIpInboundEndpoint, EngineError> {
-        if self.active.swap(true, Ordering::AcqRel) {
-            return Err(invalid(
-                "linked WireGuard endpoint listener already running",
-            ));
-        }
-        let packets = self
-            .packets
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .take()
-            .unwrap_or_else(|| {
-                let (sender, packets) = mpsc::channel(256);
-                self.sender.send_replace(sender);
-                packets
-            });
-        Ok(RawIpInboundEndpoint {
-            packets,
-            peers: self.peers.subscribe(),
-            lease: self.active.clone(),
-        })
     }
 }
 
@@ -243,125 +133,6 @@ pub(super) fn prepare_device(inbound: &InboundConfig) -> Result<InboundDevice, E
 }
 
 struct WireguardInboundDevice(Arc<LiveInboundDevice>);
-
-impl RawIpInboundDevice for WireguardInboundDevice {
-    fn is_local_address(&self, address: IpAddr) -> bool {
-        self.0
-            .device
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_local_address(address)
-    }
-    fn peer_identity(&self, peer: usize) -> Option<String> {
-        self.0
-            .device
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .public_peer_id(peer)
-    }
-
-    fn authenticated_endpoint(&self, peer: usize) -> Option<SocketAddr> {
-        self.0
-            .peer_source(peer)
-            .and_then(|source| source.authenticated_endpoint)
-    }
-
-    fn generation(&self) -> u64 {
-        self.0.generation.load(Ordering::Acquire)
-    }
-
-    fn mtu(&self) -> u16 {
-        self.0
-            .device
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .mtu()
-    }
-
-    fn peer_count(&self) -> usize {
-        self.0
-            .device
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .peer_count()
-    }
-
-    fn peer_for_destination(&self, destination: IpAddr) -> Option<usize> {
-        self.0
-            .device
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .peer_for_destination(destination)
-    }
-
-    fn receive_datagram(
-        &mut self,
-        source: Option<SocketAddr>,
-        packet: &[u8],
-    ) -> Result<RawIpInboundDispatch, EngineError> {
-        let dispatch = self
-            .0
-            .device
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .receive_datagram_with_source(source, packet)
-            .map_err(invalid)?;
-        Ok(RawIpInboundDispatch {
-            peer_index: dispatch.peer_index,
-            authenticated: dispatch.authenticated,
-            source_rejected_packets: dispatch.source_rejected_packets,
-            actions: dispatch.actions.into_iter().map(map_action).collect(),
-        })
-    }
-
-    fn send_ip_packet(
-        &mut self,
-        peer: usize,
-        packet: &[u8],
-    ) -> Result<Vec<RawIpInboundAction>, EngineError> {
-        self.0
-            .device
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .send_ip_packet(peer, packet)
-            .map(|actions| actions.into_iter().map(map_action).collect())
-            .map_err(invalid)
-    }
-
-    fn tick_peer(&mut self, peer: usize) -> Result<Vec<RawIpInboundAction>, EngineError> {
-        self.0
-            .device
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .tick_peer(peer)
-            .map(|actions| actions.into_iter().map(map_action).collect())
-            .map_err(invalid)
-    }
-
-    fn handshake_age(&self, peer: usize) -> Option<std::time::Duration> {
-        self.0
-            .device
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .time_since_last_handshake(peer)
-    }
-
-    fn timer_schedule(&self, peer: usize) -> crate::runtime::raw_ip::timer::TimerSchedule {
-        self.0
-            .device
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .next_timer_delay(peer)
-            .into()
-    }
-}
-
-fn map_action(action: TunnelAction) -> RawIpInboundAction {
-    match action {
-        TunnelAction::SendNetwork(packet) => RawIpInboundAction::SendNetwork(packet),
-        TunnelAction::ReceiveIp { packet, .. } => RawIpInboundAction::ReceiveIp(packet),
-    }
-}
 
 fn invalid(error: impl std::fmt::Debug) -> EngineError {
     EngineError::Io(std::io::Error::new(

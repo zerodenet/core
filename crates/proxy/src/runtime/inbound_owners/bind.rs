@@ -33,6 +33,17 @@ impl InboundOwnerRegistry {
                 "listener reservation is outside its actual configuration",
             ));
         }
+        #[cfg(feature = "raw-ip-runtime")]
+        {
+            let input = config
+                .inbounds
+                .iter()
+                .find(|input| input.tag == tag)
+                .expect("checked actual source");
+            prepared = prepared
+                .with_actual_dependencies(protocols.source_dependency_instances(config, input)?)?;
+        }
+        let dependencies = prepared.actual_dependencies();
         let accepted_slots = prepared
             .accepted_tcp_slots()
             .ok_or_else(|| io("accepted TCP task ceiling overflow"))?;
@@ -61,6 +72,18 @@ impl InboundOwnerRegistry {
         self.mark_listener_generation();
         let identity = protocols.allocate_resource_identity()?;
         let owner = Arc::new(InboundOwner::new(identity, limit, shutdown.clone()));
+        owner
+            .source_dependencies
+            .set(dependencies)
+            .map_err(|_| io("actual Source dependencies already installed"))?;
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(input) = config.inbounds.iter().find(|input| input.tag == tag) {
+            owner
+                .source_input
+                .set(super::packet_source::input_identity(input)?)
+                .expect("one original Source input");
+        }
+
         if let Some(recovery) = prepared.take_recovery() {
             owner.install_recovery(recovery)?;
         }
@@ -72,10 +95,24 @@ impl InboundOwnerRegistry {
                 max_bind_attempts,
                 owner.task_access().cancellation(),
                 owner.accepted_registrar(),
+                protocols.runtime_host().original_budgets(),
                 Arc::downgrade(&owner),
             )
             .map_err(std::io::Error::other)?,
         );
+        #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+        if let native::NativeBindGrant::Datagram(original) = grant.as_ref() {
+            if grant.needs_packet_reads() {
+                owner
+                    .packet_native
+                    .set(Arc::downgrade(original))
+                    .map_err(|_| io("actual packet listener was already installed"))?;
+                // Install the same controller before BoundResources snapshots
+                // it or the first workspace/native bind can run. Actual main
+                // and wire registrations still supply their own participants.
+                owner.prepare_packet_source_pause();
+            }
+        }
         // Construction above is cold. The unique actual native holder is a
         // registered resource before this owner or any bind capability escapes.
         owner.install_listener_native(identity, grant.resource())?;
@@ -88,14 +125,10 @@ impl InboundOwnerRegistry {
         #[cfg(feature = "raw-ip-runtime")]
         if let [zero_platform_tokio::contract::component::ResourceDeclaration::DatagramListener {
             ..
-        }, declaration] = prepared.resources()
+        }, declaration @ zero_platform_tokio::contract::component::ResourceDeclaration::NativeIcmp { .. }, zero_platform_tokio::contract::component::ResourceDeclaration::PacketDatagramReads { datagram: 0, .. }] =
+            prepared.resources()
         {
-            if matches!(
-                declaration,
-                zero_platform_tokio::contract::component::ResourceDeclaration::NativeIcmp { .. }
-            ) {
-                owner.install_icmp_probe(declaration)?;
-            }
+            owner.install_icmp_probe(declaration, protocols.runtime_host().original_budgets())?;
         }
         reserved.config = Arc::downgrade(config);
         reserved.entries.insert(tag.to_owned(), owner.clone());

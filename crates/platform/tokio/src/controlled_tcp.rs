@@ -1,4 +1,6 @@
 //! Byte I/O and explicit native close share one original TCP descriptor.
+mod inbound_target;
+pub use inbound_target::{InboundTargetClosed, InboundTargetNativeOwner, InboundTargetSocketPool};
 mod accepted;
 #[cfg(any(unix, windows))]
 pub(crate) mod connect;
@@ -118,6 +120,13 @@ pub struct ControlledTcpStream {
     write_waiter: Arc<WaitTarget>,
 }
 impl ControlledTcpStream {
+    /// Read the same live original's kernel TCP_NODELAY value. This neither
+    /// changes policy nor grants IO. Closed/Unknown originals return their error.
+    pub fn nodelay(&self) -> io::Result<bool> {
+        let socket = self.shared.lease().ok_or_else(closed)?;
+        socket.nodelay()
+    }
+
     pub fn new(
         socket: TokioSocket,
         parent: CancellationToken,

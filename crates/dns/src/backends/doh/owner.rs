@@ -1,7 +1,9 @@
 //! Actual HTTP/2 driver ownership. The task budget is the configured endpoint
 //! slot count; an obsolete connection and its users drain before replacement.
+mod faults;
 mod lifecycle;
 mod native;
+mod quiescence;
 use super::{
     client::{ClientState, DohClient},
     *,
@@ -18,6 +20,7 @@ pub(crate) struct DriverOwner {
     changed: Arc<tokio::sync::Notify>,
     limit: usize,
     connect_lock: Arc<tokio::sync::Mutex<()>>,
+    provider: Mutex<Option<std::sync::Weak<dyn crate::native::NativeDnsProvider>>>,
     cancel: zero_platform_tokio::contract::CancellationToken,
 }
 struct State {
@@ -28,6 +31,8 @@ struct State {
     records: HashMap<Id, Arc<ClientState>>,
     users: Vec<Arc<ClientState>>,
     failure: Option<Arc<io::Error>>,
+    standalone_failure: bool,
+    host_failures: Vec<faults::HostFailure>,
     transport_error: Option<Arc<io::Error>>,
 }
 enum PoolMode {
@@ -35,28 +40,18 @@ enum PoolMode {
     Standalone,
     Host(crate::OwnedDnsQueryTasks),
 }
-#[derive(Debug)]
-struct Retained(Arc<io::Error>);
-impl std::fmt::Display for Retained {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(self.0.as_ref(), f)
-    }
-}
-impl std::error::Error for Retained {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(self.0.as_ref())
-    }
-}
 impl State {
-    fn exit(&mut self, result: Result<(Id, io::Result<()>), tokio::task::JoinError>) {
+    fn exit(
+        &mut self,
+        result: Result<(Id, io::Result<()>), tokio::task::JoinError>,
+    ) -> Arc<ClientState> {
         let id = match &result {
             Ok((id, _)) => *id,
             Err(error) => error.id(),
         };
         let client = self.records.remove(&id).expect("registered DoH driver");
-        client.retire();
         if client.leases.load(std::sync::atomic::Ordering::Acquire) > 0 {
-            self.users.push(client);
+            self.users.push(client.clone());
         }
         match result {
             Ok((_, Ok(()))) => {}
@@ -67,14 +62,17 @@ impl State {
                 self.transport_error = Some(Arc::new(source));
             }
             Err(source) => {
+                self.standalone_failure = true;
                 self.failure
                     .get_or_insert_with(|| Arc::new(io::Error::other(source)));
             }
         }
+        client
     }
-    fn reap(&mut self) {
+    fn reap(&mut self) -> Vec<Arc<ClientState>> {
+        let mut retired = Vec::new();
         while let Some(result) = self.tasks.try_join_next_with_id() {
-            self.exit(result);
+            retired.push(self.exit(result));
         }
         for client in &self.native {
             if let Some(joined) = client
@@ -83,22 +81,48 @@ impl State {
                 .and_then(|native| native.task.get())
                 .and_then(|task| task.try_joined())
             {
-                client.retire();
+                retired.push(client.clone());
                 if let Err(source) = joined.result() {
+                    let task = client.native.get().unwrap().task.get().unwrap();
+                    if !self
+                        .host_failures
+                        .iter()
+                        .any(|fault| fault.task.same_registration(task))
+                    {
+                        self.host_failures.push(faults::HostFailure {
+                            task: task.clone(),
+                            error: source.clone(),
+                        });
+                    }
                     self.failure
                         .get_or_insert_with(|| Arc::new(io::Error::other(source)));
                 }
             }
         }
         self.native.retain(|client| {
-            !client.native.get().is_some_and(|native| native.closed())
+            !client.native.get().is_some_and(|native| native.retired())
                 || client.leases.load(std::sync::atomic::Ordering::Acquire) != 0
         });
-        self.users
-            .retain(|client| client.leases.load(std::sync::atomic::Ordering::Acquire) > 0);
+        self.users.retain(|client| {
+            if client.leases.load(std::sync::atomic::Ordering::Acquire) > 0 {
+                true
+            } else {
+                retired.push(client.clone());
+                false
+            }
+        });
+        retired
     }
 }
 impl DriverOwner {
+    fn reap(&self) {
+        let retired = self.state.lock().expect("DoH driver owner poisoned").reap();
+        // These cancellations can synchronously invoke supplied IO wakers.
+        // All original state mutation and JoinSet consumption finished above.
+        for client in retired {
+            client.retire();
+        }
+    }
     pub(super) fn new(
         clients: Arc<tokio::sync::Mutex<Vec<DohClient>>>,
         connect_lock: Arc<tokio::sync::Mutex<()>>,
@@ -107,6 +131,7 @@ impl DriverOwner {
         assert!(limit > 0, "validated DoH endpoint slot budget");
         Self {
             clients,
+            provider: Mutex::default(),
             limit,
             connect_lock,
             cancel: zero_platform_tokio::contract::CancellationToken::new(),
@@ -119,6 +144,8 @@ impl DriverOwner {
                 records: HashMap::new(),
                 users: vec![],
                 failure: None,
+                standalone_failure: false,
+                host_failures: Vec::new(),
                 transport_error: None,
             }),
         }
@@ -150,8 +177,9 @@ impl DriverOwner {
     pub(crate) fn resource_admission_open(&self) -> bool {
         let state = self.state.lock().expect("DoH driver owner poisoned");
         !state.closing
+            && state.failure.is_none()
             && match &state.mode {
-                PoolMode::Host(tasks) => tasks.ensure_open().is_ok(),
+                PoolMode::Host(tasks) => tasks.ensure_resource_open().is_ok(),
                 _ => true,
             }
     }
@@ -174,8 +202,8 @@ impl DriverOwner {
         ))
     }
     pub(super) fn ensure_open(&self) -> io::Result<()> {
-        let mut state = self.state.lock().expect("DoH driver owner poisoned");
-        state.reap();
+        self.reap();
+        let state = self.state.lock().expect("DoH driver owner poisoned");
         if state.closing {
             return Err(io::Error::new(
                 io::ErrorKind::NotConnected,
@@ -183,7 +211,10 @@ impl DriverOwner {
             ));
         }
         match &state.failure {
-            Some(source) => Err(io::Error::other(Retained(source.clone()))),
+            Some(source) => Err(io::Error::other(faults::Retained {
+                first: source.clone(),
+                hosts: state.host_failures.clone(),
+            })),
             None => Ok(()),
         }
     }
@@ -192,8 +223,8 @@ impl DriverOwner {
         client: Arc<ClientState>,
         connection: impl Future<Output = Result<(), h2::Error>> + Send + 'static,
     ) -> io::Result<()> {
+        self.reap();
         let mut state = self.state.lock().expect("DoH driver owner poisoned");
-        state.reap();
         if state.closing {
             return Err(io::Error::new(
                 io::ErrorKind::NotConnected,
@@ -201,7 +232,10 @@ impl DriverOwner {
             ));
         }
         if let Some(source) = &state.failure {
-            return Err(io::Error::other(Retained(source.clone())));
+            return Err(io::Error::other(faults::Retained {
+                first: source.clone(),
+                hosts: state.host_failures.clone(),
+            }));
         }
         if matches!(state.mode, PoolMode::Host(_)) {
             return Err(io::Error::new(
@@ -226,7 +260,11 @@ impl DriverOwner {
             }
         });
         state.records.insert(handle.id(), client);
+        drop(state);
         self.changed.notify_waiters();
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod callback;

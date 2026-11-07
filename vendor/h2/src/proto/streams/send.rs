@@ -334,6 +334,10 @@ impl Send {
         Ok(())
     }
 
+    pub fn has_buffered_frames(&self) -> bool {
+        self.prioritize.has_buffered_frames()
+    }
+
     pub fn poll_complete<T, B>(
         &mut self,
         cx: &mut Context,
@@ -377,6 +381,22 @@ impl Send {
         stream.send_capacity_inc = false;
 
         Poll::Ready(Some(Ok(self.capacity(stream))))
+    }
+
+    pub fn poll_send_drained(
+        &self,
+        cx: &Context,
+        stream: &mut store::Ptr,
+    ) -> Poll<Result<(), crate::Error>> {
+        if let Some(reason) = stream.state.ensure_reason(PollReset::Streaming)? {
+            return Poll::Ready(Err(reason.into()));
+        }
+        if stream.buffered_send_data == 0 && stream.pending_send.is_empty() {
+            Poll::Ready(Ok(()))
+        } else {
+            stream.wait_send(cx);
+            Poll::Pending
+        }
     }
 
     /// Current available stream send capacity

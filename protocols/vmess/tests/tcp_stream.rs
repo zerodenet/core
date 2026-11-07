@@ -472,3 +472,12 @@ async fn shutdown_roundtrip_cipher(cipher: VmessCipher) {
 fn build_payload(len: usize) -> Vec<u8> {
     (0..len).map(|i| (i % 251) as u8).collect()
 }
+
+#[path = "tcp_stream/half_close.rs"]
+mod half_close;
+
+#[path = "tcp_stream/native_half_close.rs"]
+mod native_half_close;
+
+#[path = "tcp_stream/shutdown_pending.rs"]
+mod shutdown_pending;

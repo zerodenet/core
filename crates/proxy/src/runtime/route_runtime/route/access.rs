@@ -78,6 +78,30 @@ impl InboundRouteRuntime {
 
 impl InboundRouteRuntimeFactory {
     #[cfg(feature = "raw-ip-runtime")]
+    pub(in crate::runtime) fn tun_dns_resolver(&self) -> std::sync::Arc<zero_dns::DnsSystem> {
+        self.shared.tcp_services().resolver_handle()
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(in crate::runtime) fn bind_actual_packet_source(
+        &self,
+        original: zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+        memory: zero_platform_tokio::contract::packet::PacketSourceMemory,
+    ) -> Result<(), zero_engine::EngineError> {
+        let services = self.shared.tcp_services();
+        let execution = services.execution();
+        let plan = execution.components.as_deref().map_err(|error| {
+            std::io::Error::other(crate::component::instance::retained(error.clone()))
+        })?;
+        services.protocols().bind_actual_packet_source(
+            services.config(),
+            plan,
+            &self.inbound_tag,
+            original,
+            memory,
+        )
+    }
+
+    #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn outbound_inner_io(
         &self,
         tag: &str,

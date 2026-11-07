@@ -50,7 +50,10 @@ impl HostResources {
             return Err(fail());
         };
         let declaration = self.carriers.declarations.get(ordinal).ok_or_else(fail)?;
-        if !bound.matches_declaration(declaration) || bound.demand() != demand {
+        if !bound.matches_declaration(declaration)
+            || (bound.demand() != demand
+                && !(demand == ControlledStreamDemandClass::Business && bound.supports_business()))
+        {
             return Err(fail());
         }
         match bound.fixed_endpoint_binding() {
@@ -59,6 +62,8 @@ impl HostResources {
             None if demand == ControlledStreamDemandClass::Business
                 && (bound.matches_direct(endpoint, binding)
                     || bound.matches_node(endpoint, binding)) => {}
+            None if demand == ControlledStreamDemandClass::BackgroundControl
+                && bound.matches_background_datagram_pool(endpoint, binding) => {}
             _ => return Err(fail()),
         }
         // Both getters may finally release original owners or flush I/O wakes.
@@ -243,5 +248,125 @@ impl HostResources {
             return Err(fail());
         }
         Ok(bound.clone())
+    }
+}
+
+impl HostResources {
+    pub(in crate::component) fn registered_direct_service_issuer(
+        &self,
+        instance: ComponentInstanceId,
+        endpoint: &Destination,
+        binding: &UpstreamBinding,
+        grant: &zero_platform_tokio::controlled_carrier::CarrierGrant,
+        caller: zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<zero_platform_tokio::controlled_carrier::CarrierServiceIssuer, ChannelError> {
+        let bound = self.registered_carrier(
+            instance,
+            endpoint,
+            binding,
+            ControlledStreamDemandClass::Business,
+            grant,
+        )?;
+        let fence = self
+            .carriers
+            .host_cancel
+            .as_ref()
+            .ok_or_else(|| self.denied())?;
+        bound.direct_service_issuer(fence, grant, caller, endpoint, binding)
+    }
+}
+
+#[cfg(any(target_os = "linux", windows))]
+impl HostResources {
+    pub(in crate::component) fn check_process_endpoint_consumer(
+        &self,
+        instance: ComponentInstanceId,
+        endpoint: &Destination,
+        binding: &zero_platform_tokio::contract::network::UpstreamBinding,
+        demand: ControlledStreamDemandClass,
+        grant: &zero_platform_tokio::controlled_carrier::CarrierGrant,
+    ) -> Result<(), ChannelError> {
+        self.registered_process_endpoint_consumer(instance, endpoint, binding, demand, grant)
+            .map(|_| ())
+    }
+    fn registered_process_endpoint_consumer(
+        &self,
+        instance: ComponentInstanceId,
+        endpoint: &Destination,
+        binding: &zero_platform_tokio::contract::network::UpstreamBinding,
+        demand: ControlledStreamDemandClass,
+        grant: &zero_platform_tokio::controlled_carrier::CarrierGrant,
+    ) -> Result<zero_platform_tokio::controlled_carrier::CarrierOwnerBinding, ChannelError> {
+        // ControlledNodeCarrier is the one existing dual Business/Service
+        // descriptor. Its metadata label is Business; selecting that exact
+        // registered descriptor does not issue a Business ticket or Session.
+        // Other NodeStream/Direct/Association declarations gain no new class.
+        let physical_demand = if matches!(
+            demand,
+            ControlledStreamDemandClass::Service | ControlledStreamDemandClass::BackgroundControl
+        ) {
+            let records = self
+                .carriers
+                .records
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let node=self.carriers.declarations.iter().any(|(ordinal,declaration)|
+                matches!(declaration,ResourceDeclaration::ControlledNodeCarrier{endpoint:actual,dial,..}
+                    if actual==endpoint&&dial==&binding.dial)
+                &&records.get(ordinal).is_some_and(|entry|entry.actual.matches_grant(grant)));
+            if node {
+                ControlledStreamDemandClass::Business
+            } else {
+                demand
+            }
+        } else {
+            demand
+        };
+        self.registered_carrier(instance, endpoint, binding, physical_demand, grant)
+    }
+    pub(in crate::component) fn process_endpoint_consumer_use(
+        &self,
+        instance: ComponentInstanceId,
+        handoff: &Arc<zero_platform_tokio::owned_process::ProcessEndpointHandoff>,
+        endpoint: &Destination,
+        binding: &zero_platform_tokio::contract::network::UpstreamBinding,
+        demand: zero_platform_tokio::contract::component::ControlledStreamDemandClass,
+        grant: &zero_platform_tokio::controlled_carrier::CarrierGrant,
+    ) -> Result<zero_platform_tokio::owned_process::ProcessEndpointUse, ChannelError> {
+        let bound =
+            self.registered_process_endpoint_consumer(instance, endpoint, binding, demand, grant)?;
+        // Exact private Arc allocation; bound's public cancellation clone or a
+        // protocol-created token cannot reconstruct this minting capability.
+        let fence = self
+            .carriers
+            .host_cancel
+            .as_ref()
+            .ok_or_else(|| self.denied())?;
+        handoff
+            .authorize_consumer(fence, bound, grant)
+            .map_err(|source| self.denied().with_source(source))
+    }
+}
+
+impl HostResources {
+    pub(in crate::component) fn registered_direct_background_issuer(
+        &self,
+        instance: ComponentInstanceId,
+        endpoint: &Destination,
+        binding: &UpstreamBinding,
+        grant: &zero_platform_tokio::controlled_carrier::CarrierGrant,
+        caller: zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<zero_platform_tokio::controlled_carrier::CarrierServiceIssuer, ChannelError> {
+        let original = grant
+            .adoption()
+            .cleanup_owner()
+            .ok_or_else(|| self.denied())?;
+        let bound = self.registered_direct_owner(instance, &binding.dial, &original)?;
+        let fence = self
+            .carriers
+            .host_cancel
+            .as_ref()
+            .ok_or_else(|| self.denied())?;
+        bound.prepared_direct_service_issuer(fence, grant, caller, endpoint, binding)
     }
 }

@@ -111,6 +111,45 @@ impl OwnedTrojanOutboundTlsPlan {
         .await
     }
 
+    /// The actual MUX pool owns and polls this carrier in its original driver.
+    /// Cached/library entry points keep their independent task responsibility.
+    pub(in crate::transport) async fn open_owned_relay_with_profile(
+        &self,
+        stream: TcpRelayStream,
+        tls_profile: crate::outbound::OwnedTrojanResolvedTlsProfile,
+    ) -> Result<TcpRelayStream, RuntimeError> {
+        let Some(grpc) = &self.grpc else {
+            return self.open_relay_with_profile(stream, tls_profile).await;
+        };
+        let tls = self.tls_profile_for_transport(tls_profile);
+        let stream =
+            zero_transport::tls::connect_tls_stream(stream, &tls, self.source_dir(), self.server())
+                .await?;
+        let settings = stream
+            .application_settings()
+            .filter(|settings| settings.protocol == b"h2")
+            .map(|settings| settings.peer.clone());
+        let authority = tls
+            .server_name
+            .as_deref()
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                self.server
+                    .parse::<std::net::IpAddr>()
+                    .map(|ip| std::net::SocketAddr::new(ip, self.port).to_string())
+                    .unwrap_or_else(|_| self.server.clone())
+            });
+        let io = zero_transport::grpc::connect_grpc_inline_with_settings(
+            stream,
+            grpc,
+            &authority,
+            settings.as_deref(),
+        )
+        .await?;
+        Ok(TcpRelayStream::new(io))
+    }
+
     fn tls_profile_for_transport(
         &self,
         tls_profile: crate::outbound::OwnedTrojanResolvedTlsProfile,

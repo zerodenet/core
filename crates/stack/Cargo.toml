@@ -8,11 +8,16 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 
+[features]
+default = []
+packet-memory = ["dep:zero-tun"]
+
 [dependencies]
 rand = "0.9"
 tokio.workspace = true
 tracing.workspace = true
 zero-traits = { path = "../traits" }
+zero-tun = { path = "../tun", default-features = false, features = ["packet-memory"], optional = true }
 
 # Integration suites are explicit; scripts/check-test-layout.py guards coverage.
 

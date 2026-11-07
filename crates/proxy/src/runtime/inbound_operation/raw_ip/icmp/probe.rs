@@ -1,8 +1,10 @@
 //! Original echo framing over either the legacy TUN socket or the granted pool.
 use super::*;
+pub(super) mod prepaid;
 use crate::component::instance::HostIcmpProbeGrant;
 use zero_platform_tokio::{contract::Reason, controlled_icmp::ControlledIcmpSocket};
 
+#[cfg(test)]
 pub(super) async fn probe(
     packet: &[u8],
     mtu: u16,
@@ -19,7 +21,9 @@ pub(super) async fn owned(
     mtu: u16,
     egress: Option<&EgressInterface>,
     grant: Option<HostIcmpProbeGrant>,
-) -> std::io::Result<Option<Vec<u8>>> {
+    caller: Option<zero_platform_tokio::contract::scope::TaskJoinWitness>,
+    prepared: Option<prepaid::Prepared>,
+) -> std::io::Result<Option<zero_traits::PacketBuffer>> {
     let grant = grant.ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::Unsupported,
@@ -31,10 +35,27 @@ pub(super) async fn owned(
     };
     // The sole canonical pool is installed and Live before this synchronous
     // acquisition. Every subsequent await retains its original in that pool.
-    let mut socket =
-        ProbeSocket::Controlled(grant.bind(bind, egress).map_err(std::io::Error::other)?);
-    let operation = exchange(&mut socket, packet, mtu).await;
-    let ProbeSocket::Controlled(view) = &socket else {
+    let caller = caller.ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "owned ICMP probe has no actual registered Source caller",
+        )
+    })?;
+    let prepared = prepared
+        .ok_or_else(|| std::io::Error::other("actual ICMP operation omitted prepaid memory"))?;
+    // Allocate the exact prepaid receive workspace before first native bind.
+    let read = prepared.read.try_buffer().map_err(std::io::Error::other)?;
+    let mut socket = ProbeSocket::Controlled(
+        grant
+            .bind_for_task(bind, egress, &caller)
+            .map_err(std::io::Error::other)?,
+    );
+    let operation = prepaid::exchange(&mut socket, packet, mtu, prepared, read).await;
+    #[cfg(not(test))]
+    let ProbeSocket::Controlled(view) = &socket;
+    #[cfg(test)]
+    let ProbeSocket::Controlled(view) = &socket
+    else {
         unreachable!("same granted probe view")
     };
     let mut close_attempts = 0;
@@ -45,7 +66,7 @@ pub(super) async fn owned(
             Ok(_) => {
                 break Err(std::io::Error::other(
                     "ICMP close receipt differs from the original probe",
-                ))
+                ));
             }
             Err(error) if error.reason == Reason::Capacity && close_attempts < MAX_ECHO_PROBES => {
                 // Busy means no close attempt touched the FD. Keep this exact
@@ -72,35 +93,41 @@ fn bind_ip(packet: &[u8]) -> Option<IpAddr> {
     })
 }
 enum ProbeSocket {
+    #[cfg(test)]
     Legacy(IcmpSocket),
     Controlled(ControlledIcmpSocket),
 }
 impl ProbeSocket {
     async fn connect(&mut self, peer: IpAddr) -> std::io::Result<IpAddr> {
         match self {
+            #[cfg(test)]
             Self::Legacy(socket) => socket.connect(peer).await,
             Self::Controlled(socket) => socket.connect(peer).await,
         }
     }
     async fn send(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         match self {
+            #[cfg(test)]
             Self::Legacy(socket) => socket.send(bytes).await,
             Self::Controlled(socket) => socket.send(bytes).await,
         }
     }
     fn reply_identifier(&self, sent: u16) -> std::io::Result<u16> {
         match self {
+            #[cfg(test)]
             Self::Legacy(socket) => socket.reply_identifier(sent),
             Self::Controlled(socket) => socket.reply_identifier(sent),
         }
     }
     async fn recv_from(&mut self, bytes: &mut [u8]) -> std::io::Result<(usize, IpAddr)> {
         match self {
+            #[cfg(test)]
             Self::Legacy(socket) => socket.recv_from(bytes).await,
             Self::Controlled(socket) => socket.recv_from(bytes).await,
         }
     }
 }
+#[cfg(test)]
 async fn exchange(
     socket: &mut ProbeSocket,
     packet: &[u8],

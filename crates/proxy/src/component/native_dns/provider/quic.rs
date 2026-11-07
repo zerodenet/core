@@ -9,12 +9,18 @@ use zero_transport::quic::owned::{
     OwnedEndpointHandle, OwnedEndpointLimits, OwnedEndpointOwner,
 };
 mod lifecycle;
-pub(in crate::component::native_dns) fn metadata_limits() -> MetadataLimits {
+pub(in crate::component::native_dns) fn metadata_limits(
+    runtime: &zero_config::RuntimeOptionsConfig,
+) -> MetadataLimits {
     MetadataLimits {
         main_sockets: NonZeroUsize::new(1).unwrap(),
-        probe_sockets: NonZeroUsize::new(1).unwrap(),
-        probe_attempts_per_initialization: NonZeroUsize::new(4).unwrap(),
-        concurrent_send_calls: NonZeroUsize::new(1).unwrap(),
+        probe_sockets: NonZeroUsize::new(runtime.effective_metadata_max_probe_sockets(1)).unwrap(),
+        probe_attempts_per_initialization: NonZeroUsize::new(
+            runtime.effective_metadata_max_probe_attempts(4),
+        )
+        .unwrap(),
+        concurrent_send_calls: NonZeroUsize::new(runtime.effective_metadata_max_send_calls(1))
+            .unwrap(),
         write_pollers: NonZeroUsize::new(1).unwrap(),
     }
 }
@@ -60,6 +66,15 @@ impl Query {
                 closed: None,
             }),
         }
+    }
+    pub(super) fn native_retirement_complete(&self) -> bool {
+        let closed = {
+            let Ok(state) = self.state.try_lock() else {
+                return false;
+            };
+            state.closed.clone()
+        };
+        closed.is_some_and(|closed| closed.matches(&self.origin))
     }
     pub(super) fn stop(&self) {
         self.cancel.cancel();

@@ -3,6 +3,9 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
+mod attempt;
+use attempt::Attempt;
+pub use attempt::DnsQuicCleanupFailure;
 mod hosted;
 pub(super) mod owner;
 mod resources;
@@ -106,19 +109,23 @@ impl DoqDnsResolver {
     }
 
     pub(crate) async fn exchange(&self, query: &[u8]) -> io::Result<Vec<u8>> {
+        self.exchange_attempt(query).await.into_parts().0
+    }
+    pub(crate) async fn exchange_attempt(&self, query: &[u8]) -> Attempt {
         #[cfg(feature = "test-support")]
         self.native_io_started
             .store(true, std::sync::atomic::Ordering::Release);
         let mut last_error = None;
         for addr in &self.addrs {
             match self.exchange_with(*addr, query).await {
-                Ok(response) => return Ok(response),
-                Err(error) => last_error = Some(error),
+                Attempt::Settled(Ok(response)) => return Attempt::Settled(Ok(response)),
+                Attempt::Settled(Err(error)) => last_error = Some(error),
+                Attempt::Unsettled(error) => return Attempt::Unsettled(error),
             }
         }
-        Err(last_error.unwrap_or_else(|| {
+        Attempt::Settled(Err(last_error.unwrap_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "DoQ backend has no endpoint")
-        }))
+        })))
     }
 
     pub(crate) fn endpoint_labels(&self) -> Vec<String> {
@@ -142,19 +149,23 @@ impl DoqDnsResolver {
         self.resources.shutdown(deadline).await
     }
 
-    async fn exchange_with(&self, addr: SocketAddr, query: &[u8]) -> io::Result<Vec<u8>> {
+    async fn exchange_with(&self, addr: SocketAddr, query: &[u8]) -> Attempt {
         let owners = self
             .owners
             .lock()
             .expect("DoQ resource registry poisoned")
             .clone();
-        let owner = owner::EndpointOwner::new();
-        self.resources.register(owner.clone(), &owners)?;
-        let _close = owner::CloseOnDrop(owner.clone());
         let deadline = super::ATTEMPT_DEADLINE
             .try_with(|end| *end)
             .unwrap_or_else(|_| tokio::time::Instant::now() + DNS_TIMEOUT);
-        owners.drain_retired_doq(deadline).await?;
+        if let Err(error) = owners.drain_retired_doq(deadline).await {
+            return Attempt::Unsettled(error);
+        }
+        let owner = owner::EndpointOwner::new();
+        if let Err(error) = self.resources.register(owner.clone(), &owners) {
+            return Attempt::Unsettled(error);
+        }
+        let _close = owner::CloseOnDrop(owner.clone());
         let work = async {
             let _user = owner.query_user()?;
             owner.setup(addr, self.client.clone(), &self.egress)?;
@@ -167,11 +178,7 @@ impl DoqDnsResolver {
                 .and_then(std::convert::identity),
         };
         let closed = owner.shutdown(deadline).await;
-        match (result, closed) {
-            (Ok(response), Ok(())) => Ok(response),
-            (Err(source), _) => Err(source),
-            (Ok(_), Err(source)) => Err(source),
-        }
+        Attempt::finish(result, closed)
     }
 
     async fn exchange_owned(

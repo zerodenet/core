@@ -17,7 +17,11 @@ mod source;
 mod web;
 mod website;
 use crate::transport::{Hysteria2AuthenticatedInboundProfile, Hysteria2InboundBindPlan};
+#[path = "component/limits.rs"]
+mod limits;
 pub struct Options {
+    source_limits: InboundSourceLimits,
+
     listen: std::net::SocketAddr,
     server: quinn::ServerConfig,
     masks: Vec<zero_transport::finalmask::udp::Mask>,
@@ -26,8 +30,93 @@ pub struct Options {
     tag: String,
     sites: Vec<(Destination, crate::transport::website::Hysteria2Website)>,
     identity: Arc<[u8]>,
+    work_tasks: NonZeroUsize,
+    work_resources: usize,
+    metadata_probes: NonZeroUsize,
+    metadata_attempts: NonZeroUsize,
+    metadata_sends: NonZeroUsize,
+    quic_connections: NonZeroUsize,
+    quic_users: NonZeroUsize,
 }
 impl Options {
+    pub fn source_limits(&self) -> InboundSourceLimits {
+        self.source_limits
+    }
+    pub fn with_inbound_source_limits(
+        mut self,
+        limits: InboundSourceLimits,
+    ) -> Result<Self, zero_platform_tokio::contract::ChannelError> {
+        let limits = limits.validate()?;
+        let used = {
+            let mut used = vec![limits.datagram_associations];
+            if !self.sites.is_empty() {
+                used.extend([limits.accepted_sockets, limits.bind_attempts]);
+            }
+            if self.profile.masquerade.file_root().is_some() {
+                used.push(limits.file_sessions);
+            }
+            if self.profile.masquerade.endpoint().is_some() {
+                used.push(limits.target_sockets);
+            }
+            used
+        };
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"actual-source-limits-v1");
+        for value in used {
+            identity.extend_from_slice(&value.get().to_le_bytes());
+        }
+        self.identity = identity.into();
+        self.source_limits = limits;
+        Ok(self)
+    }
+
+    pub fn h3_queue_limits(&self) -> crate::transport::Hysteria2H3QueueLimits {
+        self.profile.h3_queue_limits()
+    }
+    pub fn with_h3_queue_limits(
+        mut self,
+        limits: crate::transport::Hysteria2H3QueueLimits,
+    ) -> Self {
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"actual-hy2-h3-queues-v1");
+        for n in [
+            limits.classifications(),
+            limits.tcp_streams(),
+            limits.web_streams(),
+            limits.web_requests(),
+        ] {
+            identity.extend_from_slice(&n.get().to_le_bytes());
+        }
+        self.identity = identity.into();
+        self.profile = self.profile.with_h3_queue_limits(limits);
+        self
+    }
+
+    /// Cold limits on this same original accepted/peer graph. No work starts.
+    pub fn with_inbound_work_limits(
+        mut self,
+        tasks: NonZeroUsize,
+        resources: usize,
+        requests: NonZeroUsize,
+    ) -> Result<Self, zero_platform_tokio::contract::ChannelError> {
+        if tasks.get() > 4096 || resources > 65536 || requests.get() > 65536 {
+            return Err(zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::InvalidConfig,
+                zero_platform_tokio::contract::Impact::Component,
+            ));
+        }
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"actual-inbound-work-limits-v1");
+        for n in [tasks.get(), resources, requests.get()] {
+            identity.extend_from_slice(&n.to_le_bytes());
+        }
+        self.identity = identity.into();
+        self.work_tasks = tasks;
+        self.work_resources = resources;
+        Ok(self)
+    }
+
     #[expect(
         clippy::too_many_arguments,
         reason = "existing cold options keep native bind, authentication, website and immutable identity explicit"
@@ -80,23 +169,20 @@ impl Options {
             tag: tag.into(),
             sites,
             identity: identity.into(),
+            work_tasks: NonZeroUsize::new(520).unwrap(),
+            work_resources: 257,
+            source_limits: InboundSourceLimits::default(),
+            metadata_probes: NonZeroUsize::new(2).unwrap(),
+            metadata_attempts: NonZeroUsize::new(8).unwrap(),
+            metadata_sends: NonZeroUsize::new(2).unwrap(),
+            quic_connections: NonZeroUsize::new(8192).unwrap(),
+            quic_users: NonZeroUsize::new(65536).unwrap(),
         })
     }
 }
 pub struct Factory;
 fn n(v: usize) -> NonZeroUsize {
     NonZeroUsize::new(v).unwrap()
-}
-fn metadata_limits(
-    masks: &[zero_transport::finalmask::udp::Mask],
-) -> zero_platform_tokio::controlled_datagram::metadata::MetadataLimits {
-    zero_platform_tokio::controlled_datagram::metadata::MetadataLimits {
-        main_sockets: n(1),
-        probe_sockets: n(2),
-        probe_attempts_per_initialization: n(8),
-        concurrent_send_calls: n(2),
-        write_pollers: n(73730 + zero_transport::finalmask::owned::driver_count(masks)),
-    }
 }
 impl ComponentFactory for Factory {
     type Options = Options;
@@ -105,46 +191,44 @@ impl ComponentFactory for Factory {
         let mut resources = vec![
             ResourceDeclaration::MetadataDatagram {
                 source: options.listen,
-                limits: metadata_limits(&options.masks),
+                limits: options.metadata_limits(),
                 max_bind_attempts: n(1),
             },
             ResourceDeclaration::DatagramAssociations {
-                max_associations: n(4096),
-                max_tasks_per_association: n(520),
-                max_resources_per_association: 257,
+                max_associations: options.source_limits.datagram_associations,
+                max_tasks_per_association: options.work_tasks,
+                max_resources_per_association: options.work_resources,
             },
         ];
         for (destination, _) in &options.sites {
             resources.push(ResourceDeclaration::TcpListener {
                 destination: destination.clone(),
                 accepted: Some(AcceptedTcpLimits {
-                    max_sockets: n(4096),
-                    max_tasks_per_socket: n(520),
-                    max_resources_per_socket: 257,
+                    max_sockets: options.source_limits.accepted_sockets,
+                    max_tasks_per_socket: options.work_tasks,
+                    max_resources_per_socket: options.work_resources,
                 }),
-                max_bind_attempts: n(50),
+                max_bind_attempts: options.source_limits.bind_attempts,
             });
         }
         if let Some(root) = profile.masquerade.file_root() {
             resources.push(ResourceDeclaration::FileTree {
                 root,
-                max_sessions: n(16),
+                max_sessions: options.source_limits.file_sessions,
             });
         }
         if let Some(endpoint) = profile.masquerade.endpoint() {
             resources.push(ResourceDeclaration::InboundTargets {
                 endpoints: vec![endpoint],
-                max_sockets: n(4096),
+                max_sockets: options.source_limits.target_sockets,
             });
         }
         ComponentSpec {
             owner: ResourceOwner::Component,
             roles: vec![RoleKind::Inbound],
             dependencies: vec![],
-            static_identity: options.identity.clone(),
-            task_limit: Some(n(
-                8193 + zero_transport::finalmask::owned::driver_count(&options.masks)
-            )),
+            static_identity: options.metadata_identity(),
+            task_limit: Some(n(options.quic_drivers())),
             resources,
         }
     }
@@ -160,13 +244,13 @@ impl ComponentFactory for Factory {
             MetadataDatagramRequest {
                 ordinal: 0,
                 source: options.listen,
-                limits: metadata_limits(&options.masks),
+                limits: options.metadata_limits(),
             },
             options.server.clone(),
             options.masks.clone(),
             zero_transport::quic::owned::OwnedEndpointLimits {
-                drivers: n(8193 + zero_transport::finalmask::owned::driver_count(&options.masks)),
-                users: n(65536),
+                drivers: n(options.quic_drivers()),
+                users: options.quic_users,
             },
             context.resources.clone(),
             context.tasks,

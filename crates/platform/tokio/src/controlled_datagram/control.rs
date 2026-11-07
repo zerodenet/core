@@ -11,6 +11,16 @@ pub struct ControlledDatagramControl {
 #[derive(Clone)]
 pub struct ControlledDatagramIdentity(Weak<Entry>);
 impl ControlledDatagramIdentity {
+    pub(super) fn from_entry(entry: &Arc<Entry>) -> Self {
+        Self(Arc::downgrade(entry))
+    }
+    pub fn same_original(&self, other: &Self) -> bool {
+        self.0.ptr_eq(&other.0)
+    }
+    pub fn provider(&self) -> Option<super::provider::DatagramProviderRegistration> {
+        self.0.upgrade()?.provider.get().cloned()
+    }
+
     pub fn matches_control(&self, control: &ControlledDatagramControl) -> bool {
         self.0.ptr_eq(&Arc::downgrade(&control.entry))
     }
@@ -58,6 +68,28 @@ impl ControlledDatagramOwner {
     }
 }
 impl ControlledDatagramControl {
+    /// This exact retained controller installs the host's actual Scope/instance.
+    pub fn register_provider(
+        &self,
+        instance: zero_core::component::ComponentInstanceId,
+        scope: crate::contract::scope::TaskScopeIdentity,
+    ) -> std_io::Result<super::provider::DatagramProviderRegistration> {
+        self.entry.register_provider(instance, scope)
+    }
+    pub fn register_driver(
+        &self,
+        original: &ControlledDatagramIdentity,
+        witness: &crate::contract::scope::TaskJoinWitness,
+    ) -> std_io::Result<super::provider::NativeDatagramOrigin> {
+        if !original.matches_control(self) {
+            return Err(std_io::Error::new(
+                std_io::ErrorKind::InvalidInput,
+                "driver names another original UDP entry",
+            ));
+        }
+        self.entry.register_driver(witness)
+    }
+
     pub fn identity(&self) -> ControlledDatagramIdentity {
         ControlledDatagramIdentity(Arc::downgrade(&self.entry))
     }
@@ -117,3 +149,10 @@ impl Drop for ControlledDatagramControl {
 #[cfg(test)]
 #[path = "../../tests/controlled_datagram/control.rs"]
 mod tests;
+
+impl ControlledDatagramSocket {
+    /// Read only, weak identity of this same actual acquired Entry.
+    pub fn identity(&self) -> ControlledDatagramIdentity {
+        ControlledDatagramIdentity::from_entry(&self.entry)
+    }
+}

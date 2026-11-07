@@ -5,10 +5,15 @@ use std::sync::{
 };
 use zero_platform_tokio::{
     contract::{ChannelError, Reason, Stage},
-    controlled_carrier::CarrierAdoption,
+    controlled_carrier::{CarrierAdoption, CarrierUserView},
 };
 
 pub struct Physical {
+    pub(super) driver_input:
+        Mutex<Option<zero_platform_tokio::controlled_carrier::CarrierDriver<()>>>,
+    pub(super) rejected_delay: std::sync::OnceLock<std::time::Duration>,
+    pub(super) binding: zero_platform_tokio::contract::network::UpstreamBinding,
+    pub(super) pending: Mutex<Vec<CarrierAdoption>>,
     pub(super) original: CarrierAdoption,
     pub(super) owner: Weak<ManagedPool>,
     pub(super) opening: AtomicBool,
@@ -16,20 +21,32 @@ pub struct Physical {
     pub(super) registered: AtomicBool,
     pub(super) stop: zero_platform_tokio::contract::CancellationToken,
     users: AtomicUsize,
+    view: Mutex<Option<CarrierUserView>>,
     pub(super) witness: Mutex<Option<zero_platform_tokio::contract::scope::TaskJoinWitness>>,
     received: Mutex<Option<zero_platform_tokio::contract::scope::TaskJoined>>,
     accepted: AtomicBool,
 }
 impl Physical {
-    pub(super) fn new(original: CarrierAdoption, owner: &Arc<ManagedPool>) -> Arc<Self> {
+    pub(super) fn new(
+        original: CarrierAdoption,
+        stop: zero_platform_tokio::contract::CancellationToken,
+        view: CarrierUserView,
+        owner: &Arc<ManagedPool>,
+        binding: zero_platform_tokio::contract::network::UpstreamBinding,
+    ) -> Arc<Self> {
         Arc::new(Self {
+            driver_input: Mutex::new(None),
+            rejected_delay: std::sync::OnceLock::new(),
+            binding,
+            pending: Mutex::new(Vec::new()),
             original,
             owner: Arc::downgrade(owner),
             opening: AtomicBool::new(true),
             done: AtomicBool::new(false),
             registered: AtomicBool::new(false),
-            stop: owner.cancel.child_token(),
+            stop,
             users: AtomicUsize::new(0),
+            view: Mutex::new(Some(view)),
             witness: Mutex::new(None),
             received: Mutex::new(None),
             accepted: AtomicBool::new(false),
@@ -78,9 +95,24 @@ impl Physical {
             && !self.done.load(Ordering::Acquire)
             && !self.stop.is_cancelled()
     }
+    // The one physical driver lease remains in this exact record until the
+    // driver body ended AND every logical stream/control returned. Native close
+    // can precede that fact; platform user/N settlement cannot.
+    fn release_finished_view(&self) {
+        if self.done.load(Ordering::Acquire) && self.users.load(Ordering::Acquire) == 0 {
+            let returned = { self.view.lock().unwrap().take() };
+            drop(returned);
+        }
+    }
     pub(super) fn closed(&self) -> bool {
-        if self.opening.load(Ordering::Acquire)
+        if !self.pending.lock().unwrap().is_empty()
+            || self.opening.load(Ordering::Acquire)
             || self.users.load(Ordering::Acquire) != 0
+            || self.view.lock().unwrap().is_some()
+            || self
+                .original
+                .auxiliary_exit()
+                .is_some_and(|joined| !joined.registration_released())
             || !self.failure_accepted()
         {
             return false;
@@ -101,7 +133,12 @@ impl Physical {
         }
         match (self.witness.lock().unwrap().as_ref(), closed.driver_exit()) {
             (None, None) => !self.registered.load(Ordering::Acquire),
-            (Some(witness), Some(joined)) => witness.matches_joined(&joined),
+            (Some(witness), Some(joined)) => {
+                witness.matches_joined(&joined)
+                    && witness
+                        .try_joined()
+                        .is_some_and(|received| received.registration_released())
+            }
             _ => false,
         }
     }
@@ -138,6 +175,11 @@ impl Physical {
             })?;
         self.original.origin(&witness)
     }
+    /// Positive matching native/users/real task-ACK evidence, for reclaiming
+    /// only this already closed protocol map entry. Never grants replacement IO.
+    pub fn confirmed_closed(&self) -> bool {
+        self.closed()
+    }
     pub fn instance(&self) -> zero_core::component::ComponentInstanceId {
         self.original.instance()
     }
@@ -153,6 +195,7 @@ struct Use {
 impl Drop for Use {
     fn drop(&mut self) {
         self.record.users.fetch_sub(1, Ordering::AcqRel);
+        self.record.release_finished_view();
         if let Some(owner) = self.record.owner.upgrade() {
             owner.changed.notify_waiters();
         }
@@ -163,7 +206,9 @@ impl Drop for Opening {
     fn drop(&mut self) {
         self.0.opening.store(false, Ordering::Release);
         if !self.0.registered.load(Ordering::Acquire) {
+            self.0.original.request_retirement();
             self.0.done.store(true, Ordering::Release);
+            self.0.release_finished_view();
         }
         if let Some(owner) = self.0.owner.upgrade() {
             owner.changed.notify_waiters();
@@ -173,7 +218,9 @@ impl Drop for Opening {
 pub(super) struct Body(pub(super) Arc<Physical>);
 impl Drop for Body {
     fn drop(&mut self) {
+        self.0.original.request_retirement();
         self.0.done.store(true, Ordering::Release);
+        self.0.release_finished_view();
         if let Some(owner) = self.0.owner.upgrade() {
             owner.changed.notify_waiters();
         }

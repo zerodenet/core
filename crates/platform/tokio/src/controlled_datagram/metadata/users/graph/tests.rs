@@ -98,9 +98,21 @@ async fn original_views_and_real_joins_cannot_substitute_held_logical_guards_or_
     graph.drivers().reclaim_received();
     assert!(completion.try_closed().is_none());
     drop(logical);
-    let receipt = completion.try_closed().unwrap();
+    assert!(
+        completion.try_owned_closed().is_none(),
+        "the original output has not transferred"
+    );
+    let retained = received.clone(); // The actual receiving row owns the original output first.
+    receiver.release_body(&retained).unwrap();
+    let receipt = completion.try_owned_closed().unwrap();
     assert!(issuer.validates_users(&receipt, &registrar));
-    assert_eq!(graph.drivers().task_status().reclaimed, 1);
+    assert_eq!(graph.drivers().task_status().reclaimed, 0);
+    assert_eq!(graph.drivers().task_status().retained, 1);
+    let mut registrations = receipt.registrations();
+    let actual_driver = registrations.next().expect("one actual original driver");
+    assert!(registrations.next().is_none());
+    assert!(actual_driver.matches_joined(&received.joined));
+    assert!(!received.joined.registration_released());
     assert!(graph.users().acquire().is_err());
     assert_eq!(
         native.occupied_main(),
@@ -108,11 +120,32 @@ async fn original_views_and_real_joins_cannot_substitute_held_logical_guards_or_
         "users receipt does not close native I/O"
     );
     assert!(!scope.is_drained(), "users receipt is not host ACK");
-    scope.acknowledge(&host_receipt).unwrap();
-    scope.begin_shutdown();
-    assert!(scope.is_drained());
     grant.control.close().unwrap();
     assert_eq!(native.take_report().main.confirmed_closed, 1);
+    assert!(
+        !scope.is_drained(),
+        "real native close is still not Host ACK"
+    );
+    assert_eq!(graph.drivers().task_status().retained, 1);
+    scope.acknowledge(&host_receipt).unwrap();
+    assert_eq!(
+        receipt.registrations().len(),
+        1,
+        "ACK alone does not erase the original row"
+    );
+    let released = actual_driver.wait_registration_released().await;
+    assert!(actual_driver.matches_joined(&released) && released.registration_released());
+    graph.drivers().reclaim_received();
+    assert_eq!(graph.drivers().task_status().reclaimed, 1);
+    assert_eq!(graph.drivers().task_status().retained, 0);
+    assert!(
+        receipt.registrations().is_empty(),
+        "the held original receipt reads the same actually reclaimed map, never a snapshot"
+    );
+    assert!(completion.try_closed().unwrap().registrations().is_empty());
+    scope.begin_shutdown();
+    assert!(scope.is_drained());
+    assert_eq!(native.occupied_main(), 0);
 }
 
 #[tokio::test]

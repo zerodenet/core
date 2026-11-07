@@ -5,10 +5,10 @@ use std::{
     num::NonZeroUsize,
     sync::{Arc, Mutex, OnceLock},
 };
-use tokio::sync::{oneshot, Notify, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, oneshot};
 use zero_platform_tokio::contract::{
-    scope::{TaskClass, TaskId, TaskJoinWitness, TaskRegistrar, WeakTaskRegistrar},
     CancellationToken, ChannelError,
+    scope::{TaskClass, TaskId, TaskJoinWitness, TaskRegistrar, WeakTaskRegistrar},
 };
 
 tokio::task_local! {
@@ -20,8 +20,17 @@ tokio::task_local! {
 mod descendants;
 #[cfg(feature = "doh")]
 mod driver;
+mod ech;
+mod faults;
+mod lifecycle;
+pub use faults::{OwnedDnsQueryFault, OwnedDnsQueryFaults};
 mod network;
 mod observation;
+mod quiescence;
+pub(crate) use quiescence::QueryPause;
+mod retirement;
+pub(crate) use retirement::Retirement;
+mod spawn;
 mod system;
 pub use observation::OwnedDnsQueryObservation;
 pub use system::NativeSystemLookup;
@@ -44,9 +53,11 @@ struct Shared {
 #[derive(Debug, Default)]
 struct State {
     closing: bool,
+    pauses: usize,
     identity_fault: bool,
     records: Vec<Arc<Record>>,
     first_failure: Option<Arc<ChannelError>>,
+    faults: std::collections::BTreeMap<TaskId, Arc<Retirement>>,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum TaskKind {
@@ -57,11 +68,12 @@ enum TaskKind {
 }
 struct Record {
     budget: OwnedDnsQueryBudget,
-    capacity: Mutex<Option<OwnedSemaphorePermit>>,
+    ech: Mutex<Option<crate::EchDnsEndpoint>>,
+    retirement: Arc<Retirement>,
     kind: TaskKind,
     ancestors: Vec<TaskJoinWitness>,
     network: OnceLock<u64>,
-    registration: OnceLock<Option<QueryRegistration>>,
+    registration: Arc<OnceLock<Option<QueryRegistration>>>,
     bound: Notify,
     cancel: CancellationToken,
     io_pending: std::sync::atomic::AtomicBool,
@@ -89,7 +101,7 @@ pub struct OwnedDnsQueryBudget {
     blocking: Arc<Semaphore>,
     #[cfg(feature = "doh")]
     driver: Arc<Semaphore>,
-    retained: Arc<Mutex<Vec<std::sync::Weak<Record>>>>,
+    retained: Arc<Mutex<Vec<Arc<Retirement>>>>,
 }
 impl OwnedDnsQueryBudget {
     pub fn new(limit: NonZeroUsize) -> Self {
@@ -110,28 +122,26 @@ impl OwnedDnsQueryBudget {
     fn reserve(&self, kind: TaskKind) -> io::Result<OwnedSemaphorePermit> {
         // Budget bookkeeping observes only the actual original join. It
         // cannot cancel, join or retire a task or its native resources.
-        self.retained
-            .lock()
-            .expect("DNS budget poisoned")
-            .retain(|weak| {
-                let Some(record) = weak.upgrade() else {
-                    return false;
-                };
-                if record.registration.get().is_some_and(|registered| {
-                    registered
-                        .as_ref()
-                        .is_none_or(|registered| registered.witness.is_joined())
-                }) {
-                    record
-                        .capacity
-                        .lock()
-                        .expect("DNS task capacity poisoned")
-                        .take();
-                    false
-                } else {
-                    true
-                }
-            });
+        let originals = self.retained.lock().expect("DNS budget poisoned").clone();
+        let retired = originals
+            .into_iter()
+            .filter(|original| original.release_joined())
+            .collect::<Vec<_>>();
+        let mut retained = self.retained.lock().expect("DNS budget poisoned");
+        let mut removed = Vec::new();
+        let mut index = 0;
+        while index < retained.len() {
+            if retired
+                .iter()
+                .any(|original| Arc::ptr_eq(original, &retained[index]))
+            {
+                removed.push(retained.swap_remove(index));
+            } else {
+                index += 1;
+            }
+        }
+        drop(retained);
+        drop(removed);
         let capacity = match kind {
             TaskKind::Query => &self.query,
             TaskKind::Blocking => &self.blocking,
@@ -210,9 +220,7 @@ impl OwnedDnsQueryTasks {
             )
         })
     }
-    pub(crate) fn ensure_open(&self) -> io::Result<()> {
-        self.reap();
-        let state = self.0.state.lock().expect("DNS query tasks poisoned");
+    fn check_resource_open(&self, state: &State) -> io::Result<()> {
         if let Some(source) = &state.first_failure {
             return Err(io::Error::other(source.clone()));
         }
@@ -220,6 +228,27 @@ impl OwnedDnsQueryTasks {
             return Err(io::Error::new(
                 io::ErrorKind::NotConnected,
                 "DNS query tasks are closing",
+            ));
+        }
+        Ok(())
+    }
+    // A temporary query admission pause does not retire the actual backend;
+    // cold prepare/commit may preserve unrelated same-Scope live resources.
+    #[cfg(feature = "doh")]
+    pub(crate) fn ensure_resource_open(&self) -> io::Result<()> {
+        // Pure cold observation: callers may hold resolver/cache read locks.
+        // Actual admission/cleanup reaps outside them through ensure_open.
+        let state = self.0.state.lock().expect("DNS query tasks poisoned");
+        self.check_resource_open(&state)
+    }
+    pub(crate) fn ensure_open(&self) -> io::Result<()> {
+        self.reap();
+        let state = self.0.state.lock().expect("DNS query tasks poisoned");
+        self.check_resource_open(&state)?;
+        if state.pauses != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "actual DNS query admission paused",
             ));
         }
         Ok(())
@@ -232,6 +261,26 @@ impl OwnedDnsQueryTasks {
     ) -> io::Result<()> {
         self.spawn_in_network(job, cancel, None)
     }
+    pub(crate) fn cleanup_provider(
+        &self,
+        query: &TaskJoinWitness,
+    ) -> Option<Arc<dyn crate::native::NativeDnsProvider>> {
+        let provider = self.0.finalizer.get()?.upgrade()?;
+        let (_, scope) = provider.host_scope()?;
+        (provider.tasks().same_owner(self) && scope.same_scope(&query.scope_identity()))
+            .then_some(provider)
+    }
+    pub(crate) fn spawn_registered_in_network(
+        &self,
+        job: impl Future<Output = ()> + Send + 'static,
+        cancel: CancellationToken,
+        network: Option<u64>,
+        published: &crate::wire_call::Registration,
+    ) -> io::Result<()> {
+        self.spawn_kind_original(job, cancel, network, TaskKind::Query, Some(published))
+            .map(|_| ())
+    }
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn spawn_in_network(
         &self,
         job: impl Future<Output = ()> + Send + 'static,
@@ -240,244 +289,6 @@ impl OwnedDnsQueryTasks {
     ) -> io::Result<()> {
         self.spawn_kind(job, cancel, network, TaskKind::Query)
             .map(|_| ())
-    }
-    fn spawn_kind(
-        &self,
-        job: impl Future<Output = ()> + Send + 'static,
-        cancel: CancellationToken,
-        network: Option<u64>,
-        kind: TaskKind,
-    ) -> io::Result<TaskJoinWitness> {
-        self.ensure_open()?;
-        #[cfg(feature = "doh")]
-        let ancestors = if kind == TaskKind::Driver {
-            Vec::new()
-        } else {
-            self.inherited_tasks()?
-        };
-        #[cfg(not(feature = "doh"))]
-        let ancestors = self.inherited_tasks()?;
-        let record = Arc::new(Record {
-            budget: self.0.budget.clone(),
-            capacity: Mutex::new(Some(self.0.budget.reserve(kind)?)),
-            kind,
-            ancestors,
-            network: network.map(OnceLock::from).unwrap_or_default(),
-            registration: OnceLock::new(),
-            bound: Notify::new(),
-            cancel,
-            io_pending: Default::default(),
-            original: Mutex::new(None),
-            metadata: Mutex::new(None),
-        });
-        self.0
-            .budget
-            .retained
-            .lock()
-            .expect("DNS budget poisoned")
-            .push(Arc::downgrade(&record));
-        {
-            let mut state = self.0.state.lock().expect("DNS query tasks poisoned");
-            if state.closing || self.0.parent.is_cancelled() {
-                return Err(io::Error::new(
-                    io::ErrorKind::NotConnected,
-                    "DNS query admission retired",
-                ));
-            }
-            if state
-                .records
-                .iter()
-                .filter(|record| record.kind == kind)
-                .count()
-                >= self.0.limit.get()
-            {
-                return Err(io::Error::new(
-                    io::ErrorKind::WouldBlock,
-                    "DNS query task capacity exhausted",
-                ));
-            }
-            state.records.try_reserve(1).map_err(io::Error::other)?;
-            // Install before the original actual spawn; an unjoined record is
-            // never discarded by cancellation or a shutdown waiter timeout.
-            state.records.push(record.clone());
-        }
-        let (sender, receiver) = oneshot::channel::<TaskJoinWitness>();
-        let parent = self.0.parent.clone();
-        let cancellation = record.cancel.clone();
-        let query_record = record.clone();
-        let callbacks = self.0.registrar.defer_callbacks();
-        let finalizer = self.0.finalizer.get().cloned();
-        let spawned = self.0.registrar.spawn_tracked(self.0.class, async move {
-            let Ok(witness) = receiver.await else {
-                return Ok(());
-            };
-            let caller = witness.clone();
-            // No original resolution/native I/O can run before the same spawn's
-            // witness has been persisted and delivered by its original caller.
-            QUERY_RECORD
-                .scope(
-                    query_record,
-                    QUERY_CANCEL.scope(
-                        cancellation.clone(),
-                        QUERY_ORIGIN.scope(witness, async move {
-                            tokio::select! { biased;
-                                _ = parent.cancelled() => {},
-                                _ = cancellation.cancelled() => {},
-                                _ = job => {},
-                            }
-                        }),
-                    ),
-                )
-                .await;
-            // This stays in the original registered task, outside the cancelled
-            // work future. Actual caller join is published only after cleanup.
-            if let Some(finalizer) = finalizer {
-                let provider = finalizer.upgrade().ok_or_else(|| {
-                    ChannelError::new(
-                        zero_platform_tokio::contract::Stage::Close,
-                        zero_platform_tokio::contract::Reason::Revoked,
-                        zero_platform_tokio::contract::Impact::Component,
-                    )
-                })?;
-                provider.finish_query(caller).await.map_err(|source| {
-                    ChannelError::new(
-                        zero_platform_tokio::contract::Stage::Close,
-                        zero_platform_tokio::contract::Reason::Io,
-                        zero_platform_tokio::contract::Impact::Component,
-                    )
-                    .with_source(source)
-                })?;
-            }
-            Ok(())
-        });
-        match spawned {
-            Ok((id, witness)) => {
-                record
-                    .registration
-                    .set(Some(QueryRegistration {
-                        id,
-                        witness: witness.clone(),
-                    }))
-                    .expect("query bound once");
-                record.bound.notify_waiters();
-                let _ = sender.send(witness.clone());
-                drop(callbacks);
-                Ok(witness)
-            }
-            Err(source) => {
-                // Failed synchronous registration never started a task/native.
-                record
-                    .registration
-                    .set(None)
-                    .expect("failed query registration settled once");
-                record.bound.notify_waiters();
-                let retired = {
-                    let mut state = self.0.state.lock().expect("DNS query tasks poisoned");
-                    let index = state
-                        .records
-                        .iter()
-                        .position(|current| Arc::ptr_eq(current, &record));
-                    index.map(|index| state.records.remove(index))
-                };
-                record.cancel.cancel();
-                drop(retired);
-                drop(callbacks);
-                Err(io::Error::other(source))
-            }
-        }
-    }
-    fn reap(&self) {
-        loop {
-            let retired = {
-                let mut state = self.0.state.lock().expect("DNS query tasks poisoned");
-                let ready = state
-                    .records
-                    .iter()
-                    .enumerate()
-                    .find_map(|(index, record)| {
-                        let bound = record.registration.get()?;
-                        match bound {
-                            None => Some((index, None)),
-                            Some(registration) => registration
-                                .witness
-                                .try_joined()
-                                .map(|joined| (index, Some((registration.id, joined)))),
-                        }
-                    });
-                let Some((index, joined)) = ready else { return };
-                if let Some((id, joined)) = joined {
-                    if joined.id() != id {
-                        state.closing = true;
-                        state.identity_fault = true;
-                        state.first_failure.get_or_insert_with(|| {
-                            Arc::new(ChannelError::new(
-                                zero_platform_tokio::contract::Stage::Close,
-                                zero_platform_tokio::contract::Reason::Internal,
-                                zero_platform_tokio::contract::Impact::Component,
-                            ))
-                        });
-                        return; // Keep the unmatched original record charged.
-                    }
-                    if let Err(source) = joined.result() {
-                        state.first_failure.get_or_insert(source);
-                    }
-                }
-                state.records.remove(index)
-            };
-            // Actual witness/cancel/Notify destruction can invoke an external
-            // waker; no final retired Record drop runs under the enclosing lock.
-            drop(retired);
-        }
-    }
-    pub(crate) async fn next_exit(&self) -> bool {
-        self.reap();
-        let record = {
-            let state = self.0.state.lock().expect("DNS query tasks poisoned");
-            if state.identity_fault {
-                return false;
-            }
-            state.records.first().cloned()
-        };
-        let Some(record) = record else { return false };
-        loop {
-            let bound = record.bound.notified();
-            tokio::pin!(bound);
-            bound.as_mut().enable();
-            if let Some(bound) = record.registration.get() {
-                if let Some(registration) = bound {
-                    registration.witness.wait().await;
-                }
-                self.reap();
-                return true;
-            }
-            bound.await;
-        }
-    }
-    /// Closes query admission and waits for actual Host Scope consumption.
-    /// Does not drive that Scope, close any socket or confirm resolver users.
-    pub(crate) async fn shutdown(&self, deadline: tokio::time::Instant) -> io::Result<()> {
-        let records = {
-            let mut state = self.0.state.lock().expect("DNS query tasks poisoned");
-            state.closing = true;
-            state.records.clone()
-        };
-        for record in records {
-            record.cancel.cancel();
-        }
-        while tokio::time::timeout_at(deadline, self.next_exit())
-            .await
-            .map_err(|_| {
-                io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "DNS original Host Scope query join is unconfirmed",
-                )
-            })?
-        {}
-        let state = self.0.state.lock().expect("DNS query tasks poisoned");
-        match &state.first_failure {
-            Some(source) => Err(io::Error::other(source.clone())),
-            None => Ok(()),
-        }
     }
 }
 

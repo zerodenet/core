@@ -3,12 +3,14 @@ use super::*;
 
 mod bridge;
 mod budget;
+mod original;
 pub(super) use bridge::{spawn as spawn_bridge, QueuedSourceEvent};
 pub(super) use budget::{SourceBudget, SourceReservation};
+pub(super) use original::{Source, Subscriber};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn drain_event_source<S>(
-    source: &S,
+    source: &Source<S>,
     source_rx: &mut tokio::sync::mpsc::Receiver<QueuedSourceEvent>,
     source_events: &mut VecDeque<QueuedSourceEvent>,
     workers: &[SinkWorker],
@@ -19,6 +21,8 @@ pub(super) fn drain_event_source<S>(
     blocked_events: &mut VecDeque<BlockedEvent>,
     dispatcher_config: EventDispatcherConfig,
     budget: &Arc<memory::DeliveryBudget>,
+    source_budget: &Arc<SourceBudget>,
+    initial_baseline: &mut Option<u64>,
 ) -> bool
 where
     S: EventSource,
@@ -57,6 +61,10 @@ where
         progressed = true;
     }
 
+    if let Some(baseline) = initial_baseline.take() {
+        *last_sequence = Some(last_sequence.unwrap_or(0).max(baseline));
+    }
+
     // The batch setting bounds work per pass, not a batch of owned payloads.
     // Recover one event at a time so a large replay cannot inflate staging.
     for _ in 0..dispatcher_config.replay_batch_size {
@@ -80,19 +88,22 @@ where
             let Some(sequence) = *last_sequence else {
                 break;
             };
-            match source.since(sequence, 1, EventFilter::default()) {
-                Ok(mut replay) => {
-                    if replay.has_gap {
+            match source.next(sequence, source_budget) {
+                Ok((actual_from, has_gap, event)) => {
+                    if has_gap {
                         let message = format!(
                             "event replay gap after sequence {}; retained events start at {}",
-                            replay.requested_after, replay.actual_from
+                            sequence, actual_from
                         );
                         record_dispatcher_replay_gap(stats, &message);
-                        warn!(requested_after = replay.requested_after, actual_from = replay.actual_from,
-                            "event dispatcher replay gap detected; older sink deliveries require reconciliation");
-                        *last_sequence = Some(replay.actual_from.saturating_sub(1));
+                        warn!(
+                            requested_after = sequence,
+                            actual_from = actual_from,
+                            "event dispatcher replay gap detected; older sink deliveries require reconciliation"
+                        );
+                        *last_sequence = Some(actual_from.saturating_sub(1));
                     }
-                    blocked = replay.events.pop().map(BlockedEvent::new);
+                    blocked = event;
                 }
                 Err(error) => {
                     record_dispatcher_failure(stats, &error.to_string());

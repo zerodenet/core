@@ -24,6 +24,7 @@ struct State {
     native: Option<crate::quic::owned::HostedMetadataSocket>,
     graph: Option<Graph>,
     receiver: Option<Receiver>,
+    last_delivery: Option<drivers::DriverDelivery<Option<Arc<io::Error>>>>,
     completion: Option<DriverCompletion>,
     unstarted: Option<users::UnstartedMetadataCompletion>,
     rejected: Option<GrantedMetadataListener>,
@@ -68,6 +69,7 @@ pub fn source<H: InboundHandshake, Make: Fn(Peer) -> H + Send + 'static>(
         native: None,
         graph: None,
         receiver: None,
+        last_delivery: None,
         completion: None,
         unstarted: None,
         rejected: None,
@@ -109,14 +111,19 @@ impl<H: InboundHandshake, Make: Fn(Peer) -> H + Send + 'static> InboundSource fo
             .ok_or_else(|| failure(Reason::Revoked))?;
         loop {
             let State {
-                receiver, buffer, ..
+                receiver,
+                last_delivery,
+                buffer,
+                ..
             } = &mut *state;
             let received = tokio::select! {biased;
                 _=self.cancel.cancelled()=>return Ok(None),
                 _=context.cancel.cancelled()=>return Err(failure(Reason::Cancelled)),
                 _=async {match context.deadline {Some(t)=>tokio::time::sleep_until(t).await,None=>std::future::pending().await}}=>return Err(failure(Reason::Timeout)),
                 delivery=receiver.as_mut().unwrap().receive_next()=>{
-                    let delivery=delivery?;
+                    *last_delivery=Some(delivery?);
+                    let delivery=last_delivery.as_ref().unwrap();
+                    receiver.as_mut().unwrap().release_body(delivery)?;
                     self.cancel.cancel();
                     return Err(match delivery.joined.result() {
                         Ok(())=>failure(Reason::Io),

@@ -3,6 +3,7 @@ use super::*;
 use crate::component::instance::{retained, SharedError};
 use tokio::sync::Notify;
 mod observer;
+mod process;
 mod responses;
 use zero_core::component::TaskId;
 use zero_platform_tokio::contract::{scope::TaskClass, ChannelError, Impact, Reason, Stage};
@@ -38,6 +39,11 @@ struct JoinCell {
 }
 pub(crate) struct HostPeerBinding {
     parent: ComponentInstanceId,
+    registrar: zero_platform_tokio::contract::scope::WeakTaskRegistrar,
+    lookup_root: std::sync::Weak<zero_platform_tokio::controlled_carrier::CarrierOriginalTotals>,
+    process: Mutex<Option<Arc<zero_platform_tokio::LocalProcessLookup>>>,
+    process_failure: Mutex<Option<zero_platform_tokio::contract::scope::TaskJoined>>,
+    process_cleanup_failure: Mutex<Option<Arc<ChannelError>>>,
     join: Arc<JoinCell>,
     cancel: CancellationToken,
     responses: Mutex<Option<responses::ResponseOwner>>,
@@ -54,17 +60,36 @@ impl std::fmt::Debug for HostPeerBinding {
     }
 }
 impl HostPeerBinding {
-    pub(crate) fn install_scope(&self, scope: zero_platform_tokio::AcceptedPeerScope) {
+    pub(crate) fn install_scope(
+        &self,
+        scope: zero_platform_tokio::AcceptedPeerScope,
+    ) -> Result<(), ChannelError> {
+        let root = self
+            .lookup_root
+            .upgrade()
+            .ok_or_else(|| self.error(Reason::Revoked, "actual lookup root retired"))?;
+        scope.bind_process_lookup_totals(self.parent, &self.registrar, &root)?;
         let mut slot = self.peer_scope.lock().unwrap();
         assert!(slot.is_none(), "one real peer scope");
         *slot = Some(scope);
+        Ok(())
     }
     pub(super) fn peer_scope(&self) -> Option<zero_platform_tokio::AcceptedPeerScope> {
         self.peer_scope.lock().unwrap().clone()
     }
-    pub(super) fn new(parent: ComponentInstanceId, cancel: CancellationToken) -> Self {
+    pub(super) fn new(
+        parent: ComponentInstanceId,
+        cancel: CancellationToken,
+        registrar: zero_platform_tokio::contract::scope::WeakTaskRegistrar,
+        lookup_root: std::sync::Weak<zero_platform_tokio::controlled_carrier::CarrierOriginalTotals>,
+    ) -> Self {
         Self {
             parent,
+            registrar,
+            lookup_root,
+            process: Mutex::new(None),
+            process_failure: Mutex::new(None),
+            process_cleanup_failure: Mutex::new(None),
             join: Arc::default(),
             cancel: cancel.child_token(),
             responses: Mutex::new(None),
@@ -141,6 +166,10 @@ impl HostPeerBinding {
     }
     pub(crate) fn request_stop(&self) {
         self.cancel.cancel();
+        let original = self.process.lock().unwrap().clone();
+        if let Some(original) = original {
+            original.cancel();
+        }
     }
     pub(crate) fn registration_rejection(&self) -> Option<SharedError> {
         self.join

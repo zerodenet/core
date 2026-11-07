@@ -6,11 +6,23 @@
 use super::*;
 
 impl<R: rand::RngCore + Send> Tunn<R> {
+    #[cfg(feature = "zero-owned-packets")]
+    pub(in crate::noise) fn prepared_data_session_live(&self, slot: usize, now: Duration) -> bool {
+        !self.handshake.is_expired()
+            && now.saturating_sub(self.timers.session_timers[slot % crate::noise::N_SESSIONS])
+                <= REJECT_AFTER_TIME
+            && now.saturating_sub(self.timers[TimeSessionEstablished]) < REJECT_AFTER_TIME * 3
+            && !(self.handshake.timer().is_some()
+                && now.saturating_sub(self.timers[TimeLastHandshakeStarted]) >= REKEY_ATTEMPT_TIME)
+    }
+
     /// Shared by timer execution and public crypto I/O. This only expires state;
     /// it cannot emit (and then lose) a retry/rekey packet before processing I/O.
     /// It also stamps packet-driven transitions at their actual owner-clock time.
     pub(in crate::noise) fn refresh_expiration(&mut self) -> bool {
-        let now = self.timers.now();
+        self.refresh_expiration_at(self.timers.now())
+    }
+    pub(in crate::noise) fn refresh_expiration_at(&mut self, now: Duration) -> bool {
         self.timers[TimeCurrent] = now;
         self.update_session_timers(now);
         if self.handshake.is_expired() {

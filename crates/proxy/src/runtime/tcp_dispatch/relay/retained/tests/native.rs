@@ -43,6 +43,7 @@ fn services(proxy: &Proxy) -> TcpExecutionServices {
     proxy
         .tcp_runtime_services()
         .with_service_invocation(ServiceInvocation {
+            caller: None,
             deadline: deadline(),
             purpose: ServicePurpose::DiagnosticProbe,
         })

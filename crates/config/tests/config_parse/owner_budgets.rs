@@ -16,7 +16,367 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 12] = [
+    let fields: [BudgetField; 72] = [
+        (
+            "packet_route_max_routes",
+            RuntimeOptionsConfig::effective_packet_route_max_routes,
+            4096,
+            4096,
+        ),
+        (
+            "control_pipe_max_workspace_bytes",
+            RuntimeOptionsConfig::effective_control_pipe_max_workspace_bytes,
+            2 * 1024 * 1024,
+            256 * 1024 * 1024,
+        ),
+        (
+            "direct_max_originals",
+            RuntimeOptionsConfig::effective_direct_max_originals,
+            4096,
+            4096,
+        ),
+        (
+            "direct_max_tasks",
+            RuntimeOptionsConfig::effective_direct_max_tasks,
+            256,
+            4096,
+        ),
+        (
+            "inbound_max_accepted_sockets",
+            RuntimeOptionsConfig::effective_inbound_max_accepted_sockets,
+            4096,
+            65536,
+        ),
+        (
+            "inbound_max_datagram_associations",
+            RuntimeOptionsConfig::effective_inbound_max_datagram_associations,
+            4096,
+            65536,
+        ),
+        (
+            "inbound_max_datagram_peers",
+            |r| r.effective_inbound_max_datagram_peers(128),
+            128,
+            65536,
+        ),
+        (
+            "inbound_max_packets_per_peer",
+            |r| r.effective_inbound_max_packets_per_peer(256),
+            256,
+            65536,
+        ),
+        (
+            "inbound_max_pending_sends",
+            |r| r.effective_inbound_max_pending_sends(32),
+            32,
+            65536,
+        ),
+        (
+            "inbound_max_bind_attempts",
+            RuntimeOptionsConfig::effective_inbound_max_bind_attempts,
+            50,
+            4096,
+        ),
+        (
+            "inbound_max_target_sockets",
+            RuntimeOptionsConfig::effective_inbound_max_target_sockets,
+            4096,
+            65536,
+        ),
+        (
+            "inbound_max_file_sessions",
+            RuntimeOptionsConfig::effective_inbound_max_file_sessions,
+            16,
+            4096,
+        ),
+        (
+            "inbound_max_handoff_probe_attempts",
+            RuntimeOptionsConfig::effective_inbound_max_handoff_probe_attempts,
+            1000,
+            65536,
+        ),
+        (
+            "hysteria2_h3_max_pending_classifications",
+            RuntimeOptionsConfig::effective_hysteria2_h3_max_pending_classifications,
+            128,
+            4096,
+        ),
+        (
+            "hysteria2_h3_max_pending_tcp_streams",
+            RuntimeOptionsConfig::effective_hysteria2_h3_max_pending_tcp_streams,
+            128,
+            4096,
+        ),
+        (
+            "hysteria2_h3_max_pending_web_streams",
+            RuntimeOptionsConfig::effective_hysteria2_h3_max_pending_web_streams,
+            128,
+            4096,
+        ),
+        (
+            "hysteria2_h3_max_pending_web_requests",
+            RuntimeOptionsConfig::effective_hysteria2_h3_max_pending_web_requests,
+            64,
+            4096,
+        ),
+        (
+            "inbound_max_tasks_per_carrier",
+            |r| r.effective_inbound_max_tasks_per_carrier(520),
+            520,
+            4096,
+        ),
+        (
+            "inbound_max_in_flight_requests",
+            |r| r.effective_inbound_max_in_flight_requests(256),
+            256,
+            65536,
+        ),
+        (
+            "metadata_max_probe_sockets",
+            |runtime| runtime.effective_metadata_max_probe_sockets(2),
+            2,
+            256,
+        ),
+        (
+            "metadata_max_probe_attempts",
+            |runtime| runtime.effective_metadata_max_probe_attempts(8),
+            8,
+            4096,
+        ),
+        (
+            "metadata_max_send_calls",
+            |runtime| runtime.effective_metadata_max_send_calls(2),
+            2,
+            4096,
+        ),
+        (
+            "quic_source_max_connections",
+            RuntimeOptionsConfig::effective_quic_source_max_connections,
+            8192,
+            65536,
+        ),
+        (
+            "quic_shared_endpoint_max_users",
+            RuntimeOptionsConfig::effective_quic_shared_endpoint_max_users,
+            65536,
+            65536,
+        ),
+        (
+            "event_log_stats_max_bytes",
+            RuntimeOptionsConfig::effective_event_log_stats_max_bytes,
+            8 * 1024 * 1024,
+            256 * 1024 * 1024,
+        ),
+        (
+            "event_subscriber_max_pending_events",
+            RuntimeOptionsConfig::effective_event_subscriber_max_pending_events,
+            1024,
+            1024,
+        ),
+        (
+            "event_subscriber_total_max_pending_events",
+            RuntimeOptionsConfig::effective_event_subscriber_total_max_pending_events,
+            65536,
+            1048576,
+        ),
+        (
+            "event_subscriber_max_registrations",
+            RuntimeOptionsConfig::effective_event_subscriber_max_registrations,
+            4096,
+            65536,
+        ),
+        (
+            "event_subscriber_total_stats_max_bytes",
+            RuntimeOptionsConfig::effective_event_subscriber_total_stats_max_bytes,
+            67108864,
+            268435456,
+        ),
+        (
+            "event_subscriber_max_filter_bytes",
+            RuntimeOptionsConfig::effective_event_subscriber_max_filter_bytes,
+            65536,
+            1048576,
+        ),
+        (
+            "event_subscriber_total_max_storage_bytes",
+            RuntimeOptionsConfig::effective_event_subscriber_total_max_storage_bytes,
+            8388608,
+            268435456,
+        ),
+        (
+            "event_subscriber_stats_max_bytes",
+            RuntimeOptionsConfig::effective_event_subscriber_stats_max_bytes,
+            1024 * 1024,
+            256 * 1024 * 1024,
+        ),
+        (
+            "event_network_max_tasks",
+            RuntimeOptionsConfig::effective_event_network_max_tasks,
+            1024,
+            4096,
+        ),
+        (
+            "event_network_max_originals",
+            RuntimeOptionsConfig::effective_event_network_max_originals,
+            256,
+            4096,
+        ),
+        (
+            "event_network_max_lookups",
+            RuntimeOptionsConfig::effective_event_network_max_lookups,
+            256,
+            4096,
+        ),
+        (
+            "carrier_max_total_originals",
+            RuntimeOptionsConfig::effective_carrier_max_total_originals,
+            1024,
+            65536,
+        ),
+        (
+            "ss_udp_max_pending_responses",
+            RuntimeOptionsConfig::effective_ss_udp_max_pending_responses,
+            4096,
+            65536,
+        ),
+        (
+            "ss_udp_total_max_pending_responses",
+            RuntimeOptionsConfig::effective_ss_udp_total_max_pending_responses,
+            4096,
+            65536,
+        ),
+        (
+            "ss_legacy_replay_max_bytes",
+            RuntimeOptionsConfig::effective_ss_legacy_replay_max_bytes,
+            64 * 1024 * 1024,
+            usize::MAX - 1,
+        ),
+        (
+            "grpc_pool_max_carriers",
+            RuntimeOptionsConfig::effective_grpc_pool_max_carriers,
+            4,
+            4096,
+        ),
+        (
+            "grpc_pool_max_streams",
+            RuntimeOptionsConfig::effective_grpc_pool_max_streams,
+            256,
+            65536,
+        ),
+        (
+            "grpc_total_max_carriers",
+            RuntimeOptionsConfig::effective_grpc_total_max_carriers,
+            16,
+            4096,
+        ),
+        (
+            "grpc_total_max_streams",
+            RuntimeOptionsConfig::effective_grpc_total_max_streams,
+            1024,
+            65536,
+        ),
+        (
+            "navigation_max_jobs",
+            RuntimeOptionsConfig::effective_navigation_max_jobs,
+            64,
+            64,
+        ),
+        (
+            "navigation_max_requests",
+            RuntimeOptionsConfig::effective_navigation_max_requests,
+            32,
+            32,
+        ),
+        (
+            "diagnostic_max_operations",
+            RuntimeOptionsConfig::effective_diagnostic_max_operations,
+            8,
+            8,
+        ),
+        (
+            "ss_udp_replay_max_windows",
+            RuntimeOptionsConfig::effective_ss_udp_replay_max_windows,
+            8192,
+            usize::MAX - 1,
+        ),
+        (
+            "ss_udp_max_senders",
+            RuntimeOptionsConfig::effective_ss_udp_max_senders,
+            8192,
+            usize::MAX - 1,
+        ),
+        (
+            "ss_udp_max_associations",
+            RuntimeOptionsConfig::effective_ss_udp_max_associations,
+            8192,
+            usize::MAX - 1,
+        ),
+        (
+            "ss_udp_max_return_bindings",
+            RuntimeOptionsConfig::effective_ss_udp_max_return_bindings,
+            65536,
+            usize::MAX - 1,
+        ),
+        (
+            "ss_udp_max_authenticated_codecs",
+            RuntimeOptionsConfig::effective_ss_udp_max_authenticated_codecs,
+            4096,
+            usize::MAX - 1,
+        ),
+        (
+            "packet_return_max_frames",
+            RuntimeOptionsConfig::effective_packet_return_max_frames,
+            256,
+            65536,
+        ),
+        (
+            "packet_return_max_bytes",
+            RuntimeOptionsConfig::effective_packet_return_max_bytes,
+            16777216,
+            1073741824,
+        ),
+        (
+            "packet_return_total_max_frames",
+            RuntimeOptionsConfig::effective_packet_return_total_max_frames,
+            1024,
+            65536,
+        ),
+        (
+            "packet_return_total_max_bytes",
+            RuntimeOptionsConfig::effective_packet_return_total_max_bytes,
+            67108864,
+            1073741824,
+        ),
+        (
+            "packet_transmit_total_max_frames",
+            RuntimeOptionsConfig::effective_packet_transmit_total_max_frames,
+            16384,
+            65536,
+        ),
+        (
+            "packet_transmit_total_max_bytes",
+            RuntimeOptionsConfig::effective_packet_transmit_total_max_bytes,
+            67108864,
+            1073741824,
+        ),
+        (
+            "packet_native_read_total_max_frames",
+            RuntimeOptionsConfig::effective_packet_native_read_total_max_frames,
+            256,
+            65536,
+        ),
+        (
+            "packet_native_read_total_max_bytes",
+            RuntimeOptionsConfig::effective_packet_native_read_total_max_bytes,
+            16777216,
+            1073741824,
+        ),
+        (
+            "ss_tcp_replay_max_salts",
+            RuntimeOptionsConfig::effective_ss_tcp_replay_max_salts,
+            500_000,
+            usize::MAX - 1,
+        ),
         (
             "vmess_grpc_max_originals",
             RuntimeOptionsConfig::effective_vmess_grpc_max_originals,
@@ -143,4 +503,60 @@ fn control_event_payload_budget_preserves_omission_and_checks_real_byte_boundari
             .to_string()
             .contains("control_max_queued_event_bytes"));
     }
+}
+
+#[test]
+fn omitted_metadata_limits_preserve_distinct_actual_dns_and_shared_endpoint_defaults() {
+    let absent = RuntimeOptionsConfig::default();
+    assert_eq!(absent.effective_metadata_max_probe_sockets(1), 1);
+    assert_eq!(absent.effective_metadata_max_probe_sockets(2), 2);
+    assert_eq!(absent.effective_metadata_max_probe_attempts(4), 4);
+    assert_eq!(absent.effective_metadata_max_probe_attempts(8), 8);
+    assert_eq!(absent.effective_metadata_max_send_calls(1), 1);
+    assert_eq!(absent.effective_metadata_max_send_calls(2), 2);
+    let configured = parse("metadata_max_probe_sockets", 7).unwrap();
+    assert_eq!(
+        configured.runtime.effective_metadata_max_probe_sockets(1),
+        7
+    );
+    assert_eq!(
+        configured.runtime.effective_metadata_max_probe_sockets(2),
+        7
+    );
+}
+
+#[test]
+fn inbound_resource_zero_and_actual_defaults_preserve_original_admission_meaning() {
+    let defaults = RuntimeOptionsConfig::default();
+    for actual in [0, 2, 257] {
+        assert_eq!(
+            defaults.effective_inbound_max_resources_per_carrier(actual),
+            actual
+        );
+    }
+    for actual in [1, 2, 514, 516, 520] {
+        assert_eq!(
+            defaults.effective_inbound_max_tasks_per_carrier(actual),
+            actual
+        );
+    }
+    for actual in [1, 128, 256] {
+        assert_eq!(
+            defaults.effective_inbound_max_in_flight_requests(actual),
+            actual
+        );
+    }
+    assert!(serde_json::to_value(&defaults)
+        .unwrap()
+        .get("inbound_max_resources_per_carrier")
+        .is_none());
+    let empty = parse("inbound_max_resources_per_carrier", 0).unwrap();
+    assert_eq!(
+        empty
+            .runtime
+            .effective_inbound_max_resources_per_carrier(257),
+        0
+    );
+    assert!(parse("inbound_max_resources_per_carrier", 65536).is_ok());
+    assert!(parse("inbound_max_resources_per_carrier", 65537).is_err());
 }

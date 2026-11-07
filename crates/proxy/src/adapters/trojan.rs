@@ -1,4 +1,6 @@
 #[cfg(feature = "trojan")]
+mod tcp_owned;
+#[cfg(feature = "trojan")]
 use ::trojan::transport::TrojanOutboundLeaf;
 #[cfg(feature = "trojan")]
 pub(crate) mod component;
@@ -32,6 +34,7 @@ use crate::runtime::udp_flow::managed::{
 #[cfg(feature = "trojan")]
 #[derive(Debug, Default)]
 pub(crate) struct TrojanAdapter {
+    pub(crate) native_node_dns: bool,
     inbound_profiles: TrojanInboundProfileStore,
     mux_pool: ::trojan::mux::TrojanMuxConnectionPool,
 }
@@ -250,40 +253,6 @@ impl ManagedPacketUdpFlowConnection for ::trojan::udp::TrojanUdpFlowConnection {
 }
 
 #[cfg(feature = "trojan")]
-impl TrojanAdapter {
-    pub(crate) fn claim_outbound_leaf_impl<'a>(
-        &self,
-        input: OutboundLeafInput<'a>,
-    ) -> Option<OutboundLeafClaim<'a>> {
-        let OutboundLeafInput::Proxy {
-            outbound,
-            endpoint,
-            source_dir,
-            ..
-        } = input
-        else {
-            return None;
-        };
-        let options = outbound_options(outbound.tag(), endpoint, &outbound.protocol)?;
-        let leaf =
-            TrojanOutboundLeaf::from_options_refs(source_dir, options, self.mux_pool.clone());
-        let (udp, udp_relay) =
-            super::udp::transport_operations(Some(endpoint), true, leaf.as_ref());
-        let (tcp, tcp_relay) = super::tcp::transport_operations(leaf);
-        Some(OutboundLeafClaim {
-            tcp_path: TCP_PATH,
-            tcp: Some(tcp),
-            tcp_relay: Some(tcp_relay),
-            udp: Some(udp),
-            udp_relay: Some(udp_relay),
-            #[cfg(feature = "raw-ip-runtime")]
-            packet: None,
-            packet_path: None,
-        })
-    }
-}
-
-#[cfg(feature = "trojan")]
 impl NamedProtocolAdapter for TrojanAdapter {
     const PROTOCOL_NAME: &'static str = "trojan";
     const FEATURE_NAME: &'static str = "trojan";
@@ -309,3 +278,6 @@ impl ProtocolMetadata for TrojanAdapter {
         ::trojan::metadata::TrojanProtocol.descriptor()
     }
 }
+
+#[cfg(feature = "trojan")]
+mod claim;

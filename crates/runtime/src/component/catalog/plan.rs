@@ -1,53 +1,12 @@
 //! Dependency-ordered start and confirmed retirement of the actual owners.
 mod carrier;
+mod packet_source;
+#[cfg(any(target_os = "linux", windows))]
+mod process_endpoint;
 use super::*;
-use zero_platform_tokio::contract::lifecycle::TaskFailure;
 
-#[derive(Debug)]
-pub(super) struct PlanTaskFailure(
-    pub(super) TaskFailure,
-    pub(super) zero_core::component::ComponentInstanceId,
-    AtomicBool,
-);
-impl std::fmt::Display for PlanTaskFailure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "component task {} ({:?}) failed: {}",
-            self.0.id.0, self.0.class, self.0.error
-        )
-    }
-}
-impl std::error::Error for PlanTaskFailure {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.0.error)
-    }
-}
-impl PlanTaskFailure {
-    pub(super) fn new(
-        failure: TaskFailure,
-        instance: zero_core::component::ComponentInstanceId,
-    ) -> Self {
-        Self(failure, instance, AtomicBool::new(false))
-    }
-    pub(super) fn reported(&self) -> bool {
-        self.2.load(Ordering::Acquire)
-    }
-    pub(super) fn confirm_reported(&self) {
-        let _ = self
-            .2
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire);
-    }
-    pub(super) fn retained(self: &Arc<Self>) -> ChannelError {
-        let original = &self.0.error;
-        let mut error = ChannelError::new(original.stage, original.reason, original.impact);
-        error.component = original.component;
-        error.session = original.session;
-        error.delivery = original.delivery;
-        error.retry = original.retry;
-        error.with_source(self.clone())
-    }
-}
+mod failure;
+pub(super) use failure::{FailureKey, PlanFailure};
 
 impl std::fmt::Debug for ComponentPlan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -87,7 +46,7 @@ impl ComponentPlan {
                 )
             })?;
         if !owner.recipe.spec().resources.iter().any(|resource| matches!(resource,
-            zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeStream { .. })) {
+            zero_platform_tokio::contract::component::ResourceDeclaration::ControlledServiceStream { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeCarrier { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeStream { .. })) {
             return Err(invalid(Reason::Unsupported, "background owner has no finite controlled declaration"));
         }
         let mut donors = Vec::new();
@@ -95,7 +54,8 @@ impl ComponentPlan {
             let slot = self
                 .role_slot(*role)
                 .ok_or_else(|| invalid(Reason::StalePlan, "background donor role changed"))?;
-            if self.deferred_devices.contains(&slot.id) {
+            if self.deferred_devices.contains(&slot.id) && !self.has_device_carrier_provider(*role)
+            {
                 return Err(invalid(
                     Reason::Unsupported,
                     "background borrowing cannot depend on deferred native device start",
@@ -166,7 +126,7 @@ impl ComponentPlan {
     }
 
     pub async fn start(&self, deadline: tokio::time::Instant) -> Result<(), ChannelError> {
-        for slot in self.startable_before_devices() {
+        for slot in self.startable_for_initial_activation() {
             slot.start(deadline).await?;
         }
         self.scan_tasks(deadline).await?;
@@ -185,6 +145,14 @@ impl ComponentPlan {
         deadline: tokio::time::Instant,
     ) -> Result<(), ChannelError> {
         for slot in &self.order {
+            if let Some(source) = slot.owned_start_failure() {
+                return Err(crate::component::instance::retained(source));
+            }
+            // Unselected Process endpoints intentionally have no actor or
+            // native job. Once built, supervise their actual Scope normally.
+            if slot.is_unbuilt_demand_process() {
+                continue;
+            }
             if self.deferred_devices.contains(&slot.id)
                 && !slot.has_started()
                 && slot.task_fault().is_none()
@@ -194,6 +162,14 @@ impl ComponentPlan {
             slot.scan_tasks(deadline).await?;
         }
         Ok(())
+    }
+    /// Real install/stage still includes the complete graph. Only this initial
+    /// activation traversal leaves outbound Process endpoints cold on demand.
+    pub(super) fn startable_for_initial_activation(
+        &self,
+    ) -> impl Iterator<Item = &Arc<ComponentSlot>> {
+        self.startable_before_devices()
+            .filter(|slot| slot.demand_process_endpoint_ordinal().is_none())
     }
     pub(super) fn startable_before_devices(&self) -> impl Iterator<Item = &Arc<ComponentSlot>> {
         self.order

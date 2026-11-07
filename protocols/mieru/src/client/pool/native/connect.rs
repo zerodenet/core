@@ -26,7 +26,8 @@ impl Request<'_> {
             .deadline
             .unwrap_or_else(|| Instant::now() + std::time::Duration::from_secs(15));
         let mut failure = None;
-        for index in 0..self.candidates.len() {
+        let candidates = std::sync::Arc::new(self.candidates);
+        for index in 0..candidates.len() {
             if Instant::now() >= end {
                 return Err(io::ErrorKind::TimedOut.into());
             }
@@ -45,8 +46,28 @@ impl Request<'_> {
             if let Some(waiting) = &self.waiting {
                 waiting.retain(adoption.clone()).map_err(io::Error::other)?;
             }
-            if self.udp {
-                match self.candidates.prepare_datagram(index, grant) {
+            if state.dynamic {
+                match (super::setup::candidate::Candidate {
+                    candidates: candidates.clone(),
+                    index,
+                    udp: self.udp,
+                    username: self.username.to_owned(),
+                    password: self.password.to_owned(),
+                    options: self.options.clone(),
+                    end,
+                })
+                .open(&lease, &adoption, grant)
+                .await?
+                {
+                    super::setup::candidate::Opened::Ready(prepared) => {
+                        return prepared.start(adoption, lease).await
+                    }
+                    super::setup::candidate::Opened::CandidateFailure(source) => {
+                        failure = Some(source)
+                    }
+                }
+            } else if self.udp {
+                match candidates.prepare_datagram(index, grant) {
                     Ok(io) => {
                         return ClientConnection::packet_controlled(
                             io,
@@ -62,7 +83,7 @@ impl Request<'_> {
                 }
             } else {
                 let opening = async {
-                    let prepared = self.candidates.prepare_stream(index, grant)?;
+                    let prepared = candidates.prepare_stream(index, grant)?;
                     prepared.open(end).await
                 };
                 let ready = tokio::select! { biased;
@@ -154,6 +175,79 @@ impl BorrowRequest<'_> {
         // Keep the exact record wrapper alive across selection and borrowing.
         // Its selected ROOT holds only a weak callback; no caller is retained
         // by the persistent provider or the successful pool connection.
+        if state.dynamic {
+            if let Some(waiting) = &waiting {
+                waiting.retain(adoption.clone()).map_err(io::Error::other)?;
+            }
+            let originals = lease.pending_carriers();
+            let owner = grants.registration();
+            let selected_binding = upstream.binding().clone();
+            let username = username.to_owned();
+            let password = password.to_owned();
+            let options = options.clone();
+            let prepare_adoption = adoption.clone();
+            let stop = grant.cancellation();
+            let prepared =
+                super::setup::run(&lease, &adoption, stop.clone(), move |witness| async move {
+                    let context = zero_platform_tokio::contract::network::CarrierContext {
+                        cancel: stop,
+                        ..context
+                    };
+                    let caller = super::setup::Caller {
+                        witness,
+                        owner,
+                        binding: selected_binding.clone(),
+                        call: context.clone(),
+                    };
+                    let pending = super::pending::for_setup(
+                        originals,
+                        selected_binding.clone(),
+                        waiting,
+                        caller,
+                        provider.clone(),
+                    );
+                    let upstream = provider
+                        .select_background_carrier_observed(
+                            Some(selected_binding),
+                            context.clone(),
+                            pending.pending_carrier_observer(),
+                        )
+                        .await
+                        .map_err(io::Error::other)?;
+                    if udp {
+                        let loan = upstream
+                            .borrow_datagram(endpoint.clone(), context.clone())
+                            .await
+                            .map_err(io::Error::other)?;
+                        let io = grant
+                            .adopt_datagram_loan(upstream.binding(), endpoint, &context, loan)
+                            .map_err(io::Error::other)?;
+                        let ipv6 = io.ipv6_overhead();
+                        ClientConnection::prepare_packet_driver(
+                            io.into_driver(),
+                            ipv6,
+                            &username,
+                            &password,
+                            &options,
+                        )
+                        .map(super::setup::Prepared::Packet)
+                    } else {
+                        let loan = upstream
+                            .borrow_stream(endpoint.clone(), context.clone())
+                            .await
+                            .map_err(io::Error::other)?;
+                        let io = grant
+                            .adopt_stream_loan(upstream.binding(), endpoint, &context, loan)
+                            .map_err(io::Error::other)?;
+                        ClientConnection::prepare_tcp_controlled(io, &username, &password, &options)
+                            .await
+                            .map(super::setup::Prepared::Tcp)
+                    }
+                })
+                .await?;
+            lease.release_installed_pending();
+            return prepared.start(prepare_adoption, lease).await;
+        }
         let pending = if let Some(waiting) = waiting {
             // This is the record's own receiver, separate from its bounded
             // foreign donor set. Cancellation retires receiver and donor chain.

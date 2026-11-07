@@ -104,6 +104,16 @@ impl CarrierAdoption {
         match result {
             Ok((id, witness)) => {
                 state.auxiliary = Some(witness.clone());
+                if let Some(preparation) = state
+                    .users
+                    .as_ref()
+                    .and_then(|users| users.preparation.as_ref())
+                {
+                    assert!(
+                        preparation.auxiliary.set(witness.clone()).is_ok(),
+                        "one actual preparation registration per original"
+                    );
+                }
                 drop(state);
                 // Actual work cannot poll before the original slot owns the
                 // exact returned TaskId/witness. Gate sends and callback flush

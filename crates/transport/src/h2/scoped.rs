@@ -1,5 +1,10 @@
 //! Raw H2 DATA over the original accepted carrier, without detached I/O pumps.
 use super::*;
+mod progress;
+mod write;
+use futures_util::task::waker_ref;
+use progress::Progress;
+use std::{sync::Arc, task::Context};
 use zero_platform_tokio::{
     contract::{scope::TaskClass, CancellationToken, ChannelError, Impact, Reason, Stage},
     AcceptedCaller,
@@ -11,6 +16,8 @@ pub struct ScopedH2Stream {
     pending: Bytes,
     ended: bool,
     cancel: CancellationToken,
+    progress: Arc<Progress>,
+    target: Option<u64>,
 }
 impl Drop for ScopedH2Stream {
     fn drop(&mut self) {
@@ -25,9 +32,13 @@ pub async fn accept_h2_scoped<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let mut conn = h2::server::handshake(stream)
-        .await
-        .map_err(io::Error::other)?;
+    let progress = Arc::new(Progress::default());
+    let io = super::owned::FlushIo {
+        io: stream,
+        flush: crate::native_flush::NativeFlush::new(progress.flushed.clone()),
+        read: None,
+    };
+    let mut conn = h2::server::handshake(io).await.map_err(io::Error::other)?;
     let (request, mut respond) = conn
         .accept()
         .await
@@ -62,22 +73,44 @@ where
     let send = respond
         .send_response(response, false)
         .map_err(io::Error::other)?;
+    // Replace the handshake task's stored connection wake before the stream
+    // can enqueue DATA inside the gate. This is one synchronous continuation
+    // of the original accepted handshake, not another connection/task.
+    {
+        let wake = waker_ref(&progress.driver);
+        let mut context = Context::from_waker(&wake);
+        let _gate = progress.lock();
+        if let Poll::Ready(result) = conn.poll_closed(&mut context) {
+            result.map_err(io::Error::other)?;
+            return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into());
+        }
+    }
     let cancel = CancellationToken::new();
     let stopping = cancel.clone();
+    let actual = progress.clone();
     caller
         .spawn(TaskClass::Auxiliary, move |_| async move {
+            let _ended = progress::Ended(actual.clone());
             loop {
                 let next = tokio::select! { biased;
                     _=stopping.cancelled()=>return Ok(()),
-                    next=conn.accept()=>next,
+                    next=std::future::poll_fn(|cx| {
+                        actual.driver.register(cx.waker());
+                        let wake = waker_ref(&actual.driver);
+                        let mut context = Context::from_waker(&wake);
+                        let _gate = actual.lock();
+                        conn.poll_accept(&mut context)
+                    })=>next,
                 };
                 match next {
                     None => return Ok(()),
                     Some(Err(error)) => {
+                        let source = Arc::new(io::Error::other(error));
+                        *actual.failure.lock().unwrap() = Some(source.clone());
                         return Err(
                             ChannelError::new(Stage::Receive, Reason::Io, Impact::Session)
-                                .with_source(error),
-                        )
+                                .with_source(super::owned::retained(&source)),
+                        );
                     }
                     Some(Ok((_, mut respond))) => {
                         // Existing H2 carrier admits one application stream per
@@ -86,6 +119,7 @@ where
                             .status(http::StatusCode::SERVICE_UNAVAILABLE)
                             .body(())
                             .unwrap();
+                        let _gate = actual.lock();
                         let _ = respond.send_response(response, true);
                     }
                 }
@@ -98,6 +132,8 @@ where
         pending: Bytes::new(),
         ended: false,
         cancel,
+        progress,
+        target: None,
     })
 }
 impl AsyncRead for ScopedH2Stream {
@@ -107,6 +143,12 @@ impl AsyncRead for ScopedH2Stream {
         out: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
+        let progress = this.progress.clone();
+        progress.reader.register(cx.waker());
+        let _gate = progress.lock();
+        let wake = waker_ref(&progress.reader);
+        let mut context = Context::from_waker(&wake);
+        let cx = &mut context;
         if out.remaining() == 0 {
             return Poll::Ready(Ok(()));
         }
@@ -128,51 +170,6 @@ impl AsyncRead for ScopedH2Stream {
         }
         cx.waker().wake_by_ref();
         Poll::Pending
-    }
-}
-impl AsyncWrite for ScopedH2Stream {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        bytes: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        let this = self.get_mut();
-        if this.ended {
-            return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
-        }
-        if bytes.is_empty() {
-            return Poll::Ready(Ok(0));
-        }
-        // At most one DATA frame is copied, and only after H2 grants capacity.
-        let count = bytes.len().min(16 * 1024);
-        this.send.reserve_capacity(count);
-        let available = std::task::ready!(this.send.poll_capacity(cx))
-            .ok_or_else(|| io::Error::from(io::ErrorKind::BrokenPipe))?
-            .map_err(io::Error::other)?;
-        if available == 0 {
-            cx.waker().wake_by_ref();
-            return Poll::Pending;
-        }
-        let n = count.min(available);
-        this.send
-            .send_data(Bytes::copy_from_slice(&bytes[..n]), false)
-            .map_err(io::Error::other)?;
-        Poll::Ready(Ok(n))
-    }
-    fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-        // DATA was handed to this same H2 connection under its flow-control
-        // credit. There is no independent application write queue to drain.
-        Poll::Ready(Ok(()))
-    }
-    fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-        let this = self.get_mut();
-        if !this.ended {
-            this.send
-                .send_data(Bytes::new(), true)
-                .map_err(io::Error::other)?;
-            this.ended = true;
-        }
-        Poll::Ready(Ok(()))
     }
 }
 impl AsyncSocket for ScopedH2Stream {

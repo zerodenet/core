@@ -46,6 +46,31 @@ pub fn prepare<S>(stream: S, host: String, plan: Plan) -> Option<PreparedNavigat
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    prepare_inner(stream, host, plan, None)
+}
+/// Same original navigation with this actual Host's noncached job/request grant.
+/// Preparation stores IO without driving it. The original owner seals/registers
+/// this job after setup returns; this function creates no task or native grant.
+pub fn prepare_owned<S>(
+    stream: S,
+    host: String,
+    plan: Plan,
+    grant: zero_platform_tokio::controlled_carrier::CarrierPreparationJob,
+) -> Option<PreparedNavigation>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    prepare_inner(stream, host, plan, Some(grant))
+}
+fn prepare_inner<S>(
+    stream: S,
+    host: String,
+    plan: Plan,
+    grant: Option<zero_platform_tokio::controlled_carrier::CarrierPreparationJob>,
+) -> Option<PreparedNavigation>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     if plan
         .ranges
         .iter()
@@ -72,7 +97,7 @@ where
                 .map_err(io::Error::other)?;
             tokio::pin!(connection);
             let navigation = async {
-                crawl(sender, host, plan).await?;
+                crawl(sender, host, plan, grant).await?;
                 // Preserve the camouflage connection until peer close or its
                 // owning deadline, rather than closing when the caller fails.
                 std::future::pending::<io::Result<()>>().await
@@ -114,7 +139,12 @@ where
 #[path = "../tests/http_navigation/mod.rs"]
 mod tests;
 
-async fn crawl(sender: h2::client::SendRequest<Bytes>, host: String, plan: Plan) -> io::Result<()> {
+async fn crawl(
+    sender: h2::client::SendRequest<Bytes>,
+    host: String,
+    plan: Plan,
+    grant: Option<zero_platform_tokio::controlled_carrier::CarrierPreparationJob>,
+) -> io::Result<()> {
     let paths = paths::for_host(&host, &plan.path);
     let first = paths.lock().await.choose();
     let origin = format!("https://{host}");
@@ -125,17 +155,19 @@ async fn crawl(sender: h2::client::SendRequest<Bytes>, host: String, plan: Plan)
         None,
         plan.ranges[0],
         &paths,
+        grant.as_ref(),
     )
     .await?;
     // These are child futures of this single owned job, never detached tasks.
     let mut jobs = FuturesUnordered::new();
     for _ in 0..sample(plan.ranges[1]) {
-        let (sender, origin, paths, plan, first) = (
+        let (sender, origin, paths, plan, first, grant) = (
             sender.clone(),
             origin.clone(),
             paths.clone(),
             plan.clone(),
             first.clone(),
+            grant.clone(),
         );
         jobs.push(async move {
             let mut referer = first;
@@ -148,6 +180,7 @@ async fn crawl(sender: h2::client::SendRequest<Bytes>, host: String, plan: Plan)
                     Some(&referer),
                     plan.ranges[0],
                     &paths,
+                    grant.as_ref(),
                 )
                 .await?;
                 referer = path;
@@ -169,7 +202,14 @@ async fn get(
     referer: Option<&str>,
     padding: (u32, u32),
     paths: &Arc<Mutex<paths::Paths>>,
+    grant: Option<&zero_platform_tokio::controlled_carrier::CarrierPreparationJob>,
 ) -> io::Result<()> {
+    // The Root ticket covers this actual request and its complete body future,
+    // including cancellation/error. It never refunds the physical original.
+    let _root_request = match grant {
+        Some(grant) => Some(grant.request().await.map_err(io::Error::other)?),
+        None => None,
+    };
     static REQUESTS: OnceLock<Arc<Semaphore>> = OnceLock::new();
     let _permit = REQUESTS
         .get_or_init(|| Arc::new(Semaphore::new(32)))
@@ -202,11 +242,20 @@ async fn get(
         .map_err(io::Error::other)?;
     let response = response.await.map_err(io::Error::other)?;
     let mut body = response.into_body();
+    let body_limit = _root_request
+        .as_ref()
+        .map_or(4 * 1024 * 1024, |request| request.body_payload_limit());
     let mut data = Vec::new();
     while let Some(chunk) = body.data().await {
         let chunk = chunk.map_err(io::Error::other)?;
-        if data.len().saturating_add(chunk.len()) > 4 * 1024 * 1024 {
+        if data.len().saturating_add(chunk.len()) > body_limit {
             return Err(io::Error::other("navigation response exceeds byte budget"));
+        }
+        // Do not let geometric Vec growth silently exceed the granted hard
+        // body allowance. Allocate only the checked next length, before copy.
+        if data.capacity() < data.len() + chunk.len() {
+            data.try_reserve_exact(chunk.len())
+                .map_err(io::Error::other)?;
         }
         data.extend_from_slice(&chunk);
         body.flow_control()

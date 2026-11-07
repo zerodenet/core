@@ -14,6 +14,7 @@ pub(super) struct Shared {
     pub(super) limit: NonZeroUsize,
     pub(super) cancel: CancellationToken,
     pub(super) state: Mutex<State>,
+    pub(super) totals: std::sync::OnceLock<Arc<super::CarrierOriginalTotals>>,
     pub(super) completion: Arc<super::registration::Completion>,
 }
 #[derive(Default)]
@@ -46,6 +47,7 @@ impl CarrierOwner {
             limit,
             cancel: parent.child_token(),
             state: Mutex::new(State::default()),
+            totals: Default::default(),
             completion: Arc::new(super::registration::Completion::default()),
         }))
     }
@@ -143,6 +145,11 @@ impl ResourceLifecycle for CarrierOwner {
         }
         let mut report = std::mem::take(&mut self.0.state().confirmed);
         report.append(unfinished);
+        if report.is_complete() && !self.0.state().slots.is_empty() {
+            report.unfinished.push(Unfinished::Resource(
+                "original carrier registration credit remains retained".into(),
+            ));
+        }
         if report.is_complete() {
             // Revoke preceded the exact original-slot close loop. No new
             // reservation can race this generation's explicit confirmation.
@@ -152,4 +159,6 @@ impl ResourceLifecycle for CarrierOwner {
     }
 }
 mod close;
+mod ready;
 pub(super) use close::{close_native_slot, close_slot};
+pub(super) use ready::{try_close_native_slot, try_close_slot};

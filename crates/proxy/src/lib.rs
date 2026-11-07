@@ -14,7 +14,10 @@ mod validation;
 
 pub use inbound::{TunInterfaceOptions, TunRuntimeOptions};
 pub use inventory::ProtocolInventory;
-pub use runtime::{ConfigApplyReconciler, ConfigReconcileResult, Proxy, ProxyHandle, RunningProxy};
+pub use runtime::{
+    ConfigApplyReconciler, ConfigReconcileResult, Proxy, ProxyCapabilitiesQuery, ProxyControlQuery,
+    ProxyHandle, ProxyHealthQuery, ProxyPreparation, RunningProxy,
+};
 pub use validation::{validate_config, validate_prepared_configuration};
 
 pub fn compiled_protocol_features() -> Vec<String> {

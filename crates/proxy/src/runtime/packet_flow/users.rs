@@ -1,5 +1,7 @@
 //! Same-endpoint transferred views and original caller joins are separate facts.
 mod caller;
+mod receiver;
+pub(crate) use receiver::FlowReceiverBinding;
 mod stream;
 pub(super) use caller::FlowCaller;
 use std::{
@@ -36,11 +38,27 @@ struct Record {
     // original task was really joined. Stream Drop alone does not refund it.
     _slot: LogicalUserPermit<Admission>,
     caller: Option<TaskJoinWitness>,
+    packet_closed: Option<Arc<std::sync::atomic::AtomicBool>>,
     released: std::sync::atomic::AtomicBool,
+    receiver:
+        std::sync::OnceLock<zero_platform_tokio::controlled_carrier::loan::CarrierLoanReceiver>,
 }
 pub(crate) struct FlowUser {
     owner: Arc<FlowUsers>,
     record: Arc<Record>,
+}
+/// Only the concrete taskless Packet controller can confirm its own logical
+/// closure. This never reports the shared source main joined or native closed.
+pub(crate) struct PacketSourceClose {
+    owner: Arc<FlowUsers>,
+    closed: Arc<std::sync::atomic::AtomicBool>,
+}
+impl PacketSourceClose {
+    pub(crate) fn close(&self) {
+        self.closed
+            .store(true, std::sync::atomic::Ordering::Release);
+        self.owner.changed.notify_waiters();
+    }
 }
 struct Admission(CancellationToken);
 impl UserAdmission for Admission {
@@ -53,6 +71,13 @@ impl UserAdmission for Admission {
     }
 }
 impl FlowUsers {
+    /// Reap only matching actual caller joins AND returned unique views.
+    pub(crate) fn quiescent(&self) -> bool {
+        self.reap();
+        let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        state.records.is_empty() && !state.unaccounted && state.first.is_none()
+    }
+
     pub(crate) fn new(limit: NonZeroUsize) -> Arc<Self> {
         let cancel = CancellationToken::new();
         Arc::new(Self {
@@ -61,9 +86,47 @@ impl FlowUsers {
             changed: Notify::new(),
         })
     }
+    /// Same existing users ledger and original caller. No task/native owner or
+    /// second user table is created by this internal standard-role projection.
+    pub(crate) fn acquire_from_witness(
+        self: &Arc<Self>,
+        witness: TaskJoinWitness,
+    ) -> Result<FlowUser, ChannelError> {
+        if witness.is_joined() || !witness.scope_identity().resource_open() {
+            return Err(revoked());
+        }
+        self.acquire(Some(FlowCaller { witness }))
+    }
+    /// Actual Source main is admission provenance, not an internal driver of
+    /// each logical Packet view. Its original host owns whole-source shutdown.
+    pub(crate) fn acquire_packet_source(
+        self: &Arc<Self>,
+        witness: TaskJoinWitness,
+    ) -> Result<(FlowUser, PacketSourceClose), ChannelError> {
+        if witness.is_joined() || !witness.scope_identity().resource_open() {
+            return Err(revoked());
+        }
+        let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let user =
+            self.acquire_with_completion(Some(FlowCaller { witness }), Some(closed.clone()))?;
+        Ok((
+            user,
+            PacketSourceClose {
+                owner: self.clone(),
+                closed,
+            },
+        ))
+    }
     pub(super) fn acquire(
         self: &Arc<Self>,
         caller: Option<FlowCaller>,
+    ) -> Result<FlowUser, ChannelError> {
+        self.acquire_with_completion(caller, None)
+    }
+    fn acquire_with_completion(
+        self: &Arc<Self>,
+        caller: Option<FlowCaller>,
+        packet_closed: Option<Arc<std::sync::atomic::AtomicBool>>,
     ) -> Result<FlowUser, ChannelError> {
         self.reap();
         let first = self
@@ -80,7 +143,9 @@ impl FlowUsers {
         let record = Arc::new(Record {
             _slot: slot,
             caller: caller.map(|caller| caller.witness),
+            packet_closed,
             released: std::sync::atomic::AtomicBool::new(false),
+            receiver: std::sync::OnceLock::new(),
         });
         {
             let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
@@ -135,19 +200,25 @@ impl FlowUsers {
             .into_iter()
             .filter(|record| {
                 record.released.load(std::sync::atomic::Ordering::Acquire)
-                    && record
-                        .caller
-                        .as_ref()
-                        .is_some_and(TaskJoinWitness::is_joined)
+                    && match &record.packet_closed {
+                        Some(closed) => closed.load(std::sync::atomic::Ordering::Acquire),
+                        None => record
+                            .caller
+                            .as_ref()
+                            .is_some_and(TaskJoinWitness::is_joined),
+                    }
             })
             .collect();
-        let first = completed.iter().find_map(|record| {
-            record
-                .caller
-                .as_ref()
-                .and_then(TaskJoinWitness::try_joined)
-                .and_then(|joined| joined.result().err())
-        });
+        let first = completed
+            .iter()
+            .filter(|record| record.packet_closed.is_none())
+            .find_map(|record| {
+                record
+                    .caller
+                    .as_ref()
+                    .and_then(TaskJoinWitness::try_joined)
+                    .and_then(|joined| joined.result().err())
+            });
         let completed: std::collections::HashSet<_> = completed
             .iter()
             .map(|record| Arc::as_ptr(record) as usize)
@@ -172,13 +243,6 @@ impl FlowUsers {
     }
     /// Only logical view release and original caller joins. No native/socket,
     /// worker-scope ACK, recovery or replacement authorization is issued here.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
-        )
-    )]
     pub(crate) async fn shutdown(&self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.revoke();
         loop {
@@ -209,13 +273,16 @@ impl FlowUsers {
             }
             // Join observation neither consumes the ingress Scope receipt nor
             // ACKs its failure. That source remains owned by the actual host.
-            let caller = records.iter().find_map(|record| {
-                record
-                    .caller
-                    .as_ref()
-                    .filter(|witness| !witness.is_joined())
-                    .cloned()
-            });
+            let caller = records
+                .iter()
+                .filter(|record| record.packet_closed.is_none())
+                .find_map(|record| {
+                    record
+                        .caller
+                        .as_ref()
+                        .filter(|witness| !witness.is_joined())
+                        .cloned()
+                });
             timeout_at(deadline, async {
                 match caller {
                     Some(caller) => {

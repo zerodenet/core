@@ -4,6 +4,7 @@ use super::*;
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::Notify;
+mod census;
 mod datagram;
 mod packet;
 mod stream;
@@ -12,13 +13,40 @@ pub(in crate::component) struct Users {
     component: ComponentId,
     enabled: OnceLock<bool>,
     active: AtomicUsize,
+    admission_paused: std::sync::Mutex<census::Admission>,
     cancel: CancellationToken,
     changed: Notify,
+}
+/// A reversible admission barrier; it is never evidence of original closure.
+pub(in crate::component) struct PausedUsers {
+    owner: Arc<Users>,
+    _receivers: Vec<zero_platform_tokio::controlled_carrier::CarrierAdoption>,
+}
+impl PausedUsers {
+    pub(in crate::component) fn receivers(
+        &self,
+    ) -> &[zero_platform_tokio::controlled_carrier::CarrierAdoption] {
+        &self._receivers
+    }
+}
+impl Drop for PausedUsers {
+    fn drop(&mut self) {
+        let mut paused = self
+            .owner
+            .admission_paused
+            .lock()
+            .expect("user admission poisoned");
+        paused.paused = paused
+            .paused
+            .checked_sub(1)
+            .expect("one actual pause credit per guard");
+    }
 }
 pub(in crate::component) struct Lease {
     owners: Vec<Arc<Users>>,
     component: ComponentId,
     session: Option<zero_core::component::SessionId>,
+    receiver: OnceLock<zero_platform_tokio::controlled_carrier::loan::CarrierLoanReceiver>,
 }
 impl Drop for Lease {
     fn drop(&mut self) {
@@ -35,6 +63,7 @@ impl Users {
             component,
             enabled: OnceLock::new(),
             active: AtomicUsize::new(0),
+            admission_paused: Default::default(),
             cancel: CancellationToken::new(),
             changed: Notify::new(),
         }
@@ -54,6 +83,16 @@ impl Users {
         }
     }
     fn acquire(&self) -> Result<(), ChannelError> {
+        let paused = self
+            .admission_paused
+            .lock()
+            .expect("user admission poisoned");
+        if paused.paused != 0 {
+            return Err(invalid(
+                Reason::StalePlan,
+                "component users paused for replacement",
+            ));
+        }
         let mut count = self.active.load(Ordering::Acquire);
         loop {
             let next = count
@@ -69,6 +108,10 @@ impl Users {
                 Err(current) => count = current,
             }
         }
+    }
+    #[cfg(test)]
+    pub(in crate::component) fn try_pause(self: &Arc<Self>) -> Result<PausedUsers, ChannelError> {
+        self.try_pause_receivers(|_| None)
     }
     #[cfg(test)]
     fn enter(
@@ -113,6 +156,7 @@ impl Lease {
             owners: Vec::with_capacity(roots.len()),
             component,
             session,
+            receiver: OnceLock::new(),
         };
         for root in roots {
             root.acquire()?;
@@ -125,7 +169,25 @@ impl Lease {
                 return Err(error);
             }
         }
-        Ok(Some(Arc::new(lease)))
+        let lease = Arc::new(lease);
+        for root in &lease.owners {
+            let mut admission = root
+                .admission_paused
+                .lock()
+                .expect("user admission poisoned");
+            admission
+                .leases
+                .retain(|previous| previous.strong_count() != 0);
+            admission.leases.try_reserve(1).map_err(|source| {
+                invalid(
+                    Reason::Capacity,
+                    "actual user lease census allocation failed",
+                )
+                .with_source(source)
+            })?;
+            admission.leases.push(Arc::downgrade(&lease));
+        }
+        Ok(Some(lease))
     }
     fn is_revoked(&self) -> bool {
         self.owners.iter().any(|owner| owner.cancel.is_cancelled())

@@ -1,7 +1,50 @@
 # 控制面兼容性与破坏性变更
 
 
+第二轮控制预算续作保持V1控制信封、事件、命令超时、ACK/revision和CLI/FFI；新增可选
+control消息字段省略不导出。IPC/HTTP/SSE/gRPC消费者与原Connection、Scope和序列化输出
+原件接线仍在开发；新字段和局部测试不表示职责域关闭。详情见
+[控制原请求预算续作](../design/v0.0.3/compatibility.md#控制原请求与序列化输出预算续作)。
+
+Packet route 控制查询改为同原表冻结编码，V1形状/分页/错误不变；新增可选
+`runtime.packet_route_max_routes`（默认4096，省略不导出），低于未归还原件用量时
+拒绝配置替换，不驱逐活跃业务。Rust 完整 RuntimeOptionsConfig 字面量需增加 Option
+字段，Default 构造不变。见[原表与额度续作](../design/v0.0.3/compatibility.md#packet-route-原表查询与生产登记额度续作)。
+当前仍为开发中实现，尚未取得最终候选资格。
+
 本文记录会影响 GUI、SDK、面板、事件 Sink 或进程内 Rust 集成的控制面语义变化。公开接口与事件说明由 [ZeroDeNet 文档仓库](https://github.com/zerodenet/docs)维护；本文只维护 Core 的版本边界和迁移要求。
+
+第二轮续作的内部 Rust 错误转发须保留 `ChannelError` 可选的结构化 cleanup receipt；
+同 payload 的显式交接不替代 native/view/Scope/用户关闭。实际 Registrar 的 Scope 退休
+观察和同 ConfigurationSource 的 quota 检查入口见
+[续作兼容说明](../design/v0.0.3/compatibility.md#同原件故障交接与控制-scope-续作)。
+Application 状态采样改由原 TaskScope 监督并等待真实 join，正常配置替换继续监督下一
+实例。保留 V1 配置/API/events、CLI/FFI、ACK/revision 与计量语义，不需要消费者改动。
+当前仍为开发中续作，历史局部限制/资格不代表当前完整迁移或最终候选已完成。
+
+第二轮完整调用者续作新增两个可选的 Engine 统计字节预算：
+`runtime.event_log_stats_max_bytes`（默认 8 MiB）及
+`runtime.event_subscriber_stats_max_bytes`（每订阅默认 1 MiB），范围均为 1..=256 MiB，
+省略不导出。按原实际账本检查缩额，低于 held 用量保留旧配置/revision/事件并返回 Busy；
+控制 ACK、V1 信封和流量结算保持。TUN 初启/换代/恢复的内部 Rust 调用者接续同一
+Catalog 停旧、额度安装及真实网络代次后的 cold refresh；取消不丢原件责任。
+独立 inspect 与 quota 最终 worker 继续归原 ConfigurationSource。具体 Rust 接线见
+[当前调用者边界](../design/v0.0.3/compatibility.md#第二轮完整调用者续作的当前-rust-边界)。
+当前 Direct Packet/TUN 已有普通装配接线，完整 TX、其余调用者/旧链删除与全部预算仍在
+实现；下文先前“gate 未开启”等阶段性说明不作为当前状态。未取得统一最终候选资格，
+不要求客户端/面板修改，不改变 TEMP 的原有范围。
+
+进程内 Rust 的 Packet 缓冲现保留 `PacketBuffer` 原件，`PacketRequest` 需显式提供
+实际返回 codec 布局，工作区声明增加原控制缓冲。新增 Source/Metadata/QUIC runtime
+预算保留省略导出和协议原默认；V1 消费者无需修改。具体 Rust 接线与开发中资格边界见
+[同原件 Packet 内存与 Source 生产预算](../design/v0.0.3/compatibility.md#同原件-packet-内存与-source-生产预算续作)。
+
+Windows Pipe 原件工作区新增可选生产总字节额度
+`runtime.control_pipe_max_workspace_bytes`（默认2MiB，省略不导出），由既有
+ControlBudget按实际provider预付并保留到原件/任务/Host ACK确认。
+进程内Rust `ControlBudgetLimits/Usage` 新增 `pipe_workspace_bytes` 字段和对应charge；
+V1/API/events、CLI/FFI与消费者无需改动。具体计额及尚待资格边界见
+[控制原件工作区](../design/v0.0.3/compatibility.md#同一控制原件的-pipe-工作区额度续作)。
 
 ## 消费者如何判断兼容性
 
@@ -48,6 +91,20 @@ VLESS 入站仅登记实际标准 ComponentFactory/InboundSource，删除 adapte
 
 第二轮云端候选增加按实际 owner 消费的可选 DNS/Mieru/HY2/native-stream/VMess-gRPC/control 预算及 Direct Packet `write_queue`，旧省略字段导出形状保持。容量不足拒绝新增或对已有订阅背压，不驱逐活跃业务或有效 replay。内部 Rust 的原件观察、device cold/recovery/publication、同源 quota/TLS 和有限 FIFO 接口变化见 [兼容记录](../design/v0.0.3/compatibility.md#第二轮云端-rust-接口与可选预算迁移)。这不是完整架构、全部出站/Packet/process、跨平台或 GUI/面板资格通过的声明；未完成实现和 TEMP 债务仍单列。统计 sampler 已改用实际 blocking Scope join；endpoint 最终提交同时收尾 DNS token 并观察实际发布设备。对尚无原件关闭证明的 VMess gRPC/Mieru 跨执行方式切换，候选在源修改/停旧前拒绝并保留当前 revision 与旧 TCP；这是未完成迁移的明确限制。ControlledPacketDevice/owned PacketTx 是基础接口，普通 Direct Packet/TUN 生产 gate 未开启。
 
+Linux 进程原件续作增加内核 Rust 的 cold owned-process grant，保留实际 actor Scope 与原生进程树/描述符关闭分证据；公开 wire 与消费者无需改变。此时 SIP 生产消费、总体预算与其他平台仍有实现，接口出现和底层通过不代表完整迁移。详见上述兼容记录。
+
+后续续作增加 Windows Job 原件、同 job 的真实端点预留/消费授权与可选 process job 预算，
+以及 Packet 的实际 MTU、预付读取与原存储派生契约。H2 客户端原入口改为同调用者推进
+原连接。省略配置字段及 V1/API/events/CLI/FFI 不变；内核 Rust 构造者和自定义 storage
+的适配要求见兼容记录。真实 Windows/macOS、SIP、WG/TUN、剩余出站与全域预算仍逐项
+收尾，不能据此视作完整候选、客户端同产物或跨平台资格。
+
+原 Packet Source 的异步获取、唯一读任务 checkpoint 和按需同 Slot 进程初始化要求
+内核 Rust 构造者使用实际 Scope/native binding，并给出原协议启动期限。新增 SS UDP
+响应票据的每 Flow/总体可选字段省略不导出，普通生产消费尚在整轮组合。具体 API 和预算
+口径见上述兼容记录；本次没有改变 V1 wire、ACK/revision、事件、CLI 或 FFI，未取得
+完整候选或客户端同产物资格。
+
 ## 版本矩阵
 
 | 版本 | 影响面 | 迁移结论 |
@@ -73,6 +130,36 @@ VLESS 入站仅登记实际标准 ComponentFactory/InboundSource，删除 adapte
 
 ## Unreleased
 
+### 控制 Health 与 Capabilities 的原件投影
+
+HTTP、IPC 和 gRPC 从同一 Proxy/Engine/设备/协议登记读取 Health 与 Capabilities，
+先由原响应账预付必要标量、descriptor 和排序行存储，再编码原 V1 形状。
+build-feature、配置标签及协议静态能力事实保持借用；不另建查询执行器或资源池。
+已有 owned QueryService/TrafficStatisticsCapability API 继续承担独立 Rust 调用者职责；
+新增借用投影及其纯事实构造不改变配置/API/events、CLI、FFI 或面板消费者。
+对应回归位于 Proxy control_query/tests 和 gRPC messages/proxy_query/tests.rs。
+
+### 同一原件清理故障与实际退休
+
+内部 Rust `CloseReport` 增加 `resource_failures`；完整 struct literal 需提供该字段或使用
+`..Default::default()`。实际组件的协议控制器、声明资源控制器故障以真实 instance 和
+controller phase 进入既有 Plan 归档，不再伪装为任务失败。TaskId 和 TaskFailure 语义保持。
+故障接收与原件、逻辑用户、Scope join/Host ACK 是独立事实；缺少匹配关闭凭据继续阻止
+替换。同一原件晚清理完成后可以推进退休，原始故障仍交给原 supervisor，不因恢复删除。
+对应回归位于 `crates/runtime/src/component/tests/replacement/resource_fault.rs`。
+V1 配置/API/events、CLI、FFI 及面板 wire 形状保持，无需消费者迁移。
+
+### 第二轮内部 Datagram 原件转交续作
+
+进程内 Rust `ResourceDeclaration` 新增借入专用 `ControlledServiceDatagram`；穷举实现需
+处理新变体。`LoanDatagramIo::association()/wire_association()` 区分实际逻辑调用者与
+原 Tx/Rx 绑定，`into_session` 的真实 codec 须使用原 wire ID；SS 借入 consumer 已配对。
+`BorrowedPacketSegment` 使用同 Factory Scope 的真实 driver 和既有队列，关闭须分别
+确认原件、join 和 Host ACK。现 QUIC 完整生产 consumer 仍在实现，尚非最终资格。
+具体调用者与 Rust 适配见[同原 Datagram 转交](../design/v0.0.3/compatibility.md#同一-datagramloan-的实际-wire-与逻辑-association-续作)。
+V1/API/events、CLI/FFI 和客户端面板保持兼容，无需消费者迁移。
+
+
 ### v0.0.3 云端配置资源与 Hysteria2 出站
 
 Config 的运行资源编译迁入 `zero-runtime::configuration`。Rust 嵌入者应消费准备值；Engine 保留领域快照/策略/revision 与原有公开入口，资源持久化和恢复委托同一个 ConfigurationSource。Proxy 的跨组件提交仍使用唯一 RuntimeHost 的 ApplyOwner，已受理操作由宿主持有到最终 ACK；应用 reconciler 必须确认失败候选真实退休后才恢复。Engine-only/FFI 不扩大为网络宿主。
@@ -84,6 +171,19 @@ Rust `RuntimeConfig::load_from_path` 的文档 I/O 入口删除，嵌入调用�
 Root Hysteria2 出站统一到协议拥有的同一真实认证池和标准角色；删除私有 TCP/UDP 桥及最后无调用者的 SessionTcpHandshake/SessionTcpConnectOperation。保留协议库公开 standalone convenience 范围，不作为 root 回退。CA 材料在同一启动准备中读取，旧配方恢复使用已准备的原 crypto；原始用户归还、TaskScope join 和 native close 独立确认。
 
 没有改变 V1 配置/API/events、CLI、FFI ABI 或协议基线，也没有增加协议组合。GUI/面板、特权 TUN、其他平台及 1 CPU/1 GiB 仍待最终候选真实验收；TEMP-WG-OUTER-UDP-01 保留未关闭。
+
+运行配置增加可选的 `runtime.event_network_max_tasks`、`event_network_max_originals`、
+`event_network_max_lookups`，默认分别为 1024、256、256，范围 1..4096；
+省略时导出仍省略。实际应用网络 Epoch 使用这些限制，并与同一个 RuntimeHost 的
+Carrier 总原件额度共同约束；不是第二个连接池。初始规则下载持有的
+`ProxyPreparation` 在原网络、缓存原件及 Scope 清理确认后移交 `Proxy::from_preparation`，
+继续使用同一个 Host。Rust 嵌入者使用应用网络构造器时须提供该 Host 真实签发的
+component identity 与实际 root；不能自行拼装 ID 或建立替代 Host。
+
+进程查找不再暴露无 owner 的执行入口；实际 lookup 在原 caller Scope 内登记阻塞
+worker，持有平台原始 File/DIR/HANDLE 和同 Host 原件额度，原生关闭、worker join 与
+Host ACK 分别确认。Logical Packet 注册只观察真实软件 driver 和同 Scope 的计额责任，
+不会签发物理设备或 outer carrier 的 native-close 凭据；唯一 TEMP 债务不因此关闭。
 
 ### HTTP 标准监听与原始连接所有权
 
@@ -720,3 +820,89 @@ IPC、HTTP SSE 和 gRPC 的 wire 格式保持 `zero.api.v1` / `zero.event.v1`，
 开发期间只在版本矩阵和 `## Unreleased` 下登记，不预判最终发布版本，也不写入 Cargo 的 `-dev.N` 构建号。完整测试通过后，由 `Prepare Release` 工作流或 `scripts/release.sh` 将矩阵行、章节标题和 workspace 版本一起封板；禁止手工分别修改这些位置。
 
 Startup, supervision, reload and transaction-drain futures separate their heap-owned phases to fit the native Windows main stack. A one-MiB-thread regression reaches actual Ready and confirms shutdown; no larger process stack is required by the execution path.
+
+
+第二轮云端续作新增内部 Rust `ProbeCall`/`RuntimeHost::run_probe`、Direct Service 原件票据及
+同 supervisor 的已取消原 carrier 清理轮询。嵌入使用者应驱动实际 host 生命周期，不能把
+Service facts、body 完成或 Drop 当成原件关闭。System TUN ordinary Source、可选实际 owner
+预算和不可变授予 CA 的 TLS backend 接线正在组合；省略字段导出、V1 配置/API/events、CLI、
+FFI 和客户端面板工作流保持原契约，最终资格尚未取得。TEMP-WG-OUTER-UDP-01 未关闭，
+没有扩大其 outer_udp_proxy/reconnect 边界。未发布或部署。
+
+- Round2 Rust integration: Scope panic sources now retain the exact `Arc<tokio::task::JoinError>` through `TaskJoinError`; its `Error::source` exposes the original join error. Internal consumers that directly downcast the immediate source must follow this wrapper. This does not change V1 command/config/event or wire fields. Command cleanup, caller ACK and byte custody are separate; supplied control-book owners retire the shared command Scope after their actual frontends join.
+
+
+### Engine event subscriber custody and limits
+
+The existing Engine subscriber registry now owns one original filter, exact logical
+registration, physical queue workspace and retained queued-event reservations.
+Dropping a receiver removes that registration without requiring another published
+event. Taking a retained event out of its queue does not return its pending-count
+or statistics-byte allowance; `into_shared` transfers the same immutable original
+after its next owner has prepaid custody. This is logical event custody, never an
+I/O close or TaskScope completion receipt.
+
+Six optional runtime fields preserve omitted export shape:
+
+| Field | Default | Range | Unit |
+| --- | ---: | ---: | --- |
+| `event_subscriber_max_pending_events` | 1024 | 1–1024 | queued/dequeued retained events per original subscriber |
+| `event_subscriber_total_max_pending_events` | 65536 | 1–1048576 | retained queued events across that Engine |
+| `event_subscriber_max_registrations` | 4096 | 1–65536 | active/pending/retiring original subscriber books |
+| `event_subscriber_total_stats_max_bytes` | 64 MiB | 1–256 MiB | existing serialized statistics payload allowance, overall |
+| `event_subscriber_max_filter_bytes` | 64 KiB | 1–1 MiB | actual original filter Vec/String capacities |
+| `event_subscriber_total_max_storage_bytes` | 8 MiB | 1–256 MiB | queue arrays, filter/book/registry storage and genuine owned initial envelope/workspace |
+
+The existing per-subscriber statistics default remains 1 MiB. The std channel
+retains its original 1024 physical slots, allocated only when that actual
+subscriber is created; logical pending limits can grow on the same queue.
+Registration/queue maxima are independent admission dimensions, not upfront
+allocation counts. New overall defaults are kernel policy, not upstream defaults
+or RSS limits. Fixed opaque std synchronization metadata is bounded by actual
+registration count; the byte ledger measures its declared payload/storage envelope.
+
+A genuine owned initial snapshot keeps its independent same-Engine storage
+reservation through retained delivery and does not consume an old queued-event
+slot. Production HTTP/IPC/gRPC and Connector continue their existing direct live
+subscription/borrowed initial encoding paths. Budget refusal returns the existing
+API error envelope/status, never a false subscription acknowledgement or fallback
+subscription. `EngineHandle::subscribe_control_live` now returns `ApiResult`;
+embedded Rust callers must handle admission failure. Existing EventSource wire
+shapes remain unchanged.
+
+Cold construction, pure candidate validation and final configuration publication
+consume these same books. Shrink is Busy while actual retained originals exceed
+the target; growth preserves the original channel/filter/event identities. Dead
+weak registration/vector allocation remains charged until actually destroyed or
+compacted. No live event, statistics history or filter is evicted to fit a limit.
+
+
+### Resourceful command diagnostics execute their original asynchronous work
+
+Acknowledged DNS lookup, route trace and fixed-target probe commands now await
+their original boxed asynchronous producer directly. The already asynchronous
+outbound-probe command uses that same path. They no longer occupy a blocking
+parent thread while waiting for a child lookup/material operation in the same
+blocking pool. Existing synchronous CommandService entry points still use the
+caller's existing Tokio runtime; no second runtime, pool or resolver is created.
+Fixed-target probing remains TCP connect-only with its original two-second limit,
+endpoint selection and egress. Command and response wire shapes are unchanged.
+
+CURRENT frontend work is strongly installed in its existing Host command row
+before the first await. The original caller and existing receipt monitor retain
+that exact work and cleanup continuation; no frontend execution task is added.
+NoCURRENT uses the existing finite command Scope's actual Auxiliary work and
+Critical cleanup registrations, retaining its one PendingCommand permission
+through actual joins and registration ACK. It does not create a blocking Tokio
+outcome for an asynchronous task. Original query/native/User receipts remain
+separate from command/task completion.
+
+A frontend's precise observing producer is handed off only after its actual
+registration, command custody and work continuation are installed. A separately
+captured producer remains a wait gate; merely holding a public observation or
+counter cannot issue that handoff. This removes complete->wait_joined waiting on
+its own outer reply observer. An async continuation panic retains its real opaque
+payload in AsyncCommandPanic and the existing finite row's typed fault receiver;
+it is not a fabricated blocking JoinError or TaskFailure. Unknown cleanup remains
+owned and never authorizes refund/reopen. Known physical retirement permits
+recovery while the returned original fault is still strongly retained.

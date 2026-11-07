@@ -9,6 +9,21 @@ pub(super) struct PendingDnsReload {
     resources: zero_dns::DnsReloadResources,
 }
 impl OrchestrationState {
+    /// The same token already retired every affected donor for a complete
+    /// network restart. Refresh its exact component association only; backend
+    /// objects, Query Scopes and the original donor-pause custody stay intact.
+    pub(super) fn refresh_dns_component_candidate(
+        &mut self,
+        snapshot: &Arc<EngineRuntimeSnapshot>,
+        first: &Arc<ComponentPlan>,
+        actual: Arc<ComponentPlan>,
+    ) -> io::Result<()> {
+        let pending = self.pending_dns_reload.as_mut().filter(|pending| {
+            Arc::ptr_eq(snapshot, &pending.snapshot) && Arc::ptr_eq(first, &pending.components)
+        }).ok_or_else(|| io::Error::other("Source network restart lost its actual DNS token"))?;
+        pending.components = actual;
+        Ok(())
+    }
     pub(super) fn prepare_dns_for_reload(
         &mut self,
         proxy: &Proxy,
@@ -30,10 +45,17 @@ impl OrchestrationState {
         }
         let config = snapshot.config();
         let dispatch = snapshot.dns_dispatch();
-        let resources = proxy.resolver.prepare_reload_resources_with_dispatch(
+        let resources = proxy.resolver.prepare_reload_resources_with_host_scopes(
             config.runtime.dns.as_ref(),
             dispatch,
             affected,
+            |instance, scope| {
+                components
+                    .component(instance.component)
+                    .is_some_and(|slot| {
+                        slot.instance_id() == instance && slot.matches_live_scope(scope)
+                    })
+            },
         )?;
         // No await or publication separates preparing the real backend map
         // from retaining its exact host snapshot/component association.
@@ -43,6 +65,31 @@ impl OrchestrationState {
             resources,
         });
         Ok(())
+    }
+    /// The same actual DNS token survives cancellation, just like its cold
+    /// backend candidate. This is before Host user quiescence, never a bypass.
+    pub(super) fn quiesce_dns_donors_for_reload<'a>(
+        &'a mut self,
+        proxy: &'a Proxy,
+        snapshot: &'a Arc<EngineRuntimeSnapshot>,
+        components: &'a Arc<ComponentPlan>,
+    ) -> zero_platform_tokio::contract::BoxFuture<'a, io::Result<()>> {
+        Box::pin(async move {
+            let replaced = proxy
+                .protocols
+                .runtime_host()
+                .components()
+                .replacement_instances(components)
+                .map_err(io::Error::other)?;
+            let resources = self.dns_reload_resources(snapshot)?;
+            // Install in the real existing token before the first await.
+            proxy.resolver.prepare_donor_pause(&resources, &replaced)?;
+            let end = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+            proxy
+                .protocols
+                .drive_component_supervision(proxy.resolver.retire_paused_donors(&resources, end))
+                .await
+        })
     }
     pub(super) fn dns_reload_resources(
         &self,

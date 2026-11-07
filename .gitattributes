@@ -1,3 +1,7 @@
 # Git hooks must keep LF line endings — CRLF breaks the `#!/bin/sh`
 # shebang on Unix and under Git Bash on Windows.
 scripts/hooks/* text eol=lf
+
+# Preserve the exact round2 validation lock bytes on every CI platform.
+.github/round2/candidate.Cargo.lock text eol=lf
+.github/round2/candidate.Cargo.lock.sha256 text eol=lf

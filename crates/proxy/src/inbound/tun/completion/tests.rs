@@ -1,5 +1,6 @@
 use super::*;
 use std::{future::Future, task::Poll, time::Duration};
+use tokio::{sync::oneshot, task::JoinError};
 
 #[tokio::test]
 async fn cancelled_tun_join_retains_the_original_handle_after_body_notification() {
@@ -25,7 +26,15 @@ async fn cancelled_tun_join_retains_the_original_handle_after_body_notification(
         Ok(())
     }));
     suspended.await.unwrap();
-    let id = completion.main.lock().await.task.as_ref().unwrap().id();
+    let id = completion
+        .legacy
+        .main
+        .lock()
+        .await
+        .task
+        .as_ref()
+        .unwrap()
+        .id();
     let mut joining = Box::pin(completion.wait_main(Instant::now() + Duration::from_secs(1)));
     std::future::poll_fn(|cx| {
         assert!(joining.as_mut().poll(cx).is_pending());
@@ -34,7 +43,7 @@ async fn cancelled_tun_join_retains_the_original_handle_after_body_notification(
     .await;
     drop(joining);
     {
-        let retained = completion.main.lock().await;
+        let retained = completion.legacy.main.lock().await;
         assert!(retained.notified.as_ref().unwrap().is_ok());
         assert_eq!(retained.task.as_ref().unwrap().id(), id);
         assert!(retained.joined.is_none());
@@ -48,7 +57,7 @@ async fn cancelled_tun_join_retains_the_original_handle_after_body_notification(
         .wait_main(Instant::now() + Duration::from_secs(1))
         .await
         .unwrap();
-    assert!(completion.main.lock().await.task.is_none());
+    assert!(completion.legacy.main.lock().await.task.is_none());
 }
 
 #[tokio::test]
@@ -93,12 +102,14 @@ async fn exited_main_failure_is_reported_while_its_quiescent_control_is_reclaime
         id: 812,
         shutdown,
         completion: completion.clone(),
+        #[cfg(feature = "raw-ip-runtime")]
+        budget_recovery: None,
         route_recovery: None,
     });
     let error = proxy.stop_tun_if_running().await.unwrap_err();
     assert!(error.to_string().contains("actual main runtime failure"));
     assert!(proxy.tun_control.lock().unwrap().is_none());
-    let retained = completion.main.lock().await;
+    let retained = completion.legacy.main.lock().await;
     assert!(retained.task.is_none());
     assert!(retained
         .joined

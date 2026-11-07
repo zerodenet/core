@@ -63,6 +63,9 @@ pub fn execute(command: Command) -> Result<(), Box<dyn Error>> {
 }
 
 #[cfg(feature = "event-dispatcher")]
+mod state;
+
+#[cfg(feature = "event-dispatcher")]
 fn connector_state(config_path: &str, json: bool) -> Result<(), Box<dyn Error>> {
     #[derive(serde::Serialize)]
     struct UpgradeStateReport<'a> {
@@ -73,10 +76,20 @@ fn connector_state(config_path: &str, json: bool) -> Result<(), Box<dyn Error>> 
         principal_quota: Option<&'a zero_engine::PrincipalQuotaStateReport>,
     }
 
-    let config = zero_runtime::configuration::ConfigurationSource::load_document(config_path)?;
-    let connector = zero_connector::inspect_persistent_state(&config);
-    let principal_quota = zero_engine::inspect_principal_quota_state(&config);
-    let compatible = connector.compatible
+    let source = std::sync::Arc::new(zero_runtime::configuration::ConfigurationSource::default());
+    let config = source.load_initial_configuration(config_path)?;
+    let (connector, mut inspection_failures) =
+        zero_connector::inspect_persistent_state_with_source(&config, &source).into_parts();
+    let principal_quota = zero_engine::inspect_principal_quota_state_with_source(&config, &source);
+    let source_closed = match source.confirm_original_io_closed() {
+        Ok(()) => true,
+        Err(original) => {
+            inspection_failures.push(std::sync::Arc::new(original));
+            false
+        }
+    };
+    let compatible = source_closed
+        && connector.compatible
         && principal_quota
             .as_ref()
             .is_none_or(zero_engine::PrincipalQuotaStateReport::is_compatible);
@@ -141,7 +154,7 @@ fn connector_state(config_path: &str, json: bool) -> Result<(), Box<dyn Error>> 
     if !compatible {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            "connector persistent state is incompatible with this build",
+            state::InspectionFailure(inspection_failures),
         )
         .into());
     }

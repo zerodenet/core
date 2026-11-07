@@ -87,7 +87,7 @@ async fn native_selected_socks_prefix_transports_actual_dns_without_allocating_b
         .resolve_target_id_in_snapshot(services.snapshot(), target)
         .unwrap();
     assert!(
-        matches!(super::super::service::prepare(&proxy.protocols,&services,&resolved).unwrap_or_else(|failure|panic!("{}: {}",failure.stage,failure.error)),Some(crate::inventory::service::ServicePlan::Relay(ref nodes)) if nodes.len()==2)
+        matches!(crate::runtime::tcp_dispatch::service::prepare(&proxy.protocols,&services,&resolved).unwrap_or_else(|failure|panic!("{}: {}",failure.stage,failure.error)),Some(crate::inventory::service::ServicePlan::Relay(ref nodes)) if nodes.len()==2)
     );
     let mut servers = tokio::task::JoinSet::new();
     servers.spawn(async move {
@@ -245,3 +245,6 @@ async fn native_dns_service_cancels_an_actual_pending_socks_handshake_without_le
 
 #[path = "service/binding.rs"]
 mod binding;
+
+#[path = "service/health.rs"]
+mod health;

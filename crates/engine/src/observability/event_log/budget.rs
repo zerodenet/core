@@ -2,8 +2,9 @@
 //! prefix of the event log so the existing sequence-gap contract stays valid.
 use super::*;
 use std::{io, ops::Deref};
+mod limits;
 const HISTORY_STATS_BYTES: usize = 8 * 1024 * 1024;
-const SUBSCRIBER_STATS_BYTES: usize = 1024 * 1024;
+pub(super) const SUBSCRIBER_STATS_BYTES: usize = 1024 * 1024;
 fn stats_size(event: &RawApiEvent) -> usize {
     if !matches!(
         event.event_type.as_str(),
@@ -28,11 +29,22 @@ fn stats_size(event: &RawApiEvent) -> usize {
     serde_json::to_writer(&mut count, event).expect("event serialization");
     count.0
 }
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct History {
     events: VecDeque<Arc<RawApiEvent>>,
     sizes: VecDeque<usize>,
     stats_bytes: usize,
+    stats_limit: usize,
+}
+impl Default for History {
+    fn default() -> Self {
+        Self {
+            events: VecDeque::new(),
+            sizes: VecDeque::new(),
+            stats_bytes: 0,
+            stats_limit: HISTORY_STATS_BYTES,
+        }
+    }
 }
 impl Deref for History {
     type Target = VecDeque<Arc<RawApiEvent>>;
@@ -48,74 +60,19 @@ impl History {
         self.trim(capacity);
     }
     pub(super) fn trim(&mut self, capacity: usize) {
-        while self.events.len() > capacity || self.stats_bytes > HISTORY_STATS_BYTES {
+        while self.events.len() > capacity || self.stats_bytes > self.stats_limit {
             self.events.pop_front();
             self.stats_bytes -= self.sizes.pop_front().unwrap_or(0);
         }
     }
 }
-/// The queued value releases its reservation on consumption or receiver drop.
-pub(crate) struct QueuedEvent {
-    pub(crate) event: Arc<RawApiEvent>,
-    _reservation: Reservation,
-}
-struct Reservation {
-    bytes: usize,
-    budget: Arc<AtomicUsize>,
-}
-impl QueuedEvent {
-    pub(crate) fn into_event(self) -> RawApiEvent {
-        // Queues and history share immutable storage. The owned API clones only
-        // when another owner remains; an evicted, uniquely held event moves out.
-        Arc::unwrap_or_clone(self.event)
-    }
-}
-impl Drop for Reservation {
-    fn drop(&mut self) {
-        self.budget.fetch_sub(self.bytes, Ordering::Relaxed);
-    }
-}
-#[derive(Debug)]
-pub(crate) struct Subscriber {
-    tx: SyncSender<QueuedEvent>,
-    filter: EventFilter,
-    budget: Arc<AtomicUsize>,
-}
-impl Subscriber {
-    pub(crate) fn new(tx: SyncSender<QueuedEvent>, filter: EventFilter) -> Self {
-        Self {
-            tx,
-            filter,
-            budget: Arc::new(AtomicUsize::new(0)),
-        }
-    }
-    pub(super) fn send(&self, event: &Arc<RawApiEvent>, bytes: usize) -> bool {
-        if !matches_filter(event, &self.filter) {
-            return true;
-        }
-        if self
-            .budget
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
-                used.checked_add(bytes)
-                    .filter(|next| *next <= SUBSCRIBER_STATS_BYTES)
-            })
-            .is_err()
-        {
-            return true;
-        }
-        let queued = QueuedEvent {
-            event: event.clone(),
-            _reservation: Reservation {
-                bytes,
-                budget: self.budget.clone(),
-            },
-        };
-        match self.tx.try_send(queued) {
-            Ok(()) | Err(TrySendError::Full(_)) => true,
-            Err(TrySendError::Disconnected(_)) => false,
-        }
-    }
-}
+mod subscriber;
+#[cfg(test)]
+use subscriber::Subscriber;
+pub(crate) use subscriber::{
+    PreparedSubscriber, QueuedEvent, SubscriberLimits, SubscriberRegistration, SubscriberRegistry,
+    SubscriberStorage,
+};
 pub(super) fn size(event: &RawApiEvent) -> usize {
     stats_size(event)
 }

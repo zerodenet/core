@@ -9,15 +9,21 @@ pub(super) enum ViewKind {
     Sender,
     Poller,
 }
-pub(super) struct Views(Mutex<[usize; 3]>);
+pub(super) struct Views {
+    counts: Mutex<[usize; 3]>,
+    changed: Arc<tokio::sync::Notify>,
+}
 impl Views {
-    pub(super) fn new() -> Arc<Self> {
-        Arc::new(Self(Mutex::new([0; 3])))
+    pub(super) fn new(changed: Arc<tokio::sync::Notify>) -> Arc<Self> {
+        Arc::new(Self {
+            counts: Mutex::new([0; 3]),
+            changed,
+        })
     }
     fn acquire(self: &Arc<Self>, kind: ViewKind) -> ViewToken {
         let index = kind as usize;
         let mut counts = self
-            .0
+            .counts
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         counts[index] = counts[index]
@@ -28,9 +34,9 @@ impl Views {
             kind,
         }
     }
-    fn empty(&self) -> bool {
+    pub(super) fn empty(&self) -> bool {
         *self
-            .0
+            .counts
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             == [0; 3]
@@ -54,13 +60,15 @@ impl Drop for ViewToken {
     fn drop(&mut self) {
         let mut counts = self
             .views
-            .0
+            .counts
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let index = self.kind as usize;
         counts[index] = counts[index]
             .checked_sub(1)
             .expect("issued metadata view released exactly once");
+        drop(counts);
+        self.views.changed.notify_waiters();
     }
 }
 pub(super) struct Claim {

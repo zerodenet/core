@@ -2,7 +2,7 @@ use crate::codec::UserError;
 use crate::frame::Reason;
 use crate::proto::{self, WindowSize};
 
-use bytes::{Buf, Bytes};
+use bytes::{Buf, Bytes, BytesMut};
 use http::HeaderMap;
 
 use std::fmt;
@@ -316,6 +316,13 @@ impl<B: Buf> SendStream<B> {
             .map_err(Into::into)
     }
 
+    /// Observe this sender's original DATA/header/trailer queue reaching the
+    /// connection codec. This does not prove that the underlying IO flushed.
+    /// END_STREAM with an empty DATA frame is included in the same queue.
+    pub fn poll_send_drained(&mut self, cx: &mut Context) -> Poll<Result<(), crate::Error>> {
+        self.inner.poll_send_drained(cx)
+    }
+
     /// Sends a single data frame to the remote peer.
     ///
     /// This function may be called repeatedly as long as `end_of_stream` is set
@@ -379,6 +386,37 @@ impl<B: Buf> SendStream<B> {
     /// If the lock on the stream store has been poisoned.
     pub fn stream_id(&self) -> StreamId {
         StreamId::from_internal(self.inner.stream_id())
+    }
+}
+
+impl SendStream<Bytes> {
+    /// Copies and sends at most one DATA frame using currently assigned credit.
+    ///
+    /// Call `reserve_capacity` first to express the desired send capacity. This
+    /// method checks the original stream state and credit and commits DATA under
+    /// the same stream-store lock. It accepts at most `limit`, `bytes.len()`,
+    /// 16 KiB and the current assigned capacity, whichever is smallest. It does
+    /// not end the stream or buffer bytes beyond that actual credit.
+    ///
+    /// With no credit, it returns `Pending` and registers the original stream's
+    /// capacity/reset wake without copying bytes or changing `buffer`. With
+    /// positive credit, `buffer` is reusable scratch storage; its previous
+    /// contents may be replaced. Single-byte DATA uses immutable static storage.
+    ///
+    /// A closed send half returns `None`; a reset or connection error returns
+    /// the original error. An empty slice or zero limit returns `Some(Ok(0))`.
+    ///
+    /// # Panics
+    ///
+    /// If the original stream-store or send-buffer lock has been poisoned.
+    pub fn poll_send_data(
+        &mut self,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+        buffer: &mut BytesMut,
+        limit: usize,
+    ) -> Poll<Option<Result<usize, crate::Error>>> {
+        self.inner.poll_send_data(cx, bytes, buffer, limit)
     }
 }
 

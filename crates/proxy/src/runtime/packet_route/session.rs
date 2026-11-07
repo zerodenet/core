@@ -33,6 +33,7 @@ struct RoutePin {
     managed: Option<zero_engine::PacketRouteLease>,
     control: Option<zero_engine::PacketRouteControl>,
     replies: Option<zero_stack::packet_output::PacketSender>,
+    standard: Option<standard::StandardRoute>,
 }
 
 #[derive(Default)]
@@ -49,8 +50,25 @@ pub(crate) struct PacketSessionPins {
 }
 
 mod management;
+mod standard;
 
 impl PacketSessionPins {
+    /// L3 Packet admissions have no per-flow socket owner: their real managed
+    /// pin remains business custody until the original route is closed.
+    /// Flow/DirectEcho entries only pin selection. Source quiescence separately
+    /// requires its actual TCP/UDP stacks, echo workers, native obligations,
+    /// child joins and queued sends to be empty. Their old selection metadata
+    /// (including a rejected late FIN/RST) cannot invent a live operation.
+    /// This method neither removes a pin nor grants Source/native closure.
+    pub(crate) fn packet_routes_quiescent(&self) -> bool {
+        !self.entries.values().any(|pin| {
+            matches!(
+                pin.plane,
+                PacketPlane::Packet(_) | PacketPlane::TranslatedPacket(_)
+            )
+        })
+    }
+
     /// Reuse the observation handle for an admitted conversation. New paths
     /// prepare once; ordinary packets do not visit the statistics registry.
     pub(crate) fn inner_io(
@@ -249,6 +267,7 @@ impl PacketSessionPins {
                 managed: None,
                 control: None,
                 replies: None,
+                standard: None,
             },
         );
         let expiry = now + IDLE_TIMEOUT;

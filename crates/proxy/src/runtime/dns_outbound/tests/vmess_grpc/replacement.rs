@@ -39,7 +39,14 @@ async fn domain_vmess_grpc_dns_reload_joins_old_query_h2_and_node_original_befor
             handle.apply_runtime_config_and_wait(candidate, Duration::from_secs(10)).await
         });
         next_node.no_new_request();
-        tokio::time::timeout_at(deadline(), old.task.wait()).await.unwrap();
+        let retired=tokio::time::timeout_at(deadline(),old.task.wait()).await;
+        if retired.is_err() && replacing.is_finished() {
+            // Inspect only an already completed original replacement. Keep the
+            // original query wait/deadline and every cancellation/close assertion.
+            let actual=replacing.await;
+            panic!("old actual query did not retire; actual replacement result: {actual:?}");
+        }
+        retired.unwrap();
         assert!(old_query.await.unwrap().is_err());
         closed(&child, &original);
         replacing.await.unwrap().unwrap();

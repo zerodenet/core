@@ -16,6 +16,17 @@ pub(crate) enum Options {
     Ordinary(Arc<stateless::Options<::trojan::component::Options>>),
     Mux(Arc<::trojan::component::mux::Options>),
 }
+impl Options {
+    pub(crate) fn bind_node_dns(&mut self, dependency: zero_core::component::ComponentId) {
+        if let Self::Ordinary(options) = self {
+            *options = Arc::new((**options).clone().with_node_dns(dependency));
+        }
+    }
+}
+pub(crate) fn taskless_domain(input: &OutboundConfig) -> bool {
+    super::native_input(input)
+        && matches!(&input.protocol,OutboundProtocolConfig::Trojan{server,..} if zero_core::address::parse_ip_literal(server).is_none())
+}
 pub(crate) struct Factory;
 impl ComponentFactory for Factory {
     type Options = Options;
@@ -48,14 +59,12 @@ pub(crate) fn eligible(input: &OutboundConfig) -> bool {
     }
     let mut ordinary = input.clone();
     let OutboundProtocolConfig::Trojan {
-        mux_concurrency,
-        server,
-        ..
+        mux_concurrency, ..
     } = &mut ordinary.protocol
     else {
         return false;
     };
-    if mux_concurrency.take().is_none() || zero_core::address::parse_ip_literal(server).is_none() {
+    if mux_concurrency.take().is_none() {
         return false;
     }
     super::native_input(&ordinary)
@@ -130,19 +139,22 @@ impl TrojanAdapter {
             } else {
                 limit
             };
-            return Ok(Options::Ordinary(Arc::new(stateless::Options::new(
-                super::component_options(input)?,
-                zero_core::request::Destination::new(
-                    match zero_core::address::parse_ip_literal(server) {
-                        Some(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
-                        Some(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
-                        None => zero_core::Address::Domain(server.clone()),
-                    },
-                    *port,
-                ),
-                input.dial.to_policy(),
-                limit,
-            ))));
+            return Ok(Options::Ordinary(Arc::new(
+                stateless::Options::new(
+                    super::component_options(input)?,
+                    zero_core::request::Destination::new(
+                        match zero_core::address::parse_ip_literal(server) {
+                            Some(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
+                            Some(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
+                            None => zero_core::Address::Domain(server.clone()),
+                        },
+                        *port,
+                    ),
+                    input.dial.to_policy(),
+                    limit,
+                )
+                .with_cleanup_network(factory.network.clone()),
+            )));
         }
         let input_refs =
             super::super::outbound_options(&input.tag, (server, *port), &input.protocol)
@@ -152,7 +164,7 @@ impl TrojanAdapter {
             dial: input.dial.to_policy(),
             network_generation: factory.generation,
         };
-        let prepared = ::trojan::component::mux::PreparedMux::from_options_refs(
+        let mut prepared = ::trojan::component::mux::PreparedMux::from_options_refs(
             input_refs,
             &self.mux_pool,
             resources
@@ -165,6 +177,11 @@ impl TrojanAdapter {
         .map_err(|source| {
             zero_config::ConfigError::InvalidOutbound(format!("outbound `{}`: {source}", input.tag))
         })?;
+        if zero_core::address::parse_ip_literal(server).is_none() {
+            let node =
+                crate::component::native_dns::prepare_node(resources, factory.network.clone())?;
+            prepared = prepared.with_node_dependency(node);
+        }
         let owner = resources.share(
             "trojan.mux.actual_pool",
             factory,
@@ -178,10 +195,6 @@ impl TrojanAdapter {
             }),
         )?;
         let options = prepared.bind(owner);
-        Ok(Options::Mux(Arc::new(if stream_only {
-            options.stream_only()
-        } else {
-            options
-        })))
+        Ok(Options::Mux(Arc::new(options)))
     }
 }

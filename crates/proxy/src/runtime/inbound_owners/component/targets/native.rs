@@ -1,13 +1,9 @@
 //! The original native control is installed before the first connect await.
 use super::*;
 use crate::transport::{CandidateOpenFailure, CandidateOpened, CandidateOpener, DirectCandidate};
-use zero_platform_tokio::{
-    ControlledTcpStream, EgressInterfaceControl, EgressSelection, PendingTcpConnect,
-};
+use zero_platform_tokio::{ControlledTcpStream, EgressInterfaceControl, EgressSelection};
 pub(super) struct Opener {
-    pub state: Arc<AsyncMutex<State>>,
-    pub stop: CancellationToken,
-    pub permits: Arc<Semaphore>,
+    pub native: Arc<InboundTargetNativeOwner>,
     pub observer: Option<Arc<dyn zero_traits::IoObserver>>,
 }
 impl CandidateOpener for Opener {
@@ -33,65 +29,35 @@ impl CandidateOpener for Opener {
                     "target network generation changed",
                 )));
             }
-            let permit = self
-                .permits
-                .clone()
-                .try_acquire_owned()
+            let (mut pending, index) = self
+                .native
+                .prepare_tcp(remote, policy, selection, self.observer.clone())
+                .await
                 .map_err(|source| failed(std::io::Error::other(source)))?;
-            let mut state = self.state.lock().await;
-            if self.stop.is_cancelled() {
-                return Err(failed(std::io::Error::new(
-                    std::io::ErrorKind::Interrupted,
-                    "target owner stopped",
-                )));
-            }
-            state
-                .originals
-                .try_reserve(1)
-                .map_err(|source| failed(std::io::Error::other(source)))?;
-            let (mut pending, control) = PendingTcpConnect::prepare(
-                remote,
-                policy,
-                selection,
-                self.stop.clone(),
-                self.observer.clone(),
-            )
-            .map_err(|source| {
-                let stage = source.stage();
-                let source = Arc::new(source);
-                if !matches!(stage, "validate_dial_policy" | "create_socket") {
-                    state.fatal = Some(Arc::new(
-                        ChannelError::new(Stage::Prepare, Reason::Io, Impact::Component)
-                            .with_source(source.clone()),
-                    ));
-                }
-                failed(std::io::Error::other(source))
-            })?;
-            let index = state.originals.len();
-            state.originals.push((control, permit));
-            drop(state);
             let io = match pending
                 .connect(Instant::now() + std::time::Duration::from_secs(10))
                 .await
             {
                 Ok(io) => io,
                 Err(source) => {
-                    let mut state = self.state.lock().await;
-                    let report = state.originals[index]
-                        .0
-                        .wait_closed(Instant::now() + std::time::Duration::from_secs(5))
-                        .await
-                        .map_err(|error| {
-                            self.stop.cancel();
-                            failed(std::io::Error::other(error))
-                        })?;
-                    let complete = report.is_complete() && report.failed_tasks.is_empty();
-                    state.collect(index, report);
-                    if !complete {
-                        self.stop.cancel();
-                        return Err(failed(std::io::Error::other(
-                            "original failed target remains unconfirmed",
-                        )));
+                    let cleanup = self
+                        .native
+                        .close_candidate(index, Instant::now() + std::time::Duration::from_secs(5))
+                        .await;
+                    let cleanup = match cleanup {
+                        Ok(true) => None,
+                        Ok(false) => Some(ChannelError::new(
+                            Stage::Close,
+                            Reason::Timeout,
+                            Impact::Component,
+                        )),
+                        Err(cleanup) => Some(cleanup),
+                    };
+                    if let Some(cleanup) = cleanup {
+                        return Err(failed(std::io::Error::other(ConnectCleanupFailure {
+                            connect: source,
+                            cleanup: Arc::new(cleanup),
+                        })));
                     }
                     return Err(failed(std::io::Error::other(source)));
                 }
@@ -111,30 +77,11 @@ impl Opener {
     pub(super) async fn unix(&self, path: &str) -> std::io::Result<TcpRelayStream> {
         #[cfg(unix)]
         {
-            let permit = self
-                .permits
-                .clone()
-                .try_acquire_owned()
-                .map_err(std::io::Error::other)?;
-            let mut state = self.state.lock().await;
-            if self.stop.is_cancelled() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Interrupted,
-                    "target owner stopped",
-                ));
-            }
-            state
-                .originals
-                .try_reserve(1)
-                .map_err(std::io::Error::other)?;
-            let (mut pending, control) =
-                zero_platform_tokio::PendingUnixConnect::prepare(path, self.stop.clone())?;
-            state.originals.push((control, permit));
-            drop(state);
+            let (mut pending, _index) = self.native.prepare_unix(path).await?;
             pending
                 .connect(Instant::now() + std::time::Duration::from_secs(10))
                 .await
-                .map(TcpRelayStream::new)
+                .map(TcpRelayStream::from_client)
         }
         #[cfg(not(unix))]
         {
@@ -144,5 +91,25 @@ impl Opener {
                 "Unix targets require Unix",
             ))
         }
+    }
+}
+
+#[derive(Debug)]
+struct ConnectCleanupFailure {
+    connect: Arc<zero_platform_tokio::TcpConnectError>,
+    cleanup: Arc<ChannelError>,
+}
+impl std::fmt::Display for ConnectCleanupFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "original target connection failed: {}; cleanup: {}",
+            self.connect, self.cleanup
+        )
+    }
+}
+impl std::error::Error for ConnectCleanupFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.cleanup.as_ref())
     }
 }

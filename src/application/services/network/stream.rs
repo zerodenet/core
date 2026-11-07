@@ -3,13 +3,16 @@ use std::{
     io,
     pin::Pin,
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     task::{Context, Poll},
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use zero_platform_tokio::{contract::scope::TaskJoinWitness, ControlledTcpStream};
+use zero_platform_tokio::{
+    contract::scope::TaskJoinWitness,
+    controlled_carrier::{CarrierIo, CarrierUserView},
+};
 #[derive(Default)]
 pub(super) struct Custody {
     views: AtomicUsize,
@@ -43,13 +46,18 @@ impl Custody {
     }
 }
 pub(super) struct EventStream {
-    inner: ControlledTcpStream,
+    inner: CarrierIo,
+    _user: CarrierUserView,
     custody: Arc<Custody>,
 }
 impl EventStream {
-    pub(super) fn new(inner: ControlledTcpStream, custody: Arc<Custody>) -> Self {
+    pub(super) fn new(inner: CarrierIo, user: CarrierUserView, custody: Arc<Custody>) -> Self {
         custody.views.fetch_add(1, Ordering::AcqRel);
-        Self { inner, custody }
+        Self {
+            inner,
+            _user: user,
+            custody,
+        }
     }
 }
 impl Drop for EventStream {

@@ -2,6 +2,7 @@
 //! transferred users or tasks completed. Explicit graph authority uses actual
 //! same-Scope joins; native-only or escaped-user paths remain Unaccounted.
 mod accept;
+mod capacity;
 mod close;
 pub(crate) mod graph;
 pub use graph::{
@@ -11,6 +12,7 @@ pub use graph::{
 mod owner;
 mod pool;
 mod relay;
+mod totals;
 mod view;
 use super::*;
 use crate::contract::{lifecycle::CloseReport, ChannelError, DeliveryState, Impact, Reason, Stage};
@@ -106,12 +108,14 @@ impl AcceptedTcpEvidence {
     }
 }
 pub(super) struct Pool {
+    changed: tokio::sync::Notify,
     identity: Arc<()>,
     limit: NonZeroUsize,
     cancel: CancellationToken,
     state: Mutex<PoolState>,
     relay: Arc<relay::AcceptRelay>,
     graph: Option<graph::Authority>,
+    originals: OnceLock<super::totals::Binding>,
     logical_custody: Arc<std::sync::atomic::AtomicUsize>,
 }
 struct PoolState {
@@ -180,6 +184,9 @@ fn retained(source: Arc<ChannelError>) -> ChannelError {
     result.component = source.component;
     result.session = source.session;
     result.retry = source.retry;
+    if let Some(receipt) = source.cleanup_failure_receipt() {
+        result = result.with_cleanup_failure_receipt(receipt.clone());
+    }
     result
 }
 

@@ -12,7 +12,7 @@ homepage.workspace = true
 default = []
 managed-datagram-runtime = []
 datagram-route-runtime = []
-raw-ip-runtime = ["dep:zero-tun"]
+raw-ip-runtime = ["dep:zero-tun", "zero-platform-tokio/native-packet-origin"]
 # Explicit fixture access to the real hosted scope and native resource providers.
 test-support = []
 
@@ -35,6 +35,7 @@ futures-util = "0.3"
 tracing.workspace = true
 
 [dev-dependencies]
+zero-platform-tokio = { path = "../platform/tokio", features = ["test-support"] }
 zero-proxy = { path = "../proxy", default-features = false }
 zero-transport = { path = "../transport" }
 zero-dns = { path = "../dns", features = ["test-support", "udp", "doh"] }

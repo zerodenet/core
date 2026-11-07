@@ -43,7 +43,12 @@ async fn probe_attempt_capacity_failure_closes_main_and_never_invents_smaller_ca
         Err(error) => error,
     };
     assert_eq!(error.source.kind(), std_io::ErrorKind::WouldBlock);
-    assert!(matches!(error.outcome, AcquisitionOutcome::Closed(_)));
+    let AcquisitionOutcome::Closed(main) = error.outcome else {
+        panic!("original main must be positively closed")
+    };
+    assert_eq!(Some(main.reservation()), error.reservation);
+    assert_eq!(owner.occupied_main(), 0);
+    assert_eq!(owner.occupied_probes(), 0);
     let report = owner.take_report();
     assert_eq!(report.main.confirmed_closed, 1);
     assert_eq!(report.probes.confirmed_closed, 1);

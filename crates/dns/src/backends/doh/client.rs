@@ -71,6 +71,10 @@ impl Drop for DohClient {
     }
 }
 impl DohClient {
+    pub(in super::super) fn has_state(&self, state: &Arc<ClientState>) -> bool {
+        Arc::ptr_eq(&self.state, state)
+    }
+
     fn lease(&self) -> ReadyClient {
         self.state
             .leases
@@ -153,3 +157,5 @@ impl DohDnsResolver {
 
 mod connect;
 mod native;
+
+mod candidates;

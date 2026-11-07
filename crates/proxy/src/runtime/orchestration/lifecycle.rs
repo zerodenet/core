@@ -57,6 +57,10 @@ where
             result = &mut startup => (result, false),
         }
     };
+    #[cfg(test)]
+    if let Err(error) = &startup {
+        eprintln!("actual orchestration startup failure before original cleanup: {error:?}");
+    }
     if stopped || startup.is_err() {
         let result = match startup {
             Err(error)
@@ -194,7 +198,7 @@ where
                     if stopped { return state.drain_configuration(proxy).await; }
                 }
             }
-            result = state.listeners.join_next(), if !state.listeners.is_empty() => {
+            result = state.listeners.join_next_running() => {
                 if let Err(listener_error) = handle_listener_result(
                     result,
                     false,

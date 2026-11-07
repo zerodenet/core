@@ -12,17 +12,22 @@ where
     A: UpstreamAssociationTransport<T>,
 {
     pub(crate) fn drop_after_send_error(&mut self, inbound_tag: &str, error: &EngineError) {
+        if crate::runtime::udp_flow::result::packet_rejected_before_submission(error) {
+            return;
+        }
         if let Some(assoc) = self.upstream.take() {
             let (record, association) = assoc.into_parts();
             self.retire(association, UpstreamAssociationCloseReason::Dropped);
-            let (outbound_tag, server, port) = record.log_parts();
-            crate::logging::log_udp_upstream_association_dropped(
-                inbound_tag,
-                outbound_tag,
-                server,
-                port,
-                error,
-            );
+            let (outbound_tag, endpoint) = record.log_parts();
+            if let Some((server, port)) = endpoint {
+                crate::logging::log_udp_upstream_association_dropped(
+                    inbound_tag,
+                    outbound_tag,
+                    server,
+                    port,
+                    error,
+                );
+            }
         }
         self.idle_deadline = None;
     }

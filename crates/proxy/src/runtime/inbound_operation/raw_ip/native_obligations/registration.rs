@@ -1,6 +1,29 @@
 //! Read-only association with the actual original caller registration.
 use super::*;
 impl NativeRegistration {
+    pub(crate) async fn lookup_local_process(
+        &self,
+        source: std::net::SocketAddr,
+        transport: zero_platform_tokio::LocalProcessTransport,
+        read_limit: std::num::NonZeroUsize,
+    ) -> Result<Option<zero_platform_tokio::LocalProcessInfo>, ChannelError> {
+        self.check_open()?;
+        let owner = self
+            .owner
+            .upgrade()
+            .ok_or_else(|| rejected(Reason::Revoked))?;
+        let caller = owner
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .records
+            .get(&self.id)
+            .and_then(|record| record.caller.clone())
+            .ok_or_else(|| rejected(Reason::Revoked))?;
+        caller
+            .lookup_local_process(source, transport, read_limit)
+            .await
+    }
+
     pub(crate) fn same_slot(&self, other: &Self) -> bool {
         self.id == other.id && self.owner.ptr_eq(&other.owner)
     }

@@ -4,6 +4,110 @@ use crate::contract::{DeliveryState, Impact, Reason, Stage};
 /// Host-supplied execution of an already selected prefix. Implementations must
 /// reject stale generations and preserve every hard dial constraint. No direct fallback.
 pub trait UpstreamOpener: Send + Sync {
+    fn has_preparation_job_owner(&self) -> bool {
+        false
+    }
+    fn reserve_preparation_job(
+        &self,
+        _binding: &UpstreamBinding,
+        _call: &CarrierContext,
+    ) -> Result<crate::controlled_carrier::CarrierPreparationJob, ChannelError> {
+        Err(ChannelError::new(
+            super::super::Stage::Prepare,
+            super::super::Reason::Unsupported,
+            super::super::Impact::Component,
+        ))
+    }
+    /// Exact same-Host Process dependency and the aggregate's existing UDP
+    /// original. Session admission is not inferred from this metadata request.
+    fn acquire_process_endpoint_datagram(
+        &self,
+        _: &UpstreamBinding,
+        _: ProcessEndpointDatagramRequest,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierDatagram, ChannelError>> {
+        Box::pin(async {
+            let mut error =
+                ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+            error.delivery = DeliveryState::NotSubmitted;
+            Err(error)
+        })
+    }
+    /// Existing native acquisition under an actual current Process dependency.
+    /// Implementations must retain sealed Business admission and both started
+    /// Slots. A dependency ID or derived SocketAddr never authorizes this call.
+    fn acquire_process_endpoint_stream(
+        &self,
+        _: &UpstreamBinding,
+        _: ProcessEndpointStreamRequest,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierIo, ChannelError>> {
+        Box::pin(async {
+            let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Session);
+            error.delivery = DeliveryState::NotSubmitted;
+            Err(error)
+        })
+    }
+
+    fn packet_caller(
+        &self,
+        _: &UpstreamBinding,
+        _: &crate::contract::context::RequestIdentity,
+        _: &CarrierContext,
+    ) -> Result<crate::contract::scope::TaskJoinWitness, ChannelError> {
+        let mut failure = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Session);
+        failure.delivery = DeliveryState::NotSubmitted;
+        Err(failure)
+    }
+    /// Finite cleanup metadata of this actual selected graph. This neither
+    /// raises native capacity nor grants IO, task credit or a close receipt.
+    fn pending_carrier_capacity(&self, _: &UpstreamBinding) -> Option<usize> {
+        None
+    }
+    /// Validate cleanup identity only, without retaining it or granting I/O.
+    /// An implementation must use its actual current plan and binding.
+    fn validate_pending_carrier(
+        &self,
+        _: &UpstreamBinding,
+        _: &crate::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        let mut failure = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+        failure.delivery = DeliveryState::NotSubmitted;
+        Err(failure)
+    }
+
+    /// Resolve a selected inner Packet/Flow destination using the actual host
+    /// DNS policy. It never prepares a native socket or grants a carrier.
+    fn resolve_packet_target(
+        &self,
+        _: &UpstreamBinding,
+        _: Destination,
+        _: crate::contract::context::RequestIdentity,
+        _: CarrierContext,
+    ) -> BoxFuture<'_, Result<Vec<std::net::SocketAddr>, ChannelError>> {
+        Box::pin(async {
+            Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::Unsupported,
+                Impact::Session,
+            ))
+        })
+    }
+    /// Resolve a protocol-negotiated Datagram peer under an already acquired
+    /// control original. Only an explicitly declared association owner and
+    /// its actual host Node resolver may provide this capability.
+    fn resolve_related_datagram(
+        &self,
+        _: &UpstreamBinding,
+        _: crate::controlled_carrier::CarrierAdoption,
+        _: Destination,
+        _: CarrierContext,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierCandidates, ChannelError>> {
+        Box::pin(async {
+            let mut error =
+                ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+            error.delivery = DeliveryState::NotSubmitted;
+            Err(error)
+        })
+    }
     /// Observation of the original Business caller's actual tracked join.
     /// This selects user custody only; it issues no grant or close receipt.
     /// Native acquisition must still validate the same sealed caller ticket.
@@ -118,6 +222,20 @@ pub trait UpstreamOpener: Send + Sync {
     /// validate the original request, owner, caller and selected generation.
     fn supports_controlled_stream(&self) -> bool {
         false
+    }
+
+    /// The same controlled dynamic request with the actual original logical
+    /// custody returned, for an existing selected prefix. No grants are minted.
+    fn open_controlled_stream_loan(
+        &self,
+        _: &UpstreamBinding,
+        request: ControlledStreamRequest,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::loan::StreamLoan, ChannelError>> {
+        let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+        error.component = Some(request.grants.instance().component);
+        error.session = request.context.session;
+        error.delivery = DeliveryState::NotSubmitted;
+        Box::pin(async move { Err(error) })
     }
 
     /// Multi-candidate resolution/acquisition is opt-in. Reject before legacy

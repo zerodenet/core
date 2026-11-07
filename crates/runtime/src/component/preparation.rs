@@ -1,7 +1,13 @@
 //! Typed cold preparation of canonical roleless resource owners.
+mod accounting;
+mod device_aliases;
 mod identities;
+mod named;
+mod packet_path;
+mod source_dependencies;
 use super::{dependencies, instance::invalid, ComponentRecipe};
 pub use identities::SharedResourceIdentities;
+pub use source_dependencies::SourceDependencyDeclarations;
 use std::{
     cell::Cell,
     collections::{BTreeMap, BTreeSet},
@@ -18,6 +24,9 @@ use zero_platform_tokio::contract::{
 struct Key {
     namespace: &'static str,
     identity: Arc<[u8]>,
+    accounting_limit: Option<usize>,
+    process_limits: Option<super::recipe::accounting::ProcessLimits>,
+    preparation_limits: Option<super::recipe::accounting::PreparationLimits>,
 }
 
 /// A real host-assigned identity and its state-only resource recipe.
@@ -43,29 +52,55 @@ impl PreparedSharedResource {
 /// This object never starts resources or publishes a candidate.
 pub struct ResourcePreparation<'a> {
     allocate: &'a mut dyn FnMut() -> Result<ComponentId, BuildError>,
+    builtin_component: Option<ComponentId>,
+    named_components: BTreeMap<String, ComponentId>,
+    primary_factories: Option<&'a super::ComponentRegistry<zero_config::OutboundConfig>>,
+    named_recipes: BTreeMap<String, (ComponentRecipe, Option<super::ValidatedRecipe>)>,
+    preparing_named: BTreeSet<String>,
+    active_named: Option<String>,
+    named_packet_paths: BTreeMap<String, (Arc<[u8]>, super::PacketPathFacts)>,
+    source_dependencies: Option<SourceDependencyDeclarations>,
     resources: BTreeMap<Key, PreparedSharedResource>,
     identities: BTreeSet<ComponentId>,
     failed: Cell<bool>,
     previous: SharedResourceIdentities,
     previous_slots: &'a [Arc<super::instance::ComponentSlot>],
+    previous_named: Option<&'a BTreeMap<String, Arc<super::instance::ComponentSlot>>>,
     previous_loans: Vec<(
         zero_core::component::ComponentInstanceId,
         zero_core::component::ComponentInstanceId,
     )>,
     candidate: Option<&'a zero_config::RuntimeConfig>,
+    same_source: bool,
+    restarting: bool,
+    device_alias_rebinding: bool,
+    device_alias_overrides: Option<BTreeMap<Option<String>, ComponentRecipe>>,
     source_dir: Option<&'a std::path::Path>,
 }
 impl<'a> ResourcePreparation<'a> {
     pub fn new(allocate: &'a mut dyn FnMut() -> Result<ComponentId, BuildError>) -> Self {
         Self {
             allocate,
+            builtin_component: None,
+            named_components: BTreeMap::new(),
+            primary_factories: None,
+            named_recipes: BTreeMap::new(),
+            preparing_named: BTreeSet::new(),
+            active_named: None,
+            named_packet_paths: BTreeMap::new(),
+            source_dependencies: None,
             resources: BTreeMap::new(),
             identities: BTreeSet::new(),
             failed: Cell::new(false),
             previous: SharedResourceIdentities::default(),
             previous_slots: &[],
+            previous_named: None,
             previous_loans: Vec::new(),
             candidate: None,
+            same_source: false,
+            restarting: false,
+            device_alias_rebinding: false,
+            device_alias_overrides: None,
             source_dir: None,
         }
     }
@@ -84,6 +119,10 @@ impl<'a> ResourcePreparation<'a> {
         self.previous_loans = loans.into_iter().collect();
         self
     }
+    pub(in crate::component) fn with_restart_resources(mut self, restarting: bool) -> Self {
+        self.restarting = restarting;
+        self
+    }
     /// Read-only evidence from this host's actual previous slot. A dependency
     /// must already have been requested in this very pass with the same spec
     /// and exact healthy dependency instances. Unknown dependencies deny reuse.
@@ -100,15 +139,34 @@ impl<'a> ResourcePreparation<'a> {
             if !seen.insert(id) {
                 return None;
             }
-            let candidate = preparation
+            let shared = preparation
                 .resources
                 .values()
-                .find(|node| node.component == id)?;
+                .find(|node| node.component == id);
+            let (recipe, fresh) = match shared {
+                Some(candidate) => (&candidate.recipe, candidate.fresh),
+                None => {
+                    let tag = preparation
+                        .named_components
+                        .iter()
+                        .find(|(_, actual)| **actual == id)?
+                        .0;
+                    let (recipe, _) = preparation.named_recipes.get(tag)?;
+                    (recipe, false)
+                }
+            };
             let old = preparation
                 .previous_slots
                 .iter()
                 .find(|node| node.id == id)?;
-            if candidate.fresh || !old.can_reuse() || candidate.recipe.spec() != old.recipe.spec() {
+            if fresh
+                || !old.can_reuse()
+                || recipe.spec() != old.recipe.spec()
+                || recipe.packet_path_facts() != old.recipe.packet_path_facts()
+                || recipe.carrier_total_limit() != old.recipe.carrier_total_limit()
+                || recipe.process_limits() != old.recipe.process_limits()
+                || recipe.preparation_limits() != old.recipe.preparation_limits()
+            {
                 return None;
             }
             for dependency in old.dependency_instances().iter().chain(
@@ -126,6 +184,9 @@ impl<'a> ResourcePreparation<'a> {
             Some(old.instance_id())
         }
         self.ensure_valid().ok()?;
+        if self.restarting {
+            return None;
+        }
         check(self, component, &mut BTreeSet::new())
     }
 
@@ -138,11 +199,23 @@ impl<'a> ResourcePreparation<'a> {
         spec: &ComponentSpec,
         scope: Option<&zero_platform_tokio::contract::scope::TaskScopeIdentity>,
     ) -> bool {
-        if self.ensure_valid().is_err() {
+        if self.restarting || self.ensure_valid().is_err() {
             return false;
         }
+        let Ok(accounting_limit) = self.carrier_total_limit_for(spec) else {
+            return false;
+        };
+        let Ok(process_limits) = self.process_limits_for(spec) else {
+            return false;
+        };
+        let Ok(preparation_limits) = self.preparation_limits_for(spec) else {
+            return false;
+        };
         let key = Key {
             namespace,
+            accounting_limit,
+            process_limits,
+            preparation_limits,
             identity: spec.static_identity.clone(),
         };
         if self
@@ -158,7 +231,13 @@ impl<'a> ResourcePreparation<'a> {
         let Some(old) = self.previous_slots.iter().find(|slot| slot.id == *id) else {
             return false;
         };
-        if !old.can_reuse() || old.recipe.spec() != spec || !old.matches_scope_identity(scope) {
+        if !old.can_reuse()
+            || old.recipe.spec() != spec
+            || old.recipe.carrier_total_limit() != accounting_limit
+            || old.recipe.process_limits() != process_limits
+            || old.recipe.preparation_limits() != preparation_limits
+            || !old.matches_scope_identity(scope)
+        {
             return false;
         }
         old.dependency_instances()
@@ -176,10 +255,73 @@ impl<'a> ResourcePreparation<'a> {
 
     /// Borrow the whole current candidate for assembly-owned shared profile sets.
     /// This reference cannot escape this cold pass into a resource recipe.
-    pub(super) fn with_candidate(mut self, candidate: &'a zero_config::RuntimeConfig) -> Self {
+    pub fn with_candidate(mut self, candidate: &'a zero_config::RuntimeConfig) -> Self {
         self.source_dir = candidate.source_dir();
         self.candidate = Some(candidate);
         self
+    }
+    /// Only actual host preparation compares its simultaneously live inputs.
+    /// Factories receive observation, never a source token or I/O authority.
+    pub(in crate::component) fn with_same_source_as_previous(mut self, same: bool) -> Self {
+        self.same_source = same;
+        self
+    }
+    pub fn same_source_as_previous(&self) -> bool {
+        self.ensure_valid().is_ok() && self.same_source
+    }
+    /// Previous actual instance only. This deliberately says nothing about
+    /// liveness, reusable tasks, native/user closure or available admission.
+    pub fn previous_resource_instance(
+        &self,
+        component: ComponentId,
+    ) -> Option<zero_core::component::ComponentInstanceId> {
+        self.ensure_valid().ok()?;
+        self.previous_slots
+            .iter()
+            .find(|slot| slot.id == component)
+            .map(|slot| slot.instance_id())
+    }
+    /// Opaque identity of the actual previous Slot, for the owning protocol's
+    /// same-source immutable cold recipe lookup only. This cannot establish
+    /// liveness, material authorization, native acquisition or cleanup.
+    pub fn previous_resource_identity(&self, component: ComponentId) -> Option<&[u8]> {
+        self.ensure_valid().ok()?;
+        Some(
+            self.previous_slots
+                .iter()
+                .find(|slot| slot.id == component)?
+                .recipe
+                .spec()
+                .static_identity
+                .as_ref(),
+        )
+    }
+    pub(super) fn with_previous_named(
+        mut self,
+        previous: Option<&'a BTreeMap<String, Arc<super::instance::ComponentSlot>>>,
+    ) -> Self {
+        self.previous_named = previous;
+        self
+    }
+    /// Metadata from the host's actual previous named Slot. This never
+    /// selects by profile/path, grants IO, or confirms Source/Scope reuse.
+    /// Factories must separately prove the full recipe and same Source before
+    /// copying that actual instance's already authorized immutable material.
+    pub fn previous_named_instance(
+        &self,
+        tag: &str,
+    ) -> Option<zero_core::component::ComponentInstanceId> {
+        self.ensure_valid().ok()?;
+        self.previous_named?.get(tag).map(|slot| slot.instance_id())
+    }
+    /// Exact direct dependencies of the actual previously published named Slot.
+    /// Read-only metadata, never a recipe match, reuse grant or close receipt.
+    pub fn previous_named_dependencies(
+        &self,
+        tag: &str,
+    ) -> Option<&[zero_core::component::ComponentInstanceId]> {
+        self.ensure_valid().ok()?;
+        Some(self.previous_named?.get(tag)?.dependency_instances())
     }
     /// Borrow only for this cold pass; owned protocol profiles resolve their
     /// own paths and cannot retain a previous configuration document.
@@ -292,9 +434,17 @@ impl<'a> ResourcePreparation<'a> {
         factory: Arc<F>,
         options: Arc<F::Options>,
     ) -> Result<ComponentId, BuildError> {
+        self.prepare_component_recipe(namespace, ComponentRecipe::from_validated(factory, options))
+    }
+    /// Preserve the same typed validated recipe's concrete host native bindings
+    /// while adding it to this pass's one namespace/allocator and cold graph.
+    pub fn prepare_component_recipe(
+        &mut self,
+        namespace: &'static str,
+        recipe: ComponentRecipe,
+    ) -> Result<ComponentId, BuildError> {
         self.ensure_valid()?;
-        let result =
-            self.prepare_validated(namespace, ComponentRecipe::from_validated(factory, options));
+        let result = self.prepare_validated(namespace, recipe);
         if result.is_err() {
             self.invalidate();
         }
@@ -311,8 +461,12 @@ impl<'a> ResourcePreparation<'a> {
                 "component namespace is empty",
             ));
         }
+        let recipe = self.project_carrier_total(recipe)?;
         let key = Key {
             namespace,
+            accounting_limit: recipe.carrier_total_limit(),
+            process_limits: recipe.process_limits(),
+            preparation_limits: recipe.preparation_limits(),
             identity: recipe.spec().static_identity.clone(),
         };
         if let Some(existing) = self.resources.get(&key) {

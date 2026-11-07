@@ -103,6 +103,17 @@ impl NativeTcpGrant {
             bound: AtomicBool::new(false),
         })
     }
+    pub(super) fn bind_original_budgets(
+        &self,
+        roots: &Arc<zero_runtime::HostOriginalBudgets>,
+        tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+    ) -> Result<(), ChannelError> {
+        let mut native = self
+            .native
+            .try_lock()
+            .map_err(|_| ChannelError::new(Stage::Prepare, Reason::Capacity, Impact::Component))?;
+        native.bind_original_totals(self.identity, tasks, &roots.carrier)
+    }
     pub(super) fn accepted_task_receiver(
         &self,
     ) -> Option<zero_platform_tokio::AcceptedTcpTaskReceiver> {

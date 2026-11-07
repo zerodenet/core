@@ -137,25 +137,6 @@ impl DatagramUdpResponder<Arc<UserUdpStack>> for TunUdpResponder {
     }
 }
 
-pub(crate) async fn run_with_runtime(
-    runtime: UdpIngressRuntime,
-    stack: Arc<UserUdpStack>,
-    inbound_tag: String,
-    dns_hijack: bool,
-    dns_hijacked_queries: Arc<AtomicU64>,
-) -> Result<(), EngineError> {
-    run_inner(
-        runtime,
-        stack,
-        inbound_tag,
-        dns_hijack,
-        dns_hijacked_queries,
-        #[cfg(feature = "raw-ip-runtime")]
-        None,
-    )
-    .await
-}
-
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) async fn run_with_owned_tasks(
     runtime: UdpIngressRuntime,
@@ -169,6 +150,25 @@ pub(crate) async fn run_with_owned_tasks(
         inbound_tag,
         false,
         Arc::new(AtomicU64::new(0)),
+        Some(owners),
+    )
+    .await
+}
+
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) async fn run_with_device_tasks(
+    runtime: UdpIngressRuntime,
+    stack: Arc<UserUdpStack>,
+    inbound_tag: String,
+    owners: OwnedTunUdpTasks,
+    ingress: super::TunIngressOptions,
+) -> Result<(), EngineError> {
+    run_inner(
+        runtime,
+        stack,
+        inbound_tag,
+        ingress.dns_hijack,
+        ingress.dns_hijacked_queries,
         Some(owners),
     )
     .await

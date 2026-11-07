@@ -60,12 +60,15 @@ fn choose_grpc_service_name(service_names: &[String]) -> Result<&str, RuntimeErr
 }
 
 mod client;
+mod inline;
+pub use inline::connect_grpc_inline_with_settings;
 mod codec;
 mod keepalive;
 mod options;
 mod owned;
 pub use owned::{
     Demand, NativeGrpcStream, NativePoolFactory, NativePoolOptions, NativePoolSettings,
+    PoolBudgets, PoolTotals, TotalsFactory, TotalsOptions, TotalsProposal,
 };
 mod pool;
 mod prepared;
@@ -93,13 +96,14 @@ fn build_grpc_stream(
     send_stream: h2::SendStream<Bytes>,
     recv_stream: h2::RecvStream,
     multi: bool,
+    flush: std::sync::Arc<crate::native_flush::Flushed>,
 ) -> Result<GrpcStream, RuntimeError> {
     let (write_tx, write_rx) = mpsc::channel::<Vec<u8>>(16);
     let (read_tx, read_rx) = mpsc::channel::<io::Result<Vec<u8>>>(64);
 
     let progress = std::sync::Arc::new(progress::Progress::default());
-    spawn_grpc_write_relay(send_stream, write_rx, progress.clone(), true);
-    spawn_grpc_read_relay(recv_stream, read_tx, multi);
+    spawn_grpc_write_relay(send_stream, write_rx, progress.clone(), true, flush.clone());
+    spawn_grpc_read_relay(recv_stream, read_tx, multi, flush);
 
     Ok(GrpcStream::new(
         read_rx,
@@ -112,12 +116,13 @@ fn build_grpc_client_stream(
     send_stream: h2::SendStream<Bytes>,
     resp_future: h2::client::ResponseFuture,
     multi: bool,
+    flush: std::sync::Arc<crate::native_flush::Flushed>,
 ) -> GrpcStream {
     let prepared_stream::PreparedStream {
         stream,
         read,
         write,
-    } = prepared_stream::prepare_stream(send_stream, resp_future, multi);
+    } = prepared_stream::prepare_stream(send_stream, resp_future, multi, flush);
     tokio::spawn(write);
     tokio::spawn(read);
     stream
@@ -127,8 +132,9 @@ fn spawn_grpc_read_relay(
     recv_stream: h2::RecvStream,
     read_tx: mpsc::Sender<io::Result<Vec<u8>>>,
     multi: bool,
+    flush: std::sync::Arc<crate::native_flush::Flushed>,
 ) {
-    tokio::spawn(read_grpc_hunks(recv_stream, read_tx, multi, false));
+    tokio::spawn(read_grpc_hunks(recv_stream, read_tx, multi, false, flush));
 }
 
 #[cfg(test)]

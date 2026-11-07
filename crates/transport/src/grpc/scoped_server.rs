@@ -74,10 +74,13 @@ async fn drive<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    let flush = Arc::new(crate::native_flush::Flushed::default());
+    let _guard = crate::native_flush::DriverGuard(flush.clone());
     let activity = keepalive::Activity::new();
     let io = keepalive::ObservedIo {
         io: stream,
         activity: activity.clone(),
+        flush: crate::native_flush::NativeFlush::new(flush.clone()),
     };
     let mut builder = h2::server::Builder::new();
     builder.max_concurrent_streams(1024);
@@ -94,14 +97,33 @@ where
         let incoming = tokio::select! { biased;
             _=cancel.cancelled()=>return Ok(()),
             _=tx.closed()=>return Ok(()),
-            _=&mut alive=>return Ok(()),
+            result=&mut alive=>return result.map_err(|source|failure(flush.fail(source))),
             _=io_jobs.next(),if !io_jobs.is_empty()=>continue,
             incoming=conn.accept()=>incoming,
         };
-        let Some(incoming) = incoming else {
-            return Ok(());
+        let (request, mut respond) = match incoming {
+            Some(Ok(incoming)) => incoming,
+            terminal => {
+                let result = match terminal {
+                    Some(Err(source)) => Err(failure(flush.fail(io::Error::other(source)))),
+                    None => flush.finish(Ok(())).map_err(failure),
+                    Some(Ok(_)) => unreachable!(),
+                };
+                // Drop the actual failed/ended H2 connection so its original
+                // send/receive handles observe that terminal state. Retain all
+                // accepted workers, including a decoded hunk waiting for FIFO
+                // credit, until the application consumes it or returns its view.
+                drop(conn);
+                drop(tx);
+                while !io_jobs.is_empty() {
+                    tokio::select! { biased;
+                        _ = cancel.cancelled() => return result,
+                        _ = io_jobs.next() => {},
+                    }
+                }
+                return result;
+            }
         };
-        let (request, mut respond) = incoming.map_err(failure)?;
         let allowed = options::matches(&profile, &request);
         if !allowed || tx.capacity() == 0 || io_jobs.len() >= 130 {
             let response = Response::builder()
@@ -134,12 +156,14 @@ where
             progress.clone(),
             true,
             None,
+            flush.clone(),
         )));
         io_jobs.push(Box::pin(read_grpc_hunks(
             request.into_body(),
             read_tx,
             multi,
             false,
+            flush.clone(),
         )));
         let mut stream = GrpcStream::new(
             read_rx,

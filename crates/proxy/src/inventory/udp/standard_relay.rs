@@ -51,13 +51,56 @@ impl super::super::ProtocolInventory {
         // An existing background pool must consume its own standard Datagram
         // role. Its persistent provider, not a legacy claim or this request,
         // retains and opens the actual physical carrier.
-        let pooled = !node_business
-            && final_slot.recipe.spec().roles.contains(&RoleKind::Stream)
-            && final_slot.recipe.spec().task_limit.is_none()
-            && !final_slot.recipe.spec().dependencies.is_empty()
-            && final_slot.recipe.spec().resources.is_empty()
-            && plan.has_background_carrier_pool(final_slot.role_id())
-            && plan.stream_dependencies_supported(final_slot.role_id());
+        let node_original =
+            final_slot.recipe.spec().resources.iter().any(|resource| {
+                matches!(resource, ResourceDeclaration::ControlledNodeCarrier { .. })
+            }) && final_slot.recipe.spec().resources.iter().all(|resource| {
+                matches!(
+                    resource,
+                    ResourceDeclaration::ControlledNodeCarrier { .. }
+                        | ResourceDeclaration::File { .. }
+                )
+            });
+        if node_original
+            && !final_slot
+                .recipe
+                .spec()
+                .resources
+                .iter()
+                .enumerate()
+                .any(|(ordinal, resource)| match resource {
+                    ResourceDeclaration::ControlledNodeCarrier { max_sockets, .. } => final_slot
+                        .original_carrier_owner(ordinal)
+                        .is_some_and(|owner| {
+                            owner.instance() == final_slot.instance_id()
+                                && owner.limit() == *max_sockets
+                        }),
+                    _ => false,
+                })
+        {
+            return Some(Err(failure(
+                std::io::Error::other(crate::component::instance::invalid(
+                    zero_platform_tokio::contract::Reason::Revoked,
+                    "canonical Datagram original provider is not ready",
+                ))
+                .into(),
+            )));
+        }
+        let pooled = node_original
+            || !node_business
+                && final_slot.recipe.spec().roles.contains(&RoleKind::Stream)
+                && final_slot.recipe.spec().task_limit.is_none()
+                && !final_slot.recipe.spec().dependencies.is_empty()
+                && final_slot.recipe.spec().resources.iter().all(|resource| {
+                    matches!(
+                        resource,
+                        ResourceDeclaration::File { .. }
+                            | ResourceDeclaration::ControlledNodeCarrier { .. }
+                            | ResourceDeclaration::ControlledCarrierPool { datagram: true, .. }
+                    )
+                })
+                && plan.has_background_carrier_pool(final_slot.role_id())
+                && plan.stream_dependencies_supported(final_slot.role_id());
         if !node_business && !pooled {
             return None;
         }
@@ -77,23 +120,48 @@ impl super::super::ProtocolInventory {
                     }
                 };
             let spec = node.slot.recipe.spec();
-            if node.endpoint.is_none()
-                || node.dial != Default::default()
+            if node.endpoint.is_none() {
+                // This is the canonical device selected by the same host,
+                // including while its original source is still starting.
+                // A cold source must not cause a second legacy PacketFlow.
+                if !nodes.is_empty()
+                    || ![RoleKind::Packet, RoleKind::Stream, RoleKind::Datagram]
+                        .iter()
+                        .all(|role| spec.roles.contains(role))
+                    || plan.device_component(node.slot.id).is_err()
+                {
+                    return None;
+                }
+                if !plan.has_device_carrier_provider(node.slot.role_id()) {
+                    return Some(Err(failure(
+                        std::io::Error::other(crate::component::instance::invalid(
+                            zero_platform_tokio::contract::Reason::Revoked,
+                            "Datagram prefix actual device source is not ready",
+                        ))
+                        .into(),
+                    )));
+                }
+                borrowed = Some(nodes.len());
+                nodes.push(node);
+                continue;
+            }
+            if node.dial != Default::default()
                 || !spec.roles.contains(&RoleKind::Stream)
                 || spec.resources.iter().any(|resource| {
                     !matches!(
                         resource,
                         ResourceDeclaration::File { .. }
-                            | ResourceDeclaration::ControlledCarrierPool {
-                                datagram: false,
-                                ..
-                            }
+                            | ResourceDeclaration::ControlledCarrierPool { .. }
+                            | ResourceDeclaration::ControlledNodeCarrier { .. }
+                            | ResourceDeclaration::ControlledAssociationPool { .. }
                     )
                 })
             {
                 return None;
             }
-            if spec.task_limit.is_some() || !plan.stream_dependencies_supported(node.slot.role_id())
+            if (spec.task_limit.is_some()
+                && !plan.has_preparing_node_carrier_provider(node.slot.role_id()))
+                || !plan.stream_dependencies_supported(node.slot.role_id())
             {
                 return None;
             }
@@ -111,10 +179,11 @@ impl super::super::ProtocolInventory {
         if final_slot.dial != Default::default() {
             return None;
         }
-        if matches!(
-            nodes[0].endpoint.as_ref()?.address,
-            zero_core::Address::Domain(_)
-        ) && zero_dns::native::validate_node_config(ctx.config().runtime.dns.as_ref()).is_err()
+        if nodes[0]
+            .endpoint
+            .as_ref()
+            .is_some_and(|endpoint| matches!(endpoint.address, zero_core::Address::Domain(_)))
+            && zero_dns::native::validate_node_config(ctx.config().runtime.dns.as_ref()).is_err()
         {
             return None;
         }

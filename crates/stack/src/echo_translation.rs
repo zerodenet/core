@@ -11,6 +11,12 @@ use std::{
 };
 
 use crate::packet;
+use std::sync::Arc;
+use zero_traits::PacketBuffer;
+#[cfg(feature = "packet-memory")]
+mod owned;
+#[cfg(feature = "packet-memory")]
+pub use owned::{OwnedEchoResponse, OwnedTranslationFailure};
 
 const MAX_REQUESTS: usize = 1_024;
 const MAX_BYTES: usize = 2 * 1024 * 1024;
@@ -26,10 +32,12 @@ pub struct EchoTranslation<C> {
 }
 
 struct Pending<C> {
-    original: Vec<u8>,
-    translated: Vec<u8>,
+    original: Arc<PacketBuffer>,
+    translated: PacketBuffer,
     context: C,
     expires: Instant,
+    #[cfg(feature = "packet-memory")]
+    response: Option<owned::ResponseMemory>,
 }
 
 impl<C> Default for EchoTranslation<C> {
@@ -89,10 +97,12 @@ impl<C> EchoTranslation<C> {
         self.pending.insert(
             key,
             Pending {
-                original: packet.to_vec(),
-                translated: translated.clone(),
+                original: Arc::new(packet.to_vec().into()),
+                translated: translated.clone().into(),
                 context,
                 expires,
+                #[cfg(feature = "packet-memory")]
+                response: None,
             },
         );
         Ok(translated)
@@ -138,6 +148,12 @@ impl<C> EchoTranslation<C> {
         if self.pending.capacity() > self.pending.len().saturating_mul(4).max(16) {
             self.pending.shrink_to(self.pending.len());
         }
+    }
+
+    /// Pending originals and their prepaid response storage still belong to
+    /// this actual translation table until reply, expiry or matching sink close.
+    pub fn is_empty(&self) -> bool {
+        self.pending.is_empty()
     }
 
     pub fn clear(&mut self) {

@@ -16,11 +16,14 @@ use std::{
 };
 use zero_core::component::ComponentInstanceId;
 mod binding;
+mod close;
 mod permit;
 mod registration;
+mod totals;
 pub(crate) use permit::MetadataCandidate;
 pub use permit::{MetadataPoolClosed, MetadataPoolOrigin, MetadataPoolPermit};
 pub use registration::{MetadataPoolOwnerClosed, MetadataPoolRegistration};
+pub(crate) use totals::MetadataTotalsOriginal;
 
 // Only sealed current candidates can populate this immutable observation.
 pub(crate) type MetadataPoolBinding = (
@@ -45,6 +48,7 @@ struct Shared {
     confirmed_native: std::sync::atomic::AtomicBool,
     state: Mutex<State>,
     changed: Arc<tokio::sync::Notify>,
+    totals: OnceLock<Arc<crate::controlled_carrier::CarrierOriginalTotals>>,
 }
 struct State {
     bound: Option<Arc<binding::Authority>>,
@@ -113,6 +117,7 @@ impl MetadataPoolOwner {
                 closed: Arc::default(),
                 confirmed_native: std::sync::atomic::AtomicBool::new(false),
                 changed: Arc::default(),
+                totals: OnceLock::new(),
                 state: Mutex::new(State {
                     bound: None,
                     live: false,
@@ -192,6 +197,18 @@ impl MetadataPoolOwner {
                     .load(std::sync::atomic::Ordering::Acquire),
             );
         }
+        if !self
+            .shared
+            .state
+            .lock()
+            .expect("metadata pool poisoned")
+            .slots
+            .is_empty()
+        {
+            report.unfinished.push(Unfinished::Resource(
+                "metadata original registration ACK remains retained".into(),
+            ));
+        }
         failure.map_or(Ok(report), Err)
     }
 }
@@ -211,6 +228,30 @@ impl MetadataPoolGrants {
             .owner
             .upgrade()
             .ok_or_else(|| error(Reason::Revoked, "metadata owner dropped"))?;
+        if let Some(totals) = owner.totals.get() {
+            totals.reconcile();
+        }
+        // A fixed library owner may have no Host Root. Scan only the ordinal
+        // range present at entry, taking one actual Arc outside the owner lock.
+        // Concurrent later reservations cannot extend this finite traversal.
+        let end = owner.state.lock().expect("metadata pool poisoned").next;
+        let mut previous = 0;
+        loop {
+            use std::ops::Bound::{Excluded, Included};
+            let next = owner
+                .state
+                .lock()
+                .expect("metadata pool poisoned")
+                .slots
+                .range((Excluded(previous), Included(end)))
+                .next()
+                .map(|(ordinal, slot)| (*ordinal, slot.clone()));
+            let Some((ordinal, slot)) = next else {
+                break;
+            };
+            previous = ordinal;
+            MetadataPoolPermit(slot).release_registration_credit();
+        }
         let authority = owner
             .state
             .lock()
@@ -259,6 +300,12 @@ impl MetadataPoolGrants {
                 report: None,
             }),
         });
+        if let Some(totals) = owner.totals.get() {
+            totals.reserve_metadata(Arc::new(MetadataTotalsOriginal::new(
+                owner.clone(),
+                slot.clone(),
+            )))?;
+        }
         state.slots.insert(ordinal, slot.clone());
         Ok(MetadataPoolPermit(slot))
     }

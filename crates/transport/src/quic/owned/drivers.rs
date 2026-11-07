@@ -151,3 +151,11 @@ impl QuinnDriverOwner {
         self.ledger.reclaim_received();
     }
 }
+
+impl QuinnDriverOwner {
+    pub(super) fn registration_ledger(
+        &self,
+    ) -> tracked::DriverOwner<OwnedDriverOrigin, DriverBody> {
+        self.ledger.clone()
+    }
+}

@@ -1,4 +1,5 @@
 //! Cold production role selection over the protocol's actual gRPC owner.
+mod material;
 mod production;
 use super::*;
 use crate::component::background::stateless;
@@ -8,7 +9,12 @@ use zero_platform_tokio::contract::{
     component::{BuildContext, ComponentFactory, ComponentInstance, ComponentSpec},
     lifecycle::BuildError,
 };
+#[derive(Clone)]
 pub(crate) enum Options {
+    Owned(
+        Arc<Options>,
+        Arc<crate::component::background::BackgroundNetwork>,
+    ),
     Ordinary(Arc<stateless::Options<::vmess::component::Options>>),
     Grpc(Arc<::vmess::component::grpc::Options>),
 }
@@ -17,6 +23,7 @@ impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
         match options {
+            Options::Owned(options, _) => self.describe(options),
             Options::Ordinary(options) => {
                 stateless::Factory(::vmess::component::Factory).describe(options)
             }
@@ -28,13 +35,34 @@ impl ComponentFactory for Factory {
         options: Arc<Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
+        Self::build_resolved(options, context, None)
+    }
+}
+impl Factory {
+    fn build_resolved(
+        options: Arc<Options>,
+        context: BuildContext,
+        resolver: Option<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>,
+    ) -> Result<ComponentInstance, BuildError> {
         match options.as_ref() {
+            Options::Owned(options, network) => {
+                let resolver = crate::component::background::tls_material::resolver(
+                    network.clone(),
+                    context.instance(),
+                );
+                Self::build_resolved(options.clone(), context, Some(resolver))
+            }
             Options::Ordinary(options) => {
-                stateless::Factory(::vmess::component::Factory).build(options.clone(), context)
+                stateless::Factory(material::Factory { resolver }).build(options.clone(), context)
             }
-            Options::Grpc(options) => {
-                ::vmess::component::grpc::Factory.build(options.clone(), context)
-            }
+            Options::Grpc(options) => match resolver {
+                Some(resolver) => ::vmess::component::grpc::Factory.build_with_ech_resolver(
+                    options.clone(),
+                    context,
+                    resolver,
+                ),
+                None => ::vmess::component::grpc::Factory.build(options.clone(), context),
+            },
         }
     }
 }
@@ -42,15 +70,26 @@ pub(crate) fn eligible(input: &OutboundConfig) -> bool {
     if super::native_input(input) {
         return true;
     }
-    matches!(&input.protocol, OutboundProtocolConfig::Vmess {server, mux_concurrency:None, grpc:Some(_), ws:None, tls,..}
-        if !server.is_empty()
-        && tls.as_ref().is_none_or(|tls|!tls.options.ech_config_list.contains("://")
+    matches!(&input.protocol,OutboundProtocolConfig::Vmess{server,mux_concurrency:None,grpc:Some(_),ws:None,tls,..}
+        if !server.is_empty() && tls.as_ref().is_none_or(|tls|!tls.options.ech_config_list.contains("://")
             && !zero_transport::tls::PreparedClient::validate_profile(tls.as_ref()).is_err_and(|error|error.kind()==std::io::ErrorKind::Unsupported)))
 }
+pub(crate) fn owned_eligible(input: &OutboundConfig) -> bool {
+    if super::owned_input(input) {
+        return true;
+    }
+    matches!(&input.protocol,OutboundProtocolConfig::Vmess{server,mux_concurrency:None,grpc:Some(_),ws:None,tls,..}
+        if !server.is_empty() && tls.as_ref().is_none_or(|tls|zero_transport::tls::OwnedPreparedClient::validate_profile(tls.as_ref()).is_ok()))
+}
+
 impl Options {
     pub(crate) fn bind_node_dns(&mut self, dependency: zero_core::component::ComponentId) {
-        if let Self::Grpc(options) = self {
-            *options = Arc::new((**options).clone_with_node_dns(dependency));
+        match self {
+            Self::Owned(options, _) => Arc::make_mut(options).bind_node_dns(dependency),
+            Self::Grpc(options) => *options = Arc::new((**options).clone_with_node_dns(dependency)),
+            Self::Ordinary(options) => {
+                *options = Arc::new((**options).clone().with_node_dns(dependency))
+            }
         }
     }
 }
@@ -62,12 +101,15 @@ pub(crate) fn selected(
     candidate: Option<&zero_config::RuntimeConfig>,
     native: bool,
 ) -> bool {
-    eligible(input)
-        && (!is_domain(input)
-            || (native
-                && candidate.is_some_and(|c| {
-                    zero_dns::native::validate_node_config(c.runtime.dns.as_ref()).is_ok()
-                })))
+    (if native {
+        owned_eligible(input)
+    } else {
+        eligible(input)
+    }) && (!is_domain(input)
+        || (native
+            && candidate.is_some_and(|c| {
+                zero_dns::native::validate_node_config(c.runtime.dns.as_ref()).is_ok()
+            })))
 }
 impl super::super::VmessAdapter {
     #[cfg(test)]
@@ -143,4 +185,9 @@ impl super::super::VmessAdapter {
             ConfigError::InvalidOutbound(format!("outbound `{}`: {source}", input.tag))
         })
     }
+}
+
+pub(crate) fn taskless_domain(input: &OutboundConfig) -> bool {
+    super::native_input(input)
+        && matches!(&input.protocol,OutboundProtocolConfig::Vmess{server,..} if zero_core::address::parse_ip_literal(server).is_none())
 }

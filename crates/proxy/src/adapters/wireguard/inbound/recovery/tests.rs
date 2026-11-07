@@ -39,9 +39,10 @@ fn passive_restore_and_port_move_keep_the_actual_crypto_owner_and_finite_declara
         matches!(cold.resources(), [ResourceDeclaration::DatagramListener {
         accepted: None,
         destination: actual, max_bind_attempts, max_pending_sends,
-    }, ResourceDeclaration::NativeIcmp { max_sockets }]
+    }, ResourceDeclaration::NativeIcmp { max_sockets }, ResourceDeclaration::PacketDatagramReads { datagram:0,workspaces,control_workspace }]
         if actual == &destination && max_bind_attempts.get() == 50
-            && max_pending_sends.get() == 1 && max_sockets.get() == 64)
+            && max_pending_sends.get() == 1 && max_sockets.get() == 64
+            && workspaces.iter().all(|bytes|bytes.get()==65_536) && control_workspace.is_some_and(|bytes|bytes.get()==148))
     );
     assert!(Arc::ptr_eq(
         &adapter.passive_inbound_live(&moved).unwrap(),

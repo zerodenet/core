@@ -123,11 +123,24 @@ impl PeerResourceContext {
                 max_sockets,
                 max_bindings,
             };
-            let provider = HostBoundDatagramResources::new(
+            let peer = self
+                .binding
+                .join_witness()
+                .filter(|peer| peer.task_id() == Some(identity.task))
+                .ok_or_else(|| {
+                    error(Reason::StalePlan, "original peer witness is not installed")
+                })?;
+            let provider = HostBoundDatagramResources::new_for_peer_with_totals(
                 identity.instance,
-                identity.task,
+                &peer,
                 &declaration,
                 cancel,
+                self.group
+                    .protocols
+                    .runtime_host()
+                    .original_budgets()
+                    .carrier
+                    .clone(),
             )?;
             let completion = PeerBoundDatagramRegistration::new(identity, self.binding.clone());
             let authority = Arc::new(PeerBoundDatagramAuthority {

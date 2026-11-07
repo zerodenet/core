@@ -32,7 +32,7 @@ impl PendingLinkedEndpoint {
         listen: ListenConfig,
         live: Arc<LiveInboundDevice>,
     ) -> Self {
-        Self::build(listen, live, 0, false).expect("empty passive endpoint")
+        Self::build(listen, live, 0, 0, false).expect("empty passive endpoint")
     }
     /// Pure declaration of exactly the configured peers. The pending map must
     /// retain this object before any peer's owned build can be polled.
@@ -41,15 +41,26 @@ impl PendingLinkedEndpoint {
         live: Arc<LiveInboundDevice>,
         peers: usize,
     ) -> Result<Self, EngineError> {
-        Self::build(listen, live, peers, true)
+        Self::with_peer_layout(listen, live, peers, peers)
+    }
+    pub(in crate::adapters::wireguard) fn with_peer_layout(
+        listen: ListenConfig,
+        live: Arc<LiveInboundDevice>,
+        stacks: usize,
+        carriers: usize,
+    ) -> Result<Self, EngineError> {
+        Self::build(listen, live, stacks, carriers, true)
     }
     fn build(
         listen: ListenConfig,
         live: Arc<LiveInboundDevice>,
-        peers: usize,
+        stacks: usize,
+        carriers: usize,
         owned: bool,
     ) -> Result<Self, EngineError> {
-        if peers > crate::runtime::raw_ip::MAX_RAW_IP_DEVICES {
+        if stacks > crate::runtime::raw_ip::MAX_RAW_IP_DEVICES
+            || carriers > crate::runtime::raw_ip::MAX_RAW_IP_DEVICES
+        {
             return Err(super::invalid("linked endpoint peer owner limit exceeded"));
         }
         Ok(Self {
@@ -59,10 +70,10 @@ impl PendingLinkedEndpoint {
             resources: Arc::new(PeerResources {
                 owned,
                 graph: std::sync::Mutex::new(std::sync::Weak::new()),
-                peer_stacks: (0..peers)
+                peer_stacks: (0..stacks)
                     .map(|_| crate::runtime::raw_ip::EndpointStackOwner::suspended())
                     .collect(),
-                peer_carriers: (0..peers)
+                peer_carriers: (0..carriers)
                     .map(|_| {
                         crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot::new()
                     })
@@ -228,5 +239,49 @@ impl PeerResources {
         self.owned
             && (self.peer_stacks.iter().any(|owner| owner.needs_cleanup())
                 || self.peer_carriers.iter().any(|owner| owner.needs_cleanup()))
+    }
+}
+
+#[cfg(test)]
+impl PeerResources {
+    pub(in crate::adapters::wireguard) fn test_actual_graph(
+        &self,
+    ) -> Option<Arc<super::recipe::component::LinkedStackOptions>> {
+        self.graph.lock().unwrap().upgrade()
+    }
+}
+
+impl PeerResources {
+    pub(super) fn actual_flow_sources(
+        &self,
+    ) -> Result<
+        Vec<(
+            Arc<crate::runtime::raw_ip::SharedRawIpDevice>,
+            zero_platform_tokio::controlled_carrier::CarrierOrigin,
+        )>,
+        EngineError,
+    > {
+        let graph = self
+            .graph
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .upgrade()
+            .ok_or_else(|| super::invalid("current linked original graph is unavailable"))?;
+        let origin = graph
+            .actual_source_origin()
+            .map_err(std::io::Error::other)?;
+        self.peer_stacks
+            .iter()
+            .map(|owner| {
+                // Retirement observes this same retained original even after
+                // its IO admission has closed. A closed device still owns its
+                // users/queues/Scope debt; it is not an unavailable owner and
+                // cannot be replaced by a new or guessed healthy device.
+                let device = owner.device().ok_or_else(|| {
+                    super::invalid("current linked original stack is unavailable")
+                })?;
+                Ok((device, origin.clone()))
+            })
+            .collect()
     }
 }

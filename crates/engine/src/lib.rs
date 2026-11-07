@@ -1,4 +1,5 @@
 mod api;
+mod config_query;
 mod error;
 mod groups;
 pub use groups::{GroupSelectionBinding, GroupSelectionChanged, SelectionChange};
@@ -7,9 +8,20 @@ mod observability;
 mod plan;
 mod principal;
 mod runtime;
+pub(crate) mod runtime_query;
+pub use runtime_query::{
+    EngineFlowSnapshot, EngineFlowSnapshotGuard, EngineRuntimeQuery, EngineRuntimeQueryGuard,
+    MissingFlow,
+};
+mod traffic_query;
+pub use traffic_query::{EngineTrafficQuery, EngineTrafficQueryGuard, TrafficQueryError};
 mod session;
 
-pub use api::{register_build_features, EngineHandle, EventSubscriber};
+pub use api::{
+    control_build_features, register_build_features, EngineHandle, EventSubscriber, RetainedEvent,
+    CONTROL_CAPABILITY_FEATURES,
+};
+pub use config_query::{EngineConfigQuery, MissingPolicy};
 pub use error::EngineError;
 pub type EventsSinceResult = zero_api::EventReplay;
 // Re-export snapshot types from zero-api so downstream code doesn't need
@@ -26,8 +38,9 @@ pub use plan::{
     TargetKind, TargetNode, UrlTestGroupPlan, UrlTestSelection, UrlTestSelectionReason,
 };
 pub use principal::{
-    inspect_principal_quota_state, PrincipalCancellationRegistration, PrincipalDeviceRegistration,
-    PrincipalQuotaStateReport, PrincipalQuotaStateStatus,
+    inspect_principal_quota_state, inspect_principal_quota_state_with_source,
+    PrincipalCancellationRegistration, PrincipalDeviceRegistration, PrincipalQuotaStateReport,
+    PrincipalQuotaStateStatus,
 };
 pub use runtime::{
     ConfigurationPublication, EndpointAdmission, EndpointChange, Engine, EngineRuntimeSnapshot,
@@ -57,3 +70,5 @@ pub use observability::traffic::{
     HostInterfaceSample, InboundTrafficRegistration, PreparedEndpointTraffic, TrafficMeter,
     TrafficRouteLease,
 };
+
+pub use observability::{OriginalEventHistory, RetainedReplay};

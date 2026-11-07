@@ -51,6 +51,19 @@ impl DatagramResource {
             actual: OnceLock::new(),
         })
     }
+    pub(super) fn bind_original_budgets(
+        &self,
+        instance: zero_core::component::ComponentInstanceId,
+        roots: Arc<zero_runtime::HostOriginalBudgets>,
+        tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+        stop: CancellationToken,
+    ) -> Result<(), EngineError> {
+        self.native
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .bind_original_budgets_for_instance(instance, roots, tasks.downgrade(), stop)
+            .map_err(|source| std::io::Error::other(source).into())
+    }
     pub(super) fn open(
         &self,
         destination: Destination,

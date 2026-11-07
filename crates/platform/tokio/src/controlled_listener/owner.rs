@@ -1,9 +1,9 @@
 //! Install this owner before calling bind; no native work occurs in `new`.
 use super::*;
 use crate::contract::{
+    ChannelError, CloseReason, DeliveryState, Impact, Reason, RetryClass, Stage,
     component::ResourceDeclaration,
     lifecycle::{ChannelControl, CloseReport},
-    ChannelError, CloseReason, DeliveryState, Impact, Reason, RetryClass, Stage,
 };
 use std::{net::IpAddr, num::NonZeroUsize};
 use tokio::time::Instant;
@@ -26,6 +26,12 @@ pub struct ControlledTcpListenerOwner {
     pub(super) pending_close: CloseReport,
 }
 impl ControlledTcpListenerOwner {
+    /// Whether this owner published a unique successful listener view. This is
+    /// a cold-binding fence only, never native-close or user-return evidence.
+    pub(super) fn acquired_view(&self) -> bool {
+        self.acquired
+    }
+
     /// Pure validation/allocation. No DNS, native socket or runtime task.
     /// Caller selects the actual existing retry budget; there is no default.
     pub fn new(
@@ -96,6 +102,7 @@ impl ControlledTcpListenerOwner {
         }
         let shared = Arc::new(Shared {
             accepted: None,
+            originals: std::sync::OnceLock::new(),
             state: Mutex::new(State {
                 listener: None,
                 raw: None,
@@ -103,6 +110,7 @@ impl ControlledTcpListenerOwner {
                 retired: false,
                 closed: false,
                 error: None,
+                attempt: None,
             }),
             cancel: parent.child_token(),
             label: format!("native TCP listener {destination:?}"),
@@ -165,6 +173,13 @@ impl ControlledTcpListenerOwner {
             )
             .with_source(source)
         })?;
+        let attempt = Arc::new(super::totals::Attempt::new());
+        let charge = shared
+            .originals
+            .get()
+            .map(|binding| binding.reserve(&shared, &attempt))
+            .transpose()?;
+        state.attempt = Some(Arc::downgrade(&attempt));
         self.remaining -= 1;
         if let Err((stage, source)) = acquire::bind(&mut state, address) {
             let source = Arc::new(source);
@@ -178,12 +193,22 @@ impl ControlledTcpListenerOwner {
                 // the permanent Unknown, replacing only the pre-call sentinel.
                 state.error = Some(source.clone());
             }
+            if state.error.is_none() && state.raw.is_none() && state.listener.is_none() {
+                // Only this observed synchronous failed exit can certify that
+                // no view or wire driver was published from this exact attempt.
+                attempt.failed_return();
+                if let Some(charge) = &charge {
+                    charge.release_settled();
+                }
+            }
             return Err(failure(stage, source, state.error.is_some()));
         }
         self.acquired = true;
+        attempt.publish_view();
         Ok(ControlledTcpListener {
             cancelled: Box::pin(shared.cancel.clone().cancelled_owned()),
             shared: shared.clone(),
+            attempt: Some(attempt),
         })
     }
 

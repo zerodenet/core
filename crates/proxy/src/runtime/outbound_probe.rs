@@ -1,54 +1,27 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, OnceLock,
+};
 
 use futures_util::future::{BoxFuture, FutureExt, Shared};
-use tokio::sync::Semaphore;
-use tokio::time::timeout;
-use zero_core::{Address, Network, ProtocolType, Session};
-use zero_engine::{EngineError, ResolvedOutbound, TargetId};
-use zero_traits::AsyncSocket;
+use zero_engine::{ResolvedOutbound, TargetId};
 
 use crate::protocol_registry::TcpRuntimeServices;
-use crate::transport::extract_tcp_stream;
 
+mod execution;
 mod model;
 
 pub(crate) use model::{OutboundProbeError, OutboundProbeRequest};
 
-pub(crate) const MAX_CONCURRENT_OUTBOUND_PROBES: usize = 8;
+pub(crate) const MAX_CONCURRENT_OUTBOUND_PROBES: usize = zero_runtime::MAX_PROBE_OPERATIONS;
 const OUTBOUND_PROBE_TRANSPORT_TIMEOUT_MS: u64 = 5_000;
 const OUTBOUND_PROBE_MAX_TIMEOUT_MS: u64 = 60_000;
 
 type SharedProbeFuture = Shared<BoxFuture<'static, Result<u64, OutboundProbeError>>>;
 
-struct SharedProbeEntry {
-    future: SharedProbeFuture,
-    waiters: usize,
-}
-
-struct SharedProbeWaiter {
-    probes: Arc<Mutex<HashMap<ProbeKey, SharedProbeEntry>>>,
-    key: ProbeKey,
-    future: SharedProbeFuture,
-}
-
-impl Drop for SharedProbeWaiter {
-    fn drop(&mut self) {
-        let mut probes = self
-            .probes
-            .lock()
-            .expect("shared outbound probe lock poisoned");
-        let Some(entry) = probes.get_mut(&self.key) else {
-            return;
-        };
-        if entry.waiters <= 1 {
-            probes.remove(&self.key);
-        } else {
-            entry.waiters -= 1;
-        }
-    }
-}
+mod shared;
+use shared::{ProbeOriginal, SharedProbeEntry, SharedProbeWaiter};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct OutboundProbeDeadline {
@@ -60,6 +33,7 @@ pub(crate) struct OutboundProbeDeadline {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct ProbeKey {
+    host_identity: usize,
     config_identity: usize,
     target_tag: String,
     url: String,
@@ -69,7 +43,6 @@ struct ProbeKey {
 #[derive(Clone)]
 pub(crate) struct OutboundProbeRuntime {
     services: TcpRuntimeServices,
-    limiter: Arc<Semaphore>,
     shared_probes: Arc<Mutex<HashMap<ProbeKey, SharedProbeEntry>>>,
 }
 
@@ -77,16 +50,27 @@ impl OutboundProbeRuntime {
     pub(crate) fn new(services: TcpRuntimeServices) -> Self {
         Self {
             services,
-            limiter: global_probe_limiter(),
             shared_probes: global_shared_probes(),
         }
     }
 
     pub(crate) fn clear_shared(&self) {
-        self.shared_probes
+        let host_identity = Arc::as_ptr(&self.services.protocols().runtime_host()) as usize;
+        let mut probes = self
+            .shared_probes
             .lock()
-            .expect("shared outbound probe lock poisoned")
-            .clear();
+            .expect("shared outbound probe lock poisoned");
+        let keys: Vec<_> = probes
+            .keys()
+            .filter(|key| key.host_identity == host_identity)
+            .cloned()
+            .collect();
+        let removed: Vec<_> = keys
+            .into_iter()
+            .filter_map(|key| probes.remove(&key))
+            .collect();
+        drop(probes);
+        drop(removed);
     }
 
     /// Probe deadline budget, including node-DNS fallbacks and its hard cap.
@@ -114,6 +98,33 @@ impl OutboundProbeRuntime {
             target_id,
             request,
             crate::runtime::tcp_dispatch::TcpDispatchIntent::DiagnosticProbe,
+            None,
+        )
+        .await
+    }
+
+    pub(crate) async fn probe_target_tag_until(
+        &self,
+        target_tag: &str,
+        request: &OutboundProbeRequest,
+        stop: &zero_platform_tokio::contract::CancellationToken,
+    ) -> Result<u64, OutboundProbeError> {
+        let target_id = self
+            .services
+            .snapshot()
+            .plan()
+            .target_id(target_tag)
+            .ok_or_else(|| {
+                OutboundProbeError::new(
+                    "target_not_found",
+                    format!("outbound probe target `{target_tag}` was not found"),
+                )
+            })?;
+        self.probe_target_with_intent(
+            target_id,
+            request,
+            crate::runtime::tcp_dispatch::TcpDispatchIntent::DiagnosticProbe,
+            Some(stop),
         )
         .await
     }
@@ -127,6 +138,7 @@ impl OutboundProbeRuntime {
             target_id,
             request,
             crate::runtime::tcp_dispatch::TcpDispatchIntent::PolicyProbe,
+            None,
         )
         .await
     }
@@ -136,6 +148,7 @@ impl OutboundProbeRuntime {
         target_id: TargetId,
         request: &OutboundProbeRequest,
         intent: crate::runtime::tcp_dispatch::TcpDispatchIntent,
+        stop: Option<&zero_platform_tokio::contract::CancellationToken>,
     ) -> Result<u64, OutboundProbeError> {
         let target_tag = self.target_tag(target_id).ok_or_else(|| {
             OutboundProbeError::new(
@@ -144,37 +157,55 @@ impl OutboundProbeRuntime {
             )
         })?;
         let key = ProbeKey {
+            host_identity: Arc::as_ptr(&self.services.protocols().runtime_host()) as usize,
             config_identity: Arc::as_ptr(self.services.snapshot().config()) as usize,
             target_tag,
             url: request.url.clone(),
             intent,
         };
-        let waiter = {
+        // Existing coalesced calls require no second credit. New map entries
+        // are bounded before publication, including calls queued for a task.
+        let existing = {
             let mut probes = self
                 .shared_probes
                 .lock()
                 .expect("shared outbound probe lock poisoned");
-            let future = if let Some(existing) = probes.get_mut(&key) {
+            probes.get_mut(&key).map(|entry| {
+                entry.waiters += 1;
+                (entry.future.clone(), entry.original.clone())
+            })
+        };
+        let (future, original) = if let Some(existing) = existing {
+            existing
+        } else {
+            let reserve = zero_runtime::reserve_probe();
+            tokio::pin!(reserve);
+            let credit = match stop {
+                Some(stop) => tokio::select! { biased;
+                    _ = stop.cancelled() => return Err(cancelled_probe()),
+                    credit = &mut reserve => credit,
+                },
+                None => reserve.await,
+            }
+            .map_err(|source| OutboundProbeError::new("probe_unavailable", source.to_string()))?;
+            let mut probes = self
+                .shared_probes
+                .lock()
+                .expect("shared outbound probe lock poisoned");
+            if let Some(existing) = probes.get_mut(&key) {
                 existing.waiters += 1;
-                existing.future.clone()
+                let future = (existing.future.clone(), existing.original.clone());
+                drop(probes);
+                drop(credit);
+                future
             } else {
                 let runtime = self.clone();
                 let request = request.clone();
+                let original = Arc::new(ProbeOriginal::default());
+                let accepted = original.clone();
                 let future = async move {
-                    let _permit = runtime.limiter.clone().acquire_owned().await.map_err(|_| {
-                        OutboundProbeError::new(
-                            "probe_unavailable",
-                            "outbound probe concurrency limiter is unavailable",
-                        )
-                    })?;
-                    let Some((resolved, _plan)) = runtime.resolve_target_id(target_id) else {
-                        return Err(OutboundProbeError::new(
-                            "target_resolution_failed",
-                            "failed to resolve outbound probe target",
-                        ));
-                    };
                     runtime
-                        .probe_resolved_outbound(resolved, &request, intent)
+                        .run_accepted_probe(target_id, request, intent, credit, accepted)
                         .await
                 }
                 .boxed()
@@ -184,102 +215,35 @@ impl OutboundProbeRuntime {
                     SharedProbeEntry {
                         future: future.clone(),
                         waiters: 1,
+                        original: original.clone(),
                     },
                 );
-                future
-            };
-            SharedProbeWaiter {
-                probes: self.shared_probes.clone(),
-                key,
-                future,
+                (future, original)
             }
         };
+        let mut waiter = SharedProbeWaiter {
+            probes: self.shared_probes.clone(),
+            key,
+            future,
+            original,
+            attached: true,
+        };
 
-        let result = waiter.future.clone().await;
+        let result = match stop {
+            Some(stop) => tokio::select! { biased;
+                _ = stop.cancelled() => {
+                    // Stop this caller immediately. Only the last coalesced
+                    // caller cancels the same actual host call. Keep polling
+                    // its original future through real Native/Scope cleanup.
+                    waiter.detach();
+                    waiter.future.clone().await
+                },
+                result = waiter.future.clone() => result,
+            },
+            None => waiter.future.clone().await,
+        };
         drop(waiter);
         result
-    }
-
-    async fn probe_resolved_outbound(
-        &self,
-        resolved: ResolvedOutbound<'static>,
-        request: &OutboundProbeRequest,
-        intent: crate::runtime::tcp_dispatch::TcpDispatchIntent,
-    ) -> Result<u64, OutboundProbeError> {
-        if matches!(resolved, ResolvedOutbound::Relay { .. }) {
-            return Err(OutboundProbeError::new(
-                "unsupported_target",
-                "relay chain cannot be used as an outbound latency probe target",
-            ));
-        }
-
-        let timeout_ms = self.probe_deadline().timeout_ms;
-        match timeout(Duration::from_millis(timeout_ms), async {
-            let started_at = Instant::now();
-            let session = Session::new(
-                0,
-                Address::Domain(request.host.clone()),
-                request.port,
-                Network::Tcp,
-                ProtocolType::UNKNOWN,
-            );
-            let outbound = crate::runtime::tcp_dispatch::dispatch_tcp_outbound(
-                self.services.clone().with_service_invocation(
-                    crate::component::direct_bridge::ServiceInvocation {
-                        deadline: tokio::time::Instant::now() + Duration::from_millis(timeout_ms),
-                        purpose: if intent
-                            == crate::runtime::tcp_dispatch::TcpDispatchIntent::PolicyProbe
-                        {
-                            zero_core::request::ServicePurpose::HealthProbe
-                        } else {
-                            zero_core::request::ServicePurpose::DiagnosticProbe
-                        },
-                    },
-                ),
-                &session,
-                resolved,
-                zero_engine::RouteMode::Auto,
-                intent,
-            )
-            .await
-            .map_err(|failure| failure.error)?;
-            let result = extract_tcp_stream(outbound)?;
-            let mut socket = result.upstream;
-            socket
-                .write_all(request.request.as_bytes())
-                .await
-                .map_err(EngineError::from)?;
-
-            let mut response = [0_u8; 1];
-            let read = socket
-                .read(&mut response)
-                .await
-                .map_err(EngineError::from)?;
-            if read == 0 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::UnexpectedEof,
-                    "outbound probe target closed without an HTTP response",
-                )
-                .into());
-            }
-            if intent == crate::runtime::tcp_dispatch::TcpDispatchIntent::PolicyProbe
-                && !result.is_direct
-            {
-                self.services.engine().record_outbound_success_in_snapshot(
-                    self.services.snapshot(),
-                    &result.outbound_tag,
-                );
-            }
-            Ok(started_at.elapsed().as_millis() as u64)
-        })
-        .await
-        {
-            Ok(result) => result.map_err(OutboundProbeError::from_engine),
-            Err(_) => Err(OutboundProbeError::new(
-                "probe_timeout",
-                format!("outbound latency probe timed out after {timeout_ms} ms"),
-            )),
-        }
     }
 
     fn resolve_target_id(
@@ -296,6 +260,16 @@ impl OutboundProbeRuntime {
             .engine()
             .target_tag_in_snapshot(self.services.snapshot(), target_id)
     }
+}
+
+fn cancelled_probe() -> OutboundProbeError {
+    OutboundProbeError::from_engine(
+        std::io::Error::new(
+            std::io::ErrorKind::Interrupted,
+            "diagnostic caller cancelled",
+        )
+        .into(),
+    )
 }
 
 fn probe_deadline_for_dns(dns: Option<&zero_config::DnsConfig>) -> OutboundProbeDeadline {
@@ -329,13 +303,6 @@ fn probe_deadline_for_dns(dns: Option<&zero_config::DnsConfig>) -> OutboundProbe
     }
 }
 
-fn global_probe_limiter() -> Arc<Semaphore> {
-    static LIMITER: OnceLock<Arc<Semaphore>> = OnceLock::new();
-    LIMITER
-        .get_or_init(|| Arc::new(Semaphore::new(MAX_CONCURRENT_OUTBOUND_PROBES)))
-        .clone()
-}
-
 fn global_shared_probes() -> Arc<Mutex<HashMap<ProbeKey, SharedProbeEntry>>> {
     static PROBES: OnceLock<Arc<Mutex<HashMap<ProbeKey, SharedProbeEntry>>>> = OnceLock::new();
     PROBES
@@ -345,3 +312,13 @@ fn global_shared_probes() -> Arc<Mutex<HashMap<ProbeKey, SharedProbeEntry>>> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "outbound_probe/ownership_tests.rs"]
+mod ownership_tests;
+
+#[cfg(test)]
+#[path = "outbound_probe/control_stop_tests.rs"]
+mod control_stop_tests;
+
+mod target;

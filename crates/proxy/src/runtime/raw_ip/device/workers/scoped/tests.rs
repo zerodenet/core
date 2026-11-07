@@ -43,10 +43,13 @@ async fn body_ready_and_cancelled_join_waiter_never_replace_the_real_host_join()
     let report = workers.join().await.unwrap();
     assert_eq!(report.exited_tasks, vec![exit.id()]);
     assert!(workers.is_drained());
+    assert_eq!(workers.state.lock().unwrap().records.len(), 1);
     assert!(report.closed_io.is_empty());
     // Local join observation does not ACK the host's own receipt or refund it.
     assert!(!scope.is_drained());
     scope.acknowledge(&exit).unwrap();
+    workers.reap();
+    assert!(workers.state.lock().unwrap().records.is_empty());
     scope.begin_shutdown();
     assert!(scope.next_receipt().await.is_none());
     assert!(scope.is_drained());
@@ -76,9 +79,9 @@ async fn real_panic_keeps_the_same_original_task_source_and_local_acceptance() {
     let shared = error
         .source()
         .unwrap()
-        .downcast_ref::<SharedFailure>()
+        .downcast_ref::<Arc<ChannelError>>()
         .unwrap();
-    assert!(Arc::ptr_eq(&shared.0, &original));
+    assert!(Arc::ptr_eq(shared, &original));
     let mut source: &(dyn std::error::Error + 'static) = &error;
     let mut actual_panic = None;
     while let Some(next) = source.source() {
@@ -102,10 +105,10 @@ async fn actual_capacity_rejection_preserves_spawn_error_and_no_local_fallback()
     let shared = error
         .source()
         .unwrap()
-        .downcast_ref::<SharedFailure>()
+        .downcast_ref::<Arc<ChannelError>>()
         .unwrap();
     assert_eq!(
-        shared.0.source().unwrap().downcast_ref::<SpawnError>(),
+        shared.source().unwrap().downcast_ref::<SpawnError>(),
         Some(&SpawnError::Capacity)
     );
     assert_eq!(workers.state.lock().unwrap().records.len(), 1);
@@ -113,7 +116,13 @@ async fn actual_capacity_rejection_preserves_spawn_error_and_no_local_fallback()
     assert!(exit.result().is_ok());
     assert!(workers.join().await.is_err()); // rejection remains the first failure
     assert!(workers.is_drained());
+    assert_eq!(
+        workers.state.lock().unwrap().records.len(),
+        1,
+        "joined original still charges its local budget before host ACK"
+    );
     scope.acknowledge(&exit).unwrap();
+    workers.reap();
     assert!(workers.state.lock().unwrap().records.is_empty());
 }
 #[tokio::test]
@@ -124,8 +133,14 @@ async fn joined_records_are_reclaimed_and_weak_owner_drop_never_completes_a_witn
         workers.spawn(async { Ok(()) }).unwrap();
         let exit = scope.next_receipt().await.unwrap();
         workers.reap();
-        assert!(workers.state.lock().unwrap().records.is_empty());
+        assert_eq!(
+            workers.state.lock().unwrap().records.len(),
+            1,
+            "actual join is not the original registration ACK"
+        );
         scope.acknowledge(&exit).unwrap();
+        workers.reap();
+        assert!(workers.state.lock().unwrap().records.is_empty());
     }
     workers.spawn(std::future::pending()).unwrap();
     let (_, witness) = workers.state.lock().unwrap().records[0]
@@ -178,11 +193,11 @@ async fn observed_real_io_failure_preserves_every_decision_and_the_original_os_o
     let shared = forwarded
         .source()
         .unwrap()
-        .downcast_ref::<SharedFailure>()
+        .downcast_ref::<Arc<ChannelError>>()
         .unwrap();
-    assert!(Arc::ptr_eq(&shared.0, &original));
+    assert!(Arc::ptr_eq(shared, &original));
     let actual = shared
-        .0
+        .as_ref()
         .source()
         .unwrap()
         .downcast_ref::<std::io::Error>()
@@ -208,10 +223,10 @@ async fn suspended_and_expired_host_registration_keep_the_actual_rejection_sourc
     let shared = error
         .source()
         .unwrap()
-        .downcast_ref::<SharedFailure>()
+        .downcast_ref::<Arc<ChannelError>>()
         .unwrap();
     assert_eq!(
-        shared.0.source().unwrap().downcast_ref::<SpawnError>(),
+        shared.source().unwrap().downcast_ref::<SpawnError>(),
         Some(&SpawnError::NotStarted)
     );
     assert!(workers.join().await.is_err());
@@ -225,10 +240,10 @@ async fn suspended_and_expired_host_registration_keep_the_actual_rejection_sourc
     let shared = error
         .source()
         .unwrap()
-        .downcast_ref::<SharedFailure>()
+        .downcast_ref::<Arc<ChannelError>>()
         .unwrap();
     assert_eq!(
-        shared.0.source().unwrap().downcast_ref::<SpawnError>(),
+        shared.source().unwrap().downcast_ref::<SpawnError>(),
         Some(&SpawnError::Closing)
     );
     assert!(expired.join().await.is_err());

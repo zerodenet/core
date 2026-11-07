@@ -1,6 +1,11 @@
+mod owned;
+mod prepared;
+pub use prepared::{PreparedData, PreparedReceive};
+mod quiescence;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::net::{IpAddr, SocketAddr};
+pub use owned::{OwnedTunnelFailure, OwnedTunnelResult};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -107,6 +112,7 @@ impl UnknownSourceHandshakeLimiter {
 /// No Tokio socket, task, endpoint, or private configuration string is retained.
 pub struct PeerTunnel {
     engine: Tunn,
+    prepared_data: Option<prepared::PendingData>,
     rate_limiter: Arc<RateLimiter>,
     mtu: usize,
     emitted_data_messages: u64,
@@ -218,6 +224,7 @@ impl PeerTunnel {
             rate_limiter,
             mtu: usize::from(mtu),
             emitted_data_messages: 0,
+            prepared_data: None,
             unknown_source_handshakes: UnknownSourceHandshakeLimiter::new(),
         })
     }
@@ -269,15 +276,20 @@ impl PeerTunnel {
         datagram: &[u8],
     ) -> Result<ReceivedDatagram, TunnelError> {
         check_wire_datagram(datagram)?;
+        self.receive_prepared_packet(source, Packet::copy_from(datagram))
+    }
+    fn receive_prepared_packet(
+        &mut self,
+        source: Option<SocketAddr>,
+        datagram: Packet,
+    ) -> Result<ReceivedDatagram, TunnelError> {
         let observed_source = source.is_some();
         let source = source.unwrap_or(SocketAddr::V4(std::net::SocketAddrV4::new(
             std::net::Ipv4Addr::UNSPECIFIED,
             0,
         )));
         self.rate_limiter.try_reset_count();
-        let verified = self
-            .rate_limiter
-            .verify_packet(source, Packet::copy_from(datagram));
+        let verified = self.rate_limiter.verify_packet(source, datagram);
         match verified {
             Ok(packet) => {
                 if !observed_source

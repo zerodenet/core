@@ -2,10 +2,8 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::{try_queue_mux_response, MuxConnectionPool, MuxDownlink, MuxIdentity, PoolKey};
-use crate::mux::backlog::{
-    MuxResponseBacklog, MuxResponseBacklogPolicy, MUX_RESPONSE_QUEUE_CAPACITY,
-};
+use super::{MuxConnectionPool, MuxIdentity, PoolKey};
+use crate::mux::backlog::MuxResponseBacklogPolicy;
 use tokio::io::AsyncWriteExt;
 use zero_core::Address;
 
@@ -30,7 +28,7 @@ async fn eviction_through_a_bridge_clone_removes_cached_mux_connections() {
     pool.pool
         .lock()
         .expect("mux pool lock")
-        .insert((bridge_pool.scope.clone(), key), connection);
+        .insert((bridge_pool.scope.clone(), key, None), connection);
 
     assert_eq!(pool.pool.lock().expect("mux pool lock").len(), 1);
     bridge_pool.evict_all();
@@ -171,39 +169,6 @@ fn different_reality_fingerprints_do_not_share_a_pool_key() {
 }
 
 #[tokio::test]
-async fn response_backlog_byte_overflow_is_explicit_and_releases_reserved_bytes() {
-    let backlog = MuxResponseBacklog::new(4);
-    let (tx, mut rx) = tokio::sync::mpsc::channel(3);
-
-    assert!(try_queue_mux_response(&backlog, &tx, b"full".to_vec(), 4,));
-    assert!(!try_queue_mux_response(&backlog, &tx, b"x".to_vec(), 1,));
-    assert_eq!(backlog.used(), 4);
-
-    let Some(MuxDownlink::Data(response)) = rx.recv().await else {
-        panic!("expected buffered response");
-    };
-    assert_eq!(response.into_inner(), b"full");
-    assert_eq!(backlog.used(), 0);
-    assert!(matches!(rx.recv().await, Some(MuxDownlink::Overflow)));
-}
-
-#[tokio::test]
-async fn slow_consumer_is_cut_off_at_the_frame_limit() {
-    let backlog = MuxResponseBacklog::new(1024);
-    let (tx, mut rx) = tokio::sync::mpsc::channel(MUX_RESPONSE_QUEUE_CAPACITY + 1);
-
-    for _ in 0..MUX_RESPONSE_QUEUE_CAPACITY {
-        assert!(try_queue_mux_response(&backlog, &tx, vec![1], 1,));
-    }
-    assert!(!try_queue_mux_response(&backlog, &tx, vec![2], 1,));
-
-    for _ in 0..MUX_RESPONSE_QUEUE_CAPACITY {
-        assert!(matches!(rx.recv().await, Some(MuxDownlink::Data(_))));
-    }
-    assert!(matches!(rx.recv().await, Some(MuxDownlink::Overflow)));
-}
-
-#[tokio::test]
 async fn tcp_mux_splits_large_writes_and_shutdown_sends_end_after_payload() {
     use tokio::io::AsyncWriteExt;
     let (stream, mut peer) = tokio::io::duplex(131072);
@@ -240,3 +205,6 @@ async fn tcp_mux_splits_large_writes_and_shutdown_sends_end_after_payload() {
     upload.await.unwrap();
     connection.close();
 }
+
+#[path = "tests/response.rs"]
+mod response;

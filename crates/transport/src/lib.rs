@@ -1,3 +1,7 @@
+#[cfg(any(feature = "tls", feature = "grpc"))]
+mod client_recipe;
+#[cfg(any(feature = "tls", feature = "grpc"))]
+pub use client_recipe::OwnedClientRecipe;
 #[cfg(any(feature = "tls", feature = "quic"))]
 pub mod fingerprint;
 #[cfg(feature = "grpc")]
@@ -9,6 +13,8 @@ pub mod http_upgrade;
 #[cfg(feature = "tls")]
 pub mod inbound_stack;
 pub mod metered;
+#[cfg(any(feature = "grpc", feature = "h2"))]
+mod native_flush;
 pub mod observed;
 mod observed_datagram;
 pub mod outbound_datagram;

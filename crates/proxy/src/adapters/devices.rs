@@ -15,11 +15,18 @@ use zero_engine::{EndpointAdmission, EngineError};
 
 #[derive(Default)]
 pub(crate) struct Devices {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) packet_return_totals: Arc<crate::runtime::raw_ip::PacketReturnTotals>,
     pub(super) network: Option<std::sync::Weak<crate::component::background::BackgroundNetwork>>,
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) direct: Option<Arc<super::direct::DirectAdapter>>,
     #[cfg(feature = "wireguard")]
     pub(crate) wireguard: Option<Arc<super::wireguard::WireguardAdapter>>,
+}
+pub(crate) struct HealthRow {
+    pub(crate) outbound: usize,
+    // The label stays in the original immutable config. This String is empty.
+    pub(crate) facts: zero_api::OutboundDeviceHealthSnapshot,
 }
 
 #[cfg(feature = "raw-ip-runtime")]
@@ -35,6 +42,90 @@ impl std::fmt::Debug for Devices {
 }
 #[cfg(feature = "raw-ip-runtime")]
 impl Devices {
+    pub(crate) fn health_row_count(&self, config: &RuntimeConfig) -> std::io::Result<usize> {
+        #[cfg(feature = "wireguard")]
+        if let Some(owner) = &self.wireguard {
+            return owner.health_row_count(config);
+        }
+        let _ = config;
+        Ok(0)
+    }
+    pub(crate) fn fill_health_rows(&self, config: &RuntimeConfig, rows: &mut Vec<HealthRow>) {
+        #[cfg(feature = "wireguard")]
+        if let Some(owner) = &self.wireguard {
+            owner.fill_health_rows(config, rows);
+        }
+        let _ = (config, rows);
+    }
+    #[cfg(feature = "wireguard")]
+    pub(crate) fn actual_packet_flow_sources(
+        &self,
+        previous: &RuntimeConfig,
+    ) -> Result<
+        Vec<(
+            Arc<crate::runtime::raw_ip::SharedRawIpDevice>,
+            zero_platform_tokio::controlled_carrier::CarrierOrigin,
+        )>,
+        EngineError,
+    > {
+        match &self.wireguard {
+            Some(owner) => owner.actual_packet_flow_sources(previous),
+            None => Ok(Vec::new()),
+        }
+    }
+    #[cfg(feature = "wireguard")]
+    pub(crate) fn replacement_sources_retained(
+        &self,
+        previous: &RuntimeConfig,
+        stopping: &crate::component::catalog::ReplacementUsersPause,
+    ) -> Result<bool, EngineError> {
+        Ok(self
+            .actual_packet_flow_sources(previous)?
+            .iter()
+            .all(|(device, origin)| device.replacement_users_retained(stopping, origin)))
+    }
+
+    pub(crate) async fn fence_direct_packet_acquisition(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<Option<crate::runtime::packet_route::host::NativeDeviceFenced>, EngineError> {
+        match &self.direct {
+            Some(direct) => direct.fence_packet_acquisition(deadline).await,
+            None => Ok(None),
+        }
+    }
+
+    #[cfg(feature = "wireguard")]
+    pub(crate) async fn fence_standalone_packet_acquisition(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<Vec<crate::runtime::packet_route::host::NativeDeviceFenced>, EngineError> {
+        match &self.wireguard {
+            Some(wireguard) => wireguard.fence_standalone_acquisition(deadline).await,
+            None => Ok(Vec::new()),
+        }
+    }
+    pub(crate) async fn pause_direct_packet_if_idle(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<Option<crate::runtime::packet_route::host::NativeDevicePaused>, EngineError> {
+        match &self.direct {
+            Some(direct) => direct.pause_packet_if_idle(deadline).await,
+            None => Ok(None),
+        }
+    }
+
+    #[cfg(feature = "wireguard")]
+    pub(crate) async fn pause_standalone_packet_if_idle(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<Vec<crate::runtime::packet_route::host::NativeDevicePaused>, EngineError> {
+        match &self.wireguard {
+            Some(wireguard) => wireguard.pause_standalone_if_idle(deadline).await,
+            None => Ok(Vec::new()),
+        }
+    }
+
     #[cfg(all(test, feature = "wireguard"))]
     pub(crate) fn test_current_wireguard_devices(
         &self,
@@ -43,6 +134,17 @@ impl Devices {
         self.wireguard
             .as_ref()
             .map(|owner| owner.test_current_devices(config))
+            .unwrap_or_default()
+    }
+
+    #[cfg(all(test, feature = "wireguard"))]
+    pub(crate) fn test_current_wireguard_sources(
+        &self,
+        config: &RuntimeConfig,
+    ) -> Vec<zero_platform_tokio::controlled_carrier::CarrierOrigin> {
+        self.wireguard
+            .as_ref()
+            .map(|adapter| adapter.test_standard_source_origins(config))
             .unwrap_or_default()
     }
 
@@ -75,7 +177,7 @@ impl Devices {
         #[cfg(not(feature = "wireguard"))]
         let _ = (config, admission);
         let direct = if let Some(owner) = &self.direct {
-            Some(owner.prepare_devices(context).await?)
+            Some(owner.prepare_hosted_packet(config, context).await?)
         } else {
             None
         };
@@ -168,6 +270,10 @@ impl Devices {
         network: Option<&std::sync::Arc<crate::component::background::BackgroundNetwork>>,
     ) {
         self.network = network.map(std::sync::Arc::downgrade);
+        #[cfg(feature = "wireguard")]
+        if let Some(adapter) = &self.wireguard {
+            adapter.set_packet_return_totals(self.packet_return_totals.clone());
+        }
     }
     pub(crate) fn prepare_inbound(
         &self,

@@ -1,19 +1,31 @@
 //! Routing for decrypted raw IP packets.
 
 use std::time::Instant;
-use zero_stack::{packet, FragmentReassembler, OwnedFragmentOutcome, UserTcpStack, UserUdpStack};
+use zero_stack::{
+    packet, OwnedFragmentOutcome, OwnedFragmentReassembler, UserTcpStack, UserUdpStack,
+};
 
 use super::IcmpEchoRelay;
+pub(super) type FragmentNamespace = (
+    zero_core::component::EndpointId,
+    zero_core::component::ResourceGeneration,
+    Option<zero_core::component::PeerId>,
+    u64,
+);
 use crate::inventory::PacketRouteTarget;
 use crate::runtime::packet_route::{PacketPlane, PacketSessionPins};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn feed_inner_packet(
-    packet: zero_traits::PacketBuffer,
+    original: zero_core::packet::IpPacket,
+    facts: std::sync::Arc<zero_core::packet::PacketFacts>,
+    source: &crate::runtime::inbound_owners::InboundTaskAccess,
+    packet_roles: &crate::runtime::packet_route::PacketRoleSessions,
     local_destination: bool,
     traffic: &super::statistics::IngressTraffic,
     peer_identity: Option<std::sync::Arc<str>>,
     mtu: u16,
+    return_mtu: u16,
     tcp: &UserTcpStack,
     udp: &UserUdpStack,
     responses: &zero_stack::packet_output::PacketSender,
@@ -21,7 +33,8 @@ pub(super) async fn feed_inner_packet(
     route: &crate::runtime::route_runtime::InboundRouteRuntimeFactory,
     ingress_id: u64,
     pins: &mut PacketSessionPins,
-    fragments: &mut FragmentReassembler,
+    fragments: &mut OwnedFragmentReassembler<FragmentNamespace>,
+    tun: Option<&crate::inbound::tun::TunIngressOptions>,
 ) {
     if route.ensure_configuration_committed().is_err() {
         traffic.drop_inner(
@@ -30,7 +43,21 @@ pub(super) async fn feed_inner_packet(
         );
         return;
     }
-    let (mut packet, reassembled) = match fragments.process_buffer(packet, Instant::now()) {
+    let association = original.return_association.clone();
+    let ingress = original.ingress();
+    let (mut packet, reassembled) = match fragments
+        .process(
+            (
+                association.endpoint,
+                association.generation,
+                association.peer.clone(),
+                association.correlation,
+            ),
+            original.into_payload(),
+            Instant::now(),
+        )
+        .await
+    {
         OwnedFragmentOutcome::Packet {
             packet,
             reassembled,
@@ -55,12 +82,18 @@ pub(super) async fn feed_inner_packet(
     } else {
         usize::from(mtu)
     };
-    if let Some(response) = packet::build_icmp_mtu_response(&packet, effective_mtu) {
+    let mtu_response =
+        if packet.len() <= effective_mtu && packet::parse_icmp_echo_request(&packet).is_some() {
+            None
+        } else {
+            packet::IcmpErrorSpec::for_packet(&packet, effective_mtu, false)
+        };
+    if let Some(response) = mtu_response {
         traffic.drop_inner(
             peer_identity.as_deref(),
             zero_api::TrafficDropReason::FragmentRejected,
         );
-        traffic.send_response(responses, response, peer_identity.as_deref());
+        traffic.send_error_spec(responses, response, peer_identity.as_deref());
         return;
     }
     let Some(destination) = packet::ip_destination(&packet) else {
@@ -72,13 +105,26 @@ pub(super) async fn feed_inner_packet(
     };
     let protocol = packet::ip_protocol(&packet);
     if local_destination && packet::parse_icmp_echo_request(&packet).is_some() {
-        if let Some(response) = packet::build_local_icmp_echo_reply(&packet, effective_mtu) {
-            traffic.send_response(responses, response, peer_identity.as_deref());
+        if let Some(response) = packet::IcmpEchoPacketSpec::local(&packet, effective_mtu) {
+            traffic.send_echo_spec(responses, response, peer_identity.as_deref());
         } else {
             traffic.drop_inner(
                 peer_identity.as_deref(),
                 zero_api::TrafficDropReason::InvalidPacket,
             );
+        }
+        return;
+    }
+    // TUN intercepts DNS before ordinary Packet routing. Assigned addresses
+    // and MTU were supplied by the same actual Source original.
+    if tun.is_some_and(|policy| policy.dns_hijack)
+        && (packet::parse_tcp(&packet).is_some_and(|tcp| tcp.dst.port == 53)
+            || packet::parse_udp(&packet).is_some_and(|udp| udp.dst.port == 53))
+    {
+        match protocol {
+            Some(packet::IPPROTO_TCP) => tcp.feed_with_peer(&packet, peer_identity).await,
+            Some(packet::IPPROTO_UDP) => udp.feed_with_peer(&packet, peer_identity).await,
+            _ => {}
         }
         return;
     }
@@ -91,6 +137,8 @@ pub(super) async fn feed_inner_packet(
                 tag,
                 translated,
                 operation,
+                role,
+                ..
             } => {
                 let generation = route.icmp_egress_generation();
                 let plane = if translated {
@@ -104,6 +152,61 @@ pub(super) async fn feed_inner_packet(
                 let observer = pins.inner_io(&packet, &plane, peer_identity.clone(), || {
                     route.outbound_inner_io(&tag)
                 });
+                if let Some(role) = role {
+                    let frame = zero_core::packet::IpPacket::new(
+                        std::mem::take(&mut packet),
+                        association.clone(),
+                    )
+                    .expect("validated original or actual reassembly");
+                    let frame = match ingress {
+                        Some(ingress) => frame.with_ingress(ingress),
+                        None => frame,
+                    };
+                    if !pins.admit_standard(&frame, &plane, peer_identity.clone()) {
+                        packet = frame.into_payload();
+                        continue;
+                    }
+                    match packet_roles
+                        .send(
+                            role,
+                            translated,
+                            facts.clone(),
+                            return_mtu,
+                            responses
+                                .wire_memory()
+                                .expect("actual Source main validates memory before IO"),
+                            frame,
+                            route,
+                            source,
+                            observer.clone(),
+                        )
+                        .await
+                    {
+                        Ok(selected_peer) => {
+                            pins.record_observed_key(
+                                packet_key,
+                                plane,
+                                peer_identity.clone(),
+                                selected_peer,
+                                observer,
+                            );
+                            return;
+                        }
+                        Err(failure) => {
+                            pins.reject_unaccepted_key(packet_key, peer_identity.clone());
+                            let retry = failure.failure.delivery
+                                == zero_platform_tokio::contract::DeliveryState::NotSubmitted;
+                            if let Some(original) = failure.packet {
+                                packet = original.into_payload();
+                            }
+                            tracing::debug!(error=%failure.failure, "actual Packet role candidate unavailable");
+                            if !retry || packet.is_empty() {
+                                break;
+                            }
+                            continue;
+                        }
+                    }
+                }
                 let Some(replies) =
                     pins.replies_for(&packet, &plane, peer_identity.clone(), responses.clone())
                 else {
@@ -128,7 +231,20 @@ pub(super) async fn feed_inner_packet(
                             observer,
                         );
                         if let Some(response) = observed.response {
-                            traffic.send_response(responses, response, peer_identity.as_deref());
+                            match responses.allocate_transmit(response.len()) {
+                                Ok(mut owned) => {
+                                    owned.copy_from_slice(&response);
+                                    traffic.send_response(
+                                        responses,
+                                        owned,
+                                        peer_identity.as_deref(),
+                                    );
+                                }
+                                Err(_) => traffic.drop_inner(
+                                    peer_identity.as_deref(),
+                                    zero_api::TrafficDropReason::QueueFull,
+                                ),
+                            }
                         }
                         return;
                     }
@@ -167,24 +283,24 @@ pub(super) async fn feed_inner_packet(
                 if !pins.permits_peer(&packet, &PacketPlane::DirectEcho, peer_identity.clone()) {
                     continue;
                 }
-                if echo.dispatch_direct(&packet, effective_mtu.min(u16::MAX as usize) as u16) {
-                    pins.record_peers(
-                        &packet,
-                        PacketPlane::DirectEcho,
-                        peer_identity.clone(),
-                        None,
-                    );
-                    return;
-                }
-                break;
+                pins.record_peers(
+                    &packet,
+                    PacketPlane::DirectEcho,
+                    peer_identity.clone(),
+                    None,
+                );
+                echo.dispatch_direct_owned(packet, effective_mtu.min(u16::MAX as usize) as u16);
+                return;
             }
             PacketRouteTarget::Block => {
                 traffic.drop_inner(
                     peer_identity.as_deref(),
                     zero_api::TrafficDropReason::PolicyRejected,
                 );
-                if let Some(response) = packet::build_icmp_response(&packet, effective_mtu) {
-                    traffic.send_response(responses, response, peer_identity.as_deref());
+                if let Some(response) =
+                    packet::IcmpErrorSpec::for_packet(&packet, effective_mtu, false)
+                {
+                    traffic.send_error_spec(responses, response, peer_identity.as_deref());
                 }
                 return;
             }
@@ -196,7 +312,7 @@ pub(super) async fn feed_inner_packet(
         peer_identity.as_deref(),
         zero_api::TrafficDropReason::NoRoute,
     );
-    if let Some(response) = packet::build_icmp_response(&packet, effective_mtu) {
-        traffic.send_response(responses, response, peer_identity.as_deref());
+    if let Some(response) = packet::IcmpErrorSpec::for_packet(&packet, effective_mtu, false) {
+        traffic.send_error_spec(responses, response, peer_identity.as_deref());
     }
 }

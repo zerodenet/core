@@ -2,8 +2,8 @@ use super::RetiredDatagrams;
 use std::{num::NonZeroUsize, sync::Arc};
 use zero_core::component::AssociationId;
 use zero_platform_tokio::{
-    contract::{CancellationToken, Reason},
     TokioDatagramSocket,
+    contract::{CancellationToken, Reason},
 };
 #[path = "datagram_retirement/fixture.rs"]
 mod fixture;
@@ -86,12 +86,14 @@ async fn interrupted_lease_close_and_deadline_retain_the_same_real_tcp_controlle
         .await
         .unwrap()
         .unwrap();
-    assert!(retained
-        .wait_closed(deadline())
-        .await
-        .unwrap()
-        .closed_io
-        .is_empty());
+    assert!(
+        retained
+            .wait_closed(deadline())
+            .await
+            .unwrap()
+            .closed_io
+            .is_empty()
+    );
 }
 #[tokio::test]
 async fn actual_control_failure_keeps_its_source_controller_and_retry_ownership() {
@@ -126,11 +128,13 @@ async fn actual_control_failure_keeps_its_source_controller_and_retry_ownership(
 async fn a_started_open_can_adopt_after_stop_without_losing_its_pre_reserved_controller() {
     let owner = owner(1);
     let reservation = owner.reserve().unwrap();
-    assert!(!owner
-        .wait_closed(tokio::time::Instant::now() + std::time::Duration::from_millis(5))
-        .await
-        .unwrap()
-        .is_complete());
+    assert!(
+        !owner
+            .wait_closed(tokio::time::Instant::now() + std::time::Duration::from_millis(5))
+            .await
+            .unwrap()
+            .is_complete()
+    );
     let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let socket = TokioDatagramSocket::bind("127.0.0.1:0").await.unwrap();
     let local = socket.local_addr().unwrap();
@@ -245,3 +249,7 @@ async fn a_real_pending_or_failed_tcp_close_does_not_pin_another_closed_udp_rese
 mod reentry;
 #[path = "datagram_retirement/returns.rs"]
 mod returns;
+
+#[cfg(feature = "socks5")]
+#[path = "datagram_retirement/opening.rs"]
+mod opening;

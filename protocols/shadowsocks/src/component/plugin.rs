@@ -7,15 +7,20 @@ use std::{
         Arc,
     },
 };
-use tokio::time::{timeout_at, Instant};
+use tokio::time::Instant;
+mod actor;
+mod error;
+mod exit;
+use error::{failure, startup_failure};
+pub use exit::PluginRootExit;
 use zero_core::component::ComponentId;
 use zero_platform_tokio::contract::{
     component::{
         BuildContext, ComponentFactory, ComponentInstance, ComponentRoles, ComponentSpec,
         ResourceAccess, ResourceDeclaration, ResourceOwner,
     },
-    lifecycle::{erase_lifecycle, BuildError, CloseReport, ResourceLifecycle, TaskClass},
-    scope::{SpawnError, TaskRegistrar},
+    lifecycle::{erase_lifecycle, BuildError, CloseReport, ResourceLifecycle},
+    scope::{TaskJoinWitness, TaskRegistrar},
     CancellationToken, ChannelError, CloseReason, Impact, Reason, Stage,
 };
 
@@ -23,11 +28,82 @@ use zero_platform_tokio::contract::{
 pub struct PluginOptions {
     resource: ShadowsocksPluginResource,
     identity: Arc<str>,
+    static_identity: Arc<[u8]>,
+    endpoint: Option<zero_platform_tokio::owned_process::ProcessEndpointSpec>,
+    legacy_budget: Option<crate::shared::LegacyReplayBudgetProposal>,
+    #[cfg(feature = "blake3")]
+    udp_budget: Option<crate::udp::UdpBudgetProposal>,
 }
 impl PluginOptions {
+    /// Bind this actual process recipe to its declared derived endpoint epoch.
+    pub fn with_process_endpoint(
+        mut self,
+        generation: zero_core::component::NetworkGeneration,
+    ) -> Result<Self, zero_core::Error> {
+        self.resource.validate_native_transition().map_err(|_| {
+            zero_core::Error::Unsupported("actual legacy process tree has not retired")
+        })?;
+        self.endpoint = Some(self.resource.endpoint_spec(generation));
+        self.rebuild_identity();
+        Ok(self)
+    }
+
+    #[cfg(feature = "blake3")]
+    pub fn with_udp_budget_proposal(mut self, proposal: crate::udp::UdpBudgetProposal) -> Self {
+        self.udp_budget = Some(proposal);
+        self.rebuild_identity();
+        self
+    }
+    pub fn with_legacy_replay_budget_proposal(
+        mut self,
+        proposal: crate::shared::LegacyReplayBudgetProposal,
+    ) -> Self {
+        self.legacy_budget = Some(proposal);
+        self.rebuild_identity();
+        self
+    }
+    fn rebuild_identity(&mut self) {
+        use std::{
+            collections::hash_map::RandomState,
+            hash::{BuildHasher, Hash, Hasher},
+            sync::OnceLock,
+        };
+        static KEYS: OnceLock<[RandomState; 2]> = OnceLock::new();
+        let mut identity = self.identity.as_bytes().to_vec();
+        if let Some(endpoint) = &self.endpoint {
+            identity.extend_from_slice(b"same-job-process-endpoint-v1");
+            identity.extend_from_slice(&[
+                u8::from(endpoint.stream),
+                u8::from(endpoint.datagram),
+                u8::from(endpoint.ipv6),
+            ]);
+            identity.extend_from_slice(&endpoint.network_generation.0.to_le_bytes());
+        }
+        for key in KEYS.get_or_init(|| [RandomState::new(), RandomState::new()]) {
+            let mut hash = key.build_hasher();
+            #[cfg(feature = "blake3")]
+            self.udp_budget
+                .as_ref()
+                .map(|proposal| proposal.identity())
+                .hash(&mut hash);
+            self.legacy_budget
+                .as_ref()
+                .map(|proposal| proposal.identity())
+                .hash(&mut hash);
+            identity.extend_from_slice(&hash.finish().to_le_bytes());
+        }
+        // Same original Child/plan ResourceOwner; static replacement identity
+        // depends on all actual budget views, independently of setter order.
+        self.static_identity = identity.into();
+    }
     pub(crate) fn new(resource: ShadowsocksPluginResource) -> Self {
         Self {
             identity: resource.identity().into(),
+            static_identity: resource.identity().as_bytes().into(),
+            endpoint: None,
+            legacy_budget: None,
+            #[cfg(feature = "blake3")]
+            udp_budget: None,
             resource,
         }
     }
@@ -36,16 +112,22 @@ pub struct PluginFactory;
 impl ComponentFactory for PluginFactory {
     type Options = PluginOptions;
     fn describe(&self, options: &PluginOptions) -> ComponentSpec {
+        let mut resources = vec![ResourceDeclaration::Process {
+            program: options.resource.program(),
+            max_starts: NonZeroUsize::new(1).unwrap(),
+        }];
+        if let Some(spec) = &options.endpoint {
+            resources.push(ResourceDeclaration::ProcessEndpoint {
+                process_ordinal: 0,
+                spec: spec.clone(),
+            });
+        }
         ComponentSpec {
             owner: ResourceOwner::Endpoint(options.identity.clone()),
             roles: vec![],
             dependencies: vec![],
-            static_identity: options.identity.as_bytes().into(),
-            resources: vec![ResourceDeclaration::Process {
-                program: options.resource.program(),
-                // One plan has one actual Child; it never respawns that child.
-                max_starts: NonZeroUsize::new(1).unwrap(),
-            }],
+            static_identity: options.static_identity.clone(),
+            resources,
             task_limit: NonZeroUsize::new(1),
         }
     }
@@ -56,41 +138,73 @@ impl ComponentFactory for PluginFactory {
     ) -> Result<ComponentInstance, BuildError> {
         Ok(ComponentInstance {
             lifecycle: erase_lifecycle(Owner {
-                resource: options.resource.clone(),
+                // Same canonical map, not a fresh executor beside old leaves.
+                resource: options
+                    .resource
+                    .select_native(
+                        context.instance(),
+                        &context.tasks,
+                        options.endpoint.as_ref().map(|_| 1),
+                        context.resources.as_ref(),
+                    )
+                    .map_err(|source| {
+                        failure(
+                            context.component,
+                            Stage::Prepare,
+                            if source.kind() == std::io::ErrorKind::AlreadyExists {
+                                Reason::StalePlan
+                            } else {
+                                Reason::Capacity
+                            },
+                            "canonical plugin executor remains retained",
+                        )
+                        .with_source(source)
+                    })?,
+                legacy_budget: options.legacy_budget.clone(),
+                #[cfg(feature = "blake3")]
+                udp_budget: options.udp_budget.clone(),
                 resources: context.resources,
                 component: context.component,
                 tasks: context.tasks,
                 cancel: context.cancel.child_token(),
+                endpoint_ordinal: options.endpoint.as_ref().map(|_| 1),
                 attempted: false,
                 started: false,
                 claimed: Arc::new(AtomicBool::new(false)),
+                actor: None,
             }),
             roles: ComponentRoles::default(),
         })
     }
 }
 struct Owner {
+    legacy_budget: Option<crate::shared::LegacyReplayBudgetProposal>,
+    #[cfg(feature = "blake3")]
+    udp_budget: Option<crate::udp::UdpBudgetProposal>,
     resource: ShadowsocksPluginResource,
     resources: Arc<dyn ResourceAccess>,
     component: ComponentId,
     tasks: TaskRegistrar,
     cancel: CancellationToken,
+    endpoint_ordinal: Option<usize>,
     attempted: bool,
     started: bool,
     claimed: Arc<AtomicBool>,
+    actor: Option<TaskJoinWitness>,
 }
 impl Drop for Owner {
     fn drop(&mut self) {
         self.cancel.cancel();
-        if self.claimed.load(Ordering::Acquire) {
-            self.resource.revoke();
-        }
+        self.resource.revoke();
         // A persistent plan still holds the Child; Drop is not a close report.
     }
 }
 impl ResourceLifecycle for Owner {
     async fn start(&mut self, deadline: Instant) -> Result<(), BuildError> {
-        if self.started && !self.cancel.is_cancelled() {
+        if self.started
+            && !self.cancel.is_cancelled()
+            && self.actor.as_ref().is_some_and(|actor| !actor.is_joined())
+        {
             return Ok(());
         }
         if self.attempted || self.cancel.is_cancelled() {
@@ -110,52 +224,62 @@ impl ResourceLifecycle for Owner {
             ));
         }
         self.attempted = true;
-        timeout_at(
-            deadline,
-            self.resource
-                .start_authorized(self.resources.clone(), self.claimed.clone()),
-        )
-        .await
-        .map_err(|source| {
-            failure(
-                self.component,
-                Stage::Prepare,
-                Reason::Timeout,
-                "plugin readiness deadline elapsed",
-            )
-            .with_source(source)
-        })?
-        .map_err(|source| startup_failure(self.component, source))?;
-        let resource = self.resource.clone();
-        let component = self.component;
-        let cancel = self.cancel.clone();
-        let scope_cancel = self.tasks.cancellation();
-        self.tasks.spawn(TaskClass::Critical, async move {
-            tokio::select! { biased;
-                _ = cancel.cancelled() => Ok(()),
-                _ = scope_cancel.cancelled() => Ok(()),
-                result = resource.wait_exit() => match result {
-                    Ok(status) => Err(failure(component, Stage::Receive, Reason::Io, "native plugin child exited").with_source(std::io::Error::other(format!("native plugin child exited: {status}")))),
-                    Err(source) => Err(failure(component, Stage::Receive, Reason::Io, "native plugin child status failed").with_source(source)),
-                },
-            }
-        }).map_err(|source| failure(self.component, Stage::Prepare, match source {
-            SpawnError::NotStarted => Reason::InvalidConfig,
-            SpawnError::Capacity => Reason::Capacity,
-            SpawnError::Closing => Reason::Revoked,
-            SpawnError::IdentityExhausted => Reason::Internal,
-        }, "plugin monitor registration failed").with_source(source))?;
+        if let Some(proposal) = &self.legacy_budget {
+            proposal.activate().map_err(|source| {
+                failure(
+                    self.component,
+                    Stage::Prepare,
+                    Reason::Capacity,
+                    "legacy Bloom bitmap budget proposal cannot start",
+                )
+                .with_source(source)
+            })?;
+        }
+        #[cfg(feature = "blake3")]
+        if let Some(proposal) = &self.udp_budget {
+            proposal.activate().map_err(|source| {
+                failure(
+                    self.component,
+                    Stage::Prepare,
+                    Reason::Capacity,
+                    "SS UDP budget proposal cannot start",
+                )
+                .with_source(source)
+            })?;
+        }
+        self.start_actor(deadline).await?;
         self.started = true;
         Ok(())
     }
     fn revoke(&self, _: CloseReason) {
         self.cancel.cancel();
-        if self.claimed.load(Ordering::Acquire) {
-            self.resource.revoke();
-        }
+        self.resource.revoke();
     }
     async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, BuildError> {
         self.revoke(CloseReason::Shutdown);
+        // Scope's real join consumer completes this exact actor witness. The
+        // actor never waits for its own join or calls native closure complete.
+        if let Some(actor) = &self.actor {
+            let joined = tokio::time::timeout_at(deadline, actor.wait())
+                .await
+                .map_err(|source| {
+                    failure(
+                        self.component,
+                        Stage::Close,
+                        Reason::Timeout,
+                        "plugin actor join remains pending",
+                    )
+                    .with_source(source)
+                })?;
+            if !actor.matches_joined(&joined) {
+                return Err(failure(
+                    self.component,
+                    Stage::Close,
+                    Reason::StalePlan,
+                    "plugin actor returned a foreign join",
+                ));
+            }
+        }
         if !self.claimed.load(Ordering::Acquire) {
             return Ok(CloseReport::default());
         }
@@ -184,39 +308,7 @@ impl ResourceLifecycle for Owner {
         })
     }
 }
-fn failure(
-    component: ComponentId,
-    stage: Stage,
-    reason: Reason,
-    message: &'static str,
-) -> ChannelError {
-    let mut error = ChannelError::new(stage, reason, Impact::Component)
-        .with_source(std::io::Error::other(message));
-    error.component = Some(component);
-    error
-}
 
-fn startup_failure(component: ComponentId, source: std::io::Error) -> ChannelError {
-    if let Some(grant) = source
-        .get_ref()
-        .and_then(|error| error.downcast_ref::<ChannelError>())
-    {
-        let mut error = ChannelError::new(grant.stage, grant.reason, grant.impact);
-        error.component = Some(component);
-        error.delivery = grant.delivery;
-        error.retry = grant.retry;
-        return error.with_source(source);
-    }
-    let reason = match source.kind() {
-        std::io::ErrorKind::AlreadyExists => Reason::StalePlan,
-        std::io::ErrorKind::TimedOut => Reason::Timeout,
-        _ => Reason::Io,
-    };
-    failure(
-        component,
-        Stage::Prepare,
-        reason,
-        "plugin resource start failed",
-    )
-    .with_source(source)
-}
+#[cfg(all(test, unix))]
+#[path = "../../tests/component/plugin.rs"]
+mod tests;

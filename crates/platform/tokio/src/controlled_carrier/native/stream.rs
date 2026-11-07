@@ -7,6 +7,14 @@ impl NativeCarrierOpener {
         context: CarrierContext,
         mut grant: CarrierGrant,
     ) -> Result<PreparedCarrier, ChannelError> {
+        if self.related_parent.is_some() {
+            return Err(error(
+                grant.instance(),
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                DeliveryState::NotSubmitted,
+            ));
+        }
         if self
             .dns
             .as_ref()
@@ -37,7 +45,11 @@ impl NativeCarrierOpener {
                 || (!bound.permits_native(binding, &destination, &context)
                     && !self.business.as_ref().is_some_and(|business| {
                         business.is_relay() && business.binding().matches_authority(bound)
-                    }))
+                    })
+                    && !self
+                        .service
+                        .as_ref()
+                        .is_some_and(|service| service.permits_direct_authority(bound)))
         }) {
             return Err(error(
                 grant.instance(),
@@ -74,6 +86,19 @@ impl NativeCarrierOpener {
                 Reason::Timeout,
                 DeliveryState::NotSubmitted,
             ));
+        }
+        #[cfg(any(target_os = "linux", windows))]
+        if let Some(derived) = &self.derived {
+            derived.claim(&grant, binding, false).map_err(|source| {
+                error(
+                    grant.instance(),
+                    Stage::Prepare,
+                    Reason::StalePlan,
+                    DeliveryState::NotSubmitted,
+                )
+                .with_source(source)
+            })?;
+            grant.slot.state().process_endpoint = Some(derived.fence());
         }
         let selection = self
             .egress

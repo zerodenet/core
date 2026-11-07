@@ -9,9 +9,13 @@ use zero_core::{request::Destination, Address, Error};
 use zero_traits::{
     ClientTlsProfile, DialPolicy, EchConfigSource, GrpcTransportProfile, WebSocketTransportProfile,
 };
-use zero_transport::profile::{OwnedClientTlsProfile, OwnedGrpcProfile, OwnedWebSocketProfile};
+use zero_transport::profile::{
+    OwnedClientTlsProfile, OwnedGrpcProfile, OwnedH2Profile, OwnedHttpUpgradeProfile,
+    OwnedWebSocketProfile,
+};
 
 pub struct Options {
+    pub(super) material: Option<Arc<super::material::Material>>,
     pub(super) endpoint: Destination,
     pub(super) server: String,
     pub(super) uuid: [u8; 16],
@@ -21,6 +25,8 @@ pub struct Options {
     pub(super) tls: Option<OwnedClientTlsProfile>,
     pub(super) ws: Option<OwnedWebSocketProfile>,
     pub(super) grpc: Option<OwnedGrpcProfile>,
+    pub(super) h2: Option<OwnedH2Profile>,
+    pub(super) http_upgrade: Option<OwnedHttpUpgradeProfile>,
     pub(super) dial: DialPolicy,
     pub(super) identity: Arc<[u8]>,
 }
@@ -33,6 +39,17 @@ impl fmt::Debug for Options {
     }
 }
 impl Options {
+    /// The owning adapter projects this private actual task responsibility.
+    /// It neither selects an executor nor grants a Scope/IO capability.
+    pub fn requires_preparation_jobs(&self) -> bool {
+        self.reality.is_some()
+    }
+
+    /// Existing packet-path semantics from this actual validated recipe. This
+    /// is immutable data only: no role, Scope, grant or material is prepared.
+    pub fn packet_path_metadata(&self) -> (Destination, bool) {
+        (self.endpoint.clone(), true)
+    }
     pub fn from_options_refs<TTls, TWs, TGrpc, TH2, THttp, TSplit>(
         input: VlessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc, TH2, THttp, TSplit>,
         dial: DialPolicy,
@@ -46,6 +63,26 @@ impl Options {
         TSplit: zero_traits::SplitHttpTransportProfile + ?Sized,
     {
         Self::from_options_refs_inner(input, dial, false)
+    }
+
+    pub fn from_owned_options_refs<TTls, TWs, TGrpc, TH2, THttp, TSplit>(
+        input: VlessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc, TH2, THttp, TSplit>,
+        dial: DialPolicy,
+    ) -> Result<Self, Error>
+    where
+        TTls: ClientTlsProfile + ?Sized,
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+        TH2: zero_traits::H2TransportProfile + ?Sized,
+        THttp: zero_traits::HttpUpgradeTransportProfile + ?Sized,
+        TSplit: zero_traits::SplitHttpTransportProfile + ?Sized,
+    {
+        if input.grpc.is_some() {
+            return Err(Error::Unsupported(
+                "gRPC uses its original shared pool owner",
+            ));
+        }
+        Self::from_options_refs_inner(input, dial, true)
     }
 
     pub(super) fn from_options_refs_inner<TTls, TWs, TGrpc, TH2, THttp, TSplit>(
@@ -79,7 +116,9 @@ impl Options {
         if crate::flow::is_vision_flow(flow)
             && ((input.tls.is_none() && input.protocol.reality.is_none())
                 || input.ws.is_some()
-                || input.grpc.is_some())
+                || input.grpc.is_some()
+                || input.h2.is_some()
+                || input.http_upgrade.is_some())
         {
             return Err(Error::Unsupported(
                 "Vision requires a real switchable TLS carrier",
@@ -104,8 +143,6 @@ impl Options {
             || input.mkcp.is_some()
             || input.hysteria.is_some()
             || input.download.is_some()
-            || input.h2.is_some()
-            || input.http_upgrade.is_some()
             || input.split_http.is_some()
         {
             return Err(Error::Unsupported(
@@ -115,8 +152,20 @@ impl Options {
         if input.server.is_empty() || input.port == 0 {
             return Err(Error::Config("VLESS server and port are required"));
         }
-        if input.ws.is_some() && input.grpc.is_some() {
-            return Err(Error::Config("vless: ws and grpc are mutually exclusive"));
+        if [
+            input.ws.is_some(),
+            input.grpc.is_some(),
+            input.h2.is_some(),
+            input.http_upgrade.is_some(),
+        ]
+        .into_iter()
+        .filter(|present| *present)
+        .count()
+            > 1
+        {
+            return Err(Error::Config(
+                "VLESS stream carriers are mutually exclusive",
+            ));
         }
         if input.grpc.is_some() && !managed_grpc {
             return Err(Error::Unsupported(
@@ -129,10 +178,14 @@ impl Options {
             ));
         }
         if input.protocol.reality.is_some()
-            && (input.tls.is_some() || input.ws.is_some() || input.grpc.is_some())
+            && (input.tls.is_some()
+                || input.ws.is_some()
+                || input.grpc.is_some()
+                || input.h2.is_some()
+                || input.http_upgrade.is_some())
         {
             return Err(Error::Config(
-                "REALITY direct carrier cannot combine TLS/WS/gRPC",
+                "REALITY direct carrier cannot combine TLS/WS/gRPC/H2/Upgrade",
             ));
         }
         let reality = input
@@ -158,12 +211,12 @@ impl Options {
         let tls = input.tls.map(|profile| {
             crate::transport::client_tls_for_stream(
                 profile,
-                input.ws.is_some(),
-                input.grpc.is_some(),
+                input.ws.is_some() || input.http_upgrade.is_some(),
+                input.grpc.is_some() || input.h2.is_some(),
             )
         });
         if let Some(tls) = &tls {
-            if tls.ca_cert_path.is_some() {
+            if tls.ca_cert_path.is_some() && !managed_grpc {
                 return Err(Error::Unsupported(
                     "VLESS CA file requires an explicit File grant",
                 ));
@@ -171,7 +224,8 @@ impl Options {
             if matches!(
                 tls.options.ech.source().map_err(Error::Config)?,
                 Some(EchConfigSource::Dns { .. })
-            ) {
+            ) && !managed_grpc
+            {
                 return Err(Error::Unsupported(
                     "VLESS ECH DNS requires a native DNS service",
                 ));
@@ -187,6 +241,10 @@ impl Options {
         let endpoint = Destination::new(address, input.port);
         let ws = input.ws.map(OwnedWebSocketProfile::from_profile);
         let grpc = input.grpc.map(OwnedGrpcProfile::from_profile);
+        let h2 = input.h2.map(OwnedH2Profile::from_profile);
+        let http_upgrade = input
+            .http_upgrade
+            .map(OwnedHttpUpgradeProfile::from_profile);
         static KEYS: OnceLock<[RandomState; 2]> = OnceLock::new();
         let mut identity = Vec::with_capacity(16);
         for key in KEYS.get_or_init(|| [RandomState::new(), RandomState::new()]) {
@@ -195,7 +253,7 @@ impl Options {
             uuid.hash(&mut hash);
             flow.hash(&mut hash);
             testseed.hash(&mut hash);
-            format!("{tls:?}{ws:?}{grpc:?}").hash(&mut hash);
+            format!("{tls:?}{ws:?}{grpc:?}{h2:?}{http_upgrade:?}").hash(&mut hash);
             // Full profile participates in this keyed, process-local equality
             // hint; PreparedRealityClient's Debug intentionally omits keys.
             format!("{:?}", input.protocol.reality).hash(&mut hash);
@@ -203,6 +261,7 @@ impl Options {
             identity.extend_from_slice(&hash.finish().to_le_bytes());
         }
         Ok(Self {
+            material: None,
             endpoint,
             server: input.server.into(),
             uuid,
@@ -212,6 +271,8 @@ impl Options {
             tls,
             ws,
             grpc,
+            h2,
+            http_upgrade,
             dial,
             identity: identity.into(),
         })

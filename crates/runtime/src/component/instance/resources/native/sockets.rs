@@ -21,7 +21,7 @@ pub(super) fn literal(
                 component,
                 Reason::Unsupported,
                 "listener grants require a literal IP; DNS access is not implied",
-            ))
+            ));
         }
     };
     Ok(SocketAddr::new(ip, destination.port))
@@ -84,6 +84,9 @@ impl HostResources {
         &self,
         destination: Destination,
     ) -> Result<GrantedDatagramListener, ChannelError> {
+        self.require_start()?;
+        self.reads
+            .prepare_listener(&destination, self.original_tasks.as_ref())?;
         let state = self
             .state
             .lock()

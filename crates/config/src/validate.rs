@@ -4,6 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use crate::{ConfigError, EventSinkConfig, ModeConfig, RuntimeConfig, RuntimeOptionsConfig};
 
 mod api;
+mod control_messages;
 mod dial;
 mod dns;
 mod fallback;
@@ -383,6 +384,145 @@ fn validate_runtime(
             "runtime.udp_direct_max_sockets must be between 1 and 4096".into(),
         ));
     }
+    if !(1..=65536).contains(&runtime.effective_packet_return_max_frames()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.packet_return_max_frames must be between 1 and 65536".into(),
+        ));
+    }
+    if !(1..=1073741824).contains(&runtime.effective_packet_return_max_bytes()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.packet_return_max_bytes must be between 1 and 1073741824".into(),
+        ));
+    }
+    if !(1..=65536).contains(&runtime.effective_packet_return_total_max_frames()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.packet_return_total_max_frames must be between 1 and 65536".into(),
+        ));
+    }
+    if !(1..=1073741824).contains(&runtime.effective_packet_return_total_max_bytes()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.packet_return_total_max_bytes must be between 1 and 1073741824".into(),
+        ));
+    }
+    if !(1..=65536).contains(&runtime.effective_packet_transmit_total_max_frames()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.packet_transmit_total_max_frames must be between 1 and 65536".into(),
+        ));
+    }
+    if !(1..=1073741824).contains(&runtime.effective_packet_transmit_total_max_bytes()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.packet_transmit_total_max_bytes must be between 1 and 1073741824".into(),
+        ));
+    }
+    if !(1..=65536).contains(&runtime.effective_packet_native_read_total_max_frames()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.packet_native_read_total_max_frames must be between 1 and 65536".into(),
+        ));
+    }
+    if !(1..=1073741824).contains(&runtime.effective_packet_native_read_total_max_bytes()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.packet_native_read_total_max_bytes must be between 1 and 1073741824".into(),
+        ));
+    }
+    for (name, limit) in [
+        (
+            "ss_udp_replay_max_windows",
+            runtime.effective_ss_udp_replay_max_windows(),
+        ),
+        ("ss_udp_max_senders", runtime.effective_ss_udp_max_senders()),
+        (
+            "ss_udp_max_associations",
+            runtime.effective_ss_udp_max_associations(),
+        ),
+        (
+            "ss_udp_max_return_bindings",
+            runtime.effective_ss_udp_max_return_bindings(),
+        ),
+        (
+            "ss_udp_max_authenticated_codecs",
+            runtime.effective_ss_udp_max_authenticated_codecs(),
+        ),
+    ] {
+        if limit == 0 || limit.checked_add(1).is_none() {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be positive and leave room for checked accounting"
+            )));
+        }
+    }
+    if !(1..=4096).contains(&runtime.effective_grpc_pool_max_carriers()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.grpc_pool_max_carriers must be between 1 and 4096".into(),
+        ));
+    }
+    if !(1..=65536).contains(&runtime.effective_grpc_pool_max_streams()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.grpc_pool_max_streams must be between 1 and 65536".into(),
+        ));
+    }
+    if !(1..=4096).contains(&runtime.effective_grpc_total_max_carriers()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.grpc_total_max_carriers must be between 1 and 4096".into(),
+        ));
+    }
+    for (name, value, maximum) in [
+        (
+            "navigation_max_jobs",
+            runtime.effective_navigation_max_jobs(),
+            64,
+        ),
+        (
+            "navigation_max_requests",
+            runtime.effective_navigation_max_requests(),
+            32,
+        ),
+        (
+            "packet_route_max_routes",
+            runtime.effective_packet_route_max_routes(),
+            4096,
+        ),
+    ] {
+        if !(1..=maximum).contains(&value) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between 1 and {maximum}"
+            )));
+        }
+    }
+    if !(1..=65536).contains(&runtime.effective_grpc_total_max_streams()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.grpc_total_max_streams must be between 1 and 65536".into(),
+        ));
+    }
+    if !(1..=8).contains(&runtime.effective_diagnostic_max_operations()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.diagnostic_max_operations must be between 1 and 8".into(),
+        ));
+    }
+    if runtime
+        .system_tun_task_limit
+        .is_some_and(|limit| !(1..=65536).contains(&limit))
+    {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.system_tun_task_limit must be between 1 and 65536".into(),
+        ));
+    }
+    if runtime.effective_ss_legacy_replay_max_bytes() == 0
+        || runtime
+            .effective_ss_legacy_replay_max_bytes()
+            .checked_add(1)
+            .is_none()
+    {
+        return Err(ConfigError::InvalidRuntime("runtime.ss_legacy_replay_max_bytes must be positive and leave room for checked accounting".into()));
+    }
+    if runtime.effective_ss_tcp_replay_max_salts() == 0
+        || runtime
+            .effective_ss_tcp_replay_max_salts()
+            .checked_add(1)
+            .is_none()
+    {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.ss_tcp_replay_max_salts must be positive and leave room for checked accounting".into(),
+        ));
+    }
     if !(1..=4096).contains(&runtime.effective_vmess_grpc_max_originals()) {
         return Err(ConfigError::InvalidRuntime(
             "runtime.vmess_grpc_max_originals must be between 1 and 4096".into(),
@@ -408,10 +548,50 @@ fn validate_runtime(
             "runtime.hysteria2_udp_pending_bytes must be between 1 and 67108864".into(),
         ));
     }
+    for (name, limit) in [
+        (
+            "ss_udp_max_pending_responses",
+            runtime.effective_ss_udp_max_pending_responses(),
+        ),
+        (
+            "ss_udp_total_max_pending_responses",
+            runtime.effective_ss_udp_total_max_pending_responses(),
+        ),
+    ] {
+        if !(1..=65536).contains(&limit) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between 1 and 65536"
+            )));
+        }
+    }
+    if !(1..=65536).contains(&runtime.effective_carrier_max_total_originals()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.carrier_max_total_originals must be between 1 and 65536".into(),
+        ));
+    }
     if !(1..=4096).contains(&runtime.effective_native_stream_max_originals()) {
         return Err(ConfigError::InvalidRuntime(
             "runtime.native_stream_max_originals must be between 1 and 4096".into(),
         ));
+    }
+    for (name, limit) in [
+        (
+            "direct_max_originals",
+            runtime.effective_direct_max_originals(),
+        ),
+        ("direct_max_tasks", runtime.effective_direct_max_tasks()),
+    ] {
+        if !(1..=4096).contains(&limit) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between 1 and 4096"
+            )));
+        }
+    }
+    if !(1..=4096).contains(&runtime.effective_process_max_jobs())
+        || !(1..=runtime.effective_process_max_jobs())
+            .contains(&runtime.effective_process_max_jobs_per_instance())
+    {
+        return Err(ConfigError::InvalidRuntime("runtime process job limits must be positive, per-instance no greater than total, and total at most 4096".into()));
     }
     for (name, limit) in [
         (
@@ -422,12 +602,30 @@ fn validate_runtime(
             "control_max_subscriptions",
             runtime.effective_control_max_subscriptions(),
         ),
+        (
+            "event_network_max_tasks",
+            runtime.effective_event_network_max_tasks(),
+        ),
+        (
+            "event_network_max_originals",
+            runtime.effective_event_network_max_originals(),
+        ),
+        (
+            "event_network_max_lookups",
+            runtime.effective_event_network_max_lookups(),
+        ),
     ] {
         if !(1..=4096).contains(&limit) {
             return Err(ConfigError::InvalidRuntime(format!(
                 "runtime.{name} must be between 1 and 4096"
             )));
         }
+    }
+    control_messages::validate(runtime)?;
+    if !(1..=256 * 1024 * 1024).contains(&runtime.effective_control_pipe_max_workspace_bytes()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.control_pipe_max_workspace_bytes must be between 1 and 268435456".into(),
+        ));
     }
     if !(1024..=64 * 1024 * 1024).contains(&runtime.effective_control_max_queued_event_bytes()) {
         return Err(ConfigError::InvalidRuntime(
@@ -450,6 +648,189 @@ fn validate_runtime(
         (
             "native_dns_max_h2_drivers",
             runtime.effective_native_dns_max_h2_drivers(),
+        ),
+    ] {
+        if !(1..=4096).contains(&limit) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between 1 and 4096"
+            )));
+        }
+    }
+    // Actual subscriber queue/count/filter books, independent of replay history.
+    for (name, limit, maximum) in [
+        (
+            "event_subscriber_max_pending_events",
+            runtime.effective_event_subscriber_max_pending_events(),
+            1024,
+        ),
+        (
+            "event_subscriber_total_max_pending_events",
+            runtime.effective_event_subscriber_total_max_pending_events(),
+            1048576,
+        ),
+        (
+            "event_subscriber_max_registrations",
+            runtime.effective_event_subscriber_max_registrations(),
+            65536,
+        ),
+        (
+            "event_subscriber_total_stats_max_bytes",
+            runtime.effective_event_subscriber_total_stats_max_bytes(),
+            268435456,
+        ),
+        (
+            "event_subscriber_max_filter_bytes",
+            runtime.effective_event_subscriber_max_filter_bytes(),
+            1048576,
+        ),
+        (
+            "event_subscriber_total_max_storage_bytes",
+            runtime.effective_event_subscriber_total_max_storage_bytes(),
+            268435456,
+        ),
+    ] {
+        if !(1..=maximum).contains(&limit) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between 1 and {maximum}"
+            )));
+        }
+    }
+    for (name, limit) in [
+        (
+            "event_log_stats_max_bytes",
+            runtime.effective_event_log_stats_max_bytes(),
+        ),
+        (
+            "event_subscriber_stats_max_bytes",
+            runtime.effective_event_subscriber_stats_max_bytes(),
+        ),
+    ] {
+        if !(1..=256 * 1024 * 1024).contains(&limit) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between 1 and 268435456"
+            )));
+        }
+    }
+    for (name, limit, maximum) in [
+        (
+            "inbound_max_accepted_sockets",
+            runtime.effective_inbound_max_accepted_sockets(),
+            65536,
+        ),
+        (
+            "inbound_max_datagram_associations",
+            runtime.effective_inbound_max_datagram_associations(),
+            65536,
+        ),
+        (
+            "inbound_max_datagram_peers",
+            runtime.effective_inbound_max_datagram_peers(128),
+            65536,
+        ),
+        (
+            "inbound_max_packets_per_peer",
+            runtime.effective_inbound_max_packets_per_peer(256),
+            65536,
+        ),
+        (
+            "inbound_max_pending_sends",
+            runtime.effective_inbound_max_pending_sends(32),
+            65536,
+        ),
+        (
+            "inbound_max_bind_attempts",
+            runtime.effective_inbound_max_bind_attempts(),
+            4096,
+        ),
+        (
+            "inbound_max_target_sockets",
+            runtime.effective_inbound_max_target_sockets(),
+            65536,
+        ),
+        (
+            "inbound_max_file_sessions",
+            runtime.effective_inbound_max_file_sessions(),
+            4096,
+        ),
+        (
+            "inbound_max_handoff_probe_attempts",
+            runtime.effective_inbound_max_handoff_probe_attempts(),
+            65536,
+        ),
+        (
+            "metadata_max_probe_sockets",
+            runtime.effective_metadata_max_probe_sockets(2),
+            256,
+        ),
+        (
+            "metadata_max_probe_attempts",
+            runtime.effective_metadata_max_probe_attempts(8),
+            4096,
+        ),
+        (
+            "metadata_max_send_calls",
+            runtime.effective_metadata_max_send_calls(2),
+            4096,
+        ),
+        (
+            "quic_source_max_connections",
+            runtime.effective_quic_source_max_connections(),
+            65536,
+        ),
+        (
+            "quic_shared_endpoint_max_users",
+            runtime.effective_quic_shared_endpoint_max_users(),
+            65536,
+        ),
+    ] {
+        if !(1..=maximum).contains(&limit) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between 1 and {maximum}"
+            )));
+        }
+    }
+    for (name, limit, minimum, maximum) in [
+        (
+            "inbound_max_tasks_per_carrier",
+            runtime.effective_inbound_max_tasks_per_carrier(520),
+            1,
+            4096,
+        ),
+        (
+            "inbound_max_resources_per_carrier",
+            runtime.effective_inbound_max_resources_per_carrier(257),
+            0,
+            65536,
+        ),
+        (
+            "inbound_max_in_flight_requests",
+            runtime.effective_inbound_max_in_flight_requests(256),
+            1,
+            65536,
+        ),
+    ] {
+        if !(minimum..=maximum).contains(&limit) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between {minimum} and {maximum}"
+            )));
+        }
+    }
+    for (name, limit) in [
+        (
+            "hysteria2_h3_max_pending_classifications",
+            runtime.effective_hysteria2_h3_max_pending_classifications(),
+        ),
+        (
+            "hysteria2_h3_max_pending_tcp_streams",
+            runtime.effective_hysteria2_h3_max_pending_tcp_streams(),
+        ),
+        (
+            "hysteria2_h3_max_pending_web_streams",
+            runtime.effective_hysteria2_h3_max_pending_web_streams(),
+        ),
+        (
+            "hysteria2_h3_max_pending_web_requests",
+            runtime.effective_hysteria2_h3_max_pending_web_requests(),
         ),
     ] {
         if !(1..=4096).contains(&limit) {

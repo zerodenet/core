@@ -2,7 +2,7 @@
 
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::mpsc;
-use zero_stack::FragmentReassembler;
+use zero_stack::OwnedFragmentReassembler;
 
 use super::{RawIpInboundAction, RawIpInboundEndpoint};
 use crate::runtime::raw_ip::RawIpWireCarrier;
@@ -20,8 +20,8 @@ pub(super) async fn refresh_endpoint_peers(
     revision: &mut u64,
     initial_endpoints: &mut Vec<Option<SocketAddr>>,
     endpoints: &mut Vec<Option<SocketAddr>>,
-    fragments: &mut FragmentReassembler,
-    endpoint_fragments: &mut FragmentReassembler,
+    fragments: &mut OwnedFragmentReassembler<(u64, usize)>,
+    endpoint_fragments: &mut OwnedFragmentReassembler<(u64, usize)>,
     owner: &super::tasks::RetainedTasks<()>,
     proxied_tasks: &mut super::tasks::TasksGuard<'_, ()>,
     proxied_tx: &mpsc::Sender<ProxiedWirePacket>,
@@ -94,8 +94,8 @@ pub(super) async fn refresh_endpoint_peers(
             }
         })
         .collect();
-    *fragments = FragmentReassembler::new();
-    *endpoint_fragments = FragmentReassembler::new();
+    *fragments = OwnedFragmentReassembler::new();
+    *endpoint_fragments = OwnedFragmentReassembler::new();
     Ok(())
 }
 

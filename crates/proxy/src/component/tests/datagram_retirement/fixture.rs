@@ -4,11 +4,11 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::Notify,
-    time::{timeout_at, Instant},
+    time::{Instant, timeout_at},
 };
 use zero_platform_tokio::contract::{
-    lifecycle::{erase_control, ChannelControl, CloseReport, DynChannelControl, Unfinished},
     CancellationToken, ChannelError, CloseReason, Impact, Reason, Stage,
+    lifecycle::{ChannelControl, CloseReport, DynChannelControl, Unfinished, erase_control},
 };
 pub(super) fn deadline() -> Instant {
     Instant::now() + std::time::Duration::from_secs(3)

@@ -9,17 +9,32 @@ pub(super) struct Registration {
     class: TaskClass,
     witness: Option<Weak<JoinedState>>,
 }
-struct JoinedState {
+pub(super) struct JoinedState {
     task: std::sync::OnceLock<TaskId>,
+    native_task: std::sync::OnceLock<tokio::task::Id>,
     hosted: bool,
     owner: Weak<Shared>,
     joined: Mutex<Option<TaskJoined>>,
     changed: Notify,
 }
-pub(super) struct Notification(Arc<JoinedState>);
+pub(super) enum Notification {
+    Joined(Arc<JoinedState>),
+    Released(TaskJoined),
+}
 impl Notification {
+    pub(super) fn released(joined: TaskJoined) -> Self {
+        // Only actual completed-entry removal reaches this constructor.
+        joined
+            .0
+            .registration_released
+            .store(true, Ordering::Release);
+        Self::Released(joined)
+    }
     pub(super) fn notify(&self) {
-        self.0.changed.notify_waiters();
+        match self {
+            Self::Joined(witness) => witness.changed.notify_waiters(),
+            Self::Released(joined) => joined.0.registration_changed.notify_waiters(),
+        }
     }
 }
 impl std::fmt::Debug for JoinedState {
@@ -35,7 +50,11 @@ impl std::fmt::Debug for JoinedState {
 #[derive(Clone, Debug)]
 pub struct TaskJoinWitness(Arc<JoinedState>);
 impl TaskJoinWitness {
-    /// Original registration identity, published before spawn_tracked returns.
+    /// Original Tokio registration identity, never a native IO close receipt.
+    pub fn native_task_id(&self) -> Option<tokio::task::Id> {
+        self.0.native_task.get().copied()
+    }
+    /// Original Scope registration identity, published before spawn returns.
     pub fn task_id(&self) -> Option<TaskId> {
         self.0.task.get().copied()
     }
@@ -60,6 +79,7 @@ impl TaskJoinWitness {
         Self(Arc::new(JoinedState {
             hosted,
             task: std::sync::OnceLock::new(),
+            native_task: std::sync::OnceLock::new(),
             owner: Arc::downgrade(owner),
             joined: Mutex::new(None),
             changed: Notify::new(),
@@ -79,6 +99,21 @@ impl TaskJoinWitness {
             .lock()
             .expect("task join witness poisoned")
             .clone()
+    }
+    /// Observe the same registration's actual budget return. A consumed join
+    /// alone is insufficient for HostedScope: its host must really ACK and
+    /// remove this completed entry. Never ACKs, polls joins or closes native IO.
+    pub async fn wait_registration_released(&self) -> TaskJoined {
+        let joined = self.wait().await;
+        loop {
+            let changed = joined.0.registration_changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if joined.registration_released() {
+                return joined.clone();
+            }
+            changed.await;
+        }
     }
     /// Wait for the supervisor to consume this exact task's native exit.
     /// Cancelling this wait retains the observation for a later retry. If the
@@ -105,8 +140,14 @@ struct Joined {
     class: TaskClass,
     result: Result<(), Arc<ComponentError>>,
     failure_accepted: std::sync::atomic::AtomicBool,
+    registration_released: std::sync::atomic::AtomicBool,
+    registration_changed: Notify,
 }
 impl TaskJoined {
+    pub fn registration_released(&self) -> bool {
+        self.0.registration_released.load(Ordering::Acquire)
+    }
+
     pub fn id(&self) -> TaskId {
         self.0.id
     }
@@ -120,7 +161,9 @@ impl TaskJoined {
     pub(super) fn same_receipt(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
-    pub(super) fn failure_accepted(&self) -> bool {
+    /// The original local receiver accepted this exact failure. This is not
+    /// Host registration ACK, original IO closure, or whole-Scope retirement.
+    pub fn failure_accepted(&self) -> bool {
         self.0.failure_accepted.load(Ordering::Acquire)
     }
 }
@@ -144,6 +187,9 @@ fn forward(source: Arc<ComponentError>) -> ComponentError {
     error.session = source.session;
     error.delivery = source.delivery;
     error.retry = source.retry;
+    if let Some(receipt) = source.cleanup_failure_receipt() {
+        error = error.with_cleanup_failure_receipt(receipt.clone());
+    }
     error.with_source(SharedFailure(source))
 }
 /// The sole constructor/completion site, called only from State::exit after a
@@ -162,6 +208,7 @@ pub(super) fn complete(
                 result,
             },
             None,
+            None,
         );
     }
     let result = result.map_err(Arc::new);
@@ -170,13 +217,15 @@ pub(super) fn complete(
         class: record.class,
         result: result.clone(),
         failure_accepted: std::sync::atomic::AtomicBool::new(false),
+        registration_released: std::sync::atomic::AtomicBool::new(false),
+        registration_changed: Notify::new(),
     }));
     let notification = if let Some(witness) = witness {
         let mut joined = witness.joined.lock().expect("task join witness poisoned");
         assert!(joined.is_none(), "a native task exit is consumed once");
         *joined = Some(receipt.clone());
         drop(joined);
-        Some(Notification(witness))
+        Some(Notification::Joined(witness))
     } else {
         None
     };
@@ -190,6 +239,7 @@ pub(super) fn complete(
             result: result.map_err(forward),
         },
         notification,
+        Some(receipt),
     )
 }
 
@@ -265,6 +315,9 @@ impl TaskRegistrar {
         }
         let id = allocate_task_id()?;
         let handle = spawn(&mut state.tasks, &self.0.runtime);
+        if let Some(witness) = witness.as_ref().and_then(Weak::upgrade) {
+            let _ = witness.native_task.set(handle.id());
+        }
         state
             .records
             .insert(handle.id(), Registration { id, class, witness });
@@ -276,3 +329,6 @@ impl TaskRegistrar {
 
 #[cfg(test)]
 mod tests;
+
+mod error;
+pub use error::TaskJoinError;

@@ -1,36 +1,24 @@
-//! Native service originals use the same accepted graph and original host Scope.
+//! Same accepted graph and actor, with persistent concrete Host native custody.
 mod native;
 use super::*;
 use crate::protocol_registry::UpstreamConnectServices;
-use tokio::sync::{Mutex as AsyncMutex, OwnedSemaphorePermit, Semaphore};
-use zero_platform_tokio::contract::lifecycle::ChannelControl;
-use zero_platform_tokio::contract::lifecycle::TaskClass;
-use zero_platform_tokio::{AcceptedCaller, ControlledTcpControl, TcpRelayStream};
+use zero_platform_tokio::contract::scope::TaskRegistrar;
+use zero_platform_tokio::{
+    AcceptedCaller, InboundTargetNativeOwner, InboundTargetSocketPool, TcpRelayStream,
+};
 use zero_traits::FallbackEndpoint;
-struct State {
-    originals: Vec<(ControlledTcpControl, OwnedSemaphorePermit)>,
-    receipts: CloseReport,
-    pending: std::collections::BTreeMap<
-        usize,
-        Vec<zero_platform_tokio::contract::lifecycle::Unfinished>,
-    >,
-    driver: Option<zero_platform_tokio::contract::scope::TaskJoinWitness>,
-    view_issued: bool,
-    fatal: Option<Arc<ChannelError>>,
-}
 #[derive(Clone)]
 pub(super) struct Targets {
-    endpoints: Arc<[FallbackEndpoint]>,
-    permits: Arc<Semaphore>,
+    pool: InboundTargetSocketPool,
     upstream: UpstreamConnectServices,
-    scope: zero_platform_tokio::contract::scope::TaskScopeIdentity,
-    cancel: CancellationToken,
 }
 impl Targets {
     pub(super) fn new(
         declaration: &ResourceDeclaration,
         upstream: UpstreamConnectServices,
-        scope: zero_platform_tokio::contract::scope::TaskScopeIdentity,
+        instance: zero_core::component::ComponentInstanceId,
+        tasks: &TaskRegistrar,
+        root: &Arc<zero_platform_tokio::controlled_carrier::CarrierOriginalTotals>,
         cancel: CancellationToken,
     ) -> Result<Self, EngineError> {
         let ResourceDeclaration::InboundTargets {
@@ -41,11 +29,15 @@ impl Targets {
             return Err(std::io::Error::other(denied()).into());
         };
         Ok(Self {
-            endpoints: endpoints.clone().into(),
-            permits: Arc::new(Semaphore::new(max_sockets.get())),
+            pool: InboundTargetSocketPool::new(
+                instance,
+                tasks.retirement_observation(),
+                root,
+                *max_sockets,
+                endpoints.clone().into(),
+                cancel,
+            ),
             upstream,
-            scope,
-            cancel,
         })
     }
     pub(super) async fn open(
@@ -54,87 +46,77 @@ impl Targets {
         endpoint: FallbackEndpoint,
     ) -> Result<TcpRelayStream, ChannelError> {
         caller.check_open()?;
-        if !self.scope.same_scope(&caller.scope_identity()) || !self.endpoints.contains(&endpoint) {
-            return Err(denied());
-        }
-        let state = Arc::new(AsyncMutex::new(State {
-            originals: Vec::new(),
-            receipts: CloseReport::default(),
-            pending: Default::default(),
-            driver: None,
-            view_issued: false,
-            fatal: None,
-        }));
-        let stop = self.cancel.child_token();
-        let returned = CancellationToken::new();
-        let owner = Owner {
-            state: state.clone(),
-            stop: stop.clone(),
-            returned: returned.clone(),
-        };
-        let original = Arc::new(caller.retain_logical_resource(erase_lifecycle(owner))?);
-        let retained = original.clone();
-        let grant = self.clone();
-        let (ready, received) = tokio::sync::oneshot::channel();
-        let stopping = stop.clone();
+        let native = self
+            .pool
+            .reserve_graph(&caller.scope_identity(), &endpoint)?;
+        let stop = native.cancellation();
         let _cancel_unsubmitted = stop.clone().drop_guard();
-        caller.spawn(TaskClass::Critical, move |tasks| {
-            let binding = retained.bind_driver(&tasks);
-            async move {
-                binding?;
-                state.lock().await.driver = tasks.caller()?.task_join_witness();
-                let opening = grant.connect(endpoint, state.clone(), stopping.clone());
-                let result = tokio::select! { biased; _=stopping.cancelled()=>Err(std::io::Error::new(std::io::ErrorKind::Interrupted,"target preparation stopped")), result=opening=>result };
-                match result {
-                    Ok(stream) => {
-                        state.lock().await.view_issued=true;
-                        let io = TcpRelayStream::new(Returned { stream, returned: returned.clone() });
-                        if ready.send(Ok(io)).is_ok() {
-                            // Stop wakes the controlled I/O; it cannot substitute
-                            // for the unique view's actual return or this join.
-                            returned.cancelled().await;
-                        }
-                    }
-                    Err(error) => { let _=ready.send(Err(error)); }
+        let (admit, admitted) = tokio::sync::oneshot::channel::<()>();
+        let (ready, received) = tokio::sync::oneshot::channel();
+        let actual_tasks = Arc::new(std::sync::OnceLock::new());
+        let installed = actual_tasks.clone();
+        let grant = self.clone();
+        let original = native.clone();
+        let stopping = stop.clone();
+        // This exact same single Critical actor is registered before IO. Its
+        // gate prevents even native preparation until same-row custody is set.
+        let registration=native.register_actor(&caller,move |tasks|{
+            assert!(installed.set(tasks).is_ok());
+            async move{
+                if admitted.await.is_err(){return Ok(());}
+                let result=tokio::select!{biased;_=stopping.cancelled()=>Err(std::io::Error::new(std::io::ErrorKind::Interrupted,"target preparation stopped")),result=grant.connect(endpoint,original.clone())=>result};
+                match result{
+                    Ok(stream)=>match original.wrap_stream(stream){
+                        Ok(stream)=>{if ready.send(Ok(stream)).is_ok(){original.wait_view_returned().await;}},
+                        Err(source)=>{let _=ready.send(Err(std::io::Error::other(source)));},
+                    },
+                    Err(source)=>{let _=ready.send(Err(source));},
                 }
                 Ok(())
             }
-        })?;
-        let result = received.await.map_err(|source| {
+        });
+        let _actual = registration?;
+        let tasks = actual_tasks.get().ok_or_else(denied)?;
+        let original = caller.retain_logical_resource_with_driver(
+            erase_lifecycle(Owner {
+                native: native.clone(),
+            }),
+            tasks,
+        )?;
+        // Everything above is synchronous. The already installed owner, exact
+        // witness and original retained row precede this actor's first IO.
+        admit.send(()).map_err(|_| denied())?;
+        match received.await.map_err(|source| {
             ChannelError::new(Stage::Dial, Reason::Io, Impact::Session).with_source(source)
-        })?;
-        match result {
+        })? {
             Ok(stream) => {
                 _cancel_unsubmitted.disarm();
                 Ok(stream)
             }
             Err(source) => {
-                // Complete failed originals before returning/retrying, using
-                // the actual driver join and original native close provider.
-                let closed = original
+                let work = Arc::new(source);
+                match original
                     .close(Instant::now() + std::time::Duration::from_secs(5))
-                    .await?;
-                if !closed {
-                    return Err(ChannelError::new(
-                        Stage::Close,
-                        Reason::Timeout,
-                        Impact::Component,
-                    ));
+                    .await
+                {
+                    Ok(true) => Err(ChannelError::new(Stage::Dial, Reason::Io, Impact::Session)
+                        .with_source(WorkError(work))),
+                    Ok(false) => Err(cleanup_error(
+                        work,
+                        ChannelError::new(Stage::Close, Reason::Timeout, Impact::Component),
+                    )),
+                    Err(cleanup) => Err(cleanup_error(work, cleanup)),
                 }
-                Err(ChannelError::new(Stage::Dial, Reason::Io, Impact::Session).with_source(source))
             }
         }
     }
     async fn connect(
         &self,
         endpoint: FallbackEndpoint,
-        state: Arc<AsyncMutex<State>>,
-        stop: CancellationToken,
+        native: Arc<InboundTargetNativeOwner>,
     ) -> std::io::Result<TcpRelayStream> {
         let opener = native::Opener {
-            state,
-            stop,
-            permits: self.permits.clone(),
+            native: native.clone(),
             observer: self.upstream.observer(),
         };
         let result = match endpoint {
@@ -142,161 +124,75 @@ impl Targets {
                 .upstream
                 .connect_inbound_target_using(&server, port, &opener)
                 .await
-                .map(TcpRelayStream::new)
+                .map(TcpRelayStream::from_client)
                 .map_err(std::io::Error::other),
             FallbackEndpoint::Unix { path } => opener.unix(&path).await,
         };
-        let mut state = opener.state.lock().await;
-        for index in 0..state.originals.len() {
-            if state.originals[index].0.is_cancelled() {
-                let report = state.originals[index]
-                    .0
-                    .wait_closed(Instant::now() + std::time::Duration::from_secs(5))
-                    .await
-                    .map_err(std::io::Error::other)?;
-                let complete = report.is_complete() && report.failed_tasks.is_empty();
-                state.collect(index, report);
-                if !complete {
-                    return Err(std::io::Error::other(
-                        "losing original target remains unconfirmed",
-                    ));
+        let cleanup = native
+            .close_cancelled_candidates(Instant::now() + std::time::Duration::from_secs(5))
+            .await;
+        match cleanup {
+            Ok(()) => result,
+            Err(cleanup) => match result {
+                Ok(stream) => {
+                    drop(stream);
+                    Err(std::io::Error::other(cleanup))
                 }
-            }
+                Err(work) => Err(std::io::Error::other(cleanup_error(
+                    Arc::new(work),
+                    cleanup,
+                ))),
+            },
         }
-        result
     }
 }
 struct Owner {
-    state: Arc<AsyncMutex<State>>,
-    stop: CancellationToken,
-    returned: CancellationToken,
+    native: Arc<InboundTargetNativeOwner>,
 }
 impl ResourceLifecycle for Owner {
     async fn start(&mut self, _: Instant) -> Result<(), BuildError> {
         Ok(())
     }
     fn revoke(&self, _: CloseReason) {
-        self.stop.cancel();
+        self.native.cancellation().cancel();
     }
     async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, BuildError> {
-        self.stop.cancel();
-        let mut state = tokio::time::timeout_at(deadline, self.state.lock())
-            .await
-            .map_err(|source| {
-                ChannelError::new(Stage::Close, Reason::Timeout, Impact::Component)
-                    .with_source(source)
-            })?;
-        if state
-            .driver
-            .as_ref()
-            .is_some_and(|driver| !driver.is_joined())
-        {
-            return Ok(CloseReport {
-                unfinished: vec![
-                    zero_platform_tokio::contract::lifecycle::Unfinished::Resource(
-                        "original target driver join remains pending".into(),
-                    ),
-                ],
-                ..Default::default()
-            });
-        }
-        if state.view_issued && !self.returned.is_cancelled() {
-            return Ok(CloseReport {
-                unfinished: vec![
-                    zero_platform_tokio::contract::lifecycle::Unfinished::Resource(
-                        "original target view has not returned".into(),
-                    ),
-                ],
-                ..Default::default()
-            });
-        }
-        for (control, _) in &mut state.originals {
-            control.cancel(CloseReason::Shutdown);
-        }
-        for index in 0..state.originals.len() {
-            let report = state.originals[index].0.wait_closed(deadline).await?;
-            state.collect(index, report);
-        }
-        if let Some(error) = &state.fatal {
-            return Err(crate::component::instance::retained(error.clone()));
-        }
-        if state.pending.is_empty() && state.receipts.failed_tasks.is_empty() {
-            state.originals.clear();
-        }
-        let mut report = std::mem::take(&mut state.receipts);
-        report.unfinished = state.pending.values().flatten().cloned().collect();
-        Ok(report)
-    }
-}
-struct Returned {
-    stream: TcpRelayStream,
-    returned: CancellationToken,
-}
-impl Drop for Returned {
-    fn drop(&mut self) {
-        self.returned.cancel();
-    }
-}
-impl tokio::io::AsyncRead for Returned {
-    fn poll_read(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buffer: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        std::pin::Pin::new(&mut self.stream).poll_read(cx, buffer)
-    }
-}
-impl tokio::io::AsyncWrite for Returned {
-    fn poll_write(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        bytes: &[u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
-        std::pin::Pin::new(&mut self.stream).poll_write(cx, bytes)
-    }
-    fn poll_flush(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        std::pin::Pin::new(&mut self.stream).poll_flush(cx)
-    }
-    fn poll_shutdown(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        std::pin::Pin::new(&mut self.stream).poll_shutdown(cx)
-    }
-}
-impl zero_platform_tokio::ClientStream for Returned {
-    fn local_addr(&self) -> std::io::Result<std::net::SocketAddr> {
-        self.stream.local_addr()
-    }
-    fn peer_addr(&self) -> std::io::Result<std::net::SocketAddr> {
-        self.stream.peer_addr()
+        self.native.close(deadline).await
     }
 }
 
-impl State {
-    fn collect(&mut self, index: usize, mut report: CloseReport) {
-        let pending = std::mem::take(&mut report.unfinished);
-        if pending.is_empty() {
-            self.pending.remove(&index);
-        } else {
-            self.pending.insert(index, pending);
-        }
-        self.receipts.append(report);
+#[derive(Debug)]
+struct WorkError(Arc<std::io::Error>);
+impl std::fmt::Display for WorkError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self.0.as_ref(), f)
     }
 }
-
-impl zero_traits::AsyncSocket for Returned {
-    type Error = std::io::Error;
-    async fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        tokio::io::AsyncReadExt::read(self, buf).await
+impl std::error::Error for WorkError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.0.as_ref())
     }
-    async fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
-        tokio::io::AsyncWriteExt::write_all(self, buf).await
+}
+#[derive(Debug)]
+struct WorkCleanup {
+    work: Arc<std::io::Error>,
+    cleanup: Arc<ChannelError>,
+}
+impl std::fmt::Display for WorkCleanup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "original target operation: {}; cleanup: {}",
+            self.work, self.cleanup
+        )
     }
-    async fn shutdown(&mut self) -> std::io::Result<()> {
-        tokio::io::AsyncWriteExt::shutdown(self).await
+}
+impl std::error::Error for WorkCleanup {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.cleanup.as_ref())
     }
+}
+fn cleanup_error(work: Arc<std::io::Error>, cleanup: ChannelError) -> ChannelError {
+    let cleanup = Arc::new(cleanup);
+    ChannelError::retained(cleanup.clone()).with_source(WorkCleanup { work, cleanup })
 }

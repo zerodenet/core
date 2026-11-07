@@ -1,6 +1,8 @@
 //! Resolve the entire selected service path before opening any carrier. Protocol
 //! support is determined by actual registered slots, never protocol-name matches.
 mod carrier;
+mod datagram;
+pub(crate) use datagram::ServiceDatagram;
 mod roots;
 pub(crate) use roots::{dns_roots, ServiceRoot};
 mod selection;
@@ -70,7 +72,11 @@ impl ProtocolInventory {
                     .service_node(ctx, &leaf, components)
                     .map_err(|error| invalid().with_source(error.error))?
                     .ok_or_else(invalid)?;
-                if node.slot.role_id() != *role || node.endpoint.is_none() {
+                if node.slot.role_id() != *role
+                    || (node.endpoint.is_none()
+                        && !components.has_device_carrier_provider(*role)
+                        && !components.has_preparing_node_carrier_provider(*role))
+                {
                     return Err(invalid());
                 }
                 Ok(node)
@@ -92,7 +98,12 @@ impl ProtocolInventory {
                     let Some(node) = node(leaf)? else {
                         return Ok(None);
                     };
-                    if node.endpoint.is_none() {
+                    if node.endpoint.is_none()
+                        && (!nodes.is_empty()
+                            || (!components.has_device_carrier_provider(node.slot.role_id())
+                                && !components
+                                    .has_preparing_node_carrier_provider(node.slot.role_id())))
+                    {
                         return Ok(None);
                     }
                     nodes.push(node);

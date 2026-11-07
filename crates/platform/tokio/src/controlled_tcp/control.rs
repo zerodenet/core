@@ -59,6 +59,9 @@ enum CloseAction {
 }
 impl Shared {
     fn close_action(&self, deadline: Instant) -> CloseAction {
+        self.close_action_until(Some(deadline))
+    }
+    fn close_action_until(&self, deadline: Option<Instant>) -> CloseAction {
         // Prepare the unconfirmed disposition before taking the original. If
         // deregistration, socket conversion or close unwinds, it stays retained.
         let unknown = Arc::new(io::Error::other(
@@ -88,7 +91,7 @@ impl Shared {
                 return CloseAction::Fault(source.clone());
             }
         }
-        if Instant::now() >= deadline {
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             return CloseAction::Unfinished;
         }
         // The inflight marker cannot be mistaken for successful empty ownership
@@ -148,6 +151,7 @@ impl Shared {
         }
     }
 }
+mod ready;
 impl ChannelControl for ControlledTcpControl {
     fn cancel(&self, _: CloseReason) {
         self.shared.cancel.cancel();

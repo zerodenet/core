@@ -177,6 +177,13 @@ impl NativeSocket {
             )),
         }
     }
+    pub(in crate::controlled_tcp) fn nodelay(&self) -> io::Result<bool> {
+        match &self.status {
+            Status::Raw(socket) => socket.nodelay(),
+            Status::Registered(socket) => socket.inner.native()?.nodelay(),
+            Status::ConsumedUnknown(source) => Err(source.error()),
+        }
+    }
     pub(in crate::controlled_tcp) fn set_nodelay(&self) -> io::Result<()> {
         self.registered()?.inner.native()?.set_nodelay(true)
     }

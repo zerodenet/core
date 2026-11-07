@@ -27,8 +27,31 @@ struct View {
     preparing: BTreeMap<ComponentInstanceId, Arc<()>>,
 }
 #[derive(Default)]
-pub(super) struct HostAdmission(RwLock<View>, tokio::sync::Notify);
+pub(super) struct HostAdmission(
+    RwLock<View>,
+    tokio::sync::Notify,
+    std::sync::OnceLock<std::sync::Weak<crate::probe_owner::ProbeOwner>>,
+);
 impl HostAdmission {
+    pub(in crate::component) fn bind_probe_owner(
+        &self,
+        owner: std::sync::Weak<crate::probe_owner::ProbeOwner>,
+    ) {
+        assert!(self.2.set(owner).is_ok(), "one actual probe owner");
+    }
+    pub(in crate::component) fn check_probe(
+        &self,
+        call: &crate::ProbeCall,
+    ) -> Result<(), ChannelError> {
+        if !self.2.get().is_some_and(|owner| call.belongs_to(owner)) {
+            return Err(invalid(
+                Reason::StalePlan,
+                "probe belongs to another original host",
+            ));
+        }
+        call.check_open()
+    }
+
     pub(in crate::component) fn signal(&self) -> &tokio::sync::Notify {
         &self.1
     }
@@ -185,6 +208,7 @@ impl DynStreamOutbound for FencedStream {
                 _ = lease.revoked() => return Err(lease.failure(zero_platform_tokio::contract::Stage::Dial)),
                 result = inner.connect_carrier(request, context) => result?,
             };
+            lease.bind_receiver(connected.io.receiver_observation());
             connected.io.io.wrap(|io| lease.stream(io));
             Ok(connected)
         })
@@ -256,6 +280,7 @@ impl zero_platform_tokio::contract::datagram::DynDatagramOutbound for FencedData
                 return inner.open_carrier(request, context).await;
             };
             let mut loan = tokio::select! {biased;_=lease.revoked()=>return Err(lease.failure(zero_platform_tokio::contract::Stage::Dial)),result=inner.open_carrier(request,context)=>result?};
+            lease.bind_receiver(loan.receiver_observation());
             lease.datagram_loan(&mut loan);
             Ok(loan)
         })

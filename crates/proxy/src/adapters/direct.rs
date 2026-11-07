@@ -16,13 +16,8 @@ pub(crate) mod inbound;
 // Direct inbound is always available (no feature gate).
 #[derive(Default)]
 pub(crate) struct DirectAdapter {
-    #[cfg(all(feature = "raw-ip-runtime", target_os = "windows"))]
-    packet_wintun: std::sync::Mutex<Option<std::sync::Arc<zero_tun::OwnedWintunOwner>>>,
-    #[cfg(all(
-        feature = "raw-ip-runtime",
-        any(target_os = "linux", target_os = "macos")
-    ))]
-    packet_original: std::sync::Mutex<Option<std::sync::Arc<zero_tun::AdoptedTunOwner>>>,
+    #[cfg(feature = "raw-ip-runtime")]
+    packet_candidate: std::sync::Mutex<Option<packet::standard::Candidate>>,
     #[cfg(feature = "raw-ip-runtime")]
     packet: std::sync::Arc<
         std::sync::Mutex<

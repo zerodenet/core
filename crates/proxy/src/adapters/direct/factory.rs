@@ -25,6 +25,8 @@ pub struct DirectOptions {
     pub(super) policy: DialPolicy,
     control: Option<DirectBudgets>,
     retain_legacy_calls: bool,
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) packet: Option<super::packet::standard::Alias>,
 }
 impl DirectOptions {
     pub fn validate(policy: DialPolicy) -> Result<Self, zero_traits::DialPolicyError> {
@@ -33,6 +35,8 @@ impl DirectOptions {
             policy,
             control: None,
             retain_legacy_calls: false,
+            #[cfg(feature = "raw-ip-runtime")]
+            packet: None,
         })
     }
     /// Explicit required capability for library callers. Production decoding
@@ -56,6 +60,17 @@ impl DirectOptions {
             retirement,
         });
         Ok(self)
+    }
+    pub(crate) fn with_runtime_budgets(
+        mut self,
+        runtime: Option<&zero_config::RuntimeOptionsConfig>,
+    ) -> Self {
+        if let (Some(control), Some(runtime)) = (&mut self.control, runtime) {
+            // RuntimeConfig was validated before this cold producer runs.
+            control.max_sockets = NonZeroUsize::new(runtime.effective_direct_max_originals()).unwrap();
+            control.max_refresh_tasks = NonZeroUsize::new(runtime.effective_direct_max_tasks()).unwrap();
+        }
+        self
     }
     pub fn policy(&self) -> &DialPolicy {
         &self.policy
@@ -117,8 +132,14 @@ impl ComponentFactory for DirectFactory {
         if let Some(control) = &options.control {
             static_identity.extend_from_slice(b"controlled");
             static_identity.extend_from_slice(&control.retirement.as_nanos().to_be_bytes());
+            static_identity.extend_from_slice(&control.max_sockets.get().to_be_bytes());
+            static_identity.extend_from_slice(&control.max_refresh_tasks.get().to_be_bytes());
         }
-        ComponentSpec {
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(packet) = &options.packet {
+            static_identity.extend_from_slice(packet.identity());
+        }
+        let spec = ComponentSpec {
             owner: ResourceOwner::Component,
             roles: if options.control.is_some() && !options.retain_legacy_calls { vec![RoleKind::Stream] } else { vec![RoleKind::Stream, RoleKind::Datagram] },
             dependencies: vec![],
@@ -128,18 +149,36 @@ impl ComponentFactory for DirectFactory {
                 dial: options.policy.clone(), max_sockets: control.max_sockets,
             }]),
             task_limit: options.control.as_ref().map(|control| control.max_refresh_tasks),
-        }
+        };
+        #[cfg(feature = "raw-ip-runtime")]
+        let spec = {
+            let mut spec = spec;
+            if let Some(packet) = &options.packet {
+                spec.roles.push(RoleKind::Packet);
+                spec.dependencies.push(packet.dependency());
+            }
+            spec
+        };
+        spec
     }
     fn build(
         &self,
         options: Arc<Self::Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
+        #[cfg(feature = "raw-ip-runtime")]
+        let packet = options
+            .packet
+            .as_ref()
+            .map(|packet| packet.role(&context))
+            .transpose()?;
         let (owner, state) = SessionOwner::new(context.component, &context.cancel);
         let (owner, control) = DirectOwner::new(owner, options.control.as_ref(), &context);
         Ok(ComponentInstance {
             lifecycle: erase_lifecycle(owner),
             roles: ComponentRoles {
+                #[cfg(feature = "raw-ip-runtime")]
+                packet,
                 stream: Some(erase_stream(Outbound {
                     options: options.clone(),
                     state: state.clone(),
@@ -162,6 +201,64 @@ impl ComponentFactory for DirectFactory {
 
 impl StreamOutbound for Outbound {
     type Stream = BoxStream;
+    async fn connect_carrier(
+        &self,
+        request: ConnectRequest,
+        context: OpenContext,
+    ) -> Result<Connected<zero_platform_tokio::controlled_carrier::loan::StreamLoan>, ChannelError>
+    {
+        let session = self.state.check(&context)?;
+        if session.is_some() || context.upstream.binding().dial != self.options.policy {
+            return Err(self.state.error(
+                session,
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        let control = self.control.as_ref().ok_or_else(|| {
+            self.state.error(
+                session,
+                Stage::Prepare,
+                Reason::Unsupported,
+                DeliveryState::NotSubmitted,
+            )
+        })?;
+        let opening = context.upstream.open_controlled_stream_loan(
+            zero_platform_tokio::contract::network::ControlledStreamRequest {
+                destination: request.destination,
+                context: CarrierContext {
+                    session: None,
+                    deadline: context.deadline,
+                    cancel: context.cancel.clone(),
+                },
+                grants: control.grants.clone(),
+                tasks: control.tasks.clone(),
+                retirement: control.retirement,
+            },
+        );
+        let io = tokio::select!{biased;
+            _ = self.state.cancelled()=>return Err(during_open(&self.state,session,Reason::Revoked)),
+            _ = context.cancel.cancelled()=>return Err(during_open(&self.state,session,Reason::Cancelled)),
+            result = with_deadline(context.deadline,opening)=>result.map_err(|source|during_open(&self.state,session,Reason::Timeout).with_source(source))?,
+        }.map_err(|source|self.state.attach(source,session))?;
+        if !context.upstream.observe_carrier_origin(io.owner.original()) {
+            return Err(self.state.error(
+                session,
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::Unknown,
+            ));
+        }
+        if let Some(observer) = &context.observer {
+            observer.record(session, ConnectFact::CarrierReady);
+            observer.record(session, ConnectFact::PeerConfirmed);
+        }
+        Ok(Connected {
+            io,
+            peer_confirmation: PeerConfirmation::Confirmed,
+        })
+    }
     async fn connect(
         &self,
         request: ConnectRequest,

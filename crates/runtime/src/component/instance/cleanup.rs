@@ -1,7 +1,6 @@
 use super::{HostResources, Owner};
 use std::sync::Mutex;
 use tokio::time::{timeout_at, Instant};
-use zero_core::component::ComponentId;
 use zero_platform_tokio::contract::{
     lifecycle::{CloseReport, Unfinished},
     ChannelError, CloseReason,
@@ -10,12 +9,13 @@ use zero_platform_tokio::contract::{
 impl Owner {
     pub(super) async fn shutdown(
         &mut self,
-        component: ComponentId,
+        instance_id: zero_core::component::ComponentInstanceId,
         deadline: Instant,
         resources: &HostResources,
         tasks: &super::TaskMonitor,
         users: Option<&super::users::Users>,
     ) -> Result<CloseReport, ChannelError> {
+        let component = instance_id.component;
         if !self.protocol_closed {
             self.instance.lifecycle.revoke(CloseReason::Shutdown);
         }
@@ -24,6 +24,7 @@ impl Owner {
             instance,
             pending_close,
             protocol_closed,
+            resource_failures,
         } = self;
         let pending = pending_close.get_or_insert_with(Box::default);
         pending.report.unfinished.clear();
@@ -51,10 +52,11 @@ impl Owner {
                         *protocol_closed = complete;
                         Ok(())
                     }
-                    Ok(Err(mut error)) => {
-                        error.component.get_or_insert(component);
-                        Err(error)
-                    }
+                    Ok(Err(error)) => retain_resource_failure(
+                        &resource_failures[0], instance_id,
+                        zero_platform_tokio::contract::lifecycle::ResourceFailurePhase::ProtocolLifecycle,
+                        error,
+                    ),
                     Err(_) => {
                         persist(CloseReport {
                             unfinished: vec![Unfinished::Resource(format!(
@@ -73,12 +75,19 @@ impl Owner {
                 tasks.collect(deadline, persist).await;
             };
             let collect_io = async {
-                let report = resources.shutdown_io(deadline).await?;
-                // Keep the provider's early observation separate from actual
-                // protocol/task/user obligations. It can precede their close
-                // receipts in this same structured shutdown.
-                io.append(report);
-                Ok::<(), ChannelError>(())
+                match resources.shutdown_io(deadline).await {
+                    Ok(report) => {
+                        // Keep the exact provider's early observation separate
+                        // from protocol/task/user obligations.
+                        io.append(report);
+                        Ok(())
+                    }
+                    Err(error) => retain_resource_failure(
+                        &resource_failures[1], instance_id,
+                        zero_platform_tokio::contract::lifecycle::ResourceFailurePhase::DeclaredResources,
+                        error,
+                    ),
+                }
             };
             let collect_users = async {
                 if let Some(users) = users {
@@ -90,7 +99,12 @@ impl Owner {
             protocol?;
             io?;
         }
+        // Protocol cleanup can return the same Bound view after the concurrent
+        // provider branch observed the real wire exit. Retain its late receipt
+        // before asking that exact provider for final declaration evidence.
+        pending.io.append(resources.take_returned_bound_io());
         let evidence = resources.io_evidence();
+        evidence.retain_carrier_task_failures(&mut pending.report);
         if let Some(source) = evidence.sticky_faults.first() {
             return Err(super::retained(source.clone()));
         }
@@ -107,7 +121,30 @@ impl Owner {
         }
         pending.report.append(pending.io);
         let mut report = pending.report;
+        for fault in resource_failures
+            .iter()
+            .filter_map(std::sync::OnceLock::get)
+        {
+            if !report
+                .resource_failures
+                .iter()
+                .any(|same| std::sync::Arc::ptr_eq(same, fault))
+            {
+                report.resource_failures.push(fault.clone());
+            }
+        }
+        if !*protocol_closed {
+            report.unfinished.push(Unfinished::Resource(format!(
+                "component {} original protocol controller remains unfinished",
+                component.0
+            )));
+        }
         if !physically_closed {
+            #[cfg(test)]
+            eprintln!(
+                "actual component {} incomplete original declaration evidence: {:?}; retained report: {:?}",
+                component.0, evidence, report
+            );
             report.unfinished.push(Unfinished::Resource(format!(
                 "component {} declaration coverage remains unconfirmed",
                 component.0
@@ -115,4 +152,37 @@ impl Owner {
         }
         Ok(report)
     }
+}
+
+// Persist each actual branch error before join! can suspend in another branch.
+// Receipt acceptance belongs to the existing Plan archive, not this observer.
+fn retain_resource_failure(
+    slot: &std::sync::OnceLock<
+        std::sync::Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>,
+    >,
+    instance: zero_core::component::ComponentInstanceId,
+    phase: zero_platform_tokio::contract::lifecycle::ResourceFailurePhase,
+    mut error: ChannelError,
+) -> Result<(), ChannelError> {
+    error.component.get_or_insert(instance.component);
+    let source = std::sync::Arc::new(error);
+    let actual = slot.get_or_init(|| {
+        std::sync::Arc::new(
+            zero_platform_tokio::contract::lifecycle::ResourceFailure::new(
+                instance,
+                phase,
+                source.clone(),
+            ),
+        )
+    });
+    if let Some(receipt) = source.cleanup_failure_receipt() {
+        if !actual
+            .source
+            .cleanup_failure_receipt()
+            .is_some_and(|same| same.same_receipt(receipt))
+        {
+            return Err(super::retained(source));
+        }
+    }
+    Ok(())
 }

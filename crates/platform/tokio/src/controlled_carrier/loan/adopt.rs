@@ -11,11 +11,43 @@ use zero_core::request::Destination;
 
 impl CarrierGrant {
     pub fn adopt_stream_loan(
+        self,
+        binding: &UpstreamBinding,
+        endpoint: Destination,
+        context: &CarrierContext,
+        loan: StreamLoan,
+    ) -> Result<CarrierIo, ChannelError> {
+        self.adopt_stream_loan_inner(binding, endpoint, context, loan, None, false)
+    }
+    pub fn adopt_dependency_stream_loan(
+        self,
+        binding: &UpstreamBinding,
+        endpoint: Destination,
+        context: &CarrierContext,
+        loan: StreamLoan,
+        issuer: super::dependency::CarrierDependencyLoanIssuer,
+    ) -> Result<CarrierIo, ChannelError> {
+        self.adopt_stream_loan_inner(binding, endpoint, context, loan, Some(issuer), false)
+    }
+    /// A real per-connection Service retains its donor's logical controller.
+    /// This grants neither empty-prefix native I/O nor cached-driver custody.
+    pub fn adopt_service_stream_loan(
+        self,
+        binding: &UpstreamBinding,
+        endpoint: Destination,
+        context: &CarrierContext,
+        loan: StreamLoan,
+    ) -> Result<CarrierIo, ChannelError> {
+        self.adopt_stream_loan_inner(binding, endpoint, context, loan, None, true)
+    }
+    fn adopt_stream_loan_inner(
         mut self,
         binding: &UpstreamBinding,
         endpoint: Destination,
         context: &CarrierContext,
         loan: StreamLoan,
+        dependency: Option<super::dependency::CarrierDependencyLoanIssuer>,
+        service: bool,
     ) -> Result<CarrierIo, ChannelError> {
         let original = loan.owner.original().clone();
         // The reservation is unique. Persist the acquired controller first;
@@ -26,7 +58,7 @@ impl CarrierGrant {
                 state.control.is_none() && state.packet_owner.is_none() && state.loan.is_none(),
                 "sole unused carrier grant"
             );
-            state.loan = Some(Arc::new(tokio::sync::Mutex::new(loan.owner)));
+            state.loan = Some(super::receiver::install_owner(&self.slot, loan.owner));
             state.loan_origin = Some(original.clone());
             state.binding = Some(binding.clone());
             state.endpoint = Some(endpoint.clone());
@@ -43,7 +75,11 @@ impl CarrierGrant {
             .owner
             .upgrade()
             .and_then(|owner| owner.state().binding.clone());
-        if binding.prefix.is_empty()
+        let path_permitted = match dependency {
+            Some(issuer) => issuer.permits(&self, binding, &endpoint, &original),
+            None => !binding.prefix.is_empty(),
+        };
+        if !path_permitted
             || context.session.is_some()
             || context.cancel.is_cancelled()
             || context
@@ -52,8 +88,12 @@ impl CarrierGrant {
             || self.slot.cancel.is_cancelled()
             || original.is_retired()
             || bound.is_none_or(|bound| {
-                bound.pool_kind() != Some(false)
-                    || !bound.permits_native(binding, &endpoint, context)
+                if service {
+                    !bound.permits_service_stream_loan(binding, &endpoint, context)
+                } else {
+                    bound.pool_kind() != Some(false)
+                        || !bound.permits_native(binding, &endpoint, context)
+                }
             })
         {
             return Err(error(

@@ -232,3 +232,52 @@ impl EndpointStackOwner {
         self.workers.test_original_witnesses()
     }
 }
+
+#[tokio::test]
+async fn software_ready_requires_actual_registered_driver_poll_and_keeps_original_scope_join_separate(
+) {
+    use std::num::NonZeroUsize;
+    use zero_platform_tokio::contract::scope::{TaskClass, TaskScope};
+    let mut scope =
+        TaskScope::suspended_hosted(tokio::runtime::Handle::current(), NonZeroUsize::new(32));
+    scope.enable_registration().unwrap();
+    let owner = EndpointStackOwner::suspended();
+    owner.bind_scope(scope.registrar().downgrade()).unwrap();
+    let (recipe, _packets) = prepared_recipe();
+    let device = owner.start(recipe).unwrap();
+    let original = owner.driver_witness().unwrap();
+    assert!(
+        device.ready.borrow().is_none(),
+        "registration alone is not software readiness"
+    );
+    assert!(!original.is_joined());
+    tokio::time::timeout_at(deadline(), device.wait_ready())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(*device.ready.borrow(), Some(Ok(()))));
+    assert!(
+        !original.is_joined(),
+        "initialized Pending driver is still live work"
+    );
+    let (stopped, ()) = tokio::join!(owner.stop(deadline()), async {
+        let receipt = tokio::time::timeout_at(deadline(), scope.next_receipt())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(receipt.class(), TaskClass::Critical);
+        assert!(receipt.result().is_ok());
+        assert!(original.matches_joined(receipt.joined()));
+        assert!(!original.try_joined().unwrap().registration_released());
+        scope.acknowledge(&receipt).unwrap();
+    });
+    let stopped = stopped.unwrap();
+    assert!(stopped.is_complete());
+    assert!(
+        stopped.closed_io.is_empty(),
+        "software readiness/join emits no listener-native close"
+    );
+    assert!(original.try_joined().unwrap().registration_released());
+    scope.begin_shutdown();
+    assert!(scope.next_receipt().await.is_none());
+}

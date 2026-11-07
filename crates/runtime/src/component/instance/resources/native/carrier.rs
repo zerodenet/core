@@ -76,8 +76,12 @@ impl CarrierDeclarations {
                 matches!(
                     declaration,
                     ResourceDeclaration::ControlledOutboundStream { .. }
+                        | ResourceDeclaration::ControlledServiceStream { .. }
+                        | ResourceDeclaration::ControlledServiceDatagram { .. }
                         | ResourceDeclaration::ControlledCarrierPool { .. }
+                        | ResourceDeclaration::ControlledAssociationPool { .. }
                         | ResourceDeclaration::ControlledDatagramCarrier { .. }
+                        | ResourceDeclaration::ControlledNodeCarrier { .. }
                         | ResourceDeclaration::ControlledNodeStream { .. }
                         | ResourceDeclaration::ControlledDirectStream { .. }
                 )
@@ -130,11 +134,21 @@ impl CarrierDeclarations {
                 let mut proof = CarrierIoEvidence {
                     ordinal: *ordinal,
                     kind: match declaration {
-                        ResourceDeclaration::ControlledCarrierPool { .. } => {
+                        ResourceDeclaration::ControlledServiceStream { .. } => {
+                            coverage::DeclaredResourceKind::ControlledServiceStream
+                        }
+                        ResourceDeclaration::ControlledServiceDatagram { .. } => {
+                            coverage::DeclaredResourceKind::ControlledServiceDatagram
+                        }
+                        ResourceDeclaration::ControlledCarrierPool { .. }
+                        | ResourceDeclaration::ControlledAssociationPool { .. } => {
                             coverage::DeclaredResourceKind::ControlledCarrierPool
                         }
                         ResourceDeclaration::ControlledDatagramCarrier { .. } => {
                             coverage::DeclaredResourceKind::ControlledDatagramCarrier
+                        }
+                        ResourceDeclaration::ControlledNodeCarrier { .. } => {
+                            coverage::DeclaredResourceKind::ControlledNodeCarrier
                         }
                         ResourceDeclaration::ControlledNodeStream { .. } => {
                             coverage::DeclaredResourceKind::ControlledNodeStream
@@ -170,12 +184,9 @@ impl CarrierDeclarations {
                             proof.users = CarrierUsersEvidence::Confirmed;
                         }
                         proof.first_caller_failure = receipt.first_caller_failure();
-                        if proof.first_fault.is_none() {
-                            proof.first_fault = proof
-                                .first_caller_failure
-                                .as_ref()
-                                .and_then(critical_caller_fault);
-                        }
+                        // A joined caller failure remains an actual task outcome.
+                        // It cannot invalidate independent native/users receipts
+                        // or become a sticky acquisition/close failure.
                     }
                     if let Some(observation) = actual.observe() {
                         proof.owner_available = true;
@@ -239,7 +250,8 @@ impl CarrierDeclarations {
 
 // The caller's real failure remains in first_caller_failure. Business Auxiliary
 // errors do not turn a successfully closed shared carrier into a native fault;
-// actual Critical worker failures still fail the owning resource.
+// actual Critical worker failures are handed to the retained CloseReport,
+// independently of native completion.
 pub(in crate::component) fn critical_caller_fault(
     joined: &zero_platform_tokio::contract::scope::TaskJoined,
 ) -> Option<Arc<ChannelError>> {
@@ -264,3 +276,77 @@ impl std::error::Error for NativeSource {
 #[cfg(test)]
 #[path = "../../../tests/resource_carrier.rs"]
 mod tests;
+
+impl CarrierDeclarations {
+    pub(super) fn poll_cancelled(&self, cx: &mut std::task::Context<'_>) -> bool {
+        let originals: Vec<_> = self
+            .records
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .filter(|(_, record)| record.bound.is_some())
+            .map(|(ordinal, record)| (*ordinal, record.actual.clone()))
+            .collect();
+        let mut progress = false;
+        for (ordinal, original) in originals {
+            let (changed, fault) =
+                original.poll_cancelled_retirements(cx, std::time::Duration::from_secs(5));
+            progress |= changed;
+            if let Some(fault) = fault {
+                if let Some(record) = self
+                    .records
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .get_mut(&ordinal)
+                {
+                    if record.actual.same_owner(&original) {
+                        record.first_fault.get_or_insert(fault);
+                    }
+                }
+            }
+        }
+        progress
+    }
+}
+
+impl CarrierDeclarations {
+    pub(super) fn host_fence(&self) -> Result<&Arc<CancellationToken>, ChannelError> {
+        self.host_cancel.as_ref().ok_or_else(|| {
+            error(
+                self.identity
+                    .as_ref()
+                    .map_or(ComponentId(0), |(id, _)| id.component),
+                Reason::StalePlan,
+                "no actual host carrier fence",
+            )
+        })
+    }
+    pub(super) fn registered_dependency_receiver(
+        &self,
+        grant: &zero_platform_tokio::controlled_carrier::CarrierGrant,
+    ) -> Result<CarrierOwnerBinding, ChannelError> {
+        let records = self
+            .records
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut matching = records
+            .values()
+            .filter(|entry| entry.actual.matches_grant(grant));
+        let bound = matching.next().and_then(|entry| entry.bound.clone());
+        if matching.next().is_some() {
+            return Err(error(
+                grant.instance().component,
+                Reason::StalePlan,
+                "ambiguous actual dependency receiver",
+            ));
+        }
+        drop(records);
+        bound.ok_or_else(|| {
+            error(
+                grant.instance().component,
+                Reason::StalePlan,
+                "no actual registered dependency receiver",
+            )
+        })
+    }
+}

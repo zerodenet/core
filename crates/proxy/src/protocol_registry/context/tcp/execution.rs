@@ -23,9 +23,19 @@ pub(crate) struct TcpExecutionServices {
         crate::component::instance::SharedError,
     >,
     pub(crate) invocation: Option<crate::component::direct_bridge::Invocation>,
+    pub(crate) pending_datagram:
+        Option<std::sync::Weak<crate::component::datagram_retirement::PendingOpen>>,
     pub(crate) ingress: Option<crate::component::request::IngressIdentity>,
 }
 impl TcpExecutionServices {
+    pub(crate) fn with_pending_datagram(
+        mut self,
+        pending: std::sync::Weak<crate::component::datagram_retirement::PendingOpen>,
+    ) -> Self {
+        self.pending_datagram = Some(pending);
+        self
+    }
+
     pub(crate) fn ensure_configuration_committed(&self) -> Result<(), zero_engine::EngineError> {
         if self.configuration_publication.is_committed() {
             Ok(())

@@ -1,4 +1,5 @@
 //! Admission belongs to the same real carrier pool; views retain no live owner.
+mod options;
 use super::{failure, ManagedPool};
 use std::{
     collections::HashMap,
@@ -111,6 +112,19 @@ impl PoolControl {
                 return Ok(owner);
             }
         }
+        let (mode, instance, ready) = match &*scope {
+            Mode::Cold => ("cold", None, false),
+            Mode::Legacy => ("legacy", None, false),
+            Mode::Retiring => ("retiring", None, false),
+            Mode::Owned(owner) => match owner.upgrade() {
+                Some(owner) => ("owned", Some(owner.instance), owner.ready()),
+                None => ("owned-lost", None, false),
+            },
+        };
+        drop(scope);
+        let registry = *self.registry.nonce.lock().unwrap();
+        tracing::debug!(target:"zero_transport::pooled_driver", ?registry, mode, ?instance, ready,
+            "actual original MUX lookup unavailable");
         Err(std::io::Error::new(
             std::io::ErrorKind::PermissionDenied,
             "native carrier pool generation is unavailable",
@@ -130,12 +144,11 @@ impl PoolControl {
         let invalid = || {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "native carrier pool requires a scoped literal root and finite budget",
+                "native carrier pool requires an actual scoped owner and finite budget",
             )
         };
         if self.key.is_none()
             || !self.native_eligible()
-            || matches!(endpoint.address, zero_core::Address::Domain(_))
             || endpoint.port == 0
             || !binding.prefix.is_empty()
             || open_budget.is_zero()
@@ -187,6 +200,7 @@ impl PoolControl {
             open_budget.hash(&mut hash);
             identity.extend_from_slice(&hash.finish().to_le_bytes());
         }
+        let identity: Arc<[u8]> = identity.into();
         Ok(PoolOptions {
             registry: Arc::downgrade(&self.registry),
             key: self.key.clone().unwrap(),
@@ -195,12 +209,24 @@ impl PoolControl {
             binding,
             limit,
             open_budget,
-            identity: identity.into(),
+            identity: identity.clone(),
+            base_identity: identity,
             on_closed: None,
+            dependencies: Vec::new(),
+            scoped_preparation: false,
+            preparation_jobs: false,
+            stream_dependency: None,
+            node_dependency: None,
         })
     }
 }
+#[derive(Clone)]
 pub struct PoolOptions {
+    pub(super) scoped_preparation: bool,
+    pub(super) preparation_jobs: bool,
+    pub(super) stream_dependency: Option<zero_core::component::ComponentId>,
+    pub(super) node_dependency: Option<zero_core::component::ComponentId>,
+    pub(super) dependencies: Vec<zero_core::component::ComponentId>,
     pub(super) registry: Weak<Registry>,
     pub(super) key: Arc<str>,
     pub(super) profile: Arc<str>,
@@ -209,6 +235,7 @@ pub struct PoolOptions {
     pub(super) limit: NonZeroUsize,
     pub(super) open_budget: Duration,
     pub(super) identity: Arc<[u8]>,
+    base_identity: Arc<[u8]>,
     pub(super) on_closed:
         Option<Arc<dyn Fn(zero_core::component::ComponentInstanceId) + Send + Sync>>,
 }
@@ -220,23 +247,7 @@ impl std::fmt::Debug for PoolOptions {
             .finish_non_exhaustive()
     }
 }
-impl PoolOptions {
-    /// Protocol-private cache reclamation runs only after actual closure. The
-    /// callback grants no I/O authority and supplies no closure evidence.
-    pub fn on_confirmed_close(
-        mut self,
-        reclaim: impl Fn(zero_core::component::ComponentInstanceId) + Send + Sync + 'static,
-    ) -> Self {
-        self.on_closed = Some(Arc::new(reclaim));
-        self
-    }
-    pub fn endpoint(&self) -> &Destination {
-        &self.endpoint
-    }
-    pub fn binding(&self) -> &UpstreamBinding {
-        &self.binding
-    }
-}
+
 impl Registry {
     pub(super) fn claim(
         &self,
@@ -256,17 +267,33 @@ impl Registry {
             }
             *mode = Mode::Owned(Arc::downgrade(owner));
         }
+        drop(scopes);
+        let registry = *self.nonce.lock().unwrap();
+        tracing::debug!(target:"zero_transport::pooled_driver", ?registry, instance=?owner.instance,
+            "actual original MUX claim");
         Ok(scope)
     }
     pub(super) fn confirm(&self, key: &Arc<str>, actual: &Arc<Scope>) {
-        *actual.0.lock().unwrap() = Mode::Retiring;
+        let instance = {
+            let mut mode = actual.0.lock().unwrap();
+            let instance = match &*mode {
+                Mode::Owned(owner) => owner.upgrade().map(|owner| owner.instance),
+                _ => None,
+            };
+            *mode = Mode::Retiring;
+            instance
+        };
         let mut scopes = self.scopes.lock().unwrap();
-        if scopes
+        let removed = scopes
             .get(key)
-            .is_some_and(|current| Arc::ptr_eq(current, actual))
-        {
+            .is_some_and(|current| Arc::ptr_eq(current, actual));
+        if removed {
             scopes.remove(key);
         }
+        drop(scopes);
+        let registry = *self.nonce.lock().unwrap();
+        tracing::debug!(target:"zero_transport::pooled_driver", ?registry, ?instance, removed,
+            "actual original MUX confirmed retirement");
     }
 }
 

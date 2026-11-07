@@ -12,6 +12,8 @@ use zero_engine::{Engine, EngineError};
 
 use crate::inventory::ProtocolInventory;
 use crate::protocol_registry::TcpRuntimeServices;
+mod preparation;
+pub use preparation::ProxyPreparation;
 
 pub(crate) mod current_services;
 #[cfg(feature = "udp-runtime")]
@@ -77,7 +79,10 @@ pub(crate) mod udp_ingress;
 #[cfg(feature = "udp-runtime")]
 pub(crate) mod udp_socket;
 
-pub use handle::{ConfigApplyReconciler, ConfigReconcileResult, ProxyHandle};
+pub use handle::{
+    ConfigApplyReconciler, ConfigReconcileResult, ProxyCapabilitiesQuery, ProxyControlQuery,
+    ProxyHandle, ProxyHealthQuery,
+};
 mod reload_ack;
 use reload_ack::PendingReloadAck;
 pub(crate) type RuntimeHost = zero_runtime::RuntimeHost<PendingReloadAck>;
@@ -137,10 +142,16 @@ pub(crate) struct TunControl {
     pub id: u64,
     pub shutdown: tokio::sync::watch::Sender<bool>,
     pub completion: Arc<crate::inbound::tun::completion::TunCompletion>,
+    #[cfg(feature = "raw-ip-runtime")]
+    pub budget_recovery: Option<Arc<crate::inbound::tun::budget::TunBudgetRecovery>>,
     pub route_recovery: Option<tokio::sync::mpsc::Sender<oneshot::Sender<Result<(), String>>>>,
 }
 
 impl Proxy {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn system_tun_source_registry(&self) -> Arc<inbound_owners::InboundOwnerRegistry> {
+        self.inbound_owners.clone()
+    }
     pub fn new(config: RuntimeConfig) -> Result<Self, EngineError> {
         Self::from_engine(Engine::new(config)?)
     }
@@ -166,16 +177,24 @@ impl Proxy {
         engine: Engine,
         native_background: bool,
     ) -> Result<Self, EngineError> {
-        let egress_interface = zero_platform_tokio::EgressInterfaceControl::default();
-        let node_network = Arc::new(crate::component::background::BackgroundNetwork::new(
-            egress_interface.clone(),
-        ));
-        let background = native_background.then(|| node_network.clone());
-        let protocols = match &background {
-            Some(network) => ProtocolInventory::with_background(network.clone()),
-            None => ProtocolInventory::with_node_network(node_network.clone()),
-        };
+        Self::from_preparation(engine, ProxyPreparation::with_background(native_background))
+    }
+
+    /// Complete the very same cold Host used for initial rule downloads.
+    /// The preparation is consumed once; no second inventory or pool is built.
+    pub fn from_preparation(
+        engine: Engine,
+        preparation: ProxyPreparation,
+    ) -> Result<Self, EngineError> {
+        let ProxyPreparation {
+            egress_interface,
+            node_network,
+            background,
+            protocols,
+        } = preparation;
         let config = engine.config();
+        preparation::install_original_limit(&protocols, &config.runtime)?;
+        preparation::install_control_limit(&protocols, &config.runtime)?;
         protocols.validate_config(&config)?;
         protocols.validate_dial_environment(&config)?;
         protocols.validate_components(config.clone())?;
@@ -271,6 +290,35 @@ impl Proxy {
         self.egress_interface.clone()
     }
 
+    /// Transfer the existing Host's concrete custody root to application-owned
+    /// event network resources, together with one identity issued by its catalog.
+    /// This does not create a host, pool, task authority or native resource.
+    /// The same cold Host book used by embedded and production control calls.
+    pub fn application_control_budget(&self) -> Arc<zero_runtime::configuration::ControlBudget> {
+        self.host.control_budget()
+    }
+    pub fn embedded_command_owner(&self) -> Arc<zero_runtime::EmbeddedCommandOwner> {
+        self.host.embedded_commands().clone()
+    }
+    pub fn application_network_originals(
+        &self,
+    ) -> Result<
+        (
+            zero_core::component::ComponentInstanceId,
+            Arc<zero_platform_tokio::controlled_carrier::CarrierOriginalTotals>,
+        ),
+        EngineError,
+    > {
+        Ok((
+            self.protocols.allocate_resource_identity()?,
+            self.host.original_budgets().carrier.clone(),
+        ))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn orchestration_readiness(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.orchestration_ready.subscribe()
+    }
     pub(crate) fn mark_orchestration_ready(&self) {
         self.orchestration_ready.send_replace(true);
     }
@@ -350,6 +398,26 @@ impl Proxy {
 
     pub(crate) fn tcp_runtime_services(&self) -> TcpRuntimeServices {
         self.tcp_runtime_services_for_snapshot(self.engine.runtime_snapshot())
+    }
+
+    /// Select only an actually owned snapshot for this exact accepted config.
+    /// Source startup must retain its pending publication gate before the main
+    /// loop refreshes ordinary routing from the current committed snapshot.
+    pub(crate) fn tcp_runtime_services_for_owned_config(
+        &self,
+        config: &Arc<RuntimeConfig>,
+    ) -> Result<TcpRuntimeServices, zero_engine::EngineError> {
+        let snapshot = self
+            .pending_configuration_snapshot()
+            .filter(|snapshot| Arc::ptr_eq(snapshot.config(), config))
+            .or_else(|| {
+                let current = self.engine.runtime_snapshot();
+                Arc::ptr_eq(current.config(), config).then_some(current)
+            })
+            .ok_or_else(|| {
+                std::io::Error::other("Source configuration has no matching owned snapshot")
+            })?;
+        Ok(self.tcp_runtime_services_for_snapshot(snapshot))
     }
 
     pub(crate) fn tcp_runtime_services_for_snapshot(

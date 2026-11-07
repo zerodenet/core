@@ -9,6 +9,7 @@ impl OrchestrationState {
         // Stop new business first. Actual current/candidate Service operations
         // remain available while the accepted transaction compensates.
         proxy.protocols.stop_component_admission();
+        proxy.host.stop_probes();
         proxy.packet_close_owner.begin_shutdown();
         proxy.host.apply().begin_shutdown();
         let deadline = Instant::now() + Duration::from_secs(5);

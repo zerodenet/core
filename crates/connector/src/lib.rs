@@ -10,6 +10,8 @@ mod jsonl;
 #[cfg(feature = "event-dispatcher")]
 mod network;
 #[cfg(feature = "event-dispatcher")]
+pub use network::EventNetworkLimits;
+#[cfg(feature = "event-dispatcher")]
 mod registry;
 #[cfg(feature = "event-dispatcher")]
 mod state;
@@ -21,8 +23,8 @@ pub use dispatcher::{
     prepare_event_dispatcher_paused_with_network, resume_event_dispatcher_with_network,
     spawn_event_dispatcher, spawn_event_dispatcher_with_engine_started,
     spawn_event_dispatcher_with_engine_started_and_network, spawn_event_dispatcher_with_network,
-    EventDispatcherContinuation, EventDispatcherHandle, EventDispatcherOptions,
-    EventDispatcherStatusHandle,
+    DispatcherRetirementFailure, EventDispatcherContinuation, EventDispatcherHandle,
+    EventDispatcherOptions, EventDispatcherStatusHandle,
 };
 pub use error::{ConnectorError, ConnectorResult};
 #[cfg(feature = "event-dispatcher")]
@@ -31,7 +33,8 @@ pub use network::{
 };
 #[cfg(feature = "event-dispatcher")]
 pub use state::{
-    inspect_persistent_state, ConnectorStateFile, ConnectorStateReport, ConnectorStateStatus,
+    inspect_persistent_state, inspect_persistent_state_with_source, ConnectorStateFile,
+    ConnectorStateInspection, ConnectorStateReport, ConnectorStateStatus,
     CONNECTOR_STATE_REPORT_SCHEMA,
 };
 
@@ -40,3 +43,6 @@ mod encoding;
 
 #[cfg(feature = "event-dispatcher")]
 mod resources;
+
+#[cfg(feature = "kernel-events")]
+pub use dispatcher::prepare_kernel_event_dispatcher_paused_with_network;

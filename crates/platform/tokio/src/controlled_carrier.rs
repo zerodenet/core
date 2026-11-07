@@ -2,6 +2,11 @@
 //! One persistent caller owner holds every original control before connect await;
 //! the admitted protocol driver is joined before native close releases capacity.
 mod adoption;
+mod caller_credit;
+mod totals;
+pub use totals::preparation::{CarrierPreparationRequest, CarrierPreparationTotalsSnapshot};
+pub(crate) use totals::{BoundCustody, MetadataCustody, SourceCustody};
+pub use totals::{CarrierOriginalTotals, CarrierOriginalTotalsSnapshot};
 mod auxiliary;
 mod binding;
 mod business;
@@ -17,12 +22,17 @@ mod native_settlement;
 mod origin;
 mod owner;
 mod packet;
+mod preparation;
 mod prepared;
 mod registration;
 mod resolution;
 mod service;
 mod slot;
 mod users;
+pub use preparation::{
+    CarrierPreparation, CarrierPreparationClosed, CarrierPreparationJob,
+    CarrierPreparationJobRetained, StagedCarrierPreparationJob,
+};
 mod view;
 use crate::contract::{ChannelError, DeliveryState, Impact, Reason, Stage};
 pub use adoption::{CarrierAdoption, CarrierClosed};
@@ -34,7 +44,8 @@ pub use native::NativeCarrierOpener;
 pub use native_settlement::CarrierNativeSettlement;
 pub use origin::{
     CarrierOrigin, CarrierOriginClosed, CarrierOriginOwner, CarrierOriginOwnerClosed,
-    CarrierOriginUsersClosed,
+    CarrierOriginUsersClosed, LogicalPacketProviderRegistration, PacketProviderClosed,
+    PacketProviderRegistration,
 };
 pub use owner::CarrierOwner;
 pub use packet::CarrierDatagram;
@@ -94,7 +105,19 @@ mod tests;
 /// Read-only metadata from the preserved original native error object. This
 /// neither reconstructs its OS source nor grants acquisition/closure authority.
 pub fn original_connect_error(error: &ChannelError) -> Option<&crate::TcpConnectError> {
-    std::error::Error::source(error)
-        .and_then(|source| source.downcast_ref::<ConnectSource>())
-        .map(|source| source.0.as_ref())
+    let mut source = std::error::Error::source(error);
+    // Protocol/host forwarding retains the same typed source behind Arc/error
+    // wrappers. A generic IO kind/string can never establish this provenance.
+    // Bound traversal also makes malformed cyclic external chains harmless.
+    for _ in 0..64 {
+        let current = source?;
+        if let Some(original) = current.downcast_ref::<ConnectSource>() {
+            return Some(original.0.as_ref());
+        }
+        source = current.source();
+    }
+    None
 }
+mod related;
+
+mod retirement_progress;

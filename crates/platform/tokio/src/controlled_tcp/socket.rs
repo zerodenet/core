@@ -23,6 +23,19 @@ pub(super) enum Socket {
     Native(NativeSocket),
 }
 impl Socket {
+    pub(super) fn nodelay(&self) -> io::Result<bool> {
+        match self {
+            #[cfg(unix)]
+            Self::Unix(_) => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "Unix original has no TCP_NODELAY",
+            )),
+            Self::Tokio(socket) => socket.inner.native()?.nodelay(),
+            #[cfg(any(unix, windows))]
+            Self::Native(socket) => socket.nodelay(),
+        }
+    }
+
     pub(super) fn local_addr(&self) -> io::Result<SocketAddr> {
         match self {
             #[cfg(unix)]

@@ -143,7 +143,16 @@ impl ProtocolInventory {
                     return Ok(None);
                 };
                 let Some((host, port)) = candidate.endpoint else {
-                    return Ok(None);
+                    return Ok(components
+                        .has_device_carrier_provider(slot.role_id())
+                        .then(|| ServiceNode {
+                            dial: slot.dial.clone(),
+                            slot,
+                            tag: candidate.tag,
+                            endpoint: None,
+                            wire_endpoint: None,
+                            role: DnsQueryRole::Node,
+                        }));
                 };
                 Ok(Some(ServiceNode {
                     dial: slot.dial.clone(),
@@ -212,16 +221,22 @@ impl ProtocolInventory {
                 message: format!("{reason}: {endpoint}"),
             })));
         }
-        let Some((server, port)) = outbound.protocol.endpoint() else {
-            return Some(Err(failure(EngineError::InvalidPlan {
-                message: "native network Stream is missing its declared endpoint".into(),
-            })));
+        let endpoint = match outbound.protocol.endpoint() {
+            Some((server, port)) => Some((server.into(), port)),
+            None if [zero_platform_tokio::contract::component::RoleKind::Packet,
+                     zero_platform_tokio::contract::component::RoleKind::Stream,
+                     zero_platform_tokio::contract::component::RoleKind::Datagram]
+                .iter().all(|role| slot.recipe.spec().roles.contains(role))
+                && components?.device_component(slot.id).is_ok() => None,
+            None => return Some(Err(failure(EngineError::InvalidPlan {
+                message: "registered Stream has neither a node endpoint nor a canonical device dependency".into(),
+            }))),
         };
         Some(Ok(super::PreparedTcpCandidate {
             health_tag: Some(outbound.tag.clone()),
             tag: Some(outbound.tag.clone()),
             protocol: outbound.protocol.protocol_name().into(),
-            endpoint: Some((server.into(), port)),
+            endpoint,
             execution: super::PreparedTcpCandidateExecution::Native(slot),
         }))
     }
@@ -231,6 +246,18 @@ impl ProtocolInventory {
         config: &RuntimeConfig,
     ) -> Vec<zero_api::OutboundDeviceHealthSnapshot> {
         self.devices.health(config)
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn device_health_row_count(&self, config: &RuntimeConfig) -> std::io::Result<usize> {
+        self.devices.health_row_count(config)
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn fill_device_health_rows(
+        &self,
+        config: &RuntimeConfig,
+        rows: &mut Vec<crate::adapters::devices::HealthRow>,
+    ) {
+        self.devices.fill_health_rows(config, rows);
     }
 
     #[cfg(feature = "raw-ip-runtime")]
@@ -254,6 +281,27 @@ impl ProtocolInventory {
             mtu: config.runtime.network.mtu,
             stack_options: crate::runtime::raw_ip::RawIpStackOptions::from_config(
                 &config.runtime.network.udp_receive_queue,
+            )
+            .with_packet_native_read_limits(
+                config
+                    .runtime
+                    .effective_packet_native_read_total_max_frames(),
+                config
+                    .runtime
+                    .effective_packet_native_read_total_max_bytes(),
+            )
+            .with_packet_transmit_limits(
+                config.runtime.effective_packet_transmit_total_max_frames(),
+                config.runtime.effective_packet_transmit_total_max_bytes(),
+            )
+            .with_packet_return_limits(
+                config.runtime.effective_packet_return_max_frames(),
+                config.runtime.effective_packet_return_max_bytes(),
+            )
+            .with_packet_return_totals(
+                self.devices.packet_return_totals.clone(),
+                config.runtime.effective_packet_return_total_max_frames(),
+                config.runtime.effective_packet_return_total_max_bytes(),
             ),
             endpoint_bindings: Arc::new(config.endpoint_bindings()),
             disabled_outbounds: Arc::new(

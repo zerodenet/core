@@ -56,6 +56,17 @@ impl NativeRegistration {
     }
 
     async fn settle(&self, deadline: Instant) -> Result<bool, ChannelError> {
+        if let Some(settled) = self.settle_dns(deadline).await? {
+            return Ok(settled);
+        }
+        if let Some(settled) = self.settle_pre_admission()? {
+            return Ok(settled);
+        }
+        // Pending preparation cleanup is local to this actual caller. It does
+        // not certify any separately uncovered raw-IP gateway.
+        if !self.settle_pending(deadline).await? {
+            return Ok(false);
+        }
         let Some(owner) = self.owner.upgrade() else {
             return Ok(false);
         };
@@ -95,10 +106,11 @@ impl NativeRegistration {
         let Some(witness) = caller.join_witness() else {
             return Ok(false);
         };
-        if witness
-            .try_joined()
-            .is_none_or(|actual| actual.id() != joined.task() || actual.class() != joined.class())
-        {
+        if witness.try_joined().is_none_or(|actual| {
+            actual.id() != joined.task()
+                || actual.class() != joined.class()
+                || !actual.registration_released()
+        }) {
             return Ok(false);
         }
         match kind {
@@ -153,10 +165,13 @@ impl NativeObligations {
             .records
             .values()
             .any(|record| {
-                record.gateways > 0
-                    && !record.uncovered_gateway
-                    && !record.carrier_conflict
-                    && record.kind != ChildKind::Dns
+                record.dns.is_some()
+                    || record.no_business_admission
+                    || !record.pending_carriers.is_empty()
+                    || record.gateways > 0
+                        && !record.uncovered_gateway
+                        && !record.carrier_conflict
+                        && record.kind != ChildKind::Dns
             })
     }
     /// A finite quota measures outstanding originals, not lifetime traffic.
@@ -169,7 +184,12 @@ impl NativeObligations {
     ) -> Result<NativePermit, ChannelError> {
         match self.reserve(kind) {
             Err(error) if error.reason == Reason::Capacity => {
-                self.settle_joined(deadline).await?;
+                // This is an old original's cleanup result, not proof about
+                // the new reservation. Never swallow its nested Capacity as
+                // a fresh not-submitted admission failure.
+                self.settle_joined(deadline)
+                    .await
+                    .map_err(|source| rejected(Reason::Io).with_source(source))?;
                 self.reserve(kind)
             }
             result => result,

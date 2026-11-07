@@ -14,6 +14,7 @@ impl OrchestrationState {
         mut result: Result<(), EngineError>,
     ) -> Result<(), EngineError> {
         let mut cleanup_errors = Vec::new();
+        proxy.host.embedded_commands().begin_shutdown();
         // No component/Engine resource may close while its original sampling
         // worker still reads it. The cold Proxy retains this exact Scope even
         // when a shutdown waiter is cancelled.
@@ -30,6 +31,33 @@ impl OrchestrationState {
             cleanup_errors.push(error.to_string());
             if result.is_ok() {
                 result = Err(error);
+            }
+        }
+        let command_owner = proxy.host.embedded_commands().clone();
+        if let Err(error) = proxy
+            .protocols
+            .drive_component_supervision(
+                command_owner.shutdown(tokio::time::Instant::now() + Duration::from_secs(5)),
+            )
+            .await
+        {
+            cleanup_errors.push(format!("embedded command cleanup failed: {error}"));
+            if result.is_ok() {
+                result = Err(EngineError::Io(std::io::Error::other(error)));
+            }
+        }
+        proxy.host.control_budget().close_admission();
+        if let Err(error) = proxy
+            .host
+            .control_budget()
+            .retire_candidate_after_shutdown()
+            .await
+        {
+            cleanup_errors.push(format!(
+                "original control candidate retirement failed: {error}"
+            ));
+            if result.is_ok() {
+                result = Err(EngineError::Io(error));
             }
         }
         self.publish_stopping();

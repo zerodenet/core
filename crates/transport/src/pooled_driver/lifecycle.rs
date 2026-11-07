@@ -25,7 +25,7 @@ impl ComponentFactory for PoolFactory {
         ComponentSpec {
             owner: ResourceOwner::Endpoint("shared.stream_pool".into()),
             roles: vec![],
-            dependencies: vec![],
+            dependencies: options.dependencies.clone(),
             static_identity: options.identity.clone(),
             resources: vec![ResourceDeclaration::ControlledCarrierPool {
                 endpoint: options.endpoint.clone(),
@@ -41,10 +41,48 @@ impl ComponentFactory for PoolFactory {
         options: Arc<PoolOptions>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
+        self.build_with_registration(options, context)
+            .map(|(instance, _)| instance)
+    }
+}
+impl PoolFactory {
+    /// Return the same inert owner's registration to a protocol lifecycle that
+    /// must install it before a fallible material preparation. This does not
+    /// start admission, claim the protocol registry, acquire IO or spawn tasks.
+    /// The existing ResourceAccess still validates the exact owner and Scope
+    /// during the original lifecycle start phase.
+    pub fn build_with_registration(
+        &self,
+        options: Arc<PoolOptions>,
+        context: BuildContext,
+    ) -> Result<
+        (
+            ComponentInstance,
+            zero_platform_tokio::controlled_carrier::CarrierOwnerRegistration,
+        ),
+        BuildError,
+    > {
         let instance = context.instance();
-        if !context.dependencies.is_empty() || context.roles != Default::default() {
+        if context.dependencies.len() != options.dependencies.len()
+            || options
+                .dependencies
+                .iter()
+                .any(|dependency| context.dependency(*dependency).is_none())
+            || (matches!(options.endpoint.address, zero_core::Address::Domain(_))
+                && options.dependencies.is_empty())
+            || context.roles != Default::default()
+        {
             return Err(failure(instance, Stage::Prepare, Reason::InvalidConfig));
         }
+        let stream_dependency = options
+            .stream_dependency
+            .map(|dependency| {
+                context
+                    .dependency(dependency)
+                    .filter(|actual| actual.component == dependency && *actual != instance)
+                    .ok_or_else(|| failure(instance, Stage::Prepare, Reason::StalePlan))
+            })
+            .transpose()?;
         let registry = options
             .registry
             .upgrade()
@@ -57,9 +95,11 @@ impl ComponentFactory for PoolFactory {
         let carriers = CarrierOwner::new(instance, options.limit, &cancel);
         let managed = Arc::new(ManagedPool {
             instance,
+            stream_dependency,
             options,
             upstream,
             tasks: context.tasks,
+            resources: Arc::downgrade(&context.resources),
             grants: carriers.grants(),
             cancel,
             ready: AtomicBool::new(false),
@@ -70,18 +110,22 @@ impl ComponentFactory for PoolFactory {
             settled: Mutex::new(Default::default()),
             operations: AtomicUsize::new(0),
         });
-        Ok(ComponentInstance {
-            roles: ComponentRoles::default(),
-            lifecycle: erase_lifecycle(Owner {
-                registry,
-                managed,
-                carriers,
-                resources: context.resources,
-                scope: None,
-                attempted: false,
-                pending: CloseReport::default(),
-            }),
-        })
+        let registration = carriers.registration();
+        Ok((
+            ComponentInstance {
+                roles: ComponentRoles::default(),
+                lifecycle: erase_lifecycle(Owner {
+                    registry,
+                    managed,
+                    carriers,
+                    resources: context.resources,
+                    scope: None,
+                    attempted: false,
+                    pending: CloseReport::default(),
+                }),
+            },
+            registration,
+        ))
     }
 }
 struct Owner {
@@ -141,6 +185,15 @@ impl ResourceLifecycle for Owner {
             .append(std::mem::take(&mut *self.managed.settled.lock().unwrap()));
         self.pending.unfinished.clear();
         self.pending.append(self.carriers.shutdown(deadline).await?);
+        let records = self.managed.records.lock().unwrap().clone();
+        for record in records {
+            record.release_installed_pending();
+            let pending = record.pending.lock().unwrap().clone();
+            for original in pending {
+                self.pending.append(original.retire(deadline).await?);
+            }
+            record.release_installed_pending();
+        }
         loop {
             let changed = self.managed.changed.notified();
             tokio::pin!(changed);

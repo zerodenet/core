@@ -2,6 +2,7 @@ use super::*;
 use std::{future::Future, task::Waker, time::Duration};
 use tokio::{io::AsyncReadExt, sync::oneshot, time::timeout};
 mod callbacks;
+mod credit;
 mod errors;
 mod ownership;
 mod registrar;
@@ -19,7 +20,7 @@ async fn next(owner: &mut HostedScope) -> HostedExitReceipt {
         .unwrap()
 }
 fn counts(owner: &HostedScope) -> (usize, usize, usize) {
-    let state = owner.0 .0.state.lock().unwrap();
+    let state = owner.0.0.state.lock().unwrap();
     (
         state.records.len(),
         state.completed.len(),
@@ -27,9 +28,11 @@ fn counts(owner: &HostedScope) -> (usize, usize, usize) {
     )
 }
 fn pending(owner: &mut HostedScope) {
-    assert!(owner
-        .poll_exit(&mut Context::from_waker(Waker::noop()))
-        .is_pending());
+    assert!(
+        owner
+            .poll_exit(&mut Context::from_waker(Waker::noop()))
+            .is_pending()
+    );
 }
 
 #[tokio::test]
@@ -210,10 +213,12 @@ async fn cancelling_a_real_pending_join_wait_keeps_the_native_task_and_its_recei
     entered_rx.await.unwrap(); // Actual read was polled Pending, not a timer.
     {
         let mut waiting = Box::pin(owner.next_receipt());
-        assert!(waiting
-            .as_mut()
-            .poll(&mut Context::from_waker(Waker::noop()))
-            .is_pending());
+        assert!(
+            waiting
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
+        );
     }
     owner.begin_shutdown(); // Cancellation is not native task exit.
     pending(&mut owner);
@@ -250,7 +255,7 @@ async fn acknowledged_success_cycles_leave_no_permanent_task_or_receipt_history(
         drop(receipt);
         drop(witness);
         assert_eq!(counts(&owner), (0, 0, 0));
-        assert!(owner.0 .0.state.lock().unwrap().closing_report.is_none());
+        assert!(owner.0.0.state.lock().unwrap().closing_report.is_none());
     }
     owner.begin_shutdown();
     assert!(owner.is_drained());

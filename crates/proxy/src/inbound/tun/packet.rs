@@ -49,6 +49,7 @@ pub(super) async fn try_forward(
                 tag,
                 translated,
                 operation,
+                ..
             } => {
                 let generation = route.icmp_egress_generation();
                 let plane = if translated {
@@ -106,11 +107,16 @@ pub(super) async fn try_forward(
                 if !pins.permits(inner, &PacketPlane::DirectEcho) {
                     continue;
                 }
-                if echo.dispatch_direct(inner, mtu.min(u16::MAX as usize) as u16) {
-                    pins.record(inner, PacketPlane::DirectEcho);
-                    return true;
-                }
-                break;
+                // This standalone routing fixture keeps its input available
+                // for policy assertions. The actual submitted copy must still
+                // be admitted by the fixture's real memory owner before work.
+                let Ok(mut owned) = responses.allocate_transmit(inner.len()) else {
+                    break;
+                };
+                owned.copy_from_slice(inner);
+                echo.dispatch_direct_owned(owned, mtu.min(u16::MAX as usize) as u16);
+                pins.record(inner, PacketPlane::DirectEcho);
+                return true;
             }
             PacketRouteTarget::Block => {
                 if let Some(traffic) = traffic {

@@ -11,8 +11,13 @@ use zero_platform_tokio::contract::{
     CloseReason, Impact, Reason, Stage,
 };
 
-pub(in crate::runtime::inbound_owners::bind) struct NativeDatagramGrant {
+pub(in crate::runtime::inbound_owners) struct NativeDatagramGrant {
     identity: ComponentInstanceId,
+    originals: Option<Arc<zero_runtime::HostOriginalBudgets>>,
+    #[cfg(feature = "raw-ip-runtime")]
+    packet_reads: Option<Arc<crate::component::instance::HostPacketReadReservation>>,
+    #[cfg(feature = "raw-ip-runtime")]
+    packet_memory: std::sync::OnceLock<zero_platform_tokio::contract::packet::PacketSourceMemory>,
     addresses: std::sync::OnceLock<Arc<[std::net::SocketAddr]>>,
     declaration: ResourceDeclaration,
     attempts: NonZeroUsize,
@@ -24,6 +29,10 @@ pub(in crate::runtime::inbound_owners::bind) struct NativeDatagramGrant {
     native: Mutex<Option<HostDatagramListenerOwner>>,
     cancel: CancellationToken,
     bound: AtomicBool,
+    original: std::sync::OnceLock<
+        zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+    >,
+    scope: Option<zero_platform_tokio::contract::scope::TaskRegistrar>,
 }
 impl NativeDatagramGrant {
     pub(super) fn new(
@@ -63,6 +72,11 @@ impl NativeDatagramGrant {
         }
         Ok(Self {
             identity,
+            originals: None,
+            #[cfg(feature = "raw-ip-runtime")]
+            packet_reads: None,
+            #[cfg(feature = "raw-ip-runtime")]
+            packet_memory: std::sync::OnceLock::new(),
             addresses,
             declaration: declaration.clone(),
             attempts,
@@ -79,7 +93,71 @@ impl NativeDatagramGrant {
             }),
             cancel,
             bound: AtomicBool::new(false),
+            original: std::sync::OnceLock::new(),
+            scope: None,
         })
+    }
+    pub(super) fn with_original_budgets(
+        mut self,
+        originals: Arc<zero_runtime::HostOriginalBudgets>,
+    ) -> Self {
+        self.originals = Some(originals);
+        self
+    }
+    pub(super) fn new_scoped(
+        identity: ComponentInstanceId,
+        declaration: &ResourceDeclaration,
+        address: Option<std::net::SocketAddr>,
+        attempts: NonZeroUsize,
+        cancel: CancellationToken,
+        scope: zero_platform_tokio::contract::scope::TaskRegistrar,
+    ) -> Result<Self, ChannelError> {
+        let mut original = Self::new(identity, declaration, address, attempts, cancel)?;
+        original.scope = Some(scope);
+        Ok(original)
+    }
+    pub(in crate::runtime::inbound_owners) fn register_driver(
+        &self,
+        original: &zero_platform_tokio::controlled_datagram::listener::DatagramListenerIdentity,
+        witness: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<
+        zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+        ChannelError,
+    > {
+        if self.cancel.is_cancelled()
+            || !self
+                .scope
+                .as_ref()
+                .is_some_and(|tasks| witness.scope_identity().matches(tasks))
+        {
+            return Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::StalePlan,
+                Impact::Component,
+            ));
+        }
+        let native = self.native.lock().expect("native datagram owner poisoned");
+        let actual = native
+            .as_ref()
+            .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::StalePlan, Impact::Component))?
+            .register_driver(original, witness)?;
+        let retained = self.original.get_or_init(|| actual.clone());
+        if !retained.same_original(&actual) {
+            return Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::StalePlan,
+                Impact::Component,
+            ));
+        }
+        Ok(actual)
+    }
+    pub(in crate::runtime::inbound_owners) fn original_origin(
+        &self,
+    ) -> Option<zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin> {
+        self.original
+            .get()
+            .filter(|original| !original.is_retired())
+            .cloned()
     }
     pub(super) fn bind(&self) -> Result<GrantedDatagramListener, EngineError> {
         self.bind_after(|| {})
@@ -87,6 +165,19 @@ impl NativeDatagramGrant {
     fn bind_after(&self, acquired: impl FnOnce()) -> Result<GrantedDatagramListener, EngineError> {
         if self.cancel.is_cancelled() {
             return Err(crate::runtime::inbound_owners::preparing::stopped_preparation());
+        }
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(reads) = &self.packet_reads {
+            reads
+                .prepare_before_listener_bind(
+                    self.scope
+                        .as_ref()
+                        .ok_or_else(|| {
+                            ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component)
+                        })
+                        .map_err(std::io::Error::other)?,
+                )
+                .map_err(std::io::Error::other)?;
         }
         let mut native = self.native.lock().expect("native datagram owner poisoned");
         if self.cancel.is_cancelled() {
@@ -97,6 +188,16 @@ impl NativeDatagramGrant {
         let owner = native
             .as_mut()
             .ok_or_else(|| std::io::Error::other("original UDP resolution is not installed"))?;
+        if let (Some(originals), Some(tasks)) = (&self.originals, &self.scope) {
+            owner
+                .bind_original_budgets_for_instance(
+                    self.identity,
+                    originals.clone(),
+                    tasks.downgrade(),
+                    self.cancel.clone(),
+                )
+                .map_err(std::io::Error::other)?;
+        }
         let addresses = self
             .addresses
             .get()
@@ -119,6 +220,11 @@ impl NativeDatagramGrant {
         }
         let view =
             view.ok_or_else(|| std::io::Error::other(last.expect("nonempty bounded addresses")))?;
+        if let Some(tasks) = &self.scope {
+            owner
+                .register_provider(self.identity, tasks)
+                .map_err(std::io::Error::other)?;
+        }
         self.bound.store(true, Ordering::Release);
         acquired();
         Ok(view)
@@ -137,6 +243,10 @@ impl ResourceLifecycle for DatagramResource {
     }
     fn revoke(&self, _: CloseReason) {
         self.0.cancel.cancel();
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(reads) = &self.0.packet_reads {
+            reads.revoke();
+        }
         // Every native operation is synchronous. This same short lock makes
         // revoke linearize after an in-flight bind, including another thread.
         if let Some(owner) = self
@@ -151,6 +261,10 @@ impl ResourceLifecycle for DatagramResource {
     }
     async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.0.cancel.cancel();
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(reads) = &self.0.packet_reads {
+            reads.revoke();
+        }
         let mut native = self
             .0
             .native
@@ -165,6 +279,7 @@ impl ResourceLifecycle for DatagramResource {
     }
 }
 
+mod packet_reads;
 mod resolution;
 
 #[cfg(test)]

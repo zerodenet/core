@@ -9,6 +9,17 @@ pub(crate) struct Connections {
     entries: Mutex<BTreeMap<u64, (AcceptedTcpClaim, ControlBudgetPermit)>>,
 }
 impl Connections {
+    pub(crate) fn local_budget(
+        &self,
+        claim: &AcceptedTcpClaim,
+    ) -> io::Result<zero_runtime::configuration::ControlConnectionBudget> {
+        self.entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&claim.id())
+            .and_then(|(_, original)| original.connection_budget())
+            .ok_or_else(|| io::Error::other("original gRPC connection budget is absent"))
+    }
     pub(crate) fn before(&self, budget: &Arc<ControlBudget>) -> Result<(), ChannelError> {
         let mut acquiring = self
             .acquiring
@@ -36,10 +47,12 @@ impl Connections {
         Ok(())
     }
     pub(crate) fn no_native(&self) {
-        self.acquiring
+        let original = self
+            .acquiring
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take();
+        drop(original);
     }
     pub(crate) fn installed(&self, claim: AcceptedTcpClaim) {
         let permit = self
@@ -48,10 +61,12 @@ impl Connections {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take()
             .expect("charge installed before native accept");
-        self.entries
+        let previous = self
+            .entries
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(claim.id(), (claim, permit));
+        drop(previous);
     }
     pub(crate) async fn reap(
         &self,
@@ -73,10 +88,12 @@ impl Connections {
                 if !closed.matches(&claim) {
                     return Err(io::Error::other("foreign gRPC accepted close"));
                 }
-                self.entries
+                let original = self
+                    .entries
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .remove(&claim.id());
+                drop(original);
             }
         }
         Ok(())
@@ -84,10 +101,13 @@ impl Connections {
     /// Called only after this same listener's entire native/accepted report and
     /// actual Scope joins are complete. Unknown accept charges stay until then.
     pub(crate) fn confirm_all_closed(&self) {
-        self.entries
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clear();
+        let originals = std::mem::take(
+            &mut *self
+                .entries
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        drop(originals);
         self.no_native();
     }
 }

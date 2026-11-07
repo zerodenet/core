@@ -29,11 +29,15 @@ struct Shared {
     proxies: tasks::RetainedTasks<()>,
     done: Mutex<Option<TaskJoinWitness>>,
     pending_tx: Arc<Mutex<Option<IpPacket>>>,
+    resources: Arc<dyn ResourceAccess>,
 }
 struct State {
     wire: Option<wire::Wire>,
     grant: Option<GrantedDatagramListener>,
     taken: bool,
+    memory: Option<PacketSourceMemory>,
+    reads: Option<[zero_tun::packet_memory::NativeReadGrant; 2]>,
+    control: Option<zero_tun::packet_memory::NativeReadGrant>,
 }
 pub(crate) struct Owner {
     shared: Arc<Shared>,
@@ -67,6 +71,9 @@ pub(crate) fn source(
             }),
             grant: None,
             taken: false,
+            memory: None,
+            reads: None,
+            control: None,
         }),
         stop,
         cancel: context.cancel.child_token(),
@@ -74,6 +81,7 @@ pub(crate) fn source(
         proxies,
         done: Mutex::new(None),
         pending_tx: Arc::new(Mutex::new(None)),
+        resources: context.resources.clone(),
     });
     (
         Owner {
@@ -93,11 +101,51 @@ fn error(reason: Reason) -> ChannelError {
 }
 impl ResourceLifecycle for Owner {
     async fn start(&mut self, _: Instant) -> Result<(), ChannelError> {
+        #[cfg(test)]
+        eprintln!(
+            "actual Packet Source lifecycle before read-grant take: {:?}",
+            self.destination
+        );
+        let reads = self.resources.take_packet_datagram_reads(0)?;
+        #[cfg(test)]
+        eprintln!(
+            "actual Packet Source lifecycle read-grants taken, before listener: {:?}",
+            self.destination
+        );
+        let layout = self
+            .shared
+            .state
+            .lock()
+            .unwrap()
+            .wire
+            .as_ref()
+            .and_then(|wire| wire.device.packet_memory_layout())
+            .ok_or_else(|| error(Reason::InvalidConfig))?;
+        let memory = PacketSourceMemory {
+            view: reads[0]
+                .memory_view()
+                .map_err(|source| error(Reason::Revoked).with_source(source))?,
+            layout,
+        };
+        self.resources
+            .install_packet_source_memory(0, memory.clone())?;
+        self.shared.state.lock().unwrap().memory = Some(memory);
+        self.shared.state.lock().unwrap().reads = Some(reads);
+        let control = self
+            .resources
+            .take_packet_datagram_control(0)?
+            .ok_or_else(|| error(Reason::InvalidConfig))?;
+        self.shared.state.lock().unwrap().control = Some(control);
         let grant = self
             .resources
             .listen_datagram(self.destination.clone())
             .await?;
         self.shared.state.lock().unwrap().grant = Some(grant);
+        #[cfg(test)]
+        eprintln!(
+            "actual Packet Source lifecycle retained listener: {:?}",
+            self.destination
+        );
         Ok(())
     }
     fn revoke(&self, _: CloseReason) {
@@ -118,6 +166,16 @@ impl ResourceLifecycle for Owner {
         // the original listener provider, not this logical-session report.
         self.shared.state.lock().unwrap().grant.take();
         self.shared.state.lock().unwrap().wire.take();
+        let reads = self.shared.state.lock().unwrap().reads.take();
+        if let Some(reads) = reads {
+            for read in reads {
+                read.revoke();
+            }
+        }
+        let control = self.shared.state.lock().unwrap().control.take();
+        if let Some(control) = control {
+            control.revoke();
+        }
         self.shared.proxies.clone().shutdown(deadline).await
     }
 }
@@ -181,6 +239,12 @@ struct Reply {
     facts: PacketFacts,
 }
 impl PacketReply for Reply {
+    fn packet_memory(&self) -> Option<PacketSourceMemory> {
+        let memory = self.shared.state.lock().unwrap().memory.clone()?;
+        memory.view.check_open().ok()?;
+        Some(memory)
+    }
+
     fn link_mtu(&self) -> Option<u16> {
         self.shared
             .state
@@ -208,13 +272,23 @@ impl PacketReply for Reply {
             self.shared.stop.send_replace(true);
             return Ok(None);
         }
-        let (wire, grant) = {
+        #[cfg(test)]
+        eprintln!(
+            "actual Packet Source respond before wire custody: {:?}",
+            self.facts.inbound
+        );
+        let (wire, grant, reads, control) = {
             let mut state = self.shared.state.lock().unwrap();
             (
                 state.wire.take().ok_or_else(|| error(Reason::Revoked))?,
                 state.grant.take().ok_or_else(|| error(Reason::Revoked))?,
+                state.reads.take().ok_or_else(|| error(Reason::Revoked))?,
+                state.control.take().ok_or_else(|| error(Reason::Revoked))?,
             )
         };
+        let original = grant.tx.identity();
+        let (registered, original_registration) = tokio::sync::oneshot::channel::<()>();
+        let (checkpoint_sender, actual_checkpoint) = tokio::sync::oneshot::channel();
         let mtu = wire.device.mtu();
         let (packets, received) = mpsc::channel(1);
         let (responses, returned) = mpsc::channel(1);
@@ -223,6 +297,7 @@ impl PacketReply for Reply {
         let egress = observer.egress();
         let proxies = self.shared.proxies.clone();
         let guard = cancel.clone().drop_guard();
+        let waiting_cancel = cancel.clone();
         let source_facts = self.facts.clone();
         let facts = self.facts;
         let (_id, witness) = self
@@ -230,15 +305,53 @@ impl PacketReply for Reply {
             .tasks
             .spawn_tracked(TaskClass::Critical, async move {
                 let _guard = guard;
+                // This is the same real wire registration. It owns the unique
+                // views while waiting; no IO begins before its retained native
+                // controller has validated and saved this exact witness.
+                tokio::select! {
+                    biased;
+                    _ = waiting_cancel.cancelled() => return Ok(()),
+                    ready = original_registration => ready.map_err(|source| error(Reason::Revoked).with_source(source))?,
+                }
+                let checkpoint=tokio::select! {
+                    biased;
+                    _=waiting_cancel.cancelled()=>return Ok(()),
+                    checkpoint=actual_checkpoint=>checkpoint.map_err(|source|error(Reason::Revoked).with_source(source))?,
+                };
                 let result = wire::run(
-                    wire, grant, egress, packets, returned, facts, observer, shutdown,
+                    wire, grant, reads, control, egress, packets, returned, facts, observer, shutdown, checkpoint,
                 )
                 .await;
                 proxies.request_abort();
                 result.map_err(|source| error(Reason::Io).with_source(source))
             })
             .map_err(|source| error(Reason::Capacity).with_source(source))?;
+        #[cfg(test)]
+        eprintln!(
+            "actual Packet Source wire registered: {:?}, task {:?}",
+            source_facts.inbound,
+            witness.task_id()
+        );
         *self.shared.done.lock().unwrap() = Some(witness.clone());
+        let registered_driver = self
+            .shared
+            .resources
+            .register_packet_source_driver(&original, &witness)?;
+        #[cfg(test)]
+        eprintln!(
+            "actual Packet Source native driver registration accepted: {:?}",
+            source_facts.inbound
+        );
+        let checkpoint = registered_driver.checkpoint;
+        checkpoint_sender
+            .send(checkpoint)
+            .map_err(|_| error(Reason::Revoked))?;
+        registered.send(()).map_err(|_| error(Reason::Revoked))?;
+        #[cfg(test)]
+        eprintln!(
+            "actual Packet Source wire original gate released: {:?}",
+            source_facts.inbound
+        );
         Ok(Some(PacketSession {
             tx: Tx {
                 sender: PollSender::new(responses),

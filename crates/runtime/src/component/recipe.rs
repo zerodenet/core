@@ -4,6 +4,12 @@ use zero_platform_tokio::contract::{
     lifecycle::BuildError,
 };
 
+pub(in crate::component) mod accounting;
+mod bound_datagram;
+mod inbound_dependencies;
+mod packet_path;
+pub use packet_path::PacketPathFacts;
+
 trait BuildRecipe: Send + Sync {
     fn build(&self, context: BuildContext) -> Result<ComponentInstance, BuildError>;
 }
@@ -23,6 +29,11 @@ impl<F: ComponentFactory> BuildRecipe for Prepared<F> {
 pub struct ComponentRecipe {
     spec: Arc<ComponentSpec>,
     recipe: Arc<dyn BuildRecipe>,
+    bound_datagrams: Arc<[bound_datagram::NativeBinding]>,
+    carrier_total: Option<usize>,
+    process_limits: Option<accounting::ProcessLimits>,
+    preparation_limits: Option<accounting::PreparationLimits>,
+    packet_path: Option<PacketPathFacts>,
 }
 impl ComponentRecipe {
     /// Options have already been validated by their owning factory/adapter.
@@ -32,6 +43,11 @@ impl ComponentRecipe {
         Self {
             spec,
             recipe: Arc::new(Prepared { factory, options }),
+            bound_datagrams: Arc::from([]),
+            carrier_total: None,
+            process_limits: None,
+            preparation_limits: None,
+            packet_path: None,
         }
     }
     pub fn spec(&self) -> &ComponentSpec {

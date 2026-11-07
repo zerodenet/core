@@ -80,6 +80,7 @@ impl TcpRuntimeServices {
                 datagram_returns: None,
                 components,
                 invocation: None,
+                pending_datagram: None,
                 ingress: None,
             },
             protocols,
@@ -90,17 +91,50 @@ impl TcpRuntimeServices {
         mut self,
         source: std::sync::Weak<crate::runtime::current_services::CurrentServiceSource>,
     ) -> Self {
+        #[cfg(feature = "tls-ech-runtime")]
+        if let Some(actual) = source.upgrade() {
+            self.execution.upstream = self
+                .execution
+                .upstream
+                .clone()
+                .with_original_ech_owner(actual.ech_owner.clone());
+        }
         self.execution.current_source = source;
         self
     }
 
     pub(crate) fn with_current_snapshot(&self) -> Self {
         let mut services = self.clone();
+        if !services.execution.configuration_publication.is_committed() {
+            // The accepted Source is Ready under its exact target snapshot;
+            // Engine still publishes the old domain until final commit. Keep
+            // the target's frozen options rather than initializing its request
+            // loop with the old configuration. This grants no Business access.
+            services.execution.components = services.protocols
+                .prepared_components(services.execution.snapshot.config())
+                .unwrap_or_else(|| Err(Arc::new(crate::component::instance::invalid(
+                    zero_platform_tokio::contract::Reason::StalePlan,
+                    "pending Source lost its actual retained component candidate",
+                ))));
+            return services;
+        }
         services.execution.snapshot = services.engine.runtime_snapshot();
         services.execution.components = services
             .protocols
             .prepare_components(services.execution.snapshot.config().clone());
         services
+    }
+
+    /// Refresh only the exact already owned candidate after Source StopOld.
+    /// Preserve the target publication gate, ingress and caller bookkeeping.
+    pub(crate) fn with_prepared_components(&self) -> Result<Self, zero_engine::EngineError> {
+        let config = self.execution.snapshot.config();
+        let plan = self.protocols.prepared_components(config)
+            .ok_or_else(|| std::io::Error::other("actual candidate components were not retained"))?
+            .map_err(|source| std::io::Error::other(source))?;
+        let mut services = self.clone();
+        services.execution.components = Ok(plan);
+        Ok(services)
     }
 
     pub(crate) fn with_service_invocation(
@@ -154,6 +188,7 @@ impl TcpRuntimeServices {
                 caller_native: None,
                 admitted: None,
                 caller_accepted: None,
+                caller_probe: None,
                 identity: zero_platform_tokio::contract::context::RequestIdentity::Business(
                     Arc::new(crate::component::request::facts(session, ingress)),
                 ),

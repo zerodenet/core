@@ -87,9 +87,9 @@ async fn actual_adopted_tun_view_drop_does_not_release_the_persistent_original()
 
 #[tokio::test]
 async fn system_create_initialization_failure_is_closed_by_the_preinstalled_raw_original() {
-    use std::os::fd::AsRawFd;
-    let (socket, _peer) = std::os::unix::net::UnixDatagram::pair().unwrap();
-    let fd = socket.as_raw_fd();
+    use std::io::Read;
+    let (socket, mut peer) = std::os::unix::net::UnixStream::pair().unwrap();
+    peer.set_nonblocking(true).unwrap();
     let owner = AdoptedTunOwner::new();
     let failure = owner
         .create_with(
@@ -110,8 +110,19 @@ async fn system_create_initialization_failure_is_closed_by_the_preinstalled_raw_
         &failure.source,
         &owner.acquisition_failure().unwrap()
     ));
-    // Auxiliary OS check only; the decisive outcome is the original receipt.
-    assert_eq!(unsafe { libc::fcntl(fd, libc::F_GETFD) }, -1);
+    let identity = receipt.identity();
+    let closed = identity
+        .closed()
+        .expect("matching explicit native close was sealed");
+    assert!(closed.matches(identity));
+    let TunAcquisitionOutcome::Closed(actual) = owner.outcome() else {
+        panic!("the same preinstalled original must retain its close receipt")
+    };
+    assert!(Arc::ptr_eq(&actual, &receipt));
+    // Auxiliary OS observation uses this actual peer, not an FD number that
+    // another parallel test can already have reused. EOF does not issue or
+    // replace the matching native-close receipt checked above.
+    assert_eq!(peer.read(&mut [0]).unwrap(), 0);
 }
 
 #[test]

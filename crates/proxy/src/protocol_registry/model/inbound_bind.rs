@@ -6,6 +6,7 @@ use zero_platform_tokio::contract::component::ResourceDeclaration;
 
 pub(crate) struct PreparedInboundBind {
     recipe: crate::component::ComponentRecipe,
+    dependencies: Arc<[zero_core::component::ComponentInstanceId]>,
     recovery: Option<Arc<dyn super::InboundRecovery>>,
     resources: Arc<[ResourceDeclaration]>,
     address: Option<SocketAddr>,
@@ -16,6 +17,8 @@ impl PreparedInboundBind {
     ) -> Result<Self, EngineError> {
         use zero_platform_tokio::contract::component::{ResourceOwner, RoleKind};
         let spec = recipe.spec();
+        crate::component::instance::packet_datagram_read_spec(&spec.resources, usize::MAX)
+            .map_err(std::io::Error::other)?;
         if spec.owner != ResourceOwner::Component
             || spec.roles != [RoleKind::Inbound]
             || !spec.dependencies.is_empty()
@@ -30,7 +33,7 @@ impl PreparedInboundBind {
                 accepted: None,
                 max_pending_sends,
                 ..
-            }, ResourceDeclaration::NativeIcmp { .. }]
+            }, ResourceDeclaration::NativeIcmp { .. }, ResourceDeclaration::PacketDatagramReads { datagram: 0, .. }]
                 if spec.task_limit.is_some() && max_pending_sends.get() == 1 =>
             {
                 destination
@@ -72,10 +75,11 @@ impl PreparedInboundBind {
                         accepted: Some(peers),
                         ..
                     }] if datagram == destination
-                        && limits.max_resources_per_socket == 0
+                        && limits.max_tasks_per_socket == peers.max_tasks_per_peer
+                        && limits.max_resources_per_socket == peers.max_resources_per_peer
                         && peers.task_slots().is_some() => {}
                     [ResourceDeclaration::AcceptedDatagram { .. }]
-                        if limits.max_resources_per_socket == 2
+                        if limits.max_resources_per_socket >= 2
                             && limits.max_tasks_per_socket.get() >= 2 => {}
                     _ => return Err(unsupported()),
                 }
@@ -97,6 +101,7 @@ impl PreparedInboundBind {
         };
         let resources = Arc::from(spec.resources.as_slice());
         Ok(Self {
+            dependencies: Arc::from([]),
             recipe,
             resources,
             recovery: None,
@@ -109,6 +114,20 @@ impl PreparedInboundBind {
     }
     pub(crate) fn take_recovery(&mut self) -> Option<Arc<dyn super::InboundRecovery>> {
         self.recovery.take()
+    }
+    /// Refresh only through the protocol's existing immutable replacement
+    /// capsule. No generic re-decode or second Source executor is introduced.
+    pub(crate) fn refresh_dependencies(
+        self,
+        inbound: zero_config::InboundConfig,
+        source_dir: Option<&std::path::Path>,
+    ) -> Result<Self, EngineError> {
+        if let Some(recovery) = &self.recovery {
+            if let Some(prepared) = recovery.prepare_replacement(inbound, source_dir)? {
+                return Ok(prepared);
+            }
+        }
+        Ok(self)
     }
     pub(crate) fn resources(&self) -> &[ResourceDeclaration] {
         &self.resources
@@ -148,7 +167,7 @@ impl PreparedInboundBind {
                 ResourceDeclaration::TcpListener {
                     accepted: Some(limits),
                     ..
-                } => sum.checked_add(limits.task_slots()?.get()),
+                } => sum.checked_add(limits.task_slots()?.get().checked_mul(2)?),
                 _ => Some(sum),
             })
     }
@@ -162,20 +181,38 @@ impl PreparedInboundBind {
                 ResourceDeclaration::DatagramListener {
                     accepted: Some(limits),
                     ..
-                } => limits.task_slots().map_or(usize::MAX, |s| s.get()),
+                } => limits
+                    .task_slots()
+                    .and_then(|slots| slots.get().checked_mul(2))
+                    .unwrap_or(usize::MAX),
                 ResourceDeclaration::DatagramAssociations {
                     max_associations,
                     max_tasks_per_association,
                     ..
                 } => max_associations
                     .get()
-                    .saturating_mul(max_tasks_per_association.get()),
+                    .saturating_mul(max_tasks_per_association.get())
+                    .saturating_mul(2),
                 _ => 0,
             })
             .try_fold(recipe.spec().task_limit.map_or(0, |n| n.get()), |sum, n| {
                 sum.checked_add(n)
             })
             .unwrap_or(usize::MAX)
+    }
+    pub(crate) fn with_actual_dependencies(
+        mut self,
+        dependencies: Vec<zero_core::component::ComponentInstanceId>,
+    ) -> Result<Self, EngineError> {
+        self.recipe = self
+            .recipe
+            .with_inbound_dependencies(&dependencies)
+            .map_err(std::io::Error::other)?;
+        self.dependencies = dependencies.into();
+        Ok(self)
+    }
+    pub(crate) fn actual_dependencies(&self) -> Arc<[zero_core::component::ComponentInstanceId]> {
+        self.dependencies.clone()
     }
     pub(crate) fn into_recipe(self) -> crate::component::ComponentRecipe {
         self.recipe

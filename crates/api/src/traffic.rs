@@ -270,33 +270,10 @@ pub struct TrafficStatisticsCapability {
     #[serde(default)]
     pub host_interface_sampling: bool,
 }
+mod borrowed_capabilities;
+pub use borrowed_capabilities::BorrowedTrafficStatisticsCapability;
 impl Default for TrafficStatisticsCapability {
     fn default() -> Self {
-        Self {
-            local_drop_reasons: true,
-            host_interface_sampling: false,
-            sampling_strategy: "round_robin_bounded_pages".into(),
-            contract_version: 1,
-            queries: vec!["traffic_stat".into(), "traffic_stats".into()],
-            reset_command: "stats.reset".into(),
-            reset_permission: crate::Permission::Admin,
-            resettable_scopes: ["global", "inbound", "outbound", "endpoint", "peer"]
-                .map(str::to_owned)
-                .into(),
-            reset_policy: "all_available_cumulative_no_cascade".into(),
-            events: vec![
-                crate::event_type::STATS_SCOPES_SAMPLED.into(),
-                crate::event_type::STATS_RESET.into(),
-            ],
-            automatic_sampling: false,
-            sample_interval_ms: 1000,
-            sample_page_size: 64,
-            maximum_page_size: 256,
-            maximum_reset_targets: 256,
-            history: "bounded_event_replay_no_time_series".into(),
-            retry_policy: "epoch_compare_and_swap_conflict_on_replay".into(),
-            capture_consistency: "atomic_per_counter_capture_window_serialized_period_boundary"
-                .into(),
-        }
+        BorrowedTrafficStatisticsCapability::default().into_owned()
     }
 }

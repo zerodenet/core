@@ -23,7 +23,8 @@ pub struct CarrierClosed {
     slot: Arc<Slot>,
 }
 impl CarrierAdoption {
-    pub(crate) fn request_retirement(&self) {
+    /// Request stop only; this supplies no close/user/join receipt.
+    pub fn request_retirement(&self) {
         self.slot.cancel.cancel();
         self.slot.notify();
     }
@@ -33,6 +34,22 @@ impl CarrierAdoption {
         Arc::ptr_eq(&self.slot, &other.slot)
     }
 
+    /// Observe the exact weak original owner for finite cleanup bookkeeping.
+    /// This registration grants no native acquisition or driver permission.
+    pub fn cleanup_owner(&self) -> Option<super::CarrierOwnerRegistration> {
+        self.slot
+            .owner
+            .upgrade()
+            .map(|owner| super::CarrierOwnerRegistration::new(&owner))
+    }
+    /// Read-only registration provenance of this same original initializer.
+    pub fn matches_auxiliary(&self, caller: &TaskJoinWitness) -> bool {
+        self.slot
+            .state()
+            .auxiliary
+            .as_ref()
+            .is_some_and(|actual| actual.same_registration(caller))
+    }
     pub fn instance(&self) -> ComponentInstanceId {
         self.slot.instance
     }
@@ -55,6 +72,11 @@ impl CarrierAdoption {
         self.slot.notify();
         super::owner::close_slot(&self.slot, deadline).await
     }
+    /// Settle only already returned native/users/join facts, without waiting.
+    pub fn try_retire(&self) -> Result<crate::contract::lifecycle::CloseReport, ChannelError> {
+        self.request_retirement();
+        super::owner::try_close_slot(&self.slot)
+    }
     /// Registers the protocol's existing one driver, not an extra worker. The
     /// original control already lives in the persistent slot. No await separates
     /// actual spawn_tracked from installing that exact returned id/witness.
@@ -65,6 +87,39 @@ impl CarrierAdoption {
         class: TaskClass,
         io: CarrierDriver<I>,
         build: F,
+    ) -> Result<(TaskId, TaskJoinWitness), ChannelError>
+    where
+        I: Send + 'static,
+        F: FnOnce(I) -> Fut,
+        Fut: Future<Output = Result<(), ComponentError>> + Send + 'static,
+    {
+        self.spawn_driver_inner(registrar, class, io, build, true)
+    }
+    /// Register the one actual borrowed datagram queue worker in its existing
+    /// slot/Scope. Its concrete owner stops admission, seals/drains the same
+    /// finite accepted FIFO, returns the original views, then retires this slot.
+    /// Host/business cancellation cannot drop that original cleanup future.
+    /// This grants no new acquisition or permission to ignore donor revocation.
+    pub fn spawn_draining_datagram_driver<F, Fut>(
+        &self,
+        registrar: &TaskRegistrar,
+        class: TaskClass,
+        io: CarrierDriver<(super::loan::BorrowedDatagram, super::CarrierUserView)>,
+        build: F,
+    ) -> Result<(TaskId, TaskJoinWitness), ChannelError>
+    where
+        F: FnOnce((super::loan::BorrowedDatagram, super::CarrierUserView)) -> Fut,
+        Fut: Future<Output = Result<(), ComponentError>> + Send + 'static,
+    {
+        self.spawn_driver_inner(registrar, class, io, build, false)
+    }
+    fn spawn_driver_inner<I, F, Fut>(
+        &self,
+        registrar: &TaskRegistrar,
+        class: TaskClass,
+        io: CarrierDriver<I>,
+        build: F,
+        cancel_business: bool,
     ) -> Result<(TaskId, TaskJoinWitness), ChannelError>
     where
         I: Send + 'static,
@@ -120,6 +175,9 @@ impl CarrierAdoption {
         let host_cancel = bound.as_ref().map(|bound| bound.cancellation());
         let business_cancel = { self.slot.state().business_cancel.clone() };
         let task = async move {
+            if !cancel_business {
+                return task.await;
+            }
             let revoked = async {
                 match host_cancel {
                     Some(cancel) => cancel.cancelled().await,

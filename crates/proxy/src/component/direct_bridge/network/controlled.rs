@@ -20,12 +20,21 @@ impl DirectOpener {
                 "controlled Direct differs from its original destination/policy generation",
             ));
         }
-        let business = self.business.clone().ok_or_else(|| {
-            invalid(
-                Reason::Unsupported,
-                "controlled Direct requires its original admitted business invocation",
-            )
-        })?;
+        let business = self
+            .probe
+            .clone()
+            .map(super::super::controlled::DirectDemand::Probe)
+            .or_else(|| {
+                self.business
+                    .clone()
+                    .map(super::super::controlled::DirectDemand::Business)
+            })
+            .ok_or_else(|| {
+                invalid(
+                    Reason::Unsupported,
+                    "controlled Direct requires its original admitted invocation",
+                )
+            })?;
         business.check_direct_destination(&request.destination)?;
         business.check_direct_owner(
             &binding.dial,

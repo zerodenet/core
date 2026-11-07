@@ -15,9 +15,17 @@ async fn actual_failed_batch() -> (Arc<Replacement>, DeclaredCloseReceipt, Arc<C
     let batch = Arc::new(Replacement::new(target, None, [old.clone()]).unwrap());
     let receipt = host.drive(batch.confirm(deadline())).await.unwrap();
     let original = receipt.0.failure().unwrap();
-    assert_eq!(original.0.id, state.task.lock().unwrap().unwrap());
-    assert_eq!(original.0.class, TaskClass::Critical);
-    let error = crate::component::tests::source::<tokio::task::JoinError>(&original.0.error);
+    assert_eq!(
+        original.task().expect("actual original task failure").id,
+        state.task.lock().unwrap().unwrap()
+    );
+    assert_eq!(
+        original.task().expect("actual original task failure").class,
+        TaskClass::Critical
+    );
+    let error = crate::component::tests::source::<tokio::task::JoinError>(
+        &original.task().expect("actual original task failure").error,
+    );
     assert!(error.is_panic());
     assert_eq!(error.id(), state.native_task.lock().unwrap().unwrap());
     drop(host);
@@ -95,7 +103,7 @@ async fn panic_after_real_receiver_acceptance_keeps_unknown_outcome_and_never_re
         assert!(!batch.released());
     }
     assert!(
-        old.confirmed(&BTreeSet::from([failure.1])),
+        old.confirmed(&BTreeSet::from([failure.instance()])),
         "actual declared task closure remains confirmed"
     );
     assert!(Arc::ptr_eq(

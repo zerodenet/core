@@ -2,11 +2,13 @@ use super::*;
 impl Pool {
     pub(super) fn new(limit: NonZeroUsize, cancel: CancellationToken) -> Self {
         Self {
+            changed: tokio::sync::Notify::new(),
             identity: Arc::new(()),
             limit,
             cancel,
             relay: Arc::new(relay::AcceptRelay::new()),
             graph: None,
+            originals: OnceLock::new(),
             logical_custody: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             state: Mutex::new(PoolState {
                 next: 0,
@@ -190,22 +192,40 @@ impl Pool {
         report
     }
     pub(super) fn confirm(&self, entry: &Arc<Entry>) {
-        let reclaim = entry.users.as_ref().is_none_or(|users| users.complete());
-        let mut state = self.state();
-        if state
-            .entries
-            .get(&entry.id)
-            .is_some_and(|actual| Arc::ptr_eq(actual, entry))
-        {
-            let mut status = entry.state();
-            if !status.native_counted {
-                status.native_counted = true;
-                state.closed += 1;
+        let reclaim = entry
+            .users
+            .as_ref()
+            .is_none_or(|users| users.complete() && users.original_acks().iter().all(acked));
+        let mut new_closed = false;
+        let removed = {
+            let mut state = self.state();
+            if state
+                .entries
+                .get(&entry.id)
+                .is_some_and(|actual| Arc::ptr_eq(actual, entry))
+            {
+                let mut status = entry.state();
+                if !status.native_counted {
+                    status.native_counted = true;
+                    state.closed += 1;
+                    new_closed = true;
+                }
+                drop(status);
+                if reclaim {
+                    state.entries.remove(&entry.id)
+                } else {
+                    None
+                }
+            } else {
+                None
             }
-            drop(status);
-            if reclaim {
-                state.entries.remove(&entry.id);
-            }
+        };
+        let changed = removed.is_some();
+        drop(removed);
+        // Newly positive native/user closure lets the original waiter bind a
+        // passive ACK observation. It is not yet capacity if ACK is pending.
+        if changed || new_closed {
+            self.changed.notify_waiters();
         }
     }
 }
@@ -216,17 +236,31 @@ pub(super) struct Reservation {
 impl Drop for Reservation {
     fn drop(&mut self) {
         let unused = self.entry.state().phase == Phase::Waiting;
-        if unused {
+        let removed = if unused {
             let mut state = self.pool.state();
             if state
                 .entries
                 .get(&self.entry.id)
                 .is_some_and(|actual| Arc::ptr_eq(actual, &self.entry))
             {
-                state.entries.remove(&self.entry.id);
+                state.entries.remove(&self.entry.id)
+            } else {
+                None
             }
+        } else {
+            None
+        };
+        let changed = removed.is_some();
+        drop(removed);
+        if changed {
+            self.pool.changed.notify_waiters();
         }
-        // Acquiring includes native registration unwind. Drop never releases
-        // that reservation, a live original, or an Unknown; it is not a receipt.
+        // Acquiring, live originals and Unknown remain retained. No Drop receipt.
     }
+}
+
+pub(super) fn acked(witness: &crate::contract::scope::TaskJoinWitness) -> bool {
+    witness
+        .try_joined()
+        .is_some_and(|joined| witness.matches_joined(&joined) && joined.registration_released())
 }

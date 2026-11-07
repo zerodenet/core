@@ -11,6 +11,9 @@ use crate::observability::SessionOutcome;
 
 use super::{FlowFailureObservation, FlowPathObservation, FlowRouteObservation};
 
+mod query;
+pub(crate) use query::CompletedQueryGuard;
+
 const DEFAULT_COMPLETED_SESSION_CAPACITY: usize = 256;
 
 #[derive(Debug)]

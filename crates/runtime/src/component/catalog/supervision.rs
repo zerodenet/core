@@ -46,7 +46,15 @@ impl InlineSupervisor {
                 }
                 scan(&target);
             }
-            work.as_mut().poll(cx)
+            let result = work.as_mut().poll(cx);
+            if result.is_ready() && held.is_some() {
+                // The final work poll may have consumed an original Slot's
+                // Native/Users/Scope ACK. Let the same elected owner actually
+                // observe it before returning; only its existing receipt gates
+                // may reclaim custody. No new task or guessed ACK is issued.
+                scan(&target);
+            }
+            result
         })
         .await
     }
@@ -68,6 +76,12 @@ impl ComponentCatalog {
                     for slot in self.supervised_slots() {
                         slot.poll_tasks(target);
                     }
+                    if let Some(probes) = self.probes.get().and_then(std::sync::Weak::upgrade) {
+                        probes.poll(target);
+                    }
+                    // One scan per actual Host, including retained orphaned
+                    // Carrier originals outside the current protocol census.
+                    self.original_budgets().poll_carrier_originals(target);
                 },
                 work,
             )
@@ -111,10 +125,44 @@ impl ComponentCatalog {
             let changed = self.admission.signal().notified();
             tokio::pin!(changed);
             changed.as_mut().enable();
+            // Same existing ProbeOwner ledger and this actual supervisor; no
+            // new task, registry or synthetic TaskFailure for post-join IO.
+            if let Some(fault) = self
+                .probes
+                .get()
+                .and_then(std::sync::Weak::upgrade)
+                .and_then(|owner| owner.original_failure())
+            {
+                return fault;
+            }
+            if let Some(fault) = self
+                .embedded_commands
+                .get()
+                .and_then(std::sync::Weak::upgrade)
+                .and_then(|owner| owner.original_failure())
+            {
+                return fault;
+            }
             if let Some(fault) = self.first_task_fault() {
                 return fault.error();
             }
-            changed.await;
+            if let Some(fault) = self
+                .supervised_slots()
+                .iter()
+                .find_map(|slot| slot.owned_start_failure())
+            {
+                return crate::component::instance::retained(fault);
+            }
+            let embedded = self
+                .embedded_commands
+                .get()
+                .and_then(std::sync::Weak::upgrade);
+            tokio::select! {
+                _ = &mut changed => {},
+                failure = async {
+                    match embedded { Some(owner) => owner.observe_failure().await, None => std::future::pending().await }
+                } => return failure,
+            }
         }
     }
 
@@ -148,3 +196,48 @@ pub mod testing;
 #[cfg(test)]
 #[path = "../tests/supervision_wake.rs"]
 mod wake_tests;
+
+impl ComponentCatalog {
+    pub(crate) fn attach_probe_owner(
+        &self,
+        owner: std::sync::Weak<crate::probe_owner::ProbeOwner>,
+    ) {
+        self.admission.bind_probe_owner(owner.clone());
+        assert!(
+            self.probes.set(owner).is_ok(),
+            "one diagnostic owner per actual host"
+        );
+    }
+    pub(crate) fn probe_registrar(
+        &self,
+        config: &Arc<RuntimeConfig>,
+        tag: Option<&str>,
+    ) -> Result<zero_platform_tokio::contract::scope::TaskRegistrar, ChannelError> {
+        let plan = {
+            let state = self.state.lock().expect("component catalog poisoned");
+            state
+                .current
+                .iter()
+                .chain(state.staged.iter())
+                .find(|entry| entry.matches(config))
+                .and_then(|entry| entry.plan.as_ref().ok())
+                .cloned()
+                .ok_or_else(|| {
+                    invalid(Reason::StalePlan, "probe lacks its accepted started plan")
+                })?
+        };
+        plan.direct(tag)?.probe_registrar()
+    }
+}
+
+impl ComponentCatalog {
+    pub(crate) fn attach_embedded_commands(
+        &self,
+        owner: std::sync::Weak<crate::EmbeddedCommandOwner>,
+    ) {
+        assert!(
+            self.embedded_commands.set(owner).is_ok(),
+            "one embedded control owner per Host"
+        );
+    }
+}

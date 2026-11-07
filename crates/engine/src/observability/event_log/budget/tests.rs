@@ -11,14 +11,12 @@ fn event() -> RawApiEvent {
 
 #[test]
 fn consuming_event_moves_payload_and_releases_reservation_once() {
-    let budget = Arc::new(AtomicUsize::new(128));
-    let queued = QueuedEvent {
-        event: Arc::new(event()),
-        _reservation: Reservation {
-            bytes: 128,
-            budget: budget.clone(),
-        },
-    };
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let subscriber = Subscriber::new(tx, EventFilter::default(), 1);
+    let budget = subscriber.budget.clone();
+    assert!(subscriber.send(&Arc::new(event()), 128));
+    let queued = rx.recv().unwrap();
+    assert_eq!(budget.load(Ordering::Relaxed), 128);
     let address = queued.event.payload["value"].as_str().unwrap().as_ptr();
     let received = queued.into_event();
     assert_eq!(
@@ -32,14 +30,12 @@ fn consuming_event_moves_payload_and_releases_reservation_once() {
 
 #[test]
 fn dropping_unconsumed_event_releases_reservation() {
-    let budget = Arc::new(AtomicUsize::new(128));
-    let queued = QueuedEvent {
-        event: Arc::new(event()),
-        _reservation: Reservation {
-            bytes: 128,
-            budget: budget.clone(),
-        },
-    };
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let subscriber = Subscriber::new(tx, EventFilter::default(), 1);
+    let budget = subscriber.budget.clone();
+    assert!(subscriber.send(&Arc::new(event()), 128));
+    let queued = rx.recv().unwrap();
+    assert_eq!(budget.load(Ordering::Relaxed), 128);
     drop(queued);
     assert_eq!(budget.load(Ordering::Relaxed), 0);
 }
@@ -47,7 +43,7 @@ fn dropping_unconsumed_event_releases_reservation() {
 #[test]
 fn full_queue_and_disconnected_consumer_return_their_byte_budget() {
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
-    let subscriber = Subscriber::new(tx, EventFilter::default());
+    let subscriber = Subscriber::new(tx, EventFilter::default(), 1);
     let event = Arc::new(event());
     assert!(subscriber.send(&event, 128));
     assert!(subscriber.send(&event, 128));
@@ -68,7 +64,7 @@ fn history_and_slow_subscribers_share_one_payload_until_owned_delivery() {
     let mut queues = Vec::new();
     for _ in 0..8 {
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
-        let subscriber = Subscriber::new(tx, EventFilter::default());
+        let subscriber = Subscriber::new(tx, EventFilter::default(), 1);
         assert!(subscriber.send(&event, 128));
         queues.push((subscriber, rx));
     }
@@ -104,7 +100,7 @@ fn history_eviction_preserves_a_queued_event_and_allows_move_on_delivery() {
     let event = Arc::new(event());
     let original = event.payload["value"].as_str().unwrap().as_ptr();
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
-    let subscriber = Subscriber::new(tx, EventFilter::default());
+    let subscriber = Subscriber::new(tx, EventFilter::default(), 1);
     let mut history = History::default();
     history.push(event.clone(), 128, 1);
     assert!(subscriber.send(&event, 128));
@@ -113,4 +109,41 @@ fn history_eviction_preserves_a_queued_event_and_allows_move_on_delivery() {
     let owned = rx.recv().unwrap().into_event();
     assert_eq!(owned.payload["value"].as_str().unwrap().as_ptr(), original);
     assert_eq!(subscriber.budget.load(Ordering::Relaxed), 0);
+}
+
+mod limits;
+
+#[test]
+fn retained_control_event_keeps_same_history_payload_and_subscriber_credit_until_encoding_finishes()
+{
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let mut subscriber = Subscriber::new(tx, EventFilter::default(), 1);
+    let original = Arc::new(event());
+    let bytes = stats_size(&original);
+    subscriber.stats_limit = bytes;
+    let pointer = original.payload["value"].as_str().unwrap().as_ptr();
+    assert!(subscriber.send(&original, bytes));
+    let retained = crate::RetainedEvent::from_queued(rx.recv().unwrap());
+    assert_eq!(
+        retained.payload["value"].as_str().unwrap().as_ptr(),
+        pointer
+    );
+    assert_eq!(subscriber.budget.load(Ordering::Relaxed), bytes);
+    assert!(subscriber.send(&original, bytes));
+    assert!(
+        rx.try_recv().is_err(),
+        "a held original still consumes its one actual subscriber quota"
+    );
+    assert_eq!(
+        serde_json::to_value(&retained).unwrap(),
+        serde_json::to_value(&*original).unwrap()
+    );
+    assert_eq!(subscriber.budget.load(Ordering::Relaxed), bytes);
+    drop(retained);
+    assert_eq!(subscriber.budget.load(Ordering::Relaxed), 0);
+    assert!(subscriber.send(&original, bytes));
+    assert!(
+        rx.try_recv().is_ok(),
+        "the same existing queue recovers after actual original custody returns"
+    );
 }

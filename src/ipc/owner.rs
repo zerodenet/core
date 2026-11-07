@@ -1,63 +1,15 @@
-//! Retention of one actual control-server join across cancelled waiters.
+//! Retained original control tasks and their existing cleanup helpers.
 use std::{io, sync::Arc};
-
-pub(crate) struct ControlTask(tokio::sync::Mutex<State>);
-struct State {
-    task: Option<tokio::task::JoinHandle<io::Result<()>>>,
-    result: Option<Result<(), Arc<io::Error>>>,
-}
-impl ControlTask {
-    pub(crate) fn empty() -> Self {
-        Self(tokio::sync::Mutex::new(State {
-            task: None,
-            result: None,
-        }))
-    }
-    pub(crate) fn install(&self, task: tokio::task::JoinHandle<io::Result<()>>) -> io::Result<()> {
-        let mut state = self
-            .0
-            .try_lock()
-            .map_err(|_| io::Error::other("control original task is being observed"))?;
-        if state.task.is_some() || state.result.is_some() {
-            return Err(io::Error::other(
-                "control original task was already installed",
-            ));
-        }
-        state.task = Some(task);
-        Ok(())
-    }
-    #[cfg(test)]
-    pub(crate) fn new(task: tokio::task::JoinHandle<io::Result<()>>) -> Self {
-        Self(tokio::sync::Mutex::new(State {
-            task: Some(task),
-            result: None,
-        }))
-    }
-    pub(crate) async fn join(&self) -> io::Result<()> {
-        let mut state = self.0.lock().await;
-        if state.result.is_none() && state.task.is_none() {
-            return Ok(());
-        }
-        if state.result.is_none() {
-            // Await through a borrow. Cancellation releases only this lock;
-            // the same original JoinHandle stays in this persistent owner.
-            let joined = state.task.as_mut().expect("retained original task").await;
-            state.result = Some(
-                joined
-                    .map_err(io::Error::other)
-                    .and_then(|result| result)
-                    .map_err(Arc::new),
-            );
-            state.task = None;
-        }
-        state
-            .result
-            .as_ref()
-            .unwrap()
-            .clone()
-            .map_err(|source| io::Error::new(source.kind(), source))
-    }
-}
+mod encoded;
+mod initial_snapshot;
+pub(crate) use initial_snapshot::{prepare_initial_snapshot, EncodedEvent, EventFraming};
+mod error;
+mod message;
+pub(crate) use encoded::{encode_response, EncodedResponse};
+pub(crate) use message::BorrowedMessageResponse;
+mod task;
+pub(crate) use error::BorrowedErrorResponse;
+pub(crate) use task::ControlTask;
 
 /// Catch only the work future's polling boundary. Its parent still owns each
 /// actual child join and original IO while it drains cleanup, then resumes the
@@ -76,13 +28,21 @@ pub(crate) async fn catch_work<F: std::future::Future>(
     .await
 }
 
+/// Consume this same Work's real Apply/raw blocking/cleanup observations.
+/// Preserve every original typed source independently of its wire result.
+pub(crate) async fn wait_command_operation(
+    observation: &zero_runtime::ApplyObservation,
+) -> io::Result<()> {
+    let joined = observation.wait_joined().await;
+    match observation.completion_fault(joined.as_ref()) {
+        None => Ok(()),
+        Some(faults) => Err(faults.into_io_error()),
+    }
+}
+
 pub(crate) fn close_deadline() -> tokio::time::Instant {
     tokio::time::Instant::now() + std::time::Duration::from_secs(5)
 }
-
-#[cfg(test)]
-#[path = "tests/owner.rs"]
-mod tests;
 
 pub(crate) fn serialized_len(value: &impl serde::Serialize) -> io::Result<usize> {
     struct Count(usize);
@@ -122,3 +82,141 @@ pub(crate) fn reserve_event_bytes_blocking(
         }
     }
 }
+
+/// All originals have already been joined. Keep every typed failure when a
+/// foreground I/O failure and a worker/command failure occur together.
+pub(crate) fn finish_work(results: impl IntoIterator<Item = io::Result<()>>) -> io::Result<()> {
+    let mut errors = results
+        .into_iter()
+        .filter_map(Result::err)
+        .collect::<Vec<_>>();
+    match errors.len() {
+        0 => Ok(()),
+        1 => Err(errors.remove(0)),
+        _ => Err(io::Error::other(ControlFailures(errors))),
+    }
+}
+#[derive(Debug)]
+struct ControlFailures(Vec<io::Error>);
+impl std::fmt::Display for ControlFailures {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (index, error) in self.0.iter().enumerate() {
+            if index != 0 {
+                formatter.write_str("; ")?;
+            }
+            write!(formatter, "{error}")?;
+        }
+        Ok(())
+    }
+}
+impl std::error::Error for ControlFailures {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.0.first().map(|error| error as _)
+    }
+}
+
+#[cfg(test)]
+#[path = "tests/completion.rs"]
+mod completion_tests;
+
+#[cfg(test)]
+#[path = "tests/owner.rs"]
+mod tests;
+
+/// A real incomplete Scope/native report remains diagnostic debt, never a receipt.
+pub(crate) fn confirmed_report(
+    label: &'static str,
+    report: zero_platform_tokio::contract::lifecycle::CloseReport,
+) -> io::Result<()> {
+    if report.is_complete() {
+        Ok(())
+    } else {
+        Err(io::Error::other(IncompleteReport { label, report }))
+    }
+}
+#[derive(Debug)]
+struct IncompleteReport {
+    label: &'static str,
+    report: zero_platform_tokio::contract::lifecycle::CloseReport,
+}
+impl std::fmt::Display for IncompleteReport {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} original cleanup remains retained: {:?}",
+            self.label, self.report
+        )
+    }
+}
+impl std::error::Error for IncompleteReport {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.report
+            .failed_tasks
+            .first()
+            .map(|failed| &failed.error as _)
+    }
+}
+
+/// Preserve a caught work panic together with real child cleanup errors. With
+/// no competing failure, resume the original payload so its parent join sees it.
+pub(crate) fn finish_caught(
+    work: Result<io::Result<()>, Box<dyn std::any::Any + Send>>,
+    cleanup: impl IntoIterator<Item = io::Result<()>>,
+) -> io::Result<()> {
+    match work {
+        Ok(work) => finish_work(std::iter::once(work).chain(cleanup)),
+        Err(payload) => {
+            let cleanup = cleanup
+                .into_iter()
+                .filter_map(Result::err)
+                .collect::<Vec<_>>();
+            if cleanup.is_empty() {
+                std::panic::resume_unwind(payload);
+            }
+            Err(io::Error::other(PanicCleanup {
+                payload: std::sync::Mutex::new(payload),
+                cleanup,
+            }))
+        }
+    }
+}
+struct PanicCleanup {
+    payload: std::sync::Mutex<Box<dyn std::any::Any + Send>>,
+    cleanup: Vec<io::Error>,
+}
+impl std::fmt::Debug for PanicCleanup {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ControlPanicCleanup")
+            .field("cleanup", &self.cleanup)
+            .finish_non_exhaustive()
+    }
+}
+impl std::fmt::Display for PanicCleanup {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let payload = self
+            .payload
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(message) = payload.downcast_ref::<String>() {
+            write!(formatter, "original control work panicked: {message}")?;
+        } else if let Some(message) = payload.downcast_ref::<&str>() {
+            write!(formatter, "original control work panicked: {message}")?;
+        } else {
+            formatter.write_str("original control work panicked (actual payload retained)")?;
+        }
+        for error in &self.cleanup {
+            write!(formatter, "; {error}")?;
+        }
+        Ok(())
+    }
+}
+impl std::error::Error for PanicCleanup {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.cleanup.first().map(|error| error as _)
+    }
+}
+
+#[cfg(test)]
+#[path = "owner/tests/invocation.rs"]
+mod invocation_tests;

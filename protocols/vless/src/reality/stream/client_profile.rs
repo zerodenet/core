@@ -15,6 +15,17 @@ impl core::fmt::Debug for PreparedRealityClient {
             .finish_non_exhaustive()
     }
 }
+/// Protocol-owned preparation preserves the actual authenticated/decoy IO.
+/// Returning this disposition neither registers work nor hands off cleanup.
+pub(crate) enum PreparedCarrier<IO> {
+    Authenticated(RealityTlsStream<IO>),
+    Decoy {
+        stream: RealityTlsStream<IO>,
+        host: String,
+        plan: zero_transport::http_navigation::Plan,
+        rejection: io::Error,
+    },
+}
 impl PreparedRealityClient {
     pub fn from_options(options: RealityClientOptions<'_>) -> io::Result<Self> {
         let spider = crate::reality_spider::Profile::parse(options.spider_x)
@@ -51,13 +62,32 @@ impl PreparedRealityClient {
     /// authentication fails. It can never grant REALITY proxy admission.
     pub async fn connect_with_navigation<IO, Start, Run>(
         &self,
-        mut io: IO,
+        io: IO,
         start: Start,
     ) -> io::Result<RealityTlsStream<IO>>
     where
         IO: AsyncRead + AsyncWrite + Unpin + Send + 'static,
         Start: FnOnce(RealityTlsStream<IO>, String, zero_transport::http_navigation::Plan) -> Run,
         Run: Future<Output = ()>,
+    {
+        match self.prepare_carrier(io).await? {
+            PreparedCarrier::Authenticated(stream) => Ok(stream),
+            PreparedCarrier::Decoy {
+                stream,
+                host,
+                plan,
+                rejection,
+            } => {
+                // The existing executor still owns this same actual IO and
+                // original return delay. Authentication failure is unchanged.
+                start(stream, host, plan).await;
+                Err(rejection)
+            }
+        }
+    }
+    pub(crate) async fn prepare_carrier<IO>(&self, mut io: IO) -> io::Result<PreparedCarrier<IO>>
+    where
+        IO: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
         let mut session = RealityClientConnection::new(self.config.clone())?;
         tokio::time::timeout(
@@ -66,22 +96,24 @@ impl PreparedRealityClient {
         )
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "REALITY handshake timed out"))??;
-        if !session.is_authenticated_reality() {
-            start(
-                RealityTlsStream::new(io, session),
-                self.config.server_name.clone(),
-                zero_transport::http_navigation::Plan {
+        let authenticated = session.is_authenticated_reality();
+        let stream = RealityTlsStream::new(io, session);
+        if authenticated {
+            Ok(PreparedCarrier::Authenticated(stream))
+        } else {
+            Ok(PreparedCarrier::Decoy {
+                stream,
+                host: self.config.server_name.clone(),
+                plan: zero_transport::http_navigation::Plan {
                     path: self.spider.path.clone(),
                     ranges: self.spider.ranges,
                 },
-            )
-            .await;
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "REALITY received a real target certificate without proxy authentication",
-            ));
+                rejection: io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "REALITY received a real target certificate without proxy authentication",
+                ),
+            })
         }
-        Ok(RealityTlsStream::new(io, session))
     }
 }
 

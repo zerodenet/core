@@ -89,7 +89,7 @@ where
     Probe: FnMut() -> Pending,
     Pending: std::future::Future<Output = io::Result<tokio::net::TcpStream>>,
 {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let deadline = tokio::time::Instant::now() + super::STARTUP_TIMEOUT;
     loop {
         if status()?.is_some() {
             return Err(io::Error::other("shadowsocks plugin exited during startup"));

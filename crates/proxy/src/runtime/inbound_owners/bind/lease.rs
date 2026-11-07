@@ -86,6 +86,16 @@ impl InboundBindLease {
         if self.listener.is_some() {
             return Err(io("listener lease already received its native view"));
         }
+        if self.grant.needs_packet_reads() {
+            // The same unpromoted lease exclusively owns this source. Factory
+            // build/start and its task registrar have not escaped yet. Actual
+            // DNS preparation joins/ACK debts are included in this Scope check.
+            // It reserves nothing: main/wire later register their real futures.
+            self.owner
+                .preparation_tasks()?
+                .check_capacity(NonZeroUsize::new(2).unwrap())
+                .map_err(std::io::Error::other)?;
+        }
         self.listener = Some(self.grant.bind()?);
         #[cfg(test)]
         if let Ok(address) = self.listener.as_ref().unwrap().local_addr() {

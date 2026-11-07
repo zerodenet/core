@@ -9,8 +9,10 @@ async fn consumed_handle_unknown_policy_retains_exact_source_and_never_confirms_
     let source = Arc::new(io::Error::from_raw_os_error(libc::EIO));
     let shared = Arc::new(Shared {
         accepted: None,
+        originals: std::sync::OnceLock::new(),
         state: Mutex::new(State {
             listener: None,
+            attempt: None,
             raw: None,
             confirmed: 0,
             retired: true,

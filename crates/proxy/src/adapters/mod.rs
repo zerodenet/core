@@ -1,4 +1,6 @@
 //! Concrete protocol capability bridges for each compiled-in protocol.
+pub(crate) mod inbound_work_budgets;
+pub(crate) mod source_budgets;
 
 pub(crate) mod direct;
 #[cfg(feature = "http")]
@@ -6,12 +8,14 @@ pub(crate) mod http;
 #[cfg(feature = "hysteria2")]
 pub(crate) mod hysteria2;
 mod identity;
+pub(crate) mod metadata;
 #[cfg(feature = "mieru")]
 pub(crate) mod mieru;
 #[cfg(feature = "mixed")]
 pub(crate) mod mixed;
 #[cfg(any(feature = "vless", feature = "trojan", feature = "vmess"))]
 pub(crate) mod mux_prefix;
+pub(crate) mod security_budgets;
 #[cfg(feature = "shadowsocks")]
 pub(crate) mod shadowsocks;
 #[cfg(feature = "socks5")]

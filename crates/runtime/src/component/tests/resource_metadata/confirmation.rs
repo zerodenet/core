@@ -46,7 +46,7 @@ async fn canonical_private_confirmation_requires_actual_received_join_and_last_l
         })
         .unwrap();
     fixture.drive(pending_rx).await.unwrap(); // Actual original native RX Pending.
-    assert!(completion.try_closed().is_none());
+    assert!(completion.try_owned_closed().is_none());
     peer.send_to(b"", local).await.unwrap();
     graph.drivers().revoke_registration();
     graph.users().cancellation().cancel();
@@ -55,17 +55,18 @@ async fn canonical_private_confirmation_requires_actual_received_join_and_last_l
         .await
         .unwrap();
     assert!(
-        completion.try_closed().is_none(),
+        completion.try_owned_closed().is_none(),
         "join did not receive outcome"
     );
-    receiver.receive(id, deadline()).await.unwrap();
+    let delivery = receiver.receive(id, deadline()).await.unwrap();
+    receiver.release_body(&delivery).unwrap();
     assert_eq!(graph.users().active(), 1);
     assert!(
-        completion.try_closed().is_none(),
+        completion.try_owned_closed().is_none(),
         "all native views and actual drivers ended, original logical lease remains"
     );
     drop(logical);
-    let receipt = completion.try_closed().unwrap();
+    let receipt = completion.try_owned_closed().unwrap();
     fixture.confirm_users(receipt, &tasks).unwrap();
     let before = fixture.resources().io_evidence();
     assert_eq!(before.metadata[0].confirmed_users(), 1);

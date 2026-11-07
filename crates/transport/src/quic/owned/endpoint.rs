@@ -61,6 +61,7 @@ struct Shared {
     callbacks: Weak<super::callbacks::Broker>,
 }
 mod claim;
+mod packet;
 use claim::MetadataGraph;
 pub use claim::{MetadataUsersCompletion, RejectedClaimedEndpoint};
 mod report;

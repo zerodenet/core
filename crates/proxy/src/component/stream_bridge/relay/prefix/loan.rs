@@ -12,6 +12,15 @@ impl PrefixOpener {
         destination: Destination,
         carrier: CarrierContext,
     ) -> BoxFuture<'_, Result<StreamLoan, ChannelError>> {
+        self.borrow_selected_observed(binding, destination, carrier, None)
+    }
+    pub(super) fn borrow_selected_observed(
+        &self,
+        binding: UpstreamBinding,
+        destination: Destination,
+        carrier: CarrierContext,
+        waiting: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
+    ) -> BoxFuture<'_, Result<StreamLoan, ChannelError>> {
         Box::pin(async move {
             let shorter = self.context.upstream.binding();
             if carrier.session.is_some()
@@ -31,6 +40,15 @@ impl PrefixOpener {
             // The existing selected role remains fenced by the real host.
             // Background borrowing uses its own caller bound/token, without
             // retaining a business SessionId, cancellation or request facts.
+            let upstream = if waiting.is_some() || self.context.session_identity()?.is_some() {
+                self.select_shorter(
+                    &carrier,
+                    waiting.or_else(|| self.context.upstream.observed_pending_carrier()),
+                )
+                .await?
+            } else {
+                self.context.upstream.clone()
+            };
             let context = OpenContext {
                 identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
                     origin: ServiceOrigin::Runtime,
@@ -38,8 +56,12 @@ impl PrefixOpener {
                 })),
                 deadline: carrier.deadline,
                 cancel: carrier.cancel.clone(),
-                upstream: self.context.upstream.clone(),
-                observer: None,
+                upstream,
+                observer: if self.context.session_identity()?.is_none() {
+                    self.context.observer.clone()
+                } else {
+                    None
+                },
             };
             let operation = self.role.connect_carrier(
                 ConnectRequest {

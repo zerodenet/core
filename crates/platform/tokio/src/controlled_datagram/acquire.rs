@@ -1,5 +1,5 @@
 use super::*;
-use crate::{dial, EgressSelection};
+use crate::{EgressSelection, dial};
 use std::net::SocketAddr;
 use zero_traits::{AddressFamily, DialPolicy};
 
@@ -44,7 +44,7 @@ impl ControlledDatagramOwner {
         policy: &DialPolicy,
         selection: &EgressSelection,
     ) -> Result<ControlledDatagramSocket, DatagramAcquisitionError> {
-        let entry = self.reserve()?;
+        let (entry, acquiring) = self.reserve()?;
         let prepared = (|| {
             let dial = dial::prepare(peer, policy, selection)?;
             let mut source = match dial.source {
@@ -64,9 +64,15 @@ impl ControlledDatagramOwner {
             Ok(prepared) => prepared,
             Err(source) => return Err(self.no_native(&entry, phase("prepare", source))),
         };
-        self.acquire_native(entry, source, preferred_port, v6_only, interface)
+        self.acquire_native(entry, acquiring, source, preferred_port, v6_only, interface)
     }
     /// Bind an exact server address without outbound policy or port fallback.
+    pub(crate) fn bind_process_reservation(
+        &mut self,
+        source: SocketAddr,
+    ) -> Result<ControlledDatagramSocket, DatagramAcquisitionError> {
+        self.bind_native_listener(source)
+    }
     pub(super) fn bind_native_listener(
         &mut self,
         source: SocketAddr,
@@ -78,17 +84,21 @@ impl ControlledDatagramOwner {
         &mut self,
         source: SocketAddr,
     ) -> Result<ControlledDatagramSocket, DatagramAcquisitionError> {
-        let entry = self.reserve()?;
-        self.acquire_native(entry, source, None, false, None)
+        let (entry, acquiring) = self.reserve()?;
+        self.acquire_native(entry, acquiring, source, None, false, None)
     }
     fn acquire_native(
         &mut self,
         entry: Arc<Entry>,
+        acquiring: AcquisitionGuard,
         source: SocketAddr,
         preferred_port: Option<u16>,
         v6_only: bool,
         interface: Option<EgressInterface>,
     ) -> Result<ControlledDatagramSocket, DatagramAcquisitionError> {
+        // A create panic/unknown return cannot leave a Reserved sentinel that
+        // retirement could misread as known-no-native after the guard drops.
+        *entry.lock() = NativeHandleState::Unknown(entry.uncertain.clone());
         #[cfg(not(windows))]
         let original = {
             let domain = if source.is_ipv4() {
@@ -136,17 +146,29 @@ impl ControlledDatagramOwner {
                 Err(_) => AcquisitionOutcome::Unknown(entry.id),
             };
             self.reap_confirmed(); // Persist actual confirmation before return.
+            entry.source_failed_return();
             return Err(self.acquisition_error(Some(entry.id), outcome, source));
         }
-        Ok(ControlledDatagramSocket { entry, interface })
+        entry
+            .view_live
+            .store(true, std::sync::atomic::Ordering::Release);
+        Ok(ControlledDatagramSocket {
+            entry,
+            interface,
+            acquiring: Some(acquiring),
+        })
     }
     /// Typed internal registration. The original stays in its entry before
     /// metadata setup and across this consuming runtime boundary.
     pub(super) fn register_native(
         &mut self,
-        socket: ControlledDatagramSocket,
+        mut socket: ControlledDatagramSocket,
     ) -> Result<ControlledDatagramSocket, DatagramAcquisitionError> {
         let entry = &socket.entry;
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(gate) = &self.registration_pause {
+            gate.arrive(entry);
+        }
         let interface = &socket.interface;
         {
             let mut native = entry.lock();
@@ -181,6 +203,7 @@ impl ControlledDatagramOwner {
                 }
             }
         }
+        socket.acquiring.take();
         Ok(socket)
     }
     fn no_native(
@@ -190,6 +213,7 @@ impl ControlledDatagramOwner {
     ) -> DatagramAcquisitionError {
         *entry.lock() = NativeHandleState::NoNative;
         self.reap_confirmed();
+        entry.source_failed_return();
         self.acquisition_error(Some(entry.id), AcquisitionOutcome::KnownNoNative, source)
     }
 }

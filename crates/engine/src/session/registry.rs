@@ -1,6 +1,8 @@
 //! Active session registry, accounting, cancellation, and snapshots.
 
 mod principal;
+mod query;
+pub(crate) use query::{ActiveQueryRows, SessionQueryGuard};
 mod traffic;
 
 use std::collections::HashMap;
@@ -22,7 +24,7 @@ use super::observation::{
 use super::traffic::TrafficSampler;
 use super::{AdmissionLife, CompletedSessionRecord};
 use principal::PrincipalFlowIndex;
-pub(crate) use principal::PrincipalFlowObservation;
+pub(crate) use principal::{PrincipalFlowObservation, PrincipalQueryRows};
 
 #[derive(Debug, Default)]
 pub struct SessionRegistry {
@@ -254,24 +256,6 @@ impl SessionRegistry {
             .expect("session registry lock poisoned")
             .principal_flows
             .snapshot()
-    }
-
-    pub(crate) fn flow_snapshot(
-        &self,
-    ) -> (
-        Vec<ActiveSession>,
-        u64,
-        Vec<zero_api::PrincipalFlowSnapshot>,
-    ) {
-        let state = self.inner.lock().expect("session registry lock poisoned");
-        let mut sessions = state
-            .sessions
-            .values()
-            .map(|session| session.snapshot())
-            .collect::<Vec<_>>();
-        sessions.sort_by_key(|session| session.id);
-        let (revision, principals) = state.principal_flows.snapshot();
-        (sessions, revision, principals)
     }
 
     pub fn dirty_snapshot(&self) -> Vec<ActiveSession> {

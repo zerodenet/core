@@ -7,7 +7,8 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, Notify};
 
-use super::{sequence_after, sequence_before};
+use super::{output::CachedPacket, sequence_after, sequence_before};
+use zero_traits::PacketDeriveError;
 
 // This TCP leg only crosses the local TUN device, so its retransmission
 // timers can be substantially tighter than an Internet-facing TCP socket.
@@ -35,6 +36,7 @@ pub(super) struct TcpSendControl {
     max_retransmission_timeout: Duration,
     peer_reset: AtomicBool,
     send_failure: AtomicU8,
+    storage_failure: Mutex<Option<PacketDeriveError>>,
     writer_waker: Mutex<Option<Waker>>,
     reader_waker: Mutex<Option<Waker>>,
     retransmission: Mutex<RetransmissionState>,
@@ -45,14 +47,14 @@ struct RetransmissionState {
     segments: VecDeque<RetransmissionSegment>,
     estimator: RtoEstimator,
     duplicate_acks: u8,
-    persist_packet: Option<Vec<u8>>,
+    persist_packet: Option<CachedPacket>,
     persist_retry_at: Instant,
     stopped: bool,
 }
 
 struct RetransmissionSegment {
     sequence_end: u32,
-    packet: Vec<u8>,
+    packet: CachedPacket,
     first_sent_at: Instant,
     retry_at: Instant,
     timeout: Duration,
@@ -163,6 +165,7 @@ impl TcpSendControl {
             max_retransmission_timeout,
             peer_reset: AtomicBool::new(false),
             send_failure: AtomicU8::new(SEND_FAILURE_NONE),
+            storage_failure: Mutex::new(None),
             writer_waker: Mutex::new(None),
             reader_waker: Mutex::new(None),
             retransmission: Mutex::new(RetransmissionState {
@@ -189,6 +192,7 @@ impl TcpSendControl {
         if sequence_after(acknowledgement, snd_una) {
             self.grow_congestion_window(acknowledgement.wrapping_sub(snd_una));
             let now = Instant::now();
+            let mut retired = Vec::new();
             let mut retransmission = self
                 .retransmission
                 .lock()
@@ -206,6 +210,7 @@ impl TcpSendControl {
                 if rtt_sample.is_none() && !segment.was_retransmitted {
                     rtt_sample = Some(now.saturating_duration_since(segment.first_sent_at));
                 }
+                retired.push(segment);
             }
             if let Some(sample) = rtt_sample {
                 retransmission.estimator.observe(sample);
@@ -287,29 +292,32 @@ impl TcpSendControl {
     }
 
     fn wake_writer(&self) {
-        if let Some(waker) = self
+        let waker = self
             .writer_waker
             .lock()
             .expect("TCP send-control lock poisoned")
-            .take()
-        {
+            .take();
+        if let Some(waker) = waker {
             waker.wake();
         }
     }
 
     pub(super) fn wake_io(&self) {
         self.wake_writer();
-        if let Some(waker) = self
+        let waker = self
             .reader_waker
             .lock()
             .expect("TCP send-control lock poisoned")
-            .take()
-        {
+            .take();
+        if let Some(waker) = waker {
             waker.wake();
         }
     }
 
     pub(super) fn io_error(&self) -> Option<io::Error> {
+        if let Some(source) = *self.storage_failure.lock().expect("TCP storage fault lock") {
+            return Some(io::Error::other(source));
+        }
         if self.peer_reset.load(Ordering::Acquire) {
             return Some(io::Error::new(
                 io::ErrorKind::ConnectionReset,
@@ -333,7 +341,7 @@ impl TcpSendControl {
         }
     }
 
-    pub(super) fn track_segment(&self, sequence_end: u32, packet: Vec<u8>) {
+    pub(super) fn track_segment(&self, sequence_end: u32, packet: impl Into<CachedPacket>) {
         let now = Instant::now();
         let mut retransmission = self
             .retransmission
@@ -345,7 +353,7 @@ impl TcpSendControl {
         let timeout = retransmission.estimator.timeout;
         retransmission.segments.push_back(RetransmissionSegment {
             sequence_end,
-            packet,
+            packet: packet.into(),
             first_sent_at: now,
             retry_at: now + timeout,
             timeout,
@@ -356,15 +364,46 @@ impl TcpSendControl {
         self.retransmission_notify.notify_one();
     }
 
-    pub(super) fn set_persist_packet(&self, packet: Vec<u8>) {
-        let mut retransmission = self
+    pub(super) fn set_persist_spec(
+        &self,
+        spec: crate::packet::TcpPacketSpec<'_>,
+        output: &crate::packet_output::PacketSender,
+    ) -> Result<(), PacketDeriveError> {
+        {
+            let mut state = self
+                .retransmission
+                .lock()
+                .expect("TCP retransmission lock poisoned");
+            if state.stopped {
+                return Ok(());
+            }
+            if let Some(packet) = &mut state.persist_packet {
+                if packet.update(spec)? {
+                    state.persist_retry_at = Instant::now() + ZERO_WINDOW_PROBE_INTERVAL;
+                    drop(state);
+                    self.retransmission_notify.notify_one();
+                    return Ok(());
+                }
+            }
+        }
+        // The prior view stays alive if it still has actual output custody.
+        // Build the replacement outside the owner's lock; failure keeps it.
+        let packet = CachedPacket::build(spec, output)?;
+        let mut state = self
             .retransmission
             .lock()
             .expect("TCP retransmission lock poisoned");
-        retransmission.persist_packet = Some(packet);
-        retransmission.persist_retry_at = Instant::now() + ZERO_WINDOW_PROBE_INTERVAL;
-        drop(retransmission);
+        if state.stopped {
+            drop(state);
+            drop(packet);
+            return Ok(());
+        }
+        let previous = state.persist_packet.replace(packet);
+        state.persist_retry_at = Instant::now() + ZERO_WINDOW_PROBE_INTERVAL;
+        drop(state);
+        drop(previous);
         self.retransmission_notify.notify_one();
+        Ok(())
     }
 
     pub(super) fn retry_now(&self) {
@@ -409,6 +448,10 @@ impl TcpSendControl {
         outbound: &crate::packet_output::PacketSender,
         now: Instant,
     ) -> RetransmissionResult {
+        // Actual payload drops/wakes follow the retransmission guard on every
+        // return path; no external memory waiter runs under this owner lock.
+        let mut returned_outputs = Vec::new();
+        let mut retired_segments = Vec::new();
         let mut retransmission = self
             .retransmission
             .lock()
@@ -422,16 +465,30 @@ impl TcpSendControl {
             let Some(packet) = retransmission.persist_packet.clone() else {
                 return RetransmissionResult::Continue;
             };
-            return match outbound.try_send(packet) {
+            let packet = match packet.outgoing() {
+                Ok(packet) => packet,
+                Err(PacketDeriveError::Busy) => {
+                    retransmission.persist_retry_at = now + OUTBOUND_QUEUE_RETRY_DELAY;
+                    return RetransmissionResult::Continue;
+                }
+                Err(source) => {
+                    *self.storage_failure.lock().expect("TCP storage fault lock") = Some(source);
+                    retransmission.stopped = true;
+                    return RetransmissionResult::Failed;
+                }
+            };
+            return match outbound.try_send_buffer(packet) {
                 Ok(()) => {
                     retransmission.persist_retry_at = now + ZERO_WINDOW_PROBE_INTERVAL;
                     RetransmissionResult::Continue
                 }
-                Err(mpsc::error::TrySendError::Full(_)) => {
+                Err(mpsc::error::TrySendError::Full(packet)) => {
+                    returned_outputs.push(packet);
                     retransmission.persist_retry_at = now + OUTBOUND_QUEUE_RETRY_DELAY;
                     RetransmissionResult::Continue
                 }
-                Err(mpsc::error::TrySendError::Closed(_)) => {
+                Err(mpsc::error::TrySendError::Closed(packet)) => {
+                    returned_outputs.push(packet);
                     retransmission.stopped = true;
                     self.send_failure
                         .store(SEND_FAILURE_TRANSPORT_CLOSED, Ordering::Release);
@@ -444,7 +501,7 @@ impl TcpSendControl {
         }
         if segment.retransmissions >= MAX_RETRANSMISSIONS {
             retransmission.stopped = true;
-            retransmission.segments.clear();
+            retired_segments.extend(retransmission.segments.drain(..));
             self.send_failure
                 .store(SEND_FAILURE_TIMED_OUT, Ordering::Release);
             return RetransmissionResult::Failed;
@@ -460,7 +517,19 @@ impl TcpSendControl {
             self.congestion_window
                 .store(self.segment_size, Ordering::Release);
         }
-        match outbound.try_send(segment.packet.clone()) {
+        let packet = match segment.packet.outgoing() {
+            Ok(packet) => packet,
+            Err(PacketDeriveError::Busy) => {
+                segment.retry_at = now + OUTBOUND_QUEUE_RETRY_DELAY;
+                return RetransmissionResult::Continue;
+            }
+            Err(source) => {
+                *self.storage_failure.lock().expect("TCP storage fault lock") = Some(source);
+                retransmission.stopped = true;
+                return RetransmissionResult::Failed;
+            }
+        };
+        match outbound.try_send_buffer(packet) {
             Ok(()) => {
                 segment.retransmissions += 1;
                 segment.was_retransmitted = true;
@@ -471,13 +540,15 @@ impl TcpSendControl {
                 segment.retry_at = now + segment.timeout;
                 RetransmissionResult::Continue
             }
-            Err(mpsc::error::TrySendError::Full(_)) => {
+            Err(mpsc::error::TrySendError::Full(packet)) => {
+                returned_outputs.push(packet);
                 segment.retry_at = now + OUTBOUND_QUEUE_RETRY_DELAY;
                 RetransmissionResult::Continue
             }
-            Err(mpsc::error::TrySendError::Closed(_)) => {
+            Err(mpsc::error::TrySendError::Closed(packet)) => {
+                returned_outputs.push(packet);
                 retransmission.stopped = true;
-                retransmission.segments.clear();
+                retired_segments.extend(retransmission.segments.drain(..));
                 self.send_failure
                     .store(SEND_FAILURE_TRANSPORT_CLOSED, Ordering::Release);
                 RetransmissionResult::Failed
@@ -491,8 +562,11 @@ impl TcpSendControl {
             .lock()
             .expect("TCP retransmission lock poisoned");
         retransmission.stopped = true;
-        retransmission.segments.clear();
+        let segments = std::mem::take(&mut retransmission.segments);
+        let persist = retransmission.persist_packet.take();
         drop(retransmission);
+        drop(segments);
+        drop(persist);
         self.retransmission_notify.notify_one();
         self.wake_io();
     }

@@ -2,6 +2,8 @@
 mod budget;
 #[cfg(feature = "socks5")]
 mod cross_owner;
+#[cfg(all(feature = "wireguard", feature = "socks5"))]
+mod device;
 #[cfg(feature = "dns")]
 mod dns;
 mod fixtures;
@@ -14,6 +16,8 @@ mod reject;
 ))]
 mod stateless;
 mod udp_handoff;
+#[cfg(feature = "socks5")]
+mod warm;
 use crate::{Proxy, ProxyHandle};
 use fixtures::*;
 use std::{sync::atomic::Ordering, time::Duration};

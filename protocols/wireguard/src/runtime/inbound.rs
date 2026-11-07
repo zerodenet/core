@@ -1,3 +1,5 @@
+mod owned;
+mod prepared;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::net::{IpAddr, SocketAddr};
@@ -115,6 +117,10 @@ pub struct InboundDispatch {
 const MAX_TRACKED_INDICES: usize = 4096;
 
 impl InboundDevice {
+    pub fn quiescent(&self) -> bool {
+        self.peers.iter().all(|peer| !peer.has_pending_packets())
+    }
+
     /// Compare the actual current private identity without exporting key bytes
     /// or reconstructing Noise state. Text encodings are validated by the caller.
     pub fn matches_private_key(&self, key: &crate::validation::Key) -> bool {

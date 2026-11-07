@@ -1,4 +1,5 @@
 //! Original host-fence authority for one fixed Service slot and real caller.
+mod caller;
 use super::{error, slot::Slot, CarrierGrant, CarrierOwnerBinding};
 use crate::contract::{
     component::ControlledStreamDemandClass,
@@ -17,12 +18,18 @@ pub struct CarrierServiceIssuer {
     binding: CarrierOwnerBinding,
     slot: Weak<Slot>,
     caller: TaskJoinWitness,
+    endpoint: Destination,
+    upstream: UpstreamBinding,
+    direct: bool,
 }
 #[derive(Clone)]
 pub struct CarrierServiceGrant {
     binding: CarrierOwnerBinding,
     slot: Weak<Slot>,
     demand: Arc<ServiceDemand>,
+    endpoint: Destination,
+    upstream: UpstreamBinding,
+    direct: bool,
 }
 pub(super) struct ServiceDemand {
     caller: TaskJoinWitness,
@@ -52,6 +59,98 @@ impl CarrierOwnerBinding {
             binding: self.clone(),
             slot: Arc::downgrade(&grant.slot),
             caller,
+            endpoint: self
+                .fixed_endpoint_binding()
+                .expect("checked Service endpoint")
+                .0
+                .clone(),
+            upstream: self
+                .fixed_endpoint_binding()
+                .expect("checked Service binding")
+                .1
+                .clone(),
+            direct: false,
+        })
+    }
+    /// Same dynamic Direct owner, with its real transferred preparation and
+    /// exact Auxiliary installed before any native reservation is acquired.
+    pub fn prepared_direct_service_issuer(
+        &self,
+        original_host_fence: &Arc<CancellationToken>,
+        grant: &CarrierGrant,
+        caller: TaskJoinWitness,
+        endpoint: &Destination,
+        upstream: &UpstreamBinding,
+    ) -> Result<CarrierServiceIssuer, ChannelError> {
+        grant.check()?;
+        let prepared = {
+            let state = grant.slot.state();
+            state.users.as_ref().is_some_and(|users| {
+                users.transferred()
+                    && users.live()
+                    && !users.acquired()
+                    && users.preparation.as_ref().is_some_and(|preparation| {
+                        preparation.expected_caller.is_none()
+                            && !preparation
+                                .published
+                                .load(std::sync::atomic::Ordering::Acquire)
+                            && preparation
+                                .auxiliary
+                                .get()
+                                .is_some_and(|actual| actual.same_registration(&caller))
+                    })
+            })
+        };
+        if !prepared
+            || !grant.adoption().matches_auxiliary(&caller)
+            || !self.matches_direct_service(endpoint, upstream)
+            || !self.matches_host_cancel(original_host_fence)
+            || !self.registration().matches_grant(grant)
+            || !self.scope_identity().same_scope(&caller.scope_identity())
+            || !self.scope_identity().resource_open()
+            || self.host_cancelled()
+            || caller.is_joined()
+        {
+            return Err(failure(grant.instance(), Reason::StalePlan));
+        }
+        Ok(CarrierServiceIssuer {
+            binding: self.clone(),
+            slot: Arc::downgrade(&grant.slot),
+            caller,
+            endpoint: endpoint.clone(),
+            upstream: upstream.clone(),
+            direct: true,
+        })
+    }
+    /// Exact dynamic Direct Service capability, issued only by the original
+    /// host fence after its caller and real Direct candidate have been checked.
+    /// A bare Direct descriptor or public Service facts still grant no IO.
+    pub fn direct_service_issuer(
+        &self,
+        original_host_fence: &Arc<CancellationToken>,
+        grant: &CarrierGrant,
+        caller: TaskJoinWitness,
+        endpoint: &Destination,
+        upstream: &UpstreamBinding,
+    ) -> Result<CarrierServiceIssuer, ChannelError> {
+        grant.check()?;
+        if !self.matches_direct(endpoint, upstream)
+            || !self.matches_host_cancel(original_host_fence)
+            || !self.registration().matches_grant(grant)
+            || !self.scope_identity().same_scope(&caller.scope_identity())
+            || !self.scope_identity().resource_open()
+            || self.host_cancelled()
+            || caller.is_joined()
+        {
+            return Err(failure(grant.instance(), Reason::StalePlan));
+        }
+        Ok(CarrierServiceIssuer {
+            binding: self.clone(),
+            slot: Arc::downgrade(&grant.slot),
+            caller,
+            endpoint: endpoint.clone(),
+            upstream: upstream.clone(),
+            direct: true,
         })
     }
 }
@@ -67,6 +166,9 @@ impl CarrierServiceIssuer {
         let ticket = CarrierServiceGrant {
             binding: self.binding,
             slot: self.slot,
+            endpoint: self.endpoint,
+            upstream: self.upstream,
+            direct: self.direct,
             demand: Arc::new(ServiceDemand {
                 caller: self.caller,
                 cancel: query_cancel,
@@ -87,16 +189,20 @@ impl CarrierServiceGrant {
         &self.binding
     }
     pub(super) fn endpoint(&self) -> &Destination {
-        self.binding
-            .fixed_endpoint_binding()
-            .expect("fixed Service ticket")
-            .0
+        &self.endpoint
     }
     pub(super) fn upstream(&self) -> &UpstreamBinding {
-        self.binding
-            .fixed_endpoint_binding()
-            .expect("fixed Service ticket")
-            .1
+        &self.upstream
+    }
+    pub(super) fn permits_direct_authority(
+        &self,
+        authority: &Arc<super::binding::BoundAuthority>,
+    ) -> bool {
+        self.direct
+            && self.binding.matches_authority(authority)
+            && self
+                .binding
+                .matches_direct_service(&self.endpoint, &self.upstream)
     }
     pub(super) fn cancellation(&self) -> CancellationToken {
         self.demand.cancel.clone()
@@ -108,7 +214,11 @@ impl CarrierServiceGrant {
             .ok_or_else(|| failure(self.binding.registration().instance(), Reason::Revoked))?;
         let closed = slot.state().closed;
         if closed
-            || self.binding.demand() != ControlledStreamDemandClass::Service
+            || (!self.direct && self.binding.demand() != ControlledStreamDemandClass::Service)
+            || (self.direct
+                && !self
+                    .binding
+                    .matches_direct_service(&self.endpoint, &self.upstream))
             || !self
                 .binding
                 .registration()
@@ -131,36 +241,6 @@ impl CarrierServiceGrant {
             .is_some_and(|deadline| Instant::now() >= deadline)
         {
             return Err(failure(slot.instance, Reason::Timeout));
-        }
-        Ok(())
-    }
-    pub(super) fn bind_caller(&self, slot: &Arc<Slot>) -> Result<(), ChannelError> {
-        if !Weak::ptr_eq(&self.slot, &Arc::downgrade(slot)) {
-            return Err(failure(slot.instance, Reason::StalePlan));
-        }
-        let identity = Arc::downgrade(&self.demand);
-        let cancel = self.demand.cancel.clone();
-        let mut state = slot.state();
-        if state.closed || slot.cancel.is_cancelled() || state.business_identity.is_some() {
-            return Err(failure(slot.instance, Reason::Revoked));
-        }
-        if state
-            .service_identity
-            .as_ref()
-            .is_some_and(|actual| !Weak::ptr_eq(actual, &identity))
-        {
-            return Err(failure(slot.instance, Reason::StalePlan));
-        }
-        if !state
-            .users
-            .as_mut()
-            .is_some_and(|users| users.bind(self.demand.caller.clone()))
-        {
-            return Err(failure(slot.instance, Reason::InvalidConfig));
-        }
-        if state.service_identity.is_none() {
-            state.service_identity = Some(identity);
-            state.business_cancel = Some(cancel);
         }
         Ok(())
     }

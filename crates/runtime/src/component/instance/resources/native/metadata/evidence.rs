@@ -93,16 +93,8 @@ impl MetadataDeclarations {
                     probes: native.probes.clone(),
                     first_fault: native.first_fault.clone(),
                     users: Some(UsersEvidence {
-                        pending: native
-                            .users
-                            .iter()
-                            .filter(|claim| claim.transferred && claim.confirmed.is_none())
-                            .count(),
-                        confirmed: native
-                            .users
-                            .iter()
-                            .filter_map(|claim| claim.confirmed.clone())
-                            .collect(),
+                        pending: native.users.pending(),
+                        confirmed: native.users.confirmed(),
                     }),
                 }
             })

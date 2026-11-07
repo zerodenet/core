@@ -57,6 +57,12 @@ impl TcpIngressRuntime {
         session: &mut Session,
         identity: Option<&zero_engine::SessionIdentity>,
     ) -> Result<zero_engine::AdmittedSession, EngineError> {
+        #[cfg(feature = "raw-ip-runtime")]
+        let phase = self
+            .caller_native()
+            .map(|caller| caller.begin_session_admission())
+            .transpose()
+            .map_err(std::io::Error::other)?;
         self.services.ensure_configuration_committed()?;
         if session.inbound_local.is_none() {
             session.inbound_local = self.local_addr.map(|addr| {
@@ -78,14 +84,14 @@ impl TcpIngressRuntime {
             session.source_port = Some(addr.port());
         }
         if let Some(addr) = self.source_addr {
-            if let Some(info) = zero_platform_tokio::lookup_local_tcp_process(addr).await {
+            if let Some(info) = self.lookup_local_process(addr).await? {
                 session.process_id = Some(info.pid);
                 session.process_name = info.name;
                 session.process_path = info.path;
             }
         }
 
-        match identity {
+        let admitted = match identity {
             Some(identity) => self
                 .services
                 .engine()
@@ -94,7 +100,43 @@ impl TcpIngressRuntime {
                 .services
                 .engine()
                 .prepare_session_admitted(session, &self.inbound_tag),
+        }?;
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(phase) = phase {
+            phase.admitted();
         }
+        Ok(admitted)
+    }
+
+    async fn lookup_local_process(
+        &self,
+        source: std::net::SocketAddr,
+    ) -> Result<Option<zero_platform_tokio::LocalProcessInfo>, EngineError> {
+        let transport = zero_platform_tokio::LocalProcessTransport::Tcp;
+        let read_limit = std::num::NonZeroUsize::new(
+            self.services
+                .config()
+                .runtime
+                .effective_file_read_max_bytes(),
+        )
+        .expect("validated metadata file read budget");
+        if let Some(caller) = self.accepted_caller() {
+            return caller
+                .lookup_local_process(source, transport, read_limit)
+                .await
+                .map_err(|source| std::io::Error::other(source).into());
+        }
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(caller) = self.caller_native() {
+            return caller
+                .lookup_local_process(source, transport, read_limit)
+                .await
+                .map_err(|source| std::io::Error::other(source).into());
+        }
+        Err(
+            std::io::Error::other("process metadata lookup has no actual ingress caller Scope")
+                .into(),
+        )
     }
 
     pub(crate) fn track_session(&self, session_id: u64) -> SessionHandle {

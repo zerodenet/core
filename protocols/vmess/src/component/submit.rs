@@ -48,7 +48,7 @@ pub(super) async fn submit(
     }
     // The encrypted response header is validated by the protocol stream on
     // its first read, after application bytes can trigger the peer reply.
-    let stream = crate::stream::VmessAeadStream::outbound(io, state)
+    let mut stream = crate::stream::VmessAeadStream::outbound(io, state)
         .map_err(|source| {
             admission
                 .error(
@@ -60,6 +60,9 @@ pub(super) async fn submit(
                 .with_source(source)
         })?
         .with_connect_observer(session, context.observer);
+    if options.grpc.is_some() {
+        stream = stream.with_grpc_request_end();
+    }
     Ok(Connected {
         io: Box::pin(stream),
         peer_confirmation: PeerConfirmation::Deferred,

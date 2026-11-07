@@ -129,6 +129,7 @@ async fn run(configured: u32) {
         sender,
         driver,
         active: _,
+        flush: _,
     } = crate::grpc::prepared::prepare_connection(
         Observed {
             io,
@@ -209,10 +210,7 @@ async fn run(configured: u32) {
     let failure = driver.as_mut().await.unwrap_err();
     assert_eq!(failure.kind(), io::ErrorKind::TimedOut);
     assert!(
-        failure
-            .get_ref()
-            .unwrap()
-            .is::<tokio::time::error::Elapsed>(),
+        original_elapsed(&failure),
         "the actual timeout error object is retained"
     );
     tokio::time::resume();
@@ -221,4 +219,154 @@ async fn run(configured: u32) {
     server.await.unwrap();
     // This caller-selected prepared seam owns no controlled fd and asserts no
     // physical close receipt merely because its driver future returned.
+}
+#[tokio::test]
+async fn inline_original_ping_and_timeout_progress_with_only_a_real_pending_application_read() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let (ready, registered) = tokio::sync::oneshot::channel();
+    let (finish, finished) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (io, _) = listener.accept().await.unwrap();
+        let mut connection = h2::server::handshake(io).await.unwrap();
+        let (mut request, mut respond) = connection.accept().await.unwrap().unwrap();
+        let response = respond
+            .send_response(
+                Response::builder()
+                    .status(200)
+                    .header("content-type", "application/grpc")
+                    .body(())
+                    .unwrap(),
+                false,
+            )
+            .unwrap();
+        {
+            let reading = async {
+                let data = request.body_mut().data().await.unwrap().unwrap();
+                assert!(!data.is_empty());
+                request
+                    .body_mut()
+                    .flow_control()
+                    .release_capacity(data.len())
+                    .unwrap();
+            };
+            tokio::pin!(reading);
+            tokio::select! {_=&mut reading=>{},_=connection.accept()=>panic!("no second request")}
+        }
+        // Real HEADERS and upload DATA are now observed. Keep the socket and
+        // response alive, but stop this exact peer driver so PING has no ACK.
+        ready.send(()).unwrap();
+        finished.await.unwrap();
+        drop(response);
+        drop(request);
+        drop(connection);
+    });
+    let frames = Arc::new(Frames::default());
+    let io = tokio::net::TcpStream::connect(address).await.unwrap();
+    let profile = OwnedGrpcProfile {
+        service_names: vec!["inline/liveness".into()],
+        idle_timeout_secs: 1,
+        health_check_timeout_secs: 1,
+        permit_without_stream: true,
+        ..Default::default()
+    };
+    let mut io = connect_grpc_inline_with_settings(
+        Observed {
+            io,
+            frames: frames.clone(),
+        },
+        &profile,
+        "localhost",
+        None,
+    )
+    .await
+    .unwrap();
+    AsyncWriteExt::write_all(&mut io, b"actual-pending-response")
+        .await
+        .unwrap();
+    AsyncWriteExt::flush(&mut io).await.unwrap();
+    registered.await.unwrap();
+    let mut byte = [0];
+    let read = AsyncReadExt::read(&mut io, &mut byte);
+    tokio::pin!(read);
+    std::future::poll_fn(|cx| {
+        assert!(read.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    tokio::time::pause();
+    let last = frames.last_read.lock().unwrap().unwrap();
+    tokio::time::advance(
+        (last + Duration::from_secs(9)).saturating_duration_since(tokio::time::Instant::now()),
+    )
+    .await;
+    std::future::poll_fn(|cx| {
+        assert!(read.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    assert!(!frames.ping.load(Ordering::Acquire));
+    tokio::time::advance(Duration::from_secs(2)).await;
+    for _ in 0..1024 {
+        std::future::poll_fn(|cx| {
+            assert!(read.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        if frames.ping.load(Ordering::Acquire) {
+            break;
+        }
+        let last = frames.last_read.lock().unwrap().unwrap();
+        let remaining =
+            (last + Duration::from_secs(10)).saturating_duration_since(tokio::time::Instant::now());
+        if !remaining.is_zero() {
+            tokio::time::advance(remaining).await;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        frames.ping.load(Ordering::Acquire),
+        "same actual native write accepted the PING"
+    );
+    tokio::time::advance(Duration::from_secs(1)).await;
+    let failure = read.await.unwrap_err();
+    assert_eq!(failure.kind(), io::ErrorKind::TimedOut);
+    assert!(
+        original_elapsed(&failure),
+        "same original timeout source was retained"
+    );
+    tokio::time::resume();
+    finish.send(()).unwrap();
+    server.await.unwrap();
+}
+
+/// Inspect actual typed payloads and sources, including retained original Arcs.
+/// std io::Error.source may skip its boxed node; neither branch uses text/kind.
+fn original_elapsed(error: &(dyn std::error::Error + 'static)) -> bool {
+    let mut pending = vec![error];
+    let mut seen = Vec::new();
+    for _ in 0..64 {
+        let Some(error) = pending.pop() else {
+            return false;
+        };
+        // Nested transparent errors can share a data address while retaining
+        // different typed vtables. Deduplicate the complete trait-object ptr.
+        if seen.iter().any(|actual| std::ptr::eq(*actual, error)) {
+            continue;
+        }
+        seen.push(error);
+        if error.is::<tokio::time::error::Elapsed>() {
+            return true;
+        }
+        if let Some(source) = error.source() {
+            pending.push(source)
+        }
+        if let Some(inner) = error
+            .downcast_ref::<io::Error>()
+            .and_then(io::Error::get_ref)
+        {
+            pending.push(inner);
+        }
+    }
+    false
 }

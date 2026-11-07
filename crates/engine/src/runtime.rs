@@ -28,7 +28,7 @@ mod configuration;
 mod diagnostics;
 mod endpoint;
 mod observability;
-mod packet_route;
+pub(crate) mod packet_route;
 mod passive_health;
 mod policy;
 pub use packet_route::{PacketRouteControl, PacketRouteLease};
@@ -158,6 +158,10 @@ impl Engine {
         let event_log_capacity = config.runtime.event_log_capacity;
         let config_revision = Arc::new(AtomicU64::new(1));
         let event_log = EngineEventLog::shared(event_log_capacity, config_revision.clone());
+        event_log.configure_subscriber_limits(
+            config.runtime.effective_event_log_stats_max_bytes(),
+            crate::observability::SubscriberLimits::from_runtime(&config.runtime),
+        )?;
 
         info!(
             build_id = env!("CARGO_PKG_VERSION"),
@@ -187,6 +191,7 @@ impl Engine {
             source.clone(),
         )?);
         let stats = EngineStats::shared();
+        let packet_route_limit = config.runtime.effective_packet_route_max_routes();
         let engine = Self {
             runtime_snapshot: Arc::new(std::sync::RwLock::new(Arc::new(EngineRuntimeSnapshot {
                 config_revision: Arc::new(AtomicU64::new(1)),
@@ -210,7 +215,7 @@ impl Engine {
             next_dial_generation,
             session_registry: SessionRegistry::shared(),
             endpoint_facts: Arc::new(endpoint::EndpointFacts::default()),
-            packet_routes: Arc::new(packet_route::PacketRoutes::default()),
+            packet_routes: Arc::new(packet_route::PacketRoutes::new(packet_route_limit)),
             principal_cancellations: Arc::new(PrincipalCancellationRegistry::default()),
             principal_devices: Arc::new(PrincipalDeviceRegistry::default()),
             principal_policies,
@@ -302,6 +307,12 @@ impl Engine {
     /// callers can close this owner without constructing or starting a Proxy.
     pub fn shutdown_principal_quota_state(&self) -> std::io::Result<()> {
         self.principal_quotas.shutdown()
+    }
+
+    /// Actual registration return, persistence worker join and original-file
+    /// closure, independent of a retained terminal persistence failure.
+    pub fn principal_quota_retirement_complete(&self) -> bool {
+        self.principal_quotas.retirement_complete()
     }
 
     /// UNIX epoch milliseconds when this engine was created.

@@ -3,7 +3,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zero_platform_tokio::contract::lifecycle::TaskClass;
 
 #[tokio::test]
-async fn actual_auxiliary_caller_failure_stays_diagnostic_and_critical_failure_remains_native_fault(
+async fn actual_auxiliary_caller_failure_stays_diagnostic_and_critical_failure_keeps_exact_report_source(
 ) {
     for class in [TaskClass::Auxiliary, TaskClass::Critical] {
         let mut scope = TaskScope::new(tokio::runtime::Handle::current(), one());
@@ -34,11 +34,11 @@ async fn actual_auxiliary_caller_failure_stays_diagnostic_and_critical_failure_r
                 .unwrap(),
             &original
         ));
-        let native =
+        let report_source =
             crate::component::instance::resources::native::carrier::critical_caller_fault(&joined);
         match class {
-            TaskClass::Auxiliary => assert!(native.is_none()),
-            TaskClass::Critical => assert!(Arc::ptr_eq(&native.unwrap(), &diagnostic)),
+            TaskClass::Auxiliary => assert!(report_source.is_none()),
+            TaskClass::Critical => assert!(Arc::ptr_eq(&report_source.unwrap(), &diagnostic)),
         }
         assert!(scope.shutdown(deadline()).await.is_complete());
     }

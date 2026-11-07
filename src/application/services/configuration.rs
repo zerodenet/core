@@ -8,14 +8,26 @@ impl ConfigApplyReconciler for ApplicationServices {
         let mut state = self.state.try_lock().map_err(|_| {
             "application preparation/retirement is still owned by its current operation".to_owned()
         })?;
-        let hook_error = state
-            .hooks
-            .as_ref()
-            .into_iter()
-            .chain(state.pending_hooks.as_ref())
-            .find_map(|hooks| hooks.confirm_original_io_closed().err());
-        if let Some(error) = hook_error {
-            state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
+        let hook_errors = [
+            (
+                CleanupOwner::Hooks,
+                state
+                    .hooks
+                    .as_ref()
+                    .and_then(|hooks| hooks.confirm_original_io_closed().err()),
+            ),
+            (
+                CleanupOwner::PreparedHooks,
+                state
+                    .pending_hooks
+                    .as_ref()
+                    .and_then(|hooks| hooks.confirm_original_io_closed().err()),
+            ),
+        ];
+        for (owner, error) in hook_errors {
+            if let Some(error) = error {
+                state.remember_cleanup_failure(owner, Arc::new(error));
+            }
         }
         if let Some(error) = &state.cleanup_fault {
             return Err(format!(
@@ -55,6 +67,23 @@ impl ConfigApplyReconciler for ApplicationServices {
         Ok(())
     }
 
+    async fn prepare_carrier_budget(
+        &self,
+        current: &RuntimeConfig,
+        target: Arc<RuntimeConfig>,
+    ) -> Result<Option<ConfigReconcileResult>, String> {
+        if current.runtime.effective_carrier_max_total_originals()
+            == target.runtime.effective_carrier_max_total_originals()
+            || !(dispatcher_enabled(current) || dispatcher_enabled(&target))
+        {
+            return Ok(None);
+        }
+        // The existing dispatcher is prepared paused: old native/task custody
+        // returns before the same Host total changes, while target delivery
+        // cannot acquire a new native original until the real host commit.
+        self.reconcile(target).await.map(Some)
+    }
+
     async fn reconcile(&self, target: Arc<RuntimeConfig>) -> Result<ConfigReconcileResult, String> {
         let mut state = self.state.lock().await;
         if let Some(attempt) = &state.attempt {
@@ -65,7 +94,10 @@ impl ConfigApplyReconciler for ApplicationServices {
                     if let Some(dispatcher) = state.dispatcher.as_mut() {
                         if let Err(error) = dispatcher.activate() {
                             let message = error.to_string();
-                            state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
+                            state.remember_cleanup_failure(
+                                CleanupOwner::DispatcherActivation,
+                                Arc::new(error),
+                            );
                             return Err(message);
                         }
                     }
@@ -90,16 +122,32 @@ impl ConfigApplyReconciler for ApplicationServices {
             dispatcher_touched: false,
             hooks_touched: false,
             control_budget: None,
+            #[cfg(feature = "event-dispatcher")]
+            reported_dispatcher_preparation: None,
         });
         let limits =
             zero_runtime::configuration::ControlBudgetLimits::from_runtime(&target.runtime);
         let attempt = state.attempt.as_mut().unwrap();
-        if attempt.control_budget.is_none() && self.control_budget.limits() != limits {
+        if self.proxy_control_budget {
+            // The same Proxy accepted operation owns this exact candidate;
+            // the application neither prepares nor commits a second one.
+            self.control_budget
+                .candidate_for_publication(limits)
+                .map_err(|error| error.to_string())?;
+        } else if attempt.control_budget.is_none() && self.control_budget.limits() != limits {
             attempt.control_budget = Some(
                 self.control_budget
                     .prepare(limits)
                     .map_err(|error| error.to_string())?,
             );
+        }
+        if let Some(candidate) = attempt.control_budget.as_ref() {
+            candidate
+                .retire_command_scope(
+                    tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                )
+                .await
+                .map_err(|error| error.to_string())?;
         }
         self.install_target(&mut state, target).await
     }
@@ -162,7 +210,7 @@ impl ConfigApplyReconciler for ApplicationServices {
         if let Some(dispatcher) = state.dispatcher.as_mut() {
             if let Err(error) = dispatcher.activate() {
                 let message = error.to_string();
-                state.cleanup_fault.get_or_insert_with(|| Arc::new(error));
+                state.remember_cleanup_failure(CleanupOwner::DispatcherActivation, Arc::new(error));
                 return Err(message);
             }
         }

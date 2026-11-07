@@ -14,6 +14,7 @@ use zero_runtime::configuration::{ConfigurationSource, RuleSetCacheDownload};
 
 struct BootstrapAttempt {
     source: Arc<ConfigurationSource>,
+    preparation: Mutex<Option<zero_proxy::ProxyPreparation>>,
     network: ApplicationEventSinkTcpDialer,
     network_started: Mutex<bool>,
     cache: Mutex<Option<RuleSetCacheDownload>>,
@@ -22,10 +23,16 @@ impl BootstrapAttempt {
     async fn retire_network(&self) -> io::Result<()> {
         let started = *self.network_started.lock().unwrap();
         if started {
-            self.network
+            let outcome = self
+                .network
                 .retire_generation(tokio::time::Instant::now() + Duration::from_secs(10))
-                .await?;
-            *self.network_started.lock().unwrap() = false;
+                .await;
+            if self.network.retirement_complete() {
+                *self.network_started.lock().unwrap() = false;
+            }
+            // A known retired original may still hand its actual typed fault
+            // to this caller; the retained failure does not invent join debt.
+            outcome?;
         }
         Ok(())
     }
@@ -86,7 +93,7 @@ impl BootstrapSlot {
         &self,
         source: Arc<ConfigurationSource>,
         path: &str,
-    ) -> Result<RuntimeConfig, Box<dyn Error>> {
+    ) -> Result<(RuntimeConfig, zero_proxy::ProxyPreparation), Box<dyn Error>> {
         let _accepted = self.accepted.lock().await;
         let previous = self.original.lock().unwrap().clone();
         if let Some(previous) = previous {
@@ -95,16 +102,38 @@ impl BootstrapSlot {
             previous.cleanup().await?;
             self.original.lock().unwrap().take();
         }
+        // This is the actual eventual Proxy Host, constructed only after
+        // the previous attempt's original cleanup has positively completed.
+        let preparation = zero_proxy::ProxyPreparation::new();
+        let (instance, originals) = preparation.application_network_originals()?;
+        let network = ApplicationEventSinkTcpDialer::new(
+            preparation.egress_interface_control(),
+            instance,
+            originals,
+        );
         let original = Arc::new(BootstrapAttempt {
             source: source.clone(),
-            network: ApplicationEventSinkTcpDialer::new(
-                zero_platform_tokio::EgressInterfaceControl::default(),
-            ),
+            preparation: Mutex::new(Some(preparation)),
+            network,
             network_started: Mutex::new(false),
             cache: Mutex::new(None),
         });
         *self.original.lock().unwrap() = Some(original.clone());
         let mut config = source.load_initial_configuration(path)?;
+        original
+            .preparation
+            .lock()
+            .unwrap()
+            .as_ref()
+            .expect("actual bootstrap Host retained")
+            .configure_original_limit(&config.runtime)?;
+        original.network.configure_limits(
+            zero_platform_tokio::contract::network::EventNetworkLimits::new(
+                config.runtime.effective_event_network_max_tasks(),
+                config.runtime.effective_event_network_max_originals(),
+                config.runtime.effective_event_network_max_lookups(),
+            )?,
+        )?;
         let source_dir = config.source_dir.clone();
         for rule_set in &mut config.route.rule_sets {
             if rule_set.source_type != RuleSetSourceType::Url {
@@ -138,8 +167,14 @@ impl BootstrapSlot {
             }
         }
         original.cleanup().await?;
+        let preparation = original
+            .preparation
+            .lock()
+            .unwrap()
+            .take()
+            .expect("same actual bootstrap Host transfers once after original cleanup");
         self.original.lock().unwrap().take();
-        Ok(config)
+        Ok((config, preparation))
     }
 }
 static STARTUP: BootstrapSlot = BootstrapSlot::new();
@@ -147,7 +182,7 @@ static STARTUP: BootstrapSlot = BootstrapSlot::new();
 pub(crate) async fn load_initial_configuration(
     source: Arc<ConfigurationSource>,
     path: &str,
-) -> Result<RuntimeConfig, Box<dyn Error>> {
+) -> Result<(RuntimeConfig, zero_proxy::ProxyPreparation), Box<dyn Error>> {
     STARTUP.load(source, path).await
 }
 

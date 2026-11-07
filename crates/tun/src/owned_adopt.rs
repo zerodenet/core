@@ -11,6 +11,8 @@ type Backend = crate::LinuxTun;
 type Backend = crate::Utun;
 mod create;
 mod io_view;
+#[cfg(target_os = "macos")]
+mod macos_memory;
 pub use io_view::AdoptedTunIo;
 
 #[derive(Clone, Debug)]
@@ -43,6 +45,8 @@ pub struct AdoptedTunOwner {
     state: Mutex<State>,
     acquisition_failure: Mutex<Option<Arc<io::Error>>>,
     created: std::sync::atomic::AtomicBool,
+    #[cfg(target_os = "macos")]
+    macos_memory: std::sync::OnceLock<Arc<crate::macos::memory::Original>>,
 }
 impl std::fmt::Debug for AdoptedTunOwner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -75,6 +79,8 @@ impl AdoptedTunOwner {
             state: Mutex::new(State::Cold),
             acquisition_failure: Mutex::new(None),
             created: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(target_os = "macos")]
+            macos_memory: std::sync::OnceLock::new(),
         })
     }
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -87,6 +93,8 @@ impl AdoptedTunOwner {
         fd: i32,
         expected: &str,
     ) -> Result<AdoptedTunIo, TunAcquisitionError> {
+        #[cfg(target_os = "macos")]
+        let _notifications = self.macos_memory.get().map(|memory| memory.notifications());
         let mut state = self.lock();
         if !matches!(*state, State::Cold) {
             let source = match &*state {
@@ -149,7 +157,7 @@ impl AdoptedTunOwner {
         ) else {
             unreachable!("original installed before registration")
         };
-        match Backend::register_adopted(fd, name.clone(), identity.clone()) {
+        match self.register_backend(fd, name.clone(), identity.clone()) {
             Ok(device) => {
                 *state = State::Live {
                     device,
@@ -196,7 +204,32 @@ impl AdoptedTunOwner {
         self.lock().outcome()
     }
     pub fn close(&self) -> Result<Arc<TunCloseReceipt>, Arc<io::Error>> {
+        #[cfg(target_os = "macos")]
+        let _notifications = self.macos_memory.get().map(|memory| memory.notifications());
         close_state(&mut self.lock(), "")
+    }
+    fn register_backend(
+        &self,
+        fd: OwnedFd,
+        name: String,
+        identity: OwnedTunIdentity,
+    ) -> io::Result<Backend> {
+        #[cfg(target_os = "linux")]
+        {
+            Backend::register_adopted(fd, name, identity)
+        }
+        #[cfg(target_os = "macos")]
+        {
+            Backend::register_with_memory(
+                fd,
+                name,
+                identity,
+                self.macos_memory
+                    .get()
+                    .map(|memory| memory.take())
+                    .transpose()?,
+            )
+        }
     }
 }
 impl State {

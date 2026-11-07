@@ -1,14 +1,20 @@
 //! One inert connection future; the actual owner chooses its task registrar.
 use std::{future::Future, pin::Pin};
 
+mod candidates;
 mod control;
 pub mod datagram;
 pub mod datagram_queue;
 mod epoch;
+mod fixed;
 mod lifecycle;
 mod loan;
 mod managed;
+mod opening;
+mod pending;
 mod physical;
+mod reap;
+mod setup;
 mod stream;
 pub use control::{PoolControl, PoolOptions};
 pub use lifecycle::PoolFactory;

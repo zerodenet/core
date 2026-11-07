@@ -13,60 +13,43 @@ const MAX_REPLAY_SESSIONS: usize = crate::udp::session::CAPACITY;
 // inclusive timestamp boundary when shorter native timeouts are configured.
 
 #[cfg(feature = "blake3")]
-#[derive(Default)]
-pub(super) struct ReplaySessions {
-    limits: crate::validation::StateLimits,
-    entries: HashMap<u64, (crate::shared::ReplayWindow, Instant)>,
+#[derive(Clone)]
+pub(super) struct ReplaySessions(crate::udp::session::ReceiveWindows);
+#[cfg(feature = "blake3")]
+impl Default for ReplaySessions {
+    fn default() -> Self {
+        Self::with_limits(Default::default())
+    }
 }
 #[cfg(feature = "blake3")]
 impl ReplaySessions {
     pub(super) fn with_limits(limits: crate::validation::StateLimits) -> Self {
-        Self {
-            limits,
-            entries: Default::default(),
-        }
+        Self(crate::udp::session::ReceiveWindows::with_limits(limits))
+    }
+    pub(super) fn from_original(original: crate::udp::session::ReceiveWindows) -> Self {
+        Self(original)
+    }
+    pub(super) fn pin(
+        &self,
+        session: u64,
+        peer: zero_platform_tokio::contract::inbound::udp::DatagramPeerRetirement,
+    ) -> Result<(), Error> {
+        self.0.pin(session, peer)
+    }
+    pub(super) fn with_limits_view(self, limits: crate::validation::StateLimits) -> Self {
+        Self(self.0.with_limits_view(limits))
+    }
+    pub(super) fn original(&self) -> crate::udp::session::ReceiveWindows {
+        self.0.clone()
     }
     pub(super) fn touch(&mut self, id: u64) {
-        if let Some((_, touched)) = self.entries.get_mut(&id) {
-            *touched = Instant::now();
-        }
+        self.0.touch(id);
     }
-
     pub(super) fn accept(&mut self, session: u64, packet: u64) -> Result<bool, Error> {
-        if packet == u64::MAX {
-            return Ok(false);
-        }
-        let now = Instant::now();
-        if !self.entries.contains_key(&session)
-            && self
-                .limits
-                .udp_capacity
-                .is_some_and(|capacity| self.entries.len() >= capacity)
-        {
-            self.prune();
-            if self
-                .limits
-                .udp_capacity
-                .is_some_and(|capacity| self.entries.len() >= capacity)
-            {
-                return Err(Error::Protocol("ss: UDP replay session capacity exhausted"));
-            }
-        }
-        let (window, touched) = self
-            .entries
-            .entry(session)
-            .or_insert_with(|| (Default::default(), now));
-        let accepted = window.check_and_update(packet);
-        if accepted {
-            *touched = now;
-        }
-        Ok(accepted)
+        self.0.accept(session, packet)
     }
     pub(super) fn prune(&mut self) {
-        let now = Instant::now();
-        self.entries.retain(|_, (_, touched)| {
-            now.duration_since(*touched) < self.limits.udp_replay_retention()
-        });
+        self.0.prune();
     }
 }
 
@@ -74,12 +57,38 @@ struct Binding {
     session: Option<u64>,
     client: SocketAddr,
     touched: Instant,
+    #[cfg(feature = "blake3")]
+    original: Option<(crate::udp::session::ReceiveWindows, u64)>,
+    #[cfg(feature = "blake3")]
+    _charge: Option<crate::udp::session::Charge>,
 }
 #[derive(Default)]
-pub(super) struct Bindings(HashMap<u64, Binding>, crate::validation::StateLimits);
+pub(super) struct Bindings(
+    HashMap<u64, Binding>,
+    crate::validation::StateLimits,
+    #[cfg(feature = "blake3")]
+    Option<(
+        std::sync::Arc<crate::udp::UdpReplayBudget>,
+        crate::udp::session::ReceiveWindows,
+    )>,
+);
 impl Bindings {
+    #[cfg(any(test, not(feature = "blake3")))]
     pub(super) fn with_limits(limits: crate::validation::StateLimits) -> Self {
-        Self(Default::default(), limits)
+        Self(
+            Default::default(),
+            limits,
+            #[cfg(feature = "blake3")]
+            None,
+        )
+    }
+    #[cfg(feature = "blake3")]
+    pub(super) fn with_budget(
+        limits: crate::validation::StateLimits,
+        budget: std::sync::Arc<crate::udp::UdpReplayBudget>,
+        original: crate::udp::session::ReceiveWindows,
+    ) -> Self {
+        Self(Default::default(), limits, Some((budget, original)))
     }
     pub(super) fn record(&mut self, id: u64, session: Option<u64>, client: SocketAddr) {
         // Authenticated SS2022 packets migrate the whole association, including
@@ -93,19 +102,38 @@ impl Bindings {
                 binding.client = client;
             }
         }
+        #[cfg(feature = "blake3")]
+        let charge = if let Some(existing) = self.0.get_mut(&id) {
+            existing._charge.take()
+        } else if let Some((budget, _)) = &self.2 {
+            let Ok(charge) = budget.claim(crate::udp::session::BudgetUnit::ReturnBinding) else {
+                return;
+            };
+            Some(charge)
+        } else {
+            None
+        };
         self.0.insert(
             id,
             Binding {
                 session,
                 client,
                 touched: Instant::now(),
+                #[cfg(feature = "blake3")]
+                original: session
+                    .and_then(|wire| self.2.as_ref().map(|(_, book)| (book.clone(), wire))),
+                #[cfg(feature = "blake3")]
+                _charge: charge,
             },
         );
     }
     pub(super) fn prune(&mut self) {
         let now = Instant::now();
-        self.0
-            .retain(|_, entry| now.duration_since(entry.touched) < self.1.udp_idle());
+        self.0.retain(|_, entry| entry.live(self.1, now));
+    }
+    #[cfg(feature = "blake3")]
+    pub(super) fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
     pub(super) fn contains(&self, id: u64) -> bool {
         self.0.contains_key(&id)
@@ -119,14 +147,28 @@ impl Bindings {
     pub(super) fn client(&self, id: u64) -> Option<SocketAddr> {
         self.0
             .get(&id)
-            .filter(|e| e.touched.elapsed() < self.1.udp_idle())
+            .filter(|entry| entry.live(self.1, Instant::now()))
             .map(|e| e.client)
     }
     pub(super) fn session(&self, id: u64) -> Option<u64> {
         self.0
             .get(&id)
-            .filter(|e| e.touched.elapsed() < self.1.udp_idle())
+            .filter(|entry| entry.live(self.1, Instant::now()))
             .and_then(|e| e.session)
+    }
+}
+
+impl Binding {
+    fn live(&self, limits: crate::validation::StateLimits, now: Instant) -> bool {
+        #[cfg(feature = "blake3")]
+        if self
+            .original
+            .as_ref()
+            .is_some_and(|(book, wire)| book.peer_live(*wire))
+        {
+            return true;
+        }
+        now.duration_since(self.touched) < limits.udp_idle()
     }
 }
 

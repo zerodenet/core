@@ -42,7 +42,19 @@ impl Pump {
         let mut accepting = true;
         loop {
             tokio::select! {
-                result=driver.as_mut()=>return result,
+                result=driver.as_mut()=>{
+                    // Keep the actual driver result until every admitted
+                    // original worker has returned, including on connection
+                    // failure while decoded DATA awaits its bounded FIFO.
+                    // Seal new logical admission, then retain every accepted
+                    // work item through its original read/write return guards.
+                    receiver.close();
+                    while let Some(Work { read, write }) = receiver.recv().await {
+                        workers.push(Box::pin(async move { tokio::join!(read, write); }));
+                    }
+                    while workers.next().await.is_some() {}
+                    return result;
+                },
                 command=receiver.recv(),if accepting=>match command {
                     Some(Work{read,write})=>workers.push(Box::pin(async move {tokio::join!(read,write);})),
                     None=>accepting=false,
@@ -53,9 +65,11 @@ impl Pump {
     }
 }
 pub(in crate::grpc) struct NativeClient {
+    pub(super) binding: zero_platform_tokio::contract::network::UpstreamBinding,
     sender: h2::client::SendRequest<Bytes>,
     commands: mpsc::Sender<Work>,
     active: Arc<std::sync::atomic::AtomicUsize>,
+    flush: Arc<crate::native_flush::Flushed>,
     pub(super) life: Arc<Life>,
 }
 pub(super) struct Life {
@@ -73,11 +87,13 @@ impl NativeClient {
         physical: Arc<Physical>,
         limit: usize,
         parent: &CancellationToken,
+        binding: zero_platform_tokio::contract::network::UpstreamBinding,
     ) -> (Arc<Self>, Driver) {
         let (commands, receiver) = mpsc::channel::<Work>(limit);
         let PreparedConnection {
             sender,
             active,
+            flush,
             driver,
         } = connection;
         let life = Arc::new(Life {
@@ -95,9 +111,11 @@ impl NativeClient {
         );
         (
             Arc::new(Self {
+                binding,
                 sender,
                 commands,
                 active,
+                flush,
                 life,
             }),
             tasks,
@@ -138,15 +156,22 @@ impl NativeClient {
             send,
             response,
             owner.options.settings.grpc.multi_mode,
+            self.flush.clone(),
         );
         let read_record = lease.record.clone();
         let write_record = lease.record.clone();
+        // Guards are installed outside the futures: dropping an unpolled worker
+        // still records actual return, never normal completion or native close.
+        let read_return = super::logical::WorkerReturn(read_record.clone(), true);
+        let write_return = super::logical::WorkerReturn(write_record.clone(), false);
         let read = Box::pin(async move {
-            read.await;
+            let _returned = read_return;
+            tokio::select! { biased; _=read_record.stop.cancelled()=>{}, _=read=>{} }
             read_record.worker_done(true);
         });
         let write = Box::pin(async move {
-            write.await;
+            let _returned = write_return;
+            tokio::select! { biased; _=write_record.stop.cancelled()=>{}, _=write=>{} }
             write_record.worker_done(false);
         });
         self.commands

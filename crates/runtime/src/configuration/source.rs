@@ -3,6 +3,8 @@
 mod cache;
 mod document;
 mod quota;
+mod snapshot;
+pub use snapshot::ConfigurationSnapshotReader;
 pub use quota::QuotaStorage;
 mod embedded;
 mod files;

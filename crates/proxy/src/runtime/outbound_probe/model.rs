@@ -3,10 +3,11 @@ use std::fmt;
 use zero_core::Error as CoreError;
 use zero_engine::EngineError;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub(crate) struct OutboundProbeError {
     code: &'static str,
     message: String,
+    source: Option<std::sync::Arc<EngineError>>,
 }
 
 impl OutboundProbeError {
@@ -14,6 +15,7 @@ impl OutboundProbeError {
         Self {
             code,
             message: message.into(),
+            source: None,
         }
     }
 
@@ -68,7 +70,11 @@ impl OutboundProbeError {
             EngineError::UnhealthyOutbound { .. } => "outbound_unhealthy",
             _ => "probe_failed",
         };
-        Self::new(code, normalize_engine_error(&error))
+        Self {
+            code,
+            message: normalize_engine_error(&error),
+            source: Some(std::sync::Arc::new(error)),
+        }
     }
 }
 
@@ -81,7 +87,56 @@ impl fmt::Display for OutboundProbeError {
     }
 }
 
-impl std::error::Error for OutboundProbeError {}
+impl PartialEq for OutboundProbeError {
+    fn eq(&self, other: &Self) -> bool {
+        self.code == other.code && self.message == other.message
+    }
+}
+impl Eq for OutboundProbeError {}
+impl std::error::Error for OutboundProbeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.source.as_ref().map(|source| source.as_ref() as _)
+    }
+}
+impl OutboundProbeError {
+    pub(super) fn with_cleanup(mut self, cleanup: std::sync::Arc<std::io::Error>) -> Self {
+        // Keep both independent original causes; existing wire code/message stay
+        // the first operation's values, not an ownership fault's string alone.
+        let work = self.source.take();
+        self.source = Some(std::sync::Arc::new(EngineError::Io(std::io::Error::other(
+            ProbeCleanupSources { work, cleanup },
+        ))));
+        self
+    }
+    pub(super) fn from_probe_failure(source: zero_platform_tokio::contract::ChannelError) -> Self {
+        use std::error::Error;
+        let ownership = source
+            .source()
+            .and_then(|source| source.downcast_ref::<zero_runtime::ProbeOwnershipFailure>())
+            .cloned();
+        let kind = if source.reason == zero_platform_tokio::contract::Reason::Timeout {
+            std::io::ErrorKind::TimedOut
+        } else {
+            std::io::ErrorKind::Other
+        };
+        let error = Self::from_engine(std::io::Error::new(kind, source).into());
+        if let Some(ownership) = ownership {
+            let original = error.source.as_ref().unwrap().clone();
+            let source = std::sync::Arc::new(std::io::Error::new(kind, original));
+            // No caller context leaves this fault with its actual Critical
+            // Probe task/Slot monitor; a real Work receiver keeps the same Arc.
+            if let Ok(received) = zero_runtime::ApplyObservation::retain_cleanup_failure(
+                zero_runtime::CommandCleanupKind::Probe,
+                source,
+            ) {
+                // The same original is already strongly retained by this real
+                // request record before delivery is acknowledged to ProbeOwner.
+                let _ = ownership.acknowledge(&received);
+            }
+        }
+        error
+    }
+}
 
 #[derive(Clone)]
 pub(crate) struct OutboundProbeRequest {
@@ -165,5 +220,27 @@ fn parse_authority(authority: &str) -> Result<(String, u16), OutboundProbeError>
             Ok((host.to_owned(), port.parse().map_err(|_| invalid_port())?))
         }
         _ => Ok((authority.to_owned(), 80)),
+    }
+}
+
+#[derive(Debug)]
+struct ProbeCleanupSources {
+    work: Option<std::sync::Arc<EngineError>>,
+    cleanup: std::sync::Arc<std::io::Error>,
+}
+impl fmt::Display for ProbeCleanupSources {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(work) = &self.work {
+            write!(f, "{work}; ")?;
+        }
+        fmt::Display::fmt(&self.cleanup, f)
+    }
+}
+impl std::error::Error for ProbeCleanupSources {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.work
+            .as_ref()
+            .map(|e| e.as_ref() as _)
+            .or(Some(self.cleanup.as_ref() as _))
     }
 }

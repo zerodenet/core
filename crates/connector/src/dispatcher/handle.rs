@@ -9,15 +9,18 @@ impl EventDispatcherHandle {
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(ShutdownMode::Drain);
         }
-        let parent = self.observe_shutdown().await.map_err(|error| {
-            ConnectorError::Config(format!("dispatcher shutdown failed: {error}"))
-        });
+        let _parent = self.observe_shutdown().await;
         self.children.join_all().await;
-        let children = self.confirm_child_joins();
-        let files = self.resources.close().map_err(|error| {
-            ConnectorError::Config(format!("original file cleanup failed: {error}"))
-        });
-        parent.and(children).and(files)
+        let files = self.resources.close();
+        self.confirm_retirement(files)
+    }
+
+    /// Actual parent/child join consumption and separate native inventory retirement.
+    /// Retained original faults do not turn successful native cleanup into Unknown.
+    pub fn retirement_complete(&self) -> bool {
+        self.task_exit.is_some()
+            && self.children.retirement_complete()
+            && self.resources.retirement_complete()
     }
 
     /// Observe this same original JoinHandle without moving it out of the
@@ -51,15 +54,6 @@ impl EventDispatcherHandle {
         self.children.failure_count()
     }
 
-    pub(super) fn confirm_child_joins(&self) -> ConnectorResult<()> {
-        if self.original_child_failure_count() != 0 {
-            return Err(ConnectorError::Config(
-                "original dispatcher child join failed; original failure is retained".into(),
-            ));
-        }
-        Ok(())
-    }
-
     pub fn activate(&mut self) -> ConnectorResult<()> {
         if !matches!(self.init_result, Some(Ok(true))) {
             return Err(ConnectorError::Config(
@@ -81,9 +75,7 @@ impl EventDispatcherHandle {
             .expect("readiness outcome retained")
         {
             Ok(ready) => Ok(*ready),
-            Err(error) => Err(ConnectorError::Config(format!(
-                "dispatcher preparation failed: {error}"
-            ))),
+            Err(error) => Err(ConnectorError::RetainedPreparation(error.clone())),
         }
     }
     pub(super) fn wait_ready_sync(&mut self) -> ConnectorResult<bool> {
@@ -99,8 +91,10 @@ impl EventDispatcherHandle {
             self.init_rx = None;
         }
         match self.init_result.take().expect("readiness outcome retained") {
-            Err(error) => Err(Arc::try_unwrap(error)
-                .unwrap_or_else(|error| ConnectorError::Config(error.to_string()))),
+            Err(error) => {
+                self.init_result = Some(Err(error.clone()));
+                Err(ConnectorError::RetainedPreparation(error))
+            }
             Ok(ready) => {
                 self.init_result = Some(Ok(ready));
                 Ok(ready)

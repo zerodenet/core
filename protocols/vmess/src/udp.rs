@@ -172,7 +172,7 @@ impl VmessUdpFlowPlan {
         }
 
         let stream = open_stream().await?;
-        establish_udp_flow_with_resume(stream, session, resume)
+        establish_udp_flow_with_resume(stream, session, resume, profile.is_grpc())
             .await
             .map_err(E::from)
     }
@@ -182,6 +182,7 @@ impl VmessUdpFlowPlan {
         session: &Session,
         stream: S,
         open_transport: OpenTransport,
+        grpc_request_end: bool,
     ) -> Result<VmessUdpFlowConnection, E>
     where
         S: AsyncSocket
@@ -196,7 +197,7 @@ impl VmessUdpFlowPlan {
         E: From<Error>,
     {
         let stream = open_transport(stream).await?;
-        establish_udp_flow_with_resume(stream, session, self.resume())
+        establish_udp_flow_with_resume(stream, session, self.resume(), grpc_request_end)
             .await
             .map_err(E::from)
     }
@@ -277,7 +278,12 @@ impl PreparedVmessUdpFlowPlan {
         E: From<Error>,
     {
         self.plan
-            .open_relay_udp_flow_with_transport(session, stream, open_transport)
+            .open_relay_udp_flow_with_transport(
+                session,
+                stream,
+                open_transport,
+                self.mux_transport_profile.as_borrowed().is_grpc(),
+            )
             .await
     }
 }
@@ -1254,11 +1260,17 @@ async fn establish_udp_flow_with_resume<S>(
     stream: S,
     session: &Session,
     resume: &VmessUdpFlowResume,
+    grpc_request_end: bool,
 ) -> Result<VmessUdpFlowConnection, Error>
 where
     S: AsyncSocket + tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + 'static,
 {
     let (stream, flow_io) = establish_udp_flow(stream, session, resume.identity()).await?;
+    let stream = if grpc_request_end {
+        stream.with_grpc_request_end()
+    } else {
+        stream
+    };
     Ok(VmessUdpFlowConnection::new(spawn_udp_flow(stream, flow_io)))
 }
 

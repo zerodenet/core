@@ -1,6 +1,7 @@
 //! One retained target and exact retirement subset, installed before any await.
 use super::*;
 pub(super) mod order;
+pub(super) mod packet_source;
 mod publication;
 use std::collections::BTreeSet;
 use zero_core::component::ComponentInstanceId;
@@ -15,16 +16,16 @@ struct Part {
 #[derive(Debug)]
 pub(super) struct DeclaredComponentTerminal {
     instances: Box<[ComponentInstanceId]>,
-    failures: Box<[Arc<plan::PlanTaskFailure>]>,
+    failures: Box<[Arc<plan::PlanFailure>]>,
 }
 impl DeclaredComponentTerminal {
-    pub(super) fn failure(&self) -> Option<&Arc<plan::PlanTaskFailure>> {
+    pub(super) fn failure(&self) -> Option<&Arc<plan::PlanFailure>> {
         self.failures().first()
     }
     pub(super) fn instances(&self) -> &[ComponentInstanceId] {
         &self.instances
     }
-    pub(super) fn failures(&self) -> &[Arc<plan::PlanTaskFailure>] {
+    pub(super) fn failures(&self) -> &[Arc<plan::PlanFailure>] {
         &self.failures
     }
 }
@@ -42,6 +43,7 @@ pub(super) struct Replacement {
     dependencies: BTreeMap<ComponentInstanceId, BTreeSet<ComponentInstanceId>>,
     terminal: OnceLock<Arc<DeclaredComponentTerminal>>,
     released: Mutex<publication::Publication>,
+    budget_pause: OnceLock<Arc<ReplacementUsersPause>>,
 }
 impl Replacement {
     pub(super) fn new(
@@ -157,6 +159,7 @@ impl Replacement {
             dependencies,
             terminal: OnceLock::new(),
             released: Mutex::new(publication::Publication::Pending),
+            budget_pause: OnceLock::new(),
         })
     }
     pub(super) fn owned_plans(&self) -> impl Iterator<Item = &Arc<ComponentPlan>> {
@@ -232,9 +235,9 @@ impl Replacement {
             let mut instances = BTreeSet::new();
             for part in &self.parts {
                 instances.extend(part.instances.iter().copied());
-                for failure in part.plan.task_faults(&part.instances) {
+                for failure in part.plan.retirement_faults(&part.instances) {
                     if !failure.reported() {
-                        failures.entry(failure.0.id).or_insert(failure);
+                        failures.entry(failure.key()).or_insert(failure);
                     }
                 }
             }
@@ -250,3 +253,18 @@ impl Replacement {
 #[cfg(test)]
 #[path = "../tests/replacement.rs"]
 mod tests;
+
+impl Replacement {
+    pub(super) fn budget_pause(&self) -> Option<Arc<ReplacementUsersPause>> {
+        self.budget_pause.get().cloned()
+    }
+    pub(super) fn retains_budget_pause(&self) -> bool {
+        self.budget_pause.get().is_some()
+    }
+    pub(super) fn retain_budget_pause(&self, pause: Arc<ReplacementUsersPause>) {
+        assert!(
+            self.budget_pause.set(pause).is_ok(),
+            "same actual replacement owns its pause once"
+        );
+    }
+}

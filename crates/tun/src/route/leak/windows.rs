@@ -1,3 +1,4 @@
+mod owned;
 use std::ffi::c_void;
 use std::io;
 use std::io::Write;
@@ -50,6 +51,7 @@ pub struct SystemLeakGuard {
     protected: Vec<IpNet>,
     excluded: Vec<IpAddr>,
     active: bool,
+    legacy_migrated: bool,
 }
 
 impl std::fmt::Debug for SystemLeakGuard {
@@ -85,32 +87,11 @@ impl SystemLeakGuard {
         protected: &[IpNet],
         excluded: &[IpAddr],
     ) -> io::Result<Self> {
-        validate_interface_name(tun_name)?;
-        migrate_legacy_policy(recovery_key)?;
-
-        let safe_name = safe_resource_name(recovery_key);
-        let display_name = format!("Zero strict route ({safe_name})");
-        let sublayer_key = stable_guid(recovery_key, "sublayer");
-        let protected = normalized_prefixes(protected);
-        let excluded = normalized_exclusions(excluded);
-        install_policy(
-            sublayer_key,
-            recovery_key,
-            &display_name,
-            tun_name,
-            &protected,
-            &excluded,
-        )?;
-
-        Ok(Self {
-            sublayer_key,
-            recovery_key: recovery_key.to_owned(),
-            display_name,
-            tun_name: tun_name.to_owned(),
-            protected,
-            excluded,
-            active: true,
-        })
+        let mut original = None;
+        Self::install_retained(&mut original, tun_name, recovery_key, protected, excluded)?;
+        Ok(original
+            .take()
+            .expect("same installed leak-protection original"))
     }
 
     pub fn reconcile(&mut self, protected: &[IpNet], excluded: &[IpAddr]) -> io::Result<bool> {
@@ -137,12 +118,20 @@ impl SystemLeakGuard {
     }
 
     pub fn close(mut self) -> io::Result<()> {
+        self.close_retained()
+    }
+
+    pub fn close_retained(&mut self) -> io::Result<()> {
         self.cleanup()
     }
 
     fn cleanup(&mut self) -> io::Result<()> {
         if !self.active {
             return Ok(());
+        }
+        if !self.legacy_migrated {
+            migrate_legacy_policy(&self.recovery_key)?;
+            self.legacy_migrated = true;
         }
         remove_policy(self.sublayer_key)?;
         self.active = false;

@@ -60,6 +60,8 @@ impl VmessOutboundLeaf {
             grpc,
             runtime.mux_pool(),
         )?;
+        leaf.transport
+            .bind_material_registry(runtime.client_material.clone());
         if grpc.is_some() {
             leaf.transport.set_grpc_state(runtime.grpc_carrier_state());
         }

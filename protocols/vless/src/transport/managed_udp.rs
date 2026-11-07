@@ -12,6 +12,7 @@ pub struct VlessManagedUdpFlowResume {
     protocol: crate::udp::PreparedVlessUdpFlowPlan,
     transport: OwnedVlessOutboundTransportPlan,
     preconnect: Option<super::runtime::preconnect::Access>,
+    navigation_reality: Option<crate::reality::PreparedRealityClient>,
 }
 
 pub type VlessManagedUdpConnectorFlow = crate::udp::VlessUdpConnectorFlow;
@@ -22,12 +23,14 @@ impl VlessManagedUdpFlowResume {
         protocol: crate::udp::PreparedVlessUdpFlowPlan,
         transport: OwnedVlessOutboundTransportPlan,
         preconnect: Option<super::runtime::preconnect::Access>,
+        navigation_reality: Option<crate::reality::PreparedRealityClient>,
     ) -> Self {
         Self {
             mux_pool,
             protocol,
             transport,
             preconnect,
+            navigation_reality,
         }
     }
 
@@ -108,6 +111,7 @@ impl VlessManagedUdpFlowResume {
             let Some(binding) = self.mux_pool.installed_root_binding().await? else {
                 return Ok(None);
             };
+            let leaf = self.clone();
             self.protocol
                 .open_native_mux_flow(
                     session,
@@ -115,12 +119,19 @@ impl VlessManagedUdpFlowResume {
                     self.transport.port(),
                     &self.mux_pool,
                     binding,
-                    |raw| async move {
-                        self.transport
-                            .open_relay(TcpRelayStream::new(
-                                zero_transport::pooled_driver::ExclusiveIo::new(raw),
-                            ))
-                            .await
+                    move |raw| async move {
+                        let preparation = raw.preparation();
+                        let io = TcpRelayStream::new(
+                            zero_transport::pooled_driver::ExclusiveIo::new(raw),
+                        );
+                        super::navigation::open_carrier(
+                            &leaf.transport,
+                            &leaf.mux_pool,
+                            leaf.navigation_reality.as_ref(),
+                            io,
+                            preparation,
+                        )
+                        .await
                     },
                 )
                 .await

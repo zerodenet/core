@@ -337,6 +337,29 @@ where
         }
     }
 
+    /// Advance only the original outbound/control/codec stage. False asks
+    /// the same caller to run the full connection state machine instead.
+    pub fn poll_outbound(&mut self, cx: &mut Context) -> Poll<Result<bool, Error>> {
+        if !matches!(self.inner.state, State::Open)
+            || self.inner.error.is_some()
+            || self.inner.go_away.should_close_on_idle()
+            || self.inner.go_away.should_close_now()
+        {
+            return Poll::Ready(Ok(false));
+        }
+        let span = self.inner.span.clone();
+        let _entered = span.enter();
+        if let Err(error) = ready!(self.poll_ready(cx)) {
+            // Preserve exactly the existing protocol-error/reset/IO handling.
+            self.inner.as_dyn().handle_poll2_result(Err(error))?;
+            return Poll::Ready(Ok(false));
+        }
+        // This is the same original stream queue and native codec flush as
+        // the Pending branch of poll. It never polls recv or signals body exit.
+        ready!(self.inner.streams.poll_complete(cx, &mut self.codec))?;
+        Poll::Ready(Ok(true))
+    }
+
     fn poll2(&mut self, cx: &mut Context) -> Poll<Result<(), Error>> {
         // This happens outside of the loop to prevent needing to do a clock
         // check and then comparison of the queue possibly multiple times a

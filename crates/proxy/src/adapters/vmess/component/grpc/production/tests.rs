@@ -8,7 +8,7 @@ fn config(groups: serde_json::Value) -> RuntimeConfig {
     }).to_string()).unwrap()
 }
 #[test]
-fn node_streams_require_complete_config_and_exclude_every_relay_alias_branch() {
+fn node_streams_require_complete_config_and_route_every_relay_alias_to_the_same_owner() {
     let standalone = config(serde_json::json!([]));
     assert!(!streams_selected(&standalone.outbounds[0], None, true));
     assert!(streams_selected(
@@ -23,7 +23,8 @@ fn node_streams_require_complete_config_and_exclude_every_relay_alias_branch() {
         {"tag":"backup","type":"fallback","outbounds":["choice"]},
         {"tag":"chain","type":"relay","proxies":["other","backup"]}
     ]));
-    assert!(!streams_selected(&mixed.outbounds[0], Some(&mixed), true));
+    assert!(streams_selected(&mixed.outbounds[0], Some(&mixed), true));
+    assert!(!streams_selected(&mixed.outbounds[0], Some(&mixed), false));
     let unrelated = config(serde_json::json!([
         {"tag":"choice","type":"selector","outbounds":["node"]},
         {"tag":"chain","type":"relay","proxies":["other","other"]}
@@ -35,11 +36,12 @@ fn node_streams_require_complete_config_and_exclude_every_relay_alias_branch() {
     ));
 }
 #[test]
-fn whole_node_projection_removes_legacy_tcp_and_keeps_datagram_only_relay_boundary() {
+fn whole_node_projection_removes_legacy_tcp_for_native_relay_and_single_nodes() {
     use zero_platform_tokio::contract::component::{
         ComponentFactory, ResourceDeclaration, RoleKind,
     };
-    let adapter = crate::adapters::vmess::VmessAdapter::default();
+    let mut adapter = crate::adapters::vmess::VmessAdapter::default();
+    adapter.native_node_dns = true;
     for groups in [
         serde_json::json!([]),
         serde_json::json!([
@@ -48,7 +50,7 @@ fn whole_node_projection_removes_legacy_tcp_and_keeps_datagram_only_relay_bounda
     ] {
         let config = config(groups);
         let node = &config.outbounds[0];
-        let enabled = streams_selected(node, Some(&config), false);
+        let enabled = streams_selected(node, Some(&config), true);
         let options = adapter.standard_options_for(node, Some(&config)).unwrap();
         let spec = Factory.describe(&options);
         assert_eq!(spec.roles.contains(&RoleKind::Stream), enabled);
@@ -59,7 +61,7 @@ fn whole_node_projection_removes_legacy_tcp_and_keeps_datagram_only_relay_bounda
                 .iter()
                 .filter(|resource| matches!(
                     resource,
-                    ResourceDeclaration::ControlledCarrierPool { .. }
+                    ResourceDeclaration::ControlledServiceStream { .. }
                 ))
                 .count(),
             usize::from(enabled)
@@ -78,10 +80,16 @@ fn whole_node_projection_removes_legacy_tcp_and_keeps_datagram_only_relay_bounda
 }
 
 #[test]
-fn another_grpc_nodes_legacy_grammar_keeps_the_entire_adapter_on_its_existing_tcp_executor() {
+fn another_grpc_nodes_unmigrated_mux_relay_keeps_the_entire_adapter_on_its_existing_tcp_executor() {
     let mut config = config(serde_json::json!([]));
     let mut legacy = config.outbounds[0].clone();
     legacy.tag = "legacy-node".into();
+    if let OutboundProtocolConfig::Vmess {
+        mux_concurrency, ..
+    } = &mut legacy.protocol
+    {
+        *mux_concurrency = Some(8);
+    }
     config.outbounds.push(legacy);
     config.outbound_groups.push(
         serde_json::from_value(serde_json::json!({
@@ -94,6 +102,6 @@ fn another_grpc_nodes_legacy_grammar_keeps_the_entire_adapter_on_its_existing_tc
         .iter()
         .filter(|node| node.protocol.protocol_name() == "vmess")
     {
-        assert!(!streams_selected(node, Some(&config), false));
+        assert!(!streams_selected(node, Some(&config), true));
     }
 }

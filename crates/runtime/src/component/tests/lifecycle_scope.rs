@@ -173,6 +173,8 @@ async fn actual_critical_join_rejects_pending_lifecycle_start_with_the_same_orig
         let native = original
             .source()
             .unwrap()
+            .source()
+            .unwrap()
             .downcast_ref::<tokio::task::JoinError>()
             .unwrap();
         assert!(native.is_panic());

@@ -61,7 +61,17 @@ impl ApplicationServices {
         }
 
         #[cfg(feature = "event-dispatcher")]
-        if rebuild_dispatcher {
+        if rebuild_dispatcher && dispatcher_enabled(&target) {
+            self.event_network
+                .configure_limits(
+                    zero_connector::EventNetworkLimits::new(
+                        target.runtime.effective_event_network_max_tasks(),
+                        target.runtime.effective_event_network_max_originals(),
+                        target.runtime.effective_event_network_max_lookups(),
+                    )
+                    .map_err(|error| error.to_string())?,
+                )
+                .map_err(|error| error.to_string())?;
             let has_delivery_sinks = !target.api.event_sinks.is_empty();
             let bootstrap_engine_started = has_delivery_sinks && !state.engine_started_bootstrapped;
             self.event_network
@@ -69,8 +79,8 @@ impl ApplicationServices {
                 .map_err(|error| error.to_string())?;
             state.network_generation_started = true;
             state.dispatcher = Some(
-                zero_connector::prepare_event_dispatcher_paused_with_network(
-                    self.engine.clone(),
+                zero_connector::prepare_kernel_event_dispatcher_paused_with_network(
+                    zero_engine::EngineHandle::new(self.engine.clone()),
                     target.api.clone(),
                     target.source_dir.clone(),
                     zero_connector::EventDispatcherOptions::default(),
@@ -90,13 +100,28 @@ impl ApplicationServices {
                     .forget();
             }
             // The actual original worker is installed before this readiness await.
-            let ready = state
+            let ready_result = state
                 .dispatcher
                 .as_mut()
                 .expect("installed dispatcher owner")
                 .wait_ready()
-                .await
-                .map_err(|error| error.to_string())?;
+                .await;
+            let ready = match ready_result {
+                Ok(ready) => ready,
+                Err(error) => {
+                    let original = state
+                        .dispatcher
+                        .as_ref()
+                        .unwrap()
+                        .original_preparation_failure();
+                    if let Some(attempt) = &mut state.attempt {
+                        attempt.reported_dispatcher_preparation = original;
+                    }
+                    // No further await separates retaining this exact source
+                    // from returning its readiness failure to the same caller.
+                    return Err(error.to_string());
+                }
+            };
             if !ready {
                 state
                     .dispatcher
@@ -121,10 +146,20 @@ impl ApplicationServices {
                 state.engine_started_bootstrapped = true;
             }
             state.monitor_exit = None;
-            state.status_monitor = Some(spawn_status_monitor(
-                self.engine.clone(),
-                state.dispatcher.as_ref(),
-            ));
+            // Publish the actual cold original before registering its worker.
+            // No monitor allocation is needed with no configured dispatcher.
+            if state.dispatcher.is_some() {
+                state.status_monitor = Some(StatusMonitor::cold());
+                start_status_monitor(
+                    state.status_monitor.as_ref().unwrap(),
+                    self.engine.clone(),
+                    state.dispatcher.as_ref(),
+                )
+                .map_err(|error| error.to_string())?;
+            } else {
+                self.engine.update_sink_status(Vec::new());
+            }
+            self.monitor_changed.notify_waiters();
         }
 
         state.installed = true;

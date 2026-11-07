@@ -13,6 +13,62 @@ struct Selected {
     remote: std::sync::Mutex<Option<std::net::SocketAddr>>,
 }
 impl UpstreamOpener for Selected {
+    fn select_background_carrier_observed(
+        &self,
+        binding: Option<UpstreamBinding>,
+        call: CarrierContext,
+        waiting: zero_platform_tokio::contract::network::PendingCarrierObserver,
+    ) -> BoxFuture<'_, Result<UpstreamTransport, ChannelError>> {
+        self.upstream
+            .select_background_carrier_observed(binding, call, waiting)
+    }
+
+    fn has_pending_carrier_observer(&self) -> bool {
+        self.upstream.observed_pending_carrier().is_some()
+    }
+    fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
+        if binding != self.upstream.binding() {
+            return None;
+        }
+        self.upstream.pending_carrier_capacity()
+    }
+    fn packet_caller(
+        &self,
+        binding: &UpstreamBinding,
+        identity: &zero_platform_tokio::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<zero_platform_tokio::contract::scope::TaskJoinWitness, ChannelError> {
+        if binding != self.upstream.binding() {
+            return Err(invalid(Reason::StalePlan, "Packet caller binding changed"));
+        }
+        self.upstream.packet_caller(identity, call)
+    }
+    fn resolve_packet_target(
+        &self,
+        binding: &UpstreamBinding,
+        destination: Destination,
+        identity: zero_platform_tokio::contract::context::RequestIdentity,
+        call: CarrierContext,
+    ) -> BoxFuture<'_, Result<Vec<std::net::SocketAddr>, ChannelError>> {
+        if binding != self.upstream.binding() {
+            return Box::pin(async {
+                Err(invalid(Reason::StalePlan, "packet target binding changed"))
+            });
+        }
+        self.upstream
+            .resolve_packet_target(destination, identity, call)
+    }
+    fn retain_pending_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        adoption: zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        if binding != self.upstream.binding() {
+            return Err(invalid(Reason::StalePlan, "pooled pending binding changed"));
+        }
+        self.upstream.retain_pending_carrier(adoption)
+    }
+
     fn carrier_dns_generation(&self) -> Option<zero_platform_tokio::contract::dns::DnsGeneration> {
         self.upstream.carrier_dns_generation()
     }
@@ -89,7 +145,31 @@ pub(super) async fn open(
         dial: slot.dial.clone(),
         network_generation: NetworkGeneration(services.upstream().network_generation()),
     };
-    let (tag, server, port) = prepared.target.endpoint();
+    services
+        .components
+        .as_ref()
+        .map_err(|source| crate::component::instance::retained(source.clone()))?
+        .authorize_carrier_prefix(slot.instance_id(), &binding.prefix)?;
+    let tag = prepared.target.tag();
+    let (server, port) = prepared.target.endpoint().ok_or_else(|| {
+        invalid(
+            Reason::StalePlan,
+            "pooled network relay tail lacks its declared endpoint",
+        )
+    })?;
+    let pending = services
+        .pending_datagram
+        .as_ref()
+        .and_then(std::sync::Weak::upgrade);
+    let association_cancel = pending
+        .as_ref()
+        .map(|pending| pending.cancellation())
+        .ok_or_else(|| {
+            invalid(
+                Reason::InvalidConfig,
+                "pooled Datagram lacks its actual association lifetime",
+            )
+        })?;
     let upstream = super::super::background::BackgroundPath {
         nodes: prepared.prefix,
         binding: binding.clone(),
@@ -99,10 +179,16 @@ pub(super) async fn open(
         call: CarrierContext {
             session: None,
             deadline: invocation.deadline,
-            cancel: invocation.cancellation(),
+            cancel: association_cancel.clone(),
         },
     }
-    .select(services)
+    .select_observed(
+        services,
+        match &pending {
+            Some(pending) => pending.observer(binding.clone())?,
+            None => None,
+        },
+    )
     .await?;
     let selected = Arc::new(Selected {
         upstream,
@@ -121,7 +207,7 @@ pub(super) async fn open(
             OpenContext {
                 identity: invocation.identity.clone(),
                 deadline: invocation.deadline,
-                cancel: invocation.cancellation(),
+                cancel: association_cancel.clone(),
                 observer: Some(wire.clone()),
                 upstream: UpstreamTransport::new(binding, selected.clone()),
             },

@@ -16,7 +16,10 @@ impl NativeRegistration {
             .owner
             .upgrade()
             .ok_or_else(|| pre_io_rejection(Reason::Revoked))?;
-        // Only irrevocably closed NoAcquisition reservations may be discarded
+        let caller = self
+            .caller_witness()
+            .ok_or_else(|| pre_io_rejection(Reason::Revoked))?;
+        // Only positive unused or unpublished preparation receipts may be discarded
         // before the caller joins. Query original slot getters outside our lock.
         let mut unused = {
             let mut state = owner.lock().unwrap_or_else(|error| error.into_inner());
@@ -44,8 +47,11 @@ impl NativeRegistration {
             observed
         };
         unused.retain(|slot| {
-            slot.closed()
-                .is_some_and(|closed| closed.matches(slot) && !closed.had_native_acquisition())
+            slot.closed().is_some_and(|closed| {
+                closed.matches(slot)
+                    && (!closed.had_native_acquisition()
+                        || slot.unpublished_preparation_closed_for(&caller).is_some())
+            })
         });
         let mut state = owner.lock().unwrap_or_else(|error| error.into_inner());
         let record = state
@@ -102,6 +108,7 @@ impl NativeRegistration {
             record.carrier_conflict = true;
             return Err(pre_io_rejection(Reason::Capacity));
         }
+        let bound_original = adoption.clone();
         if record.carrier.is_none() {
             record.carrier = Some(adoption);
         } else {
@@ -111,6 +118,11 @@ impl NativeRegistration {
             }
             record.additional_carriers.push(adoption);
         }
+        // The private issuer has now installed this same original in the
+        // bound-Business ledger. Its stricter caller proof remains unchanged.
+        record
+            .pending_carriers
+            .retain(|claim| !claim.adoption.same_slot(&bound_original));
         Ok(())
     }
 }

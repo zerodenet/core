@@ -18,6 +18,9 @@ use zero_platform_tokio::{
     },
     controlled_carrier::CarrierOwner,
 };
+mod ech;
+mod factory;
+mod owner;
 mod provider;
 use provider::Provider;
 use zero_dns::native::NativeDnsProvider;
@@ -89,9 +92,12 @@ pub(crate) struct Options {
     purpose: Purpose,
     peers: Vec<(std::net::SocketAddr, bool)>,
     roots: Vec<crate::inventory::service::ServiceRoot>,
+    ech: Vec<zero_dns::EchDnsEndpoint>,
     identity: Arc<[u8]>,
     #[cfg(feature = "dns")]
     quic: Vec<std::net::SocketAddr>,
+    #[cfg(feature = "dns")]
+    quic_metadata: zero_platform_tokio::controlled_datagram::metadata::MetadataLimits,
 }
 pub(crate) fn prepare(
     resources: &mut ResourcePreparation<'_>,
@@ -135,11 +141,20 @@ fn prepare_purpose(
         }
     }
     let dns = configured.as_ref();
+    #[cfg(feature = "dns")]
+    let quic = zero_dns::native::native_quic_endpoints(dns).map_err(|source| {
+        RegistrationError::Options(zero_config::ConfigError::InvalidOutbound(
+            source.to_string(),
+        ))
+    })?;
+    #[cfg(feature = "dns")]
+    let quic_metadata = provider::quic::metadata_limits(runtime);
     let roots = if purpose == Purpose::Query {
         crate::inventory::service::dns_roots(candidate)
     } else {
         Vec::new()
     };
+    let ech = ech::endpoints(candidate)?;
     let peers = zero_dns::native::native_endpoints(dns).map_err(|source| {
         RegistrationError::Options(zero_config::ConfigError::InvalidOutbound(
             source.to_string(),
@@ -153,7 +168,11 @@ fn prepare_purpose(
         hash.write(purpose.key().as_bytes());
         hash.write(format!("{limits:?}").as_bytes());
         hash.write(&bytes);
-        hash.write(format!("{roots:?}").as_bytes());
+        #[cfg(feature = "dns")]
+        if !quic.is_empty() {
+            hash.write(format!("{quic_metadata:?}").as_bytes());
+        }
+        hash.write(format!("{roots:?}{ech:?}").as_bytes());
         identity.extend_from_slice(&hash.finish().to_le_bytes());
     }
     resources
@@ -165,13 +184,12 @@ fn prepare_purpose(
                 purpose,
                 peers,
                 roots,
+                ech,
                 identity: identity.into(),
                 #[cfg(feature = "dns")]
-                quic: zero_dns::native::native_quic_endpoints(dns).map_err(|source| {
-                    RegistrationError::Options(zero_config::ConfigError::InvalidOutbound(
-                        source.to_string(),
-                    ))
-                })?,
+                quic,
+                #[cfg(feature = "dns")]
+                quic_metadata,
             }),
         )
         .map_err(|source| {
@@ -181,109 +199,7 @@ fn prepare_purpose(
         })
 }
 struct Factory(Arc<BackgroundNetwork>);
-impl ComponentFactory for Factory {
-    type Options = Options;
-    fn describe(&self, options: &Options) -> ComponentSpec {
-        let limits = options.budget.limits();
-        let mut resources = options
-            .peers
-            .iter()
-            .map(
-                |(peer, datagram)| ResourceDeclaration::ControlledCarrierPool {
-                    endpoint: provider::destination(*peer),
-                    dial: Default::default(),
-                    datagram: *datagram,
-                    max_sockets: limits.originals,
-                },
-            )
-            .collect::<Vec<_>>();
-        resources.extend(options.roots.iter().map(|root| {
-            ResourceDeclaration::ControlledCarrierPool {
-                endpoint: root.endpoint.clone(),
-                dial: root.dial.clone(),
-                datagram: false,
-                max_sockets: limits.originals,
-            }
-        }));
-        // Query jobs, real blocking OS children and persistent H2 drivers
-        // share this Scope; unused capacity starts no workers.
-        let task_limit =
-            limits.queries.get() + limits.blocking_jobs.get() + limits.h2_drivers.get();
-        #[cfg(feature = "dns")]
-        let (resources, task_limit) = {
-            let mut resources = resources;
-            let task_limit = task_limit
-                + if options.quic.is_empty() {
-                    0
-                } else {
-                    limits.originals.get()
-                };
-            resources.extend(options.quic.iter().map(|peer| {
-                ResourceDeclaration::ControlledMetadataDatagram {
-                    endpoint: *peer,
-                    dial: Default::default(),
-                    limits: provider::quic::metadata_limits(),
-                    max_origins: NonZeroUsize::new((limits.originals.get() / 2).max(1)).unwrap(),
-                }
-            }));
-            (resources, task_limit)
-        };
-        ComponentSpec {
-            owner: ResourceOwner::Endpoint(options.purpose.key().into()),
-            roles: vec![],
-            dependencies: vec![],
-            static_identity: options.identity.clone(),
-            task_limit: NonZeroUsize::new(task_limit),
-            resources,
-        }
-    }
-    fn build(
-        &self,
-        options: Arc<Options>,
-        context: BuildContext,
-    ) -> Result<ComponentInstance, BuildError> {
-        let limits = options.budget.limits();
-        let owners = (0..options.peers.len() + options.roots.len())
-            .map(|_| CarrierOwner::new(context.instance(), limits.originals, &context.cancel))
-            .collect::<Vec<_>>();
-        #[cfg(feature = "dns")]
-        let metadata = options
-            .quic
-            .iter()
-            .map(|_| {
-                zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOwner::new(
-                    context.instance(),
-                    NonZeroUsize::new((limits.originals.get() / 2).max(1)).unwrap(),
-                    provider::quic::metadata_limits(),
-                    &context.cancel,
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let provider = Arc::new(Provider::new(
-            &context,
-            &options,
-            &owners,
-            self.0.egress.clone(),
-            self.0.clone(),
-            #[cfg(feature = "dns")]
-            &metadata,
-        ));
-        Ok(ComponentInstance {
-            roles: ComponentRoles::default(),
-            lifecycle: erase_lifecycle(Owner {
-                owners,
-                provider,
-                tasks: context.tasks,
-                resources: context.resources,
-                network: self.0.clone(),
-                purpose: options.purpose,
-                pending: CloseReport::default(),
-                #[cfg(feature = "dns")]
-                metadata,
-            }),
-        })
-    }
-}
+
 struct Owner {
     owners: Vec<CarrierOwner>,
     provider: Arc<Provider>,
@@ -292,105 +208,19 @@ struct Owner {
     network: Arc<BackgroundNetwork>,
     purpose: Purpose,
     pending: CloseReport,
+    reported_faults: std::collections::BTreeSet<zero_platform_tokio::contract::scope::TaskId>,
     #[cfg(feature = "dns")]
     metadata: Vec<zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOwner>,
 }
-impl ResourceLifecycle for Owner {
-    async fn start(&mut self, end: tokio::time::Instant) -> Result<(), BuildError> {
-        for (ordinal, owner) in self.owners.iter_mut().enumerate() {
-            self.resources.register_controlled_carrier(
-                ordinal,
-                owner.registration(),
-                &self.tasks,
-            )?;
-            owner.start(end).await?;
-        }
-        #[cfg(feature = "dns")]
-        for (index, owner) in self.metadata.iter().enumerate() {
-            self.resources.register_metadata_pool(
-                self.owners.len() + index,
-                owner.registration(),
-                &self.tasks,
-            )?;
-            owner.start()?;
-        }
-        let provider: Arc<dyn zero_dns::native::NativeDnsProvider> = self.provider.clone();
-        self.purpose
-            .source(&self.network)
-            .install(&provider)
-            .map_err(provider::error)?;
-        Ok(())
-    }
-    fn revoke(&self, _: CloseReason) {
-        let provider: Arc<dyn zero_dns::native::NativeDnsProvider> = self.provider.clone();
-        let current = self.purpose.source(&self.network).withdraw(&provider);
-        self.provider.stop();
-        if current {
-            if let Some(dns) = self
-                .network
-                .resolver
-                .get()
-                .and_then(std::sync::Weak::upgrade)
-            {
-                dns.retire_native_query_source(self.purpose.source(&self.network));
-            }
-        }
-        for owner in &self.owners {
-            owner.revoke();
-        }
-        #[cfg(feature = "dns")]
-        for owner in &self.metadata {
-            owner.revoke();
-        }
-    }
-    async fn shutdown(&mut self, end: tokio::time::Instant) -> Result<CloseReport, BuildError> {
-        self.revoke(CloseReason::Shutdown);
-        let mut failure = None;
-        if let Some(dns) = self
-            .network
-            .resolver
-            .get()
-            .and_then(std::sync::Weak::upgrade)
-        {
-            if let Err(source) = dns.shutdown_native_pools(&self.provider.tasks(), end).await {
-                failure.get_or_insert_with(|| provider::error(source));
-            }
-        }
-        if let Err(source) = self.provider.close_queries(end).await {
-            failure.get_or_insert_with(|| provider::error(source));
-        }
-        let mut unfinished = Vec::new();
-        for owner in &mut self.owners {
-            match owner.shutdown(end).await {
-                Ok(mut report) => {
-                    unfinished.append(&mut report.unfinished);
-                    self.pending.append(report);
-                }
-                Err(source) => {
-                    failure.get_or_insert(source);
-                }
-            }
-        }
-        if let Err(source) = self.provider.reap(end).await {
-            failure.get_or_insert_with(|| provider::error(source));
-        }
-        #[cfg(feature = "dns")]
-        for owner in &self.metadata {
-            match owner.shutdown() {
-                Ok(mut report) => {
-                    unfinished.append(&mut report.unfinished);
-                    self.pending.append(report);
-                }
-                Err(source) => {
-                    failure.get_or_insert(source);
-                }
-            }
-        }
-        if let Some(failure) = failure {
-            return Err(failure);
-        }
-        let mut report = std::mem::take(&mut self.pending);
-        report.unfinished = unfinished;
-        Ok(report)
-    }
-}
+
+#[cfg(test)]
+#[path = "native_dns/tests/implicit_system.rs"]
+mod tests;
+
+#[cfg(all(test, feature = "dns"))]
+#[path = "native_dns/tests/wire_call.rs"]
+mod wire_call_tests;
+
+#[cfg(test)]
+#[path = "native_dns/tests/resolution_call.rs"]
+mod resolution_call_tests;

@@ -22,6 +22,8 @@ use zero_platform_tokio::contract::{
 ))]
 pub(crate) mod datagram;
 pub(in crate::component) mod network;
+mod packet_network;
+mod pending;
 pub(crate) mod relay;
 mod traffic;
 pub(crate) use relay::connect as connect_relay;
@@ -32,6 +34,9 @@ pub(crate) async fn connect(
     slot: &Arc<ComponentSlot>,
     prepared: &PreparedTcpCandidate,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
+    if prepared.endpoint.is_none() {
+        return packet_network::connect(services, session, slot, prepared).await;
+    }
     let endpoint = prepared
         .endpoint
         .clone()
@@ -67,12 +72,25 @@ pub(crate) async fn connect(
     let business =
         super::business_carrier::BusinessCarrierRequest::new(services.engine(), slot, &invocation)
             .map_err(failure)?;
+    let binding = UpstreamBinding {
+        prefix: vec![],
+        dial: slot.dial.clone(),
+        network_generation: NetworkGeneration(upstream.network_generation()),
+    };
+    let waiting =
+        pending::PendingCaller::new(services, &invocation, vec![slot.role_id()], binding.clone())
+            .map_err(failure)?;
     let opener = Arc::new(
         network::NodeOpener::new(
             upstream.with_observer(Some(traffic.clone())),
             Destination::new(address, endpoint.1),
         )
+        .with_plan(services.components.as_ref().ok().map(Arc::downgrade))
         .with_business(business)
+        .with_pending(
+            binding.clone(),
+            waiting.as_ref().map(pending::PendingCaller::observer),
+        )
         .with_service_call(zero_platform_tokio::contract::network::CarrierContext {
             session: invocation.identity.session(),
             deadline: invocation.deadline,
@@ -85,14 +103,7 @@ pub(crate) async fn connect(
         deadline: invocation.deadline,
         cancel,
         observer: Some(traffic.clone()),
-        upstream: UpstreamTransport::new(
-            UpstreamBinding {
-                prefix: vec![],
-                dial: slot.dial.clone(),
-                network_generation: NetworkGeneration(opener.generation()),
-            },
-            opener.clone(),
-        ),
+        upstream: UpstreamTransport::new(binding, opener.clone()),
     };
     let connected = role
         .connect(
@@ -142,6 +153,71 @@ pub(crate) fn failure(
     error: ChannelError,
     endpoint: &(String, u16),
 ) -> TcpOutboundFailure {
+    failure_optional(stage, error, Some(endpoint))
+}
+pub(super) fn failure_optional(
+    stage: &'static str,
+    error: ChannelError,
+    endpoint: Option<&(String, u16)>,
+) -> TcpOutboundFailure {
+    #[cfg(test)]
+    {
+        // Read only the retained typed facts before legacy display projection.
+        // These facts grant no IO, admission, retry or cleanup authority.
+        let mut pending: Vec<&(dyn std::error::Error + 'static)> = vec![&error];
+        let mut visited = Vec::new();
+        for depth in 0..64 {
+            let Some(source) = pending.pop() else { break };
+            if visited.iter().any(|actual| std::ptr::eq(*actual, source)) {
+                continue;
+            }
+            visited.push(source);
+            if let Some(channel) = source.downcast_ref::<ChannelError>() {
+                eprintln!("actual native Stream failure stage={stage} depth={depth} component={:?} session={:?} operation={:?} reason={:?} impact={:?} delivery={:?}",channel.component,channel.session,channel.stage,channel.reason,channel.impact,channel.delivery);
+            }
+            // Transparent enum/Arc Error implementations delegate source()
+            // through their contained error, so visit the actual payload too.
+            if let Some(retained) = source.downcast_ref::<std::sync::Arc<ChannelError>>() {
+                pending.push(retained.as_ref());
+            }
+            if let Some(runtime) = source.downcast_ref::<zero_transport::RuntimeError>() {
+                match runtime {
+                    zero_transport::RuntimeError::Io(error) => pending.push(error),
+                    zero_transport::RuntimeError::Core(error) => pending.push(error),
+                }
+            }
+            if let Some(core) = source.downcast_ref::<zero_core::Error>() {
+                // Every Core error payload is a protocol-owned &'static str.
+                eprintln!("actual native Stream static core source depth={depth} error={core:?}");
+            }
+            if let Some(native) = source.downcast_ref::<io::Error>() {
+                // Only these known static lifecycle diagnostics are emitted;
+                // no arbitrary profile, credential or payload is formatted.
+                let message = native.to_string();
+                if matches!(
+                    message.as_str(),
+                    "component was stopped"
+                        | "component task registration is closed"
+                        | "actual VMess MUX recipe no longer retained by its owner"
+                        | "actual VMess MUX role owner no longer retained"
+                        | "actual VMess MUX role was revoked before this open"
+                        | "native pool generation differs from the actual dependency"
+                        | "native carrier pool is unavailable"
+                        | "native carrier pool is retired"
+                        | "native carrier pool generation is unavailable"
+                        | "native pool view is unscoped"
+                ) {
+                    eprintln!("actual native Stream lifecycle source depth={depth} kind={:?} message={message}",native.kind());
+                }
+                if let Some(inner) = native.get_ref() {
+                    pending.push(inner)
+                }
+            }
+            if let Some(next) = source.source() {
+                pending.push(next)
+            }
+        }
+    }
     let kind = match error.reason {
         Reason::Timeout => io::ErrorKind::TimedOut,
         Reason::Cancelled | Reason::Revoked | Reason::StalePlan => io::ErrorKind::Interrupted,
@@ -152,7 +228,7 @@ pub(crate) fn failure(
     TcpOutboundFailure {
         stage,
         error: zero_engine::EngineError::Io(io::Error::new(kind, LegacyError(error))),
-        upstream_endpoint: Some(Box::new(endpoint.clone())),
+        upstream_endpoint: endpoint.map(|endpoint| Box::new(endpoint.clone())),
         network: None,
     }
 }

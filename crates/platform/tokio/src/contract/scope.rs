@@ -26,14 +26,16 @@ use super::{
 pub use super::lifecycle::TaskClass;
 mod blocking;
 mod join;
-pub use join::{TaskJoinWitness, TaskJoined};
+pub use join::{TaskJoinError, TaskJoinWitness, TaskJoined};
 mod hosted;
 mod identity;
 mod registrar;
 mod relay;
+mod retirement;
 pub use hosted::{HostedCallbacks, HostedExitReceipt, HostedReceiptError, HostedScope};
 pub use identity::TaskScopeIdentity;
 pub use registrar::WeakTaskRegistrar;
+pub use retirement::ScopeRetirementObservation;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnError {
     NotStarted,
@@ -72,7 +74,11 @@ struct State {
 }
 
 enum CompletedExit {
-    Ordinary(TaskExit, Option<join::Notification>),
+    Ordinary(
+        TaskExit,
+        Option<join::Notification>,
+        Option<join::TaskJoined>,
+    ),
     Hosted(hosted::Completion, Option<join::Notification>),
 }
 
@@ -130,7 +136,7 @@ impl State {
             Err(source) => {
                 Err(
                     ChannelError::new(Stage::Close, Reason::Internal, Impact::Component)
-                        .with_source(source),
+                        .with_source(TaskJoinError::new(source)),
                 )
             }
         };

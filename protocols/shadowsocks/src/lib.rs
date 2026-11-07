@@ -66,7 +66,8 @@ pub use shared::{
 };
 #[cfg(all(feature = "runtime", feature = "blake3"))]
 pub use shared::{
-    now_unix_seconds, random_2022_padding, validate_2022_timestamp, ReplaySaltPool, ReplayWindow,
+    now_unix_seconds, random_2022_padding, validate_2022_timestamp, ReplayBudget, ReplaySaltPool,
+    ReplayWindow,
 };
 #[cfg(feature = "runtime")]
 pub use stream::ShadowsocksAeadStream;

@@ -1,10 +1,16 @@
 //! Engine event history, replay, subscription, and event projection.
 
 mod budget;
+mod original_history;
+mod retained_replay;
+pub use original_history::OriginalEventHistory;
+pub use retained_replay::RetainedReplay;
 #[cfg(test)]
 #[path = "../../tests/event_identity/mod.rs"]
 mod identity_tests;
-pub(crate) use budget::{QueuedEvent, Subscriber};
+pub(crate) use budget::{
+    PreparedSubscriber, QueuedEvent, SubscriberLimits, SubscriberRegistration, SubscriberStorage,
+};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc::SyncSender, mpsc::TrySendError, Arc, Mutex};
@@ -29,13 +35,14 @@ use super::SessionOutcome;
 #[derive(Debug)]
 pub struct EngineEventLog {
     capacity: AtomicUsize,
+    subscriber_stats_limit: AtomicUsize,
     event_epoch: u128,
     core_instance_id: String,
     config_revision: Arc<AtomicU64>,
     next_sequence: AtomicU64,
     next_identity: AtomicU64,
     inner: Mutex<budget::History>,
-    subscribers: Mutex<Vec<Subscriber>>,
+    subscribers: Arc<Mutex<budget::SubscriberRegistry>>,
 }
 
 impl Default for EngineEventLog {
@@ -45,6 +52,16 @@ impl Default for EngineEventLog {
 }
 
 impl EngineEventLog {
+    pub(crate) fn flow_snapshot_basis(&self) -> SnapshotBasis<'_> {
+        SnapshotBasis {
+            epoch: self.event_epoch,
+            identity: self.next_identity.fetch_add(1, Ordering::Relaxed),
+            watermark: self.latest_sequence(),
+            occurred_at: unix_timestamp_ms(),
+            core_instance_id: &self.core_instance_id,
+            config_revision: self.config_revision.load(Ordering::Acquire),
+        }
+    }
     pub(crate) fn push_endpoint_state_changed(&self, fact: &crate::runtime::EndpointFact) {
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -76,13 +93,14 @@ impl EngineEventLog {
         let event_epoch = rand::random();
         Self {
             capacity: AtomicUsize::new(capacity),
+            subscriber_stats_limit: AtomicUsize::new(budget::SUBSCRIBER_STATS_BYTES),
             event_epoch,
             core_instance_id: format!("{event_epoch:032x}"),
             config_revision: Arc::new(AtomicU64::new(1)),
             next_sequence: AtomicU64::new(1),
             next_identity: AtomicU64::new(1),
             inner: Mutex::new(budget::History::default()),
-            subscribers: Mutex::new(Vec::new()),
+            subscribers: Arc::new(Mutex::new(Default::default())),
         }
     }
 
@@ -458,33 +476,6 @@ impl EngineEventLog {
         self.push_generated(event);
     }
 
-    pub(crate) fn flow_snapshot_event(
-        &self,
-        sessions: &[ActiveSession],
-        session_registry_revision: u64,
-        principals: &[zero_api::PrincipalFlowSnapshot],
-    ) -> RawApiEvent {
-        let now_ms = unix_timestamp_ms();
-        let watermark = self.latest_sequence();
-        let records = sessions
-            .iter()
-            .map(|session| active_flow_record(session, FlowState::Active, now_ms))
-            .collect::<Vec<_>>();
-        let mut event = ApiEvent::new(
-            format!("{}:{}", event_type::FLOW_SNAPSHOT, watermark),
-            event_type::FLOW_SNAPSHOT,
-            now_ms,
-            json!({
-                "watermark": watermark,
-                "session_registry_revision": session_registry_revision,
-                "principal_flows": principals,
-                "records": records,
-            }),
-        );
-        event.sequence = Some(watermark);
-        self.qualify_generated(event)
-    }
-
     pub(crate) fn prepare_flow_completed(
         &self,
         record: &CompletedSessionRecord,
@@ -572,11 +563,11 @@ impl EngineEventLog {
             .unwrap_or(0)
     }
 
-    pub(crate) fn subscribe(&self, subscriber: Subscriber) {
-        self.subscribers
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .push(subscriber);
+    pub(crate) fn prepare_subscriber(
+        &self,
+        filter: EventFilter,
+    ) -> std::io::Result<PreparedSubscriber> {
+        PreparedSubscriber::prepare(&self.subscribers, filter)
     }
 
     pub(crate) fn push_external(&self, event: RawApiEvent) {
@@ -617,8 +608,17 @@ impl EngineEventLog {
         self.subscribers
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .retain(|subscriber| subscriber.send(&event, bytes));
+            .send(&event, bytes);
     }
+}
+
+pub(crate) struct SnapshotBasis<'a> {
+    pub(crate) epoch: u128,
+    pub(crate) identity: u64,
+    pub(crate) watermark: u64,
+    pub(crate) occurred_at: u64,
+    pub(crate) core_instance_id: &'a str,
+    pub(crate) config_revision: u64,
 }
 
 fn passive_health_target(target: &Address) -> String {

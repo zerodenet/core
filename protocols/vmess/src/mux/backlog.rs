@@ -20,6 +20,8 @@ pub(crate) struct MuxResponseBacklog {
 struct MuxResponseBacklogInner {
     limit: usize,
     used: AtomicUsize,
+    #[cfg(feature = "runtime")]
+    released: Arc<tokio::sync::Notify>,
 }
 
 pub(crate) struct BufferedMuxResponse<T> {
@@ -34,6 +36,8 @@ impl MuxResponseBacklog {
             inner: Arc::new(MuxResponseBacklogInner {
                 limit,
                 used: AtomicUsize::new(0),
+                #[cfg(feature = "runtime")]
+                released: Arc::new(tokio::sync::Notify::new()),
             }),
         }
     }
@@ -70,6 +74,39 @@ impl MuxResponseBacklog {
                 }
                 Err(actual) => used = actual,
             }
+        }
+    }
+
+    #[cfg(feature = "runtime")]
+    pub(crate) fn payload_limit(&self, maximum: usize, header: usize) -> std::num::NonZeroUsize {
+        // Valid configurations have room for the protocol header and DATA.
+        std::num::NonZeroUsize::new(maximum.min(self.inner.limit.saturating_sub(header)))
+            .expect("validated MUX byte budget accommodates TCP DATA")
+    }
+
+    #[cfg(feature = "runtime")]
+    /// Reserve original byte credit before protocol allocation/serialization.
+    pub(crate) fn poll_charge(
+        &self,
+        cx: &mut std::task::Context<'_>,
+        bytes: usize,
+        waiter: &mut Option<std::pin::Pin<Box<tokio::sync::futures::OwnedNotified>>>,
+    ) -> std::task::Poll<Option<BufferedMuxResponse<()>>> {
+        if bytes > self.inner.limit {
+            return std::task::Poll::Ready(None);
+        }
+        loop {
+            let notified = waiter
+                .get_or_insert_with(|| Box::pin(self.inner.released.clone().notified_owned()));
+            notified.as_mut().enable();
+            if let Ok(buffered) = self.try_buffer(bytes, ()) {
+                *waiter = None;
+                return std::task::Poll::Ready(Some(buffered));
+            }
+            if std::future::Future::poll(notified.as_mut(), cx).is_pending() {
+                return std::task::Poll::Pending;
+            }
+            *waiter = None;
         }
     }
 
@@ -113,6 +150,24 @@ impl Default for MuxResponseBacklogPolicy {
 }
 
 impl<T> BufferedMuxResponse<T> {
+    pub(crate) fn value(&self) -> &T {
+        self.value
+            .as_ref()
+            .expect("buffered MUX response value is present")
+    }
+
+    #[cfg(feature = "runtime")]
+    pub(crate) fn map<U>(mut self, build: impl FnOnce(T) -> U) -> BufferedMuxResponse<U> {
+        // A serializer panic returns this exact already-held byte reservation.
+        let value = build(self.value.take().expect("original byte reservation"));
+        let bytes = std::mem::take(&mut self.bytes);
+        BufferedMuxResponse {
+            value: Some(value),
+            backlog: self.backlog.clone(),
+            bytes,
+        }
+    }
+
     pub(crate) fn into_inner(mut self) -> T {
         self.value
             .take()
@@ -126,5 +181,9 @@ impl<T> Drop for BufferedMuxResponse<T> {
             .inner
             .used
             .fetch_sub(self.bytes, Ordering::AcqRel);
+        #[cfg(feature = "runtime")]
+        if self.bytes != 0 {
+            self.backlog.inner.released.notify_waiters();
+        }
     }
 }

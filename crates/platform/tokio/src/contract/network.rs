@@ -41,6 +41,30 @@ pub struct ControlledStreamRequest {
     pub retirement: std::time::Duration,
 }
 
+/// One selected, real Process dependency and the same caller's original native grant.
+/// This carries no Process authority, Business admission or new pool capacity.
+pub struct ProcessEndpointStreamRequest {
+    pub process: zero_core::component::ComponentInstanceId,
+    pub process_ordinal: usize,
+    pub endpoint: Destination,
+    pub context: CarrierContext,
+    pub grant: crate::controlled_carrier::CarrierGrant,
+    /// Original protocol startup bound, capped by the actual invocation deadline.
+    pub startup_deadline: Instant,
+}
+
+/// A real background aggregate's own original UDP grant and Process dependency.
+/// Only session=None may acquire this packet original; it is not a Business ticket.
+pub struct ProcessEndpointDatagramRequest {
+    pub process: zero_core::component::ComponentInstanceId,
+    pub process_ordinal: usize,
+    pub endpoint: Destination,
+    pub context: CarrierContext,
+    pub grant: crate::controlled_carrier::CarrierGrant,
+    /// Protocol-owned local startup bound, never an invented Business lifetime.
+    pub startup_deadline: Instant,
+}
+
 mod opener;
 pub use opener::UpstreamOpener;
 
@@ -58,6 +82,30 @@ pub struct PendingCarrierObserver {
     opener: std::sync::Weak<dyn UpstreamOpener>,
 }
 impl PendingCarrierObserver {
+    /// Read only the actual waiting opener's independently registered caller.
+    /// This neither authorizes I/O nor turns a query/task number into a grant.
+    pub fn packet_caller(
+        &self,
+        identity: &crate::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<crate::contract::scope::TaskJoinWitness, ChannelError> {
+        let opener = self.opener.upgrade().ok_or_else(|| {
+            let mut error = ChannelError::new(
+                super::Stage::Prepare,
+                super::Reason::Revoked,
+                super::Impact::Component,
+            );
+            error.delivery = super::DeliveryState::NotSubmitted;
+            error
+        })?;
+        opener.packet_caller(&self.binding, identity, call)
+    }
+    pub fn capacity(&self) -> Option<usize> {
+        self.opener
+            .upgrade()?
+            .pending_carrier_capacity(&self.binding)
+    }
+
     pub fn retain(
         &self,
         adoption: crate::controlled_carrier::CarrierAdoption,
@@ -76,6 +124,77 @@ impl PendingCarrierObserver {
 }
 
 impl UpstreamTransport {
+    pub fn has_preparation_job_owner(&self) -> bool {
+        self.opener.has_preparation_job_owner()
+    }
+    pub fn reserve_preparation_job(
+        &self,
+        call: &CarrierContext,
+    ) -> Result<crate::controlled_carrier::CarrierPreparationJob, ChannelError> {
+        self.opener.reserve_preparation_job(&self.binding, call)
+    }
+    pub fn acquire_process_endpoint_datagram(
+        &self,
+        request: ProcessEndpointDatagramRequest,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierDatagram, ChannelError>> {
+        self.opener
+            .acquire_process_endpoint_datagram(&self.binding, request)
+    }
+    pub fn acquire_process_endpoint_stream(
+        &self,
+        request: ProcessEndpointStreamRequest,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierIo, ChannelError>> {
+        self.opener
+            .acquire_process_endpoint_stream(&self.binding, request)
+    }
+
+    pub fn pending_carrier_capacity(&self) -> Option<usize> {
+        self.opener.pending_carrier_capacity(&self.binding)
+    }
+    /// Read the original provider's finite declaration for the selected path.
+    /// This metadata projection neither selects I/O nor installs a claim.
+    pub fn pending_carrier_capacity_for(&self, binding: &UpstreamBinding) -> Option<usize> {
+        self.opener.pending_carrier_capacity(binding)
+    }
+    /// Validate an original against the provider's actual current graph.
+    /// The caller must still retain it in its own finite cleanup ledger.
+    pub fn validate_pending_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        adoption: &crate::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        self.opener.validate_pending_carrier(binding, adoption)
+    }
+
+    pub fn resolve_packet_target(
+        &self,
+        destination: Destination,
+        identity: crate::contract::context::RequestIdentity,
+        call: CarrierContext,
+    ) -> BoxFuture<'_, Result<Vec<std::net::SocketAddr>, ChannelError>> {
+        self.opener
+            .resolve_packet_target(&self.binding, destination, identity, call)
+    }
+
+    pub fn resolve_related_datagram(
+        &self,
+        parent: crate::controlled_carrier::CarrierAdoption,
+        peer: Destination,
+        context: CarrierContext,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierCandidates, ChannelError>> {
+        self.opener
+            .resolve_related_datagram(&self.binding, parent, peer, context)
+    }
+    /// Original caller observation from this exact host demand/binding. The
+    /// actual opener must check admission, full identity and live generation;
+    /// merely matching a public session number grants no caller provenance.
+    pub fn packet_caller(
+        &self,
+        identity: &crate::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<crate::contract::scope::TaskJoinWitness, ChannelError> {
+        self.opener.packet_caller(&self.binding, identity, call)
+    }
     pub fn has_tracked_business_caller(&self) -> bool {
         self.opener.has_tracked_business_caller()
     }
@@ -188,6 +307,14 @@ impl UpstreamTransport {
             .acquire_controlled_stream(&self.binding, destination, context, grant)
     }
 
+    pub fn open_controlled_stream_loan(
+        &self,
+        request: ControlledStreamRequest,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::loan::StreamLoan, ChannelError>> {
+        self.opener
+            .open_controlled_stream_loan(&self.binding, request)
+    }
+
     pub fn open_controlled_stream(
         &self,
         request: ControlledStreamRequest,
@@ -209,3 +336,6 @@ impl UpstreamTransport {
         self.opener.open_datagram(&self.binding, request, context)
     }
 }
+
+mod event_limits;
+pub use event_limits::EventNetworkLimits;

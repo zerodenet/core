@@ -1,9 +1,13 @@
+mod lender;
+mod packet_metadata;
+mod pool;
 mod production;
 use super::super::VlessAdapter;
 use crate::component::{
-    background::{pool, stateless},
+    background::{pool as background_pool, stateless},
     RegistrationError, ResourcePreparation,
 };
+pub(crate) use packet_metadata::declare_packet_path;
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 use zero_config::{OutboundConfig, OutboundProtocolConfig};
 use zero_platform_tokio::contract::{
@@ -13,18 +17,34 @@ use zero_platform_tokio::contract::{
 };
 
 pub(crate) enum Options {
-    Ordinary(Arc<stateless::Options<::vless::component::Options>>),
+    Ordinary(
+        Arc<stateless::Options<::vless::component::Options>>,
+        Arc<crate::component::background::BackgroundNetwork>,
+    ),
     Mux(Arc<::vless::component::mux::Options>),
+    Grpc(Arc<::vless::component::grpc::StreamOptions>),
+}
+impl Options {
+    pub(crate) fn bind_node_dns(&mut self, dependency: zero_core::component::ComponentId) {
+        if let Self::Ordinary(options, _) = self {
+            *options = Arc::new((**options).clone().with_node_dns(dependency));
+        }
+    }
+}
+pub(crate) fn taskless_domain(input: &OutboundConfig) -> bool {
+    super::native_input(input)
+        && matches!(&input.protocol,OutboundProtocolConfig::Vless{server,..} if zero_core::address::parse_ip_literal(server).is_none())
 }
 pub(crate) struct Factory;
 impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
         match options {
-            Options::Ordinary(options) => {
+            Options::Ordinary(options, _) => {
                 stateless::Factory(::vless::component::Factory).describe(options)
             }
             Options::Mux(options) => ::vless::component::mux::Factory.describe(options),
+            Options::Grpc(options) => ::vless::component::grpc::StreamFactory.describe(options),
         }
     }
     fn build(
@@ -33,24 +53,46 @@ impl ComponentFactory for Factory {
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
         match options.as_ref() {
-            Options::Ordinary(options) => {
-                stateless::Factory(::vless::component::Factory).build(options.clone(), context)
-            }
+            Options::Ordinary(options, network) => stateless::Factory(super::material::Factory {
+                network: network.clone(),
+            })
+            .build(options.clone(), context),
             Options::Mux(options) => {
                 ::vless::component::mux::Factory.build(options.clone(), context)
+            }
+            Options::Grpc(options) => {
+                ::vless::component::grpc::StreamFactory.build(options.clone(), context)
             }
         }
     }
 }
+pub(super) fn grpc_eligible(input: &OutboundConfig) -> bool {
+    let mut ordinary = input.clone();
+    let OutboundProtocolConfig::Vless {
+        mux_concurrency,
+        xudp_concurrency,
+        grpc: Some(_),
+        ..
+    } = &mut ordinary.protocol
+    else {
+        return false;
+    };
+    let mux = mux_concurrency.take();
+    if mux.is_none() || xudp_concurrency.take() != mux {
+        return false;
+    }
+    // Every transport/security setting remains in the real lower recipe. This
+    // probe removes only framing owned by the actual upper MUX driver.
+    super::grpc::eligible(&ordinary)
+}
 pub(crate) fn eligible(input: &OutboundConfig) -> bool {
-    if super::native_input(input) {
+    if super::owned_input(input) || super::grpc::eligible(input) || grpc_eligible(input) {
         return true;
     }
     let mut ordinary = input.clone();
     let OutboundProtocolConfig::Vless {
         mux_concurrency,
         xudp_concurrency,
-        server,
         flow,
         ..
     } = &mut ordinary.protocol
@@ -61,17 +103,17 @@ pub(crate) fn eligible(input: &OutboundConfig) -> bool {
     if xudp_concurrency.take().is_some_and(|x| Some(x) != mux) {
         return false;
     }
-    if mux.is_none() || zero_core::address::parse_ip_literal(server).is_none() || flow.is_some() {
+    if mux.is_none() || flow.is_some() {
         return false;
     }
-    super::native_input(&ordinary)
+    super::owned_input(&ordinary)
 }
 impl VlessAdapter {
     pub(crate) fn owned_mux_options(
         &self,
         input: &OutboundConfig,
         resources: &mut ResourcePreparation<'_>,
-        factory: Arc<pool::Factory>,
+        factory: Arc<background_pool::Factory>,
     ) -> Result<Options, RegistrationError> {
         self.mux_options(
             input,
@@ -85,7 +127,7 @@ impl VlessAdapter {
         &self,
         input: &OutboundConfig,
         resources: &mut ResourcePreparation<'_>,
-        factory: Arc<pool::Factory>,
+        factory: Arc<background_pool::Factory>,
     ) -> Result<Options, RegistrationError> {
         let limit = resources
             .candidate()
@@ -104,10 +146,13 @@ impl VlessAdapter {
         &self,
         input: &OutboundConfig,
         resources: &mut ResourcePreparation<'_>,
-        factory: Arc<pool::Factory>,
+        factory: Arc<background_pool::Factory>,
         limit: NonZeroUsize,
         stream_only: bool,
     ) -> Result<Options, RegistrationError> {
+        if super::grpc::eligible(input) {
+            return self.grpc_options(input, resources, &factory);
+        }
         let OutboundProtocolConfig::Vless {
             server,
             port,
@@ -136,19 +181,12 @@ impl VlessAdapter {
             } else {
                 limit
             };
-            return Ok(Options::Ordinary(Arc::new(stateless::Options::new(
-                super::component_options(input)?,
-                zero_core::request::Destination::new(
-                    match zero_core::address::parse_ip_literal(server) {
-                        Some(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
-                        Some(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
-                        None => zero_core::Address::Domain(server.clone()),
-                    },
-                    *port,
-                ),
-                input.dial.to_policy(),
-                limit,
-            ))));
+            let options =
+                self.ordinary_options(input, resources, factory.network.clone(), limit)?;
+            return Ok(Options::Ordinary(
+                Arc::new(options),
+                factory.network.clone(),
+            ));
         }
         let input_refs =
             super::super::outbound_options(&input.tag, (server, *port), &input.protocol)
@@ -158,7 +196,7 @@ impl VlessAdapter {
             dial: input.dial.to_policy(),
             network_generation: factory.generation,
         };
-        let prepared = ::vless::component::mux::PreparedMux::from_options_refs(
+        let mut prepared = ::vless::component::mux::PreparedMux::from_owned_options_refs(
             input_refs,
             &self.runtime,
             resources
@@ -167,27 +205,88 @@ impl VlessAdapter {
             binding,
             limit,
             Duration::from_secs(5),
+            NonZeroUsize::new(
+                resources
+                    .candidate()
+                    .map(|config| config.runtime.effective_file_read_max_bytes())
+                    .unwrap_or_else(|| {
+                        zero_config::RuntimeOptionsConfig::default().effective_file_read_max_bytes()
+                    }),
+            )
+            .ok_or_else(|| {
+                zero_config::ConfigError::InvalidRuntime("zero File material bound".into())
+            })?,
         )
         .map_err(|source| {
             zero_config::ConfigError::InvalidOutbound(format!("outbound `{}`: {source}", input.tag))
         })?;
-        let owner = resources.share(
-            "vless.mux.actual_pool",
-            factory,
-            Arc::new(pool::Options {
-                pool: prepared.pool_options().clone(),
-                tag: input.tag.clone(),
-                wire_endpoint: zero_core::request::Destination::new(
-                    zero_core::Address::Domain(server.clone()),
-                    *port,
-                ),
-            }),
-        )?;
-        let options = prepared.bind(owner);
-        Ok(Options::Mux(Arc::new(if stream_only {
-            options.stream_only()
+        if zero_core::address::parse_ip_literal(server).is_none()
+            || matches!(&input.protocol, OutboundProtocolConfig::Vless { tls:Some(tls),.. } if tls.options.ech_config_list.contains("://"))
+        {
+            let node =
+                crate::component::native_dns::prepare_node(resources, factory.network.clone())?;
+            prepared = prepared.with_node_dependency(node);
+        }
+        let lower = if matches!(
+            &input.protocol,
+            OutboundProtocolConfig::Vless { grpc: Some(_), .. }
+        ) {
+            let mut carrier = input.clone();
+            let OutboundProtocolConfig::Vless {
+                mux_concurrency,
+                xudp_concurrency,
+                ..
+            } = &mut carrier.protocol
+            else {
+                unreachable!("owning protocol")
+            };
+            *mux_concurrency = None;
+            *xudp_concurrency = None;
+            let (grpc, dependency) = self.grpc_pool_options(&carrier, resources, &factory)?;
+            let options = Arc::new(grpc.pool_options().clone());
+            prepared = prepared.with_grpc_lender(dependency);
+            Some((dependency, options))
         } else {
-            options
-        })))
+            None
+        };
+        pool::reuse_material(&mut prepared, resources, &input.tag)?;
+        let pool_options = Arc::new(pool::Options {
+            pool: Arc::new(
+                (*prepared.owned_pool_options())
+                    .clone()
+                    .with_scoped_preparation(),
+            ),
+            tag: input.tag.clone(),
+            wire_endpoint: zero_core::request::Destination::new(
+                zero_core::Address::Domain(server.clone()),
+                *port,
+            ),
+        });
+        let metadata_factory = pool::Factory {
+            background: factory.clone(),
+        };
+        prepared
+            .remember_cold_material_identity(
+                &metadata_factory.describe(&pool_options).static_identity,
+            )
+            .map_err(|source| zero_config::ConfigError::InvalidOutbound(source.to_string()))?;
+        let owner = match lower {
+            Some((dependency, grpc)) => resources.share(
+                "vless.mux.actual_pool",
+                Arc::new(lender::Factory {
+                    background: factory,
+                    dependency,
+                    grpc,
+                }),
+                pool_options,
+            )?,
+            None => resources.share(
+                "vless.mux.actual_pool",
+                Arc::new(metadata_factory),
+                pool_options,
+            )?,
+        };
+        let options = prepared.bind(owner);
+        Ok(Options::Mux(Arc::new(options)))
     }
 }

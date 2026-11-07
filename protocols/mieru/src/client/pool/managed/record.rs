@@ -17,6 +17,10 @@ struct Record {
     join: Option<TaskJoinWitness>,
     adoption: Option<CarrierAdoption>,
     pending: Vec<CarrierAdoption>,
+    cleanup: Option<(
+        zero_platform_tokio::contract::network::UpstreamTransport,
+        zero_platform_tokio::contract::network::UpstreamBinding,
+    )>,
 }
 pub(crate) struct CarrierLease {
     pub(crate) owner: Arc<ManagedState>,
@@ -43,15 +47,28 @@ impl CarrierRecord {
         // persistent pool may already have registered the donor driver before
         // this request's logical CONNECT has received its reply.
         let pending = self.pending();
+        let cleanup = self.0.lock().unwrap().cleanup.clone();
         let transferred = pending
             .iter()
             .filter(|pending| {
                 installed
                     .as_ref()
                     .is_some_and(|proof| proof.retains(pending))
-                    || pending
-                        .retained_driver()
-                        .is_some_and(|proof| proof.retains(pending))
+                    || pending.retained_driver().is_some_and(|proof| {
+                        proof.retains(pending)
+                            && cleanup.as_ref().is_some_and(|(provider, binding)| {
+                                provider.validate_pending_carrier(binding, pending).is_ok()
+                            })
+                    })
+                    || pending.retained_preparation_job().is_some_and(|proof| {
+                        proof.retains(pending)
+                            && proof
+                                .owner()
+                                .is_some_and(|owner| owner.matches_adoption(pending))
+                            && cleanup.as_ref().is_some_and(|(provider, binding)| {
+                                provider.validate_pending_carrier(binding, pending).is_ok()
+                            })
+                    })
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -220,6 +237,32 @@ pub(crate) struct PendingCarriers {
     record: Arc<CarrierRecord>,
 }
 impl PendingCarriers {
+    pub(crate) fn bind_cleanup_provider(
+        &self,
+        provider: &zero_platform_tokio::contract::network::UpstreamTransport,
+        binding: &zero_platform_tokio::contract::network::UpstreamBinding,
+    ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
+        let mut record = self.record.0.lock().unwrap();
+        if record
+            .cleanup
+            .as_ref()
+            .is_some_and(|(_, original)| original != binding)
+        {
+            return Err(zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::StalePlan,
+                zero_platform_tokio::contract::Impact::Component,
+            ));
+        }
+        if record.cleanup.is_none() {
+            record.cleanup = Some((provider.clone(), binding.clone()));
+        }
+        Ok(())
+    }
+    pub(crate) fn capacity(&self) -> Option<usize> {
+        let record = self.record.0.lock().unwrap();
+        (!record.finished && record.attempted && record.adoption.is_some()).then_some(self.record.2)
+    }
     /// Actual foreign cleanup authority is bounded by this selected prefix's
     /// role count. It never substitutes for this pool record's root original.
     pub(crate) fn retain_pending(

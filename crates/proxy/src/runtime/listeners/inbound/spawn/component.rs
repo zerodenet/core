@@ -21,31 +21,46 @@ pub(super) fn spawn(
             .map_err(|error| owner.retain_managed_listener_error(error))?;
     }
     let limit = match recipe.spec().resources.as_slice() {
-        [zero_platform_tokio::contract::component::ResourceDeclaration::TcpListener {
-            accepted: Some(limits),
-            ..
-        }, ..] => limits.max_sockets,
-        [zero_platform_tokio::contract::component::ResourceDeclaration::DatagramListener {
-            accepted: Some(limits),
-            ..
-        }, ..] => limits.max_peers,
-        [zero_platform_tokio::contract::component::ResourceDeclaration::MetadataDatagram {
-            ..
-        }, zero_platform_tokio::contract::component::ResourceDeclaration::DatagramAssociations {
-            max_associations,
-            ..
-        }, ..] => *max_associations,
+        [
+            zero_platform_tokio::contract::component::ResourceDeclaration::TcpListener {
+                accepted: Some(limits),
+                ..
+            },
+            ..,
+        ] => limits.max_sockets,
+        [
+            zero_platform_tokio::contract::component::ResourceDeclaration::DatagramListener {
+                accepted: Some(limits),
+                ..
+            },
+            ..,
+        ] => limits.max_peers,
+        [
+            zero_platform_tokio::contract::component::ResourceDeclaration::MetadataDatagram {
+                ..
+            },
+            zero_platform_tokio::contract::component::ResourceDeclaration::DatagramAssociations {
+                max_associations,
+                ..
+            },
+            ..,
+        ] => *max_associations,
         #[cfg(feature = "raw-ip-runtime")]
-        [zero_platform_tokio::contract::component::ResourceDeclaration::DatagramListener {
-            accepted: None,
-            ..
-        }, zero_platform_tokio::contract::component::ResourceDeclaration::NativeIcmp { .. }] => {
-            std::num::NonZeroUsize::new(1).unwrap()
-        }
+        [
+            zero_platform_tokio::contract::component::ResourceDeclaration::DatagramListener {
+                accepted: None,
+                ..
+            },
+            zero_platform_tokio::contract::component::ResourceDeclaration::NativeIcmp { .. },
+            zero_platform_tokio::contract::component::ResourceDeclaration::PacketDatagramReads {
+                datagram: 0,
+                ..
+            },
+        ] => std::num::NonZeroUsize::new(1).unwrap(),
         _ => {
             return Err(owner.retain_managed_listener_error(
                 std::io::Error::other("standard inbound has no accepted task declaration").into(),
-            ))
+            ));
         }
     };
     let (source, peer) = installed

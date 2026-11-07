@@ -165,21 +165,41 @@ impl VlessInboundMuxTcpRelay {
     fn into_standard_stream(self) -> TcpRelayStream {
         let sid = self.session_id;
         let output = self.writer.clone();
-        TcpRelayStream::new(zero_transport::stream::ChannelStream::new(
-            self.up_rx,
-            move |bytes: &[u8]| {
-                output
-                    .write_inbound_stream_payload(sid, bytes.to_vec())
-                    .map_err(std::io::Error::other)
-            },
-            move || {
-                self.writer
-                    .end_inbound_stream(sid)
-                    .map(|_| ())
-                    .map_err(std::io::Error::other)
-            },
-            NonZeroUsize::new(MUX_MAX_PAYLOAD).unwrap(),
-            self.deferred_upload.unwrap_or_default(),
+        let sender = output.down_tx.clone();
+        let mut waiter = None;
+        let maximum = output.backlog.payload_limit(MUX_MAX_PAYLOAD, 0);
+        TcpRelayStream::new(zero_transport::pooled_driver::ExclusiveIo::new(
+            zero_transport::stream::QueuedChannelStream::new(
+                self.up_rx,
+                sender,
+                move |cx, bytes: Option<&[u8]>| {
+                    let credit = std::task::ready!(output.backlog.poll_charge(
+                        cx,
+                        bytes.map_or(0, <[u8]>::len),
+                        &mut waiter
+                    ))
+                    .ok_or_else(|| {
+                        std::io::Error::other("VLESS MUX frame exceeds its original byte budget")
+                    })?;
+                    std::task::Poll::Ready(Ok(credit.map(|()| match bytes {
+                        Some(bytes) => VlessInboundMuxDownlink::data(sid, bytes.to_vec()),
+                        None => VlessInboundMuxDownlink::end(sid),
+                    })))
+                },
+                move || {
+                    self.writer.request_end(sid);
+                },
+                maximum,
+                self.deferred_upload.unwrap_or_default(),
+            ),
         ))
     }
 }
+
+#[cfg(test)]
+#[path = "standard/tests/half_close.rs"]
+mod half_close;
+
+#[cfg(test)]
+#[path = "standard/tests/cancelled.rs"]
+mod cancelled;

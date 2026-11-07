@@ -14,6 +14,7 @@ pub(super) struct Managed {
     pub(super) options: Arc<Options>,
     pub(super) admission: Arc<SessionAdmission>,
     pub(super) prepared: super::super::owner::Prepared,
+    pub(super) ech_resolver: Option<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>,
     pub(super) upstream: Option<UpstreamTransport>,
     pub(super) tasks: TaskRegistrar,
     pub(super) cancel: CancellationToken,
@@ -37,6 +38,7 @@ pub(super) struct Record {
     pub(super) accepted: AtomicBool,
     pub(super) stop: CancellationToken,
     pub(super) opening: AtomicBool,
+    pub(super) published: AtomicBool,
     pub(super) done: AtomicBool,
     // Actual logical view returned to the caller, distinct from driver body exit.
     pub(super) user_live: AtomicBool,
@@ -46,6 +48,10 @@ pub(super) struct Opening(pub(super) Arc<Record>, pub(super) std::sync::Weak<Man
 impl Drop for Opening {
     fn drop(&mut self) {
         self.0.opening.store(false, Ordering::Release);
+        if !self.0.published.load(Ordering::Acquire) {
+            self.0.stop.cancel();
+            self.0.adoption.request_retirement();
+        }
         if let Some(owner) = self.1.upgrade() {
             // A rejected unused grant has a private no-acquisition receipt.
             // Reclaim that completed metadata even under concurrent rejections.

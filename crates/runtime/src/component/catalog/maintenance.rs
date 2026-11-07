@@ -75,6 +75,10 @@ impl ComponentCatalog {
         let plan = self
             .prepare(config.clone())
             .map_err(super::super::instance::retained)?;
+        // No current runtime-owned generation exists on this path. Prior
+        // maintenance was actually closed above, not inferred from cold inputs.
+        self.original_budgets()
+            .install_original_limits(&config.runtime)?;
         {
             let mut state = self.state.lock().expect("component catalog poisoned");
             state.staged = Some(Current {
@@ -98,9 +102,19 @@ impl ComponentCatalog {
         };
         // This confirms declared component resources/tasks only. It does not
         // invent native closure receipts for transferred legacy Stream I/O.
-        self.finish_maintenance(Instant::now() + Duration::from_secs(5))
-            .await?;
-        result
+        let cleanup = self
+            .finish_maintenance(Instant::now() + Duration::from_secs(5))
+            .await;
+        match (result, cleanup) {
+            (Ok(value), Ok(())) => Ok(value),
+            (Err(source), Ok(())) | (Ok(_), Err(source)) => Err(source),
+            (Err(work), Err(cleanup)) => {
+                let work = Arc::new(work);
+                let cleanup = Arc::new(cleanup);
+                Err(ChannelError::retained(work.clone())
+                    .with_source(MaintenanceFailures { work, cleanup }))
+            }
+        }
     }
     pub(super) async fn finish_maintenance(&self, deadline: Instant) -> Result<(), ChannelError> {
         let pending = {
@@ -117,7 +131,11 @@ impl ComponentCatalog {
         let Some(plan) = pending else {
             return Ok(());
         };
-        plan.shutdown(deadline).await?;
+        let outcome = plan.shutdown(deadline).await;
+        let instances = plan.order.iter().map(|slot| slot.instance_id()).collect();
+        if outcome.is_err() && !plan.confirmed(&instances) {
+            return outcome;
+        }
         let mut state = self.state.lock().expect("component catalog poisoned");
         if !state
             .staged
@@ -134,6 +152,23 @@ impl ComponentCatalog {
         state.cold = None;
         state.maintenance = false;
         state.prune_issued();
-        Ok(())
+        drop(state);
+        outcome
+    }
+}
+
+#[derive(Debug)]
+struct MaintenanceFailures {
+    work: Arc<ChannelError>,
+    cleanup: Arc<ChannelError>,
+}
+impl std::fmt::Display for MaintenanceFailures {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}; {}", self.work, self.cleanup)
+    }
+}
+impl std::error::Error for MaintenanceFailures {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.work.as_ref())
     }
 }

@@ -8,6 +8,76 @@ mod fixtures;
 use fixtures::{catalog, config, resource, Controls};
 
 #[test]
+fn source_cold_edges_use_once_decoded_same_pass_named_ids_and_final_dependency_generations() {
+    use std::collections::{BTreeMap, BTreeSet};
+    let controls = Arc::new(Controls::default());
+    let catalog = catalog(&controls);
+    let mut candidate = config().as_ref().clone();
+    candidate.inbounds = RuntimeConfig::parse(
+        r#"{"inbounds":[{"tag":"source","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"mixed"}}],"route":{"final":{"type":"direct"}}}"#,
+    ).unwrap().inbounds;
+    let candidate = Arc::new(candidate);
+    let input = [31; 32];
+    let compile = |previous: Option<&Arc<ComponentPlan>>, decoded: usize| {
+        catalog
+            .compile_with_floor(
+                &candidate,
+                previous.map(|plan| (&candidate, plan)),
+                &BTreeMap::new(),
+                true,
+                |preparation| {
+                    assert_eq!(
+                        controls.conversions.load(Ordering::SeqCst),
+                        decoded,
+                        "source edges must not decode the protocol a second time"
+                    );
+                    let named = preparation.named_component("a").unwrap();
+                    assert_ne!(named, preparation.builtin_component().unwrap());
+                    preparation.set_source_dependencies(BTreeMap::from([(
+                        "source".into(),
+                        (input, BTreeSet::from([named])),
+                    )]))?;
+                    Ok(BTreeSet::new())
+                },
+            )
+            .map(Arc::new)
+            .unwrap()
+    };
+    let first = compile(None, 0);
+    assert_eq!(controls.conversions.load(Ordering::SeqCst), 2);
+    let original = first.configured("a").unwrap();
+    assert_eq!(
+        first.source_dependency_instances("source", &input).unwrap(),
+        [original.instance_id()]
+    );
+    assert!(first
+        .source_dependency_instances("source", &[32; 32])
+        .is_err());
+    let unchanged = compile(Some(&first), 2);
+    assert!(Arc::ptr_eq(&original, &unchanged.configured("a").unwrap()));
+    controls.extra_task.store(true, Ordering::SeqCst);
+    let changed = compile(Some(&unchanged), 4);
+    let replacement = changed.configured("a").unwrap();
+    assert_eq!(replacement.id, original.id);
+    assert_eq!(
+        replacement.generation,
+        ResourceGeneration(original.generation.0 + 1)
+    );
+    assert_eq!(
+        changed
+            .source_dependency_instances("source", &input)
+            .unwrap(),
+        [replacement.instance_id()]
+    );
+    assert_eq!(controls.conversions.load(Ordering::SeqCst), 6);
+    assert_eq!(
+        controls.builds.load(Ordering::SeqCst),
+        0,
+        "cold metadata must not create a resource or start a Source"
+    );
+}
+
+#[test]
 fn actual_ss_consumers_and_one_replay_owner_compile_in_the_same_host_union() {
     let controls = Arc::new(Controls::default());
     let catalog = catalog(&controls);
@@ -236,3 +306,52 @@ async fn cold_shared_union_does_not_start_owners_or_publish_admission() {
 
 #[path = "cold_union/transactions.rs"]
 mod transactions;
+
+#[test]
+fn actual_named_callee_prepares_once_before_devices_and_is_consumed_by_the_same_primary() {
+    use std::collections::{BTreeMap, BTreeSet};
+    let controls = Arc::new(Controls::default());
+    let catalog = catalog(&controls);
+    let input = config();
+    let prepare = |previous: Option<&Arc<ComponentPlan>>, before: usize| {
+        Arc::new(
+            catalog
+                .compile_with_floor(
+                    &input,
+                    previous.map(|plan| (&input, plan)),
+                    &BTreeMap::new(),
+                    true,
+                    |resources| {
+                        let id = resources.prepare_named_component("a")?;
+                        assert_eq!(controls.conversions.load(Ordering::SeqCst), before + 1);
+                        assert_eq!(resources.prepare_named_component("a")?, id);
+                        assert_eq!(controls.conversions.load(Ordering::SeqCst), before + 1);
+                        if let Some(old) = previous {
+                            assert_eq!(
+                                resources.reusable_resource_instance(id),
+                                Some(old.configured("a").unwrap().instance_id())
+                            );
+                        }
+                        Ok(BTreeSet::new())
+                    },
+                )
+                .unwrap(),
+        )
+    };
+    let first = prepare(None, 0);
+    assert_eq!(controls.conversions.load(Ordering::SeqCst), 2);
+    let second = prepare(Some(&first), 2);
+    assert_eq!(controls.conversions.load(Ordering::SeqCst), 4);
+    assert!(Arc::ptr_eq(
+        &first.configured("a").unwrap(),
+        &second.configured("a").unwrap()
+    ));
+    assert_eq!(
+        controls.builds.load(Ordering::SeqCst),
+        0,
+        "cold preparation creates no owner or task"
+    );
+}
+
+#[path = "cold_union/packet_facts.rs"]
+mod packet_facts;

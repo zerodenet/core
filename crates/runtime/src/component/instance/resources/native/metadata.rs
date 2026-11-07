@@ -8,11 +8,12 @@ use zero_platform_tokio::{
         scope::TaskScopeIdentity,
     },
     controlled_datagram::{
-        metadata::{
-            users::MetadataUsersClosedReceipt, MetadataDatagramControl, MetadataLimits,
-            MetadataOwner, MetadataViewIssuer,
-        },
         DatagramOwnerReport,
+        metadata::{
+            MetadataDatagramControl, MetadataLimits, MetadataOwner,
+            source_totals::{MetadataSourceTotals, MetadataSourceUsers},
+            users::MetadataUsersClosedReceipt,
+        },
     },
 };
 mod acquisition;
@@ -24,22 +25,18 @@ pub(super) struct MetadataDeclarations {
     identity: Option<(ComponentInstanceId, TaskScopeIdentity)>,
     entries: BTreeMap<usize, Entry>,
 }
-struct UsersClaim {
-    issuer: MetadataViewIssuer,
-    transferred: bool,
-    confirmed: Option<MetadataUsersClosedReceipt>,
-}
 struct Entry {
     source: SocketAddr,
     limits: MetadataLimits,
     state: Mutex<Native>,
 }
 struct Native {
-    owner: MetadataOwner,
+    owner: Arc<Mutex<MetadataOwner>>,
+    totals: Option<MetadataSourceTotals>,
     // Same originals, installed before observation transfer or any postcheck.
     controls: Vec<MetadataDatagramControl>,
     // Bounded by the original finite bind-attempt budget, not a new registry.
-    users: Vec<UsersClaim>,
+    users: Arc<MetadataSourceUsers>,
     remaining: usize,
     attempted: bool,
     closing: bool,
@@ -56,6 +53,9 @@ impl MetadataDeclarations {
         component: ComponentId,
         declarations: &[ResourceDeclaration],
         identity: Option<(ComponentInstanceId, TaskScopeIdentity)>,
+        originals: &Arc<crate::HostOriginalBudgets>,
+        original_tasks: Option<&zero_platform_tokio::contract::scope::WeakTaskRegistrar>,
+        cancel: &CancellationToken,
     ) -> Result<Self, ChannelError> {
         let mut entries = BTreeMap::new();
         for (ordinal, declaration) in declarations.iter().enumerate() {
@@ -78,6 +78,36 @@ impl MetadataDeclarations {
                 error(component, Reason::InvalidConfig, "invalid metadata limits")
                     .with_source(source)
             })?;
+            let owner = Arc::new(Mutex::new(owner));
+            let users = Arc::new(MetadataSourceUsers::default());
+            let totals = original_tasks
+                .map(|tasks| {
+                    let scope = tasks.retirement_observation().ok_or_else(|| {
+                        error(
+                            component,
+                            Reason::Revoked,
+                            "metadata original Scope expired",
+                        )
+                    })?;
+                    let (instance, identity) =
+                        identity.as_ref().expect("validated metadata identity");
+                    if !scope.scope_identity().same_scope(identity) {
+                        return Err(error(
+                            component,
+                            Reason::StalePlan,
+                            "metadata original Scope differs",
+                        ));
+                    }
+                    Ok(MetadataSourceTotals::new(
+                        &originals.carrier,
+                        *instance,
+                        scope,
+                        cancel.clone(),
+                        owner.clone(),
+                        users.clone(),
+                    ))
+                })
+                .transpose()?;
             entries.insert(
                 ordinal,
                 Entry {
@@ -85,8 +115,9 @@ impl MetadataDeclarations {
                     limits: *limits,
                     state: Mutex::new(Native {
                         owner,
+                        totals,
                         controls: Vec::new(),
-                        users: Vec::new(),
+                        users,
                         remaining: max_bind_attempts.get(),
                         attempted: false,
                         closing: false,
@@ -107,25 +138,36 @@ impl MetadataDeclarations {
     /// inspect this provider; a busy original stays pending instead of blocking.
     pub(super) fn close_native(&self, component: ComponentId) {
         for entry in self.entries.values() {
-            let Some(mut native) = entry.lock() else {
-                continue;
+            let close = {
+                let Some(mut native) = entry.lock() else {
+                    continue;
+                };
+                native.closing = true;
+                native.prepare_close()
             };
-            native.closing = true;
-            native.close_originals(component);
-            // Only the same owner's explicit report permits dropping controls.
-            if !native.main_busy
-                && !native.probes_busy
-                && native.main.complete()
-                && native.probes.complete()
-                && native
-                    .users
-                    .iter()
-                    .all(|claim| !claim.transferred || claim.confirmed.is_some())
-            {
-                native.controls.clear();
-            }
+            let _original_failure = close.try_close();
+            let controls = {
+                let Some(mut native) = entry.lock() else {
+                    continue;
+                };
+                native.observe_originals(component);
+                if !native.main_busy
+                    && !native.probes_busy
+                    && native.main.complete()
+                    && native.probes.complete()
+                    && native.users.pending() == 0
+                {
+                    std::mem::take(&mut native.controls)
+                } else {
+                    Vec::new()
+                }
+            };
+            // Native controllers/observer/waker destructors are external code.
+            drop(controls);
+            drop(close);
         }
     }
+
     pub(super) fn append_receipts(
         &self,
         component: ComponentId,
@@ -156,23 +198,31 @@ impl Entry {
     }
 }
 impl Native {
-    fn close_originals(&mut self, component: ComponentId) {
-        self.main_busy = true;
-        if let Some(main) = self.owner.try_close_main() {
-            self.record_main(component, main);
-        }
-        self.probes_busy = true;
-        if let Some(probes) = self.owner.try_close_probes() {
-            self.record_probes(component, probes);
-        }
+    fn prepare_close(
+        &self,
+    ) -> zero_platform_tokio::controlled_datagram::metadata::MetadataNativeClose {
+        self.owner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .prepare_native_close()
     }
     fn observe_originals(&mut self, component: ComponentId) {
         self.main_busy = true;
-        if let Some(main) = self.owner.try_take_main_report() {
+        let main = self
+            .owner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .try_take_main_report();
+        if let Some(main) = main {
             self.record_main(component, main);
         }
         self.probes_busy = true;
-        if let Some(probes) = self.owner.try_take_probe_report() {
+        let probes = self
+            .owner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .try_take_probe_report();
+        if let Some(probes) = probes {
             self.record_probes(component, probes);
         }
     }
@@ -196,6 +246,8 @@ impl Native {
                 .first()
                 .or_else(|| self.probes.unknown.first())
             {
+                #[cfg(test)]
+                eprintln!("actual Metadata original unknown at retirement component={component:?}, reservation={:?}, native={:#?}, acquisition={:#?}", source.reservation, source.source, source.acquisition_source);
                 let mut failure = zero_platform_tokio::contract::ChannelError::new(
                     zero_platform_tokio::contract::Stage::Close,
                     Reason::Io,

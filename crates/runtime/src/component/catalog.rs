@@ -1,10 +1,20 @@
 //! Cold preparation and bounded current-plan storage for migrated components.
+#[cfg(test)]
+#[path = "catalog/tests/accounting.rs"]
+mod accounting_tests;
 mod cold;
 mod devices;
 mod discard;
 mod maintenance;
+mod original_budgets;
 mod plan;
+#[cfg(all(test, target_os = "linux"))]
+#[path = "catalog/tests/process_accounting.rs"]
+mod process_accounting_tests;
+mod quiescence;
+pub use quiescence::ReplacementUsersPause;
 mod replacement;
+pub use replacement::packet_source::PacketSourceRetirement;
 mod restoration;
 mod retirement;
 pub mod supervision;
@@ -23,6 +33,7 @@ use std::{
         Arc, Mutex, OnceLock,
     },
 };
+pub use transaction::PreparedComponentStart;
 use zero_config::{OutboundConfig, RuntimeConfig};
 use zero_core::component::{ComponentId, ResourceGeneration};
 use zero_platform_tokio::contract::{ChannelError, Reason};
@@ -39,9 +50,10 @@ pub struct ComponentPlan {
     deferred_devices: std::collections::BTreeSet<ComponentId>,
     device_pass: bool,
     // Actual failed exits survive consumption of a slot's one-shot close report.
-    failures: Mutex<BTreeMap<zero_core::component::TaskId, Arc<plan::PlanTaskFailure>>>,
+    failures: Mutex<BTreeMap<plan::FailureKey, Arc<plan::PlanFailure>>>,
     // Canonical IDs from this exact assembly; no old recipes or runtime owners.
     shared_identities: super::SharedResourceIdentities,
+    source_dependencies: super::preparation::SourceDependencyDeclarations,
     // Only actual complete slot reports establish declared owner closure.
     confirmed_declared_close:
         Mutex<std::collections::BTreeSet<zero_core::component::ComponentInstanceId>>,
@@ -98,6 +110,9 @@ impl Current {
 }
 pub struct ComponentCatalog {
     factories: OnceLock<ComponentRegistry<OutboundConfig>>,
+    originals: OnceLock<Arc<crate::HostOriginalBudgets>>,
+    probes: OnceLock<std::sync::Weak<crate::probe_owner::ProbeOwner>>,
+    embedded_commands: OnceLock<std::sync::Weak<crate::EmbeddedCommandOwner>>,
     next_id: AtomicU64,
     #[cfg(feature = "managed-datagram-runtime")]
     next_association: AtomicU64,
@@ -110,6 +125,9 @@ impl Default for ComponentCatalog {
     fn default() -> Self {
         Self {
             factories: OnceLock::new(),
+            originals: OnceLock::new(),
+            probes: OnceLock::new(),
+            embedded_commands: OnceLock::new(),
             next_id: AtomicU64::new(0),
             #[cfg(feature = "managed-datagram-runtime")]
             next_association: AtomicU64::new(0),
@@ -126,6 +144,30 @@ impl std::fmt::Debug for ComponentCatalog {
     }
 }
 impl ComponentCatalog {
+    /// Read the already prepared exact snapshot, including a cold/staged plan.
+    /// Presence is not activation, native cleanup or runtime Ready evidence.
+    pub fn prepared_candidate(
+        &self,
+        config: &Arc<RuntimeConfig>,
+    ) -> Option<Result<Arc<ComponentPlan>, SharedError>> {
+        let state = self.state.lock().expect("component catalog poisoned");
+        if let Some(candidate) = state.cold.as_ref().filter(|entry| entry.matches(config)) {
+            if candidate
+                .plan
+                .as_ref()
+                .map_or(true, |plan| plan.device_pass)
+            {
+                return Some(candidate.plan.clone());
+            }
+        }
+        state
+            .current
+            .iter()
+            .chain(state.staged.iter())
+            .chain(state.cold.iter())
+            .find(|entry| entry.matches(config))
+            .map(|entry| entry.plan.clone())
+    }
     pub fn current(&self, config: &Arc<RuntimeConfig>) -> Option<Arc<ComponentPlan>> {
         self.state
             .lock()

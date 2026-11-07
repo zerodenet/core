@@ -52,8 +52,10 @@ impl Users {
             }
             if state
                 .tasks
-                .len()
-                .checked_add(state.spawning)
+                .values()
+                .filter(|node| !node.process_helper)
+                .count()
+                .checked_add(state.spawning - state.lookup_spawning)
                 .is_none_or(|used| used >= self.authority.max_tasks.get())
             {
                 return Err(failure(
@@ -122,6 +124,8 @@ impl Users {
                 Node {
                     witness: witness.clone(),
                     primary,
+                    process: None,
+                    process_helper: false,
                 },
             );
             state.spawning -= 1;

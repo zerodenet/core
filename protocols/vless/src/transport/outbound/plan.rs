@@ -181,6 +181,7 @@ impl OwnedVlessUdpTransportOptions {
 
 #[derive(Debug, Clone)]
 pub struct OwnedVlessOutboundTransportPlan {
+    material: crate::component::material::Registry,
     browser_dialer_settings: Option<zero_traits::BrowserDialerSettings>,
     browser_dialer: Option<super::super::runtime::browser_dialer::Access>,
     browser_ws: bool,
@@ -281,6 +282,7 @@ impl OwnedVlessOutboundTransportPlan {
             }
         }
         Self {
+            material: Default::default(),
             browser_dialer_settings,
             browser_dialer: None,
             browser_ws,
@@ -538,3 +540,5 @@ mod opening;
 mod download;
 
 mod xhttp;
+
+mod material;

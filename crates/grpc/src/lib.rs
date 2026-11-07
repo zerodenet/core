@@ -22,8 +22,11 @@ mod pb {
     tonic::include_proto!("zero.api.v1");
 }
 mod budget;
+mod event_source;
+mod messages;
 mod native;
 mod security;
+mod source;
 mod tasks;
 use tasks::ControlTask;
 
@@ -46,13 +49,24 @@ pub fn prepare(
     addr: SocketAddr,
     security: GrpcServerSecurity,
 ) -> Result<Arc<GrpcHandle>, Box<dyn std::error::Error>> {
-    prepare_with_budget(addr, security, budget::defaults())
+    prepare_original(addr, security, budget::defaults(), true)
 }
 
+/// The supplied book's owner also retires its shared command Scope after all
+/// control servers have joined. This server cannot retire another frontend's
+/// same-Host duty. `prepare` owns and retires its independent book itself.
 pub fn prepare_with_budget(
     addr: SocketAddr,
     security: GrpcServerSecurity,
     budget: Arc<zero_runtime::configuration::ControlBudget>,
+) -> Result<Arc<GrpcHandle>, Box<dyn std::error::Error>> {
+    prepare_original(addr, security, budget, false)
+}
+fn prepare_original(
+    addr: SocketAddr,
+    security: GrpcServerSecurity,
+    budget: Arc<zero_runtime::configuration::ControlBudget>,
+    owns_commands: bool,
 ) -> Result<Arc<GrpcHandle>, Box<dyn std::error::Error>> {
     security.validate_for(addr)?;
     let tls = security
@@ -61,13 +75,17 @@ pub fn prepare_with_budget(
         .map(GrpcServerTls::native_acceptor)
         .transpose()?;
     let (scope, original) = native::cold(addr)?;
-    let subscriptions = Arc::new(Subscriptions::new(budget));
+    let requests = Arc::new(messages::Requests::new(budget.clone()));
+    let subscriptions = Arc::new(Subscriptions::new(budget.clone()));
     Ok(Arc::new(GrpcHandle {
         address: addr,
+        command_budget: budget.clone(),
+        owns_commands,
         local_addr: Mutex::new(addr),
         auth: security.auth,
         tls,
         started: AtomicBool::new(false),
+        retired: AtomicBool::new(false),
         shutdown: Mutex::new(None),
         task: ControlTask::empty(),
         originals: Arc::new(GrpcOriginals {
@@ -76,6 +94,7 @@ pub fn prepare_with_budget(
             subscriptions,
             stop: tokio_util::sync::CancellationToken::new(),
             connections: Arc::new(native::connections::Connections::default()),
+            requests,
         }),
     }))
 }
@@ -98,19 +117,27 @@ struct GrpcOriginals {
     subscriptions: Arc<Subscriptions>,
     stop: tokio_util::sync::CancellationToken,
     connections: Arc<native::connections::Connections>,
+    requests: Arc<messages::Requests>,
 }
 /// Retains the actual server, Scope, native controls and subscription jobs.
 pub struct GrpcHandle {
     address: SocketAddr,
+    command_budget: Arc<zero_runtime::configuration::ControlBudget>,
+    owns_commands: bool,
     local_addr: Mutex<SocketAddr>,
     auth: Option<GrpcServerAuth>,
     tls: Option<tokio_rustls::TlsAcceptor>,
     started: AtomicBool,
+    retired: AtomicBool,
     shutdown: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     task: ControlTask,
     originals: Arc<GrpcOriginals>,
 }
 impl GrpcHandle {
+    /// Completion only after exact server/worker joins and native/accepted close.
+    pub fn retirement_complete(&self) -> bool {
+        self.retired.load(Ordering::Acquire)
+    }
     pub fn local_addr(&self) -> SocketAddr {
         *self.local_addr.lock().unwrap()
     }
@@ -118,9 +145,59 @@ impl GrpcHandle {
     where
         H: CommandService + QueryService + EventSource + Clone + Send + Sync + 'static,
     {
+        self.start_original(handle, source::OriginalSource::default())
+            .await
+    }
+    /// Borrow production configuration/policy values from this same Engine.
+    pub async fn start_with_engine<H>(
+        &self,
+        handle: H,
+        engine: zero_engine::EngineHandle,
+    ) -> Result<(), Box<dyn std::error::Error>>
+    where
+        H: CommandService + QueryService + EventSource + Clone + Send + Sync + 'static,
+    {
+        self.start_original(
+            handle,
+            source::OriginalSource {
+                engine: Some(engine),
+                ..Default::default()
+            },
+        )
+        .await
+    }
+    /// Use this exact production Proxy's guarded state and its same Engine.
+    #[cfg(feature = "proxy-control")]
+    pub async fn start_with_proxy<H>(
+        &self,
+        handle: H,
+        proxy: zero_proxy::ProxyHandle,
+    ) -> Result<(), Box<dyn std::error::Error>>
+    where
+        H: CommandService + QueryService + EventSource + Clone + Send + Sync + 'static,
+    {
+        let engine = proxy.engine_handle().clone();
+        self.start_original(
+            handle,
+            source::OriginalSource {
+                engine: Some(engine),
+                proxy: Some(Box::new(proxy)),
+            },
+        )
+        .await
+    }
+    async fn start_original<H>(
+        &self,
+        handle: H,
+        source: source::OriginalSource,
+    ) -> Result<(), Box<dyn std::error::Error>>
+    where
+        H: CommandService + QueryService + EventSource + Clone + Send + Sync + 'static,
+    {
         if self.started.swap(true, Ordering::AcqRel) {
             return Err(std::io::Error::other("gRPC original owner already started").into());
         }
+        let registration = self.task.reserve()?;
         let listener = self
             .originals
             .original
@@ -133,9 +210,16 @@ impl GrpcHandle {
         let originals = self.originals.clone();
         let auth = self.auth.clone();
         let tls = self.tls.clone();
-        self.task.install(tokio::spawn(async move {
-            native::run(listener, handle, auth, tls, shutdown_rx, originals).await
-        }))?;
+        let (begin, started) = tokio::sync::oneshot::channel();
+        registration.install(tokio::spawn(async move {
+            started
+                .await
+                .map_err(|_| std::io::Error::other("gRPC startup gate closed"))?;
+            native::run(listener, handle, source, auth, tls, shutdown_rx, originals).await
+        }));
+        begin
+            .send(())
+            .map_err(|_| std::io::Error::other("original gRPC task stopped during startup"))?;
         info!(listen = %self.local_addr(), "gRPC api server ready");
         Ok(())
     }
@@ -143,6 +227,10 @@ impl GrpcHandle {
         self.task.join().await
     }
     pub async fn shutdown(&self) -> std::io::Result<()> {
+        self.task.close_admission();
+        if self.owns_commands {
+            self.command_budget.command_owner().begin_shutdown();
+        }
         self.originals
             .subscriptions
             .stop
@@ -166,15 +254,28 @@ impl GrpcHandle {
             .await
             .wait_closed(native::deadline())
             .await
-            .map_err(std::io::Error::other)?;
-        if !tasks.is_complete() || !native.is_complete() {
-            return Err(std::io::Error::other(
-                "gRPC actual Scope or native original remains retained",
-            ));
+            .map_err(std::io::Error::other)
+            .and_then(|report| tasks::confirmed_report("gRPC native", report));
+        let scope = tasks::confirmed_report("gRPC Scope", tasks);
+        let commands = if self.owns_commands {
+            self.command_budget
+                .command_owner()
+                .shutdown(native::deadline())
+                .await
+                .map_err(std::io::Error::other)
+        } else {
+            Ok(())
+        };
+        let requests = self.originals.requests.confirm_released();
+        if scope.is_ok()
+            && native.is_ok()
+            && requests.is_ok()
+            && (!self.owns_commands || self.command_budget.command_owner().retirement_complete())
+        {
+            self.originals.connections.confirm_all_closed();
+            self.retired.store(true, Ordering::Release);
         }
-        self.originals.connections.confirm_all_closed();
-        server?;
-        jobs
+        tasks::finish([server, jobs, scope, native, commands, requests])
     }
 }
 impl Drop for GrpcHandle {
@@ -195,211 +296,7 @@ impl Drop for GrpcHandle {
     }
 }
 
-// ── Service ────────────────────────────────────────────────────────────────
-
-struct Subscriptions {
-    stop: AtomicBool,
-    jobs: Mutex<Vec<Arc<ControlTask>>>,
-    budget: Arc<zero_runtime::configuration::ControlBudget>,
-}
-impl Default for Subscriptions {
-    fn default() -> Self {
-        Self::new(budget::defaults())
-    }
-}
-impl Subscriptions {
-    fn new(budget: Arc<zero_runtime::configuration::ControlBudget>) -> Self {
-        Self {
-            stop: AtomicBool::new(false),
-            jobs: Mutex::new(Vec::new()),
-            budget,
-        }
-    }
-    async fn join_all(&self) -> std::io::Result<()> {
-        let tasks = self.jobs.lock().unwrap().clone();
-        let mut failure = None;
-        for job in tasks {
-            if let Err(error) = job.join().await {
-                failure.get_or_insert(error);
-            }
-        }
-        failure.map_or(Ok(()), Err)
-    }
-    async fn reap_completed(&self) -> std::io::Result<()> {
-        let originals = self.jobs.lock().unwrap().clone();
-        let mut failure = None;
-        for original in originals {
-            if original.finished() {
-                if let Err(error) = original.join().await {
-                    failure.get_or_insert(error);
-                }
-            }
-        }
-        self.jobs
-            .lock()
-            .unwrap()
-            .retain(|original| !original.joined_successfully());
-        failure.map_or(Ok(()), Err)
-    }
-}
-
-struct ControlService<H> {
-    handle: H,
-    auth: Option<GrpcServerAuth>,
-    subscriptions: Arc<Subscriptions>,
-}
-
-impl<H> ControlService<H> {
-    fn new(handle: H, auth: Option<GrpcServerAuth>, subscriptions: Arc<Subscriptions>) -> Self {
-        Self {
-            handle,
-            auth,
-            subscriptions,
-        }
-    }
-
-    fn is_authorized<T>(&self, request: &Request<T>) -> bool {
-        match &self.auth {
-            Some(auth) => auth.is_authorized(request),
-            None => true,
-        }
-    }
-}
-
-#[tonic::async_trait]
-impl<H> Control for ControlService<H>
-where
-    H: CommandService + QueryService + EventSource + Clone + Send + Sync + 'static,
-{
-    async fn query(
-        &self,
-        request: Request<QueryRequest>,
-    ) -> Result<Response<QueryResponse>, Status> {
-        if !self.is_authorized(&request) {
-            return Err(Status::unauthenticated(
-                "missing or invalid bearer authorization",
-            ));
-        }
-        let req = request.into_inner();
-        let query: zero_api::QueryRequest = serde_json::from_slice(&req.payload)
-            .map_err(|e| Status::invalid_argument(format!("query parse error: {e}")))?;
-        let result = self
-            .handle
-            .query(query)
-            .map_err(|e: zero_api::ApiError| Status::internal(e.to_string()))?;
-        let json = serde_json::to_vec(&result).map_err(|e| Status::internal(e.to_string()))?;
-        Ok(Response::new(QueryResponse { payload: json }))
-    }
-
-    async fn execute(
-        &self,
-        request: Request<ExecuteRequest>,
-    ) -> Result<Response<ExecuteResponse>, Status> {
-        if !self.is_authorized(&request) {
-            return Err(Status::unauthenticated(
-                "missing or invalid bearer authorization",
-            ));
-        }
-        let req = request.into_inner();
-        let cmd: zero_api::CommandRequest = serde_json::from_slice(&req.payload)
-            .map_err(|e| Status::invalid_argument(format!("command parse error: {e}")))?;
-        let result = self
-            .handle
-            .execute_acknowledged(cmd)
-            .await
-            .map_err(|e: zero_api::ApiError| Status::internal(e.to_string()))?;
-        let json = serde_json::to_vec(&result).map_err(|e| Status::internal(e.to_string()))?;
-        Ok(Response::new(ExecuteResponse { payload: json }))
-    }
-
-    type SubscribeStream = std::pin::Pin<
-        Box<dyn futures_core::Stream<Item = Result<PbEvent, Status>> + Send + 'static>,
-    >;
-
-    async fn subscribe(
-        &self,
-        request: Request<SubscribeRequest>,
-    ) -> Result<Response<Self::SubscribeStream>, Status> {
-        if !self.is_authorized(&request) {
-            return Err(Status::unauthenticated(
-                "missing or invalid bearer authorization",
-            ));
-        }
-        let req = request.into_inner();
-        let filter = EventFilter {
-            event_types: req.event_types,
-            principal_keys: Vec::new(),
-            inbound_tags: Vec::new(),
-        };
-
-        self.subscriptions
-            .reap_completed()
-            .await
-            .map_err(|error| Status::internal(error.to_string()))?;
-        let subscription_charge = self
-            .subscriptions
-            .budget
-            .reserve(zero_runtime::configuration::ControlCharge::Subscription)
-            .map_err(|error| Status::resource_exhausted(error.to_string()))?;
-        let subscriber = self
-            .handle
-            .subscribe(filter)
-            .map_err(|e: zero_api::ApiError| Status::internal(format!("subscribe failed: {e}")))?;
-
-        let (tx, rx) = mpsc::channel::<budget::QueuedEvent>(64);
-
-        let subscriptions = self.subscriptions.clone();
-        let mut jobs = subscriptions.jobs.lock().unwrap();
-        if subscriptions.stop.load(Ordering::Acquire) {
-            return Err(Status::unavailable("control server is stopping"));
-        }
-        let owner = subscriptions.clone();
-        // The retained job waits with a finite idle wake and keeps a full
-        // event until the bounded channel accepts it. Stop and disconnected
-        // consumers never depend on another source event to unblock recv.
-        jobs.push(Arc::new(ControlTask::with_charge(
-            tokio::task::spawn_blocking(move || {
-                while !owner.stop.load(Ordering::Acquire) && !tx.is_closed() {
-                    let event = match subscriber.recv_timeout(Duration::from_millis(25)) {
-                        zero_api::EventStreamReceive::Event(event) => event,
-                        zero_api::EventStreamReceive::Timeout => continue,
-                        zero_api::EventStreamReceive::Closed => break,
-                    };
-                    let mut message = PbEvent {
-                        event_type: event.event_type,
-                        event_id: event.event_id,
-                        occurred_at: event.occurred_at_unix_ms,
-                        payload: Vec::new(),
-                    };
-                    let bytes = budget::frame_len(&message, &event.payload)?;
-                    let Some(charge) = budget::reserve(&owner, bytes, || tx.is_closed())? else {
-                        return Ok(());
-                    };
-                    message.payload =
-                        serde_json::to_vec(&event.payload).map_err(std::io::Error::other)?;
-                    let mut pending = budget::QueuedEvent {
-                        event: Ok(message),
-                        _charge: Some(charge),
-                    };
-                    loop {
-                        if owner.stop.load(Ordering::Acquire) {
-                            return Ok(());
-                        }
-                        match tx.try_send(pending) {
-                            Ok(()) => break,
-                            Err(mpsc::error::TrySendError::Closed(_)) => return Ok(()),
-                            Err(mpsc::error::TrySendError::Full(event)) => pending = event,
-                        }
-                        std::thread::sleep(Duration::from_millis(25));
-                    }
-                }
-                Ok(())
-            }),
-            subscription_charge,
-        )));
-        drop(jobs);
-
-        let stream = budget::Events(rx);
-        Ok(Response::new(Box::pin(stream) as Self::SubscribeStream))
-    }
-}
+mod subscriptions;
+use subscriptions::Subscriptions;
+mod service;
+use service::ControlService;

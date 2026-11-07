@@ -7,6 +7,9 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 
+[features]
+proxy-control = ["dep:zero-proxy", "dep:serde"]
+
 [dependencies]
 futures-core = "0.3"
 http-body-util = "0.1"
@@ -23,11 +26,13 @@ tokio-rustls = { version = "0.26", default-features = false }
 tower-service = "0.3"
 tracing.workspace = true
 serde_json.workspace = true
+serde = { workspace = true, optional = true }
 zero-api = { path = "../api" }
 zero-core = { path = "../core" }
 zero-engine = { path = "../engine" }
 zero-runtime = { path = "../runtime" }
 zero-platform-tokio = { path = "../platform/tokio" }
+zero-proxy = { path = "../proxy", optional = true, default-features = false }
 
 [build-dependencies]
 tonic-build = "0.12"

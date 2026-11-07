@@ -8,6 +8,10 @@ use tokio::time::Instant;
 
 pub(super) struct NativeControl(pub(super) CarrierAdoption);
 impl DynChannelControl for NativeControl {
+    fn try_close(&mut self) -> Result<CloseReport, ChannelError> {
+        self.0.try_retire()
+    }
+
     fn cancel(&self, _: CloseReason) {
         // LoanOwner revokes the unique view. Retirement must wait for its
         // actual return before asking the original native control to close.
@@ -20,6 +24,34 @@ impl DynChannelControl for NativeControl {
     }
 }
 impl CarrierIo {
+    /// Keep the same Service views/controller during this actual setup only.
+    /// This is not normal transfer publication or permission for a new driver.
+    pub fn into_preparing_stream_loan(
+        self,
+        view: CarrierUserView,
+        preparation: &crate::controlled_carrier::CarrierPreparation,
+    ) -> Result<StreamLoan, ChannelError> {
+        let adoption = CarrierAdoption {
+            slot: self.slot.clone(),
+        };
+        if !view.matches(&adoption) || !preparation.matches_transferred_origin(&self.slot) {
+            return Err(super::super::error(
+                self.slot.instance,
+                crate::contract::Stage::Prepare,
+                crate::contract::Reason::StalePlan,
+                crate::contract::DeliveryState::Unknown,
+            ));
+        }
+        let original = adoption.preparing_transferred_origin()?;
+        Ok(StreamLoan::new(
+            Box::pin(Custody {
+                io: self,
+                _view: view,
+            }),
+            Box::new(NativeControl(adoption)),
+            original,
+        ))
+    }
     /// Transfer the actual view and unique custody lease. Borrowed views keep
     /// their sealed parent/control lineage and make no native-close claim.
     /// No worker, caller witness or FD is invented here.

@@ -8,11 +8,12 @@ pub use accepted::{
 };
 mod native;
 mod owner;
+mod totals;
 use crate::TokioSocket;
 pub use control::ControlledTcpListenerControl;
 pub use owner::ControlledTcpListenerOwner;
 use std::{
-    future::{poll_fn, Future},
+    future::{Future, poll_fn},
     io,
     net::SocketAddr,
     pin::Pin,
@@ -29,12 +30,14 @@ struct State {
     retired: bool,
     closed: bool,
     error: Option<Arc<io::Error>>,
+    attempt: Option<std::sync::Weak<totals::Attempt>>,
 }
 struct Shared {
     accepted: Option<Arc<accepted::Pool>>,
     state: Mutex<State>,
     cancel: CancellationToken,
     label: String,
+    originals: std::sync::OnceLock<totals::Binding>,
 }
 fn uncertain(message: &'static str) -> Arc<io::Error> {
     Arc::new(io::Error::other(message))
@@ -56,6 +59,9 @@ impl State {
         match result {
             Ok(()) => {
                 self.confirmed += 1;
+                if let Some(attempt) = self.attempt.as_ref().and_then(std::sync::Weak::upgrade) {
+                    attempt.native_closed();
+                }
                 self.error = None;
             }
             Err(source) => self.error = Some(Arc::new(source)),
@@ -79,6 +85,7 @@ impl Shared {
 pub struct ControlledTcpListener {
     shared: Arc<Shared>,
     cancelled: Pin<Box<dyn Future<Output = ()> + Send>>,
+    attempt: Option<Arc<totals::Attempt>>,
 }
 impl ControlledTcpListener {
     /// The installation seam distinguishes an actual admission revocation from
@@ -113,6 +120,7 @@ impl ControlledTcpListener {
         let cancel = parent.child_token();
         let shared = Arc::new(Shared {
             accepted: None,
+            originals: std::sync::OnceLock::new(),
             label: format!("native TCP listener {:?}", listener.local_addr().ok()),
             state: Mutex::new(State {
                 listener: Some(listener),
@@ -121,6 +129,7 @@ impl ControlledTcpListener {
                 retired: false,
                 closed: false,
                 error: None,
+                attempt: None,
             }),
             cancel,
         });
@@ -128,6 +137,7 @@ impl ControlledTcpListener {
             Self {
                 cancelled: Box::pin(shared.cancel.clone().cancelled_owned()),
                 shared: shared.clone(),
+                attempt: None,
             },
             ControlledTcpListenerControl {
                 shared,
@@ -194,6 +204,9 @@ fn retired() -> io::Error {
 }
 impl Drop for ControlledTcpListener {
     fn drop(&mut self) {
+        if let Some(attempt) = &self.attempt {
+            attempt.return_view();
+        }
         self.shared.cancel_admission();
     }
 }

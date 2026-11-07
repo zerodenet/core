@@ -71,21 +71,11 @@ pub(crate) async fn exchange_backend_attempt(
     timeout_ms: u64,
 ) -> (io::Result<Vec<u8>>, bool) {
     let duration = std::time::Duration::from_millis(timeout_ms);
-    if let Some(source) = snapshot.native_source.as_ref().or_else(|| {
-        let source = snapshot.query_coordinator.native_source()?;
-        #[cfg(feature = "doh")]
-        let host_pool = matches!(server.backend.as_ref(), ResolverBackend::Doh(resolver) if resolver.owner.host_bound());
-        #[cfg(not(feature = "doh"))]
-        let host_pool = false;
-        (server.config.detour().is_none()
-            || host_pool
-            || !matches!(&server.config, zero_config::DnsServerConfig::Doq { .. })
-                && server
-                    .config
-                    .detour()
-                    .is_some_and(|outbound| source.owns_detour(outbound)))
-        .then_some(source)
-    }) {
+    if let Some(source) = snapshot
+        .native_source
+        .as_ref()
+        .or_else(|| snapshot.query_coordinator.native_source())
+    {
         // This path owns its attempt deadline and original close continuation.
         let result = source
             .exchange(
@@ -117,6 +107,25 @@ pub(crate) async fn exchange_backend_attempt(
         });
         return (result, permits_fallback);
     }
+    #[cfg(feature = "doq")]
+    if let ResolverBackend::Doq(resolver) = server.backend.as_ref() {
+        if server.detour.is_none()
+            && snapshot
+                .outbound_connector
+                .as_deref()
+                .and_then(|connector| connector.quic_bidi())
+                .is_none()
+        {
+            // This actual standalone endpoint owns its deadline and retirement.
+            // Neither another IP nor a different fallback backend may overtake
+            // its retained native/user/driver cleanup. Host-bound attempts already
+            // returned above; an explicit external QUIC provider keeps its contract.
+            return backends::ATTEMPT_DEADLINE
+                .scope(deadline, resolver.exchange_attempt(query))
+                .await
+                .into_parts();
+        }
+    }
     #[cfg(not(feature = "udp"))]
     let _ = next;
     let result = tokio::time::timeout(
@@ -140,3 +149,6 @@ pub(crate) async fn exchange_backend_attempt(
     });
     (result, true)
 }
+
+#[cfg(all(test, feature = "udp"))]
+mod tests;

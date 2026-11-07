@@ -22,7 +22,6 @@ fn resourceful_styles_are_explicitly_excluded_and_never_dropped_by_direct_option
         r#", "grpc":{"service_names":["native/Tun"],"multi_mode":false}"#,
         r#", "grpc":{"service_names":["native/Tun"],"multi_mode":true}"#,
         r#", "tls":{"server_name":"localhost"},"grpc":{"service_names":["native/Tun"]}"#,
-        r#", "h2":{"host":"front.example","path":"/native"}"#,
     ] {
         let input = input(extra);
         assert!(!native_input(&input), "{extra}");
@@ -41,6 +40,9 @@ fn ordinary_raw_tls_and_websocket_remain_selected_without_background_carrier_dri
         r#", "tls":{"server_name":"localhost"}"#,
         r#", "ws":{"path":"/native"}"#,
         r#", "tls":{"server_name":"localhost"},"ws":{"path":"/native"}"#,
+        r#", "h2":{"host":"front.example","path":"/native"}"#,
+        r#", "http_upgrade":{"host":"front.example","path":"/native"}"#,
+        r#", "tls":{"server_name":"localhost"},"h2":{"path":"/native"}"#,
     ] {
         let input = input(extra);
         assert!(native_input(&input), "{extra}");
@@ -98,7 +100,7 @@ fn tls_vision_keeps_flow_and_padding_while_invalid_selected_parameters_still_fai
 }
 
 #[test]
-fn reality_library_factory_does_not_activate_production_before_resource_owner_gate() {
+fn reality_ordinary_recipe_requires_its_real_preparation_owner_and_preserves_library_limit() {
     let (_, public) = ::vless::reality::generate_reality_key_pair();
     for flow in [None, Some("xtls-rprx-vision")] {
         let flow = flow
@@ -108,10 +110,11 @@ fn reality_library_factory_does_not_activate_production_before_resource_owner_ga
             r#", "reality":{{"public_key":"{public}","short_id":"0123456789abcdef","server_name":"localhost","client_fingerprint":"chrome"}}{flow}"#
         ));
         assert!(
-            !native_input(&input),
-            "task-bearing REALITY must retain its old production owner"
+            native_input(&input),
+            "ordinary REALITY requires the same original preparation/job owner"
         );
         let options = component_options(&input).unwrap();
+        assert!(options.requires_preparation_jobs());
         use zero_platform_tokio::contract::component::ComponentFactory;
         assert_eq!(
             ::vless::component::Factory
@@ -121,6 +124,24 @@ fn reality_library_factory_does_not_activate_production_before_resource_owner_ga
                 .get(),
             64
         );
+        for extra in [
+            r#", "tls":{"insecure":true}"#,
+            r#", "ws":{"path":"/"}"#,
+            r#", "h2":{"path":"/"}"#,
+            r#", "http_upgrade":{"path":"/"}"#,
+        ] {
+            let mut incompatible = input.clone();
+            let mut value = serde_json::to_value(&incompatible.protocol).unwrap();
+            let additions: serde_json::Value =
+                serde_json::from_str(&format!("{{{}}}", &extra[2..])).unwrap();
+            value
+                .as_object_mut()
+                .unwrap()
+                .extend(additions.as_object().unwrap().clone());
+            incompatible.protocol = serde_json::from_value(value).unwrap();
+            assert!(!native_input(&incompatible));
+            assert!(component_options(&incompatible).is_err());
+        }
     }
 }
 
@@ -157,3 +178,7 @@ fn ordinary_mux_prefix_registration_requires_qualified_root_and_complete_protoco
         assert!(!adapter.production_selected(&input, Some(&config), true));
     }
 }
+
+#[cfg(feature = "socks5")]
+#[path = "tests/material.rs"]
+mod material;

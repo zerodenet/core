@@ -1,6 +1,8 @@
 //! Native service requests carry a Destination and real Service identity all the way
 //! through their selected prefix. Unsupported plans are identified before I/O.
 mod binding;
+mod datagram;
+pub(crate) use datagram::connect_carrier_datagram;
 mod receipt;
 pub(crate) use binding::NativeDnsBinding;
 mod root;
@@ -117,6 +119,7 @@ async fn chain(
     let physical = first
         .endpoint
         .clone()
+        .or_else(|| nodes.get(1).and_then(|node| node.endpoint.clone()))
         .unwrap_or_else(|| destination.clone());
     let network = match &first.tag {
         Some(tag) => services.upstream_observed(tag),

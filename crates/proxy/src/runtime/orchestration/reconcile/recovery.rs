@@ -1,6 +1,8 @@
 //! Recovery after actual resource retirement rebuilds closed DNS backends.
 use super::*;
 use zero_engine::EngineError;
+#[cfg(feature = "raw-ip-runtime")]
+mod tun;
 
 impl OrchestrationState {
     // Every rejected branch borrows this one bounded heap future. Keeping the
@@ -42,6 +44,14 @@ impl OrchestrationState {
                     .pending_reload_snapshot(rejected)
                     .unwrap_or_else(|| self.applied_snapshot.clone())
             };
+            #[cfg(feature = "raw-ip-runtime")]
+            let tun_recovery = proxy.has_tun_packet_budget_recovery()
+                || ((rejected.config().runtime.tun != previous.config().runtime.tun
+                    || rejected.config().runtime.network.mtu != previous.config().runtime.network.mtu)
+                    && (proxy.tun_control.lock().unwrap().is_some()
+                        || previous.config().runtime.tun.is_some()));
+            #[cfg(not(feature = "raw-ip-runtime"))]
+            let tun_recovery = false;
             let rollback = proxy
                 .engine
                 .restore_staged_snapshot(previous.clone(), false);
@@ -68,12 +78,9 @@ impl OrchestrationState {
                 acknowledgement.push_str(&format!(
                     "; last-known-good config restore failed: {rollback_error}"
                 ));
-            } else if can_restore {
+            } else if can_restore && !tun_recovery {
                 if let Err(error) = proxy
-                    .reconcile_configured_tun(
-                        self.applied_snapshot.config().runtime.tun.as_ref(),
-                        self.applied_snapshot.config().runtime.network.mtu,
-                    )
+                    .reconcile_configured_tun_for_config(previous.config().clone())
                     .await
                 {
                     can_restore = false;
@@ -89,16 +96,39 @@ impl OrchestrationState {
             }
             self.applied_snapshot = previous;
             let previous_config = self.applied_snapshot.config().clone();
-            if can_restore {
-                if let Err(error) = proxy
+            let mut dns_recovery = None;
+            #[cfg(feature = "raw-ip-runtime")]
+            let mut _tun_recovery_resources = None;
+            #[cfg(feature = "raw-ip-runtime")]
+            if can_restore && tun_recovery {
+                let snapshot = self.applied_snapshot.clone();
+                match self.restore_tun_resources(proxy, &snapshot).await {
+                    Ok(resources) => {
+                        dns_recovery = Some(resources.dns.clone());
+                        _tun_recovery_resources = Some(resources);
+                    }
+                    Err(error) => {
+                        can_restore = false;
+                        acknowledgement.push_str(&format!(
+                            "; System TUN original/Source/Root recovery remains owned: {error}"));
+                    }
+                }
+            }
+            let mut recovery_components = None;
+            if can_restore && !tun_recovery {
+                match proxy
                     .protocols
                     .prepare_recovered_device_components(previous_config.clone())
                 {
-                    can_restore = false;
-                    acknowledgement.push_str(&format!("; cold component recovery failed: {error}"));
+                    Ok(plan) => recovery_components = Some(plan),
+                    Err(error) => {
+                        can_restore = false;
+                        acknowledgement
+                            .push_str(&format!("; cold component recovery failed: {error}"));
+                    }
                 }
             }
-            if can_restore {
+            if can_restore && !tun_recovery {
                 if let Err(error) = proxy
                     .protocols
                     .start_components(
@@ -116,9 +146,14 @@ impl OrchestrationState {
 
             // Rebuild DNS before peer resolution, retaining its exact token until
             // the same recovered device graph has actually started and scanned.
-            let mut dns_recovery = None;
-            if recover_dns && can_restore {
-                match restore_dns(proxy, &self.applied_snapshot).await {
+            if recover_dns && can_restore && !tun_recovery {
+                match restore_dns(
+                    proxy,
+                    &self.applied_snapshot,
+                    recovery_components.as_deref(),
+                )
+                .await
+                {
                     Ok(token) => dns_recovery = Some(token),
                     Err(error) => {
                         can_restore = false;
@@ -130,7 +165,7 @@ impl OrchestrationState {
             #[cfg(feature = "raw-ip-runtime")]
             let mut recovered_devices = None;
             #[cfg(feature = "raw-ip-runtime")]
-            if can_restore {
+            if can_restore && !tun_recovery {
                 let services =
                     proxy.tcp_runtime_services_for_snapshot(self.applied_snapshot.clone());
                 let result = async {
@@ -143,6 +178,7 @@ impl OrchestrationState {
                             self.preparing_inbounds.cancellation(),
                         )
                         .await?;
+                    self.bind_retained_packet_sources(proxy, &previous_config, &services)?;
                     proxy
                         .protocols
                         .prepare_devices(&previous_config, services)
@@ -179,7 +215,7 @@ impl OrchestrationState {
             // This temporary finite set holds IDs, never old owners/configuration
             // history. A failed newly created generation stays fatal/retained.
             let mut pending_faults = proxy.inbound_owners.identities();
-            if can_restore {
+            if can_restore && !tun_recovery {
                 loop {
                     let result = listeners::reconcile_inbounds(
                         &proxy.protocols,
@@ -248,6 +284,11 @@ impl OrchestrationState {
                             acknowledgement
                                 .push_str(&format!("; device recovery completion failed: {error}"));
                         }
+                        #[cfg(feature = "raw-ip-runtime")]
+                        if let Err(error) = proxy.confirm_tun_packet_budget(&previous_config) {
+                            acknowledgement.push_str(&format!(
+                                "; System TUN recovery completion remains owned: {error}"));
+                        }
                     }
                 }
             }
@@ -261,15 +302,23 @@ impl OrchestrationState {
 async fn restore_dns(
     proxy: &Proxy,
     snapshot: &std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
+    components: Option<&crate::component::catalog::ComponentPlan>,
 ) -> Result<zero_dns::DnsReloadResources, String> {
     let config = snapshot.config();
     let dispatch = snapshot.dns_dispatch();
     let token = proxy
         .resolver
-        .prepare_reload_resources_with_dispatch(
+        .prepare_reload_resources_with_host_scopes(
             config.runtime.dns.as_ref(),
             dispatch,
             &std::collections::BTreeSet::new(),
+            |instance, scope| {
+                components
+                    .and_then(|plan| plan.component(instance.component))
+                    .is_some_and(|slot| {
+                        slot.instance_id() == instance && slot.matches_live_scope(scope)
+                    })
+            },
         )
         .map_err(|error| error.to_string())?;
     proxy

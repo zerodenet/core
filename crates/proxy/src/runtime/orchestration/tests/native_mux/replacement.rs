@@ -60,6 +60,18 @@ async fn native_mux_network_epoch_retires_original_and_waits_for_old_logical_io_
                     .closed()
                     .expect("actual original native controller closes before another acquisition");
                 assert!(original.matches_closed(&proof) && proof.had_native_acquisition());
+                let occupied = registration
+                    .observe()
+                    .expect("actual old provider remains installed");
+                let retained = occupied
+                    .slots()
+                    .iter()
+                    .find(|slot| slot.original().same_original(&original))
+                    .expect("native close must not refund an original with a held logical view");
+                assert!(
+                    retained.physical_view_live(),
+                    "the original unique lease retains the real logical custody"
+                );
                 let result = timeout(Duration::from_secs(1), &mut pending).await.unwrap();
                 assert!(
                     matches!(result, Ok(0) | Err(_)),
@@ -75,6 +87,16 @@ async fn native_mux_network_epoch_retires_original_and_waits_for_old_logical_io_
             assert_eq!(next.slots().len(), 1);
             assert!(!next.slots()[0].original().same_original(&original));
             assert!(!driver.same_registration(&next.slots()[0].driver().unwrap().1));
+            assert!(
+                driver.try_joined().unwrap().registration_released(),
+                "actual old Scope registration credit precedes reuse"
+            );
+            assert!(
+                next.slots()
+                    .iter()
+                    .all(|slot| !slot.original().same_original(&original)),
+                "only the fully returned original may leave the actual census"
+            );
             drop(fresh);
             running.shutdown().await.unwrap();
             server.close().await;

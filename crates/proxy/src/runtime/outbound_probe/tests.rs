@@ -1,15 +1,17 @@
 use super::{
-    probe_deadline_for_dns, OutboundProbeDeadline, OutboundProbeError, ProbeKey, SharedProbeEntry,
-    SharedProbeWaiter, OUTBOUND_PROBE_TRANSPORT_TIMEOUT_MS,
+    probe_deadline_for_dns, OutboundProbeDeadline, OutboundProbeError, ProbeKey, ProbeOriginal,
+    SharedProbeEntry, SharedProbeWaiter, OUTBOUND_PROBE_TRANSPORT_TIMEOUT_MS,
 };
 use crate::runtime::tcp_dispatch::TcpDispatchIntent;
 use futures_util::FutureExt;
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 #[test]
 fn shared_probe_identity_separates_policy_and_diagnostic_intents() {
     let key = |intent| ProbeKey {
+        host_identity: 11,
         config_identity: 7,
         target_tag: "node-a".to_owned(),
         url: "https://example.com/generate_204".to_owned(),
@@ -26,17 +28,20 @@ fn shared_probe_identity_separates_policy_and_diagnostic_intents() {
 #[test]
 fn dropping_the_last_shared_probe_waiter_removes_the_pending_entry() {
     let key = ProbeKey {
+        host_identity: 11,
         config_identity: 7,
         target_tag: "node-a".to_owned(),
         url: "https://example.com/generate_204".to_owned(),
         intent: TcpDispatchIntent::DiagnosticProbe,
     };
     let future = async { Ok::<u64, OutboundProbeError>(1) }.boxed().shared();
+    let original = Arc::new(ProbeOriginal::default());
     let probes = Arc::new(Mutex::new(HashMap::from([(
         key.clone(),
         SharedProbeEntry {
             future: future.clone(),
             waiters: 1,
+            original: original.clone(),
         },
     )])));
 
@@ -44,9 +49,12 @@ fn dropping_the_last_shared_probe_waiter_removes_the_pending_entry() {
         probes: probes.clone(),
         key,
         future,
+        original: original.clone(),
+        attached: true,
     });
 
     assert!(probes.lock().unwrap().is_empty());
+    assert!(original.cancelled.load(Ordering::Acquire));
 }
 
 #[test]

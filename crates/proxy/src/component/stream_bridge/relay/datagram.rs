@@ -56,10 +56,15 @@ pub(crate) async fn open(
             )
         })?
         .with_prefix(&binding.prefix);
-    let (_, server, port) = prepared.target.endpoint();
+    let (server, port) = prepared.target.endpoint().ok_or_else(|| {
+        invalid(
+            Reason::StalePlan,
+            "network relay tail lacks its declared endpoint",
+        )
+    })?;
     let final_endpoint = destination(&(server.into(), port));
     let wire = WireTraffic::new(
-        services.outbound_io(prepared.target.endpoint().0, zero_api::TrafficPlane::Outer),
+        services.outbound_io(prepared.target.tag(), zero_api::TrafficPlane::Outer),
     );
     let opener = Arc::new(
         opener::Opener::new(
@@ -74,7 +79,7 @@ pub(crate) async fn open(
         )
         .await?
         .with_final_observer(
-            services.outbound_io(prepared.target.endpoint().0, zero_api::TrafficPlane::Outer),
+            services.outbound_io(prepared.target.tag(), zero_api::TrafficPlane::Outer),
         ),
     );
     let channel = role

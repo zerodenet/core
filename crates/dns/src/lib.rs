@@ -17,9 +17,17 @@ pub mod native;
 mod outbound;
 mod owned_root;
 use owned_root::OwnedDnsRoot;
+mod wire_call;
+pub use wire_call::{
+    DnsQueryCall, DnsQueryCallClosed, DnsResolutionCall, DnsResolutionClosed,
+    DnsResolutionUnsettled,
+};
 mod query_tasks;
 pub use query_tasks::NativeSystemLookup;
-pub use query_tasks::{OwnedDnsQueryBudget, OwnedDnsQueryObservation, OwnedDnsQueryTasks};
+pub use query_tasks::{
+    OwnedDnsQueryBudget, OwnedDnsQueryFault, OwnedDnsQueryFaults, OwnedDnsQueryObservation,
+    OwnedDnsQueryTasks,
+};
 mod native_node;
 mod reverse;
 mod router;
@@ -44,7 +52,7 @@ use zero_traits::{AddressFamily, DnsResolver, IpAddress};
 use backends::ResolverBackend;
 use cache::{DnsCache, DnsWireCacheValue};
 use coordinator::{QueryCoordinator, QueryKey, QueryScope};
-pub use ech::EchDnsRecord;
+pub use ech::{EchDnsEndpoint, EchDnsRecord, EchRefresh};
 use fake_ip::FakeIpAllocator;
 pub use fake_ip::{default_fake_ip_state_path, FakeIpClearResult, FakeIpClearTarget, FakeIpStats};
 use reverse::RealIpReverseIndex;
@@ -72,6 +80,12 @@ pub use outbound::{
     DnsOutboundCarrierFuture, DnsOutboundConnectFuture, DnsOutboundConnector,
     DnsOutboundDatagramFuture, DnsQuicBidiConnector, DnsQuicBidiRequest,
 };
+
+#[cfg(feature = "doq")]
+pub use backends::DnsQuicCleanupFailure;
+
+mod donor_pause;
+pub use donor_pause::DnsDonorPause;
 
 /// The configured DNS subsystem.
 ///
@@ -213,6 +227,7 @@ impl DnsSystem {
     pub fn retire_native_queries(&self) {
         if let Some(node) = &self.node_queries {
             node.coordinator.cancel_pending();
+            node.wire.cancel_pending();
         }
         self.query_coordinator.cancel_pending();
         self.wire_query_coordinator.cancel_pending();
@@ -361,6 +376,9 @@ impl DnsSystem {
     }
 
     /// Install the runtime bridge used by DNS servers that specify a detour.
+    /// Configure explicit standalone detours. A resolver bound to an actual
+    /// native query source keeps all attempts with that source, including
+    /// admission failures; this is not a production fallback executor.
     pub fn set_outbound_connector(&self, connector: Arc<dyn DnsOutboundConnector>) {
         *self
             .outbound_connector
@@ -617,9 +635,18 @@ impl DnsSystem {
     /// resolution. The system-resolver fallback preserves Zero's historical
     /// IPv4-first dual-stack behavior.
     pub fn address_family_policy(&self) -> DnsAddressFamilyPolicy {
-        self.snapshot()
-            .map(|snapshot| snapshot.policy.address_family)
-            .unwrap_or_default()
+        self.address_family_and_fake_ip().0
+    }
+
+    /// Pure current policy flags under one original read lock. This creates no
+    /// resolution snapshot, query worker, native grant or cloned server config.
+    pub fn address_family_and_fake_ip(&self) -> (DnsAddressFamilyPolicy, bool) {
+        match &*self.inner.read().expect("dns system lock poisoned") {
+            DnsSystemInner::Configured {
+                policy, fake_ip, ..
+            } => (policy.address_family, fake_ip.is_some()),
+            DnsSystemInner::System(_) => (Default::default(), false),
+        }
     }
 
     /// Resolve a proxy node or carrier endpoint through the bootstrap/node
@@ -992,7 +1019,7 @@ impl DnsResolver for DnsSystem {
             None => {
                 return self
                     .resolve_system_coordinated(domain, DnsQueryRole::Default, config_generation)
-                    .await
+                    .await;
             }
         };
 

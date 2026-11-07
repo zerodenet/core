@@ -1,8 +1,8 @@
 //! Actual acquisition/registration/port tests, not injected syscall outcomes.
 use super::*;
-use crate::contract::{component::ResourceDeclaration, DeliveryState, Reason};
+use crate::contract::{DeliveryState, Reason, component::ResourceDeclaration};
 use std::{error::Error, num::NonZeroUsize};
-use zero_core::{request::Destination, Address};
+use zero_core::{Address, request::Destination};
 
 fn declaration(address: SocketAddr, attempts: usize) -> ResourceDeclaration {
     let ip = match address.ip() {
@@ -76,12 +76,14 @@ async fn native_bind_collision_closes_original_before_bounded_retry_and_retains_
         assert!(report.closed_io[0].contains("2 original native closes"));
         let rebound = std::net::TcpListener::bind(address).unwrap();
         assert_eq!(rebound.local_addr().unwrap(), address);
-        assert!(native
-            .wait_closed(deadline())
-            .await
-            .unwrap()
-            .closed_io
-            .is_empty());
+        assert!(
+            native
+                .wait_closed(deadline())
+                .await
+                .unwrap()
+                .closed_io
+                .is_empty()
+        );
         assert!(Arc::ptr_eq(
             &retained,
             &native.acquisition_source().unwrap()
@@ -106,11 +108,13 @@ async fn exhausted_creation_budget_cannot_replace_confirmed_failed_attempt() {
     };
     assert_eq!(error.reason, Reason::Capacity);
     assert_eq!(native.confirmed_close_count(), 1);
-    assert!(native
-        .wait_closed(Instant::now())
-        .await
-        .unwrap()
-        .is_complete());
+    assert!(
+        native
+            .wait_closed(Instant::now())
+            .await
+            .unwrap()
+            .is_complete()
+    );
     std::net::TcpListener::bind(address).unwrap();
 }
 
@@ -261,3 +265,8 @@ fn actual_missing_io_driver_panic_keeps_preinstalled_unknown_despite_poison_and_
         assert!(native.native_unconfirmed());
     });
 }
+
+#[path = "owner/accepted_totals.rs"]
+mod accepted_totals;
+#[path = "owner/totals.rs"]
+mod totals;

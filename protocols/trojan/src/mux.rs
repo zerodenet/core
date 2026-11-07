@@ -26,7 +26,11 @@ use zero_traits::AsyncSocket;
 
 use crate::shared::{parse_address_from_bytes, write_address};
 
+mod client_response;
+use client_response::run_mux_read_relay_with_shutdown;
+
 mod backlog;
+mod response;
 #[cfg(feature = "runtime")]
 mod standard;
 #[cfg(feature = "runtime")]
@@ -60,7 +64,12 @@ pub(crate) struct TrojanMuxPoolKey {
     response_backlog: MuxResponseBacklogPolicy,
 }
 
-type PoolEntries = HashMap<(Option<Arc<str>>, TrojanMuxPoolKey), Arc<TrojanMuxConn>>;
+#[cfg(feature = "runtime")]
+type NativeBinding = zero_platform_tokio::contract::network::UpstreamBinding;
+#[cfg(not(feature = "runtime"))]
+type NativeBinding = ();
+type PoolEntries =
+    HashMap<(Option<Arc<str>>, TrojanMuxPoolKey, Option<NativeBinding>), Arc<TrojanMuxConn>>;
 
 #[derive(Clone)]
 pub struct TrojanMuxConnectionPool {
@@ -274,7 +283,37 @@ impl TrojanMuxConnectionPool {
         Fut: Future<Output = Result<TrojanMuxConn, E>>,
         E: From<Error>,
     {
-        let lookup = (self.scope.clone(), key.clone());
+        self.get_or_create_conn_with_binding(key, max_concurrency, None, create_conn)
+            .await
+    }
+    async fn get_or_create_conn_with_binding<F, Fut, E>(
+        &self,
+        key: TrojanMuxPoolKey,
+        max_concurrency: u32,
+        binding: Option<NativeBinding>,
+        create_conn: F,
+    ) -> Result<(Arc<TrojanMuxConn>, u16), E>
+    where
+        F: FnOnce(TrojanMuxPoolKey, u32) -> Fut,
+        Fut: Future<Output = Result<TrojanMuxConn, E>>,
+        E: From<Error>,
+    {
+        #[cfg(feature = "runtime")]
+        let retired = {
+            let mut entries = self.pool.lock().expect("actual protocol MUX map");
+            entries
+                .extract_if(|_, connection| {
+                    connection
+                        .original
+                        .as_ref()
+                        .is_some_and(|original| original.confirmed_closed())
+                })
+                .map(|(_, connection)| connection)
+                .collect::<Vec<_>>()
+        };
+        #[cfg(feature = "runtime")]
+        drop(retired);
+        let lookup = (self.scope.clone(), key.clone(), binding);
         let cached = self
             .pool
             .lock()
@@ -401,17 +440,42 @@ impl TrojanInboundMuxTcpRelay {
     ) -> impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static {
         let sid = self.session_id;
         let output = self.writer.clone();
-        zero_transport::stream::ChannelStream::new(
-            self.up_rx,
-            move |bytes: &[u8]| {
-                output
-                    .data(sid, bytes)
-                    .map(|_| bytes.len())
-                    .map_err(io::Error::other)
-            },
-            move || self.writer.end(sid).map(|_| ()).map_err(io::Error::other),
-            std::num::NonZeroUsize::new(MUX_MAX_DATA_LEN).unwrap(),
-            Vec::new(),
+        let sender = output.write_tx.clone();
+        let mut waiter = None;
+        let header = encode_keep_stream(sid, &[])
+            .expect("fixed TCP header")
+            .len();
+        let end_size = encode_end_stream(sid).expect("fixed TCP END").len();
+        let maximum = output.backlog.payload_limit(MUX_MAX_DATA_LEN, header);
+        zero_transport::pooled_driver::ExclusiveIo::new(
+            zero_transport::stream::QueuedChannelStream::new(
+                self.up_rx,
+                sender,
+                move |cx, bytes: Option<&[u8]>| {
+                    let len = match bytes {
+                        Some(bytes) => bytes.len() + header,
+                        None => end_size,
+                    };
+                    let credit =
+                        std::task::ready!(output.backlog.poll_charge(cx, len, &mut waiter))
+                            .ok_or_else(|| {
+                                io::Error::other(
+                                    "Trojan MUX frame exceeds its original byte budget",
+                                )
+                            })?;
+                    let frame = match bytes {
+                        Some(bytes) => encode_keep_stream(sid, bytes),
+                        None => encode_end_stream(sid),
+                    }
+                    .map_err(io::Error::other)?;
+                    Poll::Ready(Ok(credit.map(|()| frame)))
+                },
+                move || {
+                    self.writer.request_end(sid);
+                },
+                maximum,
+                Vec::new(),
+            ),
         )
     }
     fn new(
@@ -796,42 +860,8 @@ fn encode_frame(
     Ok(frame)
 }
 
-async fn read_frame_from_tokio<R>(reader: &mut R) -> Result<MuxFrame, Error>
-where
-    R: tokio::io::AsyncRead + Unpin,
-{
-    let mut len_buf = [0u8; 2];
-    tokio::io::AsyncReadExt::read_exact(reader, &mut len_buf)
-        .await
-        .map_err(|_| Error::Io("trojan: failed to read from socket"))?;
-    let meta_len = u16::from_be_bytes(len_buf) as usize;
-    if meta_len > MUX_MAX_META_LEN {
-        return Err(Error::Protocol("trojan mux metadata too large"));
-    }
-
-    let mut meta = vec![0_u8; meta_len];
-    tokio::io::AsyncReadExt::read_exact(reader, &mut meta)
-        .await
-        .map_err(|_| Error::Io("trojan: failed to read from socket"))?;
-    let mut frame = decode_metadata(&meta)?;
-
-    if frame.option & MUX_OPTION_DATA != 0 {
-        tokio::io::AsyncReadExt::read_exact(reader, &mut len_buf)
-            .await
-            .map_err(|_| Error::Io("trojan: failed to read from socket"))?;
-        let data_len = u16::from_be_bytes(len_buf) as usize;
-        if data_len > MUX_MAX_DATA_LEN {
-            return Err(Error::Protocol("trojan mux data too large"));
-        }
-        frame.payload.resize(data_len, 0);
-        if data_len > 0 {
-            tokio::io::AsyncReadExt::read_exact(reader, &mut frame.payload)
-                .await
-                .map_err(|_| Error::Io("trojan: failed to read from socket"))?;
-        }
-    }
-
-    Ok(frame)
+async fn read_frame_from_tokio<R: AsyncRead + Unpin>(reader: &mut R) -> Result<MuxFrame, Error> {
+    response::read_frame(reader).await
 }
 
 async fn read_mux_stream_frame<R>(reader: &mut R) -> Result<MuxFrame, Error>
@@ -884,9 +914,9 @@ impl TrojanInboundMuxStreams {
     }
 
     fn close_inbound_stream(&mut self, session_id: u16) -> bool {
-        self.streams
-            .remove(&session_id)
-            .is_some_and(|tx| tx.send(Vec::new()).is_ok())
+        // END drains accepted upload DATA before EOF; the target may still
+        // send its response through this same logical stream and writer.
+        self.streams.remove(&session_id).is_some()
     }
 
     fn apply_inbound_action(
@@ -1145,6 +1175,10 @@ impl TrojanInboundMuxSession {
 pub(crate) struct TrojanInboundMuxWriter {
     write_tx: mpsc::Sender<BufferedMuxResponse<Vec<u8>>>,
     backlog: MuxResponseBacklog,
+    #[cfg(feature = "runtime")]
+    pending_ends: std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<u16>>>,
+    #[cfg(feature = "runtime")]
+    end_changed: std::sync::Arc<tokio::sync::Notify>,
 }
 
 impl TrojanInboundMuxWriter {
@@ -1162,8 +1196,26 @@ impl TrojanInboundMuxWriter {
         let (write_tx, mut write_rx) =
             mpsc::channel::<BufferedMuxResponse<Vec<u8>>>(policy.frames());
         let original = Self::new(write_tx, MuxResponseBacklog::from_policy(policy));
+        let pending_ends = original.pending_ends.clone();
+        let end_changed = original.end_changed.clone();
+        let sender = original.write_tx.downgrade();
+        let backlog = original.backlog.clone();
         (original, async move {
-            while let Some(frame) = write_rx.recv().await {
+            loop {
+                // Weak sender does not keep this original FIFO open forever.
+                if let Some(write_tx) = sender.upgrade() {
+                    Self {
+                        write_tx,
+                        backlog: backlog.clone(),
+                        pending_ends: pending_ends.clone(),
+                        end_changed: end_changed.clone(),
+                    }
+                    .retry_end_requests();
+                }
+                let frame = tokio::select! {
+                    frame = write_rx.recv() => match frame { Some(frame) => frame, None => break },
+                    _ = end_changed.notified() => continue,
+                };
                 let frame = frame.into_inner();
                 writer
                     .write_all(&frame)
@@ -1171,6 +1223,9 @@ impl TrojanInboundMuxWriter {
                     .map_err(standard::write_error)?;
                 writer.flush().await.map_err(standard::write_error)?;
             }
+            // No strong sender remains and the original FIFO is fully drained.
+            // The same original driver still owns any cancelled END facts.
+            pending_end::finish_last_sender(&pending_ends, &mut writer).await?;
             writer.shutdown().await.map_err(standard::write_error)
         })
     }
@@ -1178,7 +1233,14 @@ impl TrojanInboundMuxWriter {
         write_tx: mpsc::Sender<BufferedMuxResponse<Vec<u8>>>,
         backlog: MuxResponseBacklog,
     ) -> Self {
-        Self { write_tx, backlog }
+        Self {
+            write_tx,
+            backlog,
+            #[cfg(feature = "runtime")]
+            pending_ends: Default::default(),
+            #[cfg(feature = "runtime")]
+            end_changed: Default::default(),
+        }
     }
 
     fn from_tokio_writer<W>(writer: W, policy: MuxResponseBacklogPolicy) -> Self
@@ -1364,7 +1426,7 @@ struct TrojanMuxStream {
     read_rx: mpsc::Receiver<TrojanMuxDownlink>,
     write_buf: Vec<u8>,
     write_pos: usize,
-    read_buf: Vec<u8>,
+    read_buf: Option<BufferedMuxResponse<Vec<u8>>>,
     read_pos: usize,
     opened: bool,
     ended: bool,
@@ -1502,7 +1564,7 @@ impl TrojanMuxConn {
         port: u16,
         network: Network,
     ) -> TrojanMuxStream {
-        let (down_tx, down_rx) = mpsc::channel(self.response_backlog_frames + 1);
+        let (down_tx, down_rx) = mpsc::channel(self.response_backlog_frames);
         self.streams.lock().unwrap().insert(session_id, down_tx);
 
         TrojanMuxStream::new_with_network(
@@ -1621,89 +1683,6 @@ async fn run_mux_write_relay_with_shutdown<W>(
     let _ = shutdown_tx.send(true);
 }
 
-async fn run_mux_read_relay_with_shutdown<R>(
-    mut reader: R,
-    streams: Arc<Mutex<std::collections::HashMap<u16, mpsc::Sender<TrojanMuxDownlink>>>>,
-    closed: Arc<AtomicBool>,
-    shutdown_tx: watch::Sender<bool>,
-    mut shutdown_rx: watch::Receiver<bool>,
-    activity_tx: Option<watch::Sender<tokio::time::Instant>>,
-    response_backlog: MuxResponseBacklog,
-) where
-    R: AsyncRead + Unpin + Send + 'static,
-{
-    loop {
-        let event = tokio::select! {
-            biased;
-            changed = shutdown_rx.changed() => {
-                if changed.is_err() || *shutdown_rx.borrow() {
-                    break;
-                }
-                continue;
-            }
-            event = read_mux_server_event(&mut reader) => {
-                match event {
-                    Ok(event) => event,
-                    Err(_) => break,
-                }
-            }
-        };
-        if let Some(activity_tx) = &activity_tx {
-            activity_tx.send_replace(tokio::time::Instant::now());
-        }
-        match event {
-            TrojanMuxServerEvent::KeepAlive => continue,
-            TrojanMuxServerEvent::Data {
-                session_id,
-                payload,
-            }
-            | TrojanMuxServerEvent::NewStream {
-                session_id,
-                payload,
-                ..
-            } => {
-                let tx = streams.lock().unwrap().get(&session_id).cloned();
-                if let Some(tx) = tx {
-                    if !payload.is_empty() {
-                        let payload_len = payload.len();
-                        if !try_queue_mux_response(&response_backlog, &tx, payload, payload_len) {
-                            streams.lock().unwrap().remove(&session_id);
-                        }
-                    }
-                }
-            }
-            TrojanMuxServerEvent::End { session_id }
-            | TrojanMuxServerEvent::Unknown { session_id, .. } => {
-                streams.lock().unwrap().remove(&session_id);
-            }
-        }
-    }
-    closed.store(true, Ordering::Release);
-    let _ = shutdown_tx.send(true);
-    streams.lock().unwrap().clear();
-}
-
-fn try_queue_mux_response(
-    backlog: &MuxResponseBacklog,
-    tx: &mpsc::Sender<TrojanMuxDownlink>,
-    payload: Vec<u8>,
-    bytes: usize,
-) -> bool {
-    if tx.capacity() <= 1 {
-        let _ = tx.try_send(TrojanMuxDownlink::Overflow);
-        return false;
-    }
-    let Ok(response) = backlog.try_buffer(bytes, payload) else {
-        let _ = tx.try_send(TrojanMuxDownlink::Overflow);
-        return false;
-    };
-    if tx.try_send(TrojanMuxDownlink::Data(response)).is_err() {
-        let _ = tx.try_send(TrojanMuxDownlink::Overflow);
-        return false;
-    }
-    true
-}
-
 async fn run_mux_idle_monitor(
     idle_timeout: Duration,
     mut activity_rx: watch::Receiver<tokio::time::Instant>,
@@ -1756,7 +1735,7 @@ impl TrojanMuxStream {
             read_rx,
             write_buf: Vec::new(),
             write_pos: 0,
-            read_buf: Vec::new(),
+            read_buf: None,
             read_pos: 0,
             opened: false,
             ended: false,
@@ -1841,12 +1820,13 @@ impl AsyncRead for TrojanMuxStream {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        if self.read_pos < self.read_buf.len() {
-            let n = (self.read_buf.len() - self.read_pos).min(buf.remaining());
-            buf.put_slice(&self.read_buf[self.read_pos..self.read_pos + n]);
+        if let Some(data) = &self.read_buf {
+            let length = data.value().len();
+            let n = (length - self.read_pos).min(buf.remaining());
+            buf.put_slice(&data.value()[self.read_pos..self.read_pos + n]);
             self.read_pos += n;
-            if self.read_pos == self.read_buf.len() {
-                self.read_buf.clear();
+            if self.read_pos == length {
+                self.read_buf = None;
                 self.read_pos = 0;
             }
             return Poll::Ready(Ok(()));
@@ -1854,11 +1834,10 @@ impl AsyncRead for TrojanMuxStream {
 
         match Pin::new(&mut self.read_rx).poll_recv(cx) {
             Poll::Ready(Some(TrojanMuxDownlink::Data(chunk))) => {
-                let chunk = chunk.into_inner();
-                let n = chunk.len().min(buf.remaining());
-                buf.put_slice(&chunk[..n]);
-                if n < chunk.len() {
-                    self.read_buf = chunk;
+                let n = chunk.value().len().min(buf.remaining());
+                buf.put_slice(&chunk.value()[..n]);
+                if n < chunk.value().len() {
+                    self.read_buf = Some(chunk);
                     self.read_pos = n;
                 }
                 Poll::Ready(Ok(()))
@@ -1954,3 +1933,6 @@ impl AsyncWrite for TrojanMuxStream {
 fn protocol_error(error: Error) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, error)
 }
+
+#[cfg(feature = "runtime")]
+mod pending_end;

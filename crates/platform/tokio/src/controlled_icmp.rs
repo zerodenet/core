@@ -1,5 +1,7 @@
 //! Explicit ownership of actual ICMP originals, not ordinary UDP authority.
 mod acquire;
+mod totals;
+pub use totals::IcmpTotalsBinding;
 mod close;
 mod io;
 mod relay;
@@ -105,6 +107,7 @@ pub struct ControlledIcmpOwner {
     entries: BTreeMap<u64, Arc<Entry>>,
     confirmed_closed: u64,
     known_no_native: u64,
+    totals: Option<IcmpTotalsBinding>,
 }
 struct Entry {
     wakes: relay::IoRelays,
@@ -113,6 +116,9 @@ struct Entry {
     cancel: CancellationToken,
     native: Mutex<Native>,
     uncertain: Arc<std_io::Error>,
+    creation_running: std::sync::atomic::AtomicBool,
+    view_live: std::sync::atomic::AtomicBool,
+    changed: tokio::sync::Notify,
     ipv6: bool,
     metadata: Mutex<Metadata>,
 }
@@ -147,7 +153,11 @@ pub struct ControlledIcmpSocket {
 }
 impl Drop for ControlledIcmpSocket {
     fn drop(&mut self) {
+        self.entry
+            .view_live
+            .store(false, std::sync::atomic::Ordering::Release);
         self.entry.cancel.cancel();
+        self.entry.changed.notify_waiters();
     }
 }
 impl ControlledIcmpOwner {
@@ -163,6 +173,7 @@ impl ControlledIcmpOwner {
             entries: BTreeMap::new(),
             confirmed_closed: 0,
             known_no_native: 0,
+            totals: None,
         }
     }
     fn reap(&mut self) {
@@ -186,6 +197,13 @@ impl ControlledIcmpOwner {
         self.cancel.cancel();
     }
     fn reserve(&mut self, ipv6: bool) -> Result<Arc<Entry>, IcmpAcquisitionError> {
+        self.reserve_for(ipv6, None)
+    }
+    fn reserve_for(
+        &mut self,
+        ipv6: bool,
+        caller: Option<crate::contract::scope::TaskJoinWitness>,
+    ) -> Result<Arc<Entry>, IcmpAcquisitionError> {
         self.reap();
         let denied = |message| IcmpAcquisitionError {
             raw_permission_source: None,
@@ -228,9 +246,22 @@ impl ControlledIcmpOwner {
             uncertain: Arc::new(std_io::Error::other(
                 "ICMP original native outcome is unconfirmed",
             )),
+            creation_running: std::sync::atomic::AtomicBool::new(true),
+            view_live: std::sync::atomic::AtomicBool::new(false),
+            changed: tokio::sync::Notify::new(),
             ipv6,
             metadata: Mutex::new(Metadata::default()),
         });
+        if let Some(binding) = &self.totals {
+            binding
+                .reserve(&entry, caller)
+                .map_err(|source| IcmpAcquisitionError {
+                    raw_permission_source: None,
+                    reservation: None,
+                    outcome: IcmpAcquisitionOutcome::KnownNoNative,
+                    source: Arc::new(std_io::Error::new(std_io::ErrorKind::WouldBlock, source)),
+                })?;
+        }
         self.entries.insert(self.next, entry.clone());
         self.next = next;
         Ok(entry)

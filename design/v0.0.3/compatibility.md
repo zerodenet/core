@@ -135,3 +135,314 @@ Config 的 Rust 便利文档加载 `RuntimeConfig::load_from_path` 删除；调�
 
 Packet/provider、部分 transport/process、设备 Scope、Windows pipe 和剩余预算的实现缺口
 单列在执行记录；没有因为新增上述接口而关闭整轮或 TEMP-WG-OUTER-UDP-01。
+
+## 第二轮续作的关联 Datagram 与实际设备原件
+
+`ResourceDeclaration::ControlledAssociationPool` 是同一实际 carrier owner 的 TCP 控制与
+协议协商 Datagram 原件声明；穷尽匹配调用者须处理新增变体，两个原件消费同一总额度。
+`UpstreamOpener::resolve_related_datagram` 默认拒绝，实际 host 实现使用同 Node DNS；
+`CarrierGrant::link_related_datagram` 只绑定真实已取得的同 owner 控制原件，不授予 root I/O。
+`CarrierOrigin::related_control` 是只读关联责任，物理 parent/native_origin 仍是实际 UDP 来源。
+`DatagramLoan::into_session` 与 `BorrowedDatagram::into_datagram_loan` 转交原 Tx/Rx、
+唯一 view 与同 LoanOwner，不新起协议泵，不把 view 返回当原件关闭。
+
+`PacketDeviceBinding` 增加 `Create` 与 `ExistingWindows`，原 descriptor 借入模式保留。
+具体 provider 在配置前安装原拥有者，Windows existing 不在失败时创建替代 adapter。
+`IpPacket::payload_mut` 原位修改同 buffer，调用方保持已校验 family/长度和 ingress/return 元数据。
+这些是续作实现前置；全部生产调用者、source、TaskRegistrar 与旧链删除仍按剩余表完成，
+不以此声明架构、GUI/面板、平台或压力资格通过；V1 wire 与 FFI ABI 不变。
+
+
+## 第二轮续作的内部 Rust 原件接口
+
+新增 `RuntimeHost::run_probe` / `ProbeCall` 接续实际 diagnostic/URLTest 调用，
+在原 Direct Scope 登记真实任务，并持有原全局额度至实际任务和原件清理完成。
+`CarrierServiceGrant` 的 Direct 用法必须由同 host 的私有 fence、原注册和真实调用任务签发；
+公开 Service facts、observer、裸 Direct 描述不产生 I/O 权限。
+`CarrierOwnerRegistration::poll_cancelled_retirements` 只轮询已取消的原 slot，
+不创建任务、Scope、协议池或关闭凭据。嵌入调用者仍须驱动原 host supervision/关闭流程。
+
+System TUN 使用同 inbound registry 的 Source、实际原 Registrar 与原设备/route/monitor，
+新增可选 worker/Packet return/诊断/gRPC/SS 安全历史预算保持省略字段导出形状。
+普通 UDP 构建包含 neutral raw IP source，不因此启用 WireGuard 协议。
+TLS `OwnedPreparedClient` 接收实际授予的不可变 CA 材料，并沿用原 backend、安全策略及缓存隔离。
+这些内部接口的新增不构成 GUI/面板、特权设备或跨平台的组合资格；V1/FFI/events/CLI 验证仍以
+最终精确候选为准，未修改消费者。
+
+
+第二轮续作的 Linux `ResourceAccess::prepare_owned_process` 返回由原 Host 保留的 cold
+`OwnedProcess`；实际已登记 actor 执行启动/原生树清理，外层在该真实 actor join 后显式关闭
+原始 fd 并取得 matching `ProcessTreeClosed`。这属于内核 Rust 资源接口；V1 配置/API/events、
+CLI/FFI 和客户端面板不变。原 `spawn_process` 暂仅未迁调用者使用，直接 child reap 仍不能
+取得 Process 声明覆盖。生产 SIP 消费、总体预算与适用跨平台实现尚未完成，不能把这些
+接口或 Linux 底层回归视为全域迁移资格。
+
+续作将该原件接口扩展到 Windows suspended root / JobObject，并增加同一个 job 的
+`ProcessEndpoint` 预留、原始 readiness probe 和真实依赖消费授权。网络用户的真实
+Carrier 原件、Process 原件和各自 Scope 保持独立；不能用逻辑远端地址冒充实际 loopback
+peer 的原生 ancestry。Windows GNU 源码检查不代表真实 Job/NamedPipe 运行资格，macOS
+进程树责任和生产 SIP 消费仍有未完成实现。
+
+可选 `runtime.process_max_jobs`（默认 64）与 `process_max_jobs_per_instance`（默认 1）
+限制同一内核中待启、失败及退休中的实际 job；每实例额度不超过总体额度。这不限制
+单个 job 内合法后代数量。退款等待真实原件关闭、实际 actor join 和 Host ACK。
+省略仍不导出这些字段；穷举构造 `RuntimeOptionsConfig` 的 Rust 调用者应添加 `None`
+或沿用 `..Default::default()`。
+
+Packet 的内核 Rust 契约补充 `PacketRequest::return_mtu`、实际
+`GrantedPacketDevice::native_read`、`PacketStorage::allocation_bytes/derive_zeroed` 和
+原声明序号绑定的 `PacketDatagramReads`。标准装配使用同一个实际预算总账；缓冲移动、
+分片和重组不产生额外池或原生关闭证据。自定义 storage 的默认 derivation 明确拒绝
+未预付分配；内核生产读取必须提供真实原件 grant，不能以库默认分配补齐缺失责任。
+H2 客户端继续使用原 `connect_h2*` API，原连接由当前调用者推进，保留半关闭和真实
+流控；未新增第二执行宿主或公开替代协议 SPI。上述接口不改变 V1 JSON/API/events、
+CLI/FFI 或消费者，但全部生产路径和最终统一候选尚未取得完整资格。
+
+
+## 原 Packet source 与按需进程的 Rust 接线续作
+
+`ResourceAccess::open_packet_device` 返回原异步获取 future，调用者须在同实际
+Scope/driver 与原启动期限内 await；`GrantedPacketSourceDriver` 同时转交原 origin
+和唯一 checkpoint。暂停只限制新借用，并由实际 main/wire（Direct 为原单 driver）
+确认，不撤销已转交 I/O，也不提供 native close、任务 join 或预算退款凭据。
+`ResourcePreparation::prepare_component_recipe` 将既有完整 typed recipe 及其原 native
+binding 交给同一个冷分配器，保留失败后整次准备失效的规则。
+
+`ProcessEndpointStreamRequest` / `ProcessEndpointDatagramRequest` 的 `startup_deadline`
+由原协议启动责任给出，再受实际调用期限约束；同 Slot 保留唯一 initializer，首借用者
+取消后由现有 supervisor 推进。它不另建进程、池或清理任务。只读
+`shadowsocks::component::PluginRootExit::status()` 保留原退出状态的类型信息。
+
+新增可选 `runtime.ss_udp_max_pending_responses` 和
+`runtime.ss_udp_total_max_pending_responses` 均默认 4096、范围 1..65536、省略不导出；
+分别限制同实际 Flow 与同 adapter 账本的响应票据，pending、失败退休及收到未取走均计额。
+该 schema 的普通生产消费仍在同一轮实现，字段存在不代表该职责域取得资格。
+V1 信封、控制 ACK/revision、事件与计量、CLI/FFI 及客户端/面板工作流沿用现契约。
+
+## 同原件故障交接与控制 Scope 续作
+
+`ChannelError` 的可选 `CleanupFailureReceipt` 是同一控制器有限错误记录的交接元数据。
+生产者先一次绑定同一稳定 payload，接收方先强留实际返回的错误 Arc，再显式 ACK；
+晚到次错误继续进入同一 payload。未绑定或 foreign receipt 不能 ACK。转发错误须保留
+该结构化字段，诊断 `Error::source()` 不授予交接权限。回执不证明 native close、view
+归还、业务用户结束、TaskScope join 或 Host registration ACK，也不授予预算退款。
+
+`TaskRegistrar::retirement_observation()` 与实际 issued `WeakTaskRegistrar` 的同名观察
+方法只读同一个 Scope 的封闭、实际 join 与 registration 归还状态；不重建任务权限，
+不创建/取消任务，不消费退出或清理原件。Scope identity 仍只有身份匹配职责。
+
+CLI connector-state 使用 `inspect_principal_quota_state_with_source`，接续加载文档的真实
+ConfigurationSource；独立库检查仍有显式 standalone 入口，均经过同原件关闭屏障。
+状态采样器在 ApplicationServices 中先安装冷 owner，再注册唯一 Critical TaskScope
+任务；正常配置替换转移监督到下一实际 owner，取消关闭等待不丢失原 Scope。
+终止故障继续保留类型和来源，原任务、文件和用户的实际退休单独判断。
+
+上述接线仍在整域迁移与必要回归中，不代表五域结题、统一候选 CI、跨平台或同产物
+GUI/面板资格已通过。配置/API/events 与 ACK/revision/计量标识继续保持，未改消费者。
+
+
+## 第二轮完整调用者续作的当前 Rust 边界
+
+本节登记当前实际生产调用者及 Rust 接线，运行资格按 round2/verification.md 的精确
+输入分别判断。五域仍在收尾，不将历史局部限制、公开接口出现或单项通过当作最终资格。
+
+- System TUN 使用同一 Catalog 的 `prepare_resource_start` / `PreparedComponentStart`。
+  该 token 只在原 StopOld 与同 Root 额度安装后返回；`refresh_device_resources` 在真实
+  TUN Source 改变网络代次后，接续同一份已接受 cold 材料，拒绝替换已构造候选。
+  `prepare_restarting_device_resources` 先描述完整受影响集合，活跃 Business 仍为 Busy，
+  旧 TCP 不因此撤销。取消/Drop token 只释放串行锁，实际 Replacement、原件与清理责任
+  仍留 Catalog；不是原件关闭凭据。生产调用者是 Proxy 的 TUN 初启、换代及恢复。
+- `prepared_candidate` 的同配置 device cold 候选优先于旧 current；只读存在不表示 Ready。
+  Source 真正 BuildNew 后，其既有协议恢复 capsule 重新选择实际 linked binding，不能
+  复活 first-cold Pending 图。原 Main/Wire 两阶段 checkpoint 仍与 native/Scope 关闭分证据。
+- `CarrierGrant::adopt_service_stream_loan` 的生产调用者是既有 per-connection Node Service
+  前缀。仅接受其真实 ControlledServiceStream 声明、完整 endpoint/dial/binding、无业务
+  Session 与存活 Scope；先安装同一 strong LoanOwner 再校验。普通空前缀 native 规则不改。
+  direct-dependency Stream loan 还须实际 Catalog Slot、同 host fence 与原 grant 的 seal，
+  不能用角色 ID、裸 Stream 或测试登记替代。无第二协议池或资源缺失 fallback。
+- 独立 connector-state inspect 消费加载配置的原 ConfigurationSource 及现有
+  DispatcherResources；`ConfigurationSnapshotReader` 只借原捕获长度内的 Read/Seek，
+  不授予 clone、写入或原生 handle。实际 File/SQLite/scratch 关闭与原失败分别保留。
+  Engine-only/FFI 不因此启动 Proxy。quota 最终 std worker 的错误在真实 join 后回到同一
+  Source；已接历史故障与仍未知的 native/worker 清理分开，不凭 Drop 放行下一原件。
+- 新增 `runtime.event_log_stats_max_bytes` 与 `event_subscriber_stats_max_bytes`，默认
+  分别 8 MiB 和 1 MiB，范围 1..=256 MiB，省略不导出。前者是同 Engine 统计历史的
+  序列化字节，后者是每个实际订阅未取走的统计字节，独立于控制出口预算。缩额低于
+  真实 held 用量返回 Busy，保留当前配置、revision 与事件；新订阅接续同一实际限制。
+  既有统计采样溢额/历史前缀缺口语义、控制 ACK 与流量结算保持。
+
+普通 Direct Packet 的实际 provider/路由/returns 及 System TUN Source 已在生产装配
+接线；完整 TX/SDK/所有预算投影和换代回归仍继续，不能再用“尚未开启 gate”概括当前
+实现。特权 TUN、真实 Windows/macOS、GUI/面板同产物及 1c1g 资格仍须适用环境验证。
+TEMP-WG-OUTER-UDP-01 仅保原 outer_udp_proxy/reconnect 历史范围，仍单独未关闭。
+
+
+## 同原件 Packet 内存与 Source 生产预算续作
+
+本轮进程内 Rust 调用者须保留 `PacketBuffer` 原存储所有者，不能把生产缓冲转回裸
+`Vec` 再补记额度。`zero_stack::packet_output::ObservedPacket.packet` 改为
+`PacketBuffer`；显式库用 Vec sender 仍有原职责，但不能充当资源缺失时的生产后备。
+`PacketStorage` 增加拒绝型默认的同步派生/预付和唯一 Vec 转交；SDK 转交实际分配时
+继续持有原 custody。内存归还不证明 native、用户或 Scope 关闭。
+
+内部 `PacketRequest` 新增 `return_memory_layout`；实际 Source 必须给出其原 codec 的
+正向事实，`None` 不推断 Native。`PacketDatagramReads` 增加可选
+`control_workspace`，由同 Host、同 Scope 在原 native 尝试前预付；WG 控制使用原
+148 字节工作区。协议只能拿到同 read0 的 allocation view，不拿 Root policy setter。
+TUN/source/返回/翻译回包在原 FIFO 前预付完整有限责任，拒绝保留原输入。
+
+新增 `metadata_max_probe_sockets`、`metadata_max_probe_attempts`、
+`metadata_max_send_calls`、`quic_source_max_connections`、
+`quic_shared_endpoint_max_users`、`inbound_max_tasks_per_carrier`、
+`inbound_max_resources_per_carrier`、`inbound_max_in_flight_requests` 均为可选
+runtime 配置。实际协议/查询保留各自省略默认；资源显式0保留原 NoResource 语义。
+配置变化仍由同宿主 StopOld、真实原件和任务回执后安装，新限额拒绝新增而不驱逐活跃
+业务或有效安全历史。字段省略不改变既有导出形状，V1 API/events/ACK/revision、
+CLI/FFI 与客户端面板协议保持。
+
+这些是开发中源码接续，尚非完整职责域或统一候选资格。TEMP 软件原件转交、适用
+helper、剩余调用者/旧执行链删除和必要回归继续，唯一 TEMP 范围不扩大。
+
+## 同一控制原件的 Pipe 工作区额度续作
+
+可选 `runtime.control_pipe_max_workspace_bytes` 默认2MiB，范围1..=256MiB，
+省略仍不导出。Windows Pipe 的原 Entry 在首次 native open 前向同 ControlBudget
+预付该 provider 的完整 payload 工作区（原 pending read/write 各一份，加各自两个
+队列位置，当前合计24576字节）；这不是OS pipe buffer/RSS测量，也不借事件字节额度。
+确认原始 handle关闭、std worker及Scope真实join、原连接任务归还和Host ACK后才释放
+原连接/工作区账额。未知清理始终保留原件；已关闭provider显式丢弃原payload Vec，
+诊断owner clone不能让已退额度的工作区继续驻留。任务body/EOF/Drop不充当关闭凭据。
+
+进程内Rust `ControlBudgetLimits` 与 `ControlBudgetUsage` 新增
+`pipe_workspace_bytes`，`ControlCharge` 新增 `PipeWorkspaceBytes(usize)`；
+自定义literal按实际root提供额度，普通生产装配由既定runtime配置投影。
+V1配置/API/events、CLI/FFI、ACK/revision/订阅和计量语义保持。
+代码与真实Windows回归已补，当前尚待该输入编译和真实平台验证，不算G8或整轮关闭。
+
+
+## 同一 DatagramLoan 的实际 wire 与逻辑 association 续作
+
+进程内 Rust `LoanDatagramIo` 区分当前接收者的逻辑 association 与原 Tx/Rx 实际绑定的
+wire association。初次构造二者相同；真实多层转交继承原 wire 绑定，当前调用者保留其
+自己的逻辑 ID。`association()` 和 `wire_association()` 只读，不授予原件、任务或关闭权限。
+`send` 在构造原有 owned Datagram 前填实际 wire ID，`receive` 按该 ID 筛选；不克隆独占
+PacketBuffer，也不另建队列。原 native 对错误 association 的拒绝仍保留。
+
+实际 `into_session` 消费者应在转移前读取 `io.wire_association()`，用在其本来就拥有的
+编码 frame 上，收到原 wire 后再返回当前逻辑 ID。现有 SS UDP 借入 codec 已配对适配；
+SOCKS native 初次转交的两个 ID 本来相同。没有第二协议 SPI、resolver、pool 或资源后备。
+
+Rust `ResourceDeclaration` 新增 `ControlledServiceDatagram`，穷举该内部契约的集成代码
+需处理新变体；它仅消费声明 endpoint/dial 的真实非空 prefix DatagramLoan，无 root
+native 或 cached-driver 权限。`BorrowedPacketSegment` 接既有 Packet 队列及同 Factory
+Scope 的实际单 Aux，原 LoanOwner 先存原 slot；失败或取消继续持有，真正 join/Host ACK
+及原控制归还后才返原队列。目标生产调用者是既有 per-connection QUIC 出站，完整 producer
+仍在续作，不能以公开类型或局部回归替代普通装配资格。
+
+V1 配置/API/events、CLI、FFI、客户端及面板无需改动。实际编译、失败和运行资格逐输入见
+[第二轮验证记录](cloud/round2/verification.md)，五域仍未完整结题。
+
+## 控制原请求与序列化输出预算续作
+
+新增可选 `runtime.control_*` 消息预算保持字段省略时不导出；V1信封、方法、事件、ACK和
+revision不变。根账分别限制在途请求/响应字节及命令、gRPC请求数；实际原Connection的
+IPC命令/事件、SSE帧、gRPC stream使用同一局部issuer，克隆issuer不分裂额度。
+`control_sse_max_event_frames` 默认32，范围1..4096；IPC/SSE物理队列按需分配至schema
+ceiling，默认真实held额度不变，另受原根字节上限约束。pending写仍持原frame额度，
+缩额检查真实held/retiring原件；队列或Tonic交接不是native写入/关闭凭据。
+当前仍在完成命令最终ACK、gRPC编码存储与Engine DTO首次物化前的实际计额；新增字段
+或消费者接线不代表控制和预算职责域已完成。无需修改客户端或面板。
+
+本次 gRPC 内部接线复用原 Hyper H2 stream 的 AcceptedTasks/TaskJoinWitness；先保存同原件
+再执行IO，真实join/registration ACK后才移除Root请求行。默认请求解码上限仍4MiB、物理
+H2并发32及send buffer32KiB不变；可选已验证上限由原body长度观察器在Tonic首次增长前
+执行。Pinned Tonic 0.12.3的8192/32768是其原codec几何，不是新增生产额度或扩大缓冲。
+请求/JSON/Prost/保留的encoder workspace和实际Wire Bytes分别预付；这是字节存储上界，
+不宣称测量allocator/RSS。Bytes克隆/切片持有同原计额，交接不声称实际写入。
+同Root的reserve_encoded_response只原子接纳该次输出的三个存储责任，失败不产生部分
+退款或自唤醒；没有新调度器、任务或池。已受理命令future在断开后由原H2任务inline续驱动，
+不另开清理任务；真正Apply原操作超时后的join观察和Engine DTO物化前计额仍待完整接入，
+不能把此局部接线当作控制/G8或预算职责完成。
+
+## 既有DatagramCodec固定工作区及MUX原件前置
+
+现有DatagramCodec增加纯encode/decode_buffer_lengths与encode/decode_buffered、
+DatagramCodecOutput和DatagramCodecBufferError；固定slice承担所有实际中间和最终字节，
+容量先验后才nonce/replay/RNG。SS全现有cipher及HY2/Mieru实现同一原codec方法，不引入
+替代SPI、resolver、池或资源调度器。旧Vec方法仅保显式库职责；Kernel仍等完整flat路径
+多层预付消费端迁完再切换，不用默认Unreserved拒绝旧合法内建配置。移动Domain Vec
+必须由原Target/workspace持同原额度到真实用途结束。当前仍在开发，不是预算域资格。
+
+PoolFactory.build_with_registration返回同一个cold ComponentInstance和其原CarrierOwner
+登记观察，供VLESS/VMess真实start在可失败的材料准备前安装；它不Ready、claim或启动IO。
+原start仍检同原owner/Scope/ordinal，重复只允许同一实际登记；错误/空原件的真实关闭、
+驱动及Host ACK另验。V1配置/API/事件/消费者保持不变。
+
+## 同一 Engine 配置视图与 gRPC 状态存储续作
+
+内部 Rust 新增 `EngineRuntimeSnapshot::control_config_query`：Config/Policies/Policy
+同步借阅同一个真实快照和 group guards，先测量、再取得原响应额度、再编码；释放 guard
+之后才允许等待 I/O/容量或退款通知。HTTP 保持原 flat body，IPC/gRPC 保持既有
+QueryResponse 信封、错误消息、身份、revision 和 ACK 语义。公开 Engine-only 查询仍有
+原有进程内职责，不因此创建 Proxy、第二快照池或资源宿主。
+
+普通应用 gRPC 使用 `GrpcHandle::start_with_engine`，传入其 ProxyHandle 的同一
+EngineHandle；原 `start` 保留通用库服务职责。原始响应 Bytes/header 克隆持有同一
+ControlBudget credit；原请求实际 join 与 wire 所有权分别计额。该接线的局部定向结果
+不表示完整控制 DTO、H2/QUIC workspace 或 Z003-07 已完成。
+
+`PacketSegment::retire_final` 用于真实 endpoint users/drivers 退出后的最终 FIFO 封闭与
+排空；UDP hop 的 `retire` 保留同队列。Scope 取消先停止业务，原 Aux 保留已接受 native
+send，超时不授关闭/替换或退款凭据。四项真实 Packet 定向已验，普通 H3 尚待新输入复验。
+
+### 续作控制借阅与取消（开发中）
+
+Config/Policy、Runtime/Flows/Stats、PrincipalFlows、Sinks 原表借阅视图保持既有 V1 wire，
+不启动额外 Proxy。gRPC 持久错误头保留实际字节计额，已结束 RPC 并发额度独立归还。
+控制连接 stop 传递同次 Apply/Probe 调用：接受前取消，接受后保留原补偿与 Scope ACK；
+coalesced Probe 的其他调用者保持原业务，最后调用者取消同一原件。其余 DTO、事件与
+Target/DNS/Trace 资源责任继续实施；上述接口存在不表示完整职责域关闭。
+
+## Packet route 原表查询与生产登记额度续作
+
+PacketRoutes/PacketRoute 的 HTTP typed query、IPC 和生产 gRPC 直接借阅同一实际登记表，
+工作区在保留原 Arc 前预付，状态/分页/观察时间只冻结一次，输出后归还 guard，再保留实际
+wire buffer 的 Root 字节额度。V1 列表/详情字段、Closing 状态及 NotFound 消息不变；
+既有 Engine owned query 保留进程内库职责，不作为生产控制消费者的后备执行者。
+
+新增可选 `runtime.packet_route_max_routes`，默认4096，范围1..=4096，省略不导出。
+它限制同一 Engine 中实际 route 原件；执行 lease 已归还但 response worker 未确认返回的
+Closing 原件仍计额。配置准备及最后发布都检查同一原表；低于实际用量返回 Busy，
+不撤销活跃 route，不改 revision 或已持有原件，恢复/增长仍使用同一原表。原4096任务
+Scope 安全上界保留；这不是设备缓冲、Packet return 内存或关闭任务独立额度已全部完成的声明。
+Rust 的 RuntimeOptionsConfig 完整字面量新增该 Option 字段；使用 Default 省略构造不变。
+新增原表/真实双归还/最终发布竞态/回滚与三控制消费者回归，当前仍待串行编测。
+
+## 同 Proxy 原件的 gRPC 状态读取
+
+生产 grpc-api 启用 zero-grpc/proxy-control，只为同现有 ProxyHandle 增加具体只读源，
+不创建 Proxy/Host/池/任务执行器。GrpcHandle.start_with_proxy 接收同实际 ProxyHandle，
+TunStatus 在原 TunInfo/last_error/Egress guard 下计量并预付实际 protobuf/wire 输出，
+不经 generic H.query 深拷贝 DTO；所有 guard 在 await/退款前归还。HTTP/IPC 使用同视图。
+zero-grpc 的 standalone start/start_with_engine 保留真实库职责，无 proxy-control 时
+不引入 Proxy 运行依赖；zero-api/traits/platform 的依赖边界不变。现有 wire/CLI/FFI 不变。
+这需要 Cargo.lock 增加同 workspace 的 zero-proxy 依赖边，不升级协议或第三方依赖。
+实际 Native gRPC 原件/预算拒绝/同连接恢复回归已登记，仍待新同锁输入编测。
+
+## 原初始快照与有序控制首帧续作
+
+HTTP/SSE、IPC和生产gRPC使用同Engine live receiver先登记，再在原Session/Principal
+guard下冻结一次数值/水位/身份，预付工作区和最终实际输出后直接编码，不先构建
+ActiveSession/FlowRecord/JSON Value的第二份生产DTO。IPC ACK仍先于首帧；SSE历史
+重放先于initial，再交live；gRPC同一个既有队列的首项为initial。原event identity独立
+于history sequence，快照不插入重放序列。所有原guard先归还再await/退款。
+
+SSE以同Root账本一次预付首帧和历史重放最大工作帧，原localN=1 slot贯穿这段有序操作；
+不在拿着自己的首帧额度时等待复制它。QueuedEventBytes纯split只转交同一已付额度，
+不增加原件权限/任务/池或关闭凭据。原quota拒绝仍可通过真实配置增长恢复。
+
+这是三个真实控制消费者的接线，未编测，不是整个事件职责域已关闭：实际Connector
+dispatcher仍调用EventSource::subscribe(default)并消费owned快照，统计采样和其余旧
+事件生产者仍需迁移。旧owned EventSource入口在该生产调用者与真实库职责结束前保留，
+不能将它标成standalone-only或把它留作控制预算不足时的后备。新原表wire/拒绝、真实
+Pending写与N=1重放/首帧/live顺序、native gRPC/实际worker join回归已注册，待串行验证。

@@ -80,13 +80,10 @@ impl Provider {
             .collect::<Vec<_>>();
         // Borrow the actual current plan for this synchronous check only.
         // No persistent cleanup record keeps a graph or old configuration alive.
-        let current = self
-            .network
-            .current_services()
-            .ok()
-            .and_then(|source| source.runtime_services().ok())
-            .map(|services| services.execution().components);
-        let plan = current.as_ref().and_then(|plan| plan.as_ref().ok());
+        // Cleanup validates the real catalog's retained original slots. An
+        // Engine-staged candidate is neither the old pool's owner nor evidence
+        // that its actual registered driver stopped retaining another user.
+        let current = self.network.current_services().ok();
         let loans = users
             .iter()
             .chain(pending.iter())
@@ -109,9 +106,10 @@ impl Provider {
                         && proof
                             .owner()
                             .is_some_and(|owner| owner.matches_adoption(&entry.original))
-                        && plan.is_some_and(|plan| {
+                        && current.as_ref().is_some_and(|source| {
                             entry.pending_roles.iter().any(|role| {
-                                plan.validate_carrier_adoption(*role, &entry.original)
+                                source
+                                    .validate_owned_carrier_adoption(*role, &entry.original)
                                     .is_ok()
                             })
                         })
@@ -119,7 +117,24 @@ impl Provider {
                 // Before its first driver exists, an undelivered receiver stays in
                 // this caller ledger. Once its real Pool Scope owns the registered
                 // driver, cancelling this waiter must preserve other pool users.
+                let actual_job = entry
+                    .original
+                    .retained_preparation_job()
+                    .is_some_and(|proof| {
+                        proof.retains(&entry.original)
+                            && proof
+                                .owner()
+                                .is_some_and(|owner| owner.matches_adoption(&entry.original))
+                            && current.as_ref().is_some_and(|source| {
+                                entry.pending_roles.iter().any(|role| {
+                                    source
+                                        .validate_owned_carrier_adoption(*role, &entry.original)
+                                        .is_ok()
+                                })
+                            })
+                    });
                 actual_pool_driver
+                    || actual_job
                     || loans.iter().any(|(receiver, proof)| {
                         !receiver.same_slot(&entry.original) && proof.retains(&entry.original)
                     })

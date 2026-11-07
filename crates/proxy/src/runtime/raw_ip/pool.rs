@@ -1,3 +1,4 @@
+mod health_query;
 mod retirement;
 use std::{
     collections::{HashMap, VecDeque},

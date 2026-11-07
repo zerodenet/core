@@ -106,16 +106,36 @@ fn stack_error(error: ClientTcpStackError) -> EngineError {
         | Error::InvalidMtu
         | Error::UnknownLocalAddress
         | Error::AddressFamilyMismatch => std::io::ErrorKind::InvalidInput,
+        Error::PacketMemory(memory) | Error::ReceiveMemory(memory) => match memory {
+            zero_traits::PacketDeriveError::Busy | zero_traits::PacketDeriveError::Capacity => {
+                std::io::ErrorKind::WouldBlock
+            }
+            zero_traits::PacketDeriveError::Revoked => std::io::ErrorKind::BrokenPipe,
+            zero_traits::PacketDeriveError::Unreserved => std::io::ErrorKind::Unsupported,
+            zero_traits::PacketDeriveError::Overflow
+            | zero_traits::PacketDeriveError::LayoutMismatch
+            | zero_traits::PacketDeriveError::AlreadyDerived => std::io::ErrorKind::InvalidInput,
+        },
         Error::ConnectionLimit => std::io::ErrorKind::WouldBlock,
         Error::OutboundClosed => std::io::ErrorKind::BrokenPipe,
         Error::ConnectTimeout => std::io::ErrorKind::TimedOut,
         Error::ConnectionReset => std::io::ErrorKind::ConnectionReset,
         Error::DestinationUnreachable => std::io::ErrorKind::NetworkUnreachable,
     };
-    EngineError::Io(std::io::Error::new(
-        kind,
-        format!("raw-IP TCP stack: {error:?}"),
-    ))
+    EngineError::Io(std::io::Error::new(kind, StackFailure(error)))
+}
+
+#[derive(Debug)]
+struct StackFailure(ClientTcpStackError);
+impl std::fmt::Display for StackFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "raw-IP TCP stack: {:?}", self.0)
+    }
+}
+impl std::error::Error for StackFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
 }
 
 fn invalid(message: impl ToString) -> EngineError {

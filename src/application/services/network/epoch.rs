@@ -2,57 +2,89 @@ use super::stream::Custody;
 use std::{
     io,
     net::SocketAddr,
-    num::NonZeroUsize,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
 };
 use tokio::{
-    sync::{oneshot, Mutex as AsyncMutex},
+    sync::{Mutex as AsyncMutex, oneshot},
     time::Instant,
 };
+use zero_core::component::ComponentInstanceId;
 use zero_platform_tokio::contract::{
-    lifecycle::{ChannelControl, CloseReport, TaskClass},
-    scope::{TaskExit, TaskJoinWitness, TaskRegistrar, TaskScope},
     CancellationToken,
+    lifecycle::{CloseReport, TaskClass},
+    scope::{TaskExit, TaskJoinWitness, TaskRegistrar, TaskScope},
 };
-use zero_platform_tokio::ControlledTcpControl;
+use zero_platform_tokio::contract::{component::ResourceDeclaration, lifecycle::ResourceLifecycle};
+use zero_platform_tokio::controlled_carrier::{
+    CarrierAdoption, CarrierOriginalTotals, CarrierOwner, CarrierOwnerBinding,
+};
+use zero_traits::DialPolicy;
 
 pub(super) type EventTask =
     std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>>;
-type Lookup = Arc<AsyncMutex<Option<tokio::task::JoinHandle<io::Result<Vec<SocketAddr>>>>>>;
+mod failure;
+mod lookup;
+use lookup::Lookup;
+pub(super) type EpochLimits = zero_platform_tokio::contract::network::EventNetworkLimits;
 tokio::task_local! { pub(super) static ACTUAL_TASK: TaskJoinWitness; }
 struct Original {
-    control: AsyncMutex<ControlledTcpControl>,
+    adoption: CarrierAdoption,
+    close_fault: Mutex<Option<Arc<io::Error>>>,
+    operation_fault: Mutex<Option<Arc<io::Error>>>,
+    closing: AsyncMutex<()>,
     custody: Arc<Custody>,
     receipt: Mutex<Option<CloseReport>>,
 }
 pub(super) struct Epoch {
     pub(super) generation: u64,
     registrar: TaskRegistrar,
-    stop: CancellationToken,
+    limits: EpochLimits,
+    stop: Arc<CancellationToken>,
+    native: AsyncMutex<CarrierOwner>,
+    binding: CarrierOwnerBinding,
     scope: AsyncMutex<TaskScope>,
     originals: Mutex<Vec<Arc<Original>>>,
-    lookups: Mutex<Vec<Lookup>>,
-    failures: Mutex<Vec<TaskExit>>,
+    lookups: Mutex<Vec<Arc<Lookup>>>,
+    failures: Mutex<Vec<Arc<TaskExit>>>,
     admission: Mutex<()>,
-    task_reports: Mutex<Vec<CloseReport>>,
-    faults: Mutex<Vec<io::Error>>,
+    task_reports: Mutex<Vec<Arc<CloseReport>>>,
+    faults: Mutex<Vec<Arc<io::Error>>>,
     closing: AtomicBool,
     confirmed: AtomicBool,
     failed: AtomicBool,
 }
 impl Epoch {
-    pub(super) fn new(generation: u64) -> Arc<Self> {
-        let scope = TaskScope::new(
-            tokio::runtime::Handle::current(),
-            NonZeroUsize::new(1024).unwrap(),
-        );
-        Arc::new(Self {
+    pub(super) fn new(
+        generation: u64,
+        limits: EpochLimits,
+        instance: ComponentInstanceId,
+        totals: Arc<CarrierOriginalTotals>,
+    ) -> io::Result<Arc<Self>> {
+        let scope = TaskScope::new(tokio::runtime::Handle::current(), limits.max_tasks());
+        let stop = Arc::new(CancellationToken::new());
+        let native = CarrierOwner::new(instance, limits.max_originals(), &stop);
+        let binding = native
+            .registration()
+            .bind_declared_with_totals(
+                &ResourceDeclaration::ControlledDirectStream {
+                    dial: DialPolicy::default(),
+                    max_sockets: limits.max_originals(),
+                },
+                &scope.registrar(),
+                &stop,
+                &totals,
+            )
+            .map_err(io::Error::other)?;
+        Ok(Arc::new(Self {
             generation,
             registrar: scope.registrar(),
-            stop: CancellationToken::new(),
+            limits,
+            stop,
+            native: AsyncMutex::new(native),
+            binding,
             scope: AsyncMutex::new(scope),
             originals: Mutex::new(Vec::new()),
             lookups: Mutex::new(Vec::new()),
@@ -63,13 +95,21 @@ impl Epoch {
             closing: AtomicBool::new(false),
             confirmed: AtomicBool::new(false),
             failed: AtomicBool::new(false),
-        })
+        }))
+    }
+    pub(super) fn needs_retirement(&self) -> bool {
+        self.closing.load(Ordering::Acquire)
+            || self.failed.load(Ordering::Acquire)
+            || !self.faults.lock().unwrap().is_empty()
     }
     pub(super) fn closed(&self) -> bool {
         self.confirmed.load(Ordering::Acquire)
     }
     pub(super) fn spawn(&self, task: EventTask) -> io::Result<TaskJoinWitness> {
-        let _admission = self.admission.lock().unwrap();
+        // No Epoch ledger/native acquisition is installed by this operation.
+        // The original Scope's atomic registration/closing gate owns its task
+        // race with shutdown. A supplied task destructor or Scope waker may
+        // reenter this owner, so never register/drop it under admission.
         self.spawn_original(task)
     }
     fn spawn_original(&self, task: EventTask) -> io::Result<TaskJoinWitness> {
@@ -99,14 +139,20 @@ impl Epoch {
     fn record_exit(&self, exit: TaskExit) {
         if exit.result.is_err() {
             self.failed.store(true, Ordering::Release);
-            self.failures.lock().unwrap().push(exit);
+            self.failures.lock().unwrap().push(Arc::new(exit));
         }
+        self.reap_lookups();
     }
     pub(super) async fn drive(&self) {
         loop {
             let exit = self.scope.lock().await.next_exit().await;
             match exit {
-                Some(exit) => self.record_exit(exit),
+                Some(exit) => {
+                    self.record_exit(exit);
+                    let _ = self
+                        .close_returned(Instant::now() + std::time::Duration::from_secs(1))
+                        .await;
+                }
                 None => return,
             }
         }
@@ -134,27 +180,72 @@ impl Epoch {
             if !original.custody.returned_and_joined() {
                 continue;
             }
-            let mut control = original.control.lock().await;
+            let _closing = match tokio::time::timeout_at(deadline, original.closing.lock()).await {
+                Ok(guard) => guard,
+                Err(_) => continue,
+            };
             if original.receipt.lock().unwrap().is_some() {
                 continue;
             }
-            let report = control
-                .wait_closed(deadline)
-                .await
-                .map_err(io::Error::other)?;
-            if !report.is_complete() {
-                return Err(io::Error::other("event TCP original close unfinished"));
+            let report = match original.adoption.retire(deadline).await {
+                Ok(report) => report,
+                Err(source) => {
+                    self.failed.store(true, Ordering::Release);
+                    original
+                        .close_fault
+                        .lock()
+                        .unwrap()
+                        .get_or_insert_with(|| Arc::new(io::Error::other(source)));
+                    continue;
+                }
+            };
+            if !report.is_complete()
+                || !original
+                    .adoption
+                    .closed()
+                    .is_some_and(|closed| closed.matches(&original.adoption))
+                || !original
+                    .adoption
+                    .users_closed()
+                    .is_some_and(|closed| closed.matches(&original.adoption))
+            {
+                continue;
             }
             *original.receipt.lock().unwrap() = Some(report);
         }
         // Only the genuine retained controller receipt permits capacity reuse.
-        self.originals
-            .lock()
-            .unwrap()
-            .retain(|original| original.receipt.lock().unwrap().is_none());
+        let retired = {
+            let mut originals = self.originals.lock().unwrap();
+            let mut retired = Vec::new();
+            let mut index = 0;
+            while index < originals.len() {
+                if originals[index].receipt.lock().unwrap().is_some() {
+                    retired.push(originals.swap_remove(index));
+                } else {
+                    index += 1;
+                }
+            }
+            retired
+        };
+        for original in &retired {
+            if let Some(source) = original.close_fault.lock().unwrap().as_ref() {
+                self.faults
+                    .lock()
+                    .unwrap()
+                    .push(failure::attempt_failure(original, source.clone()));
+            }
+        }
+        drop(retired);
+        if self.originals.lock().unwrap().iter().any(|original| {
+            original.custody.returned_and_joined() && original.receipt.lock().unwrap().is_none()
+        }) {
+            return Err(io::Error::other(
+                "returned event candidate retains its actual native/user cleanup",
+            ));
+        }
         Ok(())
     }
-    pub(super) async fn retire(&self, deadline: Instant) -> io::Result<()> {
+    pub(super) async fn retire(self: &Arc<Self>, deadline: Instant) -> io::Result<()> {
         {
             let _admission = self.admission.lock().unwrap();
             self.closing.store(true, Ordering::Release);
@@ -164,44 +255,43 @@ impl Epoch {
         let complete = report.is_complete();
         if !report.failed_tasks.is_empty() {
             self.failed.store(true, Ordering::Release);
-            self.task_reports.lock().unwrap().push(report);
+            self.task_reports.lock().unwrap().push(Arc::new(report));
         }
         if !complete {
             return Err(io::Error::other("event HTTP tasks not joined"));
         }
-        let jobs = self.lookups.lock().unwrap().clone();
-        for job in jobs {
-            let mut original = job.lock().await;
-            if let Some(handle) = original.as_mut() {
-                let joined = tokio::time::timeout_at(deadline, handle)
-                    .await
-                    .map_err(|_| {
-                        io::Error::new(io::ErrorKind::TimedOut, "original event lookup not joined")
-                    })?;
-                // A resolver's ordinary io::Error is a completed lookup, while
-                // an actual blocking-task panic remains retained as a fault.
-                if let Err(source) = joined {
-                    self.faults.lock().unwrap().push(io::Error::other(source));
-                }
-                original.take();
-            }
+        self.reap_lookups();
+        if !self.lookups.lock().unwrap().is_empty() {
+            return Err(io::Error::other(
+                "original event lookup caller or Scope receipt remains retained",
+            ));
         }
-        self.lookups.lock().unwrap().clear();
         self.close_returned(deadline).await?;
         if !self.originals.lock().unwrap().is_empty() {
             return Err(io::Error::other(
                 "event transferred views or original native close still pending",
             ));
         }
-        if !self.task_reports.lock().unwrap().is_empty()
-            || !self.failures.lock().unwrap().is_empty()
-            || !self.faults.lock().unwrap().is_empty()
+        let mut native = self.native.lock().await;
+        let report = native.shutdown(deadline).await.map_err(io::Error::other)?;
+        let registration = native.registration();
+        if !report.is_complete()
+            || !registration
+                .closed()
+                .is_some_and(|closed| closed.matches(&registration))
+            || !registration
+                .users_closed()
+                .is_some_and(|closed| closed.matches(&registration))
         {
             return Err(io::Error::other(
-                "event HTTP original task failed; original failure retained after cleanup",
+                "actual event Carrier owner remains unconfirmed",
             ));
         }
+        drop(native);
         self.confirmed.store(true, Ordering::Release);
+        if let Some(error) = self.retained_failure() {
+            return Err(error);
+        }
         Ok(())
     }
 }

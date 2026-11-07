@@ -32,13 +32,13 @@ enum Failure {
     Admission(Arc<ChannelError>),
 }
 impl ScopedWorkers {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
-        )
-    )]
+    pub(super) fn matches_scope(
+        &self,
+        scope: &zero_platform_tokio::contract::scope::TaskScopeIdentity,
+    ) -> bool {
+        self.registrar.scope_identity().same_scope(scope) && scope.resource_open()
+    }
+
     pub(super) fn new(registrar: WeakTaskRegistrar) -> Self {
         Self {
             registrar,
@@ -50,6 +50,12 @@ impl ScopedWorkers {
         &self,
         future: impl Future<Output = Result<(), ComponentError>> + Send + 'static,
     ) -> Result<(), ChannelError> {
+        self.spawn_tracked(future).map(|_| ())
+    }
+    pub(super) fn spawn_tracked(
+        &self,
+        future: impl Future<Output = Result<(), ComponentError>> + Send + 'static,
+    ) -> Result<TaskJoinWitness, ChannelError> {
         self.reap();
         let record = Record::new();
         {
@@ -84,8 +90,8 @@ impl ScopedWorkers {
         });
         match registered {
             Ok((id, witness)) => {
-                record.install(id, witness);
-                Ok(())
+                record.install(id, witness.clone());
+                Ok(witness)
             }
             Err(source) => {
                 record.reject(); // This Result guarantees no task was registered.
@@ -122,13 +128,6 @@ impl ScopedWorkers {
             }
         }
     }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
-        )
-    )]
     pub(super) fn first_failure(&self) -> Option<ChannelError> {
         failure(&self.state.lock().unwrap_or_else(|error| error.into_inner()))
     }
@@ -156,31 +155,43 @@ impl ScopedWorkers {
         }
     }
     fn reap(&self) {
-        let completed = {
+        let (observed, released) = {
             let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-            let mut completed = Vec::new();
+            let mut observed = Vec::new();
+            let mut released = Vec::new();
             let mut index = 0;
             while index < state.records.len() {
                 let registered = state.records[index].registered();
                 if let Some((id, witness)) = registered {
                     if let Some(joined) = witness.try_joined() {
                         assert_eq!(id, joined.id(), "same original Scope task");
-                        Self::retain(&mut state, &joined);
-                        completed.push((state.records.remove(index), witness, joined));
-                        continue;
+                        if state.records[index].observe_once() {
+                            Self::retain(&mut state, &joined);
+                            observed.push((state.records[index].clone(), witness, joined.clone()));
+                        }
+                        if joined.registration_released() {
+                            released.push(state.records.remove(index));
+                            continue;
+                        }
                     }
                 }
                 index += 1;
             }
-            completed
+            (observed, released)
         };
-        self.accept(completed);
+        // Retain the original source before local delivery. All callbacks,
+        // acknowledgement notifications and final drops are outside the lock.
+        self.accept(observed);
+        drop(released);
     }
     fn accept(&self, completed: Vec<(Arc<Record>, TaskJoinWitness, TaskJoined)>) {
         for (_record, witness, joined) in completed {
             // The persistent first failure was saved before local delivery.
             // Host acknowledgement still belongs to its original receipt.
-            if joined.result().is_err() {
+            if joined.result().is_err()
+                && !joined.failure_accepted()
+                && !joined.registration_released()
+            {
                 witness
                     .acknowledge_hosted_failure(&joined)
                     .expect("same original failed task receipt");
@@ -208,27 +219,24 @@ impl ScopedWorkers {
             if let Some((id, witness)) = record.wait_registration().await {
                 let joined = witness.wait().await;
                 assert_eq!(id, joined.id(), "same original Scope task");
-                let completed = {
-                    let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-                    if let Some(position) = state
-                        .records
-                        .iter()
-                        .position(|candidate| Arc::ptr_eq(candidate, &record))
-                    {
-                        Self::retain(&mut state, &joined);
-                        Some((state.records.remove(position), witness, joined))
-                    } else {
-                        None
-                    }
-                };
-                if let Some(completed) = completed {
+                // Local task completion is independent of the host's ACK.
+                // Deliver faults first; waiting for ACK inside this lifecycle
+                // could prevent its own real supervisor from acknowledging.
+                self.reap();
+                if record.report_once() {
                     report.exited_tasks.push(id);
-                    self.accept(vec![completed]);
                 }
             }
         }
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-        state.drained = state.records.is_empty();
+        // This flag proves only every original worker actually joined. The
+        // records still charge this peer's finite budget until the same host
+        // registration ACK; its Scope and native provider close separately.
+        state.drained = state.records.iter().all(|record| {
+            record
+                .registered()
+                .is_some_and(|(_, witness)| witness.is_joined())
+        });
         if let Some(error) = failure(&state) {
             return Err(error);
         }
@@ -243,24 +251,7 @@ fn failure(state: &State) -> Option<ChannelError> {
     }
 }
 fn forward(source: Arc<ChannelError>) -> ChannelError {
-    let mut error = ChannelError::new(source.stage, source.reason, source.impact);
-    error.component = source.component;
-    error.session = source.session;
-    error.delivery = source.delivery;
-    error.retry = source.retry;
-    error.with_source(SharedFailure(source))
-}
-#[derive(Debug)]
-struct SharedFailure(Arc<ChannelError>);
-impl std::fmt::Display for SharedFailure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-impl std::error::Error for SharedFailure {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(self.0.as_ref())
-    }
+    ChannelError::retained(source)
 }
 #[cfg(test)]
 mod tests;

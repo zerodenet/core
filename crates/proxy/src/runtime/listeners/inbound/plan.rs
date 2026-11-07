@@ -21,8 +21,9 @@ pub(super) fn prepare(
     protocols: &ProtocolInventory,
     runtime_factory: &InboundListenerRuntimeFactory,
     rollback_runtime_factory: &InboundListenerRuntimeFactory,
-    source_dir: Option<&Path>,
+    _source_dir: Option<&Path>,
     config: &RuntimeConfig,
+    forced_source_restarts: &BTreeSet<String>,
     active: &HashMap<String, InboundConfig>,
 ) -> Result<Plan, EngineError> {
     // The actual last-good snapshot survives cancellation after active entries
@@ -66,8 +67,41 @@ pub(super) fn prepare(
         let mode_changed = current.is_some()
             && protocols
                 .inbound_listener_requires_restart(&runtime_factory.listener_config(inbound))?;
+        let accounting_prepared =
+            if crate::runtime::orchestration::carrier_budget_changed(&previous_config, config) {
+                protocols.prepare_inbound_bind_in_config(
+                    runtime_factory.listener_config(inbound),
+                    config,
+                )?
+            } else {
+                None
+            };
+        let source_total_changed = accounting_prepared.as_ref().is_some_and(|prepared| {
+            crate::runtime::orchestration::source_total_resources(prepared.resources())
+        });
+        let replay_budget_changed = inbound.protocol.protocol_name() == "shadowsocks"
+            && crate::runtime::orchestration::ss_source_budget_changed(&previous_config, config);
+        let dependencies_changed = runtime_factory.source_dependencies_changed(inbound)?;
+        #[cfg(feature = "raw-ip-runtime")]
+        let packet_source_changed =
+            crate::runtime::orchestration::packet_budget_changed(&previous_config, config)
+                && runtime_factory
+                    .owners()
+                    .owner(&inbound.tag)
+                    .is_some_and(|owner| owner.has_packet_source_custody());
+        #[cfg(not(feature = "raw-ip-runtime"))]
+        let packet_source_changed = false;
+        // The owning resource transaction already classified this exact
+        // Source from its actual cold declarations. It requires physical
+        // StopOld even when serialized listener/authentication fields match.
+        let forced_restart = forced_source_restarts.contains(&inbound.tag);
         let reuse = running
+            && !forced_restart
+            && !packet_source_changed
+            && !dependencies_changed
             && !mode_changed
+            && !replay_budget_changed
+            && !source_total_changed
             && current.is_some_and(|current| {
                 !requires_listener_restart(
                     &rollback_runtime_factory.listener_config(current),
@@ -75,6 +109,10 @@ pub(super) fn prepare(
                 )
             });
         let update = running
+            && !forced_restart
+            && !packet_source_changed
+            && !dependencies_changed
+            && !source_total_changed
             && current.is_some_and(|current| {
                 current.listen == inbound.listen
                     && current.protocol.protocol_name() == inbound.protocol.protocol_name()
@@ -84,7 +122,13 @@ pub(super) fn prepare(
         let prepared = if reuse {
             None
         } else {
-            protocols.prepare_inbound_bind(runtime_factory.listener_config(inbound), source_dir)?
+            match accounting_prepared {
+                Some(prepared) => Some(prepared),
+                None => protocols.prepare_inbound_bind_in_config(
+                    runtime_factory.listener_config(inbound),
+                    config,
+                )?,
+            }
         };
         candidates.push(Candidate {
             inbound: inbound.clone(),
@@ -129,7 +173,12 @@ impl Plan {
                     .owner(&inbound.tag)
                     .expect("checked actual running inbound owner")
                     .wait_ready()
-                    .await?;
+                    .await
+                    .inspect_err(|source| {
+                        #[cfg(test)]
+                        eprintln!("actual reused listener {} readiness retained original failure: {source:#?}", inbound.tag);
+                        tracing::warn!(tag = %inbound.tag, ?source, "same retained listener readiness failed");
+                    })?;
                 state
                     .active_inbounds
                     .insert(inbound.tag.clone(), inbound.clone());

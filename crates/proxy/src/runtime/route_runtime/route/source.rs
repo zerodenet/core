@@ -106,7 +106,17 @@ impl InboundRouteRuntime {
                 });
             let _registrations = (device, principal);
             let carrier_cancel = source.cancellation();
-            let limit = source.max_in_flight().get();
+            let capability = source.max_in_flight().get();
+            let limit = if capability == 1 {
+                // Sequential message framing is a real protocol constraint.
+                1
+            } else {
+                self.tcp_runtime
+                    .runtime_services()
+                    .config()
+                    .runtime
+                    .effective_inbound_max_in_flight_requests(capability)
+            };
             if limit == 1 {
                 // Sequential message framing stays in the actual original
                 // accepted task; keep-alive does not create per-message tasks.
@@ -137,7 +147,13 @@ impl InboundRouteRuntime {
                     }
                     next = source.next(accept_context(&cancel)), if !ended && tasks.len() < limit => {
                         match next.map_err(std::io::Error::other)? {
-                            Some(pending) => tasks.spawn(self.clone(), pending, cancel.clone()).map_err(std::io::Error::other)?,
+                            Some(pending) => {
+                                if let Err(error) = tasks.spawn(self.clone(), pending, cancel.clone()) {
+                                    if error.stage == zero_platform_tokio::contract::Stage::Prepare && error.reason == zero_platform_tokio::contract::Reason::Capacity && error.delivery == zero_platform_tokio::contract::DeliveryState::NotSubmitted {
+                                        tracing::warn!(%error,"same original request graph is full; rejected new request");
+                                    } else {return Err(std::io::Error::other(error).into());}
+                                }
+                            },
                             None => {
                                 ended = true;
                                 if source.end_disposition() == RequestSourceEnd::CarrierClosed { cancel.cancel(); }

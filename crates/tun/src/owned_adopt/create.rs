@@ -27,6 +27,8 @@ impl AdoptedTunOwner {
         open: impl FnOnce(Option<&str>) -> io::Result<OwnedFd>,
         initialize: impl FnOnce(i32, Option<&str>) -> io::Result<String>,
     ) -> Result<AdoptedTunIo, TunAcquisitionError> {
+        #[cfg(target_os = "macos")]
+        let _notifications = self.macos_memory.get().map(|memory| memory.notifications());
         let mut state = self.lock();
         if !matches!(*state, State::Cold) {
             return Err(TunAcquisitionError {
@@ -91,7 +93,7 @@ impl AdoptedTunOwner {
         ) else {
             unreachable!()
         };
-        match Backend::register_adopted(fd, interface.clone(), identity.clone()) {
+        match self.register_backend(fd, interface.clone(), identity.clone()) {
             Ok(device) => {
                 *state = State::Live {
                     device,

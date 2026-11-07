@@ -5,7 +5,9 @@ use zero_core::Session;
 use zero_transport::RuntimeError;
 
 mod auth;
+mod h3_limits;
 mod http3;
+pub use h3_limits::Hysteria2H3QueueLimits;
 pub mod owned;
 pub use http3::Masquerade as Hysteria2Masquerade;
 mod congestion;

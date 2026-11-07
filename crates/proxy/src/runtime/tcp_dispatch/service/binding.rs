@@ -16,6 +16,9 @@ impl std::fmt::Debug for NativeDnsBinding {
     }
 }
 impl DnsCarrierBinding for NativeDnsBinding {
+    fn component_instances(&self) -> Option<Vec<zero_core::component::ComponentInstanceId>> {
+        Some(self.carrier.component_instances())
+    }
     fn check_current(&self) -> io::Result<()> {
         self.carrier.check_current().map_err(io::Error::other)?;
         for selection in &self.selections {
@@ -24,7 +27,7 @@ impl DnsCarrierBinding for NativeDnsBinding {
         Ok(())
     }
     fn revoked(&self) -> DnsBindingRevokedFuture<'_> {
-        use futures_util::{stream::FuturesUnordered, StreamExt};
+        use futures_util::{StreamExt, stream::FuturesUnordered};
         Box::pin(async move {
             if let Err(error) = self.check_current() {
                 return error;

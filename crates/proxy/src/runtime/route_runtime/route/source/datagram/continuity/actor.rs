@@ -53,7 +53,7 @@ pub(super) async fn start(
     };
     resources
         .claim(tokio::time::Instant::now() + Duration::from_secs(5), |_| {
-            binding.install_scope(graph);
+            binding.install_scope(graph)?;
             Ok((erase_lifecycle(owner), ()))
         })
         .await
