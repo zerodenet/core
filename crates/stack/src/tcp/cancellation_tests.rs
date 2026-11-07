@@ -100,7 +100,9 @@ async fn actual_ready_accept_wakes_after_queue_and_connection_locks_return() {
             self.wake_by_ref();
         }
         fn wake_by_ref(self: &Arc<Self>) {
-            let stack = self.stack.upgrade().expect("same actual stack");
+            let Some(stack) = self.stack.upgrade() else {
+                return; // The actual stack has finished dropping, not a join/close claim.
+            };
             if stack.connections.try_lock().is_err() || stack.accept_queue.try_lock().is_err() {
                 self.locked.store(true, Ordering::Release);
             }
