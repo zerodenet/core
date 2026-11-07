@@ -2,7 +2,7 @@
 use std::{
     io,
     sync::{
-        atomic::{AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         Arc, OnceLock,
     },
 };
@@ -12,6 +12,7 @@ const INSTALLED: u8 = 2;
 const EMPTY: u8 = 3;
 pub(super) struct ControlTask {
     phase: AtomicU8,
+    exiting: AtomicBool,
     state: OnceLock<tokio::sync::Mutex<State>>,
     changed: tokio::sync::Notify,
 }
@@ -28,6 +29,7 @@ impl ControlTask {
     pub(super) fn empty() -> Self {
         Self {
             phase: AtomicU8::new(COLD),
+            exiting: AtomicBool::new(false),
             state: OnceLock::new(),
             changed: tokio::sync::Notify::new(),
         }
@@ -63,12 +65,20 @@ impl ControlTask {
             .cloned()
     }
     pub(super) fn finished(&self) -> bool {
+        if self.exiting.load(Ordering::Acquire) {
+            return true;
+        }
         match self.state.get() {
             Some(state) => state.try_lock().is_ok_and(|state| {
                 state.result.is_some() || state.task.as_ref().is_some_and(|task| task.is_finished())
             }),
             None => self.phase.load(Ordering::Acquire) == EMPTY,
         }
+    }
+    /// Readiness only. Consumers must still await this original JoinHandle;
+    /// the worker can still be dropping its subscriber or unwinding a fault.
+    pub(super) fn note_exiting(&self) {
+        self.exiting.store(true, Ordering::Release);
     }
     pub(super) fn joined_successfully(&self) -> bool {
         match self.state.get() {
@@ -116,14 +126,12 @@ impl ControlTask {
                     .map_err(Arc::new),
             );
             state.task = None;
-            state.charge.take();
         }
-        state
-            .result
-            .as_ref()
-            .unwrap()
-            .clone()
-            .map_err(|source| io::Error::new(source.kind(), source))
+        let charge = state.charge.take();
+        let result = state.result.as_ref().unwrap().clone();
+        drop(state);
+        drop(charge);
+        result.map_err(|source| io::Error::new(source.kind(), source))
     }
 }
 impl ControlTaskStart<'_> {

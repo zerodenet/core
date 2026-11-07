@@ -137,8 +137,13 @@ where
             Err(error) => return Err(Status::internal(error.to_string())),
         };
         jobs.push(worker.clone());
+        let exiting = subscriptions::WorkerExit {
+            original: worker.clone(),
+            source: subscriptions.clone(),
+        };
         let (begin, started) = std::sync::mpsc::sync_channel(1);
         let task = tokio::task::spawn_blocking(move || {
+            let _exiting = exiting;
             if started.recv().is_err() {
                 return Ok(());
             }

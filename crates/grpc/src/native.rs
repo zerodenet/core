@@ -99,6 +99,9 @@ where
     let work = catch_work(async {
         loop {
             tokio::select! { biased;
+                _ = owner.subscriptions.changed.notified() => {
+                    owner.subscriptions.reap_completed().await?;
+                }
                 exit = scope.next_exit() => {
                     if let Some(exit) = exit {
                         receiver.observe_joined(exit.id);

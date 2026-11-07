@@ -5,6 +5,19 @@ pub(super) struct Subscriptions {
     pub(super) stop: AtomicBool,
     pub(super) jobs: Mutex<Vec<Arc<ControlTask>>>,
     pub(super) budget: Arc<zero_runtime::configuration::ControlBudget>,
+    pub(super) changed: tokio::sync::Notify,
+}
+pub(super) struct WorkerExit {
+    pub(super) original: Arc<ControlTask>,
+    pub(super) source: Arc<Subscriptions>,
+}
+impl Drop for WorkerExit {
+    fn drop(&mut self) {
+        // A wake starts the actual existing join consumer. It never refunds
+        // quota or substitutes a body return for the original task result.
+        self.original.note_exiting();
+        self.source.changed.notify_one();
+    }
 }
 impl Default for Subscriptions {
     fn default() -> Self {
@@ -17,6 +30,7 @@ impl Subscriptions {
             stop: AtomicBool::new(false),
             jobs: Mutex::new(Vec::new()),
             budget,
+            changed: tokio::sync::Notify::new(),
         }
     }
     pub(super) async fn join_all(&self) -> std::io::Result<()> {
