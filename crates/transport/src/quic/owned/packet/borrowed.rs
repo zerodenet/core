@@ -1,7 +1,7 @@
 //! One original loan, the existing packet queues, and its actual Scope driver.
 use super::*;
 use zero_platform_tokio::{
-    contract::scope::{TaskClass, TaskJoinWitness},
+    contract::scope::{TaskClass, TaskJoinWitness, TaskJoined},
     controlled_carrier::{loan::BorrowedDatagram, CarrierAdoption, CarrierDriver, CarrierUserView},
 };
 
@@ -11,6 +11,8 @@ pub struct BorrowedPacketSegment {
     input: Option<Input>,
     queues: Arc<Mutex<Option<Channels>>>,
     driver: Option<TaskJoinWitness>,
+    joined: Option<TaskJoined>,
+    final_retirement: Arc<AtomicBool>,
     attempted: bool,
     stop: CancellationToken,
     logical: SocketAddr,
@@ -63,8 +65,10 @@ impl BorrowedPacketSegment {
             input: Some(input),
             queues: Arc::new(Mutex::new(queues.0)),
             driver: None,
+            joined: None,
+            final_retirement: Arc::new(AtomicBool::new(false)),
             attempted: false,
-            stop: tasks.cancellation().child_token(),
+            stop: CancellationToken::new(),
             logical,
             tasks,
         })
@@ -73,11 +77,18 @@ impl BorrowedPacketSegment {
     /// Failed registration returns the queues and leaves original control in
     /// the same receiver slot for the owner's ordinary retirement.
     pub fn start(&mut self) -> Result<(), ChannelError> {
-        if self.attempted || self.stop.is_cancelled() {
+        if self.attempted || self.stop.is_cancelled() || self.tasks.cancellation().is_cancelled() {
             return Err(error(Reason::Revoked));
         }
         let input = self.input.take().ok_or_else(|| error(Reason::Revoked))?;
-        let channels = self
+        if let Some(source) = self
+            .joined
+            .as_ref()
+            .and_then(|joined| joined.result().err())
+        {
+            return Err(ChannelError::retained(source));
+        }
+        let mut channels = self
             .queues
             .lock()
             .unwrap()
@@ -90,7 +101,8 @@ impl BorrowedPacketSegment {
         };
         let stop = self.stop.clone();
         let logical = self.logical;
-        let (_, witness) = self.adoption.spawn_driver(
+        let final_retirement = self.final_retirement.clone();
+        let (_, witness) = self.adoption.spawn_draining_datagram_driver(
             &self.tasks,
             TaskClass::Auxiliary,
             input,
@@ -102,16 +114,27 @@ impl BorrowedPacketSegment {
                     let channels = queue.channels.as_mut().unwrap();
                     loop {
                         tokio::select! { biased;
-                            _ = stop.cancelled() => return Ok::<_, io::Error>(()),
+                            _ = stop.cancelled() => {
+                                if final_retirement.load(Ordering::Acquire) { channels.outgoing.close(); }
+                                // A hop keeps its same queue; snapshot the finite
+                                // already accepted prefix so later producers cannot
+                                // extend cleanup. Final retirement seals it first.
+                                let accepted = channels.outgoing.len();
+                                for _ in 0..accepted {
+                                    let packet = channels.outgoing.try_recv().map_err(io::Error::other)?;
+                                    if packet.peer != logical { return Err(io::ErrorKind::InvalidInput.into()); }
+                                    io.send(&packet.bytes).await?;
+                                }
+                                return Ok::<_, io::Error>(());
+                            },
                             packet = channels.outgoing.recv() => {
                                 let Some(packet) = packet else { return Ok(()) };
                                 if packet.peer != logical {
                                     return Err(io::ErrorKind::InvalidInput.into());
                                 }
-                                tokio::select! { biased;
-                                    _ = stop.cancelled() => return Ok(()),
-                                    sent = io.send(&packet.bytes) => sent?,
-                                }
+                                // Keep this actual accepted send future through
+                                // Pending; stop cannot discard an unknown submit.
+                                io.send(&packet.bytes).await?;
                             },
                             received = io.receive(&mut bytes) => {
                                 let size = received?;
@@ -141,7 +164,19 @@ impl BorrowedPacketSegment {
     }
     pub fn stop(&self) {
         self.stop.cancel();
-        self.adoption.request_retirement();
+    }
+    /// Request final sealing only after the same endpoint's users/drivers have
+    /// returned. It creates no native/Scope receipt and does not retire the loan.
+    pub fn stop_final(&self) {
+        self.final_retirement.store(true, Ordering::Release);
+        self.stop();
+    }
+    pub async fn retire_final(
+        &mut self,
+        end: tokio::time::Instant,
+    ) -> Result<PacketQueues, ChannelError> {
+        self.stop_final();
+        self.retire(end).await
     }
     /// The host alone consumes and ACKs the actual Scope exit. Until then this
     /// owner and its original queues stay retained; body return is no proof.
@@ -152,6 +187,19 @@ impl BorrowedPacketSegment {
         self.stop();
         drop(self.input.take());
         if let Some(driver) = &self.driver {
+            if self.joined.is_none() {
+                self.joined = Some(
+                    tokio::time::timeout_at(end, driver.wait())
+                        .await
+                        .map_err(|_| error(Reason::Timeout))?,
+                );
+            }
+            let joined = self.joined.as_ref().unwrap();
+            if joined.result().is_err() {
+                driver
+                    .acknowledge_hosted_failure(joined)
+                    .map_err(|source| error(Reason::StalePlan).with_source(source))?;
+            }
             tokio::time::timeout_at(end, driver.wait_registration_released())
                 .await
                 .map_err(|_| error(Reason::Timeout))?;
@@ -160,12 +208,22 @@ impl BorrowedPacketSegment {
         if !report.is_complete() {
             return Err(error(Reason::Timeout));
         }
-        let channels = self
+        if let Some(source) = self
+            .joined
+            .as_ref()
+            .and_then(|joined| joined.result().err())
+        {
+            return Err(ChannelError::retained(source));
+        }
+        let mut channels = self
             .queues
             .lock()
             .unwrap()
             .take()
             .ok_or_else(|| error(Reason::Revoked))?;
+        if self.final_retirement.load(Ordering::Acquire) {
+            channels.outgoing.close();
+        }
         Ok(PacketQueues(Some(channels)))
     }
 }
