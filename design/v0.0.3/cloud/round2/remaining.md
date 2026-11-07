@@ -1,3 +1,52 @@
+## 2026-11-07 11:56 UTC：原首帧、局部ACK额度与完整未闭合调用者
+
+当前主线实现 `63e6a17da9c1657702661217a188120d77ed345c`，工作树干净；仍非最终候选。
+实际Cargo/候选fixture同 `548ad5680840a159645a20a7412b09aa44a0be2298c7ca52cf39921552a4ed2c`。
+相对旧bb锁，两个offline解析仅加zero-grpc→zero-proxy和zero-proxy→serde本地依赖边，
+没有第三方版本变化。不同锁/checkout的结果严格分开。
+
+| 实际生产调用者/owner | 当前原件与执行落点 | 剩余实现/删除门与必要回归 |
+| --- | --- | --- |
+| HTTP/IPC/gRPC Config/Runtime/Traffic/Packet/Tun 查询，M/A | 已接同原表/真实config代次/原TunInfo与Egress metadata guard；Packet route最大登记数接实际同表生产配置，Closing等lease与response双归还 | 最新原件字节/旧形状/定向压力与配置恢复，Endpoints/Health/Capabilities等剩余生产投影继续；不能用这一子集关闭G8/预算 |
+| 三控制initial flow snapshot，M，8f156d08a | live先登记，同Session/Principal冻结；预付后直接生成最终首帧；IPC ACK在前，SSE replay→initial→live，同原N1 slot与组合额度；gRPC原队列首项 | 新producer/真实消费者全片已提交但尚未编测，需原wire/Scope/Pending/N1回归；不是空准备接口 |
+| Connector dispatcher真实生产source，M：services/installation→prepare_event_dispatcher_paused_with_network→dispatcher.rs source.subscribe(default) | 仍用owned初始快照，已有原delivery budget/Scope/network代次 | 必须接同实际delivery owner与原件预算，保持startup watermark/engine-started/持久投递语义；迁完才删除旧生产链，不标standalone-only |
+| NoCURRENT公开blocking调用与真实三前端CURRENT work，A/M | A正在同Host有限原command rows中强持真实raw JoinHandle/outcome/cleanup，移交原PendingCommand permit，不建第二账 | 裸metadata/裸permit不证明Work所有权；真实登记后发放资格、callerDrop原件交接、原Scope joins/HostACK、唯一book shutdown/reopen均需完整pair和回归 |
+| Metadata pool既有全部消费者，B/M，63e6a17da | 原native/users独立正面可见；本owner局部N等actual caller/graph joins+HostACK才退；固定caller/receipt Arc借阅与ordinal逐项扫描，无临时Vec | Root2>localN1真实UDP/迟ACK新回归已注册未运行；复验HY2等既有调用者停机不自等，不把此N修复当完整QUIC |
+| 完整QUIC与其余合法出站/共享池/process，B | 未激活完整pair持续实现：firstIO前原Metadata/CarrierSlot强custody，实际setup注册窗、phase-controller、原FIFO及Scope/native/ACK、原Root逐frame字节 | 实际生产source/roles、所有既有合法callers、借入与native两原件、旧跨执行器/投影删除后才可关闭B域；无新增例外 |
+| 完整Packet/Source/TUN/独立WG provider，C/M | 隔离audit有实际wire装配、同Source origin投影、finite原错/逐原件清理、原LoanOwner晚正面观察与原FlowUsers census | 未合入/启gate；全peer/原cleanup continuation/普通失败恢复/helper与转交/metadata预算及旧caller删除继续。无provider/Scope仍属实现缺口 |
+
+实际检查记录：
+
+- fe96：首locked因verify ignored旧bb锁立即exit101，原97923c18日志保留；同步0c3后
+  66.55s exit101，Tun producer缺直接serde（13条连带诊断），原65830b5e日志保留。
+  dfacf补真实本地serde边，实际锁548ad；不升级第三方。
+- dfacf Engine/Config tests typecheck16.12s exit101：Traffic fixture不存在Success枚举，
+  4b848修DirectRelayed；同两包v2 5.19s exit0，日志
+  8dac1c7c41564ea2d375f44409297a4b700ce97efc29b29f921590e9f7e74916。
+- 4b848全控制 typecheck312.07s exit101，tonic展开具体Proxy AutoTrait溢出，
+  f20d7e7e69171c361ba875b72cd747af10933f986a3c702e784b27bf19dae860；
+  46e42在私有具体handle存储边界封装，未提高recursion/栈/容量，未加SPI/provider。
+- 46e42全控制typecheck10.54s exit101，仅HTTP两个尾临时借用E0597，
+  4c00a536be5084241818747e955a00702bf26b593df422879db81a77642fc2ba；
+  70dd追加局部encoded结果确保原guard前销毁临时，不改断言/额度/wire。
+- **70dd9726b** Root+Engine/Grpc/Platform/Runtime/DNS all-features lib/bin/tests类型检查
+  **41.8s exit0**，原日志
+  8427f27ee4bec831c83f140689c3e66324ffda306e87d92400a0fda2860bf640。
+  同输入必要ELF no-run1137.37s exit101，仅DNS fixture私有host字段访问，原
+  c4fd8af5418ac2a8deb044f490893be96662ee530b766e7027e7f4a079a8e00d；
+  未运行本组测试。0bf1a72ef改走既有protocols.runtime_host，保真实计额断言。
+- **0bf1a72ef** Proxy all-features tests定向typecheck通过（实际12m44s，详原result），
+  现同锁同输入ELF构建/随后必要回归在串行队列。**它不覆盖8f初始快照或63e6 ACK修复**。
+
+Source隔离audit普通前向组合至2a276131f93c6f89c2ba3ee9a9e7e39428463b57，未激活、
+旧bb锁仅该隔离开发输入；d2d83 finite3361、d971bb70f实际finalLoanOwner观察、
+5a2489d7e callee固定数组、2a276131f逐FlowUsers census均待完整Source实际回归。
+其纯metadata/原control分支不冒充全Source失败恢复。
+
+清除inactive旧Proxy本地缓存前逐文件记录摘要并排除当前/队列依赖，释放1,261,678,405B；
+原始log/input/result/lock/产物摘要全部保留，不提交缓存/日志。REALITY原目标10:55仍
+DNS errno-3，无目标/期限/断言/网络变更。所有域继续；同最终head CI/下载归档尚未取得。
+
 ## 2026-11-07 10:59 UTC：同 Packet/TUN 查询原件与新本地锁边
 
 五域仍继续，不是最终候选。当前实现冻结 `fe96fee6347c6d49d758140e11e1e8c93f566544`，

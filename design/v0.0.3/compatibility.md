@@ -428,3 +428,21 @@ zero-grpc 的 standalone start/start_with_engine 保留真实库职责，无 pro
 不引入 Proxy 运行依赖；zero-api/traits/platform 的依赖边界不变。现有 wire/CLI/FFI 不变。
 这需要 Cargo.lock 增加同 workspace 的 zero-proxy 依赖边，不升级协议或第三方依赖。
 实际 Native gRPC 原件/预算拒绝/同连接恢复回归已登记，仍待新同锁输入编测。
+
+## 原初始快照与有序控制首帧续作
+
+HTTP/SSE、IPC和生产gRPC使用同Engine live receiver先登记，再在原Session/Principal
+guard下冻结一次数值/水位/身份，预付工作区和最终实际输出后直接编码，不先构建
+ActiveSession/FlowRecord/JSON Value的第二份生产DTO。IPC ACK仍先于首帧；SSE历史
+重放先于initial，再交live；gRPC同一个既有队列的首项为initial。原event identity独立
+于history sequence，快照不插入重放序列。所有原guard先归还再await/退款。
+
+SSE以同Root账本一次预付首帧和历史重放最大工作帧，原localN=1 slot贯穿这段有序操作；
+不在拿着自己的首帧额度时等待复制它。QueuedEventBytes纯split只转交同一已付额度，
+不增加原件权限/任务/池或关闭凭据。原quota拒绝仍可通过真实配置增长恢复。
+
+这是三个真实控制消费者的接线，未编测，不是整个事件职责域已关闭：实际Connector
+dispatcher仍调用EventSource::subscribe(default)并消费owned快照，统计采样和其余旧
+事件生产者仍需迁移。旧owned EventSource入口在该生产调用者与真实库职责结束前保留，
+不能将它标成standalone-only或把它留作控制预算不足时的后备。新原表wire/拒绝、真实
+Pending写与N=1重放/首帧/live顺序、native gRPC/实际worker join回归已注册，待串行验证。
