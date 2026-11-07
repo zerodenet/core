@@ -132,6 +132,7 @@ mieru = { path = "../../protocols/mieru", optional = true, default-features = fa
 wireguard = { path = "../../protocols/wireguard", optional = true, default-features = false }
 zero-api = { path = "../api" }
 serde_json.workspace = true
+serde.workspace = true
 sha2 = { workspace = true, optional = true }
 zero-traits = { path = "../traits" }
 zero-tun = { path = "../tun" }
