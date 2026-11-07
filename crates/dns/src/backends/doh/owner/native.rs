@@ -171,7 +171,7 @@ impl DriverOwner {
             let settled = async {
                 tokio::time::timeout_at(end, idle)
                     .await
-                    .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
+                    .map_err(|source| crate::retirement_observation::deadline(source, ""))?;
                 client
                     .native
                     .get()

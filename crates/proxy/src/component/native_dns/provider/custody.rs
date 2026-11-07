@@ -17,7 +17,7 @@ impl NativeUse {
         let mut report = CloseReport::default();
         let mut logical = tokio::time::timeout_at(end, self.logical.lock())
             .await
-            .map_err(std::io::Error::other)?;
+            .map_err(super::retirement::pending_deadline)?;
         if let Some(owner) = logical.as_mut() {
             let closed = owner.close(end).await.map_err(std::io::Error::other)?;
             if !closed.is_complete() || !owner.closed().is_some_and(|closed| closed.matches(owner))

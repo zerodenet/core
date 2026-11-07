@@ -61,7 +61,7 @@ impl DriverOwner {
                 tokio::select! {biased;_=next=>{},_=&mut changed=>{}}
             })
             .await
-            .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
+            .map_err(|source| crate::retirement_observation::deadline(source, ""))?;
             self.reap();
             let state = self.state.lock().expect("DoH driver owner poisoned");
             if !state
@@ -94,11 +94,11 @@ impl DriverOwner {
         // before a connection driver can be registered.
         let _opening = tokio::time::timeout_at(deadline, self.connect_lock.lock())
             .await
-            .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
+            .map_err(|source| crate::retirement_observation::deadline(source, ""))?;
         let clients = {
             let mut clients = tokio::time::timeout_at(deadline, self.clients.lock())
                 .await
-                .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
+                .map_err(|source| crate::retirement_observation::deadline(source, ""))?;
             std::mem::take(&mut *clients)
         };
         drop(clients);

@@ -30,6 +30,8 @@ pub use query_tasks::{
     OwnedDnsQueryTasks,
 };
 mod native_node;
+mod retirement_observation;
+pub use retirement_observation::DnsRetirementPending;
 mod reverse;
 mod router;
 mod service;
