@@ -61,6 +61,13 @@ impl InlineSupervisor {
 }
 
 impl ComponentCatalog {
+    fn first_resource_fault(
+        &self,
+    ) -> Option<Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>> {
+        self.supervised_slots()
+            .iter()
+            .find_map(|slot| slot.observe_resource_fault())
+    }
     fn first_task_fault(&self) -> Option<Arc<ComponentTaskFault>> {
         self.supervised_slots()
             .iter()
@@ -143,6 +150,9 @@ impl ComponentCatalog {
             {
                 return fault;
             }
+            if let Some(fault) = self.first_resource_fault() {
+                return crate::component::instance::retained(fault.source.clone());
+            }
             if let Some(fault) = self.first_task_fault() {
                 return fault.error();
             }
@@ -159,6 +169,7 @@ impl ComponentCatalog {
                 .and_then(std::sync::Weak::upgrade);
             tokio::select! {
                 _ = &mut changed => {},
+                failure = self.observe_resource_failure() => return failure,
                 failure = async {
                     match embedded { Some(owner) => owner.observe_failure().await, None => std::future::pending().await }
                 } => return failure,
@@ -166,6 +177,38 @@ impl ComponentCatalog {
         }
     }
 
+    async fn observe_resource_failure(&self) -> ChannelError {
+        let target = Arc::new(WaitTarget::default());
+        let relay = Arc::new(crate::component::instance::MonitorWake::default());
+        relay.bind(&target);
+        poll_fn(|cx| {
+            target.register(cx);
+            let waker = std::task::Waker::from(relay.clone());
+            let mut local = std::task::Context::from_waker(&waker);
+            self.original_budgets()
+                .carrier
+                .poll_cancelled_retirements(&mut local);
+            for slot in self.supervised_slots() {
+                if let Some(fault) = slot.observe_resource_fault() {
+                    slot.revoke();
+                    return Poll::Ready(crate::component::instance::retained(fault.source.clone()));
+                }
+            }
+            // Unknown/orphan ownership remains charged in the same Root. It is
+            // reported without inventing a live Slot/generation or acceptance.
+            if let Some(fault) = self
+                .original_budgets()
+                .carrier
+                .failures_with_instances()
+                .into_iter()
+                .next()
+            {
+                return Poll::Ready(crate::component::instance::retained(fault.source));
+            }
+            Poll::Pending
+        })
+        .await
+    }
     pub async fn scan_candidate(
         &self,
         config: &Arc<RuntimeConfig>,

@@ -46,6 +46,7 @@ pub struct ResourceFailure {
     pub controller: ResourceFailurePhase,
     pub source: Arc<ChannelError>,
     reported: AtomicBool,
+    ownership: std::sync::OnceLock<Arc<ChannelError>>,
 }
 impl ResourceFailure {
     pub fn new(
@@ -58,7 +59,42 @@ impl ResourceFailure {
             controller,
             source,
             reported: false.into(),
+            ownership: std::sync::OnceLock::new(),
         }
+    }
+    /// Exact local ownership delivery, independent of publication, physical
+    /// close, actual task join and Host registration ACK.
+    pub fn ownership_received(&self) -> bool {
+        self.ownership.get().is_some_and(|notice| {
+            notice
+                .cleanup_failure_receipt()
+                .is_some_and(|receipt| receipt.is_acknowledged())
+        })
+    }
+    /// Called only after the actual receiver durably retains this same Arc.
+    /// The receipt payload retains the source, never this ResourceFailure or IO.
+    pub fn acknowledge_retained(&self, retained: &Arc<Self>) -> bool {
+        if !std::ptr::eq(self, retained.as_ref()) {
+            return false;
+        }
+        if self
+            .source
+            .cleanup_failure_receipt()
+            .is_some_and(|receipt| !receipt.acknowledge_retained(&self.source))
+        {
+            return false;
+        }
+        let notice = self.ownership.get_or_init(|| {
+            let receipt = zero_error::channel::CleanupFailureReceipt::new();
+            assert!(receipt.bind_payload(self.source.clone()));
+            Arc::new(
+                ChannelError::retained(self.source.clone()).with_cleanup_failure_receipt(receipt),
+            )
+        });
+        notice
+            .cleanup_failure_receipt()
+            .unwrap()
+            .acknowledge_retained(notice)
     }
     pub fn reported(&self) -> bool {
         self.reported.load(Ordering::Acquire)

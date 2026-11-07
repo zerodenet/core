@@ -9,6 +9,9 @@ pub(crate) trait SourceCustody: Send + Sync {
     fn released(&self) -> bool;
     fn poll_retirement(&self, cx: &mut Context<'_>) -> bool;
     fn failure(&self) -> Option<Arc<ChannelError>>;
+    fn resource_failure(&self) -> Option<Arc<crate::contract::lifecycle::ResourceFailure>> {
+        None
+    }
 }
 impl CarrierOriginalTotals {
     pub(crate) fn reserve_source(
@@ -25,15 +28,26 @@ impl CarrierOriginalTotals {
                 DeliveryState::NotSubmitted,
             ));
         }
-        state.source.push(original);
+        let instance = original.instance();
+        state.source.push(fault::Retained::new(original, instance));
         Ok(())
     }
     pub(crate) fn release_source_if_settled(&self, original: &Arc<dyn SourceCustody>) {
         if original.released() {
-            self.release_source(original);
+            let actual = self
+                .lock()
+                .source
+                .iter()
+                .find(|row| Arc::ptr_eq(&row.original, original))
+                .cloned();
+            if let Some(actual) =
+                actual.filter(|row| row.received(row.failure(), row.resource_failure()))
+            {
+                self.release_source(&actual);
+            }
         }
     }
-    pub(super) fn release_source(&self, original: &Arc<dyn SourceCustody>) {
+    pub(super) fn release_source(&self, original: &Arc<fault::Retained<dyn SourceCustody>>) {
         let removed = {
             let mut state = self.lock();
             state

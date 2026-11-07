@@ -16,6 +16,7 @@ pub(super) struct Retirement {
     removed: bool,
     work: Option<BoxFuture<'static, Result<CloseReport, ChannelError>>>,
     first_fault: Option<Arc<ChannelError>>,
+    pub(super) resource_failure: Option<Arc<crate::contract::lifecycle::ResourceFailure>>,
     // Same original slot's one read-only credit waiter survives its immutable
     // cleanup deadline. A late real ACK still wakes the existing Host driver.
     credit: Option<BoxFuture<'static, bool>>,
@@ -125,7 +126,17 @@ impl CarrierOwnerRegistration {
                     }
                     Poll::Ready(Err(error)) => {
                         retired_work = Some(work);
-                        state.first_fault.get_or_insert_with(|| Arc::new(error));
+                        let source = state
+                            .first_fault
+                            .get_or_insert_with(|| Arc::new(error))
+                            .clone();
+                        state.resource_failure.get_or_insert_with(|| {
+                            Arc::new(crate::contract::lifecycle::ResourceFailure::new(
+                                slot.instance,
+                                crate::contract::lifecycle::ResourceFailurePhase::DeclaredResources,
+                                source,
+                            ))
+                        });
                     }
                 }
                 if first_fault.is_none() {

@@ -285,7 +285,7 @@ impl ComponentSlot {
                 let mut cx = Context::from_waker(&waker);
                 live.resources.poll_cancelled_carriers(&mut cx) || joined
             });
-        if self.task_fault().is_some() {
+        if self.task_fault().is_some() || self.observe_resource_fault().is_some() {
             self.revoke();
         }
         progress || initialized
@@ -294,6 +294,9 @@ impl ComponentSlot {
         &self,
         deadline: Instant,
     ) -> Result<(), ChannelError> {
+        if let Some(failure) = self.observe_resource_fault() {
+            return Err(retained(failure.source.clone()));
+        }
         if let Some(failure) = self.task_fault() {
             return Err(failure.error());
         }

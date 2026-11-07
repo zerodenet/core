@@ -69,6 +69,7 @@ pub(super) struct State {
     pub temporary: Slot,
     pub temporary_path: Option<tempfile::TempPath>,
     pub path_failure: Option<Arc<io::Error>>,
+    pub work_failure: Option<Arc<io::Error>>,
 }
 impl Default for CoreIdentity {
     fn default() -> Self {
@@ -83,7 +84,7 @@ impl State {
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 Err(error) => {
                     let source = Arc::new(error);
-                    self.path_failure.get_or_insert(source.clone());
+                    let source = self.path_failure.get_or_insert(source).clone();
                     return Err(failure(None, Some(source)));
                 }
             }
@@ -137,12 +138,18 @@ pub(super) fn finish<T>(work: io::Result<T>, close: Result<(), Arc<io::Error>>) 
 pub(super) struct Operation<'a> {
     state: Option<std::sync::MutexGuard<'a, State>>,
     changed: &'a tokio::sync::Notify,
+    stop: Option<&'a CancellationToken>,
 }
 impl<'a> Operation<'a> {
-    pub fn new(state: std::sync::MutexGuard<'a, State>, changed: &'a tokio::sync::Notify) -> Self {
+    pub fn new(
+        state: std::sync::MutexGuard<'a, State>,
+        changed: &'a tokio::sync::Notify,
+        stop: Option<&'a CancellationToken>,
+    ) -> Self {
         Self {
             state: Some(state),
             changed,
+            stop,
         }
     }
 }
@@ -159,7 +166,16 @@ impl std::ops::DerefMut for Operation<'_> {
 }
 impl Drop for Operation<'_> {
     fn drop(&mut self) {
+        let failed = self
+            .state
+            .as_deref()
+            .is_some_and(|state| state.work_failure.is_some() || state.start_failure.is_some());
         drop(self.state.take());
+        if failed {
+            if let Some(stop) = self.stop {
+                stop.cancel();
+            }
+        }
         self.changed.notify_waiters();
     }
 }

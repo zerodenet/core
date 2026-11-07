@@ -333,6 +333,7 @@ impl HostResources {
             reads,
             packets,
             journals,
+            declared_failures: Arc::default(),
             #[cfg(any(target_os = "linux", windows))]
             processes,
             cancel,

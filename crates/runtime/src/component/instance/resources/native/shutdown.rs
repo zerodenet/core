@@ -106,40 +106,39 @@ impl HostResources {
                 .clone()
                 .or_else(|| state.io.failures.values().next().cloned())
         };
-        let journal_report = journal_result?;
+        let journal_report = match journal_result {
+            Ok(report) => report,
+            Err(error) => {
+                self.retain_resource_error(Arc::new(error));
+                CloseReport::default()
+            }
+        };
         if let Some(error) = bound_failure {
-            return Err(error);
+            self.retain_resource_error(Arc::new(error));
         }
         if let Some(error) = icmp_failure {
-            return Err(error);
+            self.retain_resource_error(Arc::new(error));
         }
-        // Preserve the existing exact JoinError chain. Its real join receipt
-        // stays in FileReads on Err, alongside every native receipt and error.
         if let Some(source) = original_failure {
-            return Err(crate::component::instance::retained(source));
+            self.retain_resource_error(source);
         }
-        if let Some(source) = carriers
-            .iter()
-            .find_map(|carrier| carrier.first_fault.as_ref())
-        {
-            return Err(crate::component::instance::retained(source.clone()));
-        }
+        // Sample every provider, retaining original sources before either a
+        // complete report or Unknown is returned. No historical error is close.
+        self.resource_fault();
         for entry in &roots {
-            if let Some(source) = &entry.first_fault {
+            if entry.first_fault.is_some() {
                 tracing::debug!(ordinal = entry.ordinal, query_failure = ?entry.first_query_failure,
                     first_close_source = ?entry.first_close_source, native_unknown = ?entry.native_unknown,
                     "retained original root DNS close evidence");
-                return Err(crate::component::instance::retained(source.clone()));
             }
         }
         for entry in &metadata {
-            if let Some(source) = &entry.first_fault {
+            if entry.first_fault.is_some() {
                 for original in entry.main.unknown.iter().chain(&entry.probes.unknown) {
                     tracing::debug!(ordinal = entry.ordinal, reservation = original.reservation.get(),
                         acquisition_source = ?original.acquisition_source, close_source = ?original.source,
                         "retained original metadata datagram close evidence");
                 }
-                return Err(crate::component::instance::retained(source.clone()));
             }
         }
         let mut state = self

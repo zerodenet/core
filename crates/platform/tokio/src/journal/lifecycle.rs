@@ -58,6 +58,8 @@ impl Core {
             Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
             Err(std::sync::TryLockError::WouldBlock) => return Ok(None),
         };
-        state.close_all().map(Some)
+        let result = state.close_all();
+        self.capture_faults(&state);
+        result.map(Some)
     }
 }

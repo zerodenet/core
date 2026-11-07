@@ -88,6 +88,12 @@ impl Journals {
         })?;
         Ok(owner.grant())
     }
+    pub(super) fn faults(&self) -> Vec<Arc<ChannelError>> {
+        self.0
+            .iter()
+            .filter_map(|(_, owner)| owner.failure())
+            .collect()
+    }
     pub(super) fn evidence(&self) -> Vec<JournalEvidence> {
         self.0
             .iter()
@@ -114,6 +120,16 @@ impl Journals {
                     "journal {ordinal} has an actual IO call in progress"
                 ))),
                 Err(source) => {
+                    if owner
+                        .closed()
+                        .is_some_and(|receipt| owner.matches_closed(&receipt))
+                    {
+                        report.closed_io.push(format!(
+                            "component {} journal {} exact original graph closed",
+                            component.0, ordinal
+                        ));
+                        continue;
+                    }
                     first.get_or_insert_with(|| {
                         io_error(
                             component,
@@ -124,6 +140,7 @@ impl Journals {
                 }
             }
         }
+        // fault observation remains separately available after positive closure.
         match first {
             Some(error) => Err(error),
             None => Ok(report),

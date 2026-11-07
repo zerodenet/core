@@ -3,6 +3,9 @@ use super::*;
 
 impl ComponentSlot {
     pub async fn start(&self, deadline: Instant) -> Result<(), ChannelError> {
+        if let Some(failure) = self.observe_resource_fault() {
+            return Err(retained(failure.source.clone()));
+        }
         if let Some(failure) = self.task_fault() {
             return Err(failure.error());
         }
@@ -68,6 +71,7 @@ impl ComponentSlot {
                     self.cancel.clone(),
                     tasks.registrar().downgrade(),
                     originals,
+                    self.declared_failures.clone(),
                     self.packet_source.clone(),
                 )
                 .map_err(Arc::new)?;

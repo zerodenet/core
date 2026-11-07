@@ -16,7 +16,9 @@ use std::{
     },
 };
 use zero_core::component::ComponentInstanceId;
+mod faults;
 mod io_ops;
+pub use faults::JournalFaults;
 mod lifecycle;
 mod retirement;
 mod rotation;
@@ -39,6 +41,7 @@ struct Core {
     hosted: Option<Hosted>,
     state: Mutex<State>,
     native_fault: Mutex<Option<Arc<ChannelError>>>,
+    fault_sources: Arc<Mutex<faults::Sources>>,
     closing: AtomicBool,
     changed: Arc<tokio::sync::Notify>,
 }
@@ -124,6 +127,7 @@ impl JournalOwner {
             hosted,
             state: Mutex::new(State::default()),
             native_fault: Mutex::default(),
+            fault_sources: Arc::default(),
             closing: AtomicBool::new(false),
             changed: Arc::default(),
         })))
@@ -205,10 +209,16 @@ impl Core {
     }
     fn call_state(&self) -> io::Result<slots::Operation<'_>> {
         match self.state.try_lock() {
-            Ok(state) => Ok(slots::Operation::new(state, &self.changed)),
-            Err(std::sync::TryLockError::Poisoned(error)) => {
-                Ok(slots::Operation::new(error.into_inner(), &self.changed))
-            }
+            Ok(state) => Ok(slots::Operation::new(
+                state,
+                &self.changed,
+                self.hosted.as_ref().map(|hosted| &hosted.stop),
+            )),
+            Err(std::sync::TryLockError::Poisoned(error)) => Ok(slots::Operation::new(
+                error.into_inner(),
+                &self.changed,
+                self.hosted.as_ref().map(|hosted| &hosted.stop),
+            )),
             Err(std::sync::TryLockError::WouldBlock) => Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
                 "journal already has its one actual IO call",
@@ -222,6 +232,17 @@ impl Core {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
     fn require_open(&self, state: &State) -> io::Result<()> {
+        if let Some(source) = state
+            .work_failure
+            .clone()
+            .or_else(|| state.lock.close_failure())
+            .or_else(|| state.read.close_failure())
+            .or_else(|| state.append.close_failure())
+            .or_else(|| state.temporary.close_failure())
+            .or_else(|| state.path_failure.clone())
+        {
+            return Err(faults::retained(source));
+        }
         if self.closing.load(Ordering::Acquire)
             || state.closing
             || !state.started

@@ -15,10 +15,14 @@ impl CarrierOriginalTotals {
                 DeliveryState::NotSubmitted,
             ));
         }
-        state.metadata.push(original);
+        let instance = Some(original.instance());
+        state.metadata.push(fault::Retained::new(
+            original as Arc<dyn MetadataCustody>,
+            instance,
+        ));
         Ok(())
     }
-    pub(super) fn release_metadata(&self, original: &Arc<dyn MetadataCustody>) {
+    pub(super) fn release_metadata(&self, original: &Arc<fault::Retained<dyn MetadataCustody>>) {
         let removed = {
             let mut state = self.lock();
             state
@@ -49,10 +53,14 @@ impl CarrierOriginalTotals {
                 DeliveryState::NotSubmitted,
             ));
         }
-        state.bound.push(original);
+        let instance = Some(original.instance());
+        state.bound.push(fault::Retained::new(
+            original as Arc<dyn BoundCustody>,
+            instance,
+        ));
         Ok(())
     }
-    pub(super) fn release_bound(&self, original: &Arc<dyn BoundCustody>) {
+    pub(super) fn release_bound(&self, original: &Arc<fault::Retained<dyn BoundCustody>>) {
         let removed = {
             let mut state = self.lock();
             state

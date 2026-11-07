@@ -7,13 +7,10 @@ impl HostResources {
         cancel: CancellationToken,
         tasks: zero_platform_tokio::contract::scope::WeakTaskRegistrar,
         originals: Arc<crate::HostOriginalBudgets>,
-        source: Arc<
-            std::sync::OnceLock<
-                zero_platform_tokio::controlled_carrier::CarrierOrigin,
-            >,
-        >,
+        declared_failures: Arc<super::super::failures::DeclaredReceiver>,
+        source: Arc<std::sync::OnceLock<zero_platform_tokio::controlled_carrier::CarrierOrigin>>,
     ) -> Result<Arc<Self>, ChannelError> {
-        Self::construct(
+        let mut resources = Self::construct(
             instance.component,
             declarations,
             cancel,
@@ -21,7 +18,11 @@ impl HostResources {
             Some(source),
             originals,
             Some(tasks),
-        )
+        )?;
+        Arc::get_mut(&mut resources)
+            .expect("cold resources not published")
+            .declared_failures = declared_failures;
+        Ok(resources)
     }
     /// Concrete hosted construction; no identity-to-registrar reconstruction.
     pub fn new_hosted(
@@ -37,6 +38,7 @@ impl HostResources {
             cancel,
             tasks,
             originals,
+            Arc::default(),
             Arc::default(),
         )
     }

@@ -11,6 +11,9 @@ pub(super) trait CarrierCustody: Send + Sync {
     fn poll_cancelled_owner(&self, cx: &mut Context<'_>) -> bool;
     fn poll_ack(&self, cx: &mut Context<'_>) -> bool;
     fn failure(&self) -> Option<Arc<ChannelError>>;
+    fn resource_failure(&self) -> Option<Arc<crate::contract::lifecycle::ResourceFailure>> {
+        None
+    }
 }
 pub(crate) trait MetadataCustody: Send + Sync {
     /// Same concrete original/binding copy; no generation from error metadata.
@@ -18,6 +21,9 @@ pub(crate) trait MetadataCustody: Send + Sync {
     fn released(&self) -> bool;
     fn poll_retirement(&self, cx: &mut Context<'_>) -> bool;
     fn failure(&self) -> Option<Arc<ChannelError>>;
+    fn resource_failure(&self) -> Option<Arc<crate::contract::lifecycle::ResourceFailure>> {
+        None
+    }
 }
 pub(crate) trait BoundCustody: Send + Sync {
     /// Same concrete original/binding copy; no generation from error metadata.
@@ -25,8 +31,26 @@ pub(crate) trait BoundCustody: Send + Sync {
     fn released(&self) -> bool;
     fn poll_retirement(&self, cx: &mut Context<'_>) -> bool;
     fn failure(&self) -> Option<Arc<ChannelError>>;
+    fn resource_failure(&self) -> Option<Arc<crate::contract::lifecycle::ResourceFailure>> {
+        None
+    }
 }
 impl CarrierCustody for Original {
+    fn resource_failure(&self) -> Option<Arc<crate::contract::lifecycle::ResourceFailure>> {
+        self.slot
+            .state()
+            .protocol
+            .as_ref()
+            .and_then(|phase| phase.resource_failure())
+            .or_else(|| {
+                self.slot
+                    .retirement
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .resource_failure
+                    .clone()
+            })
+    }
     fn instance(&self) -> Option<zero_core::component::ComponentInstanceId> {
         Some(self.owner.instance)
     }
