@@ -20,7 +20,9 @@ async fn cancelled_tcp_keeps_full_fifo_end_until_the_original_driver_sends_it() 
         let owner = writer.clone();
         let mut stream = VlessInboundMuxTcpRelay::new(sid, incoming, writer).into_standard_stream();
         let payload = vec![7; MUX_MAX_PAYLOAD];
-        stream.write_all(&payload).await.unwrap();
+        AsyncWriteExt::write_all(&mut stream, &payload)
+            .await
+            .unwrap();
         drop(stream);
         assert!(owner.pending_ends.lock().unwrap().contains(&sid));
         assert!(
@@ -46,7 +48,7 @@ async fn cancelled_tcp_keeps_full_fifo_end_until_the_original_driver_sends_it() 
             }
             assert!(!states.contains_stream(sid));
             assert!(owner.pending_ends.lock().unwrap().is_empty());
-            wire.shutdown().await.unwrap();
+            AsyncWriteExt::shutdown(&mut wire).await.unwrap();
         };
         let reading = async {
             let data = codec::read_frame_tokio(&mut received).await.unwrap();
