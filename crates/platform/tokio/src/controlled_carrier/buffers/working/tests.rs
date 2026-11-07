@@ -128,7 +128,7 @@ fn too_small_original_root_refuses_the_whole_peak_without_partial_admission() {
     let book = book(5);
     assert_eq!(
         book.try_working_set(shape()).unwrap_err().kind(),
-        io::ErrorKind::WouldBlock
+        io::ErrorKind::InvalidInput
     );
     assert_eq!(book.used_bytes(), 0);
     let bad = CarrierBufferWorkingShape {
