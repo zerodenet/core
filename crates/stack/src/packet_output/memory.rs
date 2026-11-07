@@ -5,6 +5,8 @@ use zero_traits::{PacketBuffer, PacketDeriveError};
 
 mod layout;
 pub use layout::PacketWireMemory;
+mod notifications;
+pub use notifications::PacketSendNotifications;
 /// Reserve every concrete transform before the original enters a queue. Actual
 /// derived buffers later split that same reservation without reacquiring root
 /// capacity. On failure the original payload and its credit remain unchanged.

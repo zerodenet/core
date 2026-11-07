@@ -11,7 +11,10 @@ impl ClientTcpStack {
         };
         let key = key_from_parsed(&tcp);
         let rev = key_reversed(&key);
-        let mut connections = self.connections.lock().await;
+        let locked = self.connections.lock().await;
+        #[cfg(feature = "packet-memory")]
+        let _memory_notifications = self.outbound.defer_memory_notifications();
+        let mut connections = locked;
         let Some(conn) = connections.get_mut(&key) else {
             return false;
         };

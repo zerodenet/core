@@ -42,6 +42,9 @@ use crate::packet::{self, tcp_flags, Endpoint, ParsedTcp};
 mod cancellation_tests;
 pub mod client;
 mod control;
+#[cfg(all(test, feature = "packet-memory"))]
+#[path = "tcp/memory_tests.rs"]
+mod memory_tests;
 mod receive;
 mod retransmission;
 use control::TcpControlPackets;
@@ -248,6 +251,7 @@ struct TcpWrite {
     mss: u16,
     outbound_reservation: Option<OutboundReservation>,
     memory_wait: Option<Pin<Box<dyn Future<Output = ()> + Send>>>,
+    memory_retry: Option<std::task::Waker>,
 }
 
 type OutboundReservation =
@@ -277,6 +281,7 @@ impl TcpWrite {
             mss,
             outbound_reservation: None,
             memory_wait: None,
+            memory_retry: None,
         };
         value.refresh_persist_packet();
         value
@@ -316,20 +321,31 @@ impl TcpWrite {
             .is_some_and(|wait| wait.as_mut().poll(cx).is_ready())
         {
             self.memory_wait = self.outbound.memory_changed();
-            if let Some(wait) = &mut self.memory_wait {
-                let _ = wait.as_mut().poll(cx);
+            if self
+                .memory_wait
+                .as_mut()
+                .is_some_and(|wait| wait.as_mut().poll(cx).is_ready())
+            {
+                // A second real change can race another producer taking the
+                // freed credit. Never retain an already completed future.
+                self.memory_wait = None;
+                self.memory_retry = Some(cx.waker().clone());
             }
         }
         match output::CachedPacket::build(spec, &self.outbound) {
             Ok(packet) => {
                 self.memory_wait = None;
+                self.memory_retry = None;
                 Poll::Ready(Ok(packet))
             }
-            Err(zero_traits::PacketDeriveError::Busy) if self.memory_wait.is_some() => {
+            Err(zero_traits::PacketDeriveError::Busy)
+                if self.memory_wait.is_some() || self.memory_retry.is_some() =>
+            {
                 Poll::Pending
             }
             Err(source) => {
                 self.memory_wait = None;
+                self.memory_retry = None;
                 Poll::Ready(Err(io::Error::other(source)))
             }
         }
@@ -457,16 +473,15 @@ impl AsyncRead for UserTcpStream {
     }
 }
 
-impl AsyncWrite for UserTcpStream {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        data: &[u8],
-    ) -> Poll<io::Result<usize>> {
+impl UserTcpStream {
+    fn poll_write_inner(&self, cx: &mut Context<'_>, data: &[u8]) -> Poll<io::Result<usize>> {
         if data.is_empty() {
             return Poll::Ready(Ok(0));
         }
-        let mut w = self.write.lock().expect("TCP write lock poisoned");
+        let locked = self.write.lock().expect("TCP write lock poisoned");
+        #[cfg(feature = "packet-memory")]
+        let _memory_notifications = locked.outbound.defer_memory_notifications();
+        let mut w = locked;
         if w.fin_sent.load(Ordering::Acquire) {
             return Poll::Ready(Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
@@ -509,7 +524,14 @@ impl AsyncWrite for UserTcpStream {
         let packet = match w.prepare_cached(cx, spec) {
             Poll::Ready(Ok(packet)) => packet,
             Poll::Ready(Err(source)) => return Poll::Ready(Err(source)),
-            Poll::Pending => return Poll::Pending,
+            Poll::Pending => {
+                let retry = w.memory_retry.take();
+                drop(w);
+                if let Some(retry) = retry {
+                    retry.wake();
+                }
+                return Poll::Pending;
+            }
         };
         let outgoing = match packet.outgoing() {
             Ok(packet) => packet,
@@ -522,12 +544,25 @@ impl AsyncWrite for UserTcpStream {
         permit.send_buffer(outgoing);
         Poll::Ready(Ok(count))
     }
+}
+
+impl AsyncWrite for UserTcpStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        data: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        self.as_ref().get_ref().poll_write_inner(cx, data)
+    }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Poll::Ready(Ok(()))
     }
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        let mut w = self.write.lock().expect("TCP write lock poisoned");
+        let locked = self.write.lock().expect("TCP write lock poisoned");
+        #[cfg(feature = "packet-memory")]
+        let _memory_notifications = locked.outbound.defer_memory_notifications();
+        let mut w = locked;
         if w.fin_sent.load(Ordering::Acquire) {
             return Poll::Ready(Ok(()));
         }
@@ -563,7 +598,14 @@ impl AsyncWrite for UserTcpStream {
         let packet = match w.prepare_cached(cx, spec) {
             Poll::Ready(Ok(packet)) => packet,
             Poll::Ready(Err(source)) => return Poll::Ready(Err(source)),
-            Poll::Pending => return Poll::Pending,
+            Poll::Pending => {
+                let retry = w.memory_retry.take();
+                drop(w);
+                if let Some(retry) = retry {
+                    retry.wake();
+                }
+                return Poll::Pending;
+            }
         };
         let outgoing = match packet.outgoing() {
             Ok(packet) => packet,
@@ -656,7 +698,10 @@ impl UserTcpStack {
 
     /// Remove connections idle beyond `timeout`.
     pub async fn cleanup_idle(&self, timeout: std::time::Duration) {
-        let mut conns = self.connections.lock().await;
+        let locked = self.connections.lock().await;
+        #[cfg(feature = "packet-memory")]
+        let _memory_notifications = self.outbound.defer_memory_notifications();
+        let mut conns = locked;
         conns.retain(|_, conn| {
             let keep = conn.last_active.elapsed() < timeout;
             if !keep {
@@ -749,7 +794,10 @@ impl UserTcpStack {
         let key = key_from_parsed(&tcp);
         let rev = key_reversed(&key);
 
-        let mut conns = self.connections.lock().await;
+        let locked = self.connections.lock().await;
+        #[cfg(feature = "packet-memory")]
+        let _memory_notifications = self.outbound.defer_memory_notifications();
+        let mut conns = locked;
 
         // Provenance belongs to the admitted flow; another authenticated peer
         // must not consume or reset an existing connection with the same tuple.
