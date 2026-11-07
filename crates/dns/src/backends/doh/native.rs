@@ -2,8 +2,8 @@
 use super::*;
 use crate::native::{Attempt, NativeDnsProvider};
 use std::sync::{
-    Mutex, OnceLock,
     atomic::{AtomicBool, Ordering},
+    Mutex, OnceLock,
 };
 use tokio::time::Instant;
 use zero_platform_tokio::{contract::scope::TaskJoinWitness, controlled_carrier::loan::LoanOwner};
@@ -37,6 +37,11 @@ impl NativeClient {
     }
     pub(super) fn retired(&self) -> bool {
         self.closed()
+            && self
+                .provider
+                .lock()
+                .expect("DoH provider owner poisoned")
+                .is_none()
             && self.task.get().is_some_and(|task| {
                 task.try_joined().is_some_and(|joined| {
                     task.matches_joined(&joined) && joined.registration_released()
@@ -92,7 +97,7 @@ impl NativeClient {
         self.closed.load(Ordering::Acquire)
     }
     pub(super) async fn settle(&self, end: Instant) -> io::Result<()> {
-        if self.closed() {
+        if self.retired() {
             return Ok(());
         }
         let task = self
@@ -102,19 +107,6 @@ impl NativeClient {
         let joined = tokio::time::timeout_at(end, task.wait())
             .await
             .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
-        let mut original = tokio::time::timeout_at(end, self.original.lock())
-            .await
-            .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
-        if let Some(owner) = original.as_mut() {
-            let report = owner.close(end).await.map_err(io::Error::other)?;
-            if !report.is_complete() || !owner.closed().is_some_and(|closed| closed.matches(owner))
-            {
-                return Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "DoH original loan custody is not returned",
-                ));
-            }
-        }
         let provider = self
             .provider
             .lock()
@@ -123,16 +115,55 @@ impl NativeClient {
             .ok_or_else(|| {
                 io::Error::other("DoH original provider was lost before confirmation")
             })?;
-        provider.close_stream_originals(task.clone(), end).await?;
-        // Drop the actual controls/provider only after all confirmations. Old
-        // cache/receipt handles then retain no original I/O or task owner.
-        original.take();
-        self.provider
+        if !self.closed() {
+            let mut original = tokio::time::timeout_at(end, self.original.lock())
+                .await
+                .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
+            if let Some(owner) = original.as_mut() {
+                let report = owner.close(end).await.map_err(io::Error::other)?;
+                if !report.is_complete()
+                    || !owner.closed().is_some_and(|closed| closed.matches(owner))
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "DoH original loan custody is not returned",
+                    ));
+                }
+            }
+            provider.close_stream_originals(task.clone(), end).await?;
+            // This is the positive physical inventory alone. A failed original
+            // still keeps the exact canonical provider until its real receiver
+            // has accepted the source and the Host has released registration.
+            let retired_original = original.take();
+            self.closed.store(true, Ordering::Release);
+            drop(original);
+            drop(retired_original);
+        }
+        if let Err(source) = joined.result() {
+            if !task.matches_joined(&joined)
+                || !joined.failure_accepted()
+                || !provider.tasks().retains_query_failure(task, None)
+            {
+                // Repeated settlement must not use physical closed as a way
+                // around missing fault delivery. The provider stays retained.
+                return Err(io::Error::other(source));
+            }
+        }
+        let released = tokio::time::timeout_at(end, task.wait_registration_released())
+            .await
+            .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
+        if !task.matches_joined(&released) || !released.registration_released() {
+            return Err(io::Error::other("DoH original registration ACK is unknown"));
+        }
+        // The same original fault stays with canonical QueryFaults / the Slot
+        // CloseReport. It is no longer an outstanding IO/receiver obligation.
+        let retired_provider = self
+            .provider
             .lock()
             .expect("DoH provider owner poisoned")
             .take();
-        self.closed.store(true, Ordering::Release);
-        joined.result().map_err(io::Error::other)
+        drop(retired_provider);
+        Ok(())
     }
 }
 /// Logical exchange completion or confirmed retirement of its actual pool
