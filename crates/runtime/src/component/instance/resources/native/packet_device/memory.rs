@@ -32,22 +32,50 @@ impl Memory {
         original: &original::Original,
         component: zero_core::component::ComponentId,
     ) -> Result<NativeReadGrant, ChannelError> {
-        let lengths: &[usize] = if cfg!(target_os = "windows") && self.tasks.is_some() {
-            &[65_536, 65_536]
-        } else {
-            &[65_536]
+        #[cfg(target_os = "macos")]
+        let (reads, macos_write) = {
+            // Utun's four-byte AF prefix needs its original fixed backend
+            // read/write workspaces in addition to the Source's raw-IP read.
+            // One lock prepays both actual lanes before any FD/helper attempt.
+            let work = self
+                .roots
+                .packet
+                .datagram_workspaces([65_536, 65_540], Some(65_540))
+                .map_err(|source| {
+                    error(
+                        component,
+                        Reason::Capacity,
+                        "utun original workspaces cannot fit before acquisition",
+                    )
+                    .with_source(source)
+                })?;
+            let write = work.control.expect("same prepaid utun write workspace");
+            let mut reads = Vec::from(work.reads);
+            reads.push(write.clone());
+            (reads, write)
         };
-        let reads = self.roots.packet.native_grants(lengths).map_err(|source| {
-            error(
-                component,
-                Reason::Capacity,
-                "native read workspaces cannot fit before acquisition",
-            )
-            .with_source(source)
-        })?;
+        #[cfg(not(target_os = "macos"))]
+        let reads = {
+            let lengths: &[usize] = if cfg!(target_os = "windows") && self.tasks.is_some() {
+                &[65_536, 65_536]
+            } else {
+                &[65_536]
+            };
+            let reads = self.roots.packet.native_grants(lengths).map_err(|source| {
+                error(
+                    component,
+                    Reason::Capacity,
+                    "native read workspaces cannot fit before acquisition",
+                )
+                .with_source(source)
+            })?;
+            reads
+        };
         let actual = reads[0].clone();
         #[cfg(target_os = "windows")]
         let sdk = reads.get(1).cloned();
+        #[cfg(target_os = "macos")]
+        let macos_read = reads[1].clone();
         let mut held = self
             .reads
             .lock()
@@ -61,6 +89,17 @@ impl Memory {
         }
         *held = Some(reads);
         drop(held);
+        #[cfg(target_os = "macos")]
+        original
+            .prepare_macos_workspaces(macos_read, macos_write)
+            .map_err(|source| {
+                error(
+                    component,
+                    Reason::Io,
+                    "same utun workspace installation failed",
+                )
+                .with_source(source)
+            })?;
         #[cfg(target_os = "windows")]
         if let Some(grant) = sdk {
             let work = original.prepare_reader(grant).map_err(|source| {

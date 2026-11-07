@@ -91,7 +91,17 @@ impl Original {
     ) -> std::io::Result<zero_tun::OwnedWintunReadWork> {
         self.owner.prepare_read_work(grant)
     }
+    #[cfg(target_os = "macos")]
+    pub(super) fn prepare_macos_workspaces(
+        &self,
+        read: zero_tun::packet_memory::NativeReadGrant,
+        write: zero_tun::packet_memory::NativeReadGrant,
+    ) -> std::io::Result<()> {
+        self.owner.prepare_macos_workspaces(read, write)
+    }
     pub(super) fn stop_reader(&self) {
+        #[cfg(target_os = "macos")]
+        self.owner.return_unacquired_macos_workspaces();
         #[cfg(target_os = "windows")]
         self.owner.stop();
     }
