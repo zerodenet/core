@@ -13,6 +13,7 @@ use zero_core::{
     Address,
 };
 use zero_platform_tokio::contract::datagram::DatagramRequest;
+#[path = "opening/no_observer.rs"]
 mod no_observer;
 
 #[tokio::test]

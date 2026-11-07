@@ -1,5 +1,6 @@
 //! Exact SOCKS wire peer: its BND domain differs from the literal TCP endpoint.
 use super::*;
+use zero_core::Address;
 use std::net::SocketAddr;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},

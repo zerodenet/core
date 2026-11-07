@@ -1,4 +1,5 @@
 use super::*;
+use zero_platform_tokio::contract::{lifecycle::ResourceLifecycle, CloseReason};
 use std::sync::{mpsc, Barrier};
 use zero_core::{request::Destination, Address};
 
