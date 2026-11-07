@@ -8,7 +8,7 @@ struct Observed<S> {
     inner: S,
     shutdown: Arc<AtomicBool>,
 }
-impl<S: AsyncRead + AsyncWrite + Unpin + Send> AsyncSocket for Observed<S> {
+impl<S: AsyncRead + AsyncWrite + Unpin + Send + Sync> AsyncSocket for Observed<S> {
     type Error = io::Error;
     async fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
         AsyncReadExt::read(&mut self.inner, bytes).await

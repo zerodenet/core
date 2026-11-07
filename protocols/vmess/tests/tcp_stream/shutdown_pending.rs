@@ -15,7 +15,7 @@ struct Tail<S> {
     tail_on_flush: bool,
     enabled: Arc<AtomicBool>,
 }
-impl<S: AsyncRead + AsyncWrite + Unpin + Send> AsyncSocket for Tail<S> {
+impl<S: AsyncRead + AsyncWrite + Unpin + Send + Sync> AsyncSocket for Tail<S> {
     type Error = io::Error;
     async fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
         AsyncReadExt::read(&mut self.inner, bytes).await
