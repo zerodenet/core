@@ -49,6 +49,17 @@ impl io::Write for Counter {
 fn status(error: impl std::fmt::Display) -> tonic::Status {
     tonic::Status::resource_exhausted(error.to_string())
 }
+pub(super) fn frame_length(payload: usize) -> io::Result<usize> {
+    let mut length = payload;
+    let mut prefix = 1usize;
+    while length >= 128 {
+        length >>= 7;
+        prefix += 1;
+    }
+    payload
+        .checked_add(prefix + 6)
+        .ok_or_else(|| io::Error::other("gRPC response length overflow"))
+}
 impl Record {
     pub(crate) async fn json(&self, value: Payload<'_>) -> Result<Vec<u8>, tonic::Status> {
         let mut count = Counter(0);

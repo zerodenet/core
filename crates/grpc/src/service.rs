@@ -78,6 +78,9 @@ where
             if let Some(result) = original.config_query(engine, &query).await {
                 return result.map(|payload| Response::new(QueryResponse { payload }));
             }
+            if let Some(result) = original.runtime_query(engine, &query) {
+                return result.map(|payload| Response::new(QueryResponse { payload }));
+            }
         }
         let result = match self.handle.query(query) {
             Ok(result) => result,
