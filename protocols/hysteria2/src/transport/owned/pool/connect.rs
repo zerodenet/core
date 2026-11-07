@@ -203,6 +203,18 @@ impl Generation {
             .udp_hop
             .as_ref()
             .map(|hop| hop.next_port());
+        let mut logical = state
+            .candidates
+            .as_ref()
+            .unwrap()
+            .peer(index)
+            .ok_or_else(|| error(Stage::Prepare, Reason::InvalidConfig))?;
+        logical.set_port(options.leaf.port);
+        // The original N is already held. Prepay actual scratch/codec/copy
+        // before opening any native candidate; no second byte book is created.
+        let (socket, queues) =
+            PacketSocket::prepare_with_budget(logical, self.buffers.clone(), &options.masks())
+                .map_err(|source| error(Stage::Prepare, Reason::Capacity).with_source(source))?;
         let (peer, grant) = state.candidates.as_ref().unwrap().open_metadata(
             index,
             port,
@@ -211,8 +223,6 @@ impl Generation {
             end,
         )?;
         state.unbound = Some(grant);
-        let mut logical = peer;
-        logical.set_port(options.leaf.port);
         state.logical = Some(logical);
         state.next_hop = options
             .leaf
@@ -220,11 +230,6 @@ impl Generation {
             .udp_hop
             .as_ref()
             .map(|hop| Instant::now() + hop.next_interval());
-        let (socket, queues) = PacketSocket::prepare(logical)
-            .map_err(|source| error(Stage::Prepare, Reason::Io).with_source(source))?;
-        let socket = socket
-            .with_stateless_masks(&options.masks())
-            .map_err(|source| error(Stage::Prepare, Reason::Io).with_source(source))?;
         let segment = match PacketSegment::prepare(
             state.unbound.take().unwrap(),
             queues,

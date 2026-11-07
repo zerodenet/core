@@ -215,7 +215,11 @@ impl BorrowedPacketSegment {
             move |(io, view)| async move {
                 // One original driver's workspace, retained by its configured
                 // entry until the same driver actually joins.
-                let mut bytes = vec![0; 65535];
+                let mut bytes = if queue.channels.as_ref().unwrap().memory.is_none() {
+                    vec![0; 65535]
+                } else {
+                    Vec::new()
+                };
                 let result = async {
                     let channels = queue.channels.as_mut().unwrap();
                     loop {
@@ -228,27 +232,35 @@ impl BorrowedPacketSegment {
                                 let accepted = channels.outgoing.len();
                                 for _ in 0..accepted {
                                     let packet = channels.outgoing.try_recv().map_err(io::Error::other)?;
-                                    if packet.peer != logical { return Err(io::ErrorKind::InvalidInput.into()); }
-                                    io.send(&packet.bytes).await?;
+                                    send_packet(&io, &packet, logical).await?;
                                 }
                                 return Ok::<_, io::Error>(());
                             },
                             packet = channels.outgoing.recv() => {
                                 let Some(packet) = packet else { return Ok(()) };
-                                if packet.peer != logical {
-                                    return Err(io::ErrorKind::InvalidInput.into());
-                                }
                                 // Keep this actual accepted send future through
                                 // Pending; stop cannot discard an unknown submit.
-                                io.send(&packet.bytes).await?;
+                                send_packet(&io, &packet, logical).await?;
                             },
-                            received = observation::receive(&io, &mut bytes, &receive_observation) => {
+                            received = async {
+                                let scratch = match channels.memory.as_mut() {
+                                    Some(memory) => &mut memory.receive.scratch.bytes,
+                                    None => &mut bytes,
+                                };
+                                observation::receive(&io, scratch, &receive_observation).await
+                            } => {
                                 let size = received?;
                                 // Keep the existing bounded UDP queue's full
                                 // policy, with no second FIFO.
-                                let _ = channels.incoming.try_send(datagram_queue::Packet {
-                                    bytes: bytes[..size].to_vec(), peer: logical, metadata: None,
-                                });
+                                let packet = match channels.memory.as_ref() {
+                                    Some(memory) => match memory.receive.copy(&memory.receive.scratch.bytes[..size], logical, None) {
+                                        Ok(packet) => Some(packet),
+                                        Err(source) if source.kind() == io::ErrorKind::WouldBlock => None,
+                                        Err(source) => return Err(source),
+                                    },
+                                    None => Some(datagram_queue::Packet { bytes: bytes[..size].to_vec(), peer: logical, metadata: None, _credit: None }),
+                                };
+                                if let Some(packet) = packet { let _ = channels.incoming.try_send(packet); }
                             },
                         }
                     }
@@ -280,5 +292,27 @@ impl BorrowedPacketSegment {
 impl Drop for BorrowedPacketSegment {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+async fn send_packet(
+    io: &BorrowedDatagram,
+    packet: &datagram_queue::Packet,
+    logical: SocketAddr,
+) -> io::Result<()> {
+    if packet.peer != logical {
+        return Err(io::ErrorKind::InvalidInput.into());
+    }
+    // A returned native GSO batch may meet a protocol datagram hop. Keep the
+    // same full backing/credit and submit each original datagram in order.
+    match packet.metadata.and_then(|metadata| metadata.segment_size) {
+        Some(0) => Err(io::ErrorKind::InvalidInput.into()),
+        Some(segment) if !packet.bytes.is_empty() => {
+            for bytes in packet.bytes.chunks(segment) {
+                io.send(bytes).await?;
+            }
+            Ok(())
+        }
+        _ => io.send(&packet.bytes).await,
     }
 }

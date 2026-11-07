@@ -21,6 +21,7 @@ async fn receive_with_metadata(
     }
     if native && meta[0].len == 0 {
         return Ok(vec![Packet {
+            _credit: None,
             bytes: Vec::new(),
             peer: meta[0].addr,
             metadata: Some(WireMetadata {
@@ -47,6 +48,7 @@ async fn receive_with_metadata(
     Ok(bytes[..meta[0].len]
         .chunks(meta[0].stride)
         .map(|p| Packet {
+            _credit: None,
             bytes: p.to_vec(),
             peer: meta[0].addr,
             metadata: native.then_some(WireMetadata {
@@ -99,4 +101,61 @@ async fn send_one(
             result => return result,
         }
     }
+}
+
+/// The same original scratch survives pending receive, retirement and hop
+/// return. Each actual GRO member is prepaid before its backing copy.
+pub(crate) async fn receive_budgeted(
+    socket: &dyn AsyncUdpSocket,
+    memory: &mut super::memory::Receive,
+    native: bool,
+) -> io::Result<Vec<Packet>> {
+    let mut meta = [RecvMeta::default()];
+    let count = std::future::poll_fn(|cx| {
+        socket.poll_recv(
+            cx,
+            &mut [IoSliceMut::new(&mut memory.scratch.bytes)],
+            &mut meta,
+        )
+    })
+    .await?;
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    let meta = meta[0];
+    if meta.len > memory.scratch.bytes.len()
+        || (meta.len != 0 && meta.stride == 0)
+        || (native
+            && meta.len != 0
+            && meta.len.div_ceil(meta.stride) > socket.max_receive_segments().max(1))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "original UDP metadata exceeds prepaid native scratch",
+        ));
+    }
+    let metadata = native.then_some(WireMetadata {
+        ecn: meta.ecn,
+        source_ip: None,
+        destination_ip: meta.dst_ip,
+        segment_size: None,
+    });
+    let mut packets = Vec::new();
+    if meta.len == 0 {
+        match memory.copy(&[], meta.addr, metadata) {
+            Ok(packet) => packets.push(packet),
+            Err(source) if source.kind() == io::ErrorKind::WouldBlock => {}
+            Err(source) => return Err(source),
+        }
+    } else {
+        for bytes in memory.scratch.bytes[..meta.len].chunks(meta.stride) {
+            match memory.copy(bytes, meta.addr, metadata) {
+                Ok(packet) => packets.push(packet),
+                // Preserve the original bounded UDP queue's drop-new policy.
+                Err(source) if source.kind() == io::ErrorKind::WouldBlock => {}
+                Err(source) => return Err(source),
+            }
+        }
+    }
+    Ok(packets)
 }

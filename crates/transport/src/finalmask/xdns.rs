@@ -79,12 +79,12 @@ async fn client(
                     let Ok(message)=wire::parse(&packet.bytes) else {continue;};
                     let Ok(packets)=codec::response_packets(message,&domain) else {continue;};
                     poll|=!packets.is_empty();
-                    for bytes in packets {let _=channels.incoming.try_send(Packet {bytes,peer:packet.peer,metadata:None});}
+                    for bytes in packets {let _=channels.incoming.try_send(Packet { _credit: None,bytes,peer:packet.peer,metadata:None});}
                 }
-                if poll { if let Some(peer)=peer {queue::send(&inner,Packet {bytes:codec::query(&domain,&id,&[])?,peer,metadata:None}).await?;} delay=Duration::from_millis(500);timer.as_mut().reset(tokio::time::Instant::now()+delay); }
+                if poll { if let Some(peer)=peer {queue::send(&inner,Packet { _credit: None,bytes:codec::query(&domain,&id,&[])?,peer,metadata:None}).await?;} delay=Duration::from_millis(500);timer.as_mut().reset(tokio::time::Instant::now()+delay); }
             }
             _=&mut timer=>{
-                if let Some(peer)=peer {queue::send(&inner,Packet {bytes:codec::query(&domain,&id,&[])?,peer,metadata:None}).await?;}
+                if let Some(peer)=peer {queue::send(&inner,Packet { _credit: None,bytes:codec::query(&domain,&id,&[])?,peer,metadata:None}).await?;}
                 delay=(delay*2).min(Duration::from_secs(10));timer.as_mut().reset(tokio::time::Instant::now()+delay);
             }
         }
