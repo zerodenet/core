@@ -997,6 +997,19 @@ shape. Windows device recipes include both cold facts; request changes must
 retire the original session, real reader and original registration before a new
 session starts. Shared credits include pending/failed/retiring sessions until
 matching EndSession and actual reader join/ACK. Borrowed views reuse their
-session's existing request. This schema/cold projection predecessor does not
-complete the fifth Root lane or actual SDK consumer; C's paired implementation
-and appropriate Windows qualification are still required.
+session's existing request. The actual SDK consumer now prepays from that same
+Root before CreateEvent/StartSession, retains unconfirmed requests, and refunds
+only after its own session settlement and reader registration ACK. Ring-only
+changes affect actual Windows SDK device dependencies; plain WG UDP and other
+platforms do not inherit an SDK resource identity. Windows GNU typechecking is
+not actual privileged SDK operation qualification.
+
+Optional `packet_driver_metadata_total_max_allocations` (default 16384, range
+1–1048576) and `packet_driver_metadata_total_max_bytes` (default 16MiB, range
+1–256MiB) describe the same Host's actual prepaid Packet-driver metadata. They
+are distinct from frame, native-read, transmit and requested-ring units. Vector
+growth pays old and new real capacity; surviving weak headers remain charged
+until deallocation. All five lanes validate/install atomically, so a failed
+shrink changes none. Omitted fields remain omitted on export. The SDK/root
+consumers are installed; remaining Source/actor/helper consumers still require
+complete implementation and qualification, not merely these configuration keys.
