@@ -54,13 +54,12 @@ impl MetadataPoolOwner {
                     }
                 }
             };
-            tokio::time::timeout_at(end, wait).await.map_err(|source| {
-                let mut failure =
-                    ChannelError::new(Stage::Close, Reason::Timeout, Impact::Component)
-                        .with_source(source);
-                failure.delivery = DeliveryState::Unknown;
-                failure
-            })?;
+            if tokio::time::timeout_at(end, wait).await.is_err() {
+                // This Err is the actual observer deadline above, not an Err
+                // returned by an IO/controller/driver. Keep the original full
+                // partial report (including its ACK unfinished) unchanged.
+                return Ok(report);
+            }
             MetadataPoolPermit(slot).release_registration_credit();
         }
         // Only new positive observations supersede this owner's former
