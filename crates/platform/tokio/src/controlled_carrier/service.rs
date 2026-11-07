@@ -1,5 +1,5 @@
-mod caller;
 //! Original host-fence authority for one fixed Service slot and real caller.
+mod caller;
 use super::{error, slot::Slot, CarrierGrant, CarrierOwnerBinding};
 use crate::contract::{
     component::ControlledStreamDemandClass,
