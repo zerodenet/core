@@ -4,13 +4,21 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[tokio::test]
 async fn cancelled_tcp_keeps_full_fifo_end_until_the_original_driver_sends_it() {
+    exchange(false).await;
+}
+#[tokio::test]
+async fn cancelled_last_tcp_writer_keeps_full_fifo_end_until_the_original_driver_sends_it() {
+    exchange(true).await;
+}
+async fn exchange(drop_last_sender: bool) {
     tokio::time::timeout(Duration::from_secs(8), async {
         let sid = 9;
         let (wire, mut received) = tokio::io::duplex(1024);
         let policy = MuxResponseBacklogPolicy::from_config(Some(1), Some(16384)).unwrap();
         let (writer, task) = TrojanInboundMuxWriter::prepare(wire, policy);
         // The existing server reader owns this same writer throughout the SID.
-        let server_writer = writer.clone();
+        let mut server_writer = Some(writer.clone());
+        let pending = writer.pending_ends.clone();
         let (sender, incoming) = mpsc::unbounded_channel();
         drop(sender);
         let mut stream =
@@ -18,7 +26,10 @@ async fn cancelled_tcp_keeps_full_fifo_end_until_the_original_driver_sends_it() 
         let payload = vec![7; 8000];
         stream.write_all(&payload).await.unwrap();
         drop(stream);
-        assert!(server_writer.pending_ends.lock().unwrap().contains(&sid));
+        assert!(pending.lock().unwrap().contains(&sid));
+        if drop_last_sender {
+            drop(server_writer.take());
+        }
         let reading = async {
             match read_mux_server_event(&mut received).await.unwrap() {
                 TrojanMuxServerEvent::Data {
@@ -34,8 +45,8 @@ async fn cancelled_tcp_keeps_full_fifo_end_until_the_original_driver_sends_it() 
                 TrojanMuxServerEvent::End { session_id } => assert_eq!(session_id, sid),
                 other => panic!("same writer must deliver retained END: {other:?}"),
             }
-            assert!(server_writer.pending_ends.lock().unwrap().is_empty());
-            drop(server_writer);
+            assert!(pending.lock().unwrap().is_empty());
+            drop(server_writer.take());
             assert_eq!(received.read(&mut [0]).await.unwrap(), 0);
         };
         let (result, ()) = tokio::join!(task, reading);

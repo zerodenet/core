@@ -1253,6 +1253,9 @@ impl TrojanInboundMuxWriter {
                     .map_err(standard::write_error)?;
                 writer.flush().await.map_err(standard::write_error)?;
             }
+            // No strong sender remains and the original FIFO is fully drained.
+            // The same original driver still owns any cancelled END facts.
+            pending_end::finish_last_sender(&pending_ends, &mut writer).await?;
             writer.shutdown().await.map_err(standard::write_error)
         })
     }

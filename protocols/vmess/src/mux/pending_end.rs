@@ -31,3 +31,31 @@ impl VmessInboundMuxWriter {
         }
     }
 }
+
+/// No queued or reserved DATA can follow receiver None. Complete the retained
+/// endings on this same original wire; EOF itself is never END delivery.
+pub(super) async fn finish_last_sender<W: tokio::io::AsyncWrite + Unpin>(
+    pending: &std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<u16>>>,
+    writer: &mut W,
+) -> Result<(), zero_platform_tokio::contract::ChannelError> {
+    let endings = pending
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .copied()
+        .collect::<Vec<_>>();
+    for sid in endings {
+        let frame = encode_end_stream(sid)
+            .map_err(|source| standard::write_error(io::Error::other(source)))?;
+        writer
+            .write_all(&frame)
+            .await
+            .map_err(standard::write_error)?;
+        writer.flush().await.map_err(standard::write_error)?;
+        pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&sid);
+    }
+    Ok(())
+}
