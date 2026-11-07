@@ -1,6 +1,6 @@
 //! Native setup and H2 driving occur under the same original registration.
 use super::*;
-use crate::{OwnedDnsQueryTasks, native::NativeDnsProvider};
+use crate::{native::NativeDnsProvider, OwnedDnsQueryTasks};
 use tokio::time::Instant;
 impl DohDnsResolver {
     pub(in super::super) async fn ready_native_client(
@@ -31,10 +31,7 @@ impl DohDnsResolver {
                 return Ok(client);
             }
         }
-        self.clients
-            .lock()
-            .await
-            .retain(|entry| entry.key.addr != key.addr);
+        self.retire_cached_clients(Some(key.addr), None).await;
         self.owner.drain_retired(end).await?;
         if dynamic_candidates.is_some() {
             self.make_candidate_room(end).await?;
