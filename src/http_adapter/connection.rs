@@ -104,12 +104,15 @@ async fn serve_request(
             return Ok(());
         }
         observation
-            .scope(router::route(&request, &handle, &auth_ctx))
+            .scope(router::route_with_budget(
+                &request, &handle, &auth_ctx, &budget,
+            ))
             .await
     } else {
-        tokio::select! {_=stop.cancelled()=>return Ok(()),result=router::route(&request,&handle,&auth_ctx)=>result}
+        tokio::select! {_=stop.cancelled()=>return Ok(()),result=router::route_with_budget(&request,&handle,&auth_ctx,&budget)=>result}
     };
     match route {
+        RouteResult::Reject(error) => Err(error),
         RouteResult::Respond(status, body) => tokio::select! {
             _ = stop.cancelled() => Ok(()),
             result = output::write_response(&mut *stream, &status, &body,&budget) => result,

@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use zero_api::{ApiError, ApiResponse, CommandResponse, QueryResponse, RawApiEvent};
 
 pub enum HttpBody {
+    Prepared(crate::ipc::owner::EncodedResponse),
     Query(Result<Box<QueryResponse>, ApiError>),
     Command(ApiResponse<CommandResponse>),
     Events(ApiResponse<Vec<RawApiEvent>>),
@@ -17,6 +18,7 @@ impl HttpBody {
     }
     pub(super) fn write_json(&self, writer: &mut impl Write) -> io::Result<()> {
         match self {
+            Self::Prepared(value) => return writer.write_all(value.bytes()),
             Self::Query(Ok(query)) => {
                 serde_json::to_writer_pretty(writer, &ApiResponse::ok(Flat(query)))
             }
@@ -36,7 +38,16 @@ impl HttpBody {
         }
         .map_err(io::Error::other)
     }
+    pub(super) fn prepared(&self) -> Option<&[u8]> {
+        match self {
+            Self::Prepared(value) => Some(value.bytes()),
+            _ => None,
+        }
+    }
     pub(super) fn len(&self) -> io::Result<usize> {
+        if let Some(bytes) = self.prepared() {
+            return Ok(bytes.len());
+        }
         let mut count = Counter(0);
         self.write_json(&mut count)?;
         Ok(count.0)

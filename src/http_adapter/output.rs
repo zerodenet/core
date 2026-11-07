@@ -32,12 +32,24 @@ pub(super) async fn write_response(
             "HTTP response envelope exceeds configured limit",
         ));
     }
+    // Prepared Engine queries already own their one actual body buffer.
+    // Its original credit stays with HttpBody; only this header is new.
+    let allocated = if body.prepared().is_some() {
+        count.0
+    } else {
+        total
+    };
     let _storage = budget
-        .reserve(ControlCharge::ResponseBytes(total))
+        .reserve(ControlCharge::ResponseBytes(allocated))
         .map_err(input::capacity)?;
     let mut head = String::new();
     head.try_reserve_exact(count.0).map_err(io::Error::other)?;
     headers(status, length, &mut head).map_err(io::Error::other)?;
+    if let Some(bytes) = body.prepared() {
+        stream.write_all(head.as_bytes()).await?;
+        stream.write_all(bytes).await?;
+        return stream.shutdown().await;
+    }
     let mut bytes = Vec::new();
     bytes.try_reserve_exact(length).map_err(io::Error::other)?;
     body.write_json(&mut bytes)?;

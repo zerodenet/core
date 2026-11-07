@@ -1,4 +1,5 @@
-use std::io;
+use std::{io, sync::Arc};
+mod prepared;
 
 use zero_api::{AuthContext, Permission};
 use zero_proxy::ProxyHandle;
@@ -16,11 +17,25 @@ pub struct HttpRequest {
 
 /// Result of routing: either an immediate response body, or an SSE stream.
 pub enum RouteResult {
+    Reject(io::Error),
     Respond(String, HttpBody),
     Sse {
         subscriber: zero_engine::EventSubscriber,
         catch_up: Vec<zero_api::RawApiEvent>,
     },
+}
+
+/// Production uses the same concrete Engine projection before allocating DTOs.
+pub async fn route_with_budget(
+    request: &HttpRequest,
+    handle: &ProxyHandle,
+    auth_ctx: &AuthContext,
+    budget: &Arc<zero_runtime::configuration::ControlBudget>,
+) -> RouteResult {
+    if let Some(result) = prepared::route(request, handle, auth_ctx, budget) {
+        return result;
+    }
+    route(request, handle, auth_ctx).await
 }
 
 /// Route the request to the appropriate handler, enforcing permissions.
