@@ -75,7 +75,6 @@ impl Write for Counter {
 struct Flat<'a>(&'a QueryResponse);
 impl serde::Serialize for Flat<'_> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::Serialize;
         match self.0 {
             QueryResponse::Capabilities(value) => value.serialize(serializer),
             QueryResponse::Health(value) => value.serialize(serializer),
