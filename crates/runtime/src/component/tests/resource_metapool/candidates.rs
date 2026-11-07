@@ -111,7 +111,7 @@ async fn selected_metadata_original_requires_pending_io_join_view_return_and_nat
         Ok(())
     }).unwrap();
     fixture.drive(pending_rx).await.unwrap();
-    assert!(completion.try_closed().is_none());
+    assert!(completion.try_owned_closed().is_none());
     assert!(permit.close(None, &fixture.tasks).is_err());
     assert!(fixture.grants.reserve(&query).is_err());
     stop.cancel();
@@ -123,7 +123,7 @@ async fn selected_metadata_original_requires_pending_io_join_view_return_and_nat
     assert_eq!(joined.len(), 1);
     assert!(joined[0].result().is_ok());
     assert!(
-        completion.try_closed().is_none(),
+        completion.try_owned_closed().is_none(),
         "actual exit must also be received"
     );
     let delivered = fixture
@@ -131,8 +131,9 @@ async fn selected_metadata_original_requires_pending_io_join_view_return_and_nat
         .await
         .unwrap();
     assert!(delivered.joined.result().is_ok());
+    receiver.release_body(&delivered).unwrap();
     assert!(
-        completion.try_closed().is_none(),
+        completion.try_owned_closed().is_none(),
         "transferred TX view is still live"
     );
     assert!(
@@ -141,7 +142,7 @@ async fn selected_metadata_original_requires_pending_io_join_view_return_and_nat
     );
     drop(retained_tx);
     let users = completion
-        .try_closed()
+        .try_owned_closed()
         .expect("actual joins, reception and views returned");
     assert!(original.closed().is_none());
     let closed = permit.close(Some(&users), &fixture.tasks).unwrap();

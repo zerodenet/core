@@ -16,11 +16,19 @@ impl PacketSegment {
                 self.received = Some(self.receiver.receive(id, end).await?);
             }
         }
-        let receipt = self
-            .graph
-            .completion()
-            .try_closed()
-            .ok_or_else(|| error(Reason::Timeout))?;
+        let completion = self.graph.completion();
+        let receipt = if self.identity.endpoint_bound() {
+            // Actual endpoint binding is installed before Kernel IO/driver
+            // start. The same receiver persists the sole original output.
+            if let Some(delivery) = self.received.as_ref() {
+                self.receiver.release_body(delivery)?;
+            }
+            completion.try_owned_closed()
+        } else {
+            // Explicit independent PacketSegment library duty, no bound endpoint.
+            completion.try_closed()
+        }
+        .ok_or_else(|| error(Reason::Timeout))?;
         let channels = self
             .queues
             .lock()

@@ -141,6 +141,7 @@ async fn same_packet_endpoint_registers_late_real_driver_and_keeps_native_n_unti
         assert_eq!(endpoint.id(), driver[0]);
         assert!(endpoint.result().is_ok());
         assert_eq!(delivery.joined.id(), endpoint.id());
+        receiver.release_body(&delivery).unwrap();
         assert!(owner
             .shutdown_users(end)
             .await
@@ -153,7 +154,7 @@ async fn same_packet_endpoint_registers_late_real_driver_and_keeps_native_n_unti
         assert_ne!(packet.id(), endpoint.id());
         assert_eq!(receipt.related_registrations().len(), 1);
         assert_eq!(
-            receipt.related_registrations()[0].task_id(),
+            receipt.related_registrations().next().unwrap().task_id(),
             Some(endpoint.id())
         );
         scope.acknowledge(&packet).unwrap();

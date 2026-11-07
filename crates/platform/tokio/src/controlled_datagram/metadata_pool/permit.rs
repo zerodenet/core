@@ -126,8 +126,8 @@ impl MetadataPoolPermit {
             };
             (self.0.caller.clone(), native.confirmed.clone())
         };
-        // Fixed original snapshot: receipt Clone shares its already-owned Arc
-        // registrations. No per-attempt witness Vec or full owner census copy.
+        // Kernel receipts clone only the same sealed original record storage.
+        // Iterate its real witnesses outside this owner's/native locks.
         let released = |witness: &TaskJoinWitness| {
             witness.try_joined().is_some_and(|joined| {
                 witness.matches_joined(&joined) && joined.registration_released()
@@ -139,7 +139,7 @@ impl MetadataPoolPermit {
                     .registrations()
                     .iter()
                     .chain(users.related_registrations())
-                    .all(released)
+                    .all(|witness| released(&witness))
             })
         {
             return false;

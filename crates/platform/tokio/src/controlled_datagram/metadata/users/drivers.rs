@@ -14,9 +14,11 @@ use std::{
     },
 };
 use zero_core::component::TaskId;
+mod body;
 mod completion;
 mod reception;
-pub use completion::DriverRegistrationsClosed;
+pub(in crate::controlled_datagram::metadata::users) use completion::RegistrationSequence;
+pub use completion::{DriverRegistrationsClosed, RegistrationIter};
 mod registration;
 pub use reception::{DriverDelivery, DriverExitReceiver};
 
@@ -29,7 +31,7 @@ pub struct DriverOwner<O: DriverKind, B: Send + Sync + 'static> {
 struct Shared<O: DriverKind, B: Send + Sync + 'static> {
     registrar: TaskRegistrar,
     limit: NonZeroUsize,
-    state: Mutex<State<O, B>>,
+    state: Arc<Mutex<State<O, B>>>,
     changed: tokio::sync::Notify,
 }
 struct State<O: DriverKind, B: Send + Sync + 'static> {
@@ -42,8 +44,9 @@ struct State<O: DriverKind, B: Send + Sync + 'static> {
 }
 struct Record<O: DriverKind, B: Send + Sync + 'static> {
     origin: O,
+    owner: Weak<Mutex<State<O, B>>>,
     registration: Mutex<Option<(TaskId, TaskJoinWitness)>>,
-    body: Mutex<Option<Arc<B>>>,
+    body: Mutex<body::BodyState<B>>,
     received: Mutex<Option<TaskJoined>>,
     delivered: AtomicBool,
 }
@@ -95,14 +98,14 @@ impl<O: DriverKind, B: Send + Sync + 'static> DriverOwner<O, B> {
             registrar,
             limit: max_retained_drivers,
             changed: tokio::sync::Notify::new(),
-            state: Mutex::new(State {
+            state: Arc::new(Mutex::new(State {
                 pending: 0,
                 retired: false,
                 records: BTreeMap::new(),
                 rejected: None,
                 reclaimed: 0,
                 count_overflowed: false,
-            }),
+            })),
         });
         (
             Self {
@@ -227,7 +230,7 @@ impl<O: DriverKind, B: Send + Sync + 'static> DriverOwner<O, B> {
     }
     pub fn body(&self, id: TaskId) -> Option<Arc<B>> {
         let record = self.shared.state.lock().unwrap().records.get(&id)?.clone();
-        let body = record.body.lock().unwrap().clone();
+        let body = record.body.lock().unwrap().current();
         body
     }
     /// Reclaim only actual joined and explicitly received records. Hosted

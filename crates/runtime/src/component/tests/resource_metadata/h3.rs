@@ -59,14 +59,17 @@ async fn receive_all(
     fixture: &CanonicalMetadata,
     owner: &OwnedEndpointOwner,
     receiver: &mut DriverExitReceiver,
-) {
+) -> Vec<zero_transport::quic::owned::DriverDelivery> {
     fixture
         .drive(async {
+            let mut received = Vec::new();
             for task in owner.driver_tasks() {
-                receiver.receive(task, deadline()).await.unwrap();
+                received.push(receiver.receive(task, deadline()).await.unwrap());
+                receiver.release_body(received.last().unwrap()).unwrap();
             }
+            received
         })
-        .await;
+        .await
 }
 
 #[tokio::test]
@@ -119,9 +122,9 @@ async fn actual_prepared_h3_wire_sender_clones_and_response_streams_hold_canonic
             owner.active_users() > 0,
             "actual request/control stream wrappers still own leases"
         );
-        assert!(completion.try_closed().is_none());
+        assert!(completion.try_owned_closed().is_none());
         owner.begin_shutdown();
-        receive_all(&fixture, &owner, &mut receiver).await;
+        let _deliveries = receive_all(&fixture, &owner, &mut receiver).await;
         let delivered = receiver.receive(h3_task, deadline()).await.unwrap();
         assert_eq!(delivered.joined.class(), TaskClass::Auxiliary);
         let body = delivered.body.unwrap();
@@ -132,14 +135,14 @@ async fn actual_prepared_h3_wire_sender_clones_and_response_streams_hold_canonic
         ));
         drop(owner);
         drop(sender);
-        assert!(completion.try_closed().is_none(), "actual response stream wrapper still retains its original directions after FIN and driver join");
+        assert!(completion.try_owned_closed().is_none(), "actual response stream wrapper still retains its original directions after FIN and driver join");
         drop(request);
         assert!(
-            completion.try_closed().is_none(),
+            completion.try_owned_closed().is_none(),
             "last actual sender clone still owns the original connection guard"
         );
         drop(retained);
-        let receipt = completion.try_closed().unwrap();
+        let receipt = completion.try_owned_closed().unwrap();
         assert!(!fixture.resources().io_evidence().physical_confirmed());
         fixture.confirm_users(receipt, &tasks).unwrap();
         let report = fixture.shutdown().await;
@@ -205,16 +208,16 @@ async fn actual_prepared_h3_remote_failure_keeps_the_same_typed_terminal_arc_unt
         };
         assert!(Arc::ptr_eq(&actual.0, &terminal));
         assert!(
-            completion.try_closed().is_none(),
+            completion.try_owned_closed().is_none(),
             "received failure alone did not drop actual request/sender users"
         );
         drop(request);
         drop(sender);
         owner.begin_shutdown();
-        receive_all(&fixture, &owner, &mut receiver).await;
+        let _deliveries = receive_all(&fixture, &owner, &mut receiver).await;
         drop(owner);
         fixture
-            .confirm_users(completion.try_closed().unwrap(), &tasks)
+            .confirm_users(completion.try_owned_closed().unwrap(), &tasks)
             .unwrap();
         assert!(fixture.shutdown().await.is_complete());
         assert_eq!(

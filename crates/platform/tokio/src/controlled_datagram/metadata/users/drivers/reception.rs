@@ -8,10 +8,10 @@ pub struct DriverExitReceiver<O: DriverKind, B: Send + Sync + 'static> {
 }
 /// The same actual joined receipt retained before acknowledging local delivery.
 /// Its source is shared with the original host receipt; host ACK is separate.
-#[derive(Debug)]
 pub struct DriverDelivery<B> {
     pub joined: TaskJoined,
     pub body: Option<Arc<B>>,
+    pub(super) original: Arc<dyn std::any::Any + Send + Sync>,
 }
 impl<O: DriverKind, B: Send + Sync + 'static> DriverExitReceiver<O, B> {
     /// Invoke when this real owning receiver accepts this driver's outcome.
@@ -62,10 +62,11 @@ impl<O: DriverKind, B: Send + Sync + 'static> DriverExitReceiver<O, B> {
                 })?;
         }
         record.delivered.store(true, Ordering::Release);
-        let body = record.body.lock().unwrap().clone();
+        let body = record.body.lock().unwrap().current();
         Ok(DriverDelivery {
             joined: received,
             body,
+            original: record,
         })
     }
 }
@@ -75,6 +76,7 @@ impl<B> Clone for DriverDelivery<B> {
         Self {
             joined: self.joined.clone(),
             body: self.body.clone(),
+            original: self.original.clone(),
         }
     }
 }
@@ -136,5 +138,14 @@ impl<O: DriverKind, B: Send + Sync + 'static> DriverExitReceiver<O, B> {
                     .await;
             }
         }
+    }
+}
+
+impl<B: fmt::Debug> fmt::Debug for DriverDelivery<B> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DriverDelivery")
+            .field("joined", &self.joined)
+            .field("body", &self.body)
+            .finish_non_exhaustive()
     }
 }

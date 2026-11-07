@@ -31,22 +31,25 @@ async fn finish(
     fixture: &CanonicalMetadata,
     owner: &mut OwnedEndpointOwner,
     receiver: &mut zero_transport::quic::owned::DriverExitReceiver,
-) {
+) -> Vec<zero_transport::quic::owned::DriverDelivery> {
     owner.begin_shutdown();
     let tasks = owner.driver_tasks();
     assert_eq!(tasks.len(), 2, "actual Endpoint plus one Connection driver");
     fixture
         .drive(async {
+            let mut received = Vec::new();
             for task in tasks {
-                receiver.receive(task, deadline()).await.unwrap();
+                received.push(receiver.receive(task, deadline()).await.unwrap());
+                receiver.release_body(received.last().unwrap()).unwrap();
             }
             assert!(owner
                 .shutdown_users(deadline())
                 .await
                 .unwrap()
                 .users_and_drivers_complete());
+            received
         })
-        .await;
+        .await
 }
 
 #[tokio::test]
@@ -107,17 +110,20 @@ async fn actual_configured_doq_uses_canonical_metadata_scope_tls_framing_and_nat
         drop(owner);
         drop(retained);
         assert!(
-            completion.try_closed().is_none(),
+            completion.try_owned_closed().is_none(),
             "actual joins did not receive either driver outcome"
         );
-        fixture
+        let _deliveries = fixture
             .drive(async {
+                let mut received = Vec::new();
                 for task in driver_tasks {
-                    receiver.receive(task, deadline()).await.unwrap();
+                    received.push(receiver.receive(task, deadline()).await.unwrap());
+                    receiver.release_body(received.last().unwrap()).unwrap();
                 }
+                received
             })
             .await;
-        let receipt = completion.try_closed().unwrap();
+        let receipt = completion.try_owned_closed().unwrap();
         assert!(fixture
             .resources()
             .confirm_metadata_users(1, &receipt, &tasks)
@@ -209,7 +215,7 @@ async fn cancelling_actual_pending_doq_read_releases_users_without_faking_native
         peer.received.notified().await;
         assert_eq!(owner.active_users(), 3);
         assert!(
-            completion.try_closed().is_none(),
+            completion.try_owned_closed().is_none(),
             "actual pending stream retains three logical permits"
         );
         drop(query);
@@ -228,10 +234,10 @@ async fn cancelling_actual_pending_doq_read_releases_users_without_faking_native
             2,
             "query Drop did not accept either real driver outcome"
         );
-        finish(&fixture, &mut owner, &mut receiver).await;
+        let _deliveries = finish(&fixture, &mut owner, &mut receiver).await;
         drop(owner);
         assert!(
-            completion.try_closed().is_none(),
+            completion.try_owned_closed().is_none(),
             "an extra original TX view still exists after all real joins/receptions"
         );
         let partial = fixture.shutdown().await;
@@ -241,11 +247,11 @@ async fn cancelling_actual_pending_doq_read_releases_users_without_faking_native
             io::ErrorKind::NotConnected
         );
         assert!(
-            completion.try_closed().is_none(),
+            completion.try_owned_closed().is_none(),
             "actual FD close is no users/view receipt"
         );
         drop(retained);
-        let receipt = completion.try_closed().unwrap();
+        let receipt = completion.try_owned_closed().unwrap();
         assert!(!tasks.scope_identity().registration_open());
         fixture.confirm_users(receipt, &tasks).unwrap(); // real cleanup confirmation while closing
         let report = fixture.shutdown().await;

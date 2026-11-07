@@ -62,6 +62,20 @@ impl Query {
                 // Each original exit/source persists before another await.
                 state.received.push(delivery);
             }
+            // Persist the exact deliveries above before removing only the
+            // old ledger's duplicate body references. Keep all real failures.
+            {
+                let Lifecycle {
+                    receiver, received, ..
+                } = &mut *state;
+                if let Some(receiver) = receiver.as_mut() {
+                    for delivery in received.iter() {
+                        receiver
+                            .release_body(delivery)
+                            .map_err(std::io::Error::other)?;
+                    }
+                }
+            }
             if let Some(owner) = &state.owner {
                 let report = owner
                     .shutdown_users(end)
@@ -79,7 +93,7 @@ impl Query {
                 .completion
                 .as_ref()
                 .map(|completion| {
-                    completion.try_closed().ok_or_else(|| {
+                    completion.try_owned_closed().ok_or_else(|| {
                         std::io::Error::new(
                             std::io::ErrorKind::TimedOut,
                             "DoQ original views remain retained",

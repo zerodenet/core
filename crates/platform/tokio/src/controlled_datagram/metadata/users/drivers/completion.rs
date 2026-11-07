@@ -66,19 +66,20 @@ impl<O: DriverKind, B: Send + Sync + 'static> DriverOwner<O, B> {
     }
 }
 
-/// Same sealed actual ledger's read-only original registrations. No receiver,
-/// task, native or ACK authority crosses this proof.
-pub struct DriverRegistrationsClosed {
-    pub(in crate::controlled_datagram::metadata::users) scope:
-        crate::contract::scope::TaskScopeIdentity,
-    pub(in crate::controlled_datagram::metadata::users) registrations: Arc<[TaskJoinWitness]>,
-}
+mod census;
+mod iteration;
+pub use census::DriverRegistrationsClosed;
+pub use iteration::RegistrationIter;
+pub(in crate::controlled_datagram::metadata::users) use iteration::RegistrationSequence;
+
 impl<O: DriverKind, B: Send + Sync + 'static> DriverOwner<O, B> {
+    /// Independent library completion retains its original repeated body reads.
+    /// Kernel endpoint consumers use owned_registration_completion instead.
     pub fn registration_completion(&self) -> Option<DriverRegistrationsClosed> {
         let scope = self.scope_identity();
-        Some(DriverRegistrationsClosed {
-            registrations: self.completion_registrations(&scope)?,
-            scope,
-        })
+        Some(DriverRegistrationsClosed::library(
+            scope.clone(),
+            self.completion_registrations(&scope)?,
+        ))
     }
 }

@@ -12,8 +12,11 @@ impl<O: DriverKind, B: Send + Sync + 'static> DriverBodySlot<O, B> {
     pub fn record(&self, body: B) -> Arc<B> {
         let body = Arc::new(body);
         let mut stored = self.0.body.lock().unwrap();
-        assert!(stored.is_none(), "an actual driver records its body once");
-        *stored = Some(body.clone());
+        let body::BodyState::Open(value) = &mut *stored else {
+            panic!("actual driver outcome already transferred")
+        };
+        assert!(value.is_none(), "an actual driver records its body once");
+        *value = Some(body.clone());
         body
     }
 }
@@ -47,8 +50,9 @@ impl<O: DriverKind, B: Send + Sync + 'static> DriverOwner<O, B> {
         }
         let record = Arc::new(Record {
             origin,
+            owner: Arc::downgrade(&self.shared.state),
             registration: Mutex::new(None),
-            body: Mutex::new(None),
+            body: Mutex::new(body::BodyState::Open(None)),
             received: Mutex::new(None),
             delivered: AtomicBool::new(false),
         });

@@ -117,12 +117,22 @@ impl ResourceLifecycle for Lifecycle {
                 if let Some((_, stop)) = state.stops.iter().find(|(index, _)| *index == ordinal) {
                     stop.cancel();
                 }
-                let _ = state
+                let delivery = state
                     .receiver
                     .as_mut()
                     .unwrap()
                     .receive(id, deadline)
                     .await?;
+                state.last_delivery = Some(delivery);
+                let State {
+                    receiver,
+                    last_delivery,
+                    ..
+                } = &mut *state;
+                receiver
+                    .as_mut()
+                    .unwrap()
+                    .release_body(last_delivery.as_ref().unwrap())?;
             }
             state
                 .graph
@@ -135,7 +145,7 @@ impl ResourceLifecycle for Lifecycle {
         }
         if let Some(completion) = &state.completion {
             let receipt = completion
-                .try_closed()
+                .try_owned_closed()
                 .ok_or_else(|| failure(Reason::Timeout))?;
             self.resources
                 .confirm_metadata_users(self.request.ordinal, &receipt, &self.tasks)?;

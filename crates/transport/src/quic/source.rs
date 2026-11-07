@@ -10,6 +10,7 @@ struct State {
     owner: Option<OwnedEndpointOwner>,
     handle: Option<OwnedEndpointHandle>,
     receiver: Option<DriverExitReceiver>,
+    last_delivery: Option<DriverDelivery>,
     completion: Option<MetadataUsersCompletion>,
     unstarted: Option<
         zero_platform_tokio::controlled_datagram::metadata::users::UnstartedMetadataCompletion,
@@ -50,6 +51,7 @@ pub fn source<H: InboundHandshake, Make: Fn(OwnedIncoming) -> H + Send + 'static
         owner: None,
         handle: None,
         receiver: None,
+        last_delivery: None,
         completion: None,
         unstarted: None,
         rejected: None,
@@ -158,7 +160,15 @@ impl ResourceLifecycle for Lifecycle {
                     .unwrap()
                     .receive(id, deadline)
                     .await?;
-                report_delivery(&delivery);
+                state.last_delivery = Some(delivery);
+                let State {
+                    receiver,
+                    last_delivery,
+                    ..
+                } = &mut *state;
+                let delivery = last_delivery.as_ref().unwrap();
+                receiver.as_mut().unwrap().release_body(delivery)?;
+                report_delivery(delivery);
             }
             let report = state
                 .owner
@@ -174,7 +184,7 @@ impl ResourceLifecycle for Lifecycle {
         }
         if let Some(completion) = state.completion.as_ref() {
             let receipt = completion
-                .try_closed()
+                .try_owned_closed()
                 .ok_or_else(|| failure(Reason::Timeout))?;
             self.resources
                 .confirm_metadata_users(self.request.ordinal, &receipt, &self.tasks)?;
@@ -219,13 +229,20 @@ impl<H: InboundHandshake, Make: Fn(OwnedIncoming) -> H + Send + 'static> Inbound
                 _=context.cancel.cancelled()=>return Err(failure(Reason::Cancelled)),
                 _=async {match context.deadline {Some(deadline)=>tokio::time::sleep_until(deadline).await,None=>std::future::pending().await}}=>return Err(failure(Reason::Timeout)),
                 delivery=receiver.receive_next()=>{
-                    let delivery=delivery?; report_delivery(&delivery);
-                    if delivery.body.as_ref().is_some_and(|body| matches!(body.origin, OwnedDriverOrigin::Mask {..})) {
-                        state.owner.as_ref().unwrap().begin_shutdown();
-                        return Err(match delivery.joined.result() {
+                    state.last_delivery=Some(delivery?);
+                    let mask_failure = {
+                        let State {receiver,last_delivery,..}=&mut *state;
+                        let delivery=last_delivery.as_ref().unwrap();
+                        receiver.as_mut().unwrap().release_body(delivery)?;
+                        report_delivery(delivery);
+                        delivery.body.as_ref().is_some_and(|body| matches!(body.origin, OwnedDriverOrigin::Mask {..})).then(|| match delivery.joined.result() {
                             Ok(())=>failure(Reason::Io),
                             Err(source)=>failure(Reason::Io).with_source(source.clone()),
-                        });
+                        })
+                    };
+                    if let Some(source) = mask_failure {
+                        state.owner.as_ref().unwrap().begin_shutdown();
+                        return Err(source);
                     }
                     state.owner.as_ref().unwrap().reclaim_received_drivers();
                 },

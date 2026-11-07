@@ -32,6 +32,9 @@ impl PacketSegment {
     }
 }
 impl PacketIdentity {
+    pub(super) fn endpoint_bound(&self) -> bool {
+        self.endpoint.lock().unwrap().is_some()
+    }
     pub(super) fn final_receipt(
         &self,
         receipt: MetadataUsersClosedReceipt,
@@ -42,7 +45,7 @@ impl PacketIdentity {
         };
         // The endpoint must have sealed registration and delivered every actual
         // driver. ACK remains separate and is carried on the original receipt.
-        let Some(closed) = endpoint.registration_completion() else {
+        let Some(closed) = endpoint.owned_registration_completion() else {
             return Err(receipt);
         };
         receipt.with_related_driver_receipt(closed)

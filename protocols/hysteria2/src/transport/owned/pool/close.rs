@@ -89,6 +89,11 @@ impl EntryState {
                 self.received.push(exit);
             }
         }
+        if let Some(receiver) = self.receiver.as_mut() {
+            for delivery in &self.received {
+                receiver.release_body(delivery)?;
+            }
+        }
         if let Some(owner) = &self.owner {
             let users = owner.shutdown_users(end).await?;
             if !users.users_and_drivers_complete() {
