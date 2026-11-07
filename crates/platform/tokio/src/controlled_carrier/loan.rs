@@ -10,7 +10,7 @@ mod owner;
 mod receiver;
 mod related;
 use super::CarrierOrigin;
-use crate::contract::{lifecycle::stream::BoxStream, CancellationToken};
+use crate::contract::{stream::BoxStream, CancellationToken};
 pub use datagram::{BorrowedDatagram, DatagramLoan, LoanDatagramIo};
 pub use dependency::CarrierDependencyLoanIssuer;
 pub use io::LoanIo;

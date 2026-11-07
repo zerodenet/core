@@ -9,7 +9,7 @@ use std::sync::Weak;
 use zero_core::component::RoleInstanceId;
 use zero_platform_tokio::{
     contract::{
-        lifecycle::network::{
+        network::{
             CarrierContext, PendingCarrierObserver, UpstreamBinding, UpstreamOpener,
             UpstreamTransport,
         },
