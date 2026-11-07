@@ -263,7 +263,8 @@ impl Provider {
                 continue;
             }
             if let Err(source) = entry.close(end).await {
-                failure.get_or_insert(source);
+                let original = self.retain_io_cleanup_failure(source)?;
+                failure.get_or_insert(original);
             }
             if entry.closed() {
                 let removed = {

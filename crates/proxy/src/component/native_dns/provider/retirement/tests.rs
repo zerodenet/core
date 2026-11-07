@@ -1,5 +1,6 @@
 //! Recognize only the concrete caller's actual deadline, never error fields/chains.
 use super::*;
+use zero_platform_tokio::contract::{Impact, Reason, Stage};
 #[derive(Debug)]
 struct WorkAndObservation {
     work: Arc<std::io::Error>,
@@ -30,6 +31,8 @@ async fn observer_receipt_is_top_level_only_and_real_timeout_classified_os_sourc
         tokio::time::timeout_at(tokio::time::Instant::now(), std::future::pending::<()>())
             .await
             .unwrap_err();
+    let incomplete = pending_incomplete("same original receipt remains pending");
+    assert!(pending_observation(&incomplete));
     let observation = pending_deadline(elapsed);
     assert!(pending_observation(&observation));
     let both = std::io::Error::new(

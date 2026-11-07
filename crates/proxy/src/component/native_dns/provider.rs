@@ -3,6 +3,7 @@ mod admission;
 mod custody;
 mod detour;
 mod ech;
+mod failure;
 #[cfg(feature = "dns")]
 pub(super) mod quic;
 pub(super) mod retirement;
@@ -21,6 +22,7 @@ use zero_platform_tokio::{
     },
 };
 pub(super) struct Provider {
+    resources: Arc<dyn zero_platform_tokio::contract::component::ResourceAccess>,
     tasks: OwnedDnsQueryTasks,
     budget: Arc<super::Budget>,
     registrar: TaskRegistrar,
@@ -54,6 +56,7 @@ impl Provider {
         metadata: &[zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOwner],
     ) -> Self {
         Self {
+            resources: context.resources.clone(),
             tasks: OwnedDnsQueryTasks::new_critical_with_budget(
                 &context.tasks,
                 NonZeroUsize::new(
