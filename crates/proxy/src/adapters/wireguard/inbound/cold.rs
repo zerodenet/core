@@ -25,6 +25,8 @@ pub(crate) struct Options {
     pub(in crate::adapters::wireguard) inbound: InboundConfig,
     pub(in crate::adapters::wireguard) live: Arc<LiveInboundDevice>,
     pub(in crate::adapters::wireguard) binding: Binding,
+    spec: zero_platform_tokio::contract::component::ComponentSpec,
+    outer_network: Option<std::sync::Weak<crate::component::background::BackgroundNetwork>>,
     pub(in crate::adapters::wireguard) recovery: Arc<dyn crate::protocol_registry::InboundRecovery>,
 }
 impl Options {
@@ -42,7 +44,62 @@ impl Options {
         )?);
         // Validate cold protocol input without mutating the current crypto owner.
         prepare_device(inbound)?;
+        // The same actual cold graph supplies its immutable formatter family
+        // and exact byte workspaces before any Source listener bind attempts.
+        let supplemental = match &binding {
+            Binding::Standalone => Default::default(),
+            Binding::Pending(actual) => actual.source_supplemental_memory()?,
+            Binding::Ready(actual) => match actual.owned_resources() {
+                Some(resources) => resources.source_supplemental_memory()?,
+                None => Default::default(), // existing explicit pre-canonical owner
+            },
+        };
+        let outer_tasks = match &binding {
+            Binding::Standalone => 0,
+            Binding::Pending(actual) => actual.source_outer_tasks()?,
+            Binding::Ready(actual) => match actual.owned_resources() {
+                Some(actual) => actual.source_outer_tasks()?,
+                None => 0,
+            },
+        };
+        let outer_network = match &binding {
+            Binding::Standalone => None,
+            Binding::Pending(actual) => actual.source_outer_network()?,
+            Binding::Ready(actual) => match actual.owned_resources() {
+                Some(actual) => actual.source_outer_network()?,
+                None => None, // original explicit pre-canonical library owner
+            },
+        };
+        let mut spec = super::super::controlled_bind::spec(inbound);
+        if outer_tasks != 0 {
+            // These are the old original reader and original N=1 reconnect
+            // futures per configured endpoint. No additional worker or marker
+            // is created; both now consume their one actual Source registrar.
+            let actual = spec
+                .task_limit
+                .map(|limit| limit.get())
+                .unwrap_or(0)
+                .checked_add(outer_tasks)
+                .and_then(std::num::NonZeroUsize::new)
+                .ok_or_else(|| invalid("actual Source task declaration overflow"))?;
+            spec.task_limit = Some(actual);
+        }
+
+        let Some(
+            zero_platform_tokio::contract::component::ResourceDeclaration::PacketDatagramReads {
+                supplemental: actual,
+                ..
+            },
+        ) = spec.resources.last_mut()
+        else {
+            return Err(invalid(
+                "actual Packet Source has no read-memory declaration",
+            ));
+        };
+        *actual = supplemental;
         Ok(Self {
+            spec,
+            outer_network,
             inbound: inbound.clone(),
             live,
             binding,
@@ -57,7 +114,7 @@ impl zero_platform_tokio::contract::component::ComponentFactory for Factory {
         &self,
         options: &Options,
     ) -> zero_platform_tokio::contract::component::ComponentSpec {
-        super::super::controlled_bind::spec(&options.inbound)
+        options.spec.clone()
     }
     fn build(
         &self,
@@ -103,7 +160,9 @@ impl zero_platform_tokio::contract::component::ComponentFactory for Factory {
                 endpoint,
                 destination,
                 context,
-            );
+                options.outer_network.clone(),
+            )
+            .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
             Ok(ComponentInstance {
                 lifecycle: erase_lifecycle(Owner {
                     inner: owner,

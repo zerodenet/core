@@ -16,6 +16,39 @@ impl ProtocolInventory {
         leaves: &[ResolvedLeafOutbound<'a>],
         components: Option<&crate::component::catalog::ComponentPlan>,
     ) -> Result<PreparedTcpRelayChain, TcpOutboundFailure> {
+        self.prepare_tcp_relay_chain_inner(
+            ctx,
+            leaves,
+            components,
+            #[cfg(feature = "udp-runtime")]
+            None,
+        )
+    }
+    #[cfg(feature = "udp-runtime")]
+    pub(in crate::inventory) fn prepare_device_tcp_relay_chain<'a>(
+        &self,
+        ctx: OutboundAdapterContext<'a>,
+        leaves: &[ResolvedLeafOutbound<'a>],
+        components: Option<&crate::component::catalog::ComponentPlan>,
+        sources: &[Option<crate::protocol_registry::ColdPacketPathProjection>],
+    ) -> Result<PreparedTcpRelayChain, TcpOutboundFailure> {
+        if sources.len() != leaves.len() {
+            return Err(failure(
+                "relay_prepare",
+                EngineError::Io(std::io::Error::other("cold formatter leaf count changed")),
+            ));
+        }
+        self.prepare_tcp_relay_chain_inner(ctx, leaves, components, Some(sources))
+    }
+    fn prepare_tcp_relay_chain_inner<'a>(
+        &self,
+        ctx: OutboundAdapterContext<'a>,
+        leaves: &[ResolvedLeafOutbound<'a>],
+        components: Option<&crate::component::catalog::ComponentPlan>,
+        #[cfg(feature = "udp-runtime")] sources: Option<
+            &[Option<crate::protocol_registry::ColdPacketPathProjection>],
+        >,
+    ) -> Result<PreparedTcpRelayChain, TcpOutboundFailure> {
         let first_leaf = leaves
             .first()
             .expect("validated relay has at least two nodes");
@@ -27,6 +60,10 @@ impl ProtocolInventory {
             .rposition(|leaf| self.native_tcp_candidate(ctx, leaf, components).is_none());
         let native_at = |index: usize, leaf: &ResolvedLeafOutbound<'a>| {
             let selected = self.native_tcp_candidate(ctx, leaf, components);
+            #[cfg(feature = "udp-runtime")]
+            if sources.is_some() {
+                return selected;
+            }
             if last_legacy.is_some_and(|last| index < last)
                 && matches!(selected, Some(Ok(_)))
                 && self.claim_outbound_leaf(ctx.config(), leaf.clone()).is_ok()
@@ -42,10 +79,24 @@ impl ProtocolInventory {
             let candidate = native?;
             #[cfg(feature = "udp-runtime")]
             {
-                first_datagram = self.optional_tcp_packet_path(ctx, first_leaf, components);
+                first_datagram = match sources {
+                    Some(values) => self
+                        .prepared_source_packet_path(components, values[0].as_ref())
+                        .map_err(|error| failure("relay_prepare", error))?,
+                    None => self.optional_tcp_packet_path(ctx, first_leaf, components),
+                };
             }
             candidate
         } else {
+            #[cfg(feature = "udp-runtime")]
+            if sources.is_some() {
+                return Err(failure(
+                    "relay_prepare",
+                    EngineError::Io(std::io::Error::other(
+                        "Source prefix lacks its actual prepared Stream role",
+                    )),
+                ));
+            }
             let claimed = self
                 .claim_outbound_leaf(ctx.config(), first_leaf.clone())
                 .map_err(|error| failure("outbound_leaf_runtime", error))?;
@@ -72,13 +123,27 @@ impl ProtocolInventory {
                 #[cfg(feature = "udp-runtime")]
                 {
                     packet = if index + 1 < leaves.len() {
-                        self.optional_tcp_packet_path(ctx, leaf, components)
+                        match sources {
+                            Some(values) => self
+                                .prepared_source_packet_path(components, values[index].as_ref())
+                                .map_err(|error| failure("relay_prepare", error))?,
+                            None => self.optional_tcp_packet_path(ctx, leaf, components),
+                        }
                     } else {
                         None
                     };
                 }
                 native_hop(candidate)
             } else {
+                #[cfg(feature = "udp-runtime")]
+                if sources.is_some() {
+                    return Err(failure(
+                        "relay_prepare",
+                        EngineError::Io(std::io::Error::other(
+                            "Source relay lacks its actual prepared Stream role",
+                        )),
+                    ));
+                }
                 let claimed = self
                     .claim_outbound_leaf(ctx.config(), leaf.clone())
                     .map_err(|error| failure("relay_prepare", error))?;
@@ -95,11 +160,47 @@ impl ProtocolInventory {
             };
             #[cfg(feature = "udp-runtime")]
             if index + 1 < leaves.len() {
-                append_datagram(&mut chain, &hop, packet);
+                append_datagram(
+                    &mut chain,
+                    &hop,
+                    packet,
+                    sources.map(|values| {
+                        values[index]
+                            .as_ref()
+                            .and_then(|value| value.formatter.clone())
+                    }),
+                );
             }
             chain.relay_hops.push(hop);
         }
         Ok(chain)
+    }
+
+    #[cfg(feature = "udp-runtime")]
+    pub(in crate::inventory) fn prepared_source_packet_path(
+        &self,
+        components: Option<&crate::component::catalog::ComponentPlan>,
+        projection: Option<&crate::protocol_registry::ColdPacketPathProjection>,
+    ) -> Result<Option<std::sync::Arc<dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation>>, EngineError>{
+        let Some(projection) = projection else {
+            return Ok(None);
+        };
+        let plan = components.ok_or_else(|| {
+            EngineError::Io(std::io::Error::other(
+                "Source packet metadata lacks its actual candidate plan",
+            ))
+        })?;
+        let tag = projection.descriptor.tag.as_deref().ok_or_else(|| {
+            EngineError::Io(std::io::Error::other(
+                "Source packet metadata lacks its configured owner tag",
+            ))
+        })?;
+        let slot = plan.configured(tag).ok_or_else(|| {
+            EngineError::Io(std::io::Error::other(
+                "Source packet metadata owner is absent from its actual plan",
+            ))
+        })?;
+        Ok(Some(crate::component::stream_bridge::datagram::packet_path::StandardPacketPath::prepare_projection(&slot, projection)))
     }
 
     /// Optional, unmigrated Datagram-carrier projection only. Its absence
@@ -172,6 +273,7 @@ fn append_datagram(
             dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation,
         >,
     >,
+    source: Option<Option<crate::runtime::udp_flow::packet_path::UdpDatagramSource>>,
 ) {
     let prefix = super::PreparedTcpRelayPrefix {
         first: chain.first.clone(),
@@ -186,9 +288,10 @@ fn append_datagram(
     chain
         .datagram_prefixes
         .push(operation.and_then(|operation| {
-        crate::runtime::udp_dispatch::packet_path_operation::PreparedDatagramRelayCarrier::extend(
-            previous, operation, prefix,
-        )
+        match source {
+            Some(source)=>crate::runtime::udp_dispatch::packet_path_operation::PreparedDatagramRelayCarrier::extend_with_source(previous,operation,prefix,source),
+            None=>crate::runtime::udp_dispatch::packet_path_operation::PreparedDatagramRelayCarrier::extend(previous,operation,prefix),
+        }
     }));
 }
 fn failure(stage: &'static str, error: EngineError) -> TcpOutboundFailure {

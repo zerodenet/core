@@ -20,6 +20,8 @@ use zero_platform_tokio::{
 
 #[cfg(feature = "vless")]
 pub(crate) mod grpc;
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) mod packet_driver;
 mod pending;
 pub(crate) mod pool;
 pub(crate) mod stateless;
@@ -42,6 +44,22 @@ impl BackgroundNetwork {
                 "runtime service owner retired",
             )
         })
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn packet_driver_execution(
+        &self,
+        grant: zero_platform_tokio::contract::component::GrantedPacketServiceCaller,
+        resources: Weak<dyn zero_platform_tokio::contract::component::ResourceAccess>,
+    ) -> Result<packet_driver::PacketPathExecutionSource, ChannelError> {
+        let source = self.services.get().cloned().ok_or_else(|| {
+            invalid(
+                Reason::Revoked,
+                "Packet source host has not installed its actual services",
+            )
+        })?;
+        Ok(packet_driver::PacketPathExecutionSource::new(
+            source, grant, resources,
+        ))
     }
     pub(crate) fn new(egress: EgressInterfaceControl) -> Self {
         Self {

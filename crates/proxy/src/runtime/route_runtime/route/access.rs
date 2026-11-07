@@ -92,11 +92,22 @@ impl InboundRouteRuntimeFactory {
         let plan = execution.components.as_deref().map_err(|error| {
             std::io::Error::other(crate::component::instance::retained(error.clone()))
         })?;
-        services.protocols().bind_actual_packet_source(
+        let input = services
+            .config()
+            .inbounds
+            .iter()
+            .find(|input| input.tag == self.inbound_tag)
+            .ok_or_else(|| std::io::Error::other("actual Packet Source input is absent"))?;
+        let source = services
+            .current_source
+            .upgrade()
+            .ok_or_else(|| std::io::Error::other("actual Packet Source host expired"))?
+            .packet_carrier_source(input, plan, &original, &memory)?;
+        services.protocols().bind_actual_packet_carrier_source(
             services.config(),
             plan,
             &self.inbound_tag,
-            original,
+            source,
             memory,
         )
     }

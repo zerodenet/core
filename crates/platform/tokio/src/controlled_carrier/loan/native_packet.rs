@@ -77,14 +77,16 @@ impl CarrierDatagram {
                 custody,
                 bytes: vec![0; 65536],
             }),
-            control: Box::new(NativeControl(adoption)).into(),
+            control: Box::new(NativeControl(adoption.clone())).into(),
             limits: DatagramLimits {
                 max_payload: 65507,
                 queued_bytes: 0,
                 targets: DatagramTargets::Fixed(endpoint.clone()),
             },
         };
-        Ok(DatagramLoan::new(session, original, association, endpoint))
+        let mut loan = DatagramLoan::new(session, original, association, endpoint);
+        loan.owner.observe_native_control(adoption)?;
+        Ok(loan)
     }
 }
 fn failure(custody: &Custody, stage: Stage, source: std::io::Error) -> ChannelError {

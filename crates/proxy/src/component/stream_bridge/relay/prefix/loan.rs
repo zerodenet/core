@@ -50,10 +50,15 @@ impl PrefixOpener {
                 self.context.upstream.clone()
             };
             let context = OpenContext {
-                identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-                    origin: ServiceOrigin::Runtime,
-                    purpose: ServicePurpose::BackgroundControl,
-                })),
+                identity: self.service_identity.clone().unwrap_or_else(|| {
+                    RequestIdentity::Service(
+                        Arc::new(ServiceRequestFacts {
+                            origin: ServiceOrigin::Runtime,
+                            purpose: ServicePurpose::BackgroundControl,
+                        })
+                        .into(),
+                    )
+                }),
                 deadline: carrier.deadline,
                 cancel: carrier.cancel.clone(),
                 upstream,

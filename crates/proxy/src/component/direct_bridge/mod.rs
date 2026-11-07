@@ -87,15 +87,21 @@ impl From<ServiceInvocation> for Invocation {
             caller_native: None,
             admitted: None,
             caller_accepted: None,
-            identity: RequestIdentity::Service(invocation.caller.as_ref().map_or_else(
-                || {
-                    Arc::new(ServiceRequestFacts {
-                        origin: ServiceOrigin::Runtime,
-                        purpose: invocation.purpose,
-                    })
-                },
-                |call| call.identity(),
-            )),
+            identity: RequestIdentity::Service(
+                invocation
+                    .caller
+                    .as_ref()
+                    .map_or_else(
+                        || {
+                            Arc::new(ServiceRequestFacts {
+                                origin: ServiceOrigin::Runtime,
+                                purpose: invocation.purpose,
+                            })
+                        },
+                        |call| call.identity(),
+                    )
+                    .into(),
+            ),
             caller_probe: invocation.caller,
             deadline: Some(invocation.deadline),
         }

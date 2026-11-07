@@ -39,7 +39,7 @@ async fn hysteria2_actual_node_dns_replacement_waits_for_historical_view_and_ori
         let loan=proxy.protocols.drive_component_supervision(role.open_carrier(DatagramRequest {
             association:AssociationId(810),targets:DatagramTargets::Fixed(Destination::new(Address::Ipv4([203,0,113,2]),53)),
         },OpenContext {
-            identity:RequestIdentity::Service(Arc::new(zero_core::request::ServiceRequestFacts {origin:zero_core::request::ServiceOrigin::Runtime,purpose:zero_core::request::ServicePurpose::BackgroundControl})),
+            identity:RequestIdentity::Service(Arc::new(zero_core::request::ServiceRequestFacts {origin:zero_core::request::ServiceOrigin::Runtime,purpose:zero_core::request::ServicePurpose::BackgroundControl}).into()),
             deadline:Some(end()),cancel:CancellationToken::new(),observer:None,
             upstream:UpstreamTransport::new(UpstreamBinding {prefix:vec![],dial:slot.dial.clone(),network_generation:zero_core::component::NetworkGeneration(proxy.egress_interface.generation())},Arc::new(Denied)),
         })).await.unwrap();

@@ -3,6 +3,10 @@ use std::sync::Arc;
 use zero_config::RuntimeConfig;
 use zero_engine::{EngineError, ResolvedLeafOutbound};
 
+#[cfg(feature = "udp-runtime")]
+mod formatter;
+#[cfg(feature = "udp-runtime")]
+pub(crate) use formatter::ColdPacketPathProjection;
 mod plane;
 
 use super::{ProtocolRegistry, RegisteredProtocolEntry};

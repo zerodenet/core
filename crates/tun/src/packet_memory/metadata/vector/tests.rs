@@ -84,3 +84,28 @@ fn foreign_occupied_bytes_are_busy_and_a_real_release_allows_the_same_row() {
         charged(PacketMetadataLayout::new(0, 0))
     );
 }
+#[test]
+fn pending_table_slot_is_paid_before_row_install_and_empty_storage_is_not_a_refund() {
+    let (root, read, view) = original(1, std::mem::size_of::<u64>());
+    let mut table = PacketMetadataVec::<u64>::default();
+    table.try_reserve_one(&view, 1).unwrap();
+    assert!(table.is_empty());
+    assert_eq!(table.capacity(), 1);
+    let actual = root.driver_metadata().occupied;
+    assert_eq!(
+        actual,
+        charged(PacketMetadataLayout::new(1, std::mem::size_of::<u64>()))
+    );
+    read.revoke();
+    assert_eq!(root.driver_metadata().occupied, actual);
+    assert_eq!(table.push_reserved(71), Ok(()));
+    assert_eq!(table.push_reserved(72), Err(72));
+    assert_eq!(&*table, &[71]);
+    assert_eq!(table.remove(0), 71);
+    assert_eq!(root.driver_metadata().occupied, actual);
+    drop(table);
+    assert_eq!(
+        root.driver_metadata().occupied,
+        charged(PacketMetadataLayout::new(0, 0))
+    );
+}

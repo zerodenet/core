@@ -31,12 +31,49 @@ impl ProtocolRegistry {
     ) where
         T: ProtocolSupportCapability + 'static,
     {
+        self.register_standard_protocol_metadata(adapter, claim, false, false);
+    }
+    #[cfg(feature = "shadowsocks")]
+    pub(crate) fn register_standard_datagram_formatter<T>(
+        &mut self,
+        adapter: Arc<T>,
+        claim: OutboundLeafClaimFn<T>,
+    ) where
+        T: ProtocolSupportCapability + 'static,
+    {
+        self.register_standard_protocol_metadata(adapter, Some(claim), true, true);
+    }
+    #[cfg(feature = "socks5")]
+    pub(crate) fn register_standard_packet_carrier<T>(
+        &mut self,
+        adapter: Arc<T>,
+        claim: OutboundLeafClaimFn<T>,
+    ) where
+        T: ProtocolSupportCapability + 'static,
+    {
+        self.register_standard_protocol_metadata(adapter, Some(claim), false, true);
+    }
+    fn register_standard_protocol_metadata<T>(
+        &mut self,
+        adapter: Arc<T>,
+        claim: Option<OutboundLeafClaimFn<T>>,
+        pure_datagram_formatter: bool,
+        pure_packet_carrier: bool,
+    ) where
+        T: ProtocolSupportCapability + 'static,
+    {
+        #[cfg(not(feature = "udp-runtime"))]
+        let _ = (pure_datagram_formatter, pure_packet_carrier);
         assert!(
             self.inbounds.has_factory(adapter.name()),
             "standard inbound requires its actual component factory"
         );
         self.push_registered_entry(super::RegisteredProtocolEntry {
             support: adapter.clone(),
+            #[cfg(feature = "udp-runtime")]
+            pure_datagram_formatter,
+            #[cfg(feature = "udp-runtime")]
+            pure_packet_carrier,
             outbound: claim.map(|claim| {
                 Arc::new(ProjectedOutboundClaimer {
                     adapter: adapter.clone(),

@@ -83,3 +83,63 @@ fn depends(
     }
     false
 }
+
+/// Actual Source-record custody is independent of a Native carrier Slot.
+/// MainPaused only fences new business and proves that actual Main checkpoint;
+/// none of these observations asserts whole Source Scope/native closure.
+pub(super) fn retained_packet_driver(
+    old: &ComponentPlan,
+    donor: &ComponentSlot,
+    stopping: &[Arc<ComponentSlot>],
+    lease: &Lease,
+    mains: &[&zero_platform_tokio::contract::packet::PacketSourceMainPaused],
+) -> Option<zero_platform_tokio::contract::component::PacketDriverStreamRetained> {
+    let retained = lease.packet_driver_receiver()?;
+    if !retained.retained() {
+        return None;
+    }
+    let source = retained.source()?;
+    let receiver = retained.receiver()?;
+    let wire = source.driver()?;
+    if source.is_retired()
+        || receiver.is_joined()
+        || !receiver.scope_identity().same_scope(&wire.scope_identity())
+    {
+        return None;
+    }
+    let source_fenced = mains.iter().any(|main| {
+        main.instance() == source.instance() && main.scope().same_scope(&wire.scope_identity())
+    });
+    let root_stopping = stopping.iter().any(|slot| {
+        slot.instance_id() == source.instance()
+            && slot.matches_live_scope(&wire.scope_identity())
+            && slot
+                .packet_provider_originals()
+                .iter()
+                .any(|actual| actual.same_original(&source))
+    });
+    if !source_fenced && !root_stopping {
+        return None;
+    }
+    let original = retained.original()?;
+    let mut graph = vec![donor.instance_id()];
+    let mut seen = std::collections::BTreeSet::new();
+    while let Some(instance) = graph.pop() {
+        if !seen.insert(instance) {
+            continue;
+        }
+        let actual = old
+            .order
+            .iter()
+            .find(|slot| slot.instance_id() == instance)?;
+        if actual
+            .packet_provider_originals()
+            .iter()
+            .any(|actual| actual.same_original(&original))
+        {
+            return Some(retained);
+        }
+        graph.extend(old.retirement_dependencies(actual));
+    }
+    None
+}

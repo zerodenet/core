@@ -128,12 +128,13 @@ impl Actual {
             bound,
             binding,
             endpoint,
-            identity: crate::contract::context::RequestIdentity::Service(Arc::new(
-                zero_core::request::ServiceRequestFacts {
+            identity: crate::contract::context::RequestIdentity::Service(
+                Arc::new(zero_core::request::ServiceRequestFacts {
                     origin: zero_core::request::ServiceOrigin::Runtime,
                     purpose: zero_core::request::ServicePurpose::BackgroundControl,
-                },
-            )),
+                })
+                .into(),
+            ),
             call: context(),
             totals,
             source: Arc::new(Node {

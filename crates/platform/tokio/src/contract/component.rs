@@ -1,3 +1,11 @@
+pub(crate) mod packet_driver;
+pub use packet_driver::{
+    GrantedPacketServiceCaller, PacketDriverCallGrant, PacketDriverCallRetained, PacketDriverCalls,
+    PacketDriverDatagramHandoff, PacketDriverSendBuffers, PacketDriverSendCopy,
+    PacketDriverStreamGrant, PacketDriverStreamRetained, PacketDriverTarget,
+};
+mod packet_supplemental;
+pub use packet_supplemental::PacketSupplementalMemory;
 mod source_limits;
 pub use source_limits::InboundSourceLimits;
 mod root_datagram;
@@ -243,6 +251,7 @@ pub enum ResourceDeclaration {
         /// Optional actual control-output allocation, prepaid in the same Host
         /// total Transmit lane before this descriptor attempts native IO.
         control_workspace: Option<NonZeroUsize>,
+        supplemental: PacketSupplementalMemory,
     },
     /// A literal outbound peer on the actual host network generation. The
     /// current provider supports exactly one socket and one acquisition attempt
@@ -333,6 +342,36 @@ pub struct InboundListenerEndpoints {
     pub datagram: std::net::SocketAddr,
 }
 pub trait ResourceAccess: Send + Sync {
+    /// Actual owner receipt custody only, including its retiring original.
+    /// False means no exact bounded receiver accepted the fault. The producer
+    /// retains its original and receipt; this neither grants IO nor closes it.
+    fn receive_packet_driver_failure(
+        &self,
+        _grant: &GrantedPacketServiceCaller,
+        _source: Arc<super::ChannelError>,
+    ) -> Result<bool, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Close,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
+
+    /// Same real Packet actor and actual host graph. This attaches cleanup
+    /// custody only; it neither mints Native IO nor reconstructs a registrar.
+    fn packet_driver_caller(
+        &self,
+        _original: &crate::controlled_carrier::CarrierOrigin,
+        _driver: &super::scope::TaskJoinWitness,
+        _binding: super::network::UpstreamBinding,
+        _call: super::network::CarrierContext,
+    ) -> Result<GrantedPacketServiceCaller, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
     fn service_datagram_target_issuer(
         &self,
         _grant: &crate::controlled_carrier::CarrierGrant,
@@ -357,6 +396,7 @@ pub trait ResourceAccess: Send + Sync {
             super::Impact::Component,
         ))
     }
+
     /// The same Host's pure buffer accounting. This confers no acquisition,
     /// IO, task, native-close, logical-user or Scope authority. Missing actual
     /// production accounting cannot fall back to an independent local book.
@@ -385,10 +425,35 @@ pub trait ResourceAccess: Send + Sync {
     }
 
     #[cfg(feature = "native-packet-origin")]
+    /// Consume the same actual Source wire's pre-bind launch reservation.
+    /// This is no TaskId/IO authority: the original Host start fence still
+    /// applies when the unique launch is consumed by the real wire body.
+    fn take_packet_source_wire_launch(
+        &self,
+        _datagram: usize,
+    ) -> Result<super::scope::TaskLaunch, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
     fn take_packet_datagram_reads(
         &self,
         _datagram: usize,
     ) -> Result<[zero_tun::packet_memory::NativeReadGrant; 2], BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
+    #[cfg(feature = "native-packet-origin")]
+    fn take_packet_datagram_receive_workspace(
+        &self,
+        _datagram: usize,
+        _reader: usize,
+    ) -> Result<zero_tun::packet_memory::NativeReadGrant, BuildError> {
         Err(super::ChannelError::new(
             super::Stage::Prepare,
             super::Reason::Unsupported,
@@ -440,6 +505,18 @@ pub trait ResourceAccess: Send + Sync {
 
     /// Reserve the same Host total before the actual software source can
     /// construct/acquire its physical ancestor. No provider is published here.
+    /// Specific actual inbound Source startup; never reopens a bounded Slot's
+    /// generic start phase or reconstructs authority from a Scope identity.
+    fn register_software_packet_source_driver(
+        &self,
+        _driver: &crate::contract::scope::TaskJoinWitness,
+    ) -> Result<crate::controlled_carrier::LogicalPacketProviderRegistration, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            crate::contract::Impact::Component,
+        ))
+    }
     fn prepare_logical_packet_source(
         &self,
         _source: &crate::controlled_carrier::LogicalPacketProviderRegistration,

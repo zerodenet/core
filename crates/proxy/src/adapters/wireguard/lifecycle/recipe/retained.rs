@@ -52,6 +52,7 @@ impl RetainedInvocation {
     pub(in crate::adapters::wireguard::lifecycle) fn install(
         &mut self,
         pending: &PendingLinkedEndpoint,
+        outer_path: Option<crate::adapters::devices::PreparedDevicePacketPath>,
     ) -> Result<Arc<inbound::LinkedEndpoint>, EngineError> {
         match self {
             Self::Installed { .. } => pending
@@ -63,7 +64,7 @@ impl RetainedInvocation {
                     unreachable!()
                 };
                 let binding = invocation.binding();
-                match invocation.install() {
+                match invocation.install(outer_path) {
                     Ok(link) => {
                         *self = Self::Installed { binding };
                         Ok(link)

@@ -28,7 +28,7 @@ async fn hysteria2_cancelled_actual_pending_dial_is_cleaned_before_successful_sa
             identity: RequestIdentity::Service(Arc::new(zero_core::request::ServiceRequestFacts {
                 origin: zero_core::request::ServiceOrigin::Runtime,
                 purpose: zero_core::request::ServicePurpose::DiagnosticProbe,
-            })),
+            }).into()),
             deadline: Some(end()), cancel, observer: None,
             upstream: UpstreamTransport::new(UpstreamBinding {
                 prefix: vec![], dial: slot.dial.clone(),

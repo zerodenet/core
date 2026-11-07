@@ -223,10 +223,13 @@ async fn prepare_stream_path(
         roles.push(node.slot.stream(start_deadline).await?);
     }
     let generation = upstream.binding().network_generation;
-    let identity = RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-        origin: ServiceOrigin::Runtime,
-        purpose,
-    }));
+    let identity = RequestIdentity::Service(
+        Arc::new(ServiceRequestFacts {
+            origin: ServiceOrigin::Runtime,
+            purpose,
+        })
+        .into(),
+    );
     let mut prefix = Vec::with_capacity(nodes.len());
     for (index, (node, role)) in nodes.iter().zip(roles).enumerate() {
         let context = OpenContext {

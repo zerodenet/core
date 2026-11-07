@@ -11,10 +11,13 @@ use zero_proxy::Proxy;
 
 #[test]
 fn service_requests_never_allocate_or_expose_business_identity() {
-    let identity = RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-        origin: ServiceOrigin::Runtime,
-        purpose: ServicePurpose::DiagnosticProbe,
-    }));
+    let identity = RequestIdentity::Service(
+        Arc::new(ServiceRequestFacts {
+            origin: ServiceOrigin::Runtime,
+            purpose: ServicePurpose::DiagnosticProbe,
+        })
+        .into(),
+    );
     assert_eq!(identity.session(), None);
 }
 

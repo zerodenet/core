@@ -1,7 +1,7 @@
 //! Every Bound declaration holds its one actual provider before any factory IO.
 use super::*;
 use crate::component::bound_datagram::{
-    HostBoundDatagramResources, evidence::BoundDatagramEvidence,
+    evidence::BoundDatagramEvidence, HostBoundDatagramResources,
 };
 use zero_core::component::{ComponentInstanceId, NetworkGeneration};
 use zero_platform_tokio::contract::{
@@ -169,5 +169,18 @@ impl HostResources {
             .set(binding.clone())
             .map_err(|_| self.denied())?;
         Ok(binding)
+    }
+}
+
+impl HostResources {
+    pub(in crate::component) fn bound_packet_originals(
+        &self,
+        ordinal: usize,
+    ) -> Vec<zero_platform_tokio::controlled_carrier::CarrierOrigin> {
+        self.bounds
+            .origins(ordinal)
+            .into_iter()
+            .map(zero_platform_tokio::controlled_carrier::CarrierOrigin::from_listener)
+            .collect()
     }
 }

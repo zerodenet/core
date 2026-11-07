@@ -87,7 +87,7 @@ async fn hysteria2_identity_isolation_and_historical_role_revocation_use_actual_
         drop(first);drop(same);drop(isolated);proxy.protocols.shutdown_components(end()).await.unwrap();
         let binding=UpstreamBinding {prefix:vec![],dial:Default::default(),network_generation:zero_core::component::NetworkGeneration(proxy.egress_interface.generation())};
         let result=historical.connect(ConnectRequest {destination:zero_core::request::Destination::new(Address::Ipv4([203,0,113,1]),443)},OpenContext {
-            identity:RequestIdentity::Service(Arc::new(zero_core::request::ServiceRequestFacts {origin:zero_core::request::ServiceOrigin::Runtime,purpose:zero_core::request::ServicePurpose::DiagnosticProbe})),
+            identity:RequestIdentity::Service(Arc::new(zero_core::request::ServiceRequestFacts {origin:zero_core::request::ServiceOrigin::Runtime,purpose:zero_core::request::ServicePurpose::DiagnosticProbe}).into()),
             deadline:Some(end()),cancel:CancellationToken::new(),upstream:UpstreamTransport::new(binding,Arc::new(Denied)),observer:None,
         }).await;
         let error=match result{Err(error)=>error,Ok(_)=>panic!("historical role reopened a retired pool")};assert_eq!(error.reason,zero_platform_tokio::contract::Reason::StalePlan);assert_eq!(error.component,Some(slot.id));

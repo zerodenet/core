@@ -83,6 +83,7 @@ impl ProtocolInventory {
         components: Option<&crate::component::catalog::ComponentPlan>,
     ) -> Result<PacketPaths, EngineError> {
         let mut paths: PacketPaths = HashMap::new();
+        let formatter_materials = self.devices.prepared_outer_materials(config)?;
         for (index, outbound) in config.outbounds.iter().enumerate() {
             if !outbound.udp.enabled || admission.outbound_denial(&outbound.tag).is_some() {
                 continue;
@@ -90,11 +91,18 @@ impl ProtocolInventory {
             let leaf = zero_engine::ResolvedLeafOutbound::Proxy {
                 identity: zero_engine::OutboundIdentity::from_config_index(index),
             };
-            if let Some(operation) = self.optional_tcp_packet_path(
-                OutboundAdapterContext::new(config),
-                &leaf,
-                components,
-            ) {
+            let operation = match formatter_materials.get(&outbound.tag) {
+                Some(values) => self.prepared_source_packet_path(
+                    components,
+                    values.first().and_then(Option::as_ref),
+                )?,
+                None => self.optional_tcp_packet_path(
+                    OutboundAdapterContext::new(config),
+                    &leaf,
+                    components,
+                ),
+            };
+            if let Some(operation) = operation {
                 paths.insert(
                     outbound.tag.clone(),
                     PreparedDevicePacketPath {
@@ -132,16 +140,32 @@ impl ProtocolInventory {
             }) {
                 continue;
             }
-            let Ok(operation) = self.prepare_relay_device_packet_path(config, &indices, components)
-            else {
+            let Ok(operation) = self.prepare_relay_device_packet_path(
+                config,
+                &indices,
+                components,
+                formatter_materials
+                    .get(&group.tag)
+                    .map(|values| values.as_ref()),
+            ) else {
                 continue;
+            };
+            let binding = if formatter_materials.contains_key(&group.tag) {
+                operation.source_binding(
+                    components.ok_or_else(|| {
+                        invalid("prepared Source path has no actual candidate plan")
+                    })?,
+                    network_generation,
+                )?
+            } else {
+                root_binding(&config.outbounds[first], network_generation)
             };
             paths.insert(
                 group.tag.clone(),
                 PreparedDevicePacketPath {
                     operation: Arc::new(operation),
                     identity: path_identity(config, &indices)?,
-                    root_binding: root_binding(&config.outbounds[first], network_generation),
+                    root_binding: binding,
                 },
             );
         }
@@ -153,6 +177,7 @@ impl ProtocolInventory {
         config: &RuntimeConfig,
         indices: &[usize],
         components: Option<&crate::component::catalog::ComponentPlan>,
+        sources: Option<&[Option<crate::protocol_registry::ColdPacketPathProjection>]>,
     ) -> Result<PreparedDatagramRelayCarrier, EngineError> {
         let leaves = indices
             .iter()
@@ -160,20 +185,36 @@ impl ProtocolInventory {
                 identity: zero_engine::OutboundIdentity::from_config_index(*index),
             })
             .collect::<Vec<_>>();
-        let prepared = self
-            .prepare_tcp_relay_chain(OutboundAdapterContext::new(config), &leaves, components)
-            .map_err(|failure| failure.error)?;
+        let prepared = match sources {
+            Some(values) => self.prepare_device_tcp_relay_chain(
+                OutboundAdapterContext::new(config),
+                &leaves,
+                components,
+                values,
+            ),
+            None => self.prepare_tcp_relay_chain(
+                OutboundAdapterContext::new(config),
+                &leaves,
+                components,
+            ),
+        }
+        .map_err(|failure| failure.error)?;
         let final_hop = prepared
             .relay_hops
             .last()
             .expect("validated relay group has at least two members");
-        let final_operation = self
-            .optional_tcp_packet_path(
+        let final_operation = match sources {
+            Some(values) => self
+                .prepared_source_packet_path(components, values.last().and_then(Option::as_ref))?,
+            None => self.optional_tcp_packet_path(
                 OutboundAdapterContext::new(config),
                 leaves.last().unwrap(),
                 components,
-            )
-            .ok_or_else(|| invalid("outer UDP relay final hop has no packet-path capability"))?;
+            ),
+        }
+        .ok_or_else(|| {
+            invalid("outer UDP relay final hop has no original packet-path capability")
+        })?;
         let prefix = PreparedTcpRelayPrefix {
             first: prepared.first,
             datagram_prefixes: prepared.datagram_prefixes.clone(),
@@ -183,11 +224,22 @@ impl ProtocolInventory {
             final_server: final_hop.server.clone(),
             final_port: final_hop.port,
         };
-        PreparedDatagramRelayCarrier::extend(
-            prepared.datagram_prefixes.last().cloned().flatten(),
-            final_operation,
-            prefix,
-        )
+        match sources {
+            Some(values) => PreparedDatagramRelayCarrier::extend_with_source(
+                prepared.datagram_prefixes.last().cloned().flatten(),
+                final_operation,
+                prefix,
+                values
+                    .last()
+                    .and_then(Option::as_ref)
+                    .and_then(|value| value.formatter.clone()),
+            ),
+            None => PreparedDatagramRelayCarrier::extend(
+                prepared.datagram_prefixes.last().cloned().flatten(),
+                final_operation,
+                prefix,
+            ),
+        }
         .ok_or_else(|| invalid("outer UDP relay has no bidirectional packet path"))
     }
 }
@@ -236,6 +288,22 @@ impl ProtocolInventory {
         original: zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
         memory: zero_platform_tokio::contract::packet::PacketSourceMemory,
     ) -> Result<(), EngineError> {
+        self.bind_actual_packet_carrier_source(
+            config,
+            plan,
+            inbound_tag,
+            zero_platform_tokio::controlled_carrier::CarrierOrigin::from_listener(original),
+            memory,
+        )
+    }
+    pub(crate) fn bind_actual_packet_carrier_source(
+        &self,
+        config: &RuntimeConfig,
+        plan: &crate::component::catalog::ComponentPlan,
+        inbound_tag: &str,
+        original: zero_platform_tokio::controlled_carrier::CarrierOrigin,
+        memory: zero_platform_tokio::contract::packet::PacketSourceMemory,
+    ) -> Result<(), EngineError> {
         self.devices
             .install_packet_source_memory(config, inbound_tag, memory.view.clone())?;
         #[cfg(feature = "wireguard")]
@@ -243,8 +311,11 @@ impl ProtocolInventory {
             for (tag, id) in adapter.packet_source_resources(config)? {
                 if tag == inbound_tag {
                     let consumer = plan.device_component(id).map_err(std::io::Error::other)?;
-                    plan.bind_packet_source_provider(consumer.instance_id(), original.clone())
-                        .map_err(std::io::Error::other)?;
+                    plan.bind_packet_carrier_source_provider(
+                        consumer.instance_id(),
+                        original.clone(),
+                    )
+                    .map_err(std::io::Error::other)?;
                 }
             }
         }

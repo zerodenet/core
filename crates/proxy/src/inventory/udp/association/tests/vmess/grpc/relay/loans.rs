@@ -88,10 +88,13 @@ async fn actual_mux_datagram_carrier_loans_retain_original_control_and_share_the
                 .protocols
                 .drive_component_supervision(async {
                     let context = || OpenContext {
-                        identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-                            origin: ServiceOrigin::Runtime,
-                            purpose: ServicePurpose::BackgroundControl,
-                        })),
+                        identity: RequestIdentity::Service(
+                            Arc::new(ServiceRequestFacts {
+                                origin: ServiceOrigin::Runtime,
+                                purpose: ServicePurpose::BackgroundControl,
+                            })
+                            .into(),
+                        ),
                         deadline: Some(end()),
                         cancel: CancellationToken::new(),
                         observer: None,

@@ -9,7 +9,7 @@ impl PacketReturns {
         use zero_tun::packet_memory::PacketMemoryLimit;
         options
             .packet_return_totals
-            .install_limits(
+            .install_original_limits(
                 PacketMemoryLimit {
                     frames: options.packet_return_total_max_frames,
                     bytes: options.packet_return_total_max_bytes,
@@ -22,6 +22,10 @@ impl PacketReturns {
                     frames: options.packet_transmit_total_max_frames,
                     bytes: options.packet_transmit_total_max_bytes,
                 },
+                zero_tun::packet_memory::PacketMetadataLayout::new(
+                    options.packet_driver_metadata_total_max_allocations,
+                    options.packet_driver_metadata_total_max_bytes,
+                ),
             )
             .map_err(std::io::Error::other)?;
         self.budget = budget::ReturnBudget::with_totals(
@@ -55,7 +59,11 @@ impl PacketReturns {
             options.packet_return_totals.native().limit,
             options.packet_return_totals.transmit().limit,
         ];
-        if expected != actual {
+        let metadata = zero_tun::packet_memory::PacketMetadataLayout::new(
+            options.packet_driver_metadata_total_max_allocations,
+            options.packet_driver_metadata_total_max_bytes,
+        );
+        if expected != actual || options.packet_return_totals.driver_metadata().limit != metadata {
             return Err(std::io::Error::other(
                 "Host has not installed this accepted packet memory policy",
             ));

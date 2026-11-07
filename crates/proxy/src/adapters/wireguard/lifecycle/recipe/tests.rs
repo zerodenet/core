@@ -33,6 +33,7 @@ fn recipe(adapter: &WireguardAdapter, endpoint: &str, generation: u64) -> Linked
         &inbound,
         plan,
         LinkedRecipeSettings {
+            outer: None,
             identity,
             network_generation: NetworkGeneration(generation),
             stacks: vec![Default::default()],
@@ -46,10 +47,13 @@ fn deadline() -> tokio::time::Instant {
 }
 fn demand(recipe: &LinkedEndpointRecipe) -> PacketCarrierDemand {
     PacketCarrierDemand {
-        identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-            origin: ServiceOrigin::Runtime,
-            purpose: ServicePurpose::BackgroundControl,
-        })),
+        identity: RequestIdentity::Service(
+            Arc::new(ServiceRequestFacts {
+                origin: ServiceOrigin::Runtime,
+                purpose: ServicePurpose::BackgroundControl,
+            })
+            .into(),
+        ),
         context: CarrierContext {
             session: None,
             deadline: Some(deadline()),
@@ -86,6 +90,7 @@ fn linked_recipe_is_cold_and_preserves_actual_crypto_seed_across_port_move() {
         &inbound,
         plan,
         LinkedRecipeSettings {
+            outer: None,
             identity: first.identity,
             network_generation: NetworkGeneration(egress.generation()),
             stacks: vec![Default::default()],

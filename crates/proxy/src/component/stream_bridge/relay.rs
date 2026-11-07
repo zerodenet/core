@@ -257,6 +257,7 @@ pub(crate) async fn connect(
         upstream = UpstreamTransport::new(
             binding.clone(),
             Arc::new(PrefixOpener {
+                service_identity: None,
                 role,
                 business,
                 plan: Some(Arc::downgrade(plan)),

@@ -443,9 +443,12 @@ fn start_deferred_resources<'a>(
                 }
                 if let Some(original) = proxy.inbound_owners.packet_source_origin(input)? {
                     let memory=proxy.inbound_owners.packet_source_memory(input)?.ok_or_else(||std::io::Error::other("retained actual Packet Source lost its original memory view/layout"))?;
-                    proxy
-                        .protocols
-                        .bind_actual_packet_source(config, plan, &input.tag, original, memory)?;
+                    let source = proxy
+                        .inbound_owners
+                        .packet_carrier_source(input, plan, &original, &memory)?;
+                    proxy.protocols.bind_actual_packet_carrier_source(
+                        config, plan, &input.tag, source, memory,
+                    )?;
                 }
             }
         }

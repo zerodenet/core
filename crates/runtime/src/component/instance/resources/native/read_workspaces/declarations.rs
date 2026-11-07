@@ -30,6 +30,7 @@ impl ReadDeclarations {
                 datagram,
                 workspaces,
                 control_workspace,
+                supplemental,
             } = declaration
             else {
                 continue;
@@ -50,12 +51,13 @@ impl ReadDeclarations {
                     }
                     _ => None,
                 },
-                original: HostPacketReadReservation::new_with_control(
+                original: HostPacketReadReservation::new_with_supplemental(
                     *instance,
                     scope.clone(),
                     roots.clone(),
                     *workspaces,
                     *control_workspace,
+                    supplemental.clone(),
                 )?,
             });
         }
@@ -109,6 +111,25 @@ impl ReadDeclarations {
             })?
             .original
             .take()
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(in crate::component::instance::resources::native) fn take_receive(
+        &self,
+        datagram: usize,
+        reader: usize,
+    ) -> Result<zero_tun::packet_memory::NativeReadGrant, ChannelError> {
+        self.entries
+            .iter()
+            .find(|entry| entry.datagram == datagram)
+            .ok_or_else(|| {
+                error(
+                    self.component,
+                    Reason::InvalidConfig,
+                    "no actual supplemental read declaration",
+                )
+            })?
+            .original
+            .take_supplemental_receive(reader)
     }
     #[cfg(feature = "raw-ip-runtime")]
     pub(in crate::component::instance::resources::native) fn take_control(

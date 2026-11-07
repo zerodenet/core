@@ -36,7 +36,10 @@ pub(super) struct Rx {
     users_cancelled: Cancelled,
     _user: Arc<crate::runtime::packet_flow::FlowUser>,
 }
-pub(super) struct Control(Arc<Shared>);
+pub(super) struct Control {
+    shared: Arc<Shared>,
+    deadline: Option<tokio::time::Instant>,
+}
 pub(super) type Session = DatagramSession<Tx, Rx, Control>;
 type Sending = Pin<Box<dyn Future<Output = Result<(), ClientUdpSendError>> + Send>>;
 struct Pending {
@@ -61,6 +64,7 @@ struct Shared {
     // The same token requires both returned actual views and matching logical
     // socket closure; a retained control alone cannot refund this user.
     user: Mutex<Option<Arc<crate::runtime::packet_flow::FlowUser>>>,
+    completion: crate::runtime::packet_flow::FlowLogicalClose,
 }
 pub(super) fn session(
     socket: ClientUdpSocket,
@@ -72,6 +76,7 @@ pub(super) fn session(
     user_stop: CancellationToken,
 ) -> Session {
     let user = Arc::new(user);
+    let completion = user.logical_completion();
     let shared = Arc::new(Shared {
         original: Mutex::new(Original {
             socket,
@@ -86,6 +91,7 @@ pub(super) fn session(
         association,
         cancel: cancel.child_token(),
         user: Mutex::new(Some(user.clone())),
+        completion,
     });
     DatagramSession {
         tx: Tx {
@@ -100,7 +106,10 @@ pub(super) fn session(
             users_cancelled: Box::pin(user_stop.clone().cancelled_owned()),
             _user: user.clone(),
         },
-        control: Control(shared),
+        control: Control {
+            shared,
+            deadline: None,
+        },
         limits: DatagramLimits {
             max_payload: 65_507,
             targets: DatagramTargets::Fixed(target),
@@ -195,3 +204,7 @@ impl DatagramRx for Rx {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "session_udp/tests/recovery.rs"]
+mod recovery;

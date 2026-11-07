@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{mem::ManuallyDrop, sync::Arc};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use zero_core::{
@@ -70,18 +70,49 @@ pub use opener::UpstreamOpener;
 
 #[derive(Clone)]
 pub struct UpstreamTransport {
-    binding: Arc<UpstreamBinding>,
-    opener: Arc<dyn UpstreamOpener>,
+    binding: ManuallyDrop<Arc<UpstreamBinding>>,
+    opener: ManuallyDrop<Arc<dyn UpstreamOpener>>,
+    #[cfg(feature = "native-packet-origin")]
+    packet_metadata: Option<zero_tun::packet_memory::PacketMetadataAttachment>,
 }
 
 /// Weak reference to the actual waiting owner's existing cleanup ledger.
 /// It cannot authorize native I/O and does not retain a historical caller.
 #[derive(Clone)]
 pub struct PendingCarrierObserver {
-    binding: Arc<UpstreamBinding>,
-    opener: std::sync::Weak<dyn UpstreamOpener>,
+    binding: ManuallyDrop<Arc<UpstreamBinding>>,
+    opener: ManuallyDrop<std::sync::Weak<dyn UpstreamOpener>>,
+    #[cfg(feature = "native-packet-origin")]
+    packet_metadata: Option<zero_tun::packet_memory::PacketMetadataAttachment>,
 }
 impl PendingCarrierObserver {
+    /// Same concrete opener, weakly observed; private to runtime contracts.
+    /// This checks full binding and liveness, never creates IO authority.
+    pub(in crate::contract) fn upgrade_exact(
+        &self,
+        binding: &UpstreamBinding,
+    ) -> Result<UpstreamOpenerLease, ChannelError> {
+        if self.binding.as_ref() != binding {
+            return Err(ChannelError::new(
+                super::Stage::Prepare,
+                super::Reason::StalePlan,
+                super::Impact::Component,
+            ));
+        }
+        let opener = self.opener.upgrade().ok_or_else(|| {
+            ChannelError::new(
+                super::Stage::Prepare,
+                super::Reason::Revoked,
+                super::Impact::Component,
+            )
+        })?;
+        Ok(UpstreamOpenerLease {
+            opener: ManuallyDrop::new(opener),
+            #[cfg(feature = "native-packet-origin")]
+            packet_metadata: self.packet_metadata.clone(),
+        })
+    }
+
     /// Read only the actual waiting opener's independently registered caller.
     /// This neither authorizes I/O nor turns a query/task number into a grant.
     pub fn packet_caller(
@@ -99,6 +130,20 @@ impl PendingCarrierObserver {
             error
         })?;
         opener.packet_caller(&self.binding, identity, call)
+    }
+    pub fn packet_driver_custody(
+        &self,
+        identity: &crate::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<Option<crate::contract::component::PacketDriverCallRetained>, ChannelError> {
+        let opener = self.opener.upgrade().ok_or_else(|| {
+            ChannelError::new(
+                super::Stage::Prepare,
+                super::Reason::Revoked,
+                super::Impact::Component,
+            )
+        })?;
+        opener.packet_driver_custody(&self.binding, identity, call)
     }
     pub fn capacity(&self) -> Option<usize> {
         self.opener
@@ -215,6 +260,14 @@ impl UpstreamTransport {
     ) -> Result<crate::contract::scope::TaskJoinWitness, ChannelError> {
         self.opener.packet_caller(&self.binding, identity, call)
     }
+    pub fn packet_driver_custody(
+        &self,
+        identity: &crate::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<Option<crate::contract::component::PacketDriverCallRetained>, ChannelError> {
+        self.opener
+            .packet_driver_custody(&self.binding, identity, call)
+    }
     pub fn has_tracked_business_caller(&self) -> bool {
         self.opener.has_tracked_business_caller()
     }
@@ -229,7 +282,9 @@ impl UpstreamTransport {
     pub fn pending_carrier_observer(&self) -> PendingCarrierObserver {
         PendingCarrierObserver {
             binding: self.binding.clone(),
-            opener: Arc::downgrade(&self.opener),
+            opener: ManuallyDrop::new(Arc::downgrade(&self.opener)),
+            #[cfg(feature = "native-packet-origin")]
+            packet_metadata: self.packet_metadata.clone(),
         }
     }
     pub fn select_background_carrier_observed(
@@ -298,8 +353,10 @@ impl UpstreamTransport {
     }
     pub fn new(binding: UpstreamBinding, opener: Arc<dyn UpstreamOpener>) -> Self {
         Self {
-            binding: Arc::new(binding),
-            opener,
+            binding: ManuallyDrop::new(Arc::new(binding)),
+            opener: ManuallyDrop::new(opener),
+            #[cfg(feature = "native-packet-origin")]
+            packet_metadata: None,
         }
     }
     pub fn supports_controlled_stream(&self) -> bool {
@@ -359,3 +416,6 @@ impl UpstreamTransport {
 
 mod event_limits;
 pub use event_limits::EventNetworkLimits;
+
+mod packet_metadata;
+pub(in crate::contract) use packet_metadata::UpstreamOpenerLease;

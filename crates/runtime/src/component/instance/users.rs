@@ -22,8 +22,19 @@ pub(in crate::component) struct PausedUsers {
     pub(in crate::component) actual_instance: Option<ComponentInstanceId>,
     owner: Arc<Users>,
     _receivers: Vec<zero_platform_tokio::controlled_carrier::CarrierAdoption>,
+    packet_receivers: Vec<zero_platform_tokio::contract::component::PacketDriverStreamRetained>,
+}
+pub(in crate::component) enum RetainedReceiver {
+    Carrier(zero_platform_tokio::controlled_carrier::CarrierAdoption),
+    PacketDriver(zero_platform_tokio::contract::component::PacketDriverStreamRetained),
 }
 impl PausedUsers {
+    pub(in crate::component) fn packet_receivers(
+        &self,
+    ) -> &[zero_platform_tokio::contract::component::PacketDriverStreamRetained] {
+        &self.packet_receivers
+    }
+
     pub(in crate::component) fn receivers(
         &self,
     ) -> &[zero_platform_tokio::controlled_carrier::CarrierAdoption] {

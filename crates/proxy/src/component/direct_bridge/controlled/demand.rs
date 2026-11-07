@@ -27,7 +27,7 @@ impl ProbeRequest {
         let Some(call) = &invocation.caller_probe else {
             return Ok(None);
         };
-        if !matches!(&invocation.identity,zero_platform_tokio::contract::context::RequestIdentity::Service(facts) if Arc::ptr_eq(facts,&call.identity()))
+        if !matches!(&invocation.identity,zero_platform_tokio::contract::context::RequestIdentity::Service(facts) if facts.matches_shared(&call.identity()))
             || invocation.deadline != Some(call.deadline())
         {
             return Err(invalid(

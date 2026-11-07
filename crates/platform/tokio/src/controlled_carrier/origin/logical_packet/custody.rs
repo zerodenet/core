@@ -163,8 +163,8 @@ impl SourceCustody for ActualLogicalPacket {
         }
     }
     fn failure(&self) -> Option<Arc<ChannelError>> {
-        self.driver
-            .try_joined()
-            .and_then(|joined| joined.result().err())
+        self.drivers
+            .iter()
+            .find_map(|driver| driver.try_joined().and_then(|joined| joined.result().err()))
     }
 }

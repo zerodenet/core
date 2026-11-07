@@ -4,6 +4,7 @@ fn declaration(datagram: usize) -> ResourceDeclaration {
         datagram,
         workspaces: [NonZeroUsize::new(65_536).unwrap(); 2],
         control_workspace: None,
+        supplemental: Default::default(),
     }
 }
 #[test]

@@ -121,10 +121,7 @@ fn full_fragment_cache_cannot_take_the_original_io_next_read_credit() {
     let mut assembly = grant.try_assembly(64).unwrap();
     assembly.as_mut_bytes()[..3].copy_from_slice(&input);
     assert_eq!(root.native().occupied.frames, 2);
-    assert!(matches!(
-        root.native_grant(1),
-        Err(PacketMemoryError::Busy)
-    ));
+    assert!(matches!(root.native_grant(1), Err(PacketMemoryError::Busy)));
     drop(input); // Its actual data has entered the separately charged assembly.
     let mut next = grant
         .try_buffer()
@@ -142,4 +139,80 @@ fn full_fragment_cache_cannot_take_the_original_io_next_read_credit() {
     assert_eq!(root.native().occupied.frames, 1);
     drop(assembly);
     assert_eq!(root.native().occupied.frames, 0);
+}
+
+#[tokio::test]
+async fn workspace_return_observer_survives_cancellation_without_taking_or_refunding_original() {
+    let root = root(1, 64);
+    let grant = root.native_grant(64).unwrap();
+    let mut original = grant.try_buffer().unwrap();
+    original.as_mut_bytes()[..6].copy_from_slice(b"actual");
+    let original = match original.into_packet(6) {
+        Ok(original) => original,
+        Err(_) => panic!("same admitted original length"),
+    };
+    let pointer = original.as_ptr();
+    let mut cancelled = Box::pin(grant.wait_workspace_returned());
+    std::future::poll_fn(|cx| {
+        assert!(cancelled.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    drop(cancelled);
+    assert_eq!(
+        root.native().occupied,
+        PacketMemoryLimit {
+            frames: 1,
+            bytes: 64
+        }
+    );
+    assert_eq!(original.as_ptr(), pointer);
+    assert_eq!(&*original, b"actual");
+    let mut waiting = Box::pin(grant.wait_workspace_returned());
+    std::future::poll_fn(|cx| {
+        assert!(waiting.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    drop(original);
+    waiting.await.unwrap();
+    assert!(grant.workspace_returned());
+    assert_eq!(
+        root.native().occupied,
+        PacketMemoryLimit {
+            frames: 1,
+            bytes: 64
+        },
+        "observing return keeps the Source's original reservation"
+    );
+    let next = grant
+        .try_buffer()
+        .expect("observer did not take the actual next workspace");
+    grant.revoke();
+    assert_eq!(
+        root.native().occupied.bytes,
+        64,
+        "revocation cannot refund a held real allocation"
+    );
+    drop(next);
+    assert_eq!(root.native().occupied.frames, 0);
+}
+
+#[tokio::test]
+async fn revoked_return_observer_cannot_confirm_return_of_a_still_held_original() {
+    let root = root(1, 64);
+    let grant = root.native_grant(64).unwrap();
+    let original = grant.try_buffer().unwrap();
+    let mut waiting = Box::pin(grant.wait_workspace_returned());
+    std::future::poll_fn(|cx| {
+        assert!(waiting.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    grant.revoke();
+    assert!(matches!(waiting.await, Err(PacketMemoryError::Stopped)));
+    assert!(!grant.workspace_returned());
+    assert_eq!(root.native().occupied.bytes, 64);
+    drop(original);
+    assert_eq!(root.native().occupied.bytes, 0);
 }

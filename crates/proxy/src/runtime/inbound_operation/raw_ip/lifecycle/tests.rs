@@ -4,6 +4,8 @@ use super::*;
 async fn peer_changes_wake_a_parked_listener_without_packet_io() {
     let state = |revision| {
         Arc::new(EndpointPeerState {
+            outer_memory: Vec::new(),
+            prepared_outer: Vec::new(),
             revision,
             devices: vec![],
             initial_endpoints: vec![],

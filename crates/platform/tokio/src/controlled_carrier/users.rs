@@ -16,6 +16,8 @@ pub(super) struct Users {
     caller: Option<TaskJoinWitness>,
     driver_owned: bool,
     transferred_owned: bool,
+    packet_driver:
+        Option<crate::contract::component::packet_driver::attempt::PacketDriverPendingCustody>,
     pub(super) preparation: Option<Arc<super::preparation::Preparation>>,
 }
 /// Unique logical view lease. Return is one fact; it never issues a task exit.
@@ -116,6 +118,9 @@ impl Drop for CarrierUserView {
 }
 impl Users {
     pub(super) fn caller_joined(&self) -> Option<TaskJoined> {
+        if self.packet_driver_custody() {
+            return None;
+        }
         if let Some(preparation) = &self.preparation {
             if !preparation.published.load(Ordering::Acquire) {
                 // Its real Auxiliary error has its own local acceptance and
@@ -155,8 +160,52 @@ impl Users {
                         .is_some_and(|actual| actual.same_registration(caller))
             })
     }
+    pub(super) fn install_packet_driver_custody(
+        &mut self,
+        proof: crate::contract::component::packet_driver::attempt::PacketDriverPendingCustody,
+    ) -> bool {
+        if !self.issued {
+            return false;
+        }
+        // A real callee can already own this exact native original through its
+        // declared driver/transferred preparation. Do not reclassify that
+        // existing custody or bind its actual Auxiliary to the Source wire.
+        if self.driver_owned || self.transferred_owned {
+            return true;
+        }
+        if self
+            .caller
+            .as_ref()
+            .is_some_and(|caller| !proof.matches_caller(caller))
+            || self
+                .preparation
+                .as_ref()
+                .and_then(|p| p.expected_caller.as_ref())
+                .is_some_and(|caller| !proof.matches_caller(caller))
+            || (self.acquired && self.caller.is_none())
+        {
+            return false;
+        }
+        if let Some(actual) = &self.packet_driver {
+            return actual.same_record(&proof);
+        }
+        self.packet_driver = Some(proof);
+        true
+    }
+    pub(super) fn packet_driver_custody(&self) -> bool {
+        self.packet_driver
+            .as_ref()
+            .is_some_and(|proof| proof.retained())
+    }
     pub(super) fn bind(&mut self, witness: TaskJoinWitness) -> bool {
-        if !self.issued || self.driver_owned || self.transferred_owned {
+        if !self.issued
+            || self.driver_owned
+            || self.transferred_owned
+            || self
+                .packet_driver
+                .as_ref()
+                .is_some_and(|proof| !proof.matches_caller(&witness))
+        {
             return false;
         }
         if self.preparation.as_ref().is_some_and(|preparation| {
@@ -192,7 +241,11 @@ impl Users {
                 return preparation.auxiliary.get().cloned();
             }
         }
-        if self.acquired && !self.driver_owned && !self.transferred_owned {
+        if self.acquired
+            && !self.driver_owned
+            && !self.transferred_owned
+            && !self.packet_driver_custody()
+        {
             self.caller.clone()
         } else {
             None
@@ -203,6 +256,7 @@ impl Users {
             && (!self.acquired
                 || self.driver_owned
                 || self.transferred_owned
+                || self.packet_driver_custody()
                 || match &self.preparation {
                     Some(preparation) if !preparation.published.load(Ordering::Acquire) => {
                         preparation
@@ -267,7 +321,7 @@ pub(super) async fn finish(slot: &Arc<Slot>, deadline: tokio::time::Instant) -> 
                     .is_ok_and(|joined| auxiliary.matches_joined(&joined));
             }
         }
-        if users.driver_owned || users.transferred_owned {
+        if users.driver_owned || users.transferred_owned || users.packet_driver_custody() {
             // close_slot reached this point only after the same original
             // native close (and the driver's actual join when present). Its unique
             // custody view returned above; there is no separate caller task.

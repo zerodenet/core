@@ -31,7 +31,7 @@ async fn unchanged_candidate_reuses_actual_factory_peer_owners_and_pending_tcp()
         .start_device_components(config.clone(), deadline())
         .await
         .unwrap();
-    let link = resolved.install().unwrap();
+    let link = resolved.install(None).unwrap();
     let device = link.state.lock().unwrap().devices[0].clone();
     let (sender, mut packets) = tokio::sync::mpsc::channel(4);
     drop(link.sender.send_replace(sender));
@@ -115,7 +115,7 @@ async fn unchanged_candidate_reuses_actual_factory_peer_owners_and_pending_tcp()
         .start_device_components(config.clone(), deadline())
         .await
         .unwrap();
-    let reused = resolved.install().unwrap();
+    let reused = resolved.install(None).unwrap();
     assert!(Arc::ptr_eq(&link, &reused));
     assert!(Arc::ptr_eq(
         &device,

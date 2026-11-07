@@ -95,12 +95,13 @@ impl WireguardAdapter {
                 .resolve(
                     upstream,
                     crate::runtime::udp_dispatch::packet_owner::PacketCarrierDemand {
-                        identity: RequestIdentity::Service(Arc::new(
-                            zero_core::request::ServiceRequestFacts {
+                        identity: RequestIdentity::Service(
+                            Arc::new(zero_core::request::ServiceRequestFacts {
                                 origin: zero_core::request::ServiceOrigin::Runtime,
                                 purpose: zero_core::request::ServicePurpose::BackgroundControl,
-                            },
-                        )),
+                            })
+                            .into(),
+                        ),
                         context: CarrierContext {
                             session: None,
                             deadline: Some(deadline),

@@ -123,6 +123,17 @@ impl CarrierOrigin {
     fn observation(&self) -> &Original {
         self.0.as_ref().original()
     }
+    /// The actual Source admission fence only. It is not the opaque outer
+    /// Packet wire ancestor and never authorizes native-close accounting.
+    pub fn packet_source_admission(
+        &self,
+    ) -> Option<&crate::controlled_datagram::provider::NativeDatagramOrigin> {
+        match self.observation() {
+            Original::Listener(original) => Some(original),
+            Original::LogicalPacket(original) => original.source_admission(),
+            _ => None,
+        }
+    }
     /// New logical opens against the exact actual Source only. It does not
     /// fence already transferred IO or mint a native/Scope/user-close fact.
     pub fn try_enter_packet_source(
@@ -130,6 +141,17 @@ impl CarrierOrigin {
     ) -> Result<crate::contract::packet::PacketSourceAcquisition, ChannelError> {
         match self.native_origin().observation() {
             Original::Listener(original) => original.try_enter_packet_source(),
+            Original::LogicalPacket(original) => original
+                .source_admission()
+                .ok_or_else(|| {
+                    error(
+                        self.instance(),
+                        Stage::Prepare,
+                        Reason::StalePlan,
+                        DeliveryState::NotSubmitted,
+                    )
+                })?
+                .try_enter_packet_source(),
             _ => Err(crate::contract::ChannelError::new(
                 Stage::Prepare,
                 Reason::Unsupported,

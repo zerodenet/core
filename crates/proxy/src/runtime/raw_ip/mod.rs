@@ -14,6 +14,7 @@ pub(crate) use incarnation::next as next_incarnation;
 
 #[cfg(test)]
 pub(crate) use carrier::DirectRawIpWireCarrier;
+pub(crate) use carrier::RegisteredProxiedRawIpWireCarrier;
 pub(crate) use carrier::{HostedRawIpWireCarrier, ProxiedRawIpWireCarrier, RawIpWireCarrier};
 pub(crate) use contract::{
     OwnedWireFailure, OwnedWireResult, PreparedWireData, PreparedWireReceive, RawIpAction,

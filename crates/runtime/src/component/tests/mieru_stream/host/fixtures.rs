@@ -239,10 +239,13 @@ impl Assembly {
             ),
         );
         OpenContext {
-            identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-                origin: ServiceOrigin::Runtime,
-                purpose: ServicePurpose::DiagnosticProbe,
-            })),
+            identity: RequestIdentity::Service(
+                Arc::new(ServiceRequestFacts {
+                    origin: ServiceOrigin::Runtime,
+                    purpose: ServicePurpose::DiagnosticProbe,
+                })
+                .into(),
+            ),
             deadline: Some(deadline()),
             cancel: CancellationToken::new(),
             observer: None,

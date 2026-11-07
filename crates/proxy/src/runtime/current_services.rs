@@ -14,7 +14,11 @@ use zero_dns::DnsSystem;
 use zero_engine::Engine;
 use zero_platform_tokio::EgressInterfaceControl;
 
+#[cfg(feature = "raw-ip-runtime")]
+mod packet_driver;
 pub(crate) struct CurrentServiceSource {
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+    inbounds: Weak<super::inbound_owners::InboundOwnerRegistry>,
     #[cfg(feature = "tls-ech-runtime")]
     pub(crate) ech_owner:
         Arc<std::sync::OnceLock<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>>,
@@ -39,8 +43,11 @@ impl CurrentServiceSource {
         egress_interface: EgressInterfaceControl,
         principal_rate_limits: PrincipalRateLimitRegistry,
         retired_datagrams: &Arc<RetiredDatagrams>,
+        _inbounds: &Arc<super::inbound_owners::InboundOwnerRegistry>,
     ) -> Self {
         Self {
+            #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+            inbounds: Arc::downgrade(_inbounds),
             #[cfg(feature = "tls-ech-runtime")]
             ech_owner: Arc::new(std::sync::OnceLock::new()),
             engine,

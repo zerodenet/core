@@ -67,7 +67,7 @@ impl PendingCaller {
             (
                 Caller::Probe(call),
                 zero_platform_tokio::contract::context::RequestIdentity::Service(facts),
-            ) if Arc::ptr_eq(facts, &call.identity())
+            ) if facts.matches_shared(&call.identity())
                 && invocation.deadline == Some(call.deadline()) =>
             {
                 None

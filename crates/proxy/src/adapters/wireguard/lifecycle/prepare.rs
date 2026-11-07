@@ -123,6 +123,10 @@ impl WireguardAdapter {
                             &mut staged,
                             device_identity,
                             generation,
+                            outer_udp_proxy
+                                .as_ref()
+                                .and_then(|tag| context.packet_paths.get(*tag))
+                                .cloned(),
                         )
                         .await?;
                     (link, None)

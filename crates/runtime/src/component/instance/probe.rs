@@ -17,7 +17,9 @@ impl ComponentSlot {
         host.check_identity(
             self.instance_id(),
             &self.admission_owner,
-            &zero_platform_tokio::contract::context::RequestIdentity::Service(call.identity()),
+            &zero_platform_tokio::contract::context::RequestIdentity::Service(
+                call.identity().into(),
+            ),
         )
     }
     pub fn check_direct_probe_owner(

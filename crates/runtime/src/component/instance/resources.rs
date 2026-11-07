@@ -15,7 +15,8 @@ pub(in crate::component) use native::DeclaredReceiver;
 pub use native::HostDatagramListenerOwner;
 pub use native::HostResources;
 pub use native::{
-    packet_datagram_control_spec, packet_datagram_read_spec, HostPacketReadReservation,
+    packet_datagram_control_spec, packet_datagram_read_spec, packet_datagram_supplemental_spec,
+    HostPacketReadReservation,
 };
 mod outbound_datagram;
 pub use outbound_datagram::HostOutboundDatagramResources;

@@ -58,10 +58,13 @@ async fn original_protocol_owned_root_survives_neutral_wrappers_and_closes_same_
     );
     let slot = PacketCarrierOwnerSlot::new();
     let demand = PacketCarrierDemand {
-        identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-            origin: ServiceOrigin::Runtime,
-            purpose: ServicePurpose::DiagnosticProbe,
-        })),
+        identity: RequestIdentity::Service(
+            Arc::new(ServiceRequestFacts {
+                origin: ServiceOrigin::Runtime,
+                purpose: ServicePurpose::DiagnosticProbe,
+            })
+            .into(),
+        ),
         context: CarrierContext {
             session: None,
             cancel: zero_platform_tokio::contract::CancellationToken::new(),

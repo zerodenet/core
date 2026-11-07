@@ -20,6 +20,9 @@ use zero_platform_tokio::contract::{
 
 pub(crate) struct PrefixOpener {
     pub(super) role: Arc<dyn DynStreamOutbound>,
+    // Set only by the actual packet-driver path. Retain its original facts Arc
+    // through shorter-prefix borrowing; this is not a witness or IO grant.
+    pub(super) service_identity: Option<zero_platform_tokio::contract::context::RequestIdentity>,
     pub(super) business: Option<crate::component::business_carrier::BusinessCarrierRequest>,
     pub(super) plan: Option<std::sync::Weak<crate::component::catalog::ComponentPlan>>,
     pub(super) datagram_slot: Option<Arc<crate::component::instance::ComponentSlot>>,
@@ -43,6 +46,7 @@ impl PrefixOpener {
     ) -> Self {
         Self {
             role,
+            service_identity: None,
             business: None,
             plan: None,
             context,
@@ -158,6 +162,22 @@ impl UpstreamOpener for PrefixOpener {
                 Reason::StalePlan,
                 "pending original is outside actual prefix graph",
             ))
+        }
+    }
+    fn packet_driver_custody(
+        &self,
+        binding: &UpstreamBinding,
+        identity: &zero_platform_tokio::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<
+        Option<zero_platform_tokio::contract::component::PacketDriverCallRetained>,
+        ChannelError,
+    > {
+        self.packet_caller(binding, identity, call)?;
+        if self.business.is_some() {
+            Ok(None)
+        } else {
+            self.context.upstream.packet_driver_custody(identity, call)
         }
     }
     fn packet_caller(

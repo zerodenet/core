@@ -10,6 +10,9 @@ impl<T: TaskOutput> SourceTasksGuard<'_, T> {
     ) -> Result<TaskId, ChannelError> {
         self.owner.spawn(future)
     }
+    pub(crate) fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     pub(crate) fn len(&self) -> usize {
         self.owner.reap_released();
         self.owner.inner.state.lock().unwrap().records.len()

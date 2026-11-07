@@ -15,6 +15,9 @@ use zero_platform_tokio::contract::{
 };
 
 pub struct HostResources {
+    packet_failures: zero_platform_tokio::contract::lifecycle::ResourceCleanupFailures,
+    packet_calls:
+        std::sync::OnceLock<Arc<zero_platform_tokio::contract::component::PacketDriverCalls>>,
     node_dns_source: std::sync::OnceLock<
         Arc<std::sync::OnceLock<Arc<dyn zero_platform_tokio::contract::dns::DnsService>>>,
     >,
@@ -118,6 +121,7 @@ mod metapool;
 mod node_dns;
 mod original_budgets;
 mod packet_device;
+mod packet_driver;
 mod prepare;
 #[cfg(any(target_os = "linux", windows))]
 mod process;
@@ -127,7 +131,8 @@ mod read_workspaces;
 mod shutdown;
 mod sockets;
 pub use read_workspaces::{
-    packet_datagram_control_spec, packet_datagram_read_spec, HostPacketReadReservation,
+    packet_datagram_control_spec, packet_datagram_read_spec, packet_datagram_supplemental_spec,
+    HostPacketReadReservation,
 };
 
 /// Closing the grant phase does not claim that its children have exited.
@@ -198,6 +203,43 @@ impl HostResources {
     }
 }
 impl ResourceAccess for HostResources {
+    fn receive_packet_driver_failure(
+        &self,
+        grant: &zero_platform_tokio::contract::component::GrantedPacketServiceCaller,
+        source: Arc<ChannelError>,
+    ) -> Result<bool, ChannelError> {
+        if self.instance != Some(grant.original().instance())
+            || !self
+                .packet_calls
+                .get()
+                .is_some_and(|actual| grant.matches_calls(actual))
+            || !self.original_tasks.as_ref().is_some_and(|tasks| {
+                tasks
+                    .scope_identity()
+                    .same_scope(&grant.caller().scope_identity())
+            })
+            || !grant.matches_cleanup_failure(&source)
+        {
+            return Err(self.denied());
+        }
+        // The observer remains valid for this same retained retiring owner;
+        // accepting an error supplies no renewed role or IO liveness.
+        Ok(self.packet_failures.try_receive(
+            source,
+            zero_platform_tokio::contract::lifecycle::CleanupFailurePhase::Driver,
+        ))
+    }
+
+    fn packet_driver_caller(
+        &self,
+        original: &zero_platform_tokio::controlled_carrier::CarrierOrigin,
+        driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+        binding: zero_platform_tokio::contract::network::UpstreamBinding,
+        call: zero_platform_tokio::contract::network::CarrierContext,
+    ) -> Result<zero_platform_tokio::contract::component::GrantedPacketServiceCaller, ChannelError>
+    {
+        self.issue_packet_driver_caller(original, driver, binding, call)
+    }
     fn service_datagram_target_issuer(
         &self,
         grant: &zero_platform_tokio::controlled_carrier::CarrierGrant,
@@ -271,7 +313,8 @@ impl ResourceAccess for HostResources {
         source.reserve_original_totals(
             self.original_tasks.as_ref().ok_or_else(|| self.denied())?,
             &self.originals.carrier,
-        )
+        )?;
+        self.prepare_packet_driver_calls(source)
     }
     fn install_logical_packet_source(
         &self,
@@ -312,6 +355,15 @@ impl ResourceAccess for HostResources {
     ) -> Result<[zero_tun::packet_memory::NativeReadGrant; 2], ChannelError> {
         self.require_start()?;
         self.reads.take(datagram)
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    fn take_packet_datagram_receive_workspace(
+        &self,
+        datagram: usize,
+        reader: usize,
+    ) -> Result<zero_tun::packet_memory::NativeReadGrant, ChannelError> {
+        self.require_start()?;
+        self.reads.take_receive(datagram, reader)
     }
     #[cfg(feature = "raw-ip-runtime")]
     fn take_packet_datagram_control(

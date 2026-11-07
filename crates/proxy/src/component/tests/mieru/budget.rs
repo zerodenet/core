@@ -50,10 +50,13 @@ async fn open(proxy: &Proxy, tag: &str) -> Result<StreamLoan, ChannelError> {
                 destination: destination(),
             },
             OpenContext {
-                identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-                    origin: ServiceOrigin::Runtime,
-                    purpose: ServicePurpose::BackgroundControl,
-                })),
+                identity: RequestIdentity::Service(
+                    Arc::new(ServiceRequestFacts {
+                        origin: ServiceOrigin::Runtime,
+                        purpose: ServicePurpose::BackgroundControl,
+                    })
+                    .into(),
+                ),
                 deadline: Some(deadline()),
                 cancel: CancellationToken::new(),
                 observer: None,

@@ -39,6 +39,55 @@ pub(crate) struct PreparedDatagramRelayCarrier {
 }
 
 impl PreparedDatagramRelayCarrier {
+    /// Binding of the actual last build root, independent of trailing codecs.
+    /// In particular, an Associated root uses its final dial and ordered exact
+    /// prefix roles, not the original group's first-hop empty binding.
+    pub(crate) fn source_binding(
+        &self,
+        plan: &crate::component::catalog::ComponentPlan,
+        network_generation: zero_core::component::NetworkGeneration,
+    ) -> Result<zero_platform_tokio::contract::network::UpstreamBinding, EngineError> {
+        let root = self
+            .layers
+            .iter()
+            .rfind(|layer| !matches!(layer, PreparedDatagramRelayLayer::Codec(_)))
+            .ok_or_else(|| unsupported("prepared Source carrier has no actual build root"))?;
+        match root {
+            PreparedDatagramRelayLayer::Associated {
+                operation,
+                tcp_prefix,
+            } => {
+                let descriptor = operation
+                    .carrier_descriptor()
+                    .ok_or_else(|| unsupported("Source associated root has no descriptor"))?;
+                crate::component::stream_bridge::datagram::packet_path::relay::associated_binding(
+                    plan,
+                    tcp_prefix,
+                    &descriptor,
+                    network_generation,
+                )
+            }
+            PreparedDatagramRelayLayer::Base(operation) => {
+                let descriptor = operation
+                    .carrier_descriptor()
+                    .ok_or_else(|| unsupported("Source base root has no descriptor"))?;
+                let tag = descriptor
+                    .tag
+                    .as_deref()
+                    .ok_or_else(|| unsupported("Source base root has no actual configured tag"))?;
+                let slot = plan.configured(tag).ok_or_else(|| {
+                    unsupported("Source base root owner is absent from its actual plan")
+                })?;
+                Ok(zero_platform_tokio::contract::network::UpstreamBinding {
+                    prefix: Vec::new(),
+                    dial: slot.dial.clone(),
+                    network_generation,
+                })
+            }
+            PreparedDatagramRelayLayer::Codec(_) => unreachable!("actual build root"),
+        }
+    }
+
     pub(crate) fn retained_admission(&self) -> Result<(), EngineError> {
         for layer in &self.layers {
             match layer {
@@ -75,7 +124,19 @@ impl PreparedDatagramRelayCarrier {
         operation: Arc<dyn PreparedUdpPacketPathOperation>,
         tcp_prefix: PreparedTcpRelayPrefix,
     ) -> Option<Self> {
-        if let Some(source) = operation.datagram_source() {
+        let source = operation.datagram_source();
+        Self::extend_with_source(current, operation, tcp_prefix, source)
+    }
+
+    /// Consume the exact Source cold-pass codec. Never call datagram_source a
+    /// second time: that would create another actual sender/session family.
+    pub(crate) fn extend_with_source(
+        current: Option<Self>,
+        operation: Arc<dyn PreparedUdpPacketPathOperation>,
+        tcp_prefix: PreparedTcpRelayPrefix,
+        source: Option<UdpDatagramSource>,
+    ) -> Option<Self> {
+        if let Some(source) = source {
             let mut current = current?;
             let next = source.descriptor();
             current.descriptor = chained_descriptor(&current.descriptor, next);
@@ -131,16 +192,22 @@ impl PreparedDatagramRelayCarrier {
                 tcp_prefix,
             } => {
                 let observed = observed_services(&services, operation.as_ref());
+                if let Some(path) = crate::component::stream_bridge::datagram::packet_path::StandardPacketPath::build_associated(
+                    &observed, tcp_prefix, operation.carrier_descriptor().ok_or_else(|| unsupported("associated carrier descriptor is absent"))?,
+                ).await? {
+                    path
+                } else {
                 let carrier = services
                     .prepare_lazy_tcp_relay_prefix(tcp_prefix.clone())
                     .with_observer(observed.tcp().upstream().observer());
                 operation
                     .build_associated_relay_carrier(observed, carrier)
                     .await?
+                }
             }
             PreparedDatagramRelayLayer::Codec(_) => unreachable!(),
         };
-        for layer in &self.layers[start + 1..] {
+        for (codec_index, layer) in self.layers[start + 1..].iter().enumerate() {
             let PreparedDatagramRelayLayer::Codec(source) = layer else {
                 unreachable!("last associated packet-path layer must be the build root")
             };
@@ -150,9 +217,10 @@ impl PreparedDatagramRelayCarrier {
                     .tcp()
                     .outbound_io(&source.descriptor().tag, zero_api::TrafficPlane::Outer),
             );
-            path = crate::runtime::udp_flow::packet_path_chain::carriers::encoded::wrap(
+            path = crate::runtime::udp_flow::packet_path_chain::carriers::encoded::wrap_with_memory(
                 path,
                 source.clone(),
+                services.packet_codec_receive(codec_index)?,
             );
         }
         Ok(path)

@@ -32,9 +32,12 @@ impl OrchestrationState {
                             "retained actual Packet Source lost its original memory view/layout",
                         )
                     })?;
+                let source = proxy
+                    .inbound_owners
+                    .packet_carrier_source(input, plan, &original, &memory)?;
                 proxy
                     .protocols
-                    .bind_actual_packet_source(config, plan, &input.tag, original, memory)?;
+                    .bind_actual_packet_carrier_source(config, plan, &input.tag, source, memory)?;
             }
         }
         Ok(())

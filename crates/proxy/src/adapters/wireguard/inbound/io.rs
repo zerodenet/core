@@ -49,6 +49,8 @@ impl LinkedEndpoint {
         recipe: EndpointIoRecipe,
     ) -> Self {
         let peers = Arc::new(EndpointPeerState {
+            outer_memory: Vec::new(),
+            prepared_outer: Vec::new(),
             revision: 0,
             devices: devices.clone(),
             initial_endpoints: endpoints,
@@ -108,6 +110,8 @@ impl LinkedEndpoint {
         if let Some(pending) = pending {
             let revision = self.io.peers.borrow().revision.wrapping_add(1);
             self.io.peers.send_replace(Arc::new(EndpointPeerState {
+                outer_memory: pending.outer_memory.clone(),
+                prepared_outer: pending.prepared_outer.clone(),
                 revision,
                 devices: pending.devices.clone(),
                 initial_endpoints: pending.initial_endpoints.clone(),
@@ -228,5 +232,45 @@ impl LinkedEndpoint {
             peers: self.io.peers.subscribe(),
             lease: self.io.active.clone(),
         })
+    }
+}
+
+impl LinkedEndpoint {
+    pub(in crate::adapters::wireguard) fn install_prepared_outer(
+        &self,
+        paths: Vec<Option<crate::adapters::devices::PreparedDevicePacketPath>>,
+        layouts: Arc<[Arc<[std::num::NonZeroUsize]>]>,
+    ) -> Result<(), EngineError> {
+        let previous = self.declared_peers();
+        if paths.len() != previous.initial_endpoints.len() {
+            return Err(super::invalid("actual Source prepared path count changed"));
+        }
+        let outer_memory = paths
+            .iter()
+            .map(|path| path.as_ref().map(|_| layouts.clone()))
+            .collect();
+        let prepared = Arc::new(EndpointPeerState {
+            revision: previous.revision.wrapping_add(1),
+            devices: previous.devices.clone(),
+            initial_endpoints: previous.initial_endpoints.clone(),
+            carriers: previous.carriers.clone(),
+            outer_memory,
+            prepared_outer: paths,
+        });
+        let mut pending = self.pending_peers.lock().unwrap();
+        if pending.is_some() {
+            // Retained IO remains owned by the old Source. Candidate material
+            // becomes visible only in the existing synchronous publication.
+            *pending = Some(prepared);
+        } else {
+            if self.io.active.load(Ordering::Acquire) {
+                return Err(super::invalid(
+                    "unpublished outer material cannot mutate the active Source",
+                ));
+            }
+            drop(pending);
+            self.io.peers.send_replace(prepared);
+        }
+        Ok(())
     }
 }

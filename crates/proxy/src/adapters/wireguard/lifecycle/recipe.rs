@@ -4,6 +4,7 @@ mod assembly;
 pub(super) mod carrier;
 pub(super) mod component;
 mod invocation;
+pub(super) mod outer;
 pub(super) mod retained;
 use super::{inbound, invalid, PendingLinkedEndpoint, WireguardAdapter, WireguardRawIpPlan};
 use crate::{
@@ -27,6 +28,7 @@ pub(super) struct LinkedRecipeSettings {
     pub(super) identity: [u8; 32],
     pub(super) network_generation: NetworkGeneration,
     pub(super) stacks: Vec<RawIpStackOptions>,
+    pub(super) outer: Option<outer::OuterPathRecipe>,
     /// Actual host cold-pass evidence; None requires a new immutable graph.
     pub(super) dependencies: Vec<(ComponentId, Option<ComponentInstanceId>)>,
 }
@@ -38,6 +40,7 @@ pub(super) struct LinkedEndpointRecipe {
     binding: UpstreamBinding,
     plan: Arc<WireguardRawIpPlan>,
     stacks: Vec<EndpointStackRecipe>,
+    outer: Option<outer::OuterPathRecipe>,
     io: inbound::EndpointIoRecipe,
     static_identity: Arc<[u8]>,
     source_total_limit: Option<usize>,
@@ -111,6 +114,9 @@ impl LinkedEndpointRecipe {
             let bytes = bytes.map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
             hash.update((bytes.len() as u64).to_le_bytes());
             hash.update(bytes);
+        }
+        if let Some(outer) = &settings.outer {
+            outer.hash(&mut hash);
         }
         hash.update(settings.identity);
         hash.update(settings.network_generation.0.to_le_bytes());
@@ -206,6 +212,7 @@ impl LinkedEndpointRecipe {
             },
             plan,
             stacks,
+            outer: settings.outer,
             io,
             static_identity,
             source_total_limit: resources
@@ -278,7 +285,7 @@ impl LinkedEndpointRecipe {
         graph.bind(registrar.downgrade())?;
         let resolved = invocation.resolve(upstream, demand).await?;
         graph.start_graph()?;
-        resolved.install()
+        resolved.install(None)
     }
 }
 #[cfg(test)]

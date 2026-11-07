@@ -68,6 +68,8 @@ impl LinkedEndpointUpdate {
         self.link.live.replace(self.device, self.inbound_identity);
         let revision = self.link.io.peers.borrow().revision.wrapping_add(1);
         self.link.io.peers.send_replace(Arc::new(EndpointPeerState {
+            outer_memory: Vec::new(),
+            prepared_outer: Vec::new(),
             revision,
             devices: self.devices.clone(),
             initial_endpoints: self.endpoints,

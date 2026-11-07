@@ -64,6 +64,34 @@ impl TcpRuntimeServices {
         retired_datagrams: Arc<crate::component::datagram_retirement::RetiredDatagrams>,
     ) -> Self {
         let components = protocols.prepare_components(snapshot.config().clone());
+        Self::from_prepared(
+            engine,
+            (snapshot, components),
+            resolver,
+            protocols,
+            egress_interface,
+            principal_rate_limits,
+            retired_datagrams,
+        )
+    }
+    /// Same host's already retained snapshot/plan pair. Never cold-decodes or
+    /// reselects Engine current during a real initializing Source operation.
+    pub(crate) fn from_prepared(
+        engine: Engine,
+        actual: (
+            Arc<EngineRuntimeSnapshot>,
+            Result<
+                Arc<crate::component::catalog::ComponentPlan>,
+                crate::component::instance::SharedError,
+            >,
+        ),
+        resolver: Arc<DnsSystem>,
+        protocols: ProtocolInventory,
+        egress_interface: zero_platform_tokio::EgressInterfaceControl,
+        principal_rate_limits: PrincipalRateLimitRegistry,
+        retired_datagrams: Arc<crate::component::datagram_retirement::RetiredDatagrams>,
+    ) -> Self {
+        let (snapshot, components) = actual;
         Self {
             execution: TcpExecutionServices {
                 engine,
@@ -110,12 +138,15 @@ impl TcpRuntimeServices {
             // Engine still publishes the old domain until final commit. Keep
             // the target's frozen options rather than initializing its request
             // loop with the old configuration. This grants no Business access.
-            services.execution.components = services.protocols
+            services.execution.components = services
+                .protocols
                 .prepared_components(services.execution.snapshot.config())
-                .unwrap_or_else(|| Err(Arc::new(crate::component::instance::invalid(
-                    zero_platform_tokio::contract::Reason::StalePlan,
-                    "pending Source lost its actual retained component candidate",
-                ))));
+                .unwrap_or_else(|| {
+                    Err(Arc::new(crate::component::instance::invalid(
+                        zero_platform_tokio::contract::Reason::StalePlan,
+                        "pending Source lost its actual retained component candidate",
+                    )))
+                });
             return services;
         }
         services.execution.snapshot = services.engine.runtime_snapshot();
@@ -129,7 +160,9 @@ impl TcpRuntimeServices {
     /// Preserve the target publication gate, ingress and caller bookkeeping.
     pub(crate) fn with_prepared_components(&self) -> Result<Self, zero_engine::EngineError> {
         let config = self.execution.snapshot.config();
-        let plan = self.protocols.prepared_components(config)
+        let plan = self
+            .protocols
+            .prepared_components(config)
             .ok_or_else(|| std::io::Error::other("actual candidate components were not retained"))?
             .map_err(|source| std::io::Error::other(source))?;
         let mut services = self.clone();

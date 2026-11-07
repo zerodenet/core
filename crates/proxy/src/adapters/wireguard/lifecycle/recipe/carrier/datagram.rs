@@ -65,7 +65,8 @@ impl DynDatagramOutbound for Carrier {
             let target = target.clone();
             let (session, original, receiver) = self.datagram(request, context).await?;
             let mut loan = DatagramLoan::new(session, original, association, target);
-            receiver.bind(loan.receiver_observation())?;
+            let observation = loan.receiver_observation();
+            receiver.bind(observation, &mut loan.owner)?;
             Ok(loan)
         })
     }

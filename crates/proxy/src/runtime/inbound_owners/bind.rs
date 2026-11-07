@@ -100,6 +100,10 @@ impl InboundOwnerRegistry {
         #[cfg(feature = "raw-ip-runtime")]
         if let Some(input) = config.inbounds.iter().find(|input| input.tag == tag) {
             owner
+                .source_tag
+                .set(Arc::from(tag))
+                .expect("one original Source tag");
+            owner
                 .source_input
                 .set(super::packet_source::input_identity(input)?)
                 .expect("one original Source input");

@@ -11,7 +11,18 @@ impl ComponentSlot {
         &self,
         source: NativeDatagramOrigin,
     ) -> Result<(), ChannelError> {
-        let source = CarrierOrigin::from_listener(source);
+        self.bind_packet_carrier_source(CarrierOrigin::from_listener(source))
+    }
+    pub(in crate::component) fn bind_packet_carrier_source(
+        &self,
+        source: CarrierOrigin,
+    ) -> Result<(), ChannelError> {
+        if source.packet_source_admission().is_none() {
+            return Err(self.failure(
+                Reason::StalePlan,
+                "logical Packet source lacks its actual Source admission lineage",
+            ));
+        }
         let spec = self.recipe.spec();
         if !spec.resources.is_empty()
             || ![RoleKind::Packet, RoleKind::Stream, RoleKind::Datagram]
@@ -43,8 +54,9 @@ impl ComponentSlot {
         })
     }
     pub(in crate::component) fn matches_packet_source(&self, origin: &CarrierOrigin) -> bool {
-        self.packet_source.get().is_some_and(|source|
-            source.same_original(origin) && !source.is_retired())
+        self.packet_source
+            .get()
+            .is_some_and(|source| source.same_original(origin) && !source.is_retired())
     }
     pub(in crate::component) fn matches_bound_packet_origin(
         &self,
@@ -101,5 +113,36 @@ impl ComponentSlot {
                 }
                 _ => false,
             })
+    }
+}
+
+impl ComponentSlot {
+    /// Exact already-installed Packet provider observations. This does not
+    /// start a dependency or issue IO, tasks, Source readiness or close proof.
+    pub(in crate::component) fn packet_provider_originals(&self) -> Vec<CarrierOrigin> {
+        if !self.packet_provider_ready() {
+            return Vec::new();
+        }
+        let mut originals = Vec::new();
+        if let Some(actual) = self.packet_source.get() {
+            originals.push(actual.clone());
+        }
+        if let Some(Ok(live)) = self.live.get() {
+            for (ordinal, resource) in self.recipe.spec().resources.iter().enumerate() {
+                match resource {
+                    ResourceDeclaration::ControlledPacketDevice { .. } => {
+                        if let Some(actual) = live.resources.original_packet_owner(ordinal) {
+                            originals.push(CarrierOrigin::from_packet(actual));
+                        }
+                    }
+                    ResourceDeclaration::BoundOutboundDatagram { .. } => {
+                        originals.extend(live.resources.bound_packet_originals(ordinal));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        originals.retain(|original| !original.is_retired());
+        originals
     }
 }

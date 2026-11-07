@@ -1,6 +1,6 @@
 //! Index only the actual Lease objects already charged by this Users root.
 use super::*;
-use zero_platform_tokio::controlled_carrier::{CarrierAdoption, CarrierLoanRetained};
+use zero_platform_tokio::controlled_carrier::CarrierLoanRetained;
 #[derive(Default)]
 pub(super) struct Admission {
     pub(super) paused: usize,
@@ -9,7 +9,7 @@ pub(super) struct Admission {
 impl Users {
     pub(in crate::component) fn try_pause_receivers(
         self: &Arc<Self>,
-        receiver: impl Fn(&Lease) -> Option<CarrierAdoption>,
+        receiver: impl Fn(&Lease) -> Option<RetainedReceiver>,
     ) -> Result<PausedUsers, ChannelError> {
         let busy = || {
             invalid(
@@ -35,8 +35,12 @@ impl Users {
             leases
         };
         let mut receivers = Vec::new();
+        let mut packet_receivers = Vec::new();
         for lease in &leases {
-            receivers.push(receiver(lease).ok_or_else(busy)?);
+            match receiver(lease).ok_or_else(busy)? {
+                RetainedReceiver::Carrier(actual) => receivers.push(actual),
+                RetainedReceiver::PacketDriver(actual) => packet_receivers.push(actual),
+            }
         }
         let mut admission = self
             .admission_paused
@@ -60,6 +64,7 @@ impl Users {
             actual_instance: None,
             owner: self.clone(),
             _receivers: receivers,
+            packet_receivers,
         })
     }
 }
@@ -78,5 +83,16 @@ impl Lease {
             return None;
         }
         self.receiver.get()?.retained()
+    }
+}
+
+impl Lease {
+    pub(in crate::component) fn packet_driver_receiver(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::component::PacketDriverStreamRetained> {
+        if self.session.is_some() {
+            return None;
+        }
+        self.receiver.get()?.packet_driver_retained()
     }
 }

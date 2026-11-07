@@ -10,6 +10,7 @@ use zero_platform_tokio::contract::{
 };
 pub(crate) struct PacketFlowBorrow {
     pub(crate) caller: TaskJoinWitness,
+    pub(crate) custody: Option<zero_platform_tokio::contract::component::PacketDriverCallRetained>,
     pub(crate) observer: Option<Arc<dyn zero_traits::IoObserver>>,
 }
 impl SharedRawIpDevice {
@@ -59,15 +60,20 @@ impl SharedRawIpDevice {
             .task
             .flow_users()
             .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Session))?;
-        let user = users.acquire_from_witness(borrowed.caller)?;
+        let user = users.acquire_from_packet_call(borrowed.caller, borrowed.custody)?;
         let receiver = user.receiver_binding();
-        let socket = self
-            .udp
-            .bind_observed(local, borrowed.observer)
-            .map_err(|source| {
-                ChannelError::new(Stage::Prepare, Reason::Io, Impact::Session)
-                    .with_source(super::StackConstructionError::Udp(source))
-            })?;
+        let socket = match self.udp.bind_observed(local, borrowed.observer) {
+            Ok(socket) => socket,
+            Err(source) => {
+                // This synchronous virtual bind rejected before returning any
+                // tuple/socket. The same per-attempt token has no virtual IO.
+                user.mark_logical_closed();
+                return Err(
+                    ChannelError::new(Stage::Prepare, Reason::Io, Impact::Session)
+                        .with_source(super::StackConstructionError::Udp(source)),
+                );
+            }
+        };
         // Same legacy users table: the real caller join and each transferred
         // original view remain separate from the role and native-driver fences.
         let session =
@@ -95,7 +101,7 @@ impl SharedRawIpDevice {
             .task
             .flow_users()
             .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Session))?;
-        let user = users.acquire_from_witness(borrowed.caller)?;
+        let user = users.acquire_from_packet_call(borrowed.caller, borrowed.custody)?;
         let opening = self.tcp.prepare_connect(local, peer, borrowed.observer);
         Ok(Connected {
             io: super::session_tcp::Stream::new(

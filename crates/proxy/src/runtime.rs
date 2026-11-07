@@ -248,6 +248,7 @@ impl Proxy {
             engine.packet_route_capacity(),
             component_tasks.clone(),
         ));
+        let inbound_owners = Arc::new(inbound_owners::InboundOwnerRegistry::default());
         let current_services = Arc::new(current_services::CurrentServiceSource::new(
             engine.clone(),
             &resolver,
@@ -255,6 +256,7 @@ impl Proxy {
             egress_interface.clone(),
             principal_rate_limits.clone(),
             &retired_datagrams,
+            &inbound_owners,
         ));
         node_network.install(&resolver, Arc::downgrade(&current_services));
         let proxy = Self {
@@ -274,7 +276,7 @@ impl Proxy {
             statistics: Arc::new(orchestration::statistics::Sampler::with_task_budget(
                 component_tasks,
             )),
-            inbound_owners: Arc::default(),
+            inbound_owners,
             retired_datagrams: retired_datagrams.clone(),
             principal_rate_limits: principal_rate_limits.clone(),
             current_services,

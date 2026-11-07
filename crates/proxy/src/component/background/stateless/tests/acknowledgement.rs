@@ -128,7 +128,7 @@ async fn same_taskless_record_keeps_n1_through_real_business_join_and_deferred_h
             identity: RequestIdentity::Service(Arc::new(zero_core::request::ServiceRequestFacts {
                 origin: zero_core::request::ServiceOrigin::Runtime,
                 purpose: zero_core::request::ServicePurpose::BackgroundControl,
-            })),
+            }).into()),
             deadline: Some(deadline()),
             cancel: CancellationToken::new(),
             upstream: transport.clone(),

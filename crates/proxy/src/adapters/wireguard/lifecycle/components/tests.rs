@@ -34,7 +34,7 @@ async fn domain_peer_declares_the_actual_node_dns_resource_before_any_stack_star
     let network = Arc::new(crate::component::background::BackgroundNetwork::new(
         zero_platform_tokio::EgressInterfaceControl::default(),
     ));
-    let (_, factories, devices) =
+    let (registry, factories, devices) =
         crate::register::compiled_registries_with_background(Some(network.clone()));
     let adapter = devices.wireguard.as_ref().unwrap().clone();
     let catalog = ComponentCatalog::with_factories(factories);
@@ -45,6 +45,7 @@ async fn domain_peer_declares_the_actual_node_dns_resource_before_any_stack_star
                 .prepare_component_resources(
                     &config,
                     resources,
+                    &registry,
                     Some(network.egress.generation()),
                     Some(network.clone()),
                 )
@@ -97,6 +98,7 @@ async fn domain_peer_declares_the_actual_node_dns_resource_before_any_stack_star
                 .prepare_component_resources(
                     &config,
                     resources,
+                    &registry,
                     Some(network.egress.generation()),
                     Some(network.clone()),
                 )
@@ -146,7 +148,11 @@ async fn production_candidate_owns_cold_invocation_then_installs_only_its_starte
     let proxy = crate::Proxy::new(configuration()).unwrap();
     let services = proxy.tcp_runtime_services();
     let config = services.snapshot().config().clone();
-    let (_, factories, devices) = crate::register::compiled_registries();
+    let network = Arc::new(crate::component::background::BackgroundNetwork::new(
+        services.upstream().egress_control(),
+    ));
+    let (registry, factories, devices) =
+        crate::register::compiled_registries_with_background(Some(network.clone()));
     let adapter = devices.wireguard.as_ref().unwrap().clone();
     let catalog = ComponentCatalog::with_factories(factories);
     catalog
@@ -155,8 +161,9 @@ async fn production_candidate_owns_cold_invocation_then_installs_only_its_starte
                 .prepare_component_resources(
                     &config,
                     resources,
+                    &registry,
                     Some(services.upstream().egress_generation()),
-                    None,
+                    Some(network.clone()),
                 )
                 .map_err(|source| {
                     zero_platform_tokio::contract::ChannelError::new(

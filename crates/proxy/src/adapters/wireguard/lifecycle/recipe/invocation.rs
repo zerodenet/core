@@ -134,6 +134,7 @@ impl ResolvedLinkedInvocation {
     /// or retired actual cells are errors; no legacy/local worker is started.
     pub(in crate::adapters::wireguard::lifecycle) fn install(
         self,
+        outer_path: Option<crate::adapters::devices::PreparedDevicePacketPath>,
     ) -> Result<Arc<inbound::LinkedEndpoint>, EngineError> {
         self.demand.validate()?;
         self.recipe.check_staged()?;
@@ -165,6 +166,20 @@ impl ResolvedLinkedInvocation {
             vec![None; self.recipe.plan.peer_count()],
             self.recipe.io,
         ));
+        if let Some(outer) = &self.recipe.outer {
+            let path = outer_path
+                .ok_or_else(|| invalid("same actual cold outer path was not installed"))?;
+            if path.root_binding.network_generation != self.recipe.binding.network_generation {
+                return Err(invalid("actual outer path network generation changed"));
+            }
+            let layouts = outer.codec_receive_layouts()?;
+            let paths = (0..self.recipe.plan.peer_count())
+                .map(|peer| self.recipe.plan.peer_endpoint(peer).map(|_| path.clone()))
+                .collect();
+            link.install_prepared_outer(paths, layouts)?;
+        } else if outer_path.is_some() {
+            return Err(invalid("plain Source received an undeclared outer path"));
+        }
         self.recipe.pending.install(link.clone())?;
         self.demand.validate()?;
         LinkedEndpointRecipe::check_owner(

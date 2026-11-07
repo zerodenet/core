@@ -85,6 +85,7 @@ impl Devices {
         &self,
         config: &Arc<RuntimeConfig>,
         resources: &mut crate::component::ResourcePreparation<'_>,
+        _registry: &crate::protocol_registry::ProtocolRegistry,
     ) -> Result<BTreeSet<ComponentId>, ChannelError> {
         let mut deferred = BTreeSet::new();
         if let Some(direct) = &self.direct {
@@ -104,7 +105,7 @@ impl Devices {
             let generation = network.as_ref().map(|network| network.egress.generation());
             deferred.extend(
                 owner
-                    .prepare_component_resources(config, resources, generation, network)
+                    .prepare_component_resources(config, resources, _registry, generation, network)
                     .map_err(|source| {
                         ChannelError::new(Stage::Prepare, Reason::InvalidConfig, Impact::Component)
                             .with_source(source)
@@ -129,5 +130,25 @@ impl Devices {
         }
         let _ = (config, upstream, traffic, deadline, cancel);
         Ok(())
+    }
+}
+
+impl Devices {
+    pub(crate) fn prepared_outer_materials(
+        &self,
+        config: &zero_config::RuntimeConfig,
+    ) -> Result<
+        std::collections::HashMap<
+            String,
+            std::sync::Arc<[Option<crate::protocol_registry::ColdPacketPathProjection>]>,
+        >,
+        zero_engine::EngineError,
+    > {
+        #[cfg(feature = "wireguard")]
+        if let Some(wireguard) = &self.wireguard {
+            return wireguard.prepared_outer_materials(config);
+        }
+        let _ = config;
+        Ok(Default::default())
     }
 }

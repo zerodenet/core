@@ -1,5 +1,7 @@
 //! The real wire driver owns encrypted I/O, timers and endpoint returns only.
 //! Raw packets cross the standard Packet session before host routing.
+mod prepared_outer;
+mod proxy_memory;
 use super::lifecycle::{peers_changed, receive_endpoint_packet, refresh_device_generation};
 use super::observation::WireTraffic;
 use super::outer::{peer_carrier, refresh_endpoint_peers, send_network_actions, ProxiedWirePacket};
@@ -16,6 +18,9 @@ pub(super) struct Wire {
     pub device: Box<dyn RawIpInboundDevice>,
     pub endpoint: Option<RawIpInboundEndpoint>,
     pub proxies: tasks::RetainedTasks<()>,
+    pub carriers: Vec<Option<Arc<dyn RawIpWireCarrier>>>,
+    pub proxy_reads: Vec<Option<zero_tun::packet_memory::NativeReadGrant>>,
+    pub proxy_codecs: Vec<Vec<crate::protocol_registry::packet_memory::PacketCodecReceiveMemory>>,
 }
 #[expect(
     clippy::too_many_arguments,
@@ -60,6 +65,7 @@ pub(super) async fn run(
         .map(|endpoint| endpoint.peers.borrow().initial_endpoints.clone())
         .unwrap_or_default();
     let mut peer_revision = u64::MAX;
+    let mut proxy_generation = zero_platform_tokio::contract::CancellationToken::new();
     let mut initial_endpoints = initial_endpoints;
     let mut endpoints = (0..operation.device.peer_count())
         .map(|peer| {
@@ -95,6 +101,9 @@ pub(super) async fn run(
         &mut proxied_tasks,
         &proxied_tx,
         &mut peer_uses_proxy,
+        &mut proxy_generation,
+        &operation.proxy_reads,
+        &operation.carriers,
     )
     .await?;
     let mut peer_changes = operation
@@ -103,7 +112,9 @@ pub(super) async fn run(
         .map(|endpoint| endpoint.peers.clone());
     let mut timers = PeerTimers::default();
     let mut timer_revision = None;
+    let mut pause_request = None;
     let outcome = async { loop {
+        if pause_request.is_none() {
         refresh_endpoint_peers(
             operation.endpoint.as_mut(),
             &mut peer_revision,
@@ -115,7 +126,9 @@ pub(super) async fn run(
             &mut proxied_tasks,
             &proxied_tx,
             &mut peer_uses_proxy,
+            &mut proxy_generation,&operation.proxy_reads,&operation.carriers,
         ).await?;
+        }
         refresh_device_generation(
             operation.device.as_ref(),
             &mut generation,
@@ -132,17 +145,15 @@ pub(super) async fn run(
             timer_revision = Some((peer_revision, generation));
         }
         if *shutdown.borrow() { break Ok(()); }
-        tokio::select! {
-            changed = shutdown.changed() => {
-                if changed.is_err() || *shutdown.borrow() { break Ok(()); }
+        let mut waiting_memory = None;
+        if let Some(request) = pause_request {
+            if checkpoint.request_deadline(request).is_none() {
+                pause_request = None;
+                continue;
             }
-            request=checkpoint.requested()=>{
-                #[cfg(test)] eprintln!("actual Packet wire checkpoint received: source={:?} request={request}", facts.inbound);
-                drop(buffer.take());drop(decode.take());
                 let mut idle=receiving.is_none() && fragments.pending_datagrams()==0 && endpoint_fragments.pending_datagrams()==0
                     && responses.is_empty() && packets.capacity()==packets.max_capacity() && proxied_rx.is_empty()
-                    && proxied_tasks.len()==0 && operation.device.quiescent()
-                    && read_memory.0.iter().chain(std::iter::once(&read_memory.1)).all(|read|read.workspace_returned());
+                    && proxied_tasks.len()==0 && operation.device.quiescent();
                 if let Some(endpoint)=&operation.endpoint {
                     idle &= endpoint.packets.is_empty();
                     let devices=endpoint.peers.borrow().devices.clone();
@@ -158,41 +169,71 @@ pub(super) async fn run(
                 #[cfg(test)]
                 if !idle { eprintln!("actual Packet wire pause rejected: source={:?} request={} receiving={} fragments={} endpoint_fragments={} responses={} packets_used={} proxied={} proxy_tasks={} protocol={} reads_returned={}",
                     facts.inbound,request,receiving.is_some(),fragments.pending_datagrams(),endpoint_fragments.pending_datagrams(),responses.len(),packets.max_capacity()-packets.capacity(),proxied_rx.len(),proxied_tasks.len(),operation.device.quiescent(),read_memory.0.iter().all(|read|read.workspace_returned())); }
+                if idle {
+                    drop(buffer.take()); drop(decode.take());
+                    waiting_memory = read_memory.0.iter().chain(std::iter::once(&read_memory.1))
+                        .chain(operation.proxy_reads.iter().flatten()).find(|read|!read.workspace_returned()).cloned();
+                    idle &= waiting_memory.is_none();
+                }
+            let expired = checkpoint.request_deadline(request).is_none_or(|end|tokio::time::Instant::now() >= end);
+            if idle || expired {
                 checkpoint.acknowledge(request,idle);
-                tokio::select! {changed=shutdown.changed()=>{if changed.is_err()||*shutdown.borrow(){break Ok(());}},_=checkpoint.resumed(request)=>{}}
+                tokio::select! {
+                    changed=shutdown.changed()=>{if changed.is_err()||*shutdown.borrow(){break Ok(());}},
+                    _=checkpoint.resumed(request)=>{}
+                }
+                pause_request = None;
+                continue;
+            }
+            // Do not park the only wire which can drain its accepted returns,
+            // protocol continuation and reader deliveries. No new proxy read
+            // starts after generation cancellation; their actual joins and ACKs
+            // are consumed by the existing select arm below.
+        }
+        tokio::select! {
+            changed = shutdown.changed() => {
+                if changed.is_err() || *shutdown.borrow() { break Ok(()); }
+            }
+            request=checkpoint.requested(), if pause_request.is_none()=>{
+                proxy_generation.cancel();
+                pause_request=Some(request);
             },
-            allocated=read_memory.0[0].buffer(),if buffer.is_none()=>{buffer=Some(allocated.map_err(std::io::Error::other)?);},
+            _=async {tokio::time::sleep_until(checkpoint.request_deadline(pause_request.expect("actual pause request")).unwrap_or_else(tokio::time::Instant::now)).await}, if pause_request.is_some()=>{},
+            returned=async {waiting_memory.as_ref().expect("same outstanding workspace").wait_workspace_returned().await}, if waiting_memory.is_some()=>{ returned.map_err(std::io::Error::other)?; },
+            allocated=read_memory.0[0].buffer(),if buffer.is_none() && waiting_memory.is_none()=>{buffer=Some(allocated.map_err(std::io::Error::other)?);},
             changed = peers_changed(&mut peer_changes) => {
                 if changed.is_err() { peer_changes = None; }
             }
-            credit=read_memory.0[1].buffer(), if decode.is_none() && receiving.is_none() => { decode=Some(credit.map_err(std::io::Error::other)?); }
+            credit=read_memory.0[1].buffer(), if decode.is_none() && receiving.is_none() && waiting_memory.is_none() => { decode=Some(credit.map_err(std::io::Error::other)?); }
             delivered=async { receiving.as_mut().expect("same original pending native frame").await }, if receiving.is_some()=> { receiving=None; delivered?; }
             received = async {
                 tokio::select! {
-                    direct = async { let receive=socket.recv_from(buffer.as_mut().expect("same original read allocation").as_mut_bytes());tokio::pin!(receive);std::future::poll_fn(|cx| { use std::future::Future;let polled=receive.as_mut().poll(cx);if polled.is_pending() || matches!(&polled,std::task::Poll::Ready(Ok(_))) { #[cfg(test)] first_receive_poll.call_once(||eprintln!("actual Packet Source wire first native receive polled: {:?}, pending={}",facts.inbound,polled.is_pending())); observer.ready(); }polled }).await } => direct.map(|(size, source)| (size, Some(source), None, peer_revision)),
+                    direct = async { let receive=socket.recv_from(buffer.as_mut().expect("same original read allocation").as_mut_bytes());tokio::pin!(receive);std::future::poll_fn(|cx| { use std::future::Future;let polled=receive.as_mut().poll(cx);if polled.is_pending() || matches!(&polled,std::task::Poll::Ready(Ok(_))) { #[cfg(test)] first_receive_poll.call_once(||eprintln!("actual Packet Source wire first native receive polled: {:?}, pending={}",facts.inbound,polled.is_pending())); observer.ready(); }polled }).await } => direct.map(|(size, source)| (size, Some(source), None, peer_revision,None)),
                     proxied = proxied_rx.recv() => match proxied {
                         Some(packet) => {
                             let size = packet.bytes.len();
-                            if size <= buffer.as_mut().expect("same original read allocation").as_mut_bytes().len() { buffer.as_mut().expect("same original read allocation").as_mut_bytes()[..size].copy_from_slice(&packet.bytes); }
-                            Ok((size, packet.source, Some(packet.peer), packet.revision))
+                            Ok((size, packet.source, Some(packet.peer), packet.revision,Some(packet.bytes)))
                         }
                         None => std::future::pending().await,
                     },
                 }
             }, if buffer.is_some() && decode.is_some() && receiving.is_none() => {
                 let decode = decode.take().expect("actual decode workspace preceded native receive");
-                refresh_endpoint_peers(operation.endpoint.as_mut(), &mut peer_revision, &mut initial_endpoints, &mut endpoints, &mut fragments, &mut endpoint_fragments, &operation.proxies, &mut proxied_tasks, &proxied_tx, &mut peer_uses_proxy).await?;
+                if pause_request.is_none() { refresh_endpoint_peers(operation.endpoint.as_mut(), &mut peer_revision, &mut initial_endpoints, &mut endpoints, &mut fragments, &mut endpoint_fragments, &operation.proxies, &mut proxied_tasks, &proxied_tx, &mut peer_uses_proxy,&mut proxy_generation,&operation.proxy_reads,&operation.carriers).await?; }
                 refresh_device_generation(operation.device.as_ref(), &mut generation, &mut endpoints, &mut fragments, &mut endpoint_fragments, &initial_endpoints);
                 traffic.refresh(operation.device.as_ref());
                 if received.is_err() && *shutdown.borrow() { break Ok(()); }
-                let (size, source, proxied_peer, received_revision) = received.inspect_err(|_| traffic.aggregate.error(TrafficPlane::Outer, false)).map_err(EngineError::Io)?;
+                let (size, source, proxied_peer, received_revision, proxied_original) = received.inspect_err(|_| traffic.aggregate.error(TrafficPlane::Outer, false)).map_err(EngineError::Io)?;
                 traffic.aggregate.rx(TrafficPlane::Outer, size, false);
                 // Revision stamps belong to queued proxy carriers. A direct
                 // socket receive is handled by the current authenticated device;
                 // a peer-watch refresh must not discard its first live datagram.
                 if size > 65_535 || proxied_peer.is_some() && received_revision != peer_revision { traffic.aggregate.dropped_reason(TrafficPlane::Outer, false, zero_api::TrafficDropReason::InvalidPacket); continue; }
-                let original = buffer.take().expect("same original read allocation").into_packet(size)
-                    .map_err(|_original|std::io::Error::new(std::io::ErrorKind::InvalidData,"native read exceeded its allocation"))?;
+                let original = match proxied_original {
+                    Some(original)=>original,
+                    None=>buffer.take().expect("same original read allocation").into_packet(size)
+                        .map_err(|_original|std::io::Error::new(std::io::ErrorKind::InvalidData,"native read exceeded its allocation"))?,
+                };
                 let output = operation.device.prepare_datagram_owned(source, original, decode,
                     control_buffer(&read_memory.1)?, &protocol_memory);
                 drop(output.unused_control);
@@ -227,7 +268,7 @@ pub(super) async fn run(
                         }
                     }
                 }
-                let carrier = proxied_peer.and_then(|peer| peer_carrier(&operation.endpoint, peer));
+                let carrier = proxied_peer.and_then(|peer| peer_carrier(&operation.endpoint, &operation.carriers, peer));
                 let response_target = source.or_else(|| proxied_peer.and_then(|peer| endpoints.get(peer).and_then(|value| *value)));
                 if let Some(response_target) = response_target {
                     send_network_actions(&mut wire_sender, carrier, response_target, &dispatch.actions, &traffic.peer(dispatch.peer_index)).await;
@@ -255,7 +296,7 @@ pub(super) async fn run(
                 }
             }
             outgoing = receive_endpoint_packet(&mut operation.endpoint) => {
-                refresh_endpoint_peers(operation.endpoint.as_mut(), &mut peer_revision, &mut initial_endpoints, &mut endpoints, &mut fragments, &mut endpoint_fragments, &operation.proxies, &mut proxied_tasks, &proxied_tx, &mut peer_uses_proxy).await?;
+                if pause_request.is_none() { refresh_endpoint_peers(operation.endpoint.as_mut(), &mut peer_revision, &mut initial_endpoints, &mut endpoints, &mut fragments, &mut endpoint_fragments, &operation.proxies, &mut proxied_tasks, &proxied_tx, &mut peer_uses_proxy,&mut proxy_generation,&operation.proxy_reads,&operation.carriers).await?; }
                 refresh_device_generation(operation.device.as_ref(), &mut generation, &mut endpoints, &mut fragments, &mut endpoint_fragments, &initial_endpoints);
                 traffic.refresh(operation.device.as_ref());
                 let Some(outgoing) = outgoing else {
@@ -269,7 +310,7 @@ pub(super) async fn run(
                     if let Some(observer) = &outgoing.observer { observer.dropped_reason(zero_traits::PacketDropReason::NoRoute); }
                     continue;
                 };
-                let carrier = peer_uses_proxy.get(outgoing.peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, outgoing.peer)).flatten();
+                let carrier = peer_uses_proxy.get(outgoing.peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, &operation.carriers, outgoing.peer)).flatten();
                 let mtu = usize::from(operation.device.mtu());
                 let packets=tokio::select! { biased;
                     _=shutdown.changed()=>break Ok(()),
@@ -287,7 +328,7 @@ pub(super) async fn run(
                 }
             }
             response = responses.recv() => {
-                refresh_endpoint_peers(operation.endpoint.as_mut(), &mut peer_revision, &mut initial_endpoints, &mut endpoints, &mut fragments, &mut endpoint_fragments, &operation.proxies, &mut proxied_tasks, &proxied_tx, &mut peer_uses_proxy).await?;
+                if pause_request.is_none() { refresh_endpoint_peers(operation.endpoint.as_mut(), &mut peer_revision, &mut initial_endpoints, &mut endpoints, &mut fragments, &mut endpoint_fragments, &operation.proxies, &mut proxied_tasks, &proxied_tx, &mut peer_uses_proxy,&mut proxy_generation,&operation.proxy_reads,&operation.carriers).await?; }
                 refresh_device_generation(operation.device.as_ref(), &mut generation, &mut endpoints, &mut fragments, &mut endpoint_fragments, &initial_endpoints);
                 traffic.refresh(operation.device.as_ref());
                 let Some(response) = response else { break if *shutdown.borrow() { Ok(()) } else { Err(EngineError::Io(std::io::Error::other("raw-IP response channel closed"))) }; };
@@ -297,7 +338,7 @@ pub(super) async fn run(
                 let Some(destination) = packet::ip_destination(&response) else { continue; };
                 let Some(peer) = operation.device.peer_for_destination(destination) else { continue; };
                 let Some(endpoint) = endpoints.get(peer).and_then(|value| *value) else { continue; };
-                let carrier = peer_uses_proxy.get(peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, peer)).flatten();
+                let carrier = peer_uses_proxy.get(peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, &operation.carriers, peer)).flatten();
                 let mtu = usize::from(operation.device.mtu());
                 let packets=tokio::select! { biased;
                     _=shutdown.changed()=>break Ok(()),
@@ -330,7 +371,7 @@ pub(super) async fn run(
                     timers.update(peer, schedule);
                     match result {
                         Ok(actions) => if let Some(endpoint) = endpoints.get(peer).copied().flatten() {
-                            let carrier = peer_uses_proxy.get(peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, peer)).flatten();
+                            let carrier = peer_uses_proxy.get(peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, &operation.carriers, peer)).flatten();
                             send_network_actions(&mut wire_sender, carrier, endpoint, &actions, &traffic.peer(Some(peer))).await;
                         } else {
                             for action in actions { if matches!(action, RawIpInboundAction::SendNetwork(_)) { traffic.peer(Some(peer)).dropped_reason(TrafficPlane::Outer, true, zero_api::TrafficDropReason::NoRoute); } }

@@ -60,10 +60,13 @@ async fn open(slot: &ComponentSlot, root: &Arc<Root>) -> BoxStream {
                 destination: Destination::new(Address::Domain("target.invalid".into()), 80),
             },
             OpenContext {
-                identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-                    origin: ServiceOrigin::Runtime,
-                    purpose: ServicePurpose::Bootstrap,
-                })),
+                identity: RequestIdentity::Service(
+                    Arc::new(ServiceRequestFacts {
+                        origin: ServiceOrigin::Runtime,
+                        purpose: ServicePurpose::Bootstrap,
+                    })
+                    .into(),
+                ),
                 deadline: Some(deadline()),
                 cancel: CancellationToken::new(),
                 observer: None,

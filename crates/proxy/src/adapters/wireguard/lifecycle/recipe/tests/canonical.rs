@@ -75,7 +75,7 @@ async fn same_canonical_slot_registers_the_original_workers_and_confirms_them_be
     let resolved = invocation.resolve(&upstream, request).await.unwrap();
     assert!(pending.peer_stack(0).unwrap().device().is_none());
     host.drive(slot.start(deadline())).await.unwrap();
-    let link = resolved.install().unwrap();
+    let link = resolved.install(None).unwrap();
     let device = link.state.lock().unwrap().devices[0].clone();
     let (sender, mut packets) = tokio::sync::mpsc::channel(4);
     let previous = link.sender.send_replace(sender);
@@ -118,6 +118,7 @@ async fn same_canonical_slot_registers_the_original_workers_and_confirms_them_be
         &next_inbound,
         Arc::new(WireguardRawIpPlan::from_protocol(&outbound.protocol).unwrap()),
         LinkedRecipeSettings {
+            outer: None,
             identity: link.state.lock().unwrap().identity,
             network_generation: NetworkGeneration(upstream.egress_generation()),
             stacks: vec![Default::default()],
@@ -134,7 +135,7 @@ async fn same_canonical_slot_registers_the_original_workers_and_confirms_them_be
     let next_host = TestContext::new([next_slot.as_ref()]);
     let resolved = invocation.resolve(&upstream, request).await.unwrap();
     next_host.drive(next_slot.start(deadline())).await.unwrap();
-    let next_link = resolved.install().unwrap();
+    let next_link = resolved.install(None).unwrap();
     let next_device = next_link.state.lock().unwrap().devices[0].clone();
     assert!(!Arc::ptr_eq(&next_device, &device));
     assert!(Arc::ptr_eq(&next_link.live, &live));

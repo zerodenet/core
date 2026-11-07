@@ -83,6 +83,7 @@ impl StandaloneStackOptions {
                 datagram,
                 workspaces: [NonZeroUsize::new(65_536).unwrap(); 2],
                 control_workspace: NonZeroUsize::new(148),
+                supplemental: Default::default(),
             });
         }
         use sha2::{Digest, Sha256};

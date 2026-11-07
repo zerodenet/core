@@ -113,10 +113,13 @@ impl UpstreamOpener for Opener {
 pub(super) fn context(address: SocketAddr, observations: Arc<Observations>) -> OpenContext {
     let network = zero_platform_tokio::EgressInterfaceControl::default();
     OpenContext {
-        identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-            origin: ServiceOrigin::Runtime,
-            purpose: ServicePurpose::DiagnosticProbe,
-        })),
+        identity: RequestIdentity::Service(
+            Arc::new(ServiceRequestFacts {
+                origin: ServiceOrigin::Runtime,
+                purpose: ServicePurpose::DiagnosticProbe,
+            })
+            .into(),
+        ),
         deadline: Some(super::super::fixtures::deadline()),
         cancel: CancellationToken::new(),
         observer: Some(observations.clone()),

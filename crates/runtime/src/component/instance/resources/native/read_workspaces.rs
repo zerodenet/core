@@ -1,63 +1,17 @@
 //! Concrete read allocations for one original declared UDP descriptor.
+mod construction;
 mod declarations;
+pub use construction::{
+    packet_datagram_control_spec, packet_datagram_read_spec, packet_datagram_supplemental_spec,
+};
+#[cfg(feature = "raw-ip-runtime")]
+mod supplemental;
 use super::*;
 pub(super) use declarations::ReadDeclarations;
 pub(in crate::component) use declarations::ReadEvidence;
 use std::num::NonZeroUsize;
 use zero_core::component::ComponentInstanceId;
 use zero_platform_tokio::contract::scope::{TaskJoinWitness, TaskRegistrar, TaskScopeIdentity};
-/// Validate the finite same-spec reference without allocating or granting I/O.
-pub fn packet_datagram_read_spec(
-    declarations: &[ResourceDeclaration],
-    datagram: usize,
-) -> Result<Option<[NonZeroUsize; 2]>, ChannelError> {
-    let mut found = None;
-    let mut seen = std::collections::BTreeSet::new();
-    for declaration in declarations {
-        if let ResourceDeclaration::PacketDatagramReads {
-            datagram: actual,
-            workspaces,
-            ..
-        } = declaration
-        {
-            if !matches!(
-                declarations.get(*actual),
-                Some(
-                    ResourceDeclaration::DatagramListener { .. }
-                        | ResourceDeclaration::BoundOutboundDatagram { .. }
-                )
-            ) || !seen.insert(*actual)
-            {
-                return Err(error(
-                    ComponentId(0),
-                    Reason::InvalidConfig,
-                    "packet reads must reference one distinct original UDP descriptor in the same spec",
-                ));
-            }
-            if *actual == datagram {
-                found = Some(*workspaces);
-            }
-        }
-    }
-    Ok(found)
-}
-/// Cold control metadata from the same validated descriptor. No memory/IO grant.
-pub fn packet_datagram_control_spec(
-    declarations: &[ResourceDeclaration],
-    datagram: usize,
-) -> Result<Option<NonZeroUsize>, ChannelError> {
-    packet_datagram_read_spec(declarations, datagram)?;
-    Ok(declarations
-        .iter()
-        .find_map(|declaration| match declaration {
-            ResourceDeclaration::PacketDatagramReads {
-                datagram: actual,
-                control_workspace,
-                ..
-            } if *actual == datagram => *control_workspace,
-            _ => None,
-        }))
-}
 /// Host construction data only. A protocol receives the unique original grants
 /// through ResourceAccess, never this accounting root or a new provider.
 pub struct HostPacketReadReservation {
@@ -69,6 +23,8 @@ pub struct HostPacketReadReservation {
     control: Option<NonZeroUsize>,
     #[cfg(feature = "raw-ip-runtime")]
     roots: Arc<crate::HostOriginalBudgets>,
+    #[cfg(feature = "raw-ip-runtime")]
+    supplemental: zero_platform_tokio::contract::component::PacketSupplementalMemory,
     state: Mutex<ReadState>,
 }
 #[derive(Default)]
@@ -79,45 +35,13 @@ struct ReadState {
     control_taken: bool,
     #[cfg(feature = "raw-ip-runtime")]
     grants: Option<zero_tun::packet_memory::PacketDatagramWorkspaces>,
+    #[cfg(feature = "raw-ip-runtime")]
+    supplemental: Option<supplemental::OriginalSupplemental>,
+    #[cfg(feature = "raw-ip-runtime")]
+    received: Vec<bool>,
     driver: Option<TaskJoinWitness>,
 }
 impl HostPacketReadReservation {
-    pub fn new(
-        instance: ComponentInstanceId,
-        scope: TaskScopeIdentity,
-        roots: Arc<crate::HostOriginalBudgets>,
-        lengths: [NonZeroUsize; 2],
-    ) -> Result<Arc<Self>, ChannelError> {
-        Self::new_with_control(instance, scope, roots, lengths, None)
-    }
-    pub fn new_with_control(
-        instance: ComponentInstanceId,
-        scope: TaskScopeIdentity,
-        roots: Arc<crate::HostOriginalBudgets>,
-        lengths: [NonZeroUsize; 2],
-        control: Option<NonZeroUsize>,
-    ) -> Result<Arc<Self>, ChannelError> {
-        if !cfg!(feature = "raw-ip-runtime") {
-            return Err(error(
-                instance.component,
-                Reason::Unsupported,
-                "actual packet read memory unavailable",
-            ));
-        }
-        #[cfg(not(feature = "raw-ip-runtime"))]
-        let _ = (roots, lengths, control);
-        Ok(Arc::new(Self {
-            instance,
-            scope,
-            #[cfg(feature = "raw-ip-runtime")]
-            roots,
-            #[cfg(feature = "raw-ip-runtime")]
-            lengths,
-            #[cfg(feature = "raw-ip-runtime")]
-            control,
-            state: Mutex::new(ReadState::default()),
-        }))
-    }
     pub fn prepare_before_listener_bind(&self, tasks: &TaskRegistrar) -> Result<(), ChannelError> {
         if !self.scope.matches(tasks) {
             return Err(self.denied());
@@ -143,6 +67,8 @@ impl HostPacketReadReservation {
         if !self.scope.resource_open() {
             return Err(self.denied());
         }
+        #[cfg(feature = "raw-ip-runtime")]
+        let _notifications = self.roots.packet.defer_notifications();
         let mut state = self
             .state
             .lock()
@@ -158,21 +84,9 @@ impl HostPacketReadReservation {
         #[cfg(feature = "raw-ip-runtime")]
         {
             if state.grants.is_none() {
-                let grants = self
-                    .roots
-                    .packet
-                    .datagram_workspaces(
-                        self.lengths.map(NonZeroUsize::get),
-                        self.control.map(NonZeroUsize::get),
-                    )
-                    .map_err(|source| {
-                        error(
-                            self.instance.component,
-                            Reason::Capacity,
-                            "original UDP read workspaces cannot fit before native acquisition",
-                        )
-                        .with_source(source)
-                    })?;
+                let (grants, supplemental) = self.allocate_original_workspaces()?;
+                state.received = vec![false; self.supplemental.receive_workspaces.len()];
+                state.supplemental = Some(supplemental);
                 state.grants = Some(grants);
             }
         }
@@ -252,7 +166,13 @@ impl HostPacketReadReservation {
         state.stopped = true;
         #[cfg(feature = "raw-ip-runtime")]
         let grants = state.grants.clone();
+        #[cfg(feature = "raw-ip-runtime")]
+        let supplemental = state.supplemental.clone();
         drop(state);
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(supplemental) = supplemental {
+            supplemental.revoke();
+        }
         #[cfg(feature = "raw-ip-runtime")]
         if let Some(grants) = grants {
             for grant in grants {

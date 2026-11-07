@@ -35,9 +35,14 @@ pub(crate) use defaults::bind_datagram_listener;
 pub(crate) use defaults::bind_tcp_listener;
 pub(crate) use model::{InboundRecovery, OutboundLeafRuntime, PreparedInboundBind};
 pub(crate) use registry::ClaimedOutboundLeaf;
+#[cfg(feature = "udp-runtime")]
+pub(crate) use registry::ColdPacketPathProjection;
 pub(crate) use registry::ProtocolRegistry;
 
 #[cfg(feature = "managed-stream-runtime")]
 mod service;
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) use service::InboundServiceCapability;
+
+#[cfg(feature = "udp-runtime")]
+pub(crate) mod packet_memory;

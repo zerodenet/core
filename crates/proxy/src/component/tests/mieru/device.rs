@@ -24,10 +24,13 @@ async fn open(proxy: &Proxy) -> StreamLoan {
     let pool = plan.configured("pool").unwrap();
     assert!(plan.has_device_carrier_provider(wg.role_id()));
     let context = OpenContext {
-        identity: RequestIdentity::Service(std::sync::Arc::new(ServiceRequestFacts {
-            origin: ServiceOrigin::Runtime,
-            purpose: ServicePurpose::BackgroundControl,
-        })),
+        identity: RequestIdentity::Service(
+            std::sync::Arc::new(ServiceRequestFacts {
+                origin: ServiceOrigin::Runtime,
+                purpose: ServicePurpose::BackgroundControl,
+            })
+            .into(),
+        ),
         deadline: Some(deadline()),
         cancel: CancellationToken::new(),
         observer: None,

@@ -13,6 +13,90 @@ use zero_engine::EngineError;
 /// adapter's prepared packet-path operation, zero manager changes.
 #[async_trait]
 pub(crate) trait PacketPathCarrier: Send + Sync {
+    fn confirm_driver_handoff(
+        &self,
+        _driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
+        Err(zero_platform_tokio::contract::ChannelError::new(
+            zero_platform_tokio::contract::Stage::Prepare,
+            zero_platform_tokio::contract::Reason::Unsupported,
+            zero_platform_tokio::contract::Impact::Component,
+        ))
+    }
+    /// Return this same failed carrier's logical views/control before its
+    /// existing worker attempts a replacement. This is not whole-ancestor
+    /// native closure and cannot substitute for Source Scope joins.
+    async fn retire_driver_handoff(
+        &self,
+        _driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+        _deadline: tokio::time::Instant,
+    ) -> Result<
+        zero_platform_tokio::contract::lifecycle::CloseReport,
+        zero_platform_tokio::contract::ChannelError,
+    > {
+        Err(zero_platform_tokio::contract::ChannelError::new(
+            zero_platform_tokio::contract::Stage::Close,
+            zero_platform_tokio::contract::Reason::Unsupported,
+            zero_platform_tokio::contract::Impact::Component,
+        ))
+    }
+    /// Request cancellation only of this actual Source driver's installed
+    /// logical loan. Its parent wire and shared native ancestor remain owned.
+    fn request_driver_retirement(
+        &self,
+        _: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
+        Err(zero_platform_tokio::contract::ChannelError::new(
+            zero_platform_tokio::contract::Stage::Close,
+            zero_platform_tokio::contract::Reason::Unsupported,
+            zero_platform_tokio::contract::Impact::Component,
+        ))
+    }
+
+    /// Presence only; a Kernel caller must already hold a sealed real handoff.
+    /// The explicit standalone library branch has no such packet memory root.
+    fn has_driver_handoff(&self) -> bool {
+        false
+    }
+    fn codec_transmit_lengths(
+        &self,
+        _: &Address,
+        _: u16,
+        _: usize,
+        _: &mut Vec<usize>,
+    ) -> Result<(), EngineError> {
+        Ok(())
+    }
+    fn prepare_codec_send(
+        &self,
+        _: &[usize],
+    ) -> Result<
+        zero_platform_tokio::contract::component::PacketDriverSendBuffers,
+        zero_platform_tokio::contract::ChannelError,
+    > {
+        Err(zero_platform_tokio::contract::ChannelError::new(
+            zero_platform_tokio::contract::Stage::Prepare,
+            zero_platform_tokio::contract::Reason::Unsupported,
+            zero_platform_tokio::contract::Impact::Component,
+        ))
+    }
+    /// Consume only the complete chain's already-reserved fixed buffers. No
+    /// layer may obtain another allocation after a prior codec changed state.
+    async fn send_codec_buffered(
+        &self,
+        _: &Address,
+        _: u16,
+        _: &[u8],
+        _: &mut [zero_traits::PacketBuffer],
+        _: &mut zero_platform_tokio::contract::component::PacketDriverSendCopy,
+    ) -> Result<(), EngineError> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "packet path has no owned codec send",
+        )
+        .into())
+    }
+
     /// Only a migrated original physical root can supply this owner. None is
     /// unknown native ownership; it is never a successful close/no-I/O fact.
     fn native_owner(

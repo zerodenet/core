@@ -20,11 +20,79 @@ pub(crate) struct UdpNetworkServices {
 /// Registry-free services retained by prepared packet-path carrier builders.
 #[derive(Clone)]
 pub(crate) struct PacketPathExecutionServices {
+    driver: Option<
+        std::sync::Arc<zero_platform_tokio::contract::component::GrantedPacketServiceCaller>,
+    >,
     tcp: TcpExecutionServices,
     network: UdpNetworkServices,
+    receive: Option<std::sync::Arc<[super::super::packet_memory::PacketCodecReceiveMemory]>>,
 }
 
+pub(crate) struct PacketPathDriverCall {
+    pub(crate) pending: zero_platform_tokio::contract::network::PendingCarrierObserver,
+    pub(crate) call: zero_platform_tokio::contract::network::CarrierContext,
+    pub(crate) grant: zero_platform_tokio::contract::component::PacketDriverCallGrant,
+}
 impl PacketPathExecutionServices {
+    /// Distinguish explicit independent-library construction before selecting
+    /// any canonical slot. This observes presence only and grants no IO.
+    pub(crate) fn has_packet_driver_caller(&self) -> bool {
+        self.driver.is_some()
+    }
+    pub(crate) fn with_packet_driver_receive(
+        mut self,
+        receive: std::sync::Arc<[super::super::packet_memory::PacketCodecReceiveMemory]>,
+    ) -> Self {
+        self.receive = Some(receive);
+        self
+    }
+    pub(crate) fn packet_codec_receive(
+        &self,
+        index: usize,
+    ) -> Result<
+        Option<super::super::packet_memory::PacketCodecReceiveMemory>,
+        zero_engine::EngineError,
+    > {
+        if self.driver.is_none() {
+            return Ok(None);
+        }
+        self.receive
+            .as_ref()
+            .and_then(|groups| groups.get(index))
+            .cloned()
+            .map(Some)
+            .ok_or_else(|| {
+                std::io::Error::other("actual Packet Source has no prepaid codec receive workspace")
+                    .into()
+            })
+    }
+    pub(crate) fn with_packet_driver(
+        mut self,
+        actual: std::sync::Arc<
+            zero_platform_tokio::contract::component::GrantedPacketServiceCaller,
+        >,
+    ) -> Self {
+        self.driver = Some(actual);
+        self
+    }
+    pub(crate) fn packet_driver_call(
+        &self,
+        target: zero_core::component::ComponentInstanceId,
+        binding: &zero_platform_tokio::contract::network::UpstreamBinding,
+    ) -> Result<Option<PacketPathDriverCall>, zero_platform_tokio::contract::ChannelError> {
+        self.driver
+            .as_ref()
+            .map(|source| {
+                let grant = source.for_target(target, binding)?;
+                Ok(PacketPathDriverCall {
+                    pending: grant.pending_observer(),
+                    call: grant.call(),
+                    grant,
+                })
+            })
+            .transpose()
+    }
+
     pub(crate) fn with_outbound_io(mut self, tag: &str) -> Self {
         let observer = self.tcp.outbound_io(tag, zero_api::TrafficPlane::Outer);
         self.network.upstream = self.network.upstream.with_observer(observer.clone());
@@ -34,6 +102,8 @@ impl PacketPathExecutionServices {
 
     pub(crate) fn from_tcp_execution(services: &TcpExecutionServices) -> Self {
         Self {
+            driver: None,
+            receive: None,
             tcp: services.clone(),
             network: UdpNetworkServices::from_tcp_execution(services),
         }
@@ -117,6 +187,8 @@ impl UdpRuntimeServices {
 
     pub(crate) fn packet_path_execution(&self) -> PacketPathExecutionServices {
         PacketPathExecutionServices {
+            driver: None,
+            receive: None,
             tcp: self.tcp.execution(),
             network: self.network(),
         }

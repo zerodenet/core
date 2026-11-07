@@ -41,12 +41,13 @@ async fn exercise(max_entries: Option<usize>) {
                     targets: DatagramTargets::Fixed(endpoint.clone()),
                 },
                 OpenContext {
-                    identity: RequestIdentity::Service(Arc::new(
-                        zero_core::request::ServiceRequestFacts {
+                    identity: RequestIdentity::Service(
+                        Arc::new(zero_core::request::ServiceRequestFacts {
                             origin: zero_core::request::ServiceOrigin::Runtime,
                             purpose: zero_core::request::ServicePurpose::BackgroundControl,
-                        },
-                    )),
+                        })
+                        .into(),
+                    ),
                     deadline: Some(end()),
                     cancel: CancellationToken::new(),
                     observer: None,

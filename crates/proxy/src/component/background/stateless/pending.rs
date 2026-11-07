@@ -94,6 +94,18 @@ impl UpstreamOpener for Pending {
     fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
         self.check(binding).ok().map(|_| self.limit)
     }
+    fn packet_driver_custody(
+        &self,
+        binding: &UpstreamBinding,
+        identity: &zero_platform_tokio::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<
+        Option<zero_platform_tokio::contract::component::PacketDriverCallRetained>,
+        ChannelError,
+    > {
+        self.packet_caller(binding, identity, call)?;
+        self.upstream.packet_driver_custody(identity, call)
+    }
     fn packet_caller(
         &self,
         binding: &UpstreamBinding,

@@ -9,6 +9,7 @@ impl WireguardAdapter {
         staged: &mut crate::runtime::raw_ip::StagedRawIpDevices,
         identity: [u8; 32],
         generation: u64,
+        outer_path: Option<crate::adapters::devices::PreparedDevicePacketPath>,
     ) -> Result<Arc<inbound::LinkedEndpoint>, EngineError> {
         let pending = candidate
             .get(tag)
@@ -19,7 +20,7 @@ impl WireguardAdapter {
             .await
             .get_mut(tag)
             .ok_or_else(|| invalid("actual linked invocation was not retained"))?
-            .install(pending)?;
+            .install(pending, outer_path)?;
         let devices = link
             .state
             .lock()

@@ -19,21 +19,19 @@ impl<T> PacketMetadataVec<T> {
     /// The actual caller supplies its existing finite row bound. Its owning
     /// Source must defer Root notifications BEFORE taking its table mutex;
     /// this synchronous method never creates a task or waits for its own rows.
-    pub fn try_push(
+    pub fn try_reserve_one(
         &mut self,
-        value: T,
         memory: &PacketMemoryView,
         max_rows: usize,
-    ) -> Result<(), (PacketMemoryError, T)> {
+    ) -> Result<(), PacketMemoryError> {
         if self.values.len() >= max_rows {
-            return Err((PacketMemoryError::Capacity, value));
+            return Err(PacketMemoryError::Capacity);
         }
         if self.values.len() < self.values.capacity() {
-            self.values.push(value);
             return Ok(());
         }
         let Some(needed) = self.values.len().checked_add(1) else {
-            return Err((PacketMemoryError::Overflow, value));
+            return Err(PacketMemoryError::Overflow);
         };
         let new_capacity = self
             .values
@@ -43,7 +41,7 @@ impl<T> PacketMetadataVec<T> {
             .min(max_rows);
         let layout = match PacketMetadataLayout::array::<T>(new_capacity) {
             Ok(layout) => layout,
-            Err(source) => return Err((source, value)),
+            Err(source) => return Err(source),
         };
         // The old live table cannot be evicted to satisfy this growth. If its
         // own old+new layouts can never fit this installed Root, return a real
@@ -57,15 +55,15 @@ impl<T> PacketMetadataVec<T> {
             peak.checked_add(zero_traits::packet_metadata::PacketMetadataCounter::owned_layout())
         }) {
             Ok(layout) => layout,
-            Err(source) => return Err((source, value)),
+            Err(source) => return Err(source),
         };
         let limit = memory.driver_metadata().limit;
         if peak.allocations() > limit.allocations() || peak.bytes() > limit.bytes() {
-            return Err((PacketMemoryError::Capacity, value));
+            return Err(PacketMemoryError::Capacity);
         }
         let next_credit = match memory.reserve_driver_metadata(layout) {
             Ok(credit) => credit,
-            Err(source) => return Err((source, value)),
+            Err(source) => return Err(source),
         };
         // Box's requested array Layout is EXACTLY the one prepaid above. No
         // opaque reserve/realloc operation can create a larger reported Vec
@@ -78,10 +76,30 @@ impl<T> PacketMetadataVec<T> {
         let next = unsafe { Vec::from_raw_parts(pointer, 0, new_capacity) };
         let mut previous = std::mem::replace(&mut self.values, next);
         self.values.extend(previous.drain(..)); // sufficient existing capacity
-        self.values.push(value);
         drop(previous); // actual old allocation is free before refund
         let previous_credit = self.credit.replace(next_credit);
         drop(previous_credit);
+        Ok(())
+    }
+    pub fn try_push(
+        &mut self,
+        value: T,
+        memory: &PacketMemoryView,
+        max_rows: usize,
+    ) -> Result<(), (PacketMemoryError, T)> {
+        if let Err(source) = self.try_reserve_one(memory, max_rows) {
+            return Err((source, value));
+        }
+        self.push_reserved(value)
+            .map_err(|value| (PacketMemoryError::Capacity, value))
+    }
+    /// Consume only capacity already charged on THIS actual table. No reserve,
+    /// reallocation or callback occurs while installing the real record.
+    pub fn push_reserved(&mut self, value: T) -> Result<(), T> {
+        if self.values.len() == self.values.capacity() {
+            return Err(value);
+        }
+        self.values.push(value);
         Ok(())
     }
     pub fn remove(&mut self, index: usize) -> T {

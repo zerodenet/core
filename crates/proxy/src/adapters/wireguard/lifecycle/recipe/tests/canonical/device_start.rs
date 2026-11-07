@@ -45,7 +45,7 @@ async fn actual_confirmed_device_transaction_starts_resolved_graph_and_joins_its
         .start_device_components(config.clone(), deadline())
         .await
         .unwrap();
-    let link = resolved.install().unwrap();
+    let link = resolved.install(None).unwrap();
     let device = link.state.lock().unwrap().devices[0].clone();
     let (sender, mut packets) = tokio::sync::mpsc::channel(4);
     drop(link.sender.send_replace(sender));

@@ -134,9 +134,9 @@ pub(crate) fn compiled_registries_with_network(
                 },
             )
             .expect("unique SOCKS5 inbound component registration");
-        registry.register_standard_protocol(
+        registry.register_standard_packet_carrier(
             Arc::new(Socks5Adapter),
-            Some(Socks5Adapter::claim_outbound_leaf_impl),
+            Socks5Adapter::claim_outbound_leaf_impl,
         );
     }
     #[cfg(feature = "http")]
@@ -403,9 +403,9 @@ pub(crate) fn compiled_registries_with_network(
             )
             .expect("unique Shadowsocks component registration");
         components.set_legacy_connect_stage("shadowsocks", "connect_upstream_shadowsocks");
-        registry.register_standard_protocol(
+        registry.register_standard_datagram_formatter(
             adapter,
-            Some(ShadowsocksAdapter::claim_outbound_leaf_impl),
+            ShadowsocksAdapter::claim_outbound_leaf_impl,
         );
     }
     #[cfg(feature = "trojan")]

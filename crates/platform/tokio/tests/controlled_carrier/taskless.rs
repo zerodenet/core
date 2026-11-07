@@ -31,6 +31,15 @@ async fn taskless_stream_loan_requires_original_control_and_returned_native_cust
     let (mut peer, _) = fixture.listener.accept().await.unwrap();
     let (io, adoption) = carrier.into_parts();
     let mut loan = io.into_stream_loan(view).unwrap();
+    assert_eq!(
+        loan.owner
+            .take_logical_close_participant()
+            .err()
+            .unwrap()
+            .reason,
+        Reason::Revoked,
+        "the exact NativeControl cannot be replaced with logical completion"
+    );
     let original = loan.owner.original().clone();
     assert!(original.driver().is_none());
     loan.io.write_all(b"x").await.unwrap();
@@ -140,6 +149,15 @@ async fn taskless_packet_loan_closes_its_actual_native_original_without_an_inven
         .unwrap();
     let local = native.local_addr().unwrap();
     let mut loan = native.into_datagram_loan(view, AssociationId(98)).unwrap();
+    assert_eq!(
+        loan.owner
+            .take_logical_close_participant()
+            .err()
+            .unwrap()
+            .reason,
+        Reason::Revoked,
+        "the exact NativeControl cannot be replaced with logical completion"
+    );
     let original = loan.owner.original().clone();
     assert!(original.driver().is_none());
     loan.io.send(b"udp").await.unwrap();
@@ -167,3 +185,5 @@ async fn taskless_packet_loan_closes_its_actual_native_original_without_an_inven
     let report = scope.shutdown(deadline()).await;
     assert!(report.is_complete() && report.exited_tasks.is_empty());
 }
+
+mod observation;

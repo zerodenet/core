@@ -160,6 +160,13 @@ impl ComponentCatalog {
         &self,
         candidate: &Arc<ComponentPlan>,
     ) -> Result<ReplacementUsersPause, ChannelError> {
+        self.try_pause_replacement_users_with_packet_sources(candidate, &[])
+    }
+    pub fn try_pause_replacement_users_with_packet_sources(
+        &self,
+        candidate: &Arc<ComponentPlan>,
+        mains: &[&zero_platform_tokio::contract::packet::PacketSourceMainPaused],
+    ) -> Result<ReplacementUsersPause, ChannelError> {
         let old = {
             let state = self.state.lock().expect("component catalog poisoned");
             let owned = state
@@ -190,13 +197,14 @@ impl ComponentCatalog {
                 .cloned()
                 .collect::<Vec<_>>();
             for slot in &stopping {
-                let mut root = slot
-                    .own_user_root()
-                    .try_pause_receivers(|lease| receiver::retained(&old, slot, &stopping, lease))
-                    .map_err(|mut source| {
-                        source.component.get_or_insert(slot.id);
-                        source
-                    })?;
+                let mut root=slot.own_user_root().try_pause_receivers(|lease| {
+                    receiver::retained(&old, slot, &stopping, lease)
+                        .map(crate::component::instance::users::RetainedReceiver::Carrier)
+                        .or_else(||receiver::retained_packet_driver(&old,slot,&stopping,lease,mains).map(crate::component::instance::users::RetainedReceiver::PacketDriver))
+                }).map_err(|mut source| {
+                    source.component.get_or_insert(slot.id);
+                    source
+                })?;
                 root.actual_instance = Some(slot.instance_id());
                 roots.push(root);
             }
@@ -205,5 +213,32 @@ impl ComponentCatalog {
             _roots: roots,
             candidate: Arc::downgrade(candidate),
         })
+    }
+}
+
+impl ReplacementUsersPause {
+    pub fn packet_driver_receivers(
+        &self,
+    ) -> Vec<zero_platform_tokio::contract::component::PacketDriverStreamRetained> {
+        self._roots
+            .iter()
+            .flat_map(|root| root.packet_receivers().iter().cloned())
+            .collect()
+    }
+    pub fn retains_packet_driver_receiver(
+        &self,
+        observation: &zero_platform_tokio::controlled_carrier::loan::CarrierLoanReceiver,
+        donor: &zero_platform_tokio::controlled_carrier::CarrierOrigin,
+    ) -> bool {
+        let Some(actual) = observation.packet_driver_retained() else {
+            return false;
+        };
+        actual.retains_origin(donor)
+            && self.candidate.upgrade().is_some()
+            && self._roots.iter().any(|root| {
+                root.packet_receivers()
+                    .iter()
+                    .any(|stored| stored.same_retainer(&actual))
+            })
     }
 }

@@ -69,11 +69,29 @@ impl Carrier {
         }
         Ok(())
     }
+    fn enter_source(
+        &self,
+    ) -> Result<zero_platform_tokio::contract::packet::PacketSourceAcquisition, ChannelError> {
+        let original = self.origin()?;
+        match original.logical_packet() {
+            Some(logical) => {
+                // A Source-issued software origin does not inherit native
+                // close lineage. Its exact original Source admission gate is
+                // separate and still seals opens before FlowUsers custody.
+                let actual = logical
+                    .source_admission()
+                    .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?;
+                zero_platform_tokio::controlled_carrier::CarrierOrigin::from_listener(
+                    actual.clone(),
+                )
+                .try_enter_packet_source()
+            }
+            None => original.try_enter_packet_source(),
+        }
+    }
     fn acquisition(&self) -> Result<Vec<Acquisition>, ChannelError> {
         match &self.options {
-            Graph::Linked(_) => Ok(vec![Acquisition::source(
-                self.origin()?.try_enter_packet_source()?,
-            )]),
+            Graph::Linked(_) => Ok(vec![Acquisition::source(self.enter_source()?)]),
             Graph::Standalone(root) => (0..root.peers.len())
                 .map(|index| root.acquisition(index).map(Acquisition::native))
                 .collect(),
@@ -81,9 +99,7 @@ impl Carrier {
     }
     fn peer_acquisition(&self, peer: usize) -> Result<Acquisition, ChannelError> {
         match &self.options {
-            Graph::Linked(_) => Ok(Acquisition::source(
-                self.origin()?.try_enter_packet_source()?,
-            )),
+            Graph::Linked(_) => Ok(Acquisition::source(self.enter_source()?)),
             Graph::Standalone(root) => root.acquisition(peer).map(Acquisition::native),
         }
     }
@@ -156,8 +172,17 @@ impl Carrier {
                 cancel: context.cancel.clone(),
             },
         )?;
+        let custody = context.upstream.packet_driver_custody(
+            &context.identity,
+            &zero_platform_tokio::contract::network::CarrierContext {
+                session: context.identity.session(),
+                deadline: context.deadline,
+                cancel: context.cancel.clone(),
+            },
+        )?;
         Ok(crate::runtime::raw_ip::PacketFlowBorrow {
             caller,
+            custody,
             observer: context
                 .observer
                 .as_ref()

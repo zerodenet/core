@@ -57,6 +57,16 @@ pub trait UpstreamOpener: Send + Sync {
         failure.delivery = DeliveryState::NotSubmitted;
         Err(failure)
     }
+    /// Exact actual Source attempt custody only. This cannot create a task,
+    /// IO/native grant, join/close receipt or a different caller identity.
+    fn packet_driver_custody(
+        &self,
+        _: &UpstreamBinding,
+        _: &crate::contract::context::RequestIdentity,
+        _: &CarrierContext,
+    ) -> Result<Option<crate::contract::component::PacketDriverCallRetained>, ChannelError> {
+        Ok(None)
+    }
     /// Finite cleanup metadata of this actual selected graph. This neither
     /// raises native capacity nor grants IO, task credit or a close receipt.
     fn pending_carrier_capacity(&self, _: &UpstreamBinding) -> Option<usize> {

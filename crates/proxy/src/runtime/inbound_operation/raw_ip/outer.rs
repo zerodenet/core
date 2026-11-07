@@ -8,7 +8,7 @@ use super::{RawIpInboundAction, RawIpInboundEndpoint};
 use crate::runtime::raw_ip::RawIpWireCarrier;
 
 pub(super) struct ProxiedWirePacket {
-    pub(super) bytes: Vec<u8>,
+    pub(super) bytes: zero_traits::PacketBuffer,
     pub(super) source: Option<SocketAddr>,
     pub(super) peer: usize,
     pub(super) revision: u64,
@@ -26,15 +26,19 @@ pub(super) async fn refresh_endpoint_peers(
     proxied_tasks: &mut super::tasks::TasksGuard<'_, ()>,
     proxied_tx: &mpsc::Sender<ProxiedWirePacket>,
     peer_uses_proxy: &mut Vec<bool>,
+    generation: &mut zero_platform_tokio::contract::CancellationToken,
+    reads: &[Option<zero_tun::packet_memory::NativeReadGrant>],
+    declared: &[Option<Arc<dyn RawIpWireCarrier>>],
 ) -> Result<(), zero_engine::EngineError> {
     let Some(endpoint) = endpoint else {
         return Ok(());
     };
     let peers = endpoint.peers.borrow_and_update().clone();
-    if *revision == peers.revision {
+    let changed = *revision != peers.revision;
+    if !changed && !generation.is_cancelled() {
         return Ok(());
     }
-    proxied_tasks.abort_all();
+    generation.cancel();
     // Retire one actual reader generation before admitting its replacement;
     // rapid peer-watch changes cannot accumulate aborted but unjoined readers.
     while let Some(joined) = proxied_tasks.join_next().await {
@@ -44,39 +48,65 @@ pub(super) async fn refresh_endpoint_peers(
             }
         }
     }
-    *peer_uses_proxy = peers.carriers.iter().map(Option::is_some).collect();
-    for (peer, carrier) in peers.carriers.iter().enumerate() {
+    *generation = zero_platform_tokio::contract::CancellationToken::new();
+    let carriers = if declared.is_empty() {
+        &peers.carriers
+    } else {
+        declared
+    };
+    if carriers.len() != peers.carriers.len() {
+        return Err(std::io::Error::other("actual Source carrier peer set changed").into());
+    }
+    *peer_uses_proxy = carriers.iter().map(Option::is_some).collect();
+    for (peer, carrier) in carriers.iter().enumerate() {
         let Some(carrier) = carrier.clone() else {
             continue;
         };
+        let read = reads
+            .get(peer)
+            .and_then(Option::as_ref)
+            .cloned()
+            .ok_or_else(|| {
+                std::io::Error::other(
+                    "actual proxy reader has no original prepaid Source workspace",
+                )
+            })?;
+        let stop = generation.clone();
         let sender = proxied_tx.clone();
         let revision = peers.revision;
         proxied_tasks
             .spawn(async move {
-                let mut buffer = vec![0; 65_536];
                 loop {
-                    let (size, source) = match carrier.recv(&mut buffer).await {
+                    let allocated=tokio::select! {biased;_=stop.cancelled()=>return,result=read.buffer()=>result};
+                    let mut buffer=match allocated {Ok(buffer)=>buffer,Err(source)=>{tracing::debug!(?source,peer,"actual Source proxy read workspace stopped");return;}};
+                    let received=tokio::select! {biased;_=stop.cancelled()=>return,result=carrier.recv(buffer.as_mut_bytes())=>result};
+                    let (size, source) = match received {
                         Ok(value) => value,
                         Err(error) => {
                             tracing::debug!(%error, peer, "raw-IP outer carrier stopped");
                             return;
                         }
                     };
-                    if sender
-                        .send(ProxiedWirePacket {
-                            bytes: buffer[..size].to_vec(),
+                    let bytes=match buffer.into_packet(size){Ok(bytes)=>bytes,Err(_original)=>return};
+                    let delivered=sender.send(ProxiedWirePacket {
+                            bytes,
                             source,
                             peer,
                             revision,
-                        })
-                        .await
-                        .is_err()
-                    {
-                        return;
-                    }
+                        });
+                    // A Ready native receive already transferred this original
+                    // buffer. Pause seals the next read, never abandons this
+                    // pending delivery. The same wire keeps draining this queue.
+                    if delivered.await.is_err() { return; }
+                    if stop.is_cancelled() { return; }
                 }
             })
             .map_err(std::io::Error::other)?;
+    }
+    if !changed {
+        // Reversible pause restarts only the original reader future over the
+        // same carrier. Preserve authenticated endpoints and fragment custody.
+        return Ok(());
     }
     *revision = peers.revision;
     // Preserve an authenticated learned address when the configured initial
@@ -101,8 +131,12 @@ pub(super) async fn refresh_endpoint_peers(
 
 pub(super) fn peer_carrier(
     endpoint: &Option<RawIpInboundEndpoint>,
+    declared: &[Option<Arc<dyn RawIpWireCarrier>>],
     peer: usize,
 ) -> Option<Arc<dyn RawIpWireCarrier>> {
+    if !declared.is_empty() {
+        return declared.get(peer)?.clone();
+    }
     endpoint
         .as_ref()?
         .peers

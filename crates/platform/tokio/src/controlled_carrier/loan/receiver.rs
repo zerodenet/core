@@ -3,7 +3,10 @@ use super::{DatagramLoan, LoanOwner, StreamLoan};
 use crate::controlled_carrier::{slot::Slot, CarrierAdoption, CarrierLoanRetained};
 use std::sync::{Arc, Mutex, Weak};
 #[derive(Default)]
-pub(super) struct Observation(Mutex<Option<Installed>>);
+pub(super) struct Observation {
+    installed: Mutex<Option<Installed>>,
+    packet_driver: std::sync::OnceLock<crate::contract::component::PacketDriverStreamRetained>,
+}
 #[derive(Clone)]
 struct Installed {
     slot: Weak<Slot>,
@@ -39,7 +42,7 @@ pub(super) fn install_owner(
     let owner = Arc::new(tokio::sync::Mutex::new(owner));
     if let Some(observation) = observation {
         let mut installed = observation
-            .0
+            .installed
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         assert!(
@@ -59,7 +62,7 @@ impl CarrierLoanReceiver {
     pub fn retained(&self) -> Option<CarrierLoanRetained> {
         let observation = self.0.upgrade()?;
         let installed = observation
-            .0
+            .installed
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()?;
@@ -76,5 +79,29 @@ impl CarrierLoanReceiver {
             }
         }
         CarrierAdoption { slot }.retained_loan()
+    }
+}
+
+impl LoanOwner {
+    pub(crate) fn observe_packet_driver(
+        &mut self,
+        actual: crate::contract::component::PacketDriverStreamRetained,
+    ) {
+        self.receiver
+            .get_or_init(|| Arc::new(Observation::default()))
+            .packet_driver
+            .set(actual)
+            .unwrap_or_else(|_| unreachable!("unique original Stream retainer"));
+    }
+}
+impl CarrierLoanReceiver {
+    /// Same actual Source-record strong LoanOwner custody only. It does not
+    /// grant IO, close, caller registration or whole-Source join authority.
+    pub fn packet_driver_retained(
+        &self,
+    ) -> Option<crate::contract::component::PacketDriverStreamRetained> {
+        let observation = self.0.upgrade()?;
+        let actual = observation.packet_driver.get()?.clone();
+        actual.retained().then_some(actual)
     }
 }

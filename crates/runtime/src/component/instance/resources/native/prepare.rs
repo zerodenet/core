@@ -316,6 +316,8 @@ impl HostResources {
             .map(|declaration| coverage::CoverageBinding::new(component, declaration))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Arc::new(Self {
+            packet_failures: Default::default(),
+            packet_calls: std::sync::OnceLock::new(),
             dependency_slots: std::sync::OnceLock::new(),
             source_pause: std::sync::OnceLock::new(),
             node_dns_source: std::sync::OnceLock::new(),

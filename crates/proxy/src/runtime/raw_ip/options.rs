@@ -17,6 +17,8 @@ pub(crate) struct RawIpStackOptions {
     pub(crate) packet_native_read_total_max_bytes: usize,
     pub(crate) packet_transmit_total_max_frames: usize,
     pub(crate) packet_transmit_total_max_bytes: usize,
+    pub(crate) packet_driver_metadata_total_max_allocations: usize,
+    pub(crate) packet_driver_metadata_total_max_bytes: usize,
     pub(crate) traffic: super::RawIpTraffic,
 }
 impl RawIpStackOptions {
@@ -38,6 +40,8 @@ impl RawIpStackOptions {
             packet_native_read_total_max_bytes: 16 * 1024 * 1024,
             packet_transmit_total_max_frames: 16384,
             packet_transmit_total_max_bytes: 64 * 1024 * 1024,
+            packet_driver_metadata_total_max_allocations: 16384,
+            packet_driver_metadata_total_max_bytes: 16 * 1024 * 1024,
             traffic: Default::default(),
         }
     }
@@ -89,6 +93,15 @@ impl RawIpStackOptions {
         self.packet_transmit_total_max_bytes = bytes;
         self
     }
+    pub(crate) fn with_packet_driver_metadata_limits(
+        mut self,
+        allocations: usize,
+        bytes: usize,
+    ) -> Self {
+        self.packet_driver_metadata_total_max_allocations = allocations;
+        self.packet_driver_metadata_total_max_bytes = bytes;
+        self
+    }
     pub(crate) fn with_packet_return_limits(mut self, frames: usize, bytes: usize) -> Self {
         self.packet_return_max_frames = frames;
         self.packet_return_max_bytes = bytes;
@@ -131,6 +144,8 @@ impl RawIpStackOptions {
             self.packet_native_read_total_max_bytes,
             self.packet_transmit_total_max_frames,
             self.packet_transmit_total_max_bytes,
+            self.packet_driver_metadata_total_max_allocations,
+            self.packet_driver_metadata_total_max_bytes,
             self.udp_receive_queue.capacity,
             self.udp_receive_queue.max_payload_bytes.unwrap_or(0),
             self.udp_receive_queue.max_stack_payload_bytes.unwrap_or(0),

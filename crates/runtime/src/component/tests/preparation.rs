@@ -218,3 +218,6 @@ async fn shared_recipe_uses_persistent_slot_and_cannot_replace_a_running_replay_
     assert_eq!(closed.exited_tasks.len(), 1);
     assert!(closed.failed_tasks.is_empty());
 }
+
+#[path = "preparation/packet_metadata.rs"]
+mod packet_metadata;

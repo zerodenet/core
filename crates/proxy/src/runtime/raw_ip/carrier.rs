@@ -89,6 +89,8 @@ pub(crate) trait RawIpWireCarrier: Send + Sync {
     async fn send(&self, packet: &[u8], endpoint: SocketAddr) -> io::Result<()>;
 }
 
+mod registered;
+pub(crate) use registered::RegisteredProxiedRawIpWireCarrier;
 mod hosted;
 pub(crate) use hosted::HostedRawIpWireCarrier;
 #[cfg(test)]

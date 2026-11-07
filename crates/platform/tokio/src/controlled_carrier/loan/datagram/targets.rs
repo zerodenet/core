@@ -77,7 +77,7 @@ fn failure(instance: zero_core::component::ComponentInstanceId, reason: Reason) 
     )
 }
 fn same_service(a: &RequestIdentity, b: &RequestIdentity) -> bool {
-    matches!((a,b),(RequestIdentity::Service(a),RequestIdentity::Service(b)) if Arc::ptr_eq(a,b))
+    matches!((a,b),(RequestIdentity::Service(a),RequestIdentity::Service(b)) if crate::contract::context::ServiceFactsOwner::same_owner(a,b))
 }
 fn literal(peer: SocketAddr) -> Destination {
     Destination::new(

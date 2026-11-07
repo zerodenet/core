@@ -20,10 +20,15 @@ impl PrefixOpener {
                 binding,
                 endpoint,
                 self.request_destination.clone(),
-                RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-                    origin: ServiceOrigin::Runtime,
-                    purpose: ServicePurpose::BackgroundControl,
-                })),
+                self.service_identity.clone().unwrap_or_else(|| {
+                    RequestIdentity::Service(
+                        Arc::new(ServiceRequestFacts {
+                            origin: ServiceOrigin::Runtime,
+                            purpose: ServicePurpose::BackgroundControl,
+                        })
+                        .into(),
+                    )
+                }),
                 call,
             )
             .await

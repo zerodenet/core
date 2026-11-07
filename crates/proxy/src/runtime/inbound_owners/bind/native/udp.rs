@@ -6,16 +6,27 @@ use std::sync::{
     Mutex,
 };
 use zero_platform_tokio::contract::{
-    component::GrantedDatagramListener,
-    lifecycle::{CloseReport, ResourceLifecycle},
-    CloseReason, Impact, Reason, Stage,
+    component::GrantedDatagramListener, lifecycle::CloseReport, Impact, Reason, Stage,
 };
 
 pub(in crate::runtime::inbound_owners) struct NativeDatagramGrant {
+    #[cfg(feature = "raw-ip-runtime")]
+    shutdown_reports: Mutex<CloseReport>,
+    #[cfg(feature = "raw-ip-runtime")]
+    packet_calls:
+        std::sync::OnceLock<Arc<zero_platform_tokio::contract::component::PacketDriverCalls>>,
+    #[cfg(feature = "raw-ip-runtime")]
+    packet_logical: std::sync::OnceLock<
+        zero_platform_tokio::controlled_carrier::LogicalPacketProviderRegistration,
+    >,
+    #[cfg(feature = "raw-ip-runtime")]
+    packet_logical_preparing: AtomicBool,
     identity: ComponentInstanceId,
     originals: Option<Arc<zero_runtime::HostOriginalBudgets>>,
     #[cfg(feature = "raw-ip-runtime")]
     packet_reads: Option<Arc<crate::component::instance::HostPacketReadReservation>>,
+    #[cfg(feature = "raw-ip-runtime")]
+    packet_wire_launch: Mutex<Option<zero_platform_tokio::contract::scope::TaskLaunch>>,
     #[cfg(feature = "raw-ip-runtime")]
     packet_memory: std::sync::OnceLock<zero_platform_tokio::contract::packet::PacketSourceMemory>,
     addresses: std::sync::OnceLock<Arc<[std::net::SocketAddr]>>,
@@ -71,10 +82,20 @@ impl NativeDatagramGrant {
             let _ = addresses.set(Arc::from([address]));
         }
         Ok(Self {
+            #[cfg(feature = "raw-ip-runtime")]
+            shutdown_reports: Mutex::new(CloseReport::default()),
+            #[cfg(feature = "raw-ip-runtime")]
+            packet_logical: Default::default(),
+            #[cfg(feature = "raw-ip-runtime")]
+            packet_logical_preparing: AtomicBool::new(false),
+            #[cfg(feature = "raw-ip-runtime")]
+            packet_calls: std::sync::OnceLock::new(),
             identity,
             originals: None,
             #[cfg(feature = "raw-ip-runtime")]
             packet_reads: None,
+            #[cfg(feature = "raw-ip-runtime")]
+            packet_wire_launch: Mutex::new(None),
             #[cfg(feature = "raw-ip-runtime")]
             packet_memory: std::sync::OnceLock::new(),
             addresses,
@@ -168,6 +189,14 @@ impl NativeDatagramGrant {
         }
         #[cfg(feature = "raw-ip-runtime")]
         if let Some(reads) = &self.packet_reads {
+            if self.packet_wire_launch.lock().unwrap().is_none() {
+                return Err(std::io::Error::other(ChannelError::new(
+                    Stage::Prepare,
+                    Reason::InvalidConfig,
+                    Impact::Component,
+                ))
+                .into());
+            }
             reads
                 .prepare_before_listener_bind(
                     self.scope
@@ -232,56 +261,16 @@ impl NativeDatagramGrant {
 }
 
 pub(super) struct DatagramResource(pub(super) Arc<NativeDatagramGrant>);
-impl ResourceLifecycle for DatagramResource {
-    async fn start(&mut self, _: Instant) -> Result<(), ChannelError> {
-        if self.0.cancel.is_cancelled() || !self.0.bound.load(Ordering::Acquire) {
-            let mut error = ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component);
-            error.component = Some(self.0.identity.component);
-            return Err(error);
-        }
-        Ok(())
-    }
-    fn revoke(&self, _: CloseReason) {
-        self.0.cancel.cancel();
-        #[cfg(feature = "raw-ip-runtime")]
-        if let Some(reads) = &self.0.packet_reads {
-            reads.revoke();
-        }
-        // Every native operation is synchronous. This same short lock makes
-        // revoke linearize after an in-flight bind, including another thread.
-        if let Some(owner) = self
-            .0
-            .native
-            .lock()
-            .expect("native datagram owner poisoned")
-            .as_mut()
-        {
-            owner.revoke();
-        }
-    }
-    async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
-        self.0.cancel.cancel();
-        #[cfg(feature = "raw-ip-runtime")]
-        if let Some(reads) = &self.0.packet_reads {
-            reads.revoke();
-        }
-        let mut native = self
-            .0
-            .native
-            .lock()
-            .expect("native datagram owner poisoned");
-        if let Some(native) = native.as_mut() {
-            native.revoke();
-            native.shutdown(deadline)
-        } else {
-            Ok(CloseReport::default())
-        }
-    }
-}
+mod shutdown;
 
+#[cfg(feature = "raw-ip-runtime")]
+mod packet_driver;
 mod packet_reads;
 mod resolution;
 
 #[cfg(test)]
 #[path = "udp/tests.rs"]
 mod tests;
+
+#[cfg(feature = "raw-ip-runtime")]
+mod logical;

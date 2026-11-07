@@ -4,10 +4,12 @@ use tokio_util::sync::CancellationToken;
 use zero_core::{
     component::{RoleInstanceId, SessionId},
     packet::PacketFacts,
-    request::{RequestFacts, ServiceRequestFacts},
+    request::RequestFacts,
 };
 
 use super::network::UpstreamTransport;
+mod service;
+pub use service::ServiceFactsOwner;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectFact {
@@ -51,7 +53,8 @@ pub trait ConnectObserver: Send + Sync {
         &self,
         _association: &zero_core::packet::ReturnAssociation,
         _peer: zero_core::component::PeerId,
-    ) {}
+    ) {
+    }
     fn packet_peer_selected(
         &self,
         _session: Option<SessionId>,
@@ -78,7 +81,7 @@ pub trait ConnectObserver: Send + Sync {
 pub enum RequestIdentity {
     Business(Arc<RequestFacts>),
     Packet(Arc<PacketFacts>),
-    Service(Arc<ServiceRequestFacts>),
+    Service(ServiceFactsOwner),
 }
 
 impl RequestIdentity {

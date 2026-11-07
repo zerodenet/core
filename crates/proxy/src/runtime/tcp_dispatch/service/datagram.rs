@@ -42,10 +42,13 @@ pub(crate) async fn connect_carrier_datagram(
             targets: DatagramTargets::Fixed(destination.clone()),
         },
         OpenContext {
-            identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-                origin: ServiceOrigin::Runtime,
-                purpose: ServicePurpose::DnsQuery,
-            })),
+            identity: RequestIdentity::Service(
+                Arc::new(ServiceRequestFacts {
+                    origin: ServiceOrigin::Runtime,
+                    purpose: ServicePurpose::DnsQuery,
+                })
+                .into(),
+            ),
             deadline: call.deadline,
             cancel: call.cancel.clone(),
             observer: None,

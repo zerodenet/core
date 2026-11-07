@@ -110,6 +110,30 @@ impl NativeReadGrant {
             }
         }
     }
+    /// Observe return of this exact exclusive workspace without taking or
+    /// allocating it. This is only a memory-custody census, never a native
+    /// close, task join, registration ACK or returned reservation receipt.
+    pub async fn wait_workspace_returned(&self) -> Result<(), PacketMemoryError> {
+        loop {
+            let changed = self.0.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            {
+                let state = self
+                    .0
+                    .state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if state.ready.is_some() {
+                    return Ok(());
+                }
+                if state.revoked {
+                    return Err(PacketMemoryError::Stopped);
+                }
+            }
+            changed.await;
+        }
+    }
     /// Revoke allocation only. An outstanding payload keeps its same debit
     /// until its real memory is released; this is no native or join receipt.
     pub fn revoke(&self) {

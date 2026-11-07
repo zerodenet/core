@@ -67,10 +67,13 @@ async fn loan(proxy: &Proxy) -> StreamLoan {
                 destination: Destination::new(Address::Domain("real.example".into()), 443),
             },
             OpenContext {
-                identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-                    origin: ServiceOrigin::Runtime,
-                    purpose: ServicePurpose::BackgroundControl,
-                })),
+                identity: RequestIdentity::Service(
+                    Arc::new(ServiceRequestFacts {
+                        origin: ServiceOrigin::Runtime,
+                        purpose: ServicePurpose::BackgroundControl,
+                    })
+                    .into(),
+                ),
                 deadline: Some(deadline()),
                 cancel: CancellationToken::new(),
                 observer: None,

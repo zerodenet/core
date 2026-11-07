@@ -214,6 +214,25 @@ impl UpstreamOpener for NodeOpener {
         waiting.packet_caller(identity, call)
     }
 
+    fn packet_driver_custody(
+        &self,
+        binding: &UpstreamBinding,
+        identity: &zero_platform_tokio::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<
+        Option<zero_platform_tokio::contract::component::PacketDriverCallRetained>,
+        ChannelError,
+    > {
+        self.packet_caller(binding, identity, call)?;
+        if self.business.is_some() {
+            return Ok(None);
+        }
+        self.pending
+            .as_ref()
+            .ok_or_else(|| invalid(Reason::Revoked, "actual Source attempt observer is absent"))?
+            .1
+            .packet_driver_custody(identity, call)
+    }
     fn resolve_service_datagram_candidates(
         &self,
         binding: &UpstreamBinding,

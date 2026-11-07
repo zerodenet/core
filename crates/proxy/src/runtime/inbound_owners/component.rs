@@ -289,6 +289,10 @@ impl InboundInstallContext {
             )
         };
         let resources = Arc::new(BoundResources {
+            #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+            source_entry: Arc::downgrade(&self.entry),
+            #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+            source_protocols: self.protocols.downgrade(),
             #[cfg(feature = "raw-ip-runtime")]
             source_pause: self.entry.packet_pause.get().cloned(),
             #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]

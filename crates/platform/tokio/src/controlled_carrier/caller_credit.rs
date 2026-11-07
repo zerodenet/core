@@ -1,23 +1,59 @@
-//! Native/users closure is visible before this same original's ACK refund.
+//! Exact original callee registrations and their independent Host ACK.
 use super::slot::Slot;
 use crate::contract::{scope::TaskJoinWitness, BoxFuture};
 use std::sync::Arc;
-pub(super) fn caller(slot: &Slot) -> Option<TaskJoinWitness> {
+fn required(slot: &Slot) -> [Option<TaskJoinWitness>; 2] {
     let state = slot.state();
-    let users = state.users.as_ref()?;
-    if users
-        .preparation
+    let source_owned = state
+        .users
         .as_ref()
-        .is_some_and(|preparation| preparation.job.get().is_some())
-    {
-        if let Some((_, driver)) = &state.driver {
-            // This actual Slot registered the job, even if its later seal
-            // failed. Native/UsersClosed remain independently observable;
-            // local N removal alone waits for this actual registration ACK.
-            return Some(driver.clone());
-        }
+        .is_some_and(|users| users.packet_driver_custody());
+    if source_owned {
+        // The original slot has exactly these two possible callee duties, not
+        // a new task list or the shared Source wire's lifetime. A duplicate
+        // actual registration is observed once without allocating a Vec.
+        let auxiliary = state.auxiliary.clone();
+        let driver = state
+            .driver
+            .as_ref()
+            .map(|(_, driver)| driver.clone())
+            .filter(|driver| {
+                auxiliary
+                    .as_ref()
+                    .is_none_or(|actual| !actual.same_registration(driver))
+            });
+        [auxiliary, driver]
+    } else {
+        let job_driver = state
+            .users
+            .as_ref()
+            .filter(|users| {
+                users
+                    .preparation
+                    .as_ref()
+                    .is_some_and(|preparation| preparation.job.get().is_some())
+            })
+            .and_then(|_| state.driver.as_ref().map(|(_, driver)| driver.clone()));
+        // Keep B's actual installed job registration even if its later seal
+        // failed. Source-owned attempts above retain only their real callee
+        // Auxiliary+driver duties; never the parent wire's self-join.
+        [
+            job_driver.or_else(|| state.users.as_ref().and_then(|users| users.credit_caller())),
+            None,
+        ]
     }
-    users.credit_caller()
+}
+
+fn acknowledged(caller: &TaskJoinWitness) -> bool {
+    caller
+        .try_joined()
+        .is_some_and(|joined| caller.matches_joined(&joined) && joined.registration_released())
+}
+pub(super) fn caller(slot: &Slot) -> Option<TaskJoinWitness> {
+    required(slot)
+        .into_iter()
+        .flatten()
+        .find(|witness| !acknowledged(witness))
 }
 
 #[derive(Default)]

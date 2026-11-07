@@ -9,8 +9,11 @@ use tokio::time::Instant;
 pub struct LoanOwner {
     control: crate::contract::lifecycle::BoxChannelControl,
     original: CarrierOrigin,
-    state: Arc<State>,
-    closed: bool,
+    pub(super) state: Arc<State>,
+    pub(super) closed: bool,
+    native_control: Option<crate::controlled_carrier::CarrierAdoption>,
+    pub(super) logical_control: Option<Arc<super::logical::Observation>>,
+    pub(super) native_control_only: bool,
     pub(super) receiver: std::sync::OnceLock<Arc<super::receiver::Observation>>,
     first_close_failure: Option<Arc<ChannelError>>,
     pub(super) related: Option<Box<super::related::Cleanup>>,
@@ -32,10 +35,17 @@ impl LoanOwner {
             original,
             state,
             closed: false,
+            native_control: None,
+            logical_control: None,
+            native_control_only: false,
             receiver: Default::default(),
             first_close_failure: None,
             related: None,
         }
+    }
+    /// Same logical LoanState, accessible only to this loan's concrete delegate.
+    pub(super) fn packet_driver_state(&self) -> Arc<State> {
+        self.state.clone()
     }
     pub fn original(&self) -> &CarrierOrigin {
         &self.original
@@ -81,7 +91,7 @@ impl LoanOwner {
         }
     }
     pub fn closed(&self) -> Option<LoanClosed> {
-        self.closed.then(|| LoanClosed {
+        (self.closed || self.observed_original_closed()).then(|| LoanClosed {
             state: self.state.clone(),
             original: self.original.clone(),
         })
@@ -90,7 +100,8 @@ impl LoanOwner {
     /// Pending or error. Related control custody still closes child before parent.
     pub fn try_close(&mut self) -> Result<CloseReport, ChannelError> {
         self.cancel(CloseReason::Shutdown);
-        if self.closed {
+        if self.closed().is_some() {
+            self.closed = true;
             return Ok(Default::default());
         }
         if !self.state.returned.load(Ordering::Acquire) {
@@ -147,7 +158,8 @@ impl LoanOwner {
     }
     pub async fn close(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.cancel(CloseReason::Shutdown);
-        if self.closed {
+        if self.closed().is_some() {
+            self.closed = true;
             return Ok(CloseReport::default());
         }
         let returned = async {
@@ -240,3 +252,11 @@ impl Drop for LoanOwner {
         self.cancel(CloseReason::Shutdown);
     }
 }
+
+impl LoanOwner {
+    pub(crate) fn packet_driver_cancel(&self) -> super::packet_driver::OriginalCancellation {
+        super::packet_driver::OriginalCancellation::new(self.state.clone())
+    }
+}
+
+mod original_observation;

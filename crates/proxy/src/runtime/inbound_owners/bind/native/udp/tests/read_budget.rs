@@ -18,6 +18,7 @@ async fn actual_packet_listener_capacity_is_checked_before_first_native_bind_and
             datagram: 0,
             workspaces: [NonZeroUsize::new(65_536).unwrap(); 2],
             control_workspace: None,
+            supplemental: Default::default(),
         },
     ];
     let roots = Arc::new(zero_runtime::HostOriginalBudgets::default());

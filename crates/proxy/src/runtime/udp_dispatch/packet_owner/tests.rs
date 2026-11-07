@@ -48,10 +48,13 @@ fn services() -> (Proxy, crate::protocol_registry::UdpNetworkServices) {
 }
 fn demand(generation: u64) -> PacketCarrierDemand {
     PacketCarrierDemand {
-        identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-            origin: ServiceOrigin::Runtime,
-            purpose: ServicePurpose::DiagnosticProbe,
-        })),
+        identity: RequestIdentity::Service(
+            Arc::new(ServiceRequestFacts {
+                origin: ServiceOrigin::Runtime,
+                purpose: ServicePurpose::DiagnosticProbe,
+            })
+            .into(),
+        ),
         context: CarrierContext {
             session: None,
             deadline: Some(tokio::time::Instant::now() + Duration::from_secs(3)),

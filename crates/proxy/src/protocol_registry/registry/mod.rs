@@ -13,6 +13,8 @@ mod support;
 mod validation;
 
 pub(crate) use outbound::ClaimedOutboundLeaf;
+#[cfg(feature = "udp-runtime")]
+pub(crate) use outbound::ColdPacketPathProjection;
 
 /// Registry of all compiled-in protocol adapters.
 ///
@@ -39,6 +41,11 @@ pub(crate) trait OutboundLeafClaimer: Send + Sync {
 struct RegisteredProtocolEntry {
     support: Arc<dyn ProtocolSupportCapability>,
     outbound: Option<Arc<dyn OutboundLeafClaimer>>,
+    // Cold material declaration only. It grants no IO, native, Scope or route.
+    #[cfg(feature = "udp-runtime")]
+    pure_datagram_formatter: bool,
+    #[cfg(feature = "udp-runtime")]
+    pure_packet_carrier: bool,
 }
 
 impl fmt::Debug for ProtocolRegistry {

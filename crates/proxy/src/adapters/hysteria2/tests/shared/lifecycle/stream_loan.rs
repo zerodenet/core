@@ -15,30 +15,35 @@ async fn loan(proxy: &Proxy) -> StreamLoan {
     let role = slot.stream(end()).await.unwrap();
     proxy
         .protocols
-        .drive_component_supervision(role.connect_carrier(
-            ConnectRequest {
-                destination: Destination::new(Address::Ipv4([203, 0, 113, 1]), 443),
-            },
-            OpenContext {
-                identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-                    origin: ServiceOrigin::Runtime,
-                    purpose: ServicePurpose::DnsQuery,
-                })),
-                deadline: Some(end()),
-                cancel: CancellationToken::new(),
-                upstream: UpstreamTransport::new(
-                    UpstreamBinding {
-                        prefix: vec![],
-                        dial: slot.dial.clone(),
-                        network_generation: zero_core::component::NetworkGeneration(
-                            proxy.egress_interface.generation(),
-                        ),
-                    },
-                    Arc::new(Denied),
-                ),
-                observer: None,
-            },
-        ))
+        .drive_component_supervision(
+            role.connect_carrier(
+                ConnectRequest {
+                    destination: Destination::new(Address::Ipv4([203, 0, 113, 1]), 443),
+                },
+                OpenContext {
+                    identity: RequestIdentity::Service(
+                        Arc::new(ServiceRequestFacts {
+                            origin: ServiceOrigin::Runtime,
+                            purpose: ServicePurpose::DnsQuery,
+                        })
+                        .into(),
+                    ),
+                    deadline: Some(end()),
+                    cancel: CancellationToken::new(),
+                    upstream: UpstreamTransport::new(
+                        UpstreamBinding {
+                            prefix: vec![],
+                            dial: slot.dial.clone(),
+                            network_generation: zero_core::component::NetworkGeneration(
+                                proxy.egress_interface.generation(),
+                            ),
+                        },
+                        Arc::new(Denied),
+                    ),
+                    observer: None,
+                },
+            ),
+        )
         .await
         .unwrap()
         .io

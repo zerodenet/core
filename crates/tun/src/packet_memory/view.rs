@@ -78,6 +78,30 @@ impl PacketMemoryView {
             .root
             .transmit_packet(original, derived_frames, derived_bytes)
     }
+    /// Admit every concrete codec intermediate/output before any codec state
+    /// changes. The one original Root transaction either reserves all lengths
+    /// or none; only actual allocation lifetimes return their same credits.
+    pub fn transmit_buffers(
+        &self,
+        lengths: &[usize],
+    ) -> Result<Vec<PacketBuffer>, PacketMemoryError> {
+        let credits = {
+            let state = self
+                .original
+                .0
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if state.revoked {
+                return Err(PacketMemoryError::Stopped);
+            }
+            self.original.0.root.reserve_transmit(lengths)?
+        };
+        Ok(credits
+            .into_iter()
+            .map(super::PacketTransmitCredit::allocate)
+            .collect())
+    }
     /// Prepay a concrete owning Source/driver layout before constructing its
     /// heap objects. No IO, Scope, native receipt or policy setter is issued.
     /// Existing prepaid credits remain owned after this view is revoked.
@@ -115,3 +139,10 @@ impl PacketMemoryView {
 
 #[cfg(test)]
 mod tests;
+
+impl PacketMemoryView {
+    /// Same actual Kernel accounting object only; no policy, IO or close right.
+    pub fn same_kernel_root(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.original.0.root, &other.original.0.root)
+    }
+}

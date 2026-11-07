@@ -249,9 +249,11 @@ impl super::ProtocolInventory {
             self.host
                 .components()
                 .prepare_with_device_resources(config.clone(), |resources| {
-                    let deferred = self
-                        .devices
-                        .prepare_component_resources(&config, resources)?;
+                    let deferred = self.devices.prepare_component_resources(
+                        &config,
+                        resources,
+                        &self.registry,
+                    )?;
                     let sources = self
                         .devices
                         .source_component_dependencies(&config, resources)?;
@@ -274,9 +276,9 @@ impl super::ProtocolInventory {
             config.clone(),
             recovering,
             |resources| {
-                let deferred = self
-                    .devices
-                    .prepare_component_resources(&config, resources)?;
+                let deferred =
+                    self.devices
+                        .prepare_component_resources(&config, resources, &self.registry)?;
                 let sources = self
                     .devices
                     .source_component_dependencies(&config, resources)?;
@@ -317,9 +319,9 @@ impl super::ProtocolInventory {
         self.devices.release_component_resources(&config)?;
         prepared
             .refresh_device_resources(deadline, |resources| {
-                let deferred = self
-                    .devices
-                    .prepare_component_resources(&config, resources)?;
+                let deferred =
+                    self.devices
+                        .prepare_component_resources(&config, resources, &self.registry)?;
                 let sources = self
                     .devices
                     .source_component_dependencies(&config, resources)?;
@@ -338,9 +340,11 @@ impl super::ProtocolInventory {
             self.host
                 .components()
                 .prepare_recovered_device_resources(config.clone(), |resources| {
-                    let deferred = self
-                        .devices
-                        .prepare_component_resources(&config, resources)?;
+                    let deferred = self.devices.prepare_component_resources(
+                        &config,
+                        resources,
+                        &self.registry,
+                    )?;
                     let sources = self
                         .devices
                         .source_component_dependencies(&config, resources)?;

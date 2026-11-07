@@ -294,6 +294,14 @@ impl ProtocolInventory {
                 config.runtime.effective_packet_transmit_total_max_frames(),
                 config.runtime.effective_packet_transmit_total_max_bytes(),
             )
+            .with_packet_driver_metadata_limits(
+                config
+                    .runtime
+                    .effective_packet_driver_metadata_total_max_allocations(),
+                config
+                    .runtime
+                    .effective_packet_driver_metadata_total_max_bytes(),
+            )
             .with_packet_return_limits(
                 config.runtime.effective_packet_return_max_frames(),
                 config.runtime.effective_packet_return_max_bytes(),

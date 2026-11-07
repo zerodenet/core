@@ -44,14 +44,18 @@ impl CarrierIo {
             ));
         }
         let original = adoption.preparing_transferred_origin()?;
-        Ok(StreamLoan::new(
+        let mut loan = StreamLoan::new(
             Box::pin(Custody {
                 io: self,
                 _view: view,
             }),
             Box::new(NativeControl(adoption)).into(),
             original,
-        ))
+        );
+        // This concrete NativeControl has not published a transferred origin
+        // yet. Its real preparing/native receipts remain the only closure path.
+        loan.owner.native_control_only = true;
+        Ok(loan)
     }
     /// Transfer the actual view and unique custody lease. Borrowed views keep
     /// their sealed parent/control lineage and make no native-close claim.
@@ -73,11 +77,13 @@ impl CarrierIo {
             io: self,
             _view: view,
         };
-        Ok(StreamLoan::new(
+        let mut loan = StreamLoan::new(
             Box::pin(io),
-            Box::new(NativeControl(adoption)).into(),
+            Box::new(NativeControl(adoption.clone())).into(),
             original,
-        ))
+        );
+        loan.owner.observe_native_control(adoption)?;
+        Ok(loan)
     }
 }
 struct Custody {

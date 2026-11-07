@@ -19,6 +19,7 @@ mod lifecycle;
 pub(in crate::adapters::wireguard::lifecycle) struct LinkedStackFactory;
 pub(in crate::adapters::wireguard) struct LinkedStackOptions {
     pub(super) plan: Arc<WireguardRawIpPlan>,
+    pub(super) outer: Option<super::outer::OuterPathRecipe>,
     pub(super) carrier: OnceLock<std::sync::Weak<super::carrier::Carrier>>,
     pub(super) resource: OnceLock<zero_core::component::ComponentId>,
     pub(super) spec: ComponentSpec,
@@ -34,6 +35,12 @@ pub(in crate::adapters::wireguard) struct LinkedStackOptions {
     source_memory: Arc<OnceLock<zero_tun::packet_memory::PacketMemoryView>>,
 }
 impl LinkedStackOptions {
+    pub(in crate::adapters::wireguard) fn has_outer_path(&self) -> bool {
+        self.outer.is_some()
+    }
+    pub(in crate::adapters::wireguard) fn resource_id(&self) -> Option<ComponentId> {
+        self.resource.get().copied()
+    }
     pub(super) fn new(
         recipe: &LinkedEndpointRecipe,
         mut stacks: Vec<EndpointStackRecipe>,
@@ -46,6 +53,7 @@ impl LinkedStackOptions {
         Ok(Self {
             source_memory,
             plan: recipe.plan.clone(),
+            outer: recipe.outer.clone(),
             carrier: OnceLock::new(),
             resource: OnceLock::new(),
             spec: ComponentSpec {
@@ -256,5 +264,48 @@ impl LinkedStackOptions {
             .resources
             .packet_carrier_origin()
             .ok()
+    }
+}
+
+impl LinkedStackOptions {
+    pub(in crate::adapters::wireguard) fn source_outer_network(
+        &self,
+    ) -> Option<std::sync::Weak<crate::component::background::BackgroundNetwork>> {
+        self.outer.as_ref().map(|outer| outer.network.clone())
+    }
+    pub(in crate::adapters::wireguard) fn outer_materials(
+        &self,
+    ) -> Option<(
+        &str,
+        &Arc<[Option<crate::protocol_registry::ColdPacketPathProjection>]>,
+    )> {
+        self.outer
+            .as_ref()
+            .map(|outer| (outer.tag.as_str(), &outer.projections))
+    }
+    pub(in crate::adapters::wireguard) fn source_supplemental_memory(
+        &self,
+    ) -> Result<zero_platform_tokio::contract::component::PacketSupplementalMemory, EngineError>
+    {
+        let actual = (0..self.plan.peer_count())
+            .filter(|peer| self.plan.peer_endpoint(*peer).is_some())
+            .count();
+        self.outer.as_ref().map_or_else(
+            || Ok(Default::default()),
+            |outer| outer.supplemental_memory(actual),
+        )
+    }
+}
+
+impl LinkedStackOptions {
+    pub(in crate::adapters::wireguard) fn source_outer_tasks(&self) -> Result<usize, EngineError> {
+        if self.outer.is_none() {
+            return Ok(0);
+        }
+        (0..self.plan.peer_count())
+            .filter(|peer| self.plan.peer_endpoint(*peer).is_some())
+            .count()
+            .checked_mul(2)
+            .ok_or_else(|| invalid("actual Source outer worker count overflow"))
     }
 }

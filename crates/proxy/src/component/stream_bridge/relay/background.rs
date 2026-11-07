@@ -24,6 +24,24 @@ impl BackgroundPath<'_> {
         services: &TcpExecutionServices,
         waiting: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
     ) -> Result<UpstreamTransport, ChannelError> {
+        self.select_observed_with_identity(services, waiting, None)
+            .await
+    }
+    pub(crate) async fn select_observed_with_identity(
+        self,
+        services: &TcpExecutionServices,
+        waiting: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
+        identity: Option<RequestIdentity>,
+    ) -> Result<UpstreamTransport, ChannelError> {
+        if identity
+            .as_ref()
+            .is_some_and(|identity| !matches!(identity, RequestIdentity::Service(_)))
+        {
+            return Err(invalid(
+                Reason::StalePlan,
+                "packet driver Service facts changed",
+            ));
+        }
         let Self {
             nodes,
             binding,
@@ -141,10 +159,10 @@ impl BackgroundPath<'_> {
                 network_generation: binding.network_generation,
             };
             let context = OpenContext {
-                identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
+                identity: identity.clone().unwrap_or_else(|| RequestIdentity::Service(Arc::new(ServiceRequestFacts {
                     origin: ServiceOrigin::Runtime,
                     purpose: ServicePurpose::BackgroundControl,
-                })),
+                }).into())),
                 deadline: call.deadline,
                 cancel: call.cancel.clone(),
                 upstream,
@@ -180,6 +198,7 @@ impl BackgroundPath<'_> {
                     services.outbound_io(tag, zero_api::TrafficPlane::Outer)
                 },
             );
+            opener.service_identity = identity.clone();
             opener.plan = services.components.as_ref().ok().map(Arc::downgrade);
             opener.datagram_slot = Some(node.slot.clone());
             opener.health = (index == 0).then(|| {

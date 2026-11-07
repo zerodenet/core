@@ -64,12 +64,13 @@ pub(super) async fn loan(proxy: &Proxy, association: u64) -> DatagramLoan {
                 )),
             },
             OpenContext {
-                identity: RequestIdentity::Service(Arc::new(
-                    zero_core::request::ServiceRequestFacts {
+                identity: RequestIdentity::Service(
+                    Arc::new(zero_core::request::ServiceRequestFacts {
                         origin: zero_core::request::ServiceOrigin::Runtime,
                         purpose: zero_core::request::ServicePurpose::BackgroundControl,
-                    },
-                )),
+                    })
+                    .into(),
+                ),
                 deadline: Some(end()),
                 cancel: CancellationToken::new(),
                 observer: None,

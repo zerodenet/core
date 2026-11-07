@@ -1,6 +1,10 @@
 //! Original granted resources and protocol lifecycle over the same host provider.
 use super::*;
 pub(super) struct BoundResources {
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+    pub(super) source_entry: std::sync::Weak<super::super::InboundOwner>,
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+    pub(super) source_protocols: crate::inventory::WeakProtocolInventory,
     #[cfg(feature = "raw-ip-runtime")]
     pub(super) source_pause: Option<Arc<zero_platform_tokio::contract::packet::PacketSourcePause>>,
     #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
@@ -26,6 +30,73 @@ pub(super) struct BoundResources {
 }
 impl ResourceAccess for BoundResources {
     #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+    fn receive_packet_driver_failure(
+        &self,
+        grant: &zero_platform_tokio::contract::component::GrantedPacketServiceCaller,
+        source: Arc<ChannelError>,
+    ) -> Result<bool, BuildError> {
+        let owner = self.source_entry.upgrade().ok_or_else(denied)?;
+        let native = self
+            .packet_native
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .ok_or_else(denied)?;
+        owner.receive_packet_driver_failure(&native, grant, source)
+    }
+
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+    fn register_software_packet_source_driver(
+        &self,
+        driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<
+        zero_platform_tokio::controlled_carrier::LogicalPacketProviderRegistration,
+        BuildError,
+    > {
+        let entry = self.source_entry.upgrade().ok_or_else(denied)?;
+        entry.validate_packet_software_activation()?;
+        let protocols = self.source_protocols.upgrade().ok_or_else(denied)?;
+        let tag = entry.source_tag.get().ok_or_else(denied)?;
+        let input = entry.source_input.get().ok_or_else(denied)?;
+        let dependencies = entry.source_dependencies.get().ok_or_else(denied)?;
+        // Exact already-prepared pending/current Source input and actual
+        // assigned dependencies. Never use Engine.current as a fallback.
+        protocols
+            .runtime_host()
+            .components()
+            .packet_source_driver_candidate(tag, input, dependencies)?;
+        self.packet_native
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .ok_or_else(denied)?
+            .register_software_driver(driver)
+    }
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+    fn packet_driver_caller(
+        &self,
+        original: &zero_platform_tokio::controlled_carrier::CarrierOrigin,
+        driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+        binding: zero_platform_tokio::contract::network::UpstreamBinding,
+        call: zero_platform_tokio::contract::network::CarrierContext,
+    ) -> Result<zero_platform_tokio::contract::component::GrantedPacketServiceCaller, BuildError>
+    {
+        let entry = self.source_entry.upgrade().ok_or_else(denied)?;
+        let protocols = self.source_protocols.upgrade().ok_or_else(denied)?;
+        let tag = entry.source_tag.get().ok_or_else(denied)?;
+        let input = entry.source_input.get().ok_or_else(denied)?;
+        let dependencies = entry.source_dependencies.get().ok_or_else(denied)?;
+        let (_, plan) = protocols
+            .runtime_host()
+            .components()
+            .packet_source_driver_candidate(tag, input, dependencies)?;
+        let targets = plan.packet_driver_targets(dependencies, binding.network_generation)?;
+        self.packet_native
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .ok_or_else(denied)?
+            .packet_driver_caller(original, driver, binding, call, targets)
+    }
+
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
     fn install_packet_source_memory(
         &self,
         datagram: usize,
@@ -49,6 +120,17 @@ impl ResourceAccess for BoundResources {
     }
 
     #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+    fn take_packet_source_wire_launch(
+        &self,
+        datagram: usize,
+    ) -> Result<zero_platform_tokio::contract::scope::TaskLaunch, BuildError> {
+        self.packet_native
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .ok_or_else(denied)?
+            .take_packet_wire_launch(datagram)
+    }
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
     fn take_packet_datagram_reads(
         &self,
         datagram: usize,
@@ -58,6 +140,18 @@ impl ResourceAccess for BoundResources {
             .and_then(std::sync::Weak::upgrade)
             .ok_or_else(denied)?
             .take_packet_reads(datagram)
+    }
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+    fn take_packet_datagram_receive_workspace(
+        &self,
+        datagram: usize,
+        reader: usize,
+    ) -> Result<zero_tun::packet_memory::NativeReadGrant, BuildError> {
+        self.packet_native
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .ok_or_else(denied)?
+            .take_packet_receive_workspace(datagram, reader)
     }
     #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
     fn take_packet_datagram_control(

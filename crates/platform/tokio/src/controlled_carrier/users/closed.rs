@@ -32,6 +32,50 @@ impl CarrierUsersClosed {
     }
 }
 impl CarrierAdoption {
+    pub(crate) fn packet_driver_registrations_released(&self) -> bool {
+        let state = self.slot.state();
+        !state.spawning
+            && !state.opening
+            && state.auxiliary.as_ref().is_none_or(|actual| {
+                actual.try_joined().is_some_and(|joined| {
+                    actual.matches_joined(&joined) && joined.registration_released()
+                })
+            })
+            && state.driver.as_ref().is_none_or(|(_, actual)| {
+                actual.try_joined().is_some_and(|joined| {
+                    actual.matches_joined(&joined) && joined.registration_released()
+                })
+            })
+    }
+    pub(crate) fn transfer_packet_driver_custody(
+        &self,
+        proof: crate::contract::component::packet_driver::attempt::PacketDriverPendingCustody,
+    ) -> Result<(), ChannelError> {
+        if !proof.retains(self) {
+            return Err(error(
+                self.instance(),
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        let installed = self
+            .slot
+            .state()
+            .users
+            .as_mut()
+            .is_some_and(|users| users.install_packet_driver_custody(proof));
+        if !installed {
+            return Err(error(
+                self.instance(),
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn matches_bound_caller(&self, caller: &TaskJoinWitness) -> bool {
         self.slot
             .state()

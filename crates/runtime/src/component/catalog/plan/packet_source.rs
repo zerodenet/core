@@ -52,6 +52,24 @@ impl ComponentPlan {
             })?
             .bind_packet_source(actual)
     }
+    /// Actual Source host projection of the same registered software/native
+    /// original. This changes no Ready, NativeClosed or Scope completion state.
+    pub fn bind_packet_carrier_source_provider(
+        &self,
+        candidate: zero_core::component::ComponentInstanceId,
+        actual: zero_platform_tokio::controlled_carrier::CarrierOrigin,
+    ) -> Result<(), ChannelError> {
+        self.order
+            .iter()
+            .find(|slot| slot.instance_id() == candidate)
+            .ok_or_else(|| {
+                invalid(
+                    Reason::StalePlan,
+                    "Packet source target is outside this actual candidate",
+                )
+            })?
+            .bind_packet_carrier_source(actual)
+    }
     /// A Packet-only native owner is sufficient for L3 dispatch; Stream and
     /// Datagram qualification remains a separate three-role source check.
     pub fn has_packet_provider(&self, role: zero_core::component::RoleInstanceId) -> bool {

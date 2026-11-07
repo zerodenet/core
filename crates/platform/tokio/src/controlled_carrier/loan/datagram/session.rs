@@ -26,8 +26,22 @@ impl DatagramLoan {
     /// `io.wire_association()` before this move and binds its own already-owned
     /// encoded frame to that ID, preserving its separate logical caller ID.
     pub fn into_session(self) -> (BoxDatagramSession, CarrierOrigin) {
-        let Self { mut io, owner } = self;
+        let (tx, rx, limits, owner) = self.into_packet_driver_parts();
         let original = owner.original().clone();
+        (
+            DatagramSession {
+                tx,
+                rx,
+                limits,
+                control: crate::contract::lifecycle::erase_control(owner),
+            },
+            original,
+        )
+    }
+    /// Move the same actual views and concrete owner before type erasure. The
+    /// existing public library session conversion delegates to this same move.
+    pub(crate) fn into_packet_driver_parts(self) -> (Tx, Rx, DatagramLimits, LoanOwner) {
+        let Self { mut io, owner } = self;
         let returned = Arc::new(Returned(io.state.clone()));
         let tx = Part {
             inner: io.tx.get_mut().take().expect("live packet sender"),
@@ -45,13 +59,7 @@ impl DatagramLoan {
         };
         io.returned_by_parts = true;
         let limits = io.limits.clone();
-        let session = DatagramSession {
-            tx: Box::pin(tx) as Tx,
-            rx: Box::pin(rx) as Rx,
-            control: crate::contract::lifecycle::erase_control(owner),
-            limits,
-        };
-        (session, original)
+        (Box::pin(tx) as Tx, Box::pin(rx) as Rx, limits, owner)
     }
 }
 fn revoked() -> ChannelError {

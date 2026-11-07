@@ -22,7 +22,19 @@ impl HostResources {
             state.closed = true;
             state.start_deadline = None;
         }
-        let journal_result = self.journals.close(self.component);
+        if let Some(calls) = self.packet_calls.get() {
+            calls.request_retirement();
+        }
+        match self.journals.close(self.component) {
+            Ok(report) => self
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .io
+                .receipts
+                .append(report),
+            Err(source) => self.retain_resource_error(Arc::new(source)),
+        }
         self.bounds.revoke();
         self.reads.revoke();
         // Persist each original receipt before the first cancellation point.
@@ -31,7 +43,7 @@ impl HostResources {
             .icmp
             .as_ref()
             .map(|icmp| icmp.shutdown_originals(deadline));
-        let icmp_failure = match icmp_result {
+        match icmp_result {
             Some(Ok(report)) => {
                 self.state
                     .lock()
@@ -39,10 +51,9 @@ impl HostResources {
                     .io
                     .receipts
                     .append(report);
-                None
             }
-            Some(Err(error)) => Some(error),
-            None => None,
+            Some(Err(error)) => self.retain_resource_error(Arc::new(error)),
+            None => {}
         };
         // Fence the actual registered physical owner as well as new access.
         // Cancellation callbacks run after the durable closed phase is installed
@@ -72,28 +83,73 @@ impl HostResources {
         // Neither an IO failure nor a slow file job prevents driving the other
         // actual owners. No tasks are spawned; these futures stay structured.
         let packet_reports = async {
-            let mut report = CloseReport::default();
             for owner in &self.packets {
-                report.append(owner.shutdown(deadline).await);
+                let actual = owner.shutdown(deadline).await;
+                // Persist this exact branch before another packet owner or
+                // structured sibling can suspend. No callback under the lock.
+                self.state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .io
+                    .receipts
+                    .append(actual);
             }
-            report
         };
         let process_reports = async {
             #[cfg(any(target_os = "linux", windows))]
             {
-                self.processes.shutdown(self.component, deadline).await
-            }
-            #[cfg(not(any(target_os = "linux", windows)))]
-            {
-                CloseReport::default()
+                let actual = self.processes.shutdown(self.component, deadline).await;
+                self.state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .io
+                    .receipts
+                    .append(actual);
             }
         };
-        let ((), (), packet_report, bound_failure, process_report) = tokio::join!(
+        let packet_calls = async {
+            let actual = match self.packet_calls.get() {
+                Some(calls) => calls.shutdown(deadline).await,
+                None => Ok(CloseReport::default()),
+            };
+            match actual {
+                Ok(actual) => {
+                    self.state
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .io
+                        .receipts
+                        .append(actual);
+                    None
+                }
+                Err(source) => {
+                    let source = Arc::new(source);
+                    // Actual bounded receiver before this branch returns to
+                    // join!, not after an unrelated sibling finishes. A false
+                    // result leaves the same Calls producer charged/unACKed.
+                    if self.packet_failures.try_receive(
+                        source.clone(),
+                        zero_platform_tokio::contract::lifecycle::CleanupFailurePhase::Shutdown,
+                    ) {
+                        None
+                    } else {
+                        Some(source)
+                    }
+                }
+            }
+        };
+        let bound_reports = async {
+            if let Some(source) = self.bounds.shutdown(self, deadline).await {
+                self.retain_resource_error(Arc::new(source));
+            }
+        };
+        let ((), (), (), (), (), calls_unreceived) = tokio::join!(
             self.drive_native(deadline),
             self.drive_files(deadline),
             packet_reports,
-            self.bounds.shutdown(self, deadline),
-            process_reports
+            bound_reports,
+            process_reports,
+            packet_calls
         );
         let original_failure = {
             let state = self
@@ -106,19 +162,6 @@ impl HostResources {
                 .clone()
                 .or_else(|| state.io.failures.values().next().cloned())
         };
-        let journal_report = match journal_result {
-            Ok(report) => report,
-            Err(error) => {
-                self.retain_resource_error(Arc::new(error));
-                CloseReport::default()
-            }
-        };
-        if let Some(error) = bound_failure {
-            self.retain_resource_error(Arc::new(error));
-        }
-        if let Some(error) = icmp_failure {
-            self.retain_resource_error(Arc::new(error));
-        }
         if let Some(source) = original_failure {
             self.retain_resource_error(source);
         }
@@ -141,15 +184,37 @@ impl HostResources {
                 }
             }
         }
+        if let Some(source) = calls_unreceived {
+            return Err(crate::component::instance::retained(source));
+        }
+        if let Some(source) = self.packet_failures.report().filter(|source| {
+            !source
+                .cleanup_failure_receipt()
+                .is_some_and(|receipt| receipt.is_acknowledged())
+        }) {
+            // Deliver the stable aggregate before consuming any original IO
+            // receipts. A retry after the actual parent archive ACK consumes
+            // these same receipts, never reconstructed close side effects.
+            return Err(crate::component::instance::retained(source));
+        }
         let mut state = self
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut report = std::mem::take(&mut state.io.receipts);
         report.append(std::mem::take(&mut state.files.receipts));
-        report.append(journal_report);
-        report.append(packet_report);
-        report.append(process_report);
+        if self
+            .packet_calls
+            .get()
+            .is_some_and(|calls| !calls.cleanup_settled())
+        {
+            report.unfinished.push(
+                zero_platform_tokio::contract::lifecycle::Unfinished::Resource(
+                    "same Packet calls retain original controls/child registration/fault delivery"
+                        .into(),
+                ),
+            );
+        }
         report.unfinished.extend(
             state
                 .files

@@ -35,7 +35,19 @@ impl WireguardAdapter {
                 .find(|input| input.tag == *source)
                 .ok_or_else(|| invalid("actual outer consumer Source is absent"))?;
             let digest = crate::runtime::inbound_owners::source_input_identity(input)?;
-            let actual = outer_component_dependencies(config, outer, resources)?;
+            let mut actual = outer_component_dependencies(config, outer, resources)?;
+            // The canonical TEMP Source consumes this exact graph's endpoint
+            // IO and virtual client stacks, not only its final outer callee.
+            // Keep its actual ordered-path generation in the same dependency
+            // graph so reordering/replacement stops the original Source first.
+            // Legacy unconverted candidates have no such actual graph; their
+            // existing external dependencies remain unchanged until activation.
+            if let Some(id) = self.source_outer_graph_dependency(config, source)? {
+                if !resources.resources().any(|entry| entry.component() == id) {
+                    return Err(invalid("Source outer graph is absent from this cold union"));
+                }
+                actual.insert(id);
+            }
             let entry = sources
                 .entry(source.clone())
                 .or_insert_with(|| (digest, BTreeSet::new()));

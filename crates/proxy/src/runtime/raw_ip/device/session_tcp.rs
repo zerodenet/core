@@ -72,6 +72,7 @@ impl Stream {
                 });
             self.connecting.take();
             self.control.close().await;
+            self._user.mark_logical_closed();
             let reason = match source.kind() {
                 io::ErrorKind::TimedOut => Reason::Timeout,
                 io::ErrorKind::WouldBlock => Reason::Capacity,
@@ -92,16 +93,24 @@ impl Stream {
         self.connecting.take();
         self.stream.take();
         self.control.close().await;
+        self._user.mark_logical_closed();
     }
     pub(crate) fn into_loan(self, original: CarrierOrigin) -> Result<StreamLoan, ChannelError> {
         let receiver = self._user.receiver_binding();
-        let control = Control(self.control.clone());
+        let control = Control {
+            original: self.control.clone(),
+            completion: self._user.logical_completion(),
+            closing: None,
+            closed: None,
+            deadline: None,
+        };
         let mut loan = StreamLoan::new(
             Box::pin(self),
             zero_platform_tokio::contract::lifecycle::erase_control(control),
             original,
         );
-        receiver.bind(loan.receiver_observation())?;
+        let observation = loan.receiver_observation();
+        receiver.bind(observation, &mut loan.owner)?;
         Ok(loan)
     }
     fn prepare(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -183,21 +192,9 @@ impl Drop for Stream {
         self.control.cancel();
     }
 }
-struct Control(ClientTcpSocketControl);
-impl ChannelControl for Control {
-    fn cancel(&self, _: CloseReason) {
-        self.0.cancel();
-    }
-    async fn wait_closed(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
-        tokio::time::timeout_at(deadline, self.0.close())
-            .await
-            .map_err(|source| {
-                ChannelError::new(Stage::Close, Reason::Timeout, Impact::Session)
-                    .with_source(source)
-            })?;
-        Ok(CloseReport::default()) // matching logical TCP only; original Scope/native remain separate
-    }
-}
+#[path = "session_tcp/control.rs"]
+mod closing;
+use closing::Control;
 
 fn stack_io_error(source: zero_stack::ClientTcpStackError) -> io::Error {
     use zero_stack::ClientTcpStackError as Error;

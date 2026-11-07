@@ -143,10 +143,13 @@ fn role_context(proxy: &Proxy) -> (Arc<crate::component::instance::ComponentSlot
     (
         c,
         OpenContext {
-            identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-                origin: ServiceOrigin::Runtime,
-                purpose: ServicePurpose::BackgroundControl,
-            })),
+            identity: RequestIdentity::Service(
+                Arc::new(ServiceRequestFacts {
+                    origin: ServiceOrigin::Runtime,
+                    purpose: ServicePurpose::BackgroundControl,
+                })
+                .into(),
+            ),
             deadline: Some(deadline()),
             cancel: CancellationToken::new(),
             upstream: UpstreamTransport::new(binding, Arc::new(Denied)),

@@ -65,7 +65,7 @@ impl BorrowedDatagram {
                 observer,
                 custody: custody,
             }) as Rx,
-            control: (Box::new(super::super::native::NativeControl(adoption))
+            control: (Box::new(super::super::native::NativeControl(adoption.clone()))
                 as Box<dyn crate::contract::lifecycle::DynChannelControl>)
                 .into(),
             limits,
@@ -74,6 +74,7 @@ impl BorrowedDatagram {
         // Same original Tx/Rx still expect their original wire association.
         // A new logical receiver never rewrites a borrowed immutable payload.
         loan.io.wire_association = wire_association;
+        loan.owner.observe_native_control(adoption)?;
         Ok(loan)
     }
     /// A domain's eventual family is unknown here; retain conservative IPv6

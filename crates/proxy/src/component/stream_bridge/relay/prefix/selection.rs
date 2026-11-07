@@ -51,10 +51,15 @@ impl PrefixOpener {
                 ));
             }
             let context = OpenContext {
-                identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-                    origin: ServiceOrigin::Runtime,
-                    purpose: ServicePurpose::BackgroundControl,
-                })),
+                identity: self.service_identity.clone().unwrap_or_else(|| {
+                    RequestIdentity::Service(
+                        Arc::new(ServiceRequestFacts {
+                            origin: ServiceOrigin::Runtime,
+                            purpose: ServicePurpose::BackgroundControl,
+                        })
+                        .into(),
+                    )
+                }),
                 deadline: call.deadline,
                 cancel: call.cancel.clone(),
                 observer: if self.context.session_identity()?.is_none() {
@@ -73,6 +78,7 @@ impl PrefixOpener {
                 self.network.clone(),
                 self.observer.clone(),
             );
+            selected.service_identity = self.service_identity.clone();
             selected.datagram_slot = self.datagram_slot.clone();
             selected.plan = self.plan.clone();
             selected.health = self.health.clone();

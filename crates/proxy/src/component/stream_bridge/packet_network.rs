@@ -55,7 +55,7 @@ impl UpstreamOpener for PacketOpener {
                     Arc::ptr_eq(actual, request)
                 }
                 (RequestIdentity::Service(actual), RequestIdentity::Service(request)) => {
-                    Arc::ptr_eq(actual, request)
+                    actual.same_owner(request)
                 }
                 _ => false,
             }
@@ -63,7 +63,7 @@ impl UpstreamOpener for PacketOpener {
             return Err(failure());
         }
         if let Some(probe) = &self.invocation.caller_probe {
-            if !matches!((&self.invocation.identity,identity),(RequestIdentity::Service(actual),RequestIdentity::Service(request)) if Arc::ptr_eq(actual,request) && Arc::ptr_eq(actual,&probe.identity()))
+            if !matches!((&self.invocation.identity,identity),(RequestIdentity::Service(actual),RequestIdentity::Service(request)) if actual.same_owner(request) && actual.matches_shared(&probe.identity()))
             {
                 return Err(failure());
             }

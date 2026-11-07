@@ -48,6 +48,14 @@ impl TaskRegistrar {
     }
 }
 impl WeakTaskRegistrar {
+    /// Read the same actual declared finite metadata limit. No task admission,
+    /// ID reservation, grant, join or ACK follows from this observation.
+    pub fn declared_task_limit(&self) -> Option<std::num::NonZeroUsize> {
+        let owner = self.0.upgrade()?;
+        let state = owner.lock_state();
+        std::num::NonZeroUsize::new(state.limit)
+    }
+
     pub fn reserve_launch(&self, class: TaskClass) -> Result<super::TaskLaunch, SpawnError> {
         let owner = self.0.upgrade().ok_or(SpawnError::Closing)?;
         TaskRegistrar(owner, self.1).reserve_launch(class)

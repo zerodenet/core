@@ -57,10 +57,13 @@ pub(super) fn deadline() -> Instant {
 }
 fn identity(business: bool) -> RequestIdentity {
     if !business {
-        return RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-            origin: ServiceOrigin::Runtime,
-            purpose: ServicePurpose::Bootstrap,
-        }));
+        return RequestIdentity::Service(
+            Arc::new(ServiceRequestFacts {
+                origin: ServiceOrigin::Runtime,
+                purpose: ServicePurpose::Bootstrap,
+            })
+            .into(),
+        );
     }
     RequestIdentity::Business(Arc::new(RequestFacts {
         session: SessionId(19),
