@@ -16,7 +16,7 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 66] = [
+    let fields: [BudgetField; 72] = [
         (
             "packet_route_max_routes",
             RuntimeOptionsConfig::effective_packet_route_max_routes,
