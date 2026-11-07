@@ -113,13 +113,14 @@ pub(super) async fn pause_sources<'a>(
     candidate: &Arc<crate::component::catalog::ComponentPlan>,
     user_pause: Arc<crate::component::catalog::ReplacementUsersPause>,
     retirement: &mut Option<crate::component::catalog::PacketSourceRetirement<'a>>,
+    network_restart: bool,
 ) -> Result<SourceBudgetPauses, EngineError> {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
     #[cfg(feature = "raw-ip-runtime")]
-    let packet_changed = packet_budget_changed(previous, next);
+    let packet_changed = packet_budget_changed(previous, next) || network_restart;
     #[cfg(not(feature = "raw-ip-runtime"))]
     let _ = next;
-    let carrier_changed = carrier_budget_changed(previous, next);
+    let carrier_changed = carrier_budget_changed(previous, next) || network_restart;
     let mut pauses = Vec::new();
     #[cfg(feature = "raw-ip-runtime")]
     let mut mains = Vec::new();

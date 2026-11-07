@@ -215,6 +215,7 @@ impl OrchestrationState {
                 &components,
                 user_pause.clone(),
                 &mut source_retirement,
+                tun_restart,
             )
             .await
             {
