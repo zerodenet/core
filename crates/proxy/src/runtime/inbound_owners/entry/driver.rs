@@ -184,9 +184,10 @@ async fn close_resources(
             ),
         };
         match result {
-            Ok(report) => {
+            Ok(mut report) => {
                 let complete = report.is_complete();
                 if let Some(parent) = parent.upgrade() {
+                    parent.retain_resource_failures(&mut report);
                     // Persist each actual receipt before marking this one
                     // resource stopped. This is never our own Scope join.
                     parent
@@ -200,14 +201,15 @@ async fn close_resources(
                         let mut error =
                             ChannelError::new(Stage::Close, Reason::Timeout, Impact::Component);
                         error.component = Some(resource.identity.component);
-                        let source = resource.exit_fault.get_or_init(|| Arc::new(error)).clone();
+                        let source =
+                            resource.receive_cleanup_failure(error, cleanup_fault::Phase::Driver);
                         failure.get_or_insert(source);
                     }
                 }
             }
             Err(mut error) => {
                 error.component.get_or_insert(resource.identity.component);
-                let source = resource.exit_fault.get_or_init(|| Arc::new(error)).clone();
+                let source = resource.receive_cleanup_failure(error, cleanup_fault::Phase::Driver);
                 failure.get_or_insert(source);
             }
         }
