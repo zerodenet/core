@@ -3,6 +3,7 @@
 use super::owned::{H2ClientDriver, OwnedH2Client, PreparedH2Client};
 use super::*;
 use futures_util::task::{waker_ref, ArcWake, AtomicWaker};
+use std::future::Future;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
