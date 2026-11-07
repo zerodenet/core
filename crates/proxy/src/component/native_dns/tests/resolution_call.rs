@@ -39,6 +39,6 @@ async fn same_resolution_call_waits_both_actual_family_native_users_scope_and_ho
  assert!(native.owner().closed().unwrap().matches(native.owner()));
  assert!(native.owner().users_closed().unwrap().matches(native.owner()));
  }
- assert_eq!(proxy.host.original_budgets().carrier.snapshot().charged,0);
+ assert_eq!(proxy.protocols.runtime_host().original_budgets().carrier.snapshot().charged,0);
  }).await.unwrap();
 }
