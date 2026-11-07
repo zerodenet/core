@@ -107,3 +107,6 @@ mod other_streams;
 mod other_domain;
 
 mod mux_grpc;
+
+#[cfg(feature = "vmess")]
+mod relay;
