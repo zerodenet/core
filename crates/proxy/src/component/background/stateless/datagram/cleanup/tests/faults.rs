@@ -151,7 +151,8 @@ async fn actual_socket_faults_share_one_durable_received_row_and_late_secondary_
                 failure: failures[0].clone(),
                 emitted: false,
                 pending: None,
-            }),
+            })
+            .into(),
             first_origin,
         );
         let second = zero_platform_tokio::controlled_carrier::loan::StreamLoan::new(
@@ -161,7 +162,8 @@ async fn actual_socket_faults_share_one_durable_received_row_and_late_secondary_
                 failure: failures[1].clone(),
                 emitted: false,
                 pending: None,
-            }),
+            })
+            .into(),
             second_origin,
         );
         drop(first.io);
@@ -193,7 +195,7 @@ async fn actual_socket_faults_share_one_durable_received_row_and_late_secondary_
             opening: false.into(),
         });
         let mut control = super::super::super::Control {
-            inner: Box::new(LoanControl(first.owner)),
+            inner: Box::new(LoanControl(first.owner)).into(),
             transfer,
             cleanup: Mutex::default(),
         };

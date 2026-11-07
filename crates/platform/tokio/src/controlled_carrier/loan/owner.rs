@@ -7,7 +7,7 @@ use std::sync::atomic::Ordering;
 use tokio::time::Instant;
 
 pub struct LoanOwner {
-    control: Box<dyn DynChannelControl>,
+    control: crate::contract::lifecycle::BoxChannelControl,
     original: CarrierOrigin,
     state: Arc<State>,
     closed: bool,
@@ -23,7 +23,7 @@ pub struct LoanClosed {
 }
 impl LoanOwner {
     pub(super) fn new(
-        control: Box<dyn DynChannelControl>,
+        control: crate::contract::lifecycle::BoxChannelControl,
         original: CarrierOrigin,
         state: Arc<State>,
     ) -> Self {

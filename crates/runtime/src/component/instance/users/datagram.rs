@@ -21,7 +21,7 @@ struct Rx {
     revoked: BoxFuture<'static, ()>,
 }
 struct Control {
-    inner: Box<dyn DynChannelControl>,
+    inner: zero_platform_tokio::contract::lifecycle::BoxChannelControl,
     _lease: Arc<Lease>,
 }
 pub(super) fn wrap_loan(
@@ -60,7 +60,8 @@ pub(super) fn wrap(lease: Arc<Lease>, session: BoxDatagramSession) -> BoxDatagra
         control: Box::new(Control {
             inner: session.control,
             _lease: lease,
-        }),
+        })
+        .into(),
         limits: session.limits,
     }
 }

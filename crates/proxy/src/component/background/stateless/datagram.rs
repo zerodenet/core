@@ -202,7 +202,7 @@ impl DatagramOutbound for Datagram {
     }
 }
 pub(super) struct Control {
-    inner: Box<dyn DynChannelControl>,
+    inner: zero_platform_tokio::contract::lifecycle::BoxChannelControl,
     transfer: Arc<Transfer>,
     cleanup: Mutex<cleanup::Cleanup>,
 }

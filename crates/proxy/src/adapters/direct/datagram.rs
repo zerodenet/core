@@ -4,11 +4,11 @@ use std::pin::Pin;
 use zero_platform_tokio::contract::{
     context::{with_deadline, ConnectFact, OpenContext},
     datagram::{DatagramOutbound, DatagramRequest, DatagramRx, DatagramSession, DatagramTx},
-    lifecycle::{ChannelControl, CloseReport, DynChannelControl},
+    lifecycle::{ChannelControl, CloseReport},
     network::CarrierContext,
     ChannelError, CloseReason, DeliveryState, Reason, Stage,
 };
-pub(super) struct Control(Box<dyn DynChannelControl>);
+pub(super) struct Control(zero_platform_tokio::contract::lifecycle::BoxChannelControl);
 impl ChannelControl for Control {
     fn cancel(&self, reason: CloseReason) {
         self.0.cancel(reason);

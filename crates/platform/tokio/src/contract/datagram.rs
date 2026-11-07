@@ -97,8 +97,11 @@ pub trait DatagramOutbound: Send + Sync + 'static {
     ) -> impl Future<Output = DatagramOpenResult<Self::Tx, Self::Rx, Self::Control>> + Send;
 }
 
-pub type BoxDatagramSession =
-    DatagramSession<Pin<Box<dyn DatagramTx>>, Pin<Box<dyn DatagramRx>>, Box<dyn DynChannelControl>>;
+pub type BoxDatagramSession = DatagramSession<
+    Pin<Box<dyn DatagramTx>>,
+    Pin<Box<dyn DatagramRx>>,
+    crate::contract::lifecycle::BoxChannelControl,
+>;
 
 impl<Frame, Receipt, T: DatagramTx<Frame, Receipt> + ?Sized> DatagramTx<Frame, Receipt>
     for Pin<Box<T>>

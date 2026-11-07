@@ -23,13 +23,13 @@ use zero_core::{
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::{
     datagram::{recv, send, DatagramLimits, DatagramRequest, DatagramRx, DatagramTx},
-    lifecycle::{erase_control, DynChannelControl},
+    lifecycle::erase_control,
     ChannelError, CloseReason, Impact, Reason, Stage,
 };
 pub(super) struct NativeAssociation {
     tx: Mutex<Option<Pin<Box<dyn DatagramTx>>>>,
     rx: Mutex<Option<Pin<Box<dyn DatagramRx>>>>,
-    control: Mutex<Box<dyn DynChannelControl>>,
+    control: Mutex<zero_platform_tokio::contract::lifecycle::BoxChannelControl>,
     limits: DatagramLimits,
     association: AssociationId,
     reason: Arc<AtomicU8>,

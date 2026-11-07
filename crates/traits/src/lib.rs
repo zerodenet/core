@@ -5,6 +5,7 @@ extern crate alloc;
 mod dial;
 pub use dial::{canonicalize_ip, AddressFamily, DialPolicy, DialPolicyError};
 mod packet_buffer;
+pub mod packet_metadata;
 pub use packet_buffer::{PacketBuffer, PacketDerivation, PacketDeriveError, PacketStorage};
 mod observation;
 pub use observation::{IoObserver, PacketDropReason};

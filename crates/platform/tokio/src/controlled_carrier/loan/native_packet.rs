@@ -77,7 +77,7 @@ impl CarrierDatagram {
                 custody,
                 bytes: vec![0; 65536],
             }),
-            control: Box::new(NativeControl(adoption)),
+            control: Box::new(NativeControl(adoption)).into(),
             limits: DatagramLimits {
                 max_payload: 65507,
                 queued_bytes: 0,

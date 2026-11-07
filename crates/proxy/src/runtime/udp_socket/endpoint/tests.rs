@@ -10,7 +10,7 @@ use zero_core::{
     Network, ProtocolType, Session,
 };
 use zero_platform_tokio::contract::{
-    lifecycle::{erase_control, DynChannelControl, ResourceLifecycle},
+    lifecycle::{erase_control, ResourceLifecycle},
     scope::TaskScope,
 };
 
@@ -101,7 +101,7 @@ impl Fixture {
     ) -> (
         DirectEndpointTx,
         DirectEndpointRx,
-        Box<dyn DynChannelControl>,
+        zero_platform_tokio::contract::lifecycle::BoxChannelControl,
     ) {
         self.open_isolated(endpoint, target, cancel, None)
     }
@@ -114,7 +114,7 @@ impl Fixture {
     ) -> (
         DirectEndpointTx,
         DirectEndpointRx,
-        Box<dyn DynChannelControl>,
+        zero_platform_tokio::contract::lifecycle::BoxChannelControl,
     ) {
         self.try_open(endpoint, target, cancel, isolation).unwrap()
     }
@@ -128,7 +128,7 @@ impl Fixture {
         (
             DirectEndpointTx,
             DirectEndpointRx,
-            Box<dyn DynChannelControl>,
+            zero_platform_tokio::contract::lifecycle::BoxChannelControl,
         ),
         ChannelError,
     > {

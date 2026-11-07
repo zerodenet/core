@@ -4,18 +4,18 @@ use std::sync::{
     Arc,
 };
 use zero_platform_tokio::contract::{
-    lifecycle::{ChannelControl, CloseReport, DynChannelControl},
+    lifecycle::{ChannelControl, CloseReport},
     ChannelError, CloseReason,
 };
 pub(super) struct ObservedControl {
-    actual: Box<dyn DynChannelControl>,
+    actual: zero_platform_tokio::contract::lifecycle::BoxChannelControl,
     observer: UdpAssociationObserver,
     reason: Arc<AtomicU8>,
     reported: bool,
 }
 impl ObservedControl {
     pub(super) fn new(
-        actual: Box<dyn DynChannelControl>,
+        actual: zero_platform_tokio::contract::lifecycle::BoxChannelControl,
         observer: UdpAssociationObserver,
         reason: Arc<AtomicU8>,
     ) -> Self {

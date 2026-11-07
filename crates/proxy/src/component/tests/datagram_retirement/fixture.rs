@@ -4,11 +4,11 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::Notify,
-    time::{Instant, timeout_at},
+    time::{timeout_at, Instant},
 };
 use zero_platform_tokio::contract::{
+    lifecycle::{erase_control, ChannelControl, CloseReport, Unfinished},
     CancellationToken, ChannelError, CloseReason, Impact, Reason, Stage,
-    lifecycle::{ChannelControl, CloseReport, DynChannelControl, Unfinished, erase_control},
 };
 pub(super) fn deadline() -> Instant {
     Instant::now() + std::time::Duration::from_secs(3)
@@ -63,7 +63,7 @@ impl ChannelControl for TcpControl {
 pub(super) async fn tcp_control(
     unexpected: bool,
 ) -> (
-    Box<dyn DynChannelControl>,
+    zero_platform_tokio::contract::lifecycle::BoxChannelControl,
     Arc<Notify>,
     Arc<Notify>,
     tokio::task::JoinHandle<()>,

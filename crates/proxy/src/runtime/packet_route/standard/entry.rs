@@ -3,9 +3,8 @@ use std::{
     pin::Pin,
     sync::atomic::{AtomicBool, Ordering},
 };
-use zero_platform_tokio::contract::{
-    lifecycle::DynChannelControl,
-    packet::{self, BoxPacketSession, PacketRx, PacketTx},
+use zero_platform_tokio::contract::lifecycle::packet::{
+    self, BoxPacketSession, PacketRx, PacketTx,
 };
 pub(super) struct Entry {
     pub(super) key: Key,
@@ -20,7 +19,7 @@ pub(super) struct Entry {
 }
 struct Sender {
     tx: Option<Pin<Box<dyn PacketTx>>>,
-    control: Box<dyn DynChannelControl>,
+    control: zero_platform_tokio::contract::lifecycle::BoxChannelControl,
     limits: PacketLimits,
 }
 impl Entry {

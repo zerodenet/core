@@ -14,13 +14,13 @@ use zero_core::{
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::{
     datagram::{recv, send, DatagramLimits, DatagramRequest, DatagramRx, DatagramTx},
-    lifecycle::DynChannelControl,
-    ChannelError, CloseReason, Impact, Reason, Stage,
+    lifecycle::ChannelError,
+    CloseReason, Impact, Reason, Stage,
 };
 pub(super) struct DatagramConnection {
     tx: Mutex<Pin<Box<dyn DatagramTx>>>,
     rx: Mutex<Pin<Box<dyn DatagramRx>>>,
-    control: Mutex<Box<dyn DynChannelControl>>,
+    control: Mutex<zero_platform_tokio::contract::lifecycle::BoxChannelControl>,
     association: AssociationId,
     limits: DatagramLimits,
     wire: Arc<WireTraffic>,

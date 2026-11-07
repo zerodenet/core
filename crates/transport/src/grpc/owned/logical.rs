@@ -2,8 +2,8 @@
 use super::{budget::Record, *};
 use std::sync::Arc;
 use zero_platform_tokio::contract::{
-    BoxFuture, CloseReason,
     lifecycle::{CloseReport, DynChannelControl},
+    BoxFuture, CloseReason,
 };
 
 pub(super) struct WorkerReturn(pub(super) Arc<Record>, pub(super) bool);
@@ -50,7 +50,7 @@ impl NativeGrpcStream {
     ) -> Result<
         (
             zero_platform_tokio::contract::stream::BoxStream,
-            Box<dyn DynChannelControl>,
+            zero_platform_tokio::contract::lifecycle::BoxChannelControl,
             zero_platform_tokio::controlled_carrier::CarrierOrigin,
         ),
         ChannelError,
@@ -64,7 +64,7 @@ impl NativeGrpcStream {
             )
         })?;
         let origin = physical.adoption.origin(&witness)?;
-        let control = Box::new(Control(self.record()));
+        let control = Box::new(Control(self.record())).into();
         Ok((Box::pin(self), control, origin))
     }
     /// This closes only that logical stream, never another pool user's carrier.

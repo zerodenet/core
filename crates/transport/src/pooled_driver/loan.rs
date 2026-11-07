@@ -47,7 +47,8 @@ impl PooledStream {
                 shared,
                 original: self.origin.clone(),
                 done: false,
-            }),
+            })
+            .into(),
             self.origin,
         ))
     }

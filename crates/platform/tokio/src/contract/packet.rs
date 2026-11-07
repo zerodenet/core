@@ -152,8 +152,11 @@ pub trait PacketOutbound: Send + Sync + 'static {
     ) -> impl Future<Output = PacketOpenResult<Self::Tx, Self::Rx, Self::Control>> + Send;
 }
 
-pub type BoxPacketSession =
-    PacketSession<Pin<Box<dyn PacketTx>>, Pin<Box<dyn PacketRx>>, Box<dyn DynChannelControl>>;
+pub type BoxPacketSession = PacketSession<
+    Pin<Box<dyn PacketTx>>,
+    Pin<Box<dyn PacketRx>>,
+    crate::contract::lifecycle::BoxChannelControl,
+>;
 
 impl<T: PacketTx + ?Sized> PacketTx for Pin<Box<T>> {
     fn poll_send(

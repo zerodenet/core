@@ -10,9 +10,9 @@ mod owner;
 mod receiver;
 mod related;
 use super::CarrierOrigin;
-use crate::contract::{lifecycle::DynChannelControl, stream::BoxStream, CancellationToken};
-pub use dependency::CarrierDependencyLoanIssuer;
+use crate::contract::{lifecycle::stream::BoxStream, CancellationToken};
 pub use datagram::{BorrowedDatagram, DatagramLoan, LoanDatagramIo};
+pub use dependency::CarrierDependencyLoanIssuer;
 pub use io::LoanIo;
 pub use owner::{LoanClosed, LoanOwner};
 pub use receiver::CarrierLoanReceiver;
@@ -33,7 +33,7 @@ impl StreamLoan {
     /// completion callback. The sealed original lineage has no public constructor.
     pub fn new(
         io: BoxStream,
-        control: Box<dyn DynChannelControl>,
+        control: crate::contract::lifecycle::BoxChannelControl,
         original: CarrierOrigin,
     ) -> Self {
         let state = Arc::new(State {

@@ -146,7 +146,11 @@ impl Root {
             .expect("original retained before protocol handshake")
             .original()
             .clone();
-        Ok(StreamLoan::new(io, Box::new(Control(entry)), original))
+        Ok(StreamLoan::new(
+            io,
+            Box::new(Control(entry)).into(),
+            original,
+        ))
     }
 }
 struct Control(Arc<custody::NativeUse>);

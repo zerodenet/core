@@ -65,8 +65,9 @@ impl BorrowedDatagram {
                 observer,
                 custody: custody,
             }) as Rx,
-            control: Box::new(super::super::native::NativeControl(adoption))
-                as Box<dyn crate::contract::lifecycle::DynChannelControl>,
+            control: (Box::new(super::super::native::NativeControl(adoption))
+                as Box<dyn crate::contract::lifecycle::DynChannelControl>)
+                .into(),
             limits,
         };
         let mut loan = DatagramLoan::new(session, original, association, endpoint);

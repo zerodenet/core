@@ -48,7 +48,7 @@ impl CarrierIo {
                 io: self,
                 _view: view,
             }),
-            Box::new(NativeControl(adoption)),
+            Box::new(NativeControl(adoption)).into(),
             original,
         ))
     }
@@ -74,7 +74,7 @@ impl CarrierIo {
         };
         Ok(StreamLoan::new(
             Box::pin(io),
-            Box::new(NativeControl(adoption)),
+            Box::new(NativeControl(adoption)).into(),
             original,
         ))
     }

@@ -27,8 +27,8 @@ impl DatagramReservation {
     /// this reference-only lease can be exposed to a business consumer.
     pub(crate) fn adopt(
         mut self,
-        control: Box<dyn DynChannelControl>,
-    ) -> Box<dyn DynChannelControl> {
+        control: zero_platform_tokio::contract::lifecycle::BoxChannelControl,
+    ) -> zero_platform_tokio::contract::lifecycle::BoxChannelControl {
         self.owner.adopt(self.id, &self.entry, control);
         self.adopted = true;
         Box::new(Lease {
@@ -36,6 +36,7 @@ impl DatagramReservation {
             id: self.id,
             entry: self.entry.clone(),
         })
+        .into()
     }
 }
 impl Drop for DatagramReservation {

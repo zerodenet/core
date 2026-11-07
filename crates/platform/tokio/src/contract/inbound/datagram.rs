@@ -2,7 +2,7 @@
 //! channel is already the association; its packets need no invented identity.
 use super::super::{
     datagram::{DatagramLimits, DatagramRx, DatagramSession, DatagramTx},
-    lifecycle::{erase_control, ChannelControl, DynChannelControl},
+    lifecycle::{erase_control, ChannelControl},
     SendReceipt,
 };
 use std::pin::Pin;
@@ -68,7 +68,7 @@ pub type DynInboundDatagramTx =
 pub type BoxInboundDatagramSession = InboundDatagramSession<
     Pin<Box<DynInboundDatagramTx>>,
     Pin<Box<dyn DatagramRx<InboundDatagramEvent>>>,
-    Box<dyn DynChannelControl>,
+    crate::contract::lifecycle::BoxChannelControl,
 >;
 
 pub fn erase_datagram_session<

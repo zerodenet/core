@@ -5,12 +5,12 @@ use crate::runtime::{
     udp_flow::response_join::ResponseSetOwner,
 };
 use tokio::time::{timeout_at, Instant};
-use zero_platform_tokio::contract::lifecycle::{CloseReport, DynChannelControl, ResourceLifecycle};
+use zero_platform_tokio::contract::lifecycle::{CloseReport, ResourceLifecycle};
 #[derive(Default)]
 pub(super) struct State {
     pub dispatch: Option<UdpDispatch>,
     pub dropped: bool,
-    pub control: Option<Box<dyn DynChannelControl>>,
+    pub control: Option<zero_platform_tokio::contract::lifecycle::BoxChannelControl>,
     direct: Option<DispatchDirectSockets>,
     responses: Option<Arc<ResponseSetOwner>>,
     pub(super) receipts: CloseReport,

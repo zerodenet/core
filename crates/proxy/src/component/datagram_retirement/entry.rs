@@ -1,12 +1,13 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::time::Sleep;
 use zero_platform_tokio::contract::{
-    lifecycle::{CloseReport, DynChannelControl, Unfinished},
+    lifecycle::{CloseReport, Unfinished},
     ChannelError, CloseReason,
 };
 mod cancel;
 mod poll;
-type Control = Arc<tokio::sync::Mutex<Option<Box<dyn DynChannelControl>>>>;
+type Control =
+    Arc<tokio::sync::Mutex<Option<zero_platform_tokio::contract::lifecycle::BoxChannelControl>>>;
 type Closing = Pin<Box<dyn Future<Output = Result<CloseReport, ChannelError>> + Send>>;
 pub(super) struct Entry {
     pub(super) returns: Option<Arc<super::DatagramReturns>>,

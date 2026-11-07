@@ -9,12 +9,11 @@ use std::sync::Weak;
 use zero_core::component::RoleInstanceId;
 use zero_platform_tokio::{
     contract::{
-        BoxFuture,
-        lifecycle::DynChannelControl,
-        network::{
+        lifecycle::network::{
             CarrierContext, PendingCarrierObserver, UpstreamBinding, UpstreamOpener,
             UpstreamTransport,
         },
+        BoxFuture,
     },
     controlled_carrier::CarrierAdoption,
 };
@@ -22,7 +21,7 @@ use zero_platform_tokio::{
 pub(crate) struct DatagramOpening {
     pending: Arc<PendingOpen>,
     association: zero_core::component::AssociationId,
-    lease: Option<Box<dyn DynChannelControl>>,
+    lease: Option<zero_platform_tokio::contract::lifecycle::BoxChannelControl>,
 }
 pub(crate) struct PendingOpen {
     source: Weak<CurrentServiceSource>,
@@ -36,7 +35,7 @@ struct OpeningState {
     preparing: bool,
     retired: bool,
     pending: Vec<CarrierAdoption>,
-    protocol: Option<Arc<AsyncMutex<Box<dyn DynChannelControl>>>>,
+    protocol: Option<Arc<AsyncMutex<zero_platform_tokio::contract::lifecycle::BoxChannelControl>>>,
     report: CloseReport,
     observers: Vec<Arc<Observer>>,
 }
@@ -76,7 +75,7 @@ impl DatagramReservation {
         // adopt is synchronous: cancellation after this point retires this
         // actual Entry instead of discarding an unacquired reservation.
         let association = self.association();
-        let lease = self.adopt(Box::new(Control(pending.clone())));
+        let lease = self.adopt(Box::new(Control(pending.clone())).into());
         Ok(DatagramOpening {
             pending,
             association,
@@ -93,8 +92,8 @@ impl DatagramOpening {
     }
     pub(crate) fn adopt(
         mut self,
-        protocol: Box<dyn DynChannelControl>,
-    ) -> Box<dyn DynChannelControl> {
+        protocol: zero_platform_tokio::contract::lifecycle::BoxChannelControl,
+    ) -> zero_platform_tokio::contract::lifecycle::BoxChannelControl {
         let mut state = self.pending.state.lock().unwrap();
         assert!(state.preparing && state.protocol.is_none());
         state.protocol = Some(Arc::new(AsyncMutex::new(protocol)));

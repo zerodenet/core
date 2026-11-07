@@ -23,8 +23,7 @@ use zero_engine::EngineError;
 use zero_platform_tokio::contract::{
     context::{OpenContext, RequestIdentity},
     datagram::{BoxDatagramSession, DatagramLimits, DatagramRequest, DatagramRx, DatagramTx},
-    lifecycle::DynChannelControl,
-    network::{UpstreamBinding, UpstreamTransport},
+    lifecycle::network::{UpstreamBinding, UpstreamTransport},
     CancellationToken, ChannelError, CloseReason, Reason,
 };
 pub(crate) struct StandardPacketPath {
@@ -130,7 +129,7 @@ impl PreparedUdpPacketPathOperation for StandardPacketPath {
 struct Path {
     tx: tokio::sync::Mutex<Pin<Box<dyn DatagramTx>>>,
     rx: tokio::sync::Mutex<Pin<Box<dyn DatagramRx>>>,
-    control: tokio::sync::Mutex<Box<dyn DynChannelControl>>,
+    control: tokio::sync::Mutex<zero_platform_tokio::contract::lifecycle::BoxChannelControl>,
     limits: DatagramLimits,
     association: AssociationId,
     stop: CancellationToken,

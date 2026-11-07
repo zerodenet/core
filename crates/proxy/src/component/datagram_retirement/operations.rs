@@ -1,6 +1,5 @@
 //! State mutation and protocol callbacks have separate, explicit boundaries.
 use super::*;
-use zero_platform_tokio::contract::lifecycle::DynChannelControl;
 impl RetiredDatagrams {
     pub(super) fn entries(&self) -> Vec<(u64, Arc<Mutex<Entry>>)> {
         self.state
@@ -84,7 +83,7 @@ impl RetiredDatagrams {
         self: &Arc<Self>,
         id: u64,
         entry: &Arc<Mutex<Entry>>,
-        control: Box<dyn DynChannelControl>,
+        control: zero_platform_tokio::contract::lifecycle::BoxChannelControl,
     ) {
         let control = Arc::new(AsyncMutex::new(Some(control)));
         {

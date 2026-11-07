@@ -7,10 +7,7 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::time::Instant;
-use zero_platform_tokio::contract::{
-    lifecycle::{erase_control, DynChannelControl},
-    CloseReason,
-};
+use zero_platform_tokio::contract::{lifecycle::erase_control, CloseReason};
 
 #[cfg(test)]
 use zero_platform_tokio::contract::lifecycle::CloseReport;
@@ -25,10 +22,10 @@ struct Slot {
     tx: DirectEndpointTx,
     // Storage only: the unique controller is Send, not Sync. Every access
     // requires an exclusive Slot and uses get_mut; no lock spans native poll.
-    control: Mutex<Box<dyn DynChannelControl>>,
+    control: Mutex<zero_platform_tokio::contract::lifecycle::BoxChannelControl>,
 }
 impl Slot {
-    fn control(&mut self) -> &mut Box<dyn DynChannelControl> {
+    fn control(&mut self) -> &mut zero_platform_tokio::contract::lifecycle::BoxChannelControl {
         self.control
             .get_mut()
             .unwrap_or_else(std::sync::PoisonError::into_inner)

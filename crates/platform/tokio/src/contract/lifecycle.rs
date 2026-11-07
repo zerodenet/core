@@ -158,6 +158,9 @@ pub trait DynChannelControl: Send {
     ) -> BoxFuture<'_, Result<CloseReport, ChannelError>>;
 }
 
+mod control_owner;
+pub use control_owner::BoxChannelControl;
+
 struct ErasedControl<T>(T);
 impl<T: ChannelControl> DynChannelControl for ErasedControl<T> {
     fn revoked(&self) -> BoxFuture<'static, ()> {
@@ -178,8 +181,8 @@ impl<T: ChannelControl> DynChannelControl for ErasedControl<T> {
         Box::pin(self.0.wait_closed(deadline))
     }
 }
-pub fn erase_control(control: impl ChannelControl + 'static) -> Box<dyn DynChannelControl> {
-    Box::new(ErasedControl(control))
+pub fn erase_control(control: impl ChannelControl + 'static) -> BoxChannelControl {
+    Box::new(ErasedControl(control)).into()
 }
 
 pub trait ResourceLifecycle: Send {

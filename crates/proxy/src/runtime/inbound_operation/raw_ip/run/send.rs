@@ -3,13 +3,12 @@
 use std::pin::Pin;
 use zero_core::packet::IpPacket;
 use zero_platform_tokio::contract::{
-    lifecycle::DynChannelControl,
-    packet::{self, BoxPacketSession, PacketLimits, PacketTx},
+    lifecycle::packet::{self, BoxPacketSession, PacketLimits, PacketTx},
     BoxFuture, CloseReason, SendReceipt,
 };
 pub(super) struct Sender {
     tx: Pin<Box<dyn PacketTx>>,
-    control: Box<dyn DynChannelControl>,
+    control: zero_platform_tokio::contract::lifecycle::BoxChannelControl,
     limits: PacketLimits,
 }
 pub(super) type Pending =

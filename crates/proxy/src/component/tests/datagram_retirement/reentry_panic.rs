@@ -1,22 +1,25 @@
 use super::*;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn actual_pending_close_poll_panic_preserves_the_same_controller_and_never_acknowledges_closed()
- {
+async fn actual_pending_close_poll_panic_preserves_the_same_controller_and_never_acknowledges_closed(
+) {
     let owner = owner(1);
     let (actual, eof, release, server) = tcp_control(false).await;
     let pending = Arc::new(AtomicBool::new(false));
     let drops = Arc::new(AtomicUsize::new(0));
-    let lease = owner.reserve().unwrap().adopt(Box::new(Control {
-        actual,
-        owner: Arc::downgrade(&owner),
-        cancel_calls: Arc::new(AtomicUsize::new(0)),
-        pending: pending.clone(),
-        sync_wake: false,
-        cancel_panic: Arc::new(AtomicBool::new(false)),
-        poll_panic: Arc::new(AtomicBool::new(true)),
-        drops: drops.clone(),
-    }));
+    let lease = owner.reserve().unwrap().adopt(
+        Box::new(Control {
+            actual,
+            owner: Arc::downgrade(&owner),
+            cancel_calls: Arc::new(AtomicUsize::new(0)),
+            pending: pending.clone(),
+            sync_wake: false,
+            cancel_panic: Arc::new(AtomicBool::new(false)),
+            poll_panic: Arc::new(AtomicBool::new(true)),
+            drops: drops.clone(),
+        })
+        .into(),
+    );
     drop(lease);
     let actual_owner = owner.clone();
     let runtime = tokio::runtime::Handle::current();

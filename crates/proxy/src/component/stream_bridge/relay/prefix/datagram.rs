@@ -59,7 +59,7 @@ impl DatagramRx for Rx {
     }
 }
 struct Control {
-    inner: Box<dyn DynChannelControl>,
+    inner: zero_platform_tokio::contract::lifecycle::BoxChannelControl,
     logical: CancellationToken,
 }
 impl DynChannelControl for Control {
@@ -102,7 +102,8 @@ pub(super) fn guard(
         control: Box::new(Control {
             inner: session.control,
             logical,
-        }),
+        })
+        .into(),
         limits: session.limits,
     }
 }

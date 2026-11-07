@@ -21,7 +21,7 @@ struct Rx {
     revoked: BoxFuture<'static, ()>,
 }
 struct Control {
-    inner: Box<dyn DynChannelControl>,
+    inner: zero_platform_tokio::contract::lifecycle::BoxChannelControl,
     _lease: Arc<Lease>,
 }
 pub(super) fn wrap(lease: Arc<Lease>, session: BoxPacketSession) -> BoxPacketSession {
@@ -39,7 +39,8 @@ pub(super) fn wrap(lease: Arc<Lease>, session: BoxPacketSession) -> BoxPacketSes
         control: Box::new(Control {
             inner: session.control,
             _lease: lease,
-        }),
+        })
+        .into(),
         limits: session.limits,
     }
 }
@@ -96,7 +97,9 @@ impl PacketRx for Rx {
     }
 }
 impl DynChannelControl for Control {
-    fn revoked(&self) -> BoxFuture<'static, ()> { self._lease.cancellation() }
+    fn revoked(&self) -> BoxFuture<'static, ()> {
+        self._lease.cancellation()
+    }
 
     fn cancel(&self, reason: CloseReason) {
         self.inner.cancel(reason);

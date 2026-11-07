@@ -104,7 +104,7 @@ impl StreamOutbound for Outbound {
                         context.cancel.clone(),
                         transfer.clone(),
                     )),
-                    Box::new(Control(transfer)),
+                    Box::new(Control(transfer)).into(),
                     original,
                 ),
                 peer_confirmation: connected.peer_confirmation,
