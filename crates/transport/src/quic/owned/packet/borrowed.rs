@@ -8,6 +8,7 @@ use zero_platform_tokio::{
 type Input = CarrierDriver<(BorrowedDatagram, CarrierUserView)>;
 pub struct BorrowedPacketSegment {
     adoption: CarrierAdoption,
+    identity: Arc<continuation::PacketIdentity>,
     input: Option<Input>,
     queues: Arc<Mutex<Option<Channels>>>,
     driver: Option<TaskJoinWitness>,
@@ -61,6 +62,7 @@ impl BorrowedPacketSegment {
         }
         let input = io.into_driver().split(|io| ((), (io, view))).1;
         Ok(Self {
+            identity: queues.1.clone(),
             adoption,
             input: Some(input),
             queues: Arc::new(Mutex::new(queues.0)),
@@ -224,7 +226,7 @@ impl BorrowedPacketSegment {
         if self.final_retirement.load(Ordering::Acquire) {
             channels.outgoing.close();
         }
-        Ok(PacketQueues(Some(channels)))
+        Ok(PacketQueues(Some(channels), self.identity.clone()))
     }
 }
 impl Drop for BorrowedPacketSegment {

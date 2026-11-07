@@ -134,9 +134,13 @@ impl MetadataPoolPermit {
             })
         };
         if !released(&caller)
-            || users
-                .as_ref()
-                .is_some_and(|users| !users.registrations().iter().all(released))
+            || users.as_ref().is_some_and(|users| {
+                !users
+                    .registrations()
+                    .iter()
+                    .chain(users.related_registrations())
+                    .all(released)
+            })
         {
             return false;
         }

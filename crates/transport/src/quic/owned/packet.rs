@@ -20,15 +20,19 @@ use zero_platform_tokio::{
 };
 
 pub struct PacketSocket {
+    identity: Arc<continuation::PacketIdentity>,
     pub(super) socket: Arc<dyn quinn::AsyncUdpSocket>,
     pub(super) callbacks: Arc<callbacks::Broker>,
 }
 mod borrowed;
+mod continuation;
+mod retire;
 pub use borrowed::{BorrowedPacketSegment, RejectedBorrowedPacketSegment};
 /// Unique queues returned by the actual native worker before the next hop.
 /// A receiver cannot be copied or concurrently attached to two originals.
-pub struct PacketQueues(Option<Channels>);
+pub struct PacketQueues(Option<Channels>, Arc<continuation::PacketIdentity>);
 pub struct PacketSegment {
+    identity: Arc<continuation::PacketIdentity>,
     graph: MetadataUserGraph<OwnedDriverOrigin, DriverBody>,
     receiver: super::DriverExitReceiver,
     source: Option<super::HostedMetadataSocket>,
@@ -76,7 +80,15 @@ impl PacketSocket {
                 Ok(packet.contents.to_vec())
             }),
         );
-        Ok((Self { socket, callbacks }, PacketQueues(Some(channels))))
+        let identity = Arc::new(continuation::PacketIdentity::default());
+        Ok((
+            Self {
+                socket,
+                callbacks,
+                identity: identity.clone(),
+            },
+            PacketQueues(Some(channels), identity),
+        ))
     }
 }
 impl PacketSegment {
@@ -148,6 +160,7 @@ impl PacketSegment {
                 .max(capabilities.transmit_segments);
         }
         Ok(Self {
+            identity: queues.1.clone(),
             graph,
             receiver,
             source: Some(source),
@@ -248,48 +261,6 @@ impl PacketSegment {
         }).map_err(|source|error(Reason::Capacity).with_source(source))?;
         self.driver = Some(task);
         Ok(())
-    }
-    pub fn stop(&self) {
-        self.stop.cancel();
-        self.graph.users().cancellation().cancel();
-        self.graph.drivers().revoke_registration();
-    }
-    pub async fn retire(
-        &mut self,
-        end: tokio::time::Instant,
-    ) -> Result<(PacketQueues, MetadataUsersClosedReceipt), ChannelError> {
-        self.stop();
-        drop(self.source.take());
-        if let Some(id) = self.driver {
-            if self.received.is_none() {
-                self.received = Some(self.receiver.receive(id, end).await?);
-            }
-        }
-        let receipt = self
-            .graph
-            .completion()
-            .try_closed()
-            .ok_or_else(|| error(Reason::Timeout))?;
-        let channels = self
-            .queues
-            .lock()
-            .unwrap()
-            .take()
-            .ok_or_else(|| error(Reason::Revoked))?;
-        if let Some(native) = &channels.native {
-            native.lock().unwrap().current = None;
-        }
-        Ok((PacketQueues(Some(channels)), receipt))
-    }
-    /// Final retirement after the same endpoint's users and actual Quinn
-    /// drivers joined. Unlike a live UDP hop, this seals its existing FIFO.
-    /// A deadline retains the original worker and its pending native send.
-    pub async fn retire_final(
-        &mut self,
-        end: tokio::time::Instant,
-    ) -> Result<(PacketQueues, MetadataUsersClosedReceipt), ChannelError> {
-        self.final_retirement.store(true, Ordering::Release);
-        self.retire(end).await
     }
     pub fn task_exit(&self) -> Option<&super::DriverDelivery> {
         self.received.as_ref()

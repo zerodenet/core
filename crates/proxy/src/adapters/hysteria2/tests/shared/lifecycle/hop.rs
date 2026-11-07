@@ -7,9 +7,17 @@ use zero_platform_tokio::{
 
 #[tokio::test]
 async fn hysteria2_native_hop_closes_the_actual_old_original_and_new_donors_use_the_current_one() {
+    exercise(None).await;
+}
+#[tokio::test]
+async fn hysteria2_native_n1_hop_receives_the_real_setup_ack_before_replacing_its_original() {
+    exercise(Some(1)).await;
+}
+async fn exercise(max_entries: Option<usize>) {
     tokio::time::timeout(Duration::from_secs(25), async {
         let server = Server::new().await;
         let proxy = Proxy::new(zero_config::RuntimeConfig::parse(&serde_json::json!({
+            "runtime":{"hysteria2_max_entries":max_entries},
             "outbounds":[{"tag":"hy","protocol":{"type":"hysteria2","server":"127.0.0.1",
                 "port":server.port,"password":"p","insecure":true,"transport":{
                     "udp_hop":{"ports":[server.port],"interval_min_secs":5,"interval_max_secs":5},

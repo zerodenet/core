@@ -80,7 +80,11 @@ impl MetadataTotalsOriginal {
                 Box::pin(async move {
                     caller.wait_registration_released().await;
                     if let Some(users) = users {
-                        for witness in users.registrations() {
+                        for witness in users
+                            .registrations()
+                            .iter()
+                            .chain(users.related_registrations())
+                        {
                             witness.wait_registration_released().await;
                         }
                     }

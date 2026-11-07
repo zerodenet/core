@@ -16,6 +16,9 @@ impl Entry {
     }
     pub(super) async fn close(&self, end: Instant) -> Result<(), ChannelError> {
         self.cancel.cancel();
+        // The real setup owns this mutex during IO. Cancellation lets it store
+        // its result and release the mutex; never wait its join under that lock.
+        self.receive_setup(end).await?;
         let mut state = tokio::time::timeout_at(end, self.state.lock())
             .await
             .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?;
@@ -23,17 +26,17 @@ impl Entry {
             return Ok(());
         }
         state.retire_endpoint(end).await?;
-        if let Some(caller) = state.caller.clone() {
-            let joined = tokio::time::timeout_at(end, caller.wait())
+        let uncertain = state.setup_registration.clone();
+        drop(state);
+        self.wait_endpoint_ack(end).await?;
+        self.wait_setup_ack(end).await?;
+        if let Some(scope) = uncertain {
+            tokio::time::timeout_at(end, scope.wait_drained())
                 .await
                 .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?;
-            if joined.result().is_err() {
-                state.retired_application.push(joined.clone());
-                caller
-                    .acknowledge_hosted_failure(&joined)
-                    .map_err(|source| error(Stage::Close, Reason::Internal).with_source(source))?;
-            }
         }
+        let mut state = self.state.lock().await;
+        state.setup_registration = None;
         state.closed = true;
         Ok(())
     }
@@ -118,6 +121,9 @@ impl EntryState {
         }
         if let Some(permit) = &self.permit {
             permit.close(self.receipt.as_ref(), self.tasks.as_ref().unwrap())?;
+            // NativeClosed is already visible; preserve these exact real
+            // endpoint/packet registrations until outside-lock Host ACK wait.
+            self.retiring_registrations = self.receipt.clone();
         }
         if let Some(segment) = &self.segment {
             if let Some(exit) = segment.task_exit() {

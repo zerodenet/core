@@ -7,6 +7,7 @@ use crate::{
     },
     controlled_datagram::metadata_pool::MetadataPoolPermit,
 };
+use core::future::Future;
 use tokio::sync::oneshot;
 async fn submit(
     started: oneshot::Receiver<(MetadataPoolPermit, TaskJoinWitness)>,
@@ -161,6 +162,92 @@ async fn local_original_n1_stays_full_after_real_udp_native_close_until_its_actu
         assert_eq!(totals.snapshot().charged, 0);
         assert_eq!(grants.retained(), Some(0));
         assert!(metadata.shutdown().unwrap().is_complete());
+        assert!(registration.closed().unwrap().matches(&registration));
+        scope.begin_shutdown();
+        assert!(scope.is_drained());
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn final_metadata_owner_waits_external_actual_host_ack_after_real_native_udp_close() {
+    timeout(Duration::from_secs(3), async {
+        let one = NonZeroUsize::new(1).unwrap();
+        let totals = CarrierOriginalTotals::new(NonZeroUsize::new(2).unwrap());
+        let mut scope = TaskScope::suspended_hosted(tokio::runtime::Handle::current(), Some(one));
+        scope.enable_registration().unwrap();
+        let tasks = scope.registrar();
+        let host = Arc::new(CancellationToken::new());
+        let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let remote = peer.local_addr().unwrap();
+        let limits = MetadataLimits {
+            main_sockets: one,
+            probe_sockets: one,
+            probe_attempts_per_initialization: one,
+            concurrent_send_calls: one,
+            write_pollers: one,
+        };
+        let metadata = MetadataPoolOwner::new(instance(), one, limits, &host).unwrap();
+        let registration = metadata.registration();
+        registration
+            .bind_declared_with_totals(
+                &ResourceDeclaration::ControlledMetadataDatagram {
+                    endpoint: remote,
+                    dial: Default::default(),
+                    limits,
+                    max_origins: one,
+                },
+                &tasks,
+                &host,
+                &totals,
+            )
+            .unwrap();
+        metadata.start().unwrap();
+        let grants = metadata.grants();
+        let (begin, started) = oneshot::channel();
+        let (publish, published) = oneshot::channel();
+        let (_, caller) = tasks
+            .spawn_tracked(TaskClass::Auxiliary, submit(started, publish, remote))
+            .unwrap();
+        let permit = grants.reserve(&caller).unwrap();
+        let original = permit.origin();
+        assert!(begin.send((permit, caller.clone())).is_ok());
+        let mut bytes = [0; 64];
+        let (size, _) = peer.recv_from(&mut bytes).await.unwrap();
+        assert_eq!(&bytes[..size], b"same original owner");
+        let (permit, grant) = published.await.unwrap();
+        close_native(&permit, grant, &tasks);
+        let receipt = scope.next_receipt().await.unwrap();
+        assert!(caller.matches_joined(receipt.joined()) && receipt.result().is_ok());
+        assert!(original.closed().unwrap().matches(&original));
+        assert!(!receipt.joined().registration_released());
+        let mut closing = Box::pin(metadata.shutdown_after_registration_ack(deadline()));
+        std::future::poll_fn(|cx| {
+            assert!(closing.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        assert_eq!(grants.retained(), Some(1));
+        assert_eq!(totals.snapshot().charged, 1);
+        assert!(registration.closed().is_none());
+        let deferred = scope.defer_callbacks();
+        scope.acknowledge(&receipt).unwrap();
+        assert!(!receipt.joined().registration_released());
+        std::future::poll_fn(|cx| {
+            assert!(closing.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        assert_eq!(grants.retained(), Some(1));
+        assert!(original.closed().unwrap().had_native_acquisition());
+        drop(deferred);
+        let report = closing.await.unwrap();
+        assert!(report.is_complete());
+        let joined = caller.wait_registration_released().await;
+        assert!(caller.matches_joined(&joined) && joined.registration_released());
+        assert_eq!(grants.retained(), Some(0));
+        assert_eq!(totals.snapshot().charged, 0);
         assert!(registration.closed().unwrap().matches(&registration));
         scope.begin_shutdown();
         assert!(scope.is_drained());

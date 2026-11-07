@@ -1,7 +1,7 @@
 use super::*;
 impl Generation {
     pub(super) async fn acquire(
-        &self,
+        self: &Arc<Self>,
         profile: usize,
         binding: UpstreamBinding,
         expected_dns: Option<Option<zero_platform_tokio::contract::dns::DnsGeneration>>,
@@ -10,8 +10,7 @@ impl Generation {
         if !binding.prefix.is_empty() {
             return Err(error(Stage::Prepare, Reason::Unsupported));
         }
-        let options = self
-            .profiles
+        self.profiles
             .get(profile)
             .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
         let call = CarrierContext {
@@ -77,6 +76,7 @@ impl Generation {
                     return Err(error(Stage::Prepare, Reason::Capacity));
                 }
                 let entry = Arc::new(Entry {
+                    initialization: Default::default(),
                     cancel: self.cancel.child_token(),
                     state: Default::default(),
                     touched: Mutex::new(Instant::now()),
@@ -87,111 +87,103 @@ impl Generation {
         };
         self.trace_budget();
         *entry.touched.lock().unwrap() = Instant::now();
-        let mut state = entry.state.lock().await;
+        // Preserve the old one-initializer semantics across genuine sequential
+        // task/ACK boundaries; no second borrower retires a candidate between
+        // the first initializer's failed native close and its next reservation.
+        let _initialization = tokio::time::timeout_at(end, entry.initialization.lock())
+            .await
+            .map_err(|source| error(Stage::Prepare, Reason::Timeout).with_source(source))?;
+        let mut state = tokio::time::timeout_at(end, entry.state.lock())
+            .await
+            .map_err(|source| error(Stage::Prepare, Reason::Timeout).with_source(source))?;
+        if state.initializing {
+            drop(state);
+            entry.receive_setup(end).await?;
+            entry.wait_setup_ack(end).await?;
+            drop(_initialization);
+            return Box::pin(self.acquire(profile, key.binding.clone(), expected_dns, end)).await;
+        }
         if let Some(auth) = &state.auth {
             if auth.is_ready() && !entry.cancel.is_cancelled() && !state.closed {
-                return Ok(auth.clone());
+                let auth = auth.clone();
+                drop(state);
+                entry.wait_setup_ack(end).await?;
+                return Ok(auth);
             }
         }
         if state.attempted {
             drop(state);
             entry.close(end).await?;
             self.remove_entry(&key, &entry).await?;
+            drop(_initialization);
             return Box::pin(self.acquire(profile, key.binding.clone(), expected_dns, end)).await;
         }
         state.attempted = true;
         state.tasks = Some(self.tasks.clone());
-        let stop = entry.cancel.clone();
-        let (_, caller) = self
-            .tasks
-            .spawn_tracked(TaskClass::Auxiliary, async move {
-                stop.cancelled().await;
-                Ok(())
-            })
-            .map_err(|source| error(Stage::Prepare, Reason::Capacity).with_source(source))?;
-        state.caller = Some(caller);
+        drop(state);
         let client = self
             .clients
             .get()
             .and_then(|clients| clients.get(profile))
             .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?
             .clone();
-        let mut resolve = call.clone();
-        resolve.deadline = None;
-        resolve.cancel = entry.cancel.clone();
-        let candidates = tokio::time::timeout_at(
-            end,
-            upstream.resolve_controlled_carrier(options.endpoint.clone(), resolve),
-        )
-        .await
-        .map_err(|source| error(Stage::Dial, Reason::Timeout).with_source(source))??;
-        if candidates.is_empty() {
-            return Err(error(Stage::Dial, Reason::Io));
-        }
-        if upstream.carrier_dns_generation() != key.dns_generation {
-            return Err(error(Stage::Prepare, Reason::StalePlan));
-        }
-        state.candidates = Some(candidates);
-        let count = state.candidates.as_ref().unwrap().len();
-        let mut connected = None;
-        for index in 0..count {
-            self.retain_failed_candidate(&mut state)?;
-            match self
-                .open_candidate(&mut state, profile, index, &client, end)
-                .await
-            {
-                Ok(connection) => {
-                    state.selected_candidate = Some(index);
-                    connected = Some(connection);
-                    break;
+        let mut index = 0;
+        loop {
+            let result = self
+                .setup_candidate(
+                    &entry,
+                    setup::Candidate {
+                        profile,
+                        index,
+                        upstream: upstream.clone(),
+                        call: call.clone(),
+                        client: client.clone(),
+                        dns: key.dns_generation,
+                    },
+                    end,
+                )
+                .await;
+            match result {
+                Ok(()) => {
+                    entry.wait_setup_ack(end).await?;
+                    return entry
+                        .state
+                        .lock()
+                        .await
+                        .auth
+                        .clone()
+                        .ok_or_else(|| error(Stage::Prepare, Reason::Internal));
                 }
                 Err(source) => {
-                    state.candidate_failures.push(Arc::new(source));
+                    let mut state = entry.state.lock().await;
+                    let retry = state
+                        .setup_failure
+                        .as_ref()
+                        .is_some_and(|failure| failure.next_candidate);
+                    if !retry {
+                        return Err(source);
+                    }
+                    // Native/users closure is independent of the failed setup's
+                    // Host acknowledgement. Publish both before fresh admission.
                     state.retire_endpoint(end).await?;
+                    let count = state
+                        .candidates
+                        .as_ref()
+                        .map_or(0, |candidates| candidates.len());
+                    drop(state);
+                    entry.wait_endpoint_ack(end).await?;
+                    entry.wait_setup_ack(end).await?;
+                    index += 1;
+                    if index >= count {
+                        return Err(source);
+                    }
                 }
             }
         }
-        let endpoint = connected.ok_or_else(|| {
-            error(Stage::Dial, Reason::Io).with_source(OriginalChannel(
-                state
-                    .candidate_failures
-                    .last()
-                    .expect("nonempty candidate set")
-                    .clone(),
-            ))
-        })?;
-        state.pending = Some(OwnedAuthentication::prepare(
-            endpoint,
-            state.owner.as_ref().unwrap(),
-        )?);
-        state.pending.as_mut().unwrap().udp_sessions = self.udp_sessions;
-        state.pending.as_mut().unwrap().udp_pending_bytes = self.udp_pending_bytes;
-        tokio::time::timeout_at(
-            end,
-            state.pending.as_mut().unwrap().authenticate(
-                &options.leaf.password,
-                options.leaf.settings,
-                &self.tasks,
-            ),
-        )
-        .await
-        .map_err(|source| error(Stage::Handshake, Reason::Timeout).with_source(source))??;
-        *state
-            .pending
-            .as_ref()
-            .unwrap()
-            .native_origin
-            .lock()
-            .unwrap() = state.origin.clone();
-        state.pending.as_mut().unwrap().dns_generation = key.dns_generation;
-        let auth = Arc::new(state.pending.take().unwrap());
-        state.udp_join = auth.udp_witness().await?;
-        state.auth = Some(auth.clone());
-        Ok(auth)
     }
 }
 impl Generation {
-    async fn open_candidate(
+    pub(super) async fn open_candidate(
         &self,
         state: &mut EntryState,
         profile: usize,
@@ -249,7 +241,6 @@ impl Generation {
             }
         };
         state.segment = Some(segment);
-        state.segment.as_mut().unwrap().start()?;
         let (owner, receiver) = OwnedEndpointOwner::new_packet(
             socket,
             self.tasks.clone(),
@@ -260,6 +251,12 @@ impl Generation {
         );
         state.owner = Some(owner);
         state.receiver = Some(receiver);
+        state
+            .owner
+            .as_ref()
+            .unwrap()
+            .bind_packet_segment(state.segment.as_ref().unwrap())?;
+        state.segment.as_mut().unwrap().start()?;
         let handle =
             state
                 .owner

@@ -27,6 +27,7 @@ pub struct MetadataUsersCompletion<O: DriverKind, B: Send + Sync + 'static>(Arc<
 pub struct MetadataUsersClosedReceipt {
     pub(in crate::controlled_datagram::metadata) views: MetadataViewsClosedReceipt,
     registrations: Arc<[crate::contract::scope::TaskJoinWitness]>,
+    related_registrations: Option<Arc<[crate::contract::scope::TaskJoinWitness]>>,
 }
 impl fmt::Debug for MetadataUsersClosedReceipt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -92,6 +93,7 @@ impl<O: DriverKind, B: Send + Sync + 'static> MetadataUsersCompletion<O, B> {
         Some(MetadataUsersClosedReceipt {
             views: self.0.views.try_closed()?,
             registrations,
+            related_registrations: None,
         })
     }
 }
@@ -105,6 +107,7 @@ impl UnstartedMetadataCompletion {
         Some(MetadataUsersClosedReceipt {
             views: self.0.try_closed()?,
             registrations: Arc::from([]),
+            related_registrations: None,
         })
     }
 }
@@ -134,5 +137,33 @@ impl MetadataUsersClosedReceipt {
     /// Already reclaimed registrations were removed only after their real ACK.
     pub fn registrations(&self) -> &[crate::contract::scope::TaskJoinWitness] {
         &self.registrations
+    }
+}
+
+impl MetadataUsersClosedReceipt {
+    /// Add the actual continued endpoint ledger only after its admission is
+    /// sealed and all real drivers have joined and been received. Native view
+    /// closure remains this original unique claim's independent fact.
+    pub fn with_related_driver_receipt(
+        mut self,
+        closed: super::drivers::DriverRegistrationsClosed,
+    ) -> Result<Self, Self> {
+        if self.related_registrations.is_some() || !self.views.0.scope.same_scope(&closed.scope) {
+            return Err(self);
+        }
+        self.related_registrations = Some(closed.registrations);
+        Ok(self)
+    }
+    /// Independent endpoint registrations carried in the second original Arc
+    /// slice. No concatenated task Vec or synthetic scope-wide census exists.
+    pub fn related_registrations(&self) -> &[crate::contract::scope::TaskJoinWitness] {
+        self.related_registrations.as_deref().unwrap_or(&[])
+    }
+}
+
+impl MetadataUsersClosedReceipt {
+    /// Same original unique native view claim; read-only, not IO/ACK authority.
+    pub fn same_original(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.views.0, &other.views.0)
     }
 }

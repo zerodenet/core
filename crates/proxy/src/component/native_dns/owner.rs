@@ -85,7 +85,7 @@ impl ResourceLifecycle for Owner {
         }
         #[cfg(feature = "dns")]
         for owner in &self.metadata {
-            match owner.shutdown() {
+            match owner.shutdown_after_registration_ack(end).await {
                 Ok(mut report) => {
                     unfinished.append(&mut report.unfinished);
                     self.pending.append(report);

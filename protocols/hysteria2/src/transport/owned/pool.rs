@@ -191,6 +191,7 @@ struct Key {
     dns_generation: Option<zero_platform_tokio::contract::dns::DnsGeneration>,
 }
 struct Entry {
+    initialization: tokio::sync::Mutex<()>,
     cancel: zero_platform_tokio::contract::CancellationToken,
     state: tokio::sync::Mutex<EntryState>,
     touched: Mutex<Instant>,
@@ -198,6 +199,11 @@ struct Entry {
 #[derive(Default)]
 struct EntryState {
     attempted: bool,
+    initializing: bool,
+    setup_worked: bool,
+    setup_failure: Option<setup::SetupFailure>,
+    setup_registration: Option<zero_platform_tokio::contract::scope::ScopeRetirementObservation>,
+    setup_exit: Option<zero_platform_tokio::contract::scope::TaskJoined>,
     tasks: Option<TaskRegistrar>,
     caller: Option<TaskJoinWitness>,
     owner: Option<OwnedEndpointOwner>,
@@ -210,6 +216,9 @@ struct EntryState {
     segment: Option<PacketSegment>,
     queues: Option<PacketQueues>,
     receipt: Option<
+        zero_platform_tokio::controlled_datagram::metadata::users::MetadataUsersClosedReceipt,
+    >,
+    retiring_registrations: Option<
         zero_platform_tokio::controlled_datagram::metadata::users::MetadataUsersClosedReceipt,
     >,
     unbound: Option<GrantedMetadataListener>,
@@ -272,6 +281,7 @@ impl std::error::Error for OriginalChannel {
 mod close;
 mod connect;
 mod maintain;
+mod setup;
 
 mod ledger;
 mod owner;

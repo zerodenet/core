@@ -1,6 +1,6 @@
 use super::*;
 impl Generation {
-    pub(super) async fn maintain(&self, end: Instant) -> Result<bool, ChannelError> {
+    pub(super) async fn maintain(self: &Arc<Self>, end: Instant) -> Result<bool, ChannelError> {
         let mut entries = self
             .entries
             .lock()
@@ -13,9 +13,15 @@ impl Generation {
         let pivot = entries.partition_point(|(key, _)| key.profile < cursor);
         entries.rotate_left(pivot);
         for (key, entry) in entries {
+            let Ok(_initialization) = entry.initialization.try_lock() else {
+                continue;
+            };
             let Ok(state) = entry.state.try_lock() else {
                 continue;
             };
+            if state.initializing {
+                continue;
+            }
             let idle = state.idle();
             let expired = entry.touched.lock().unwrap().elapsed()
                 >= Duration::from_secs(
@@ -40,7 +46,7 @@ impl Generation {
                     false
                 }
             } else if hop {
-                self.rotate(key.profile, &entry, end).await?
+                self.setup_hop(&entry, key.profile, end).await?
             } else {
                 false
             };
@@ -58,7 +64,7 @@ impl Generation {
         }
         Ok(false)
     }
-    async fn rotate(
+    pub(super) async fn rotate(
         &self,
         profile: usize,
         entry: &Entry,
@@ -112,7 +118,7 @@ impl Generation {
             .map(|exit| exit.joined.clone());
         drop(state.segment.take());
         drop(state.permit.take());
-        state.receipt = None;
+        state.retiring_registrations = state.receipt.take();
         if let Some(failure) = failure {
             state.retired_application.push(failure.clone());
             // A failed original worker is a real task fault. Retain its actual
@@ -120,6 +126,17 @@ impl Generation {
             // unbounded stream of failures to one still-live logical entry.
             return Err(error(Stage::Close, Reason::Io)
                 .with_source(OriginalChannel(failure.result().unwrap_err())));
+        }
+        // The current hop Aux is independent of this old physical segment.
+        // NativeClosed precedes waiting its original packet ACK; the persistent
+        // endpoint ledger remains live in the exact returned unique queues.
+        drop(state);
+        entry.wait_endpoint_ack(end).await?;
+        let mut state = tokio::time::timeout_at(end, entry.state.lock())
+            .await
+            .map_err(|source| error(Stage::Prepare, Reason::Timeout).with_source(source))?;
+        if entry.cancel.is_cancelled() || state.closed {
+            return Err(error(Stage::Prepare, Reason::Revoked));
         }
         let permit = self.metadata[profile]
             .grants()

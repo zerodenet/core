@@ -16,6 +16,7 @@ use std::{
 };
 use zero_core::component::ComponentInstanceId;
 mod binding;
+mod close;
 mod permit;
 mod registration;
 mod totals;
