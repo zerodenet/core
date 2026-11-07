@@ -154,19 +154,21 @@ async fn actual_status_header_clones_keep_credit_after_the_same_request_scope_jo
         .unwrap();
     let source =
         zero_api::ApiError::new(zero_api::ApiErrorCode::NotFound, "no \"雪\"\n".repeat(100));
-    let pending = original.error_status(tonic::Code::Internal, "", &source);
-    tokio::pin!(pending);
-    std::future::poll_fn(|cx| {
-        use std::future::Future;
-        assert!(
-            pending.as_mut().poll(cx).is_pending(),
-            "the original status storage must wait for actual shared credit"
-        );
-        std::task::Poll::Ready(())
-    })
-    .await;
-    drop(held);
-    let error = pending.await;
+    let error = {
+        let pending = original.error_status(tonic::Code::Internal, "", &source);
+        tokio::pin!(pending);
+        std::future::poll_fn(|cx| {
+            use std::future::Future;
+            assert!(
+                pending.as_mut().poll(cx).is_pending(),
+                "the original status storage must wait for actual shared credit"
+            );
+            std::task::Poll::Ready(())
+        })
+        .await;
+        drop(held);
+        pending.await
+    };
     assert_eq!(error.message(), source.to_string());
     let mut response = error.into_http();
     original.retain_status_header(response.headers_mut());
