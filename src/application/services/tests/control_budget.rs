@@ -34,7 +34,8 @@ async fn same_actual_proxy_application_book_changes_once_at_configuration_public
         );
         assert!(services.control_budget().retained_candidate().is_none());
         services.shutdown_control().await.unwrap();
-        services.shutdown().await.unwrap();
+        services.shutdown_status_monitor().await.unwrap();
+        services.shutdown_dispatcher().await.unwrap();
         running.shutdown().await.unwrap();
     })
     .await
