@@ -110,7 +110,8 @@ impl WireguardAdapter {
         )
         .with_packet_return_totals(
             self.packet_return_totals
-                .get_or_init(Default::default)
+                .get()
+                .ok_or_else(|| invalid("WireGuard assembly has no original Kernel packet Root"))?
                 .clone(),
             config.runtime.effective_packet_return_total_max_frames(),
             config.runtime.effective_packet_return_total_max_bytes(),
