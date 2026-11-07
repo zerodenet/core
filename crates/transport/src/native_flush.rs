@@ -123,23 +123,38 @@ impl Flushed {
 pub(crate) struct NativeFlush {
     state: Arc<Flushed>,
     started: Option<u64>,
+    bound: Option<(u64, std::task::Waker)>,
 }
 impl NativeFlush {
     pub(crate) fn new(state: Arc<Flushed>) -> Self {
         Self {
             state,
             started: None,
+            bound: None,
         }
     }
-    pub(crate) fn bind(&self, cx: &Context<'_>) {
+    pub(crate) fn bind(&mut self, cx: &Context<'_>) {
+        let requested = self.state.requested.load(Ordering::Acquire);
+        // Only request() consumes this driver's AtomicWaker, and each actual
+        // request advances this epoch. Reuse its registration between requests
+        // while the same original caller remains current. A new request or
+        // changed caller always re-arms it before the next native operation.
+        if self
+            .bound
+            .as_ref()
+            .is_some_and(|(epoch, wake)| *epoch == requested && wake.will_wake(cx.waker()))
+        {
+            return;
+        }
         self.state.driver.register(cx.waker());
+        self.bound = Some((requested, cx.waker().clone()));
     }
     pub(crate) fn poll<S: tokio::io::AsyncWrite + Unpin>(
         &mut self,
         io: &mut S,
         cx: &mut Context<'_>,
     ) -> Poll<io::Result<()>> {
-        self.state.driver.register(cx.waker());
+        self.bind(cx);
         let epoch = *self
             .started
             .get_or_insert_with(|| self.state.requested.load(Ordering::Acquire));

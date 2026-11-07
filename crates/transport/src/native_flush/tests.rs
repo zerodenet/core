@@ -1,6 +1,51 @@
 use super::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 #[tokio::test]
+async fn original_flush_requests_rearm_after_real_wakes_and_follow_the_current_driver() {
+    use futures_util::task::{waker_ref, ArcWake};
+    use std::sync::atomic::AtomicUsize;
+    struct Driver(AtomicUsize);
+    impl ArcWake for Driver {
+        fn wake_by_ref(this: &Arc<Self>) {
+            this.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    let (mut client, mut server, cleanup) = super::test_fixture::pair().await;
+    client.write_all(b"same original").await.unwrap();
+    let mut bytes = [0; 13];
+    server.read_exact(&mut bytes).await.unwrap();
+    assert_eq!(&bytes, b"same original");
+    client.gate.hold();
+    let state = Arc::new(Flushed::default());
+    let mut native = NativeFlush::new(state.clone());
+    let first = Arc::new(Driver(AtomicUsize::new(0)));
+    let second = Arc::new(Driver(AtomicUsize::new(0)));
+    let first_wake = waker_ref(&first);
+    let second_wake = waker_ref(&second);
+    let mut cx = Context::from_waker(&first_wake);
+    native.bind(&cx);
+    native.bind(&cx);
+    let first_epoch = state.request().unwrap();
+    assert_eq!(first.0.load(Ordering::SeqCst), 1);
+    assert!(native.poll(&mut client, &mut cx).is_pending());
+    assert!(!state.ready(first_epoch).unwrap());
+    let second_epoch = state.request().unwrap();
+    assert_eq!(first.0.load(Ordering::SeqCst), 2);
+    let mut current = Context::from_waker(&second_wake);
+    assert!(native.poll(&mut client, &mut current).is_pending());
+    let final_epoch = state.request().unwrap();
+    assert_eq!(second.0.load(Ordering::SeqCst), 1);
+    assert!(!state.ready(second_epoch).unwrap());
+    client.gate.release();
+    std::future::poll_fn(|cx| native.poll(&mut client, cx))
+        .await
+        .unwrap();
+    assert!(state.ready(final_epoch).unwrap());
+    drop(client);
+    drop(server);
+    cleanup.await;
+}
+#[tokio::test]
 async fn actual_old_pending_native_flush_cannot_acknowledge_new_data_epoch() {
     tokio::time::timeout(std::time::Duration::from_secs(8), async {
         let (mut client, mut server, cleanup) = super::test_fixture::pair().await;
