@@ -97,7 +97,7 @@ async fn cancelled_vmess_grpc_dns_wire_prepare_closes_the_actual_undelivered_nat
         assert!(query.await.unwrap_err().is_cancelled());
         tokio::time::timeout_at(deadline(), caller.task.wait()).await.unwrap();
         if let Some(driver) = driver {
-            let joined = driver.try_joined().expect("same registered H2 driver finished");
+            let joined = tokio::time::timeout_at(deadline(), driver.wait_registration_released()).await.unwrap();
             assert!(driver.matches_joined(&joined) && joined.registration_released());
         }
         let joined = auxiliary.try_joined().expect("same actual preparation finished after cancellation");
