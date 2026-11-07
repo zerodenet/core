@@ -79,7 +79,7 @@ pub(crate) fn compiled_registries_with_network(
         )
         .expect("unique built-in Direct inbound component registration");
     let mut devices = crate::adapters::devices::Devices::default();
-    devices.set_node_network(node_network.as_ref().or(background.as_ref()));
+    let device_network = node_network.as_ref().or(background.as_ref()).cloned();
     #[cfg(feature = "socks5")]
     {
         use crate::adapters::socks5::Socks5Adapter;
@@ -535,7 +535,10 @@ pub(crate) fn compiled_registries_with_network(
                     {
                         let native = node_network.is_some();
                         move |input| {
-                            (if native {
+                            // Every adapter must exist before the one actual Packet Root is injected.
+    // The same network source contains only weak current services.
+    devices.set_node_network(device_network.as_ref());
+    (if native {
                                 crate::adapters::vmess::component::grpc::owned_eligible(input)
                             } else {
                                 crate::adapters::vmess::component::grpc::eligible(input)
