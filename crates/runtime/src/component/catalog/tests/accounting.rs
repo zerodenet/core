@@ -1,5 +1,6 @@
 //! Direct catalog callers use the same real Users, not a proxy-only preflight.
 use super::*;
+#[path = "accounting/buffers.rs"]
 mod buffers;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 fn end() -> tokio::time::Instant {
