@@ -173,23 +173,21 @@ impl VlessInboundMuxTcpRelay {
                 self.up_rx,
                 sender,
                 move |cx, bytes: Option<&[u8]>| {
-                    let downlink = match bytes {
+                    let credit = std::task::ready!(output.backlog.poll_charge(
+                        cx,
+                        bytes.map_or(0, <[u8]>::len),
+                        &mut waiter
+                    ))
+                    .ok_or_else(|| {
+                        std::io::Error::other("VLESS MUX frame exceeds its original byte budget")
+                    })?;
+                    std::task::Poll::Ready(Ok(credit.map(|()| match bytes {
                         Some(bytes) => VlessInboundMuxDownlink::data(sid, bytes.to_vec()),
                         None => VlessInboundMuxDownlink::end(sid),
-                    };
-                    output
-                        .backlog
-                        .poll_buffer(cx, bytes.map_or(0, <[u8]>::len), downlink, &mut waiter)
-                        .map(|result| {
-                            result.map_err(|_| {
-                                std::io::Error::other(
-                                    "VLESS MUX frame exceeds its original byte budget",
-                                )
-                            })
-                        })
+                    })))
                 },
                 move || {
-                    let _ = self.writer.end_inbound_stream(sid);
+                    self.writer.request_end(sid);
                 },
                 maximum,
                 self.deferred_upload.unwrap_or_default(),
@@ -201,3 +199,7 @@ impl VlessInboundMuxTcpRelay {
 #[cfg(test)]
 #[path = "standard/tests/half_close.rs"]
 mod half_close;
+
+#[cfg(test)]
+#[path = "standard/tests/cancelled.rs"]
+mod cancelled;

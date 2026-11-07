@@ -16,6 +16,8 @@ where
     let (mut reader, writer) = tokio::io::split(stream);
     let mut writer = Writer(writer);
     loop {
+        server.writer.retry_end_requests();
+        let endings = server.writer.end_changed.clone();
         let frame = {
             // This exact future survives every downlink while its header or body
             // is incomplete. Only shutdown may drop it together with the carrier.
@@ -25,8 +27,10 @@ where
                 tokio::select! {biased;
                     _=stop.cancelled()=>return Ok(()),
                     frame=&mut next=>break frame.map_err(datagram::failure)?,
+                    _=endings.notified()=>server.writer.retry_end_requests(),
                     Some(downlink)=server.down_rx.recv()=>{
                         server.streams.send_inbound_downlink(&mut server.mux,&mut writer,downlink.into_inner()).await.map_err(datagram::failure)?;
+                        server.writer.retry_end_requests();
                     }
                 }
             }
