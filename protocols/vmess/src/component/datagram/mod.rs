@@ -128,16 +128,20 @@ pub(super) async fn open_carrier(
             _=context.cancel.cancelled()=>return Err(admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
             result=with_deadline(context.deadline,submit)=>result.map_err(|source|admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
         }.map_err(|source|admission.error(session,Stage::Handshake,Reason::Io,DeliveryState::Unknown).with_source(source))?;
-    let stream = crate::stream::VmessAeadStream::outbound(carrier, state).map_err(|source| {
-        admission
-            .error(
-                session,
-                Stage::Handshake,
-                Reason::Protocol,
-                DeliveryState::Unknown,
-            )
-            .with_source(source)
-    })?;
+    let mut stream =
+        crate::stream::VmessAeadStream::outbound(carrier, state).map_err(|source| {
+            admission
+                .error(
+                    session,
+                    Stage::Handshake,
+                    Reason::Protocol,
+                    DeliveryState::Unknown,
+                )
+                .with_source(source)
+        })?;
+    if options.grpc.is_some() {
+        stream = stream.with_grpc_request_end();
+    }
     let shared = Arc::new(Shared {
         state: Mutex::new(State {
             stream: Some(stream),

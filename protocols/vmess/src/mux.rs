@@ -185,6 +185,9 @@ pub(crate) fn pool_key_from_transport_config(
 }
 
 impl<'a> VmessMuxTransportProfile<'a> {
+    pub(crate) fn is_grpc(&self) -> bool {
+        self.grpc_service_names.is_some()
+    }
     pub const fn new(
         tls_server_name: Option<&'a str>,
         ws_path: Option<&'a str>,
@@ -290,7 +293,14 @@ impl VmessMuxPoolKey {
     where
         S: AsyncSocket,
     {
-        establish_mux_outbound_stream(stream, self.uuid(), self.cipher()).await
+        let stream = establish_mux_outbound_stream(stream, self.uuid(), self.cipher()).await?;
+        Ok(
+            if matches!(&self.transport, VmessMuxTransportKey::Grpc { .. }) {
+                stream.with_grpc_request_end()
+            } else {
+                stream
+            },
+        )
     }
 
     fn into_pool_conn<S>(self, stream: S, max_concurrency: u32) -> VmessMuxConn
