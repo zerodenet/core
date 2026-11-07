@@ -36,10 +36,17 @@ async fn routing_echo_keeps_owned_memory_until_real_child_join_and_ack_without_n
     assert_eq!(children.len(), 0);
     drop(children);
     let response = fixture.received.recv().await.unwrap();
-    assert!(
-        packet::parse_icmp_error(&response).is_some(),
-        "no Native grant returns a real local error, never opens an ICMP socket"
+    assert_eq!(packet::ip_protocol(&response), Some(packet::IPPROTO_ICMP));
+    assert_eq!(&response[12..16], &[127, 0, 0, 1]);
+    assert_eq!(&response[16..20], &[10, 66, 0, 2]);
+    assert_eq!(
+        &response[20..22],
+        &[3, 13],
+        "missing Native authority returns administratively prohibited"
     );
+    assert_eq!(&response[28..], request.as_slice());
+    assert_eq!(packet::checksum(&response[..20]), 0);
+    assert_eq!(packet::checksum(&response[20..]), 0);
     drop(response);
     assert!(fixture.echo_tasks.quiescent());
     fixture.scope.begin_shutdown();
