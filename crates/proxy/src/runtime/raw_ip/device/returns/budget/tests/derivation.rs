@@ -62,20 +62,42 @@ async fn temporary_derivation_pressure_keeps_original_and_waits_for_actual_old_b
 async fn full_actual_return_queue_derives_without_extra_credit_and_holds_original_through_native_send_pending(
 ) {
     let (frames, bytes, lengths) = counts(&frame());
-    let budget = ReturnBudget::new(frames * 2, bytes * 2);
+    let root = Arc::new(PacketReturnTotals::default());
+    let layout = zero_stack::packet_output::memory::PacketWireMemory::PaddedEnvelope {
+        multiple: 16,
+        overhead: 32,
+    };
+    let codec = lengths
+        .iter()
+        .flat_map(|length| layout.workspace_lengths(*length).unwrap())
+        .collect::<Vec<_>>();
+    let transmit_frames = frames + codec.len();
+    let transmit_bytes = bytes + codec.iter().sum::<usize>();
+    root.install_transmit(transmit_frames * 2, transmit_bytes * 2)
+        .unwrap();
+    let budget = ReturnBudget::with_totals(frames * 2, bytes * 2, root.clone());
+    let original = frame();
+    let mut first = root.transmit_packet(original.len(), 0, 0).unwrap();
+    first.copy_from_slice(&original);
+    let mut second = root.transmit_packet(original.len(), 0, 0).unwrap();
+    second.copy_from_slice(&original);
     let (tx, mut rx) = tokio::sync::mpsc::channel::<PacketBuffer>(2);
-    tx.try_send(budget.retain_for_return(frame(), 1500).unwrap())
+    tx.try_send(budget.retain_transmit_return(first, 1500, layout).unwrap())
         .unwrap();
-    tx.try_send(budget.retain_for_return(frame(), 1500).unwrap())
+    tx.try_send(budget.retain_transmit_return(second, 1500, layout).unwrap())
         .unwrap();
+    assert_eq!(
+        root.transmit().occupied,
+        zero_tun::packet_memory::PacketMemoryLimit {
+            frames: transmit_frames * 2,
+            bytes: transmit_bytes * 2,
+        }
+    );
+    assert!(root.transmit_packet(1, 0, 0).is_err());
     assert_eq!(*budget.0.occupied.lock().unwrap(), (frames * 2, bytes * 2));
     let first = rx.recv().await.unwrap();
-    let derive = zero_stack::packet::fragment_ip_packet_accounted(first, 1500, 17);
-    tokio::pin!(derive);
-    let packets = match futures_util::poll!(&mut derive) {
-        std::task::Poll::Ready(Ok(packets)) => packets,
-        result => panic!("admitted full queue head must not wait for its own queue: {result:?}"),
-    };
+    let packets = zero_stack::packet::fragment_ip_packet_prepaid(first, 1500, 17)
+        .expect("a full return queue head only splits its existing storage envelope");
     assert_eq!(packets.len(), lengths.len());
     assert_eq!(*budget.0.occupied.lock().unwrap(), (frames * 2, bytes * 2));
     let listener = tokio::net::TcpSocket::new_v4().unwrap();
@@ -175,6 +197,20 @@ async fn full_actual_return_queue_derives_without_extra_credit_and_holds_origina
         (frames, bytes),
         "only the unchanged queued original and its own prepared fragments remain"
     );
+    assert_eq!(
+        root.transmit().occupied,
+        zero_tun::packet_memory::PacketMemoryLimit {
+            frames: transmit_frames,
+            bytes: transmit_bytes,
+        }
+    );
     drop(rx.recv().await.unwrap());
     assert_eq!(*budget.0.occupied.lock().unwrap(), (0, 0));
+    assert_eq!(
+        root.transmit().occupied,
+        zero_tun::packet_memory::PacketMemoryLimit {
+            frames: 0,
+            bytes: 0,
+        }
+    );
 }
