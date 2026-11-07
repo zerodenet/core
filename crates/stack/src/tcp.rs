@@ -435,11 +435,19 @@ impl AsyncRead for UserTcpStream {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
+        self.poll_read_inner(cx, buf)
+    }
+}
+impl UserTcpStream {
+    fn poll_read_inner(&self, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
         if buf.remaining() == 0 {
             return Poll::Ready(Ok(()));
         }
 
-        let read = self.read.lock().expect("TCP read lock poisoned");
+        let locked = self.read.lock().expect("TCP read lock poisoned");
+        #[cfg(feature = "packet-memory")]
+        let _memory_notifications = locked.control_packets.defer_memory_notifications();
+        let read = locked;
         if let Some(error) = read.send_control.io_error() {
             return Poll::Ready(Err(error));
         }
