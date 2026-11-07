@@ -89,7 +89,7 @@ async fn direct_dependency_prefix_loan_requires_exact_actual_owner_binding_slot_
                 assert!(issuer.is_err());
                 drop(grant);
             } else {
-                let borrowed = loan.take().unwrap();
+                let mut borrowed = loan.take().unwrap();
                 let observed = borrowed.receiver_observation();
                 let result = grant.adopt_dependency_stream_loan(&requested,endpoint.clone(),&context(),borrowed,issuer.unwrap());
                 if case=="valid" {
