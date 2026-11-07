@@ -341,3 +341,14 @@ Scope 的实际单 Aux，原 LoanOwner 先存原 slot；失败或取消继续持
 
 V1 配置/API/events、CLI、FFI、客户端及面板无需改动。实际编译、失败和运行资格逐输入见
 [第二轮验证记录](cloud/round2/verification.md)，五域仍未完整结题。
+
+## 控制原请求与序列化输出预算续作
+
+新增可选 `runtime.control_*` 消息预算保持字段省略时不导出；V1信封、方法、事件、ACK和
+revision不变。根账分别限制在途请求/响应字节及命令、gRPC请求数；实际原Connection的
+IPC命令/事件、SSE帧、gRPC stream使用同一局部issuer，克隆issuer不分裂额度。
+`control_sse_max_event_frames` 默认32，范围1..4096；IPC/SSE物理队列按需分配至schema
+ceiling，默认真实held额度不变，另受原根字节上限约束。pending写仍持原frame额度，
+缩额检查真实held/retiring原件；队列或Tonic交接不是native写入/关闭凭据。
+当前仍在完成命令最终ACK、gRPC编码存储与Engine DTO首次物化前的实际计额；新增字段
+或消费者接线不代表控制和预算职责域已完成。无需修改客户端或面板。

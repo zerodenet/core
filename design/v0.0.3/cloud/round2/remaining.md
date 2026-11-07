@@ -1,5 +1,50 @@
 # 第二轮续作：剩余生产调用者冻结
 
+## 接续检查点 2026-11-07 05:23 UTC（继续实现，五域未完成）
+
+实际 remote 仍为 `https://github.com/zerodenet/core.git`，远端 integration 完整 SHA 仍为
+`59615e69ea5a413d657a873157ea4adf8f204a90`。普通接续源码至
+`37dc7bb7a41f5ba5c7446a59e5cf4ae4375e28dc`，未 reset/rebase/强推或覆盖 dirty。
+M 的 gRPC 原请求/原编码字节/最终命令 ACK 工作仍在工作树，未进入此提交或测试资格。
+A/B/C 同环境 worktree 持续实现，Cargo 与对应测试仍由 M 单队列调度。
+
+本批实际工具链 Rust 1.99.0；实际使用 Cargo.lock 与版控 candidate 锁均为 SHA-256
+`bb045365baf88f40277e4b87e2941e4990eb630841dd1cd2b2d0de3709d0b0fb`，未升级依赖。
+下表是不同冻结源码的开发回归，不合并为最终候选资格或职责域完成率。
+
+| 精确输入 | 实际结果、失败与证据索引 |
+| --- | --- |
+| `10983d96cf9dca76cbcadba42ff4a1ecb1c90ef5` | 四包 all-features lib/web no-run exit0/729.54s，日志 SHA `93bc58075fc5004416cbeee73d28a67763f308b95c1b4548a9ab46fbda23887c`。`m-current5-serial-regressions.json` 保存同产物24组。Service UDP关联3、Target5、借入Packet1、旧Packet3、SS codec1及process5、Metadata1、Target普通2、Source4、Direct budget1、native flush5、gRPC43、QUIC4、DoH1、echo1、TX3通过。H2 7通过1失败（原8秒仅227991字节）；H3在真实业务及client关闭后远端peer idle仍失败；Direct/VLESS4通过2失败；VMess4失败；Trojan1失败；Packet budget1失败；DNS44通过6失败。所有原期限/容量保留，失败继续实施，旧Metadata CloseIo原因仍未证实 |
+| `17c8b9e0c2772fd0ae03272cb844ba2350a7f8b5` | API/stack lib/api_contracts no-run exit0/4.93s，日志 SHA `0ce2aa8a1fa9c3bd7641db91c5172421974041805febb4b576588cb7b77c93e1`。借用Query wire契约22及真实pending Packet独立内存2通过。首次错误target exit101保留，未作为通过 |
+| `6bf039945e69305b0b1b68c7b2ed3cf2ee4beeb4` | runtime/config/platform/grpc lib/config_contracts no-run exit0/97.17s，日志 SHA `c49c88fac217278c195aa4000cc3aeadf7a78dd0e688dbe443dcf9edcc040fcd`。`m-6bf-serial-regressions.json`：真实Direct Service转交/held ACK1、实际Root byte/local/command账6、12个可选配置边界1、既有预算边界4、gRPC既有生命周期10均通过，全部选中且输入不变。首次两处测试编译错误 exit101保留，修正后未减弱断言 |
+
+新批实际源码修复包括：真实多层 UDP logical/wire association；Direct pending ledger 只在
+实际选定调用者图保留，Direct Service 复用原准备任务；input-only Source 独立保留一个实际
+crypto carrier、零Stack owner；Query借用Serde避免隐藏DOM副本；SSE同原Connection frame
+账及IPC/HTTP真实输入/输出账。真实Scope/Native/ACK仍分别取证。
+
+已接入的 H3/MUX 诊断仅记录实际原件、代次及任务状态，不添加关闭凭据、等待或状态变更。
+Trojan旧测试等待未进入记录的inner source文字，现改为同一真实完成流的完整typed Display、
+目标、网络、stage及code；保留空包未上wire、后续业务和全部期限。二者待新冻结输入验证。
+`37dc7bb7a41f5ba5c7446a59e5cf4ae4375e28dc` 的普通Proxy定向产物正在单队列构建，
+不是已通过的结果。
+
+本批编译失败/中断均留原日志：5d的E0034、722的private方法、071的模块路径、05a及6ae
+的SS测试接线、d0a已知fatal后显式SIGINT，以及91b的Direct测试接线。d0a exit -2/382.07s
+是中断而非通过；下一轮已核对其编译子进程退出，后续独立新产物不继承旧资格。
+
+五域剩余：A完整DNS旧执行链删除依赖B/C真实donor；B全transport/MUX/Mieru/QUIC/Nav/
+process及无observer custody；C完整PacketCaller/source/reconnect、codec预付、System TUN/
+独立WG provider和helper转交；控制最终ACK、Engine DTO预分配、blocking实际Scope与恢复；
+预算的全部实际生产投影。此清单继续按下文冻结调用者推进，不以局部接口或PR完成结题。
+只保留原范围 TEMP-WG-OUTER-UDP-01，未将其他缺口列为临时例外或平台待验。
+
+仍无统一最终候选、该候选同head CI或最终可下载原始归档。不同输入通过结果、Windows
+GNU平台typecheck、云端路径不能代替最终资格。原REALITY目标DNS失败保持环境待验；
+不变更目标、断言、期限或用户系统网络。真实GUI/面板同产物、特权TUN、跨平台及1c1g按
+适用环境另验；内核实现缺口继续独立列明。
+
+
 
 ## 接续检查点 2026-11-07 03:41 UTC（开发中，五域未结题）
 
