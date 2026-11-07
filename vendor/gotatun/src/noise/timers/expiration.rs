@@ -9,7 +9,7 @@ impl<R: rand::RngCore + Send> Tunn<R> {
     #[cfg(feature = "zero-owned-packets")]
     pub(in crate::noise) fn prepared_data_session_live(&self, slot: usize, now: Duration) -> bool {
         !self.handshake.is_expired()
-            && now.saturating_sub(self.timers.session_timers[slot % N_SESSIONS])
+            && now.saturating_sub(self.timers.session_timers[slot % crate::noise::N_SESSIONS])
                 <= REJECT_AFTER_TIME
             && now.saturating_sub(self.timers[TimeSessionEstablished]) < REJECT_AFTER_TIME * 3
             && !(self.handshake.timer().is_some()
