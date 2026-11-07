@@ -5,7 +5,9 @@ impl ComponentSlot {
     pub(in crate::component) fn resource_fault(
         &self,
     ) -> Option<Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>> {
-        self.declared_failures.get()
+        self.declared_failures
+            .get()
+            .or_else(|| self.protocol_failures.get())
     }
     /// Pure observations only; callers may hold the catalog metadata lock.
     fn original_fault_present(&self) -> bool {
@@ -33,7 +35,9 @@ impl ComponentSlot {
                 }
             }
         }
-        self.declared_failures.get()
+        self.declared_failures
+            .get()
+            .or_else(|| self.protocol_failures.get())
     }
     /// Cold recipes remain reusable; revoked or failed runtime owners do not.
     /// This observes the actual persistent initializer, not a synthetic health flag.

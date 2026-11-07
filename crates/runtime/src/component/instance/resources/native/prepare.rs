@@ -18,6 +18,7 @@ impl HostResources {
             None,
             Arc::default(),
             None,
+            Arc::new(failures::DeclaredReceiver::protocol()),
         )
     }
     pub fn new_for_instance(
@@ -34,6 +35,7 @@ impl HostResources {
             None,
             Arc::default(),
             None,
+            Arc::new(failures::DeclaredReceiver::protocol()),
         )
     }
     fn construct(
@@ -46,6 +48,7 @@ impl HostResources {
         >,
         originals: Arc<crate::HostOriginalBudgets>,
         original_tasks: Option<zero_platform_tokio::contract::scope::WeakTaskRegistrar>,
+        protocol_failures: Arc<failures::DeclaredReceiver>,
     ) -> Result<Arc<Self>, ChannelError> {
         let reads = read_workspaces::ReadDeclarations::new(
             component,
@@ -337,6 +340,8 @@ impl HostResources {
             packets,
             journals,
             declared_failures: Arc::default(),
+            protocol_failures,
+            protocol_supervision: std::sync::OnceLock::new(),
             #[cfg(any(target_os = "linux", windows))]
             processes,
             cancel,

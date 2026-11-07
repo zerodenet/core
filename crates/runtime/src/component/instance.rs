@@ -86,6 +86,7 @@ pub struct ComponentSlot {
     owned_start_host: OnceLock<std::sync::Mutex<Option<owned_start::OwnedStart>>>,
     start_wake: Arc<MonitorWake>,
     declared_failures: Arc<resources::DeclaredReceiver>,
+    protocol_failures: Arc<resources::DeclaredReceiver>,
     originals: OnceLock<Arc<crate::HostOriginalBudgets>>,
     node_dns_source:
         OnceLock<Arc<OnceLock<Arc<dyn zero_platform_tokio::contract::dns::DnsService>>>>,
@@ -103,7 +104,7 @@ struct Live {
 struct Owner {
     // Same actual lifecycle's stable pure receiver. Its payload is retained by
     // the returned canonical CloseReport after this Owner is really retired.
-    protocol_failures: resources::DeclaredReceiver,
+    protocol_failures: Arc<resources::DeclaredReceiver>,
     instance: ComponentInstance,
     pending_close: Option<Box<PendingClose>>,
     protocol_closed: bool,

@@ -62,6 +62,7 @@ impl ComponentSlot {
             owned_start_host: OnceLock::new(),
             start_wake: Arc::default(),
             declared_failures: Arc::default(),
+            protocol_failures: Arc::new(resources::DeclaredReceiver::protocol()),
             originals: OnceLock::new(),
             node_dns_source: OnceLock::new(),
             packet_source: Arc::new(OnceLock::new()),

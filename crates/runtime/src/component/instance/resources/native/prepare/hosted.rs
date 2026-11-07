@@ -8,6 +8,7 @@ impl HostResources {
         tasks: zero_platform_tokio::contract::scope::WeakTaskRegistrar,
         originals: Arc<crate::HostOriginalBudgets>,
         declared_failures: Arc<super::super::failures::DeclaredReceiver>,
+        protocol_failures: Arc<super::super::failures::DeclaredReceiver>,
         source: Arc<std::sync::OnceLock<zero_platform_tokio::controlled_carrier::CarrierOrigin>>,
     ) -> Result<Arc<Self>, ChannelError> {
         let mut resources = Self::construct(
@@ -18,10 +19,10 @@ impl HostResources {
             Some(source),
             originals,
             Some(tasks),
+            protocol_failures,
         )?;
-        Arc::get_mut(&mut resources)
-            .expect("cold resources not published")
-            .declared_failures = declared_failures;
+        let cold = Arc::get_mut(&mut resources).expect("cold resources not published");
+        cold.declared_failures = declared_failures;
         Ok(resources)
     }
     /// Concrete hosted construction; no identity-to-registrar reconstruction.
@@ -39,6 +40,7 @@ impl HostResources {
             tasks,
             originals,
             Arc::default(),
+            Arc::new(super::super::failures::DeclaredReceiver::protocol()),
             Arc::default(),
         )
     }

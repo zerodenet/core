@@ -41,6 +41,9 @@ pub struct HostResources {
     reads: read_workspaces::ReadDeclarations,
     journals: journal::Journals,
     declared_failures: Arc<failures::DeclaredReceiver>,
+    protocol_failures: Arc<failures::DeclaredReceiver>,
+    protocol_supervision:
+        std::sync::OnceLock<std::sync::Weak<crate::component::admission::HostAdmission>>,
     #[cfg(any(target_os = "linux", windows))]
     processes: process::ProcessDeclarations,
     cancel: CancellationToken,
@@ -125,6 +128,7 @@ mod packet_driver;
 mod prepare;
 #[cfg(any(target_os = "linux", windows))]
 mod process;
+mod protocol;
 mod root_datagram;
 pub use listener::HostDatagramListenerOwner;
 mod read_workspaces;
@@ -282,6 +286,14 @@ impl ResourceAccess for HostResources {
     ) -> Result<zero_platform_tokio::journal::JournalGrant, ChannelError> {
         self.require_start()?;
         self.journals.open(self.component, ordinal)
+    }
+
+    fn receive_protocol_failure(
+        &self,
+        scope: &zero_platform_tokio::contract::scope::TaskScopeIdentity,
+        source: &Arc<ChannelError>,
+    ) -> Result<Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>, ChannelError> {
+        self.receive_protocol_fault(scope, source)
     }
 
     fn declared_resource_sources(

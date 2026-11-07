@@ -72,9 +72,11 @@ impl ComponentSlot {
                     tasks.registrar().downgrade(),
                     originals,
                     self.declared_failures.clone(),
+                    self.protocol_failures.clone(),
                     self.packet_source.clone(),
                 )
                 .map_err(Arc::new)?;
+                resources.bind_protocol_supervision(self.admission.get().map(Arc::downgrade));
                 resources.bind_dependency_slots(
                     self.dependency_slots.get().cloned().unwrap_or_default(),
                 );
@@ -172,7 +174,7 @@ impl ComponentSlot {
                         }),
                     started: OnceLock::new(),
                     owner: Mutex::new(Owner {
-                        protocol_failures: resources::DeclaredReceiver::protocol(),
+                        protocol_failures: resources.protocol_failure_receiver(),
                         instance,
                         pending_close: None,
                         protocol_closed: false,

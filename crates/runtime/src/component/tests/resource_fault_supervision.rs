@@ -131,3 +131,6 @@ mod protocol;
 
 #[path = "resource_fault_supervision/protocol_child.rs"]
 mod protocol_child;
+
+#[path = "resource_fault_supervision/protocol_receive.rs"]
+mod protocol_receive;

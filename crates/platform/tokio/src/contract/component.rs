@@ -404,6 +404,23 @@ pub trait ResourceAccess: Send + Sync {
         None
     }
 
+    /// Retain an actual protocol-cleanup failure in this exact Host/Scope's
+    /// existing lifecycle receiver. This transfers fault metadata only, never
+    /// IO, close, task, native/user completion or Host registration ACK.
+    /// The source must contain only diagnostic data: do not put this receiver,
+    /// its returned canonical RF, ResourceAccess or Root back into its causes.
+    fn receive_protocol_failure(
+        &self,
+        _scope: &super::scope::TaskScopeIdentity,
+        _source: &Arc<BuildError>,
+    ) -> Result<Arc<super::lifecycle::ResourceFailure>, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Close,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
+
     /// The same Host's pure buffer accounting. This confers no acquisition,
     /// IO, task, native-close, logical-user or Scope authority. Missing actual
     /// production accounting cannot fall back to an independent local book.
