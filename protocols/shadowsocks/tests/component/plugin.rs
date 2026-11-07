@@ -8,6 +8,7 @@ use zero_platform_tokio::contract::{
     scope::{SpawnError, TaskScope},
     BoxFuture,
 };
+#[path = "plugin/grant.rs"]
 mod grant;
 use grant::Grant;
 fn deadline() -> Instant {
