@@ -45,7 +45,9 @@ async fn both_actual_unowned_udp_family_originals_remain_unknown_after_caller_ca
  for _ in 0..2{
  let mut bytes=[0;512];
  let (size,_)=tokio::select!{result=peer.recv_from(&mut bytes)=>result.unwrap(),result=&mut work=>panic!("resolution returned before original family IO: {result:?}")};
- types.push(u16::from_be_bytes([bytes[size-4],bytes[size-3]]));
+ let question=crate::message::parse_question(&bytes[..size]).unwrap();
+ assert_eq!(question.domain,"actual.example");
+ types.push(question.query_type);
  }
  types.sort_unstable();assert_eq!(types,[crate::message::TYPE_A,crate::message::TYPE_AAAA]);
  call.cancel();assert_eq!(work.await.unwrap_err().kind(),io::ErrorKind::Interrupted);

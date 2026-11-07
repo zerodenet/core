@@ -18,7 +18,9 @@ async fn actual_cancel(trace: bool) {
   let stop=zero_platform_tokio::contract::CancellationToken::new();let stopping=stop.clone();
   let request=tokio::spawn(async move{observed.scope_with_stop(stopping,handle.execute_acknowledged(command)).await});
   let mut types=Vec::new();
-  for _ in 0..2{let mut bytes=[0;512];let(size,_)=wire.recv_from(&mut bytes).await.unwrap();types.push(u16::from_be_bytes([bytes[size-4],bytes[size-3]]));}
+  for _ in 0..2{let mut bytes=[0;512];let(size,_)=wire.recv_from(&mut bytes).await.unwrap();let question=zero_dns::udp::parse_dns_question(&bytes[..size]).unwrap();
+   assert_eq!(question.domain,if trace{"trace.actual.example"}else{"lookup.actual.example"});
+   types.push(question.query_type);}
   types.sort_unstable();assert_eq!(types,[1,28]);assert!(!request.is_finished());
   let originals=loop{let originals=proxy.resolver.native_query_observations().into_iter().filter(|entry|entry.io_pending&&entry.original.is_some()).collect::<Vec<_>>();if originals.len()==2{break originals;}tokio::task::yield_now().await;};
   for original in &originals{assert!(!original.task.is_joined());assert!(original.original.as_ref().unwrap().closed().is_none());}

@@ -14,7 +14,9 @@ async fn same_resolution_call_waits_both_actual_family_native_users_scope_and_ho
  let mut types=Vec::new();
  for _ in 0..2{
  let mut bytes=[0;512];let (size,_)=tokio::select!{packet=peer.recv_from(&mut bytes)=>packet.unwrap(),result=&mut work=>panic!("real dual family lookup finished before upstream response: {result:?}")};
- types.push(u16::from_be_bytes([bytes[size-4],bytes[size-3]]));
+ let question=zero_dns::udp::parse_dns_question(&bytes[..size]).unwrap();
+ assert_eq!(question.domain,"dual.actual.example");
+ types.push(question.query_type);
  }
  types.sort_unstable();assert_eq!(types,[1,28]);
  let originals=loop {
