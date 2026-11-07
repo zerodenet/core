@@ -289,6 +289,12 @@ impl InboundInstallContext {
             )
         };
         let resources = Arc::new(BoundResources {
+            packet_metadata: self
+                .protocols
+                .runtime_host()
+                .original_budgets()
+                .packet
+                .driver_metadata_view(),
             #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
             source_entry: Arc::downgrade(&self.entry),
             #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]

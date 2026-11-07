@@ -1,6 +1,6 @@
 //! Concrete original-provider accounting roots in the existing RuntimeHost.
 //! No allocator, native controller, task registry or generic resource map.
-#[derive(Default)]
+use std::sync::Arc;
 pub struct HostOriginalBudgets {
     pub(crate) carrier_wake: std::sync::Arc<crate::component::instance::MonitorWake>,
     /// Exact original reservation/custody records, distinct from OS FD count.
@@ -10,10 +10,27 @@ pub struct HostOriginalBudgets {
         std::sync::Arc<zero_platform_tokio::contract::scope::TaskRegistrationBudget>,
     #[cfg(any(target_os = "linux", windows))]
     pub process: std::sync::Arc<zero_platform_tokio::owned_process::ProcessBudget>,
-    #[cfg(feature = "raw-ip-runtime")]
+    /// Same pure memory Root even when native packet IO is not compiled.
     pub packet: std::sync::Arc<zero_tun::packet_memory::PacketReturnTotals>,
 }
+impl Default for HostOriginalBudgets {
+    fn default() -> Self {
+        Self::with_packet_root(Arc::default())
+    }
+}
 impl HostOriginalBudgets {
+    /// Host assembly supplies the already-owned Devices Root when present.
+    /// This does not allocate and then discard a second temporary packet Root.
+    pub fn with_packet_root(packet: Arc<zero_tun::packet_memory::PacketReturnTotals>) -> Self {
+        Self {
+            carrier_wake: Arc::default(),
+            carrier: Arc::default(),
+            component_tasks: Arc::default(),
+            #[cfg(any(target_os = "linux", windows))]
+            process: Arc::default(),
+            packet,
+        }
+    }
     pub(crate) fn limits_changed(
         current: &zero_config::RuntimeOptionsConfig,
         target: &zero_config::RuntimeOptionsConfig,
@@ -35,6 +52,13 @@ impl HostOriginalBudgets {
         {
             return true;
         }
+        if current.effective_packet_driver_metadata_total_max_allocations()
+            != target.effective_packet_driver_metadata_total_max_allocations()
+            || current.effective_packet_driver_metadata_total_max_bytes()
+                != target.effective_packet_driver_metadata_total_max_bytes()
+        {
+            return true;
+        }
         #[cfg(feature = "raw-ip-runtime")]
         if current.effective_packet_return_max_frames()
             != target.effective_packet_return_max_frames()
@@ -52,10 +76,6 @@ impl HostOriginalBudgets {
                 != target.effective_packet_transmit_total_max_frames()
             || current.effective_packet_transmit_total_max_bytes()
                 != target.effective_packet_transmit_total_max_bytes()
-            || current.effective_packet_driver_metadata_total_max_allocations()
-                != target.effective_packet_driver_metadata_total_max_allocations()
-            || current.effective_packet_driver_metadata_total_max_bytes()
-                != target.effective_packet_driver_metadata_total_max_bytes()
         {
             return true;
         }
@@ -133,7 +153,6 @@ impl HostOriginalBudgets {
                 max_jobs_per_instance: runtime.effective_process_max_jobs_per_instance(),
             })
             .map_err(prepare_error)?;
-        #[cfg(feature = "raw-ip-runtime")]
         let packet_limits = [
             zero_tun::packet_memory::PacketMemoryLimit {
                 frames: runtime.effective_packet_return_total_max_frames(),
@@ -148,7 +167,6 @@ impl HostOriginalBudgets {
                 bytes: runtime.effective_packet_transmit_total_max_bytes(),
             },
         ];
-        #[cfg(feature = "raw-ip-runtime")]
         let metadata_limit = zero_tun::packet_memory::PacketMetadataLayout::new(
             runtime.effective_packet_driver_metadata_total_max_allocations(),
             runtime.effective_packet_driver_metadata_total_max_bytes(),
@@ -158,9 +176,8 @@ impl HostOriginalBudgets {
             capacity: runtime.effective_packet_windows_ring_capacity(),
             total_requested_bytes: runtime.effective_packet_windows_ring_total_max_bytes(),
         });
-        #[cfg(all(feature = "raw-ip-runtime", not(windows)))]
+        #[cfg(not(all(feature = "raw-ip-runtime", windows)))]
         let rings = None;
-        #[cfg(feature = "raw-ip-runtime")]
         self.packet
             .check_all_original_limits(
                 packet_limits[0],
@@ -208,7 +225,6 @@ impl HostOriginalBudgets {
         self.carrier
             .install_buffer_limits_after_retirement(buffers)
             .map_err(prepare_error)?;
-        #[cfg(feature = "raw-ip-runtime")]
         self.packet
             .install_all_original_limits(
                 packet_limits[0],
@@ -237,3 +253,6 @@ impl HostOriginalBudgets {
         self.process.poll_released(&mut cx);
     }
 }
+
+#[cfg(test)]
+mod tests;

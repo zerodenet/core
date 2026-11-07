@@ -12,7 +12,7 @@ homepage.workspace = true
 default = []
 managed-datagram-runtime = []
 datagram-route-runtime = []
-raw-ip-runtime = ["dep:zero-tun", "zero-platform-tokio/native-packet-origin"]
+raw-ip-runtime = ["zero-tun/device", "zero-platform-tokio/native-packet-origin"]
 # Explicit fixture access to the real hosted scope and native resource providers.
 test-support = []
 
@@ -27,7 +27,7 @@ ipnet.workspace = true
 maxminddb.workspace = true
 zero-core = { path = "../core" }
 zero-traits = { path = "../traits" }
-zero-tun = { path = "../tun", optional = true }
+zero-tun = { path = "../tun", default-features = false, features = ["packet-memory"] }
 zero-platform-tokio = { path = "../platform/tokio" }
 zero-config = { path = "../config" }
 tokio.workspace = true

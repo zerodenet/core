@@ -4,6 +4,19 @@ use std::num::NonZeroUsize;
 use zero_core::{request::Destination, Address};
 use zero_platform_tokio::contract::component::{ResourceDeclaration, ResourceOwner};
 struct SourceDescription(AtomicUsize);
+struct MetadataDescription;
+impl ComponentFactory for MetadataDescription {
+    type Options = ();
+    fn describe(&self, _: &()) -> ComponentSpec {
+        let mut spec = SourceDescription(AtomicUsize::new(0)).describe(&());
+        spec.resources.truncate(1);
+        spec
+    }
+    fn build(&self, _: Arc<()>, _: BuildContext) -> Result<ComponentInstance, BuildError> {
+        panic!("cold metadata test cannot build or acquire an original")
+    }
+}
+
 impl ComponentFactory for SourceDescription {
     type Options = ();
     fn describe(&self, _: &()) -> ComponentSpec {
@@ -89,4 +102,34 @@ fn metadata_only_capacity_changes_do_not_resurrect_an_earlier_packet_resource_id
         id
     );
     assert_eq!(factory.0.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn non_packet_listener_metadata_policy_changes_its_actual_cold_resource_identity() {
+    let catalog = ComponentCatalog::default();
+    let mut allocate = || catalog.allocate_id();
+    let original =
+        zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap();
+    let factory = Arc::new(MetadataDescription);
+    let mut first = ResourcePreparation::new(&mut allocate).with_candidate(&original);
+    let id = first
+        .share("listener.metadata", factory.clone(), Arc::new(()))
+        .unwrap();
+    let identities = first.identities().unwrap();
+    drop(first);
+    let mut next = original.clone();
+    next.runtime.packet_driver_metadata_total_max_bytes = Some(
+        original
+            .runtime
+            .effective_packet_driver_metadata_total_max_bytes()
+            + 1,
+    );
+    let mut prepared =
+        ResourcePreparation::with_identities(&mut allocate, &identities).with_candidate(&next);
+    assert_ne!(
+        prepared
+            .share("listener.metadata", factory, Arc::new(()))
+            .unwrap(),
+        id
+    );
 }

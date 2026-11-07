@@ -23,6 +23,13 @@ pub(in crate::runtime) fn carrier_budget_changed(
         != next.runtime.effective_carrier_max_total_originals()
         || old.runtime.effective_component_total_max_tasks()
             != next.runtime.effective_component_total_max_tasks()
+        // The metadata-only Root is also used by masked ordinary listeners
+        // with no raw-IP feature. Their actual Sources go through the same
+        // idle/preflight/StopOld barrier; active TCP/history is never evicted.
+        || old.runtime.effective_packet_driver_metadata_total_max_allocations()
+            != next.runtime.effective_packet_driver_metadata_total_max_allocations()
+        || old.runtime.effective_packet_driver_metadata_total_max_bytes()
+            != next.runtime.effective_packet_driver_metadata_total_max_bytes()
 }
 /// Exactly the Source native classes now bound to the same Host total root.
 /// A packet device or role alias is not silently charged as a listener.

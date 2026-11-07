@@ -13,7 +13,7 @@ default = []
 # Concrete native-registration suspension for original-custody regressions only.
 test-support = []
 host-network-stats = []
-native-packet-origin = ["dep:zero-tun"]
+native-packet-origin = ["zero-tun/device"]
 
 [dependencies]
 # Actual controlled journal rotation retains its original temporary path.
@@ -26,7 +26,7 @@ memmap2 = "0.9"
 tokio = { workspace = true, features = ["process"] }
 zero-traits = { path = "../../traits" }
 zero-core = { path = "../../core" }
-zero-tun = { path = "../../tun", optional = true }
+zero-tun = { path = "../../tun", default-features = false, features = ["packet-memory"] }
 zero-error = { path = "../../error" }
 tokio-util.workspace = true
 
