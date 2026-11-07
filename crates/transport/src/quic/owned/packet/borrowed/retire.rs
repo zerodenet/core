@@ -58,6 +58,9 @@ impl BorrowedPacketSegment {
                 );
             }
             let joined = self.joined.as_ref().unwrap();
+            if !driver.matches_joined(joined) {
+                return Err(error(Reason::StalePlan));
+            }
             if joined.result().is_err() {
                 driver
                     .acknowledge_hosted_failure(joined)
@@ -67,9 +70,32 @@ impl BorrowedPacketSegment {
                 .await
                 .map_err(|_| error(Reason::Timeout))?;
         }
-        let report = self.adoption.retire(end).await?;
+        let mut report = self.adoption.retire(end).await?;
         if !report.is_complete() {
             return Err(error(Reason::Timeout));
+        }
+        // Adoption reports its native/loan controller. This concrete segment
+        // additionally owns the exact driver receipt retained before local ACK.
+        // Merge that received original, not an invented task-number outcome.
+        if let Some(joined) = &self.joined {
+            if !report.exited_tasks.contains(&joined.id()) {
+                report.exited_tasks.push(joined.id());
+            }
+            if let Err(source) = joined.result() {
+                if !report
+                    .failed_tasks
+                    .iter()
+                    .any(|actual| actual.id == joined.id())
+                {
+                    report.failed_tasks.push(
+                        zero_platform_tokio::contract::lifecycle::TaskFailure {
+                            id: joined.id(),
+                            class: joined.class(),
+                            error: ChannelError::retained(source),
+                        },
+                    );
+                }
+            }
         }
         let mut channels = self
             .queues

@@ -24,7 +24,9 @@ pub struct BorrowedPacketSegment {
 }
 /// Returned unique original queues and the same received driver outcome.
 /// Native/control/user closure and Scope Host ACK were independently verified
-/// by this actual segment. Error presence does not undo those positive facts.
+/// by this actual segment. Its report includes the original native/loan report
+/// and this segment's same received driver outcome. Error presence does not
+/// undo positive closure facts.
 pub struct BorrowedPacketReturned {
     queues: PacketQueues,
     joined: Option<TaskJoined>,

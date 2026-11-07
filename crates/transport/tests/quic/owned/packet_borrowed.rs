@@ -264,6 +264,20 @@ async fn actual_borrowed_wire(cancelled: bool, faulted: bool) {
                 .failed_tasks
                 .iter()
                 .any(|failure| failure.id == joined.id()));
+            assert!(report.exited_tasks.contains(&joined.id()));
+            let row = report
+                .failed_tasks
+                .iter()
+                .find(|row| row.id == joined.id())
+                .unwrap();
+            assert_eq!(row.class, joined.class());
+            assert_eq!(row.error.stage, actual_failure.as_ref().unwrap().stage);
+            assert_eq!(row.error.reason, actual_failure.as_ref().unwrap().reason);
+            let reported = std::error::Error::source(&row.error)
+                .unwrap()
+                .downcast_ref::<Arc<zero_platform_tokio::contract::ChannelError>>()
+                .expect("same retained original driver cause");
+            assert!(Arc::ptr_eq(reported, actual_failure.as_ref().unwrap()));
             queues
         } else {
             segment.retire(end()).await.unwrap()
