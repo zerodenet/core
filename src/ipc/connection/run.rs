@@ -38,7 +38,10 @@ where
     // Every error/cancellation exits this work future into the same retained
     // cleanup path. The original job handles live outside that future.
     let mut inline_command: Option<commands::CommandCredits> = None;
-    let work = async {
+    // One original connection Work boundary, in this same task. Type erasure
+    // keeps the complete command/ACK future out of every outer IO layout;
+    // the retained cleanup owners remain outside this one finite allocation.
+    let work: zero_platform_tokio::contract::BoxFuture<'_, io::Result<()>> = Box::pin(async {
         loop {
             let next = tokio::select! {biased;_=stop.cancelled()=>break,result=frames::next_request(&mut reader,&budget,&mut concurrent_commands)=>result?};
             let Some(raw_line) = next else {
@@ -246,7 +249,7 @@ where
         }
 
         io::Result::Ok(())
-    };
+    });
     let result = super::super::owner::catch_work(work).await;
     stop.cancel();
     // A polling panic or failed response may leave the accepted Apply alive.
