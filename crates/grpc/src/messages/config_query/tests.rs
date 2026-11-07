@@ -4,6 +4,43 @@ use zero_api::QueryService;
 use zero_platform_tokio::contract::scope::{TaskClass, TaskScope};
 use zero_runtime::configuration::{ControlBudget, ControlBudgetLimits};
 
+#[derive(Clone)]
+struct ViewOnly;
+impl zero_api::QueryService for ViewOnly {
+    fn query(&self, _: zero_api::QueryRequest) -> zero_api::ApiResult<zero_api::QueryResponse> {
+        panic!("production config query must borrow its supplied Engine")
+    }
+}
+impl zero_api::CommandService for ViewOnly {
+    fn execute(
+        &self,
+        _: zero_api::CommandRequest,
+    ) -> zero_api::ApiResult<zero_api::CommandResponse> {
+        unreachable!("query-only fixture")
+    }
+}
+impl zero_api::EventSource for ViewOnly {
+    type Stream = <zero_engine::EngineHandle as zero_api::EventSource>::Stream;
+    fn subscribe(&self, _: zero_api::EventFilter) -> zero_api::ApiResult<Self::Stream> {
+        unreachable!("query-only fixture")
+    }
+    fn latest(
+        &self,
+        _: usize,
+        _: zero_api::EventFilter,
+    ) -> zero_api::ApiResult<Vec<zero_api::RawApiEvent>> {
+        unreachable!("query-only fixture")
+    }
+    fn since(
+        &self,
+        _: u64,
+        _: usize,
+        _: zero_api::EventFilter,
+    ) -> zero_api::ApiResult<zero_api::EventReplay> {
+        unreachable!("query-only fixture")
+    }
+}
+
 fn engine() -> zero_engine::EngineHandle {
     zero_engine::EngineHandle::new(zero_engine::Engine::new(serde_json::from_value(serde_json::json!({
         "outbounds":[{"tag":"leaf","protocol":{"type":"socks5","server":"127.0.0.1","port":1080}}],
@@ -26,10 +63,7 @@ async fn ordinary_native_grpc_uses_the_same_engine_view_and_original_error_shape
         // Its QueryService is unreachable: these production queries must use
         // the supplied actual Engine view, including the missing-policy error.
         owner
-            .start_with_engine(
-                crate::tests::PendingEvents(Arc::new(std::sync::atomic::AtomicUsize::new(0))),
-                engine.clone(),
-            )
+            .start_with_engine(ViewOnly, engine.clone())
             .await
             .unwrap();
         let channel =
