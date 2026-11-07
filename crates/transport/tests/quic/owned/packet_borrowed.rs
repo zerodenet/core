@@ -40,7 +40,10 @@ async fn borrowed_packet_uses_actual_udp_and_holds_queues_until_original_scope_a
         let egress = Arc::new(EgressInterfaceControl::default());
         let direct = UpstreamBinding {
             prefix: vec![],
-            dial: Default::default(),
+            dial: zero_traits::DialPolicy {
+                source_ip: Some("127.0.0.1".parse().unwrap()),
+                ..Default::default()
+            },
             network_generation: NetworkGeneration(egress.generation()),
         };
         let context = CarrierContext {
