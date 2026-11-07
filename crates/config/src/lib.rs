@@ -8,7 +8,6 @@ mod validate;
 pub use auth::AuthRequirement;
 pub use error::ConfigError;
 pub use mieru_config::{MieruTrafficPatternConfig, MieruTransportOptions};
-pub use model::UdpReceiveQueueConfig;
 pub use model::{
     ApiConfig, BrowserDialerConfig, ClientTlsConfig, ControlApiConfig, ControlGrpcConfig,
     ControlGrpcTlsConfig, DirectPacketDeviceBackend, DirectPacketDeviceConfig,
@@ -34,6 +33,7 @@ pub use model::{
     VmessUserConfig, WebSocketConfig, WireguardInboundPeerConfig, WireguardPeerConfig,
     WireguardSecret, DEFAULT_EVENT_LOG_CAPACITY, DEFAULT_LATENCY_TEST_URL,
 };
+pub use model::{EndpointRoleBindingRef, UdpReceiveQueueConfig};
 pub use zero_api::CONFIG_SCHEMA_VERSION;
 
 pub use model::{

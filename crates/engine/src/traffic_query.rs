@@ -44,10 +44,10 @@ impl Engine {
             _ => return None,
         };
         let (traffic, active) = self.traffic_query_roots();
-        Some(
-            traffic
-                .control_query(request, self.core_instance_id())
-                .map(|traffic| {
+        traffic
+            .control_query(request, self.core_instance_id())
+            .map(|selected| {
+                selected.map(|traffic| {
                     let active = traffic.needs_activity().then(|| active.query_guard());
                     EngineTrafficQueryGuard {
                         engine: self,
@@ -55,8 +55,8 @@ impl Engine {
                         active,
                         key,
                     }
-                }),
-        )
+                })
+            })
     }
 }
 impl EngineTrafficQueryGuard<'_> {
