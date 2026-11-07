@@ -70,15 +70,31 @@ async fn direct(reject: bool) {
                 }
             }).await.unwrap();
             let original=observed.original.as_ref().unwrap();
-            assert!(original.parent().is_none());
-            assert!(original.closed().is_none());
+            let donor=original.parent().expect("DNS child retains the actual selected Direct original");
+            assert_ne!(donor.instance(),original.instance());
+            assert!(donor.parent().is_none() && donor.driver().is_none());
+            assert!(original.closed().is_none() && donor.closed().is_none());
+            let plan=proxy.tcp_runtime_services().components.clone().unwrap();
+            let slot=plan.component(donor.instance().component).unwrap();
+            assert_eq!(slot.instance_id(),donor.instance());
+            let owner=slot.original_carrier_owner(0).expect("same actual Direct native owner");
+            assert!(donor.owner().same_owner(&owner));
+            let held=owner.observe().unwrap();assert_eq!(held.retained(),1);
+            let auxiliary=held.slots()[0].auxiliary().expect("actual Direct preparation").clone();
+            let joined=auxiliary.try_joined().expect("Direct preparation joined before delivery");
+            assert!(auxiliary.matches_joined(&joined) && joined.registration_released());
+            assert!(auxiliary.scope_identity().same_scope(&owner.bound().unwrap().scope_identity()));
+            joined.result().unwrap();
             let answer=zero_dns::udp::build_dns_response(&bytes,&[IpAddress::V4([198,51,100,27])]);
             stream.write_u16(answer.len() as u16).await.unwrap();
             stream.write_all(&answer).await.unwrap();
             assert_eq!(proxy.protocols.drive_component_supervision(Box::pin(query)).await.unwrap().unwrap(),vec![IpAddress::V4([198,51,100,27])]);
             proxy.protocols.drive_component_supervision(Box::pin(observed.task.wait())).await;
             let closed=original.closed().expect("same original native controller receipt");
-            assert!(closed.matches(original)&&closed.had_native_acquisition());
+            assert!(closed.matches(original) && !closed.had_native_acquisition(), "the DNS child returns its actual logical loan");
+            let native=donor.closed().expect("same Direct original native controller receipt");
+            assert!(native.matches(donor) && native.had_native_acquisition());
+            assert!(auxiliary.try_joined().unwrap().registration_released());
         }
         assert!(proxy.engine().active_sessions().is_empty());
         assert!(proxy.engine().completed_sessions().is_empty());

@@ -234,6 +234,15 @@ impl Provider {
                 binding.prefix.clone(),
             )
             .map_err(std::io::Error::other)?;
+            let direct_endpoint = (nodes[0].endpoint.is_none()
+                && nodes[0].role == zero_platform_tokio::contract::dns::DnsQueryRole::Direct)
+                .then(|| {
+                    nodes
+                        .get(1)
+                        .and_then(|node| node.endpoint.clone())
+                        .unwrap_or_else(|| destination(peer))
+                });
+            let root = root.with_direct_endpoint(direct_endpoint);
             let root = Arc::new(if device_root {
                 root.observer_only()
             } else {
