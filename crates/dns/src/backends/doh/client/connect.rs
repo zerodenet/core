@@ -38,7 +38,6 @@ impl DohDnsResolver {
         if let Some(binding) = &binding {
             binding.check_current()?;
         }
-        let mut clients = self.clients.lock().await;
         key.ensure_current(&self.egress)?;
         let entry = DohClient {
             key: key.clone(),
@@ -51,15 +50,12 @@ impl DohDnsResolver {
             ),
         };
         let client = entry.lease();
-        clients.retain(|entry| {
-            entry.key.addr != key.addr
-                && entry.key.generation == key.generation
-                && entry.state.is_reusable()
-        });
+        self.retire_cached_clients(Some(key.addr), Some(key.generation))
+            .await;
         // Spawn admission and closing share the actual owner lock. A failed
         // registration drops this unstarted connection without publishing it.
         self.owner.spawn(entry.state.clone(), connection)?;
-        clients.push(entry);
+        self.clients.lock().await.push(entry);
         Ok(client)
     }
     async fn handshake_client(

@@ -24,6 +24,7 @@ impl ConnectionKey {
     }
 }
 
+mod cache;
 mod state;
 pub(super) use state::ClientState;
 
@@ -126,10 +127,7 @@ impl DohDnsResolver {
         }
         // This endpoint slot is being replaced. Stop its old users and join
         // the actual driver before allocating the replacement physical socket.
-        self.clients
-            .lock()
-            .await
-            .retain(|entry| entry.key.addr != key.addr);
+        self.retire_cached_clients(Some(key.addr), None).await;
         let deadline = super::super::ATTEMPT_DEADLINE
             .try_with(|deadline| *deadline)
             .unwrap_or_else(|_| tokio::time::Instant::now() + DNS_TIMEOUT);
@@ -145,9 +143,9 @@ impl DohDnsResolver {
     }
 
     async fn cached_client(&self, key: &ConnectionKey) -> Option<ReadyClient> {
-        let mut clients = self.clients.lock().await;
-        let generation = self.egress.generation();
-        clients.retain(|entry| entry.key.generation == generation && entry.state.is_reusable());
+        self.retire_cached_clients(None, Some(self.egress.generation()))
+            .await;
+        let clients = self.clients.lock().await;
         clients
             .iter()
             .find(|entry| entry.key == *key)
