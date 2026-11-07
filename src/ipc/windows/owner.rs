@@ -8,6 +8,13 @@ pub(super) struct Entry {
     pub(super) task: Mutex<Option<tokio::task::Id>>,
     pub(super) joined: AtomicBool,
 }
+impl Entry {
+    /// The same first-open Connection charge issues one local book. No new
+    /// connection, worker or workspace allocation is performed here.
+    pub(super) fn connection_budget(&self) -> Option<zero_runtime::configuration::ControlConnectionBudget> {
+        lock(&self.charge).as_ref()?.0.connection_budget()
+    }
+}
 #[derive(Default)]
 pub(super) struct Originals(Mutex<Vec<Arc<Entry>>>);
 fn lock<T>(value: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

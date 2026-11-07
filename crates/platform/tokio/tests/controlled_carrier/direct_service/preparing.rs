@@ -171,7 +171,8 @@ async fn prepared_direct_service_keeps_transferred_view_and_waits_real_auxiliary
             .await
             .unwrap()
             .is_complete());
-        assert!(scope.shutdown(deadline()).await.is_complete());
+        scope.begin_shutdown();
+        assert!(scope.is_drained());
     })
     .await
     .unwrap();
