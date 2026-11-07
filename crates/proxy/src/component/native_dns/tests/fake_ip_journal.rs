@@ -46,14 +46,14 @@ fn instances(
             })
             .collect();
         match &spec.owner {
-            ResourceOwner::Endpoint(name) if name == "proxy.dns_queries" => {
+            ResourceOwner::Endpoint(name) if name.as_ref() == "proxy.dns_queries" => {
                 assert_eq!(journals.len(), 1);
                 assert_eq!(journals[0].path, path);
                 assert_eq!(journals[0].max_bytes.get(), limit);
                 assert!(journals[0].parent_private);
                 query = Some(instance);
             }
-            ResourceOwner::Endpoint(name) if name == "proxy.dns_node_queries" => {
+            ResourceOwner::Endpoint(name) if name.as_ref() == "proxy.dns_node_queries" => {
                 assert!(
                     journals.is_empty(),
                     "Node must not open a second journal/lock"
