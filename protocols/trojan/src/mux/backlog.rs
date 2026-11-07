@@ -11,6 +11,7 @@ pub(crate) struct MuxResponseBacklog {
 struct MuxResponseBacklogInner {
     limit: usize,
     used: AtomicUsize,
+    #[cfg(feature = "runtime")]
     released: Arc<tokio::sync::Notify>,
 }
 
@@ -26,6 +27,7 @@ impl MuxResponseBacklog {
             inner: Arc::new(MuxResponseBacklogInner {
                 limit,
                 used: AtomicUsize::new(0),
+                #[cfg(feature = "runtime")]
                 released: Arc::new(tokio::sync::Notify::new()),
             }),
         }
@@ -74,30 +76,23 @@ impl MuxResponseBacklog {
     }
 
     #[cfg(feature = "runtime")]
-    /// Wait only for byte credit of this same actual response FIFO.
-    pub(crate) fn poll_buffer<T>(
+    /// Reserve original byte credit before protocol allocation/serialization.
+    pub(crate) fn poll_charge(
         &self,
         cx: &mut std::task::Context<'_>,
         bytes: usize,
-        value: T,
         waiter: &mut Option<std::pin::Pin<Box<tokio::sync::futures::OwnedNotified>>>,
-    ) -> std::task::Poll<Result<BufferedMuxResponse<T>, T>> {
+    ) -> std::task::Poll<Option<BufferedMuxResponse<()>>> {
         if bytes > self.inner.limit {
-            return std::task::Poll::Ready(Err(value));
+            return std::task::Poll::Ready(None);
         }
-        let mut value = value;
         loop {
             let notified = waiter
                 .get_or_insert_with(|| Box::pin(self.inner.released.clone().notified_owned()));
-            // Register before testing credit; release cannot be lost between
-            // the actual atomic reservation and this original writer's wait.
             notified.as_mut().enable();
-            match self.try_buffer(bytes, value) {
-                Ok(buffered) => {
-                    *waiter = None;
-                    return std::task::Poll::Ready(Ok(buffered));
-                }
-                Err(returned) => value = returned,
+            if let Ok(buffered) = self.try_buffer(bytes, ()) {
+                *waiter = None;
+                return std::task::Poll::Ready(Some(buffered));
             }
             if std::future::Future::poll(notified.as_mut(), cx).is_pending() {
                 return std::task::Poll::Pending;
@@ -113,6 +108,18 @@ impl MuxResponseBacklog {
 }
 
 impl<T> BufferedMuxResponse<T> {
+    #[cfg(feature = "runtime")]
+    pub(crate) fn map<U>(mut self, build: impl FnOnce(T) -> U) -> BufferedMuxResponse<U> {
+        // A serializer panic returns this exact already-held byte reservation.
+        let value = build(self.value.take().expect("original byte reservation"));
+        let bytes = std::mem::take(&mut self.bytes);
+        BufferedMuxResponse {
+            value: Some(value),
+            backlog: self.backlog.clone(),
+            bytes,
+        }
+    }
+
     pub(crate) fn into_inner(mut self) -> T {
         self.value
             .take()
@@ -126,6 +133,9 @@ impl<T> Drop for BufferedMuxResponse<T> {
             .inner
             .used
             .fetch_sub(self.bytes, Ordering::AcqRel);
-        self.backlog.inner.released.notify_waiters();
+        #[cfg(feature = "runtime")]
+        if self.bytes != 0 {
+            self.backlog.inner.released.notify_waiters();
+        }
     }
 }

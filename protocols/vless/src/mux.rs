@@ -468,6 +468,10 @@ impl InboundMuxUdpRelay for VlessInboundMuxUdpRelay {
 pub(crate) struct VlessInboundMuxWriter {
     down_tx: mpsc::Sender<BufferedMuxResponse<VlessInboundMuxDownlink>>,
     backlog: MuxResponseBacklog,
+    #[cfg(feature = "runtime")]
+    pending_ends: std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<u16>>>,
+    #[cfg(feature = "runtime")]
+    end_changed: std::sync::Arc<tokio::sync::Notify>,
 }
 
 #[cfg(feature = "reality")]
@@ -898,7 +902,12 @@ impl VlessInboundMuxWriter {
         down_tx: mpsc::Sender<BufferedMuxResponse<VlessInboundMuxDownlink>>,
         backlog: MuxResponseBacklog,
     ) -> Self {
-        Self { down_tx, backlog }
+        Self {
+            down_tx,
+            backlog,
+            pending_ends: Default::default(),
+            end_changed: Default::default(),
+        }
     }
 
     fn channel(
@@ -1376,3 +1385,6 @@ impl MuxServer {
             .map_err(|_| Error::Io("failed to write MUX end frame"))
     }
 }
+
+#[cfg(feature = "reality")]
+mod pending_end;

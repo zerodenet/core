@@ -109,3 +109,7 @@ async fn eviction_through_a_clone_removes_cached_connections() {
 
 #[path = "tests/half_close.rs"]
 mod half_close;
+
+#[cfg(feature = "runtime")]
+#[path = "tests/cancelled.rs"]
+mod cancelled;

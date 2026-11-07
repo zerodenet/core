@@ -438,36 +438,36 @@ impl TrojanInboundMuxTcpRelay {
         let output = self.writer.clone();
         let sender = output.write_tx.clone();
         let mut waiter = None;
-        let maximum = output.backlog.payload_limit(
-            MUX_MAX_DATA_LEN,
-            encode_keep_stream(sid, &[])
-                .expect("fixed TCP header")
-                .len(),
-        );
+        let header = encode_keep_stream(sid, &[])
+            .expect("fixed TCP header")
+            .len();
+        let end_size = encode_end_stream(sid).expect("fixed TCP END").len();
+        let maximum = output.backlog.payload_limit(MUX_MAX_DATA_LEN, header);
         zero_transport::pooled_driver::ExclusiveIo::new(
             zero_transport::stream::QueuedChannelStream::new(
                 self.up_rx,
                 sender,
                 move |cx, bytes: Option<&[u8]>| {
+                    let len = match bytes {
+                        Some(bytes) => bytes.len() + header,
+                        None => end_size,
+                    };
+                    let credit =
+                        std::task::ready!(output.backlog.poll_charge(cx, len, &mut waiter))
+                            .ok_or_else(|| {
+                                io::Error::other(
+                                    "Trojan MUX frame exceeds its original byte budget",
+                                )
+                            })?;
                     let frame = match bytes {
                         Some(bytes) => encode_keep_stream(sid, bytes),
                         None => encode_end_stream(sid),
                     }
                     .map_err(io::Error::other)?;
-                    let len = frame.len();
-                    output
-                        .backlog
-                        .poll_buffer(cx, len, frame, &mut waiter)
-                        .map(|result| {
-                            result.map_err(|_| {
-                                io::Error::other(
-                                    "Trojan MUX frame exceeds its original byte budget",
-                                )
-                            })
-                        })
+                    Poll::Ready(Ok(credit.map(|()| frame)))
                 },
                 move || {
-                    let _ = self.writer.end(sid);
+                    self.writer.request_end(sid);
                 },
                 maximum,
                 Vec::new(),
@@ -1205,6 +1205,10 @@ impl TrojanInboundMuxSession {
 pub(crate) struct TrojanInboundMuxWriter {
     write_tx: mpsc::Sender<BufferedMuxResponse<Vec<u8>>>,
     backlog: MuxResponseBacklog,
+    #[cfg(feature = "runtime")]
+    pending_ends: std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<u16>>>,
+    #[cfg(feature = "runtime")]
+    end_changed: std::sync::Arc<tokio::sync::Notify>,
 }
 
 impl TrojanInboundMuxWriter {
@@ -1222,8 +1226,26 @@ impl TrojanInboundMuxWriter {
         let (write_tx, mut write_rx) =
             mpsc::channel::<BufferedMuxResponse<Vec<u8>>>(policy.frames());
         let original = Self::new(write_tx, MuxResponseBacklog::from_policy(policy));
+        let pending_ends = original.pending_ends.clone();
+        let end_changed = original.end_changed.clone();
+        let sender = original.write_tx.downgrade();
+        let backlog = original.backlog.clone();
         (original, async move {
-            while let Some(frame) = write_rx.recv().await {
+            loop {
+                // Weak sender does not keep this original FIFO open forever.
+                if let Some(write_tx) = sender.upgrade() {
+                    Self {
+                        write_tx,
+                        backlog: backlog.clone(),
+                        pending_ends: pending_ends.clone(),
+                        end_changed: end_changed.clone(),
+                    }
+                    .retry_end_requests();
+                }
+                let frame = tokio::select! {
+                    frame = write_rx.recv() => match frame { Some(frame) => frame, None => break },
+                    _ = end_changed.notified() => continue,
+                };
                 let frame = frame.into_inner();
                 writer
                     .write_all(&frame)
@@ -1231,6 +1253,9 @@ impl TrojanInboundMuxWriter {
                     .map_err(standard::write_error)?;
                 writer.flush().await.map_err(standard::write_error)?;
             }
+            // No strong sender remains and the original FIFO is fully drained.
+            // The same original driver still owns any cancelled END facts.
+            pending_end::finish_last_sender(&pending_ends, &mut writer).await?;
             writer.shutdown().await.map_err(standard::write_error)
         })
     }
@@ -1238,7 +1263,14 @@ impl TrojanInboundMuxWriter {
         write_tx: mpsc::Sender<BufferedMuxResponse<Vec<u8>>>,
         backlog: MuxResponseBacklog,
     ) -> Self {
-        Self { write_tx, backlog }
+        Self {
+            write_tx,
+            backlog,
+            #[cfg(feature = "runtime")]
+            pending_ends: Default::default(),
+            #[cfg(feature = "runtime")]
+            end_changed: Default::default(),
+        }
     }
 
     fn from_tokio_writer<W>(writer: W, policy: MuxResponseBacklogPolicy) -> Self
@@ -2014,3 +2046,6 @@ impl AsyncWrite for TrojanMuxStream {
 fn protocol_error(error: Error) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, error)
 }
+
+#[cfg(feature = "runtime")]
+mod pending_end;
