@@ -423,9 +423,6 @@ pub trait ResourceAccess: Send + Sync {
         ))
     }
 
-    /// The same Host's pure buffer accounting. This confers no acquisition,
-    /// IO, task, native-close, logical-user or Scope authority. Missing actual
-    /// production accounting cannot fall back to an independent local book.
     /// Same actual Host metadata accounting, including allocations made before
     /// native acquisition. This grants no IO, task, native-close or policy right.
     /// A Kernel caller must propagate denial; it cannot create a local Root.
@@ -436,6 +433,9 @@ pub trait ResourceAccess: Send + Sync {
             super::Impact::Component,
         ))
     }
+    /// The same Host's pure buffer accounting. This confers no acquisition,
+    /// IO, task, native-close, logical-user or Scope authority. Missing actual
+    /// production accounting cannot fall back to an independent local book.
     fn carrier_buffer_budget(&self) -> Option<crate::controlled_carrier::CarrierBufferBudget> {
         None
     }
