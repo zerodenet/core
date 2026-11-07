@@ -16,6 +16,7 @@
 //! [`feed`]: TcpStack::feed
 //! [`accept`]: TcpStack::accept
 
+mod accept_wake;
 mod output;
 mod quiescence;
 use std::collections::HashMap;
@@ -655,7 +656,11 @@ struct TcpAcceptQueue {
 pub struct UserTcpStack {
     connections: Arc<Mutex<HashMap<ConnKey, Conn>>>,
     accept_tx: mpsc::Sender<ReadyConn>,
-    accept_queue: Mutex<TcpAcceptQueue>,
+    // The sole accept consumer may wait without holding the actual queue data
+    // lock. Source pause must still observe that real queue while accept is Pending.
+    accept_consumer: Mutex<()>,
+    accept_wake: accept_wake::AcceptWake,
+    accept_queue: StdMutex<TcpAcceptQueue>,
     outbound: PacketSender,
     control_packets: TcpControlPackets,
     mss: u16,
@@ -688,7 +693,9 @@ impl UserTcpStack {
         Self {
             connections: Arc::new(Mutex::new(HashMap::new())),
             accept_tx: tx,
-            accept_queue: Mutex::new(TcpAcceptQueue {
+            accept_consumer: Mutex::new(()),
+            accept_wake: accept_wake::AcceptWake::default(),
+            accept_queue: StdMutex::new(TcpAcceptQueue {
                 receiver: rx,
                 pending: None,
             }),
@@ -707,6 +714,7 @@ impl UserTcpStack {
     /// Remove connections idle beyond `timeout`.
     pub async fn cleanup_idle(&self, timeout: std::time::Duration) {
         let locked = self.connections.lock().await;
+        let _accept_notifications = self.accept_wake.defer();
         #[cfg(feature = "packet-memory")]
         let _memory_notifications = self.outbound.defer_memory_notifications();
         let mut conns = locked;
@@ -803,6 +811,7 @@ impl UserTcpStack {
         let rev = key_reversed(&key);
 
         let locked = self.connections.lock().await;
+        let _accept_notifications = self.accept_wake.defer();
         #[cfg(feature = "packet-memory")]
         let _memory_notifications = self.outbound.defer_memory_notifications();
         let mut conns = locked;
@@ -1077,21 +1086,39 @@ impl TcpStack for UserTcpStack {
     }
 
     async fn accept(&self) -> Option<(Self::Connection, SocketAddress, SocketAddress)> {
-        let mut queue = self.accept_queue.lock().await;
+        let _consumer = self.accept_consumer.lock().await;
         loop {
-            if queue.pending.is_none() {
-                queue.pending = queue.receiver.recv().await;
-            }
-            let (key, connection_id) = {
-                let ready = queue.pending.as_ref()?;
-                (ready.key, ready.id)
-            };
+            let (key, connection_id) = std::future::poll_fn(|cx| {
+                self.accept_wake.register(cx.waker());
+                let _notifications = self.accept_wake.defer();
+                let wake = self.accept_wake.waker();
+                let mut queue = self.accept_queue.lock().expect("TCP accept queue poisoned");
+                if queue.pending.is_none() {
+                    let mut actual = Context::from_waker(&wake);
+                    match queue.receiver.poll_recv(&mut actual) {
+                        Poll::Ready(Some(ready)) => queue.pending = Some(ready),
+                        Poll::Ready(None) => return Poll::Ready(None),
+                        Poll::Pending => return Poll::Pending,
+                    }
+                }
+                let ready = queue.pending.as_ref().expect("same actual accept entry");
+                Poll::Ready(Some((ready.key, ready.id)))
+            })
+            .await?;
             let is_current = self.connections.lock().await.get(&key).is_some_and(|conn| {
                 conn.id == connection_id
                     && matches!(conn.state, TcpState::Established | TcpState::CloseWait)
             });
             if !is_current {
-                queue.pending.take();
+                // Return the stale original outside the queue data lock: stream
+                // cleanup may synchronously wake the original stack producer.
+                let stale = self
+                    .accept_queue
+                    .lock()
+                    .expect("TCP accept queue poisoned")
+                    .pending
+                    .take();
+                drop(stale);
                 tracing::debug!(
                     ?key,
                     connection_id,
@@ -1102,7 +1129,10 @@ impl TcpStack for UserTcpStack {
             // No await may occur between taking the connection and returning it.
             // Keeping the dequeued value in `queue.pending` across the async
             // validation above makes this accept operation cancellation-safe.
-            let ready = queue
+            let ready = self
+                .accept_queue
+                .lock()
+                .expect("TCP accept queue poisoned")
                 .pending
                 .take()
                 .expect("validated TCP accept entry is pending");
