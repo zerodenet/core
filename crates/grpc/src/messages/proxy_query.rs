@@ -27,7 +27,9 @@ impl Record {
     ) -> Option<Result<Vec<u8>, tonic::Status>> {
         if !matches!(
             request,
-            zero_api::QueryRequest::TunStatus(_) | zero_api::QueryRequest::Health(_)
+            zero_api::QueryRequest::TunStatus(_)
+                | zero_api::QueryRequest::Health(_)
+                | zero_api::QueryRequest::Capabilities(_)
         ) {
             return None;
         }
@@ -39,7 +41,10 @@ impl Record {
         };
         let mut encoded: Option<Arc<Lease>> = None;
         let prepared = (|| -> io::Result<(Vec<u8>, usize)> {
-            if matches!(request, zero_api::QueryRequest::Health(_)) {
+            if matches!(request, zero_api::QueryRequest::Capabilities(_)) {
+                let view = proxy.control_capabilities_query(&mut workspace)?;
+                self.encode_proxy_view(&view, &mut encoded)
+            } else if matches!(request, zero_api::QueryRequest::Health(_)) {
                 let view = proxy.control_health_query(&mut workspace)?;
                 self.encode_proxy_view(&view, &mut encoded)
             } else {

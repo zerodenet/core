@@ -4,6 +4,8 @@ use serde::{ser::SerializeMap, Serialize, Serializer};
 mod health;
 mod tun;
 pub use health::ProxyHealthQuery;
+mod capabilities;
+pub use capabilities::ProxyCapabilitiesQuery;
 /// Borrow only synchronously while measuring/reserving/encoding. Destroy this
 /// and every original guard before any await or response-credit refund.
 pub struct ProxyControlQuery<'a> {

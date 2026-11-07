@@ -101,24 +101,31 @@ async fn native_proxy_query_uses_same_original_status_and_recovers_from_output_b
             // The synchronous original guards returned before any network wait.
             assert!(handle.control_proxy_query(&request).is_some());
         }
-        let request = zero_api::QueryRequest::Health(Default::default());
-        let expected = serde_json::to_value(handle.query(request.clone()).unwrap()).unwrap();
-        client.ready().await.unwrap();
-        let response: tonic::Response<crate::QueryResponse> = client
-            .unary(
-                tonic::Request::new(crate::QueryRequest {
-                    method: "query".into(),
-                    payload: serde_json::to_vec(&request).unwrap(),
-                }),
-                tonic::codegen::http::uri::PathAndQuery::from_static("/zero.api.v1.Control/Query"),
-                tonic::codec::ProstCodec::default(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&response.into_inner().payload).unwrap(),
-            expected
-        );
+        for request in [
+            zero_api::QueryRequest::Health(Default::default()),
+            zero_api::QueryRequest::Capabilities(Default::default()),
+        ] {
+            let expected = serde_json::to_value(handle.query(request.clone()).unwrap()).unwrap();
+            client.ready().await.unwrap();
+            let response: tonic::Response<crate::QueryResponse> = client
+                .unary(
+                    tonic::Request::new(crate::QueryRequest {
+                        method: "query".into(),
+                        payload: serde_json::to_vec(&request).unwrap(),
+                    }),
+                    tonic::codegen::http::uri::PathAndQuery::from_static(
+                        "/zero.api.v1.Control/Query",
+                    ),
+                    tonic::codec::ProstCodec::default(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&response.into_inner().payload)
+                    .unwrap(),
+                expected
+            );
+        }
         drop(client);
         owner.shutdown().await.unwrap();
         assert!(owner.retirement_complete());

@@ -17,7 +17,10 @@ mod traffic_query;
 pub use traffic_query::{EngineTrafficQuery, EngineTrafficQueryGuard, TrafficQueryError};
 mod session;
 
-pub use api::{register_build_features, EngineHandle, EventSubscriber, RetainedEvent};
+pub use api::{
+    control_build_features, register_build_features, EngineHandle, EventSubscriber, RetainedEvent,
+    CONTROL_CAPABILITY_FEATURES,
+};
 pub use config_query::{EngineConfigQuery, MissingPolicy};
 pub use error::EngineError;
 pub type EventsSinceResult = zero_api::EventReplay;

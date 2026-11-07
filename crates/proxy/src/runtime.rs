@@ -80,7 +80,8 @@ pub(crate) mod udp_ingress;
 pub(crate) mod udp_socket;
 
 pub use handle::{
-    ConfigApplyReconciler, ConfigReconcileResult, ProxyControlQuery, ProxyHandle, ProxyHealthQuery,
+    ConfigApplyReconciler, ConfigReconcileResult, ProxyCapabilitiesQuery, ProxyControlQuery,
+    ProxyHandle, ProxyHealthQuery,
 };
 mod reload_ack;
 use reload_ack::PendingReloadAck;

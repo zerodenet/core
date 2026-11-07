@@ -13,6 +13,7 @@ enum Selected<'a> {
     Sinks,
     TunStatus,
     Health,
+    Capabilities,
     Flows(&'a str),
     Flow(&'a str),
 }
@@ -35,6 +36,7 @@ pub(super) fn route(
         ("GET", "/sinks") => Selected::Sinks,
         ("GET", "/tun_status") => Selected::TunStatus,
         ("GET", "/health") => Selected::Health,
+        ("GET", "/capabilities") => Selected::Capabilities,
         ("GET", "/flows") => Selected::Flows(path_query_part(&request.path)),
         (_, path) if path_segments(path) == 2 && path.starts_with("/flows/") => {
             Selected::Flow(&path["/flows/".len()..])
@@ -76,6 +78,7 @@ fn prepare(
         Selected::Sinks => QueryRequest::Sinks(Default::default()),
         Selected::TunStatus => QueryRequest::TunStatus(zero_api::TunStatusQuery),
         Selected::Health => QueryRequest::Health(Default::default()),
+        Selected::Capabilities => QueryRequest::Capabilities(Default::default()),
         Selected::Flows(query) => {
             QueryRequest::ActiveFlows(handlers::parse_flow_list_params(query))
         }
@@ -95,7 +98,7 @@ fn prepare(
     };
     if matches!(
         &request,
-        QueryRequest::TunStatus(_) | QueryRequest::Health(_)
+        QueryRequest::TunStatus(_) | QueryRequest::Health(_) | QueryRequest::Capabilities(_)
     ) {
         return proxy::prepare(handle, &request, budget);
     }

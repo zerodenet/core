@@ -16,6 +16,12 @@ impl ProtocolInventory {
     pub fn protocol_capabilities(&self) -> Vec<ProtocolCapability> {
         self.registry.capabilities()
     }
+    pub(crate) fn control_capability_descriptors(
+        &self,
+        workspace: &mut zero_runtime::configuration::ControlBudgetPermit,
+    ) -> std::io::Result<Vec<zero_traits::ProtocolCapabilityDescriptor>> {
+        self.registry.control_capability_descriptors(workspace)
+    }
 
     pub fn validate_config(&self, config: &RuntimeConfig) -> Result<(), EngineError> {
         if let Some(device) = &config.runtime.network.direct_packet_device {

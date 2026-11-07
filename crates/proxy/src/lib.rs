@@ -15,8 +15,8 @@ mod validation;
 pub use inbound::{TunInterfaceOptions, TunRuntimeOptions};
 pub use inventory::ProtocolInventory;
 pub use runtime::{
-    ConfigApplyReconciler, ConfigReconcileResult, Proxy, ProxyControlQuery, ProxyHandle,
-    ProxyHealthQuery, ProxyPreparation, RunningProxy,
+    ConfigApplyReconciler, ConfigReconcileResult, Proxy, ProxyCapabilitiesQuery, ProxyControlQuery,
+    ProxyHandle, ProxyHealthQuery, ProxyPreparation, RunningProxy,
 };
 pub use validation::{validate_config, validate_prepared_configuration};
 

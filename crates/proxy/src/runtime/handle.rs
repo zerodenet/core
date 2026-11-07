@@ -14,4 +14,4 @@ pub use configuration::{ConfigApplyReconciler, ConfigReconcileResult};
 pub use model::ProxyHandle;
 
 mod control_query;
-pub use control_query::{ProxyControlQuery, ProxyHealthQuery};
+pub use control_query::{ProxyCapabilitiesQuery, ProxyControlQuery, ProxyHealthQuery};

@@ -130,6 +130,15 @@ Linux 进程原件续作增加内核 Rust 的 cold owned-process grant，保留�
 
 ## Unreleased
 
+### 控制 Health 与 Capabilities 的原件投影
+
+HTTP、IPC 和 gRPC 从同一 Proxy/Engine/设备/协议登记读取 Health 与 Capabilities，
+先由原响应账预付必要标量、descriptor 和排序行存储，再编码原 V1 形状。
+build-feature、配置标签及协议静态能力事实保持借用；不另建查询执行器或资源池。
+已有 owned QueryService/TrafficStatisticsCapability API 继续承担独立 Rust 调用者职责；
+新增借用投影及其纯事实构造不改变配置/API/events、CLI、FFI 或面板消费者。
+对应回归位于 Proxy control_query/tests 和 gRPC messages/proxy_query/tests.rs。
+
 ### 同一原件清理故障与实际退休
 
 内部 Rust `CloseReport` 增加 `resource_failures`；完整 struct literal 需提供该字段或使用

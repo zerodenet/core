@@ -9,6 +9,35 @@ use zero_traits::{
 };
 
 impl ProtocolRegistry {
+    pub(crate) fn control_capability_descriptors(
+        &self,
+        workspace: &mut zero_runtime::configuration::ControlBudgetPermit,
+    ) -> std::io::Result<Vec<ProtocolCapabilityDescriptor>> {
+        let count = self
+            .entries
+            .len()
+            .checked_add(1)
+            .ok_or_else(|| std::io::Error::other("protocol discovery count overflow"))?;
+        let bytes = count
+            .checked_mul(std::mem::size_of::<ProtocolCapabilityDescriptor>())
+            .ok_or_else(|| std::io::Error::other("protocol discovery workspace overflow"))?;
+        workspace.grow(bytes)?;
+        let mut descriptors = Vec::new();
+        descriptors
+            .try_reserve_exact(count)
+            .map_err(std::io::Error::other)?;
+        descriptors.extend(self.entries.iter().map(|entry| entry.support.descriptor()));
+        if !descriptors
+            .iter()
+            .any(|descriptor| descriptor.protocol == "block")
+        {
+            descriptors.push(block_descriptor());
+        }
+        // Actual compiled protocol names are unique. This sort has no second
+        // merge workspace and leaves each protocol's original static facts.
+        descriptors.sort_unstable_by_key(|descriptor| descriptor.protocol);
+        Ok(descriptors)
+    }
     pub(crate) fn compiled_feature_names(&self) -> Vec<&'static str> {
         let mut features = self
             .entries

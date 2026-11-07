@@ -1,6 +1,6 @@
 use super::model::ProxyHandle;
 
-mod capabilities;
+pub(super) mod capabilities;
 mod endpoint;
 
 impl zero_api::QueryService for ProxyHandle {
@@ -33,38 +33,10 @@ impl zero_api::QueryService for ProxyHandle {
                 stats.automatic_sampling = true;
             }
             capabilities.protocols = self.proxy.protocols.protocol_capabilities();
-            capabilities
-                .features
-                .push("diagnostic_probe_health_isolation_v1".to_owned());
-            capabilities
-                .features
-                .push("network_endpoint_catalog_v1".to_owned());
-            if self.proxy.protocols.endpoint_control_available() {
-                capabilities
-                    .features
-                    .push("network_endpoint_control_v1".to_owned());
-                capabilities.features.extend([
-                    "network_endpoint_control_preconditions_v1".to_owned(),
-                    "network_endpoint_operation_capabilities_v1".to_owned(),
-                ]);
-                capabilities
-                    .global_limitations
-                    .extend(["legacy_endpoint_source_file_control_unsupported".to_owned()]);
-            } else {
-                capabilities
-                    .global_limitations
-                    .push("endpoint_runtime_lifecycle_commands_not_registered".to_owned());
-            }
-            capabilities
-                .features
-                .push("network_endpoint_orchestration_lifecycle_v1".to_owned());
-            #[cfg(feature = "raw-ip-runtime")]
-            capabilities.features.extend([
-                "network_endpoint_device_incarnation_v1".into(),
-                "network_endpoint_network_recovery_v1".into(),
-                "packet_route_management_v1".into(),
-            ]);
-            capabilities::extend(&mut capabilities);
+            capabilities::extend(
+                &mut capabilities,
+                self.proxy.protocols.endpoint_control_available(),
+            );
             return Ok(zero_api::QueryResponse::Capabilities(capabilities));
         }
         if let zero_api::QueryRequest::TunStatus(_) = &request {

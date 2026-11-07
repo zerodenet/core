@@ -9,7 +9,16 @@ pub(super) fn prepare(
     let mut workspace =
         budget.reserve(zero_runtime::configuration::ControlCharge::ResponseBytes(0))?;
     let mut storage = None;
-    let bytes = if matches!(request, zero_api::QueryRequest::Health(_)) {
+    let bytes = if matches!(request, zero_api::QueryRequest::Capabilities(_)) {
+        let view = handle.control_capabilities_query(&mut workspace)?;
+        super::super::super::owner::encode_response(
+            &ApiResponse::ok_with_id(id, view),
+            budget,
+            &mut storage,
+            false,
+            true,
+        )
+    } else if matches!(request, zero_api::QueryRequest::Health(_)) {
         let view = handle.control_health_query(&mut workspace)?;
         super::super::super::owner::encode_response(
             &ApiResponse::ok_with_id(id, view),
