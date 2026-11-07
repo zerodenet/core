@@ -5,8 +5,8 @@ mod requested_ring;
 pub use requested_ring::{RequestedRingCapacityCredit, RequestedRingLimits, RequestedRingSnapshot};
 mod metadata;
 pub use metadata::{
-    PacketMetadataArc, PacketMetadataAttachment, PacketMetadataCredit, PacketMetadataLayout,
-    PacketMetadataSnapshot, PacketMetadataVec, PacketMetadataWeak,
+    PacketDriverMetadataView, PacketMetadataArc, PacketMetadataAttachment, PacketMetadataCredit,
+    PacketMetadataLayout, PacketMetadataSnapshot, PacketMetadataVec, PacketMetadataWeak,
 };
 mod notifications;
 pub use notifications::{PacketMemoryNotifications, PacketRootNotifications};

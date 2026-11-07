@@ -52,13 +52,10 @@ impl ChannelControl for Control {
                 return Ok(Self::pending());
             }
         }
-        let mut owner = tokio::time::timeout_at(end, self.0.owner.lock())
-            .await
-            .map_err(|source| {
-                self.0
-                    .error(Stage::Close, Reason::Timeout, DeliveryState::Unknown)
-                    .with_source(source)
-            })?;
+        let mut owner = match tokio::time::timeout_at(end, self.0.owner.lock()).await {
+            Ok(owner) => owner,
+            Err(_) => return Ok(Self::pending()),
+        };
         match owner.as_mut() {
             Some(owner) => owner.close(end).await,
             None => Ok(CloseReport::default()),

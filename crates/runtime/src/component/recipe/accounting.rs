@@ -161,12 +161,11 @@ impl PacketDriverMetadataLimits {
 pub(in crate::component) fn owns_packet_driver_metadata(spec: &ComponentSpec) -> bool {
     spec.roles
         .contains(&zero_platform_tokio::contract::component::RoleKind::Packet)
-        || spec.resources.iter().any(|resource| {
-            matches!(
-                resource,
-                R::ControlledPacketDevice { .. } | R::PacketDatagramReads { .. }
-            )
-        })
+        // Actual native/resource owners may construct masked carrier workers,
+        // headers and peer tables before acquiring IO. Their cold accounting
+        // identity must match the same policy in non-packet feature builds too.
+        // This describes accounting only; it adds no resource or role authority.
+        || !spec.resources.is_empty()
 }
 impl ComponentRecipe {
     pub(in crate::component) fn with_packet_metadata_limits(

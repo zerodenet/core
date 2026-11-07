@@ -10,6 +10,31 @@ pub use vector::PacketMetadataVec;
 pub use zero_traits::packet_metadata::{
     PacketMetadataCredit, PacketMetadataLayout, PacketMetadataSnapshot,
 };
+/// Pure metadata admission over the same Host Root. This view has no policy
+/// setter, native provider, task authority or independent accounting book.
+#[derive(Clone)]
+pub struct PacketDriverMetadataView(Arc<PacketReturnTotals>);
+impl PacketDriverMetadataView {
+    pub fn reserve(
+        &self,
+        layout: PacketMetadataLayout,
+    ) -> Result<PacketMetadataCredit, PacketMemoryError> {
+        self.0.reserve_driver_metadata(layout)
+    }
+    pub fn snapshot(&self) -> PacketMetadataSnapshot {
+        self.0.driver_metadata()
+    }
+    /// Defer only synchronous external notifications until owner locks are
+    /// released. This guard grants no resource and must not cross an await.
+    pub fn notifications(&self) -> PacketRootNotifications {
+        self.0.defer_notifications()
+    }
+}
+impl PacketReturnTotals {
+    pub fn driver_metadata_view(self: &Arc<Self>) -> PacketDriverMetadataView {
+        PacketDriverMetadataView(self.clone())
+    }
+}
 impl std::task::Wake for PacketReturnTotals {
     fn wake(self: Arc<Self>) {
         PacketReturnTotals::wake(&self);

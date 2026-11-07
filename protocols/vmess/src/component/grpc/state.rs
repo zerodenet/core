@@ -76,12 +76,19 @@ impl Record {
     ) -> Result<zero_platform_tokio::contract::lifecycle::CloseReport, ChannelError> {
         let witness = self.witness.lock().unwrap().clone();
         if let Some(witness) = witness {
-            let joined = tokio::time::timeout_at(deadline, witness.wait())
-                .await
-                .map_err(|source| {
-                    error(self.adoption.instance(), Stage::Close, Reason::Timeout)
-                        .with_source(source)
-                })?;
+            let joined = match tokio::time::timeout_at(deadline, witness.wait()).await {
+                Ok(joined) => joined,
+                Err(_) => {
+                    return Ok(zero_platform_tokio::contract::lifecycle::CloseReport {
+                        unfinished: vec![
+                            zero_platform_tokio::contract::lifecycle::Unfinished::Resource(
+                                "VMess original gRPC driver join remains pending".into(),
+                            ),
+                        ],
+                        ..Default::default()
+                    })
+                }
+            };
             self.receive(joined);
         }
         self.adoption.retire(deadline).await

@@ -302,6 +302,13 @@ impl ResourceAccess for HostResources {
         Some(self.declared_failures.sources(self.instance?))
     }
 
+    fn packet_driver_metadata(
+        &self,
+    ) -> Result<zero_platform_tokio::contract::component::PacketDriverMetadataView, ChannelError>
+    {
+        Ok(self.originals.packet.driver_metadata_view())
+    }
+
     fn carrier_buffer_budget(
         &self,
     ) -> Option<zero_platform_tokio::controlled_carrier::CarrierBufferBudget> {

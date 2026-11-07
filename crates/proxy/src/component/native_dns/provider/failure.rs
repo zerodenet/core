@@ -70,7 +70,7 @@ impl std::error::Error for Unreceived {
     }
 }
 impl Provider {
-    pub(super) fn receive_cleanup_failure(
+    pub(in crate::component::native_dns) fn receive_cleanup_failure(
         &self,
         source: BuildError,
     ) -> Result<Arc<ResourceFailure>, BuildError> {

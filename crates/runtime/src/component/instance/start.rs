@@ -127,6 +127,7 @@ impl ComponentSlot {
                     background_carrier: None,
                 };
                 let instance = self.recipe.build(context).map_err(Arc::new)?;
+                let protocol_failures = resources.protocol_failure_receiver();
                 Ok(Live {
                     resources,
                     stream: instance
@@ -174,7 +175,7 @@ impl ComponentSlot {
                         }),
                     started: OnceLock::new(),
                     owner: Mutex::new(Owner {
-                        protocol_failures: resources.protocol_failure_receiver(),
+                        protocol_failures,
                         instance,
                         pending_close: None,
                         protocol_closed: false,

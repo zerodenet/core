@@ -49,15 +49,14 @@ pub struct ProtocolInventory {
 fn original_budgets(
     devices: &crate::adapters::devices::Devices,
 ) -> std::sync::Arc<zero_runtime::HostOriginalBudgets> {
-    let roots = zero_runtime::HostOriginalBudgets::default();
     #[cfg(feature = "raw-ip-runtime")]
-    let roots = {
-        let mut roots = roots;
-        roots.packet = devices.packet_return_totals.clone();
-        roots
-    };
+    let roots =
+        zero_runtime::HostOriginalBudgets::with_packet_root(devices.packet_return_totals.clone());
     #[cfg(not(feature = "raw-ip-runtime"))]
-    let _ = devices;
+    let roots = {
+        let _ = devices;
+        zero_runtime::HostOriginalBudgets::default()
+    };
     std::sync::Arc::new(roots)
 }
 

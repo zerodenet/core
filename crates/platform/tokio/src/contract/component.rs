@@ -1,3 +1,5 @@
+// This neutral memory-only view does not enable a native packet provider.
+pub use zero_tun::packet_memory::PacketDriverMetadataView;
 pub(crate) mod packet_driver;
 pub use packet_driver::{
     GrantedPacketServiceCaller, PacketDriverCallGrant, PacketDriverCallRetained, PacketDriverCalls,
@@ -421,6 +423,16 @@ pub trait ResourceAccess: Send + Sync {
         ))
     }
 
+    /// Same actual Host metadata accounting, including allocations made before
+    /// native acquisition. This grants no IO, task, native-close or policy right.
+    /// A Kernel caller must propagate denial; it cannot create a local Root.
+    fn packet_driver_metadata(&self) -> Result<PacketDriverMetadataView, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
     /// The same Host's pure buffer accounting. This confers no acquisition,
     /// IO, task, native-close, logical-user or Scope authority. Missing actual
     /// production accounting cannot fall back to an independent local book.
