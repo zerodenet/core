@@ -73,18 +73,22 @@ impl JournalGrant {
             return Err(capacity());
         }
         state.append_dirty = true;
-        let mut writer = LimitedWriter {
-            file: state.append.original(),
-            left: encoded_bytes,
-        };
-        let value = encode(&mut writer)?;
-        if writer.left != 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "journal encoder length changed",
-            ));
-        }
-        writer.flush()?;
+        let work = (|| {
+            let mut writer = LimitedWriter {
+                file: state.append.original(),
+                left: encoded_bytes,
+            };
+            let value = encode(&mut writer)?;
+            if writer.left != 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "journal encoder length changed",
+                ));
+            }
+            writer.flush()?;
+            Ok(value)
+        })();
+        let value = work.map_err(|source| failure(Some(Arc::new(source)), None))?;
         state.append_dirty = false;
         Ok(value)
     }

@@ -1,5 +1,4 @@
 use super::*;
-use std::io::{Read, Write};
 mod hosted;
 fn spec(path: PathBuf, max: usize) -> JournalSpec {
     JournalSpec {

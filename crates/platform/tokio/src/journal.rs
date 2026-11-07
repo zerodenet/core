@@ -21,7 +21,7 @@ mod lifecycle;
 mod retirement;
 mod rotation;
 mod slots;
-use slots::{Slot, State};
+use slots::State;
 
 /// The exact path and restart-readable payload envelope. Temporary and lock
 /// names are derived internally; this grants no arbitrary file-tree access.
