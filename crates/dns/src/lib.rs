@@ -635,9 +635,18 @@ impl DnsSystem {
     /// resolution. The system-resolver fallback preserves Zero's historical
     /// IPv4-first dual-stack behavior.
     pub fn address_family_policy(&self) -> DnsAddressFamilyPolicy {
-        self.snapshot()
-            .map(|snapshot| snapshot.policy.address_family)
-            .unwrap_or_default()
+        self.address_family_and_fake_ip().0
+    }
+
+    /// Pure current policy flags under one original read lock. This creates no
+    /// resolution snapshot, query worker, native grant or cloned server config.
+    pub fn address_family_and_fake_ip(&self) -> (DnsAddressFamilyPolicy, bool) {
+        match &*self.inner.read().expect("dns system lock poisoned") {
+            DnsSystemInner::Configured {
+                policy, fake_ip, ..
+            } => (policy.address_family, fake_ip.is_some()),
+            DnsSystemInner::System(_) => (Default::default(), false),
+        }
     }
 
     /// Resolve a proxy node or carrier endpoint through the bootstrap/node

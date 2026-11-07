@@ -75,7 +75,7 @@ mod system_dns;
 use egress::{bind_tcp_to_interface, bind_udp_to_interface, datagram_bind_address};
 pub use egress::{
     EgressBindingReason, EgressFamilySnapshot, EgressInterface, EgressInterfaceControl,
-    EgressRouteLookupStatus, EgressSelection,
+    EgressReadObservation, EgressRouteLookupStatus, EgressSelection,
 };
 pub use process::{
     LocalProcessInfo, LocalProcessLookup, LocalProcessLookupStart, LocalProcessTransport,

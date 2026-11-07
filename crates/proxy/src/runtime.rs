@@ -79,7 +79,7 @@ pub(crate) mod udp_ingress;
 #[cfg(feature = "udp-runtime")]
 pub(crate) mod udp_socket;
 
-pub use handle::{ConfigApplyReconciler, ConfigReconcileResult, ProxyHandle};
+pub use handle::{ConfigApplyReconciler, ConfigReconcileResult, ProxyControlQuery, ProxyHandle};
 mod reload_ack;
 use reload_ack::PendingReloadAck;
 pub(crate) type RuntimeHost = zero_runtime::RuntimeHost<PendingReloadAck>;

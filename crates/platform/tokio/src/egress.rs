@@ -847,3 +847,6 @@ pub(crate) fn bind_udp_to_interface(
         "egress interface binding is unsupported on this platform",
     ))
 }
+
+mod observation;
+pub use observation::EgressReadObservation;
