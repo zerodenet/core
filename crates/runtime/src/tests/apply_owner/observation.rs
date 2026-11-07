@@ -2,6 +2,63 @@ use super::*;
 use std::{future::poll_fn, task::Poll};
 
 #[tokio::test]
+async fn actual_caller_stop_rejects_only_before_acceptance_and_preserves_accepted_apply_join() {
+    let owner = Arc::new(ApplyOwner::default());
+    let serial = Arc::new(Mutex::new(()));
+    let held = serial.clone().lock_owned().await;
+    let observed = ApplyObservation::new();
+    let stop = CancellationToken::new();
+    let mut pending = Box::pin(
+        observed.scope_with_stop(stop.clone(), owner.run(serial.clone(), async { Ok(1) })),
+    );
+    poll_fn(|cx| {
+        assert!(pending.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    stop.cancel();
+    assert!(pending.await.unwrap_err().contains("before acceptance"));
+    assert!(observed.wait_joined().await.is_none());
+    assert!(
+        owner.owner.lock().await.scope.is_none(),
+        "no invented accepted task"
+    );
+    drop(held);
+
+    let accepted = ApplyObservation::new();
+    let stop = CancellationToken::new();
+    let (entered, entering) = tokio::sync::oneshot::channel();
+    let (release, released) = tokio::sync::oneshot::channel();
+    let mut pending = Box::pin(accepted.scope_with_stop(
+        stop.clone(),
+        owner.run(serial, async move {
+            entered.send(()).unwrap();
+            released.await.unwrap();
+            Ok(2)
+        }),
+    ));
+    poll_fn(|cx| {
+        assert!(pending.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    entering.await.unwrap();
+    stop.cancel();
+    poll_fn(|cx| {
+        assert!(
+            pending.as_mut().poll(cx).is_pending(),
+            "actual accepted work retains completion"
+        );
+        Poll::Ready(())
+    })
+    .await;
+    release.send(()).unwrap();
+    assert_eq!(pending.await.unwrap(), 2);
+    let joined = accepted.wait_joined().await.unwrap();
+    assert!(joined.result().is_ok() && joined.registration_released());
+}
+
+#[tokio::test]
 async fn caller_timeout_keeps_exact_apply_join_without_borrowing_the_next_operation() {
     let owner = Arc::new(ApplyOwner::default());
     let serial = Arc::new(Mutex::new(()));

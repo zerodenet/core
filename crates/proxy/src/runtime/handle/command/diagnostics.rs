@@ -267,6 +267,7 @@ impl ProxyHandle {
     async fn execute_started_outbound_probe(
         &self,
         cmd: zero_api::command::DiagnosticsProbeOutboundCommand,
+        stop: Option<zero_platform_tokio::contract::CancellationToken>,
     ) -> zero_api::ApiResult<zero_api::CommandResponse> {
         let handle = self;
         let proxy = handle.proxy.clone();
@@ -312,7 +313,14 @@ impl ProxyHandle {
         );
         let request = OutboundProbeRequest::parse(&url);
         let result = match request {
-            Ok(request) => probe_runtime.probe_target_tag(&target_tag, &request).await,
+            Ok(request) => match stop {
+                Some(stop) => {
+                    probe_runtime
+                        .probe_target_tag_until(&target_tag, &request, &stop)
+                        .await
+                }
+                None => probe_runtime.probe_target_tag(&target_tag, &request).await,
+            },
             Err(error) => Err(error),
         };
         let completed_at_unix_ms = unix_timestamp_ms();

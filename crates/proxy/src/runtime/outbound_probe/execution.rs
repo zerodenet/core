@@ -13,7 +13,11 @@ impl OutboundProbeRuntime {
         request: OutboundProbeRequest,
         intent: crate::runtime::tcp_dispatch::TcpDispatchIntent,
         credit: zero_runtime::ProbeAdmission,
+        original: Arc<ProbeOriginal>,
     ) -> Result<u64, OutboundProbeError> {
+        if original.cancelled.load(Ordering::Acquire) {
+            return Err(cancelled_probe());
+        }
         let Some((resolved, _plan)) = self.resolve_target_id(target_id) else {
             return Err(OutboundProbeError::new(
                 "target_resolution_failed",
@@ -43,6 +47,13 @@ impl OutboundProbeRuntime {
             purpose,
             deadline,
             move |call| async move {
+                original.install(call.clone());
+                // The original task must not retain the publication that now
+                // observes that same task's Entry across its actual IO await.
+                drop(original);
+                call.check_open().map_err(|source| {
+                    OutboundProbeError::from_engine(std::io::Error::other(source).into())
+                })?;
                 runtime
                     .probe_resolved_outbound(resolved, &request, intent, call)
                     .await
