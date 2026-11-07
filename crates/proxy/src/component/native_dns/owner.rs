@@ -19,6 +19,24 @@ impl ResourceLifecycle for Owner {
             )?;
             owner.start()?;
         }
+        if let Some(ordinal) = self.journal {
+            let dns = self
+                .network
+                .resolver
+                .get()
+                .and_then(std::sync::Weak::upgrade)
+                .ok_or_else(|| {
+                    provider::error(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "actual Default DNS resolver was withdrawn",
+                    ))
+                })?;
+            dns.ensure_fake_ip_journal_startable()
+                .map_err(provider::error)?;
+            let grant = self.resources.journal(ordinal)?;
+            dns.install_fake_ip_journal(grant, &self.tasks)
+                .map_err(provider::error)?;
+        }
         let provider: Arc<dyn zero_dns::native::NativeDnsProvider> = self.provider.clone();
         self.purpose
             .source(&self.network)

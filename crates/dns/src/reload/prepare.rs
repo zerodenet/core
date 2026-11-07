@@ -104,7 +104,13 @@ impl DnsSystem {
                 *guard = self
                     .fake_ip_state_path
                     .as_ref()
-                    .map(|path| fake_ip::StateLease::acquire(path.clone()))
+                    .map(|path| {
+                        if self.hosted_fake_ip_journal {
+                            Ok(fake_ip::StateLease::hosted(path.clone()))
+                        } else {
+                            fake_ip::StateLease::acquire(path.clone())
+                        }
+                    })
                     .transpose()?;
             }
         }
@@ -143,6 +149,9 @@ impl DnsSystem {
             unchanged,
             native_profile_changed,
             donor_pause: Default::default(),
+            fake_ip_journal_limit: Default::default(),
+            committing: Default::default(),
+            discard_requested: Default::default(),
         });
         *prepared = Some(candidate.clone());
         Ok(DnsReloadResources(candidate))

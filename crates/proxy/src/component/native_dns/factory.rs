@@ -55,6 +55,14 @@ impl ComponentFactory for Factory {
             }));
             (resources, task_limit)
         };
+        let mut resources = resources;
+        resources.extend(
+            options
+                .journal
+                .iter()
+                .cloned()
+                .map(|spec| ResourceDeclaration::ControlledJournal { spec }),
+        );
         ComponentSpec {
             owner: ResourceOwner::Endpoint(options.purpose.key().into()),
             roles: vec![],
@@ -86,6 +94,12 @@ impl ComponentFactory for Factory {
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
+        let journal = options.journal.as_ref().map(|_| {
+            let ordinal = owners.len();
+            #[cfg(feature = "dns")]
+            let ordinal = ordinal + metadata.len();
+            ordinal
+        });
         let provider = Arc::new(Provider::new(
             &context,
             &options,
@@ -106,6 +120,7 @@ impl ComponentFactory for Factory {
                 purpose: options.purpose,
                 pending: CloseReport::default(),
                 reported_faults: Default::default(),
+                journal,
                 #[cfg(feature = "dns")]
                 metadata,
             }),

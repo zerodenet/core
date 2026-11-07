@@ -21,10 +21,14 @@ pub(super) fn expire_mappings(
         .collect::<Vec<_>>();
     let mut first_error = None;
     for domain in expired {
-        if let Err(error) = retire_domain(state, &domain, now, now_unix_ms, retirement_ttl) {
-            first_error.get_or_insert(error);
+        match retire_domain(state, &domain, now, now_unix_ms, retirement_ttl) {
+            Ok(_) => {
+                stats.expirations.fetch_add(1, Ordering::Relaxed);
+            }
+            Err(error) => {
+                first_error.get_or_insert(error);
+            }
         }
-        stats.expirations.fetch_add(1, Ordering::Relaxed);
     }
     match first_error {
         Some(error) => Err(error),
@@ -39,6 +43,16 @@ pub(super) fn retire_domain(
     now_unix_ms: u64,
     retirement_ttl: Duration,
 ) -> io::Result<usize> {
+    if state
+        .persistence
+        .as_ref()
+        .is_some_and(|persistence| persistence.paused())
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "Fake-IP retirement is paused",
+        ));
+    }
     let Some(addresses) = state
         .forward
         .get(domain)
@@ -50,24 +64,14 @@ pub(super) fn retire_domain(
         reusable_at: now + retirement_ttl,
         reusable_after_unix_ms: now_unix_ms.saturating_add(duration_millis(retirement_ttl)),
     };
-    let mut persistence_error = None;
-    if let Some(persistence) = state.persistence.as_mut() {
-        for address in &addresses {
-            if let Err(error) = persistence.append_retire(&PersistedRetiredAddress {
-                ip: *address,
-                reusable_after_unix_ms: retirement.reusable_after_unix_ms,
-            }) {
-                persistence_error.get_or_insert(error);
-                break;
-            }
-        }
-    }
-
+    super::checkpoint::persist_retire(
+        state,
+        domain,
+        &addresses,
+        retirement.reusable_after_unix_ms,
+    )?;
     retire_domain_in_memory(state, domain, retirement);
-    match persistence_error {
-        Some(error) => Err(error),
-        None => Ok(addresses.len()),
-    }
+    Ok(addresses.len())
 }
 
 pub(super) fn retire_domain_in_memory(
@@ -88,19 +92,6 @@ pub(super) fn retire_domain_in_memory(
 
 pub(super) fn prune_retired(state: &mut AllocatorState, now: Instant) {
     state.retired.retain(|_, retired| retired.reusable_at > now);
-}
-
-pub(super) fn persisted_retired_addresses(state: &AllocatorState) -> Vec<PersistedRetiredAddress> {
-    let mut retired = state
-        .retired
-        .iter()
-        .map(|(ip, retired)| PersistedRetiredAddress {
-            ip: *ip,
-            reusable_after_unix_ms: retired.reusable_after_unix_ms,
-        })
-        .collect::<Vec<_>>();
-    retired.sort_by_key(|entry| (entry.reusable_after_unix_ms, entry.ip));
-    retired
 }
 
 pub(super) fn restore_retired_addresses(

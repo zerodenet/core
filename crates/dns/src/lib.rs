@@ -10,6 +10,7 @@ mod cache;
 mod coordinator;
 mod ech;
 mod fake_ip;
+mod fake_ip_journal;
 mod family;
 mod localhost;
 mod message;
@@ -54,7 +55,10 @@ use cache::{DnsCache, DnsWireCacheValue};
 use coordinator::{QueryCoordinator, QueryKey, QueryScope};
 pub use ech::{EchDnsEndpoint, EchDnsRecord, EchRefresh};
 use fake_ip::FakeIpAllocator;
-pub use fake_ip::{default_fake_ip_state_path, FakeIpClearResult, FakeIpClearTarget, FakeIpStats};
+pub use fake_ip::{
+    default_fake_ip_state_path, FakeIpClearResult, FakeIpClearTarget, FakeIpStateOpenFailure,
+    FakeIpStats, JournalGenerationExhausted,
+};
 use reverse::RealIpReverseIndex;
 pub use reverse::RealIpReverseLookup;
 use router::DnsDispatcher;
@@ -103,6 +107,7 @@ pub struct DnsSystem {
     config_generation: Arc<AtomicU64>,
     egress_interface: zero_platform_tokio::EgressInterfaceControl,
     fake_ip_state_path: Option<PathBuf>,
+    hosted_fake_ip_journal: bool,
     fake_ip_state_lease: std::sync::Mutex<Option<Arc<fake_ip::StateLease>>>,
     query_attempts: Arc<std::sync::Mutex<VecDeque<DnsQueryAttempt>>>,
     query_coordinator: QueryCoordinator<Vec<IpAddress>>,
@@ -211,6 +216,9 @@ impl DnsSystem {
         Self::build_internal(config, dispatch, egress_interface, fake_ip_state_path, None)
     }
 
+    /// Persistent Fake-IP state in this hosted mode requires the actual Default
+    /// owner's declared JournalGrant. Cold construction performs no file IO;
+    /// callers must install that grant before publishing DNS admission.
     pub fn build_with_native_queries(
         config: Option<&DnsConfig>,
         dispatch: Option<zero_router::DomainDispatcher<String>>,
@@ -218,7 +226,7 @@ impl DnsSystem {
         state: Option<PathBuf>,
         source: Arc<native::NativeDnsSource>,
     ) -> io::Result<Self> {
-        let mut dns = Self::build_internal(config, dispatch, egress, state, None)?;
+        let mut dns = Self::build_internal_mode(config, dispatch, egress, state, None, true)?;
         dns.query_coordinator.set_native_source(source.clone());
         dns.wire_query_coordinator.set_native_source(source.clone());
         dns.native_source = Some(source);
@@ -262,13 +270,40 @@ impl DnsSystem {
         fake_ip_state_path: Option<PathBuf>,
         owned_root: Option<Arc<OwnedDnsRoot>>,
     ) -> io::Result<Self> {
+        Self::build_internal_mode(
+            config,
+            dispatch,
+            egress_interface,
+            fake_ip_state_path,
+            owned_root,
+            false,
+        )
+    }
+    fn build_internal_mode(
+        config: Option<&DnsConfig>,
+        dispatch: Option<zero_router::DomainDispatcher<String>>,
+        egress_interface: zero_platform_tokio::EgressInterfaceControl,
+        fake_ip_state_path: Option<PathBuf>,
+        owned_root: Option<Arc<OwnedDnsRoot>>,
+        hosted_fake_ip_journal: bool,
+    ) -> io::Result<Self> {
         let fake_ip_state_lease = if config.and_then(DnsConfig::fake_ip).is_some() {
             fake_ip_state_path
                 .as_ref()
-                .map(|path| fake_ip::StateLease::acquire(path.clone()))
+                .map(|path| {
+                    if hosted_fake_ip_journal {
+                        Ok(fake_ip::StateLease::hosted(path.clone()))
+                    } else {
+                        fake_ip::StateLease::acquire(path.clone())
+                    }
+                })
                 .transpose()?
         } else {
             None
+        };
+        let retain_failure = |work| match &fake_ip_state_lease {
+            Some(lease) => lease.retain_open_failure(work),
+            None => work,
         };
         let transport_owners = Arc::new(transport_owners::TransportOwners::default());
         let servers = config
@@ -282,7 +317,8 @@ impl DnsSystem {
                     owned_root.as_deref(),
                 )
             })
-            .transpose()?
+            .transpose()
+            .map_err(&retain_failure)?
             .unwrap_or_default();
         let inner = Self::build_inner(
             config,
@@ -291,9 +327,12 @@ impl DnsSystem {
             None,
             fake_ip_state_lease.clone(),
             servers,
-        )?;
+        )
+        .map_err(&retain_failure)?;
         if let DnsSystemInner::System(backend) = &inner {
-            backend.register_owners(&transport_owners)?;
+            backend
+                .register_owners(&transport_owners)
+                .map_err(&retain_failure)?;
         }
         let tasks = owned_root.as_ref().map(|root| root.tasks.clone());
         let query_coordinator = QueryCoordinator::with_graph_and_tasks(
@@ -312,6 +351,7 @@ impl DnsSystem {
             config_generation: Arc::new(AtomicU64::new(0)),
             egress_interface,
             fake_ip_state_path,
+            hosted_fake_ip_journal,
             fake_ip_state_lease: std::sync::Mutex::new(fake_ip_state_lease),
             query_attempts: Arc::new(std::sync::Mutex::new(VecDeque::new())),
             query_coordinator,
@@ -355,6 +395,9 @@ impl DnsSystem {
                     .as_ref()
                     .is_some_and(|allocator| allocator.compatible_with(config)) =>
             {
+                if fake_ip_state_lease.is_some() {
+                    previous_fake_ip.as_ref().unwrap().activate_persistence()?;
+                }
                 previous_fake_ip
             }
             Some(config) => Some(Arc::new(FakeIpAllocator::new_with_state(

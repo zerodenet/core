@@ -1,6 +1,46 @@
 //! The existing actual reload token holds its query pause through commit/discard.
 use super::*;
 impl DnsSystem {
+    /// Attach only the concrete target journal envelope to this same token.
+    /// Its actual allocator pause and compaction are driven before StopOld.
+    pub fn prepare_fake_ip_journal_limit(
+        &self,
+        resources: &DnsReloadResources,
+        limit: usize,
+    ) -> io::Result<()> {
+        if limit == 0 || limit.checked_add(1).is_none() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid journal recovery envelope",
+            ));
+        }
+        let prepared = self
+            .prepared_reload
+            .lock()
+            .expect("DNS prepared reload poisoned");
+        if !prepared
+            .as_ref()
+            .is_some_and(|actual| Arc::ptr_eq(actual, &resources.0))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "journal envelope requires the exact DNS candidate",
+            ));
+        }
+        let mut target = resources
+            .0
+            .fake_ip_journal_limit
+            .lock()
+            .expect("journal limit poisoned");
+        if target.is_some_and(|old| old != limit) {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "DNS token already holds another journal envelope",
+            ));
+        }
+        *target = Some(limit);
+        Ok(())
+    }
     pub fn prepare_donor_pause(
         &self,
         resources: &DnsReloadResources,
@@ -99,6 +139,19 @@ impl DnsSystem {
         // Normal DNS profile changes cancel the actual old flights only after
         // their query registration fences are retained in this same token.
         pause.cancel_queries(self)?;
-        pause.retire(end).await
+        pause.retire(end).await?;
+        let limit = *resources
+            .0
+            .fake_ip_journal_limit
+            .lock()
+            .expect("journal limit poisoned");
+        if pause.has_fake_ip_journal() {
+            if let Some(limit) = limit {
+                if let Some(allocator) = self.snapshot_fake_ip() {
+                    allocator.compact_for_limit(limit)?;
+                }
+            }
+        }
+        Ok(())
     }
 }
