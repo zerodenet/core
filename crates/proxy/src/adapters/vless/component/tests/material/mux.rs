@@ -132,15 +132,34 @@ async fn exchange(client: &Running) {
         let (mut io, _) = target.accept().await.unwrap();
         let mut received = Vec::new();
         io.read_to_end(&mut received).await.unwrap();
+        eprintln!(
+            "actual gRPC MUX target phase=upload EOF bytes={}",
+            received.len()
+        );
         assert_eq!(received, expected);
         io.write_all(&received).await.unwrap();
+        eprintln!(
+            "actual gRPC MUX target phase=reverse write accepted bytes={}",
+            received.len()
+        );
         io.shutdown().await.unwrap();
     });
+    eprintln!("actual gRPC MUX exchange phase=SOCKS connect");
     let mut io = connect(client, endpoint).await;
+    eprintln!("actual gRPC MUX exchange phase=SOCKS ready");
     io.write_all(&data).await.unwrap();
+    eprintln!(
+        "actual gRPC MUX exchange phase=upload accepted bytes={}",
+        data.len()
+    );
     io.shutdown().await.unwrap();
+    eprintln!("actual gRPC MUX exchange phase=upload halfclosed");
     let mut received = Vec::new();
     io.read_to_end(&mut received).await.unwrap();
+    eprintln!(
+        "actual gRPC MUX exchange phase=reverse EOF bytes={}",
+        received.len()
+    );
     assert_eq!(received, data);
     peer.await.unwrap();
 }
@@ -157,6 +176,7 @@ async fn ordinary_mux_borrows_the_same_cached_grpc_original_for_tcp_udp_and_retu
             let grpc = serde_json::json!({"service_names":["same.mux/Tun"],"multi_mode":multi});
             let remote = start(serde_json::json!({"inbounds":[{"tag":"remote","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"vless","users":[{"id":ID}],"grpc":grpc,"tls":{"cert_path":certificate,"key_path":key}}}],"route":{"final":{"type":"direct"}}}), "remote").await;
             let client = start(serde_json::json!({"runtime":{"native_mux_max_carriers":1,"grpc_pool_max_carriers":1},"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"outbounds":[{"tag":"node","protocol":{"type":"vless","server":"127.0.0.1","port":remote.address.port(),"id":ID,"mux_concurrency":8,"xudp_concurrency":8,"grpc":grpc,"tls":{"server_name":"localhost","ca_cert_path":certificate,"client_fingerprint":null}}}],"route":{"final":{"type":"route","outbound":"node"}}}), "entry").await;
+            eprintln!("actual gRPC MUX mode={multi} phase=first TCP");
             exchange(&client).await;
             let originals = capture(&client);
             exchange(&client).await; originals.same_live(&client);
@@ -168,6 +188,7 @@ async fn ordinary_mux_borrows_the_same_cached_grpc_original_for_tcp_udp_and_retu
             let socket=UdpSocket::bind("127.0.0.1:0").await.unwrap(); let codec=socks5::udp::Socks5InboundUdpCodec;
             for payload in [&b"same cached native"[..], &b""[..]] {
                 let wire=codec.encode_response_to_client(&zero_core::Address::Ipv4([127,0,0,1]),target.local_addr().unwrap().port(),payload).unwrap();
+                eprintln!("actual gRPC MUX mode={multi} phase=UDP send bytes={}", payload.len());
                 socket.send_to(&wire,relay).await.unwrap(); let mut data=[0;65536];
                 let (n,peer)=target.recv_from(&mut data).await.unwrap(); assert_eq!(&data[..n],payload);
                 target.send_to(&data[..n],peer).await.unwrap(); let(n,_)=socket.recv_from(&mut data).await.unwrap();
@@ -176,6 +197,7 @@ async fn ordinary_mux_borrows_the_same_cached_grpc_original_for_tcp_udp_and_retu
                 originals.same_live(&client);
             }
             drop(control); drop(socket);
+            eprintln!("actual gRPC MUX mode={multi} phase=host shutdown");
             client.close().await; originals.closed(); remote.close().await;
         }
     }).await.unwrap();

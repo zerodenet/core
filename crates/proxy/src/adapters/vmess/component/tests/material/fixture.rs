@@ -185,7 +185,18 @@ pub(super) async fn echo_with<T>(client: &Running, inspect: impl FnOnce() -> T) 
     io.write_all(&request).await.unwrap();
     let mut reply = [0; 10];
     io.read_exact(&mut reply).await.unwrap();
-    assert_eq!(reply[1], 0);
+    assert_eq!(
+        reply[1],
+        0,
+        "actual flow failures: {:?}",
+        client
+            .proxy
+            .engine()
+            .completed_sessions()
+            .iter()
+            .filter_map(|flow| flow.failure.as_ref())
+            .collect::<Vec<_>>()
+    );
     // No application read while outgoing SETTINGS/WINDOW_UPDATE and writes
     // progress; then preserve a real write half-close and full response body.
     io.write_all(&payload).await.unwrap();

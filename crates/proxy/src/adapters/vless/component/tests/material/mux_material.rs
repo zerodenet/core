@@ -15,13 +15,16 @@ async fn ordinary_mux_raw_ws_h2_and_upgrade_keep_same_file_material_original_dri
                 std::fs::write(&ca, cert.cert.pem()).unwrap();
                 let remote = server(kind, &certificate, &key).await;
                 let client = client(kind, backend, remote.address, &ca).await;
+                eprintln!("actual MUX mode={kind} backend={backend} phase=first TCP");
                 let (owner, original) = echo(&client).await;
+                eprintln!("actual MUX mode={kind} backend={backend} phase=first TCP complete");
                 let first_driver = cached_driver(&owner, &original);
                 let (same, reused) = echo(&client).await;
                 assert!(owner.same_owner(&same) && original.same_original(&reused));
                 assert!(original.closed().is_none());
                 assert_eq!(owner.observe().unwrap().retained(), 1);
                 std::fs::remove_file(&ca).unwrap();
+                eprintln!("actual MUX mode={kind} backend={backend} phase=network epoch");
                 client.proxy.egress_interface.invalidate_network();
                 let (next_owner, next) = echo(&client).await;
                 let next_driver = cached_driver(&next_owner, &next);
@@ -36,6 +39,7 @@ async fn ordinary_mux_raw_ws_h2_and_upgrade_keep_same_file_material_original_dri
                     .is_err());
                 let (restored, fresh) = echo(&client).await;
                 let fresh_driver = cached_driver(&restored, &fresh);
+                eprintln!("actual MUX mode={kind} backend={backend} phase=actual host shutdown");
                 client.close().await;
                 for driver in [first_driver, next_driver, fresh_driver] {
                     let joined = driver.try_joined().unwrap();

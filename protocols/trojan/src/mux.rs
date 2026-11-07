@@ -919,9 +919,9 @@ impl TrojanInboundMuxStreams {
     }
 
     fn close_inbound_stream(&mut self, session_id: u16) -> bool {
-        self.streams
-            .remove(&session_id)
-            .is_some_and(|tx| tx.send(Vec::new()).is_ok())
+        // END drains accepted upload DATA before EOF; the target may still
+        // send its response through this same logical stream and writer.
+        self.streams.remove(&session_id).is_some()
     }
 
     fn apply_inbound_action(
