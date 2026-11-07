@@ -110,3 +110,6 @@ mod mux_grpc;
 
 #[cfg(feature = "vmess")]
 mod relay;
+
+#[cfg(all(feature = "vmess", feature = "trojan"))]
+mod mux_material;
