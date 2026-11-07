@@ -71,7 +71,10 @@ async fn local_original_n1_stays_full_after_real_udp_native_close_until_its_actu
         let limits = MetadataLimits {
             main_sockets: one,
             probe_sockets: one,
-            probe_attempts_per_initialization: one,
+            // The original Unix initializer separately probes GSO and GRO;
+            // each has its real v6/v4 native fallback. This declares those
+            // actual setup probes, not another main socket or ACK credit.
+            probe_attempts_per_initialization: NonZeroUsize::new(4).unwrap(),
             concurrent_send_calls: one,
             write_pollers: one,
         };
@@ -184,7 +187,7 @@ async fn final_metadata_owner_waits_external_actual_host_ack_after_real_native_u
         let limits = MetadataLimits {
             main_sockets: one,
             probe_sockets: one,
-            probe_attempts_per_initialization: one,
+            probe_attempts_per_initialization: NonZeroUsize::new(4).unwrap(),
             concurrent_send_calls: one,
             write_pollers: one,
         };

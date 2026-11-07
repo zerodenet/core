@@ -2,6 +2,7 @@
 //! not refund that original while the real endpoint Host receipt is held.
 use super::*;
 use crate::quic::owned::packet::{PacketSegment, PacketSocket};
+use std::time::Duration;
 use tokio::time::{timeout, Instant};
 use zero_core::component::{
     ComponentId, ComponentInstanceId, NetworkGeneration, ResourceGeneration,
