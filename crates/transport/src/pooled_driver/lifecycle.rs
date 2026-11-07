@@ -41,6 +41,27 @@ impl ComponentFactory for PoolFactory {
         options: Arc<PoolOptions>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
+        self.build_with_registration(options, context)
+            .map(|(instance, _)| instance)
+    }
+}
+impl PoolFactory {
+    /// Return the same inert owner's registration to a protocol lifecycle that
+    /// must install it before a fallible material preparation. This does not
+    /// start admission, claim the protocol registry, acquire IO or spawn tasks.
+    /// The existing ResourceAccess still validates the exact owner and Scope
+    /// during the original lifecycle start phase.
+    pub fn build_with_registration(
+        &self,
+        options: Arc<PoolOptions>,
+        context: BuildContext,
+    ) -> Result<
+        (
+            ComponentInstance,
+            zero_platform_tokio::controlled_carrier::CarrierOwnerRegistration,
+        ),
+        BuildError,
+    > {
         let instance = context.instance();
         if context.dependencies.len() != options.dependencies.len()
             || options
@@ -89,18 +110,22 @@ impl ComponentFactory for PoolFactory {
             settled: Mutex::new(Default::default()),
             operations: AtomicUsize::new(0),
         });
-        Ok(ComponentInstance {
-            roles: ComponentRoles::default(),
-            lifecycle: erase_lifecycle(Owner {
-                registry,
-                managed,
-                carriers,
-                resources: context.resources,
-                scope: None,
-                attempted: false,
-                pending: CloseReport::default(),
-            }),
-        })
+        let registration = carriers.registration();
+        Ok((
+            ComponentInstance {
+                roles: ComponentRoles::default(),
+                lifecycle: erase_lifecycle(Owner {
+                    registry,
+                    managed,
+                    carriers,
+                    resources: context.resources,
+                    scope: None,
+                    attempted: false,
+                    pending: CloseReport::default(),
+                }),
+            },
+            registration,
+        ))
     }
 }
 struct Owner {

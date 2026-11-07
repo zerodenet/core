@@ -2,6 +2,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::AsyncSocket;
+mod datagram_memory;
+pub use datagram_memory::{DatagramCodecBufferError, DatagramCodecOutput};
 
 // ── Inbound transport classification ─────────────────────────────────
 
@@ -512,6 +514,52 @@ pub trait DatagramCodec<Target>: Send + Sync + 'static {
     fn encode(&self, target: &Target, port: u16, payload: &[u8]) -> Result<Vec<u8>, Self::Error>;
 
     fn decode(&self, data: &[u8]) -> Option<(Target, u16, Vec<u8>)>;
+
+    /// Pure upper bounds for every actual intermediate and final allocation.
+    /// No counter/replay/RNG state or native/IO permission may change here.
+    fn encode_buffer_lengths(
+        &self,
+        _target: &Target,
+        _port: u16,
+        _payload_len: usize,
+    ) -> Result<Vec<usize>, DatagramCodecBufferError<Self::Error>> {
+        Err(DatagramCodecBufferError::Storage(
+            crate::PacketDeriveError::Unreserved,
+        ))
+    }
+    /// Check ALL caller-owned fixed slices before mutating codec/security state.
+    /// Returning old encode() Vec allocations from this method is not permitted.
+    fn encode_buffered(
+        &self,
+        _target: &Target,
+        _port: u16,
+        _payload: &[u8],
+        _buffers: &mut [crate::PacketBuffer],
+    ) -> Result<DatagramCodecOutput, DatagramCodecBufferError<Self::Error>> {
+        Err(DatagramCodecBufferError::Storage(
+            crate::PacketDeriveError::Unreserved,
+        ))
+    }
+    fn decode_buffer_lengths(
+        &self,
+        _wire_len: usize,
+    ) -> Result<Vec<usize>, DatagramCodecBufferError<Self::Error>> {
+        Err(DatagramCodecBufferError::Storage(
+            crate::PacketDeriveError::Unreserved,
+        ))
+    }
+    /// None is the existing rejected/malformed packet outcome. Capacity errors
+    /// retain their typed Storage cause and cannot commit replay acceptance.
+    fn decode_buffered(
+        &self,
+        _wire: &[u8],
+        _buffers: &mut [crate::PacketBuffer],
+    ) -> Result<Option<(Target, u16, DatagramCodecOutput)>, DatagramCodecBufferError<Self::Error>>
+    {
+        Err(DatagramCodecBufferError::Storage(
+            crate::PacketDeriveError::Unreserved,
+        ))
+    }
 }
 
 /// Protocol TCP outbound behavior that returns session state.
