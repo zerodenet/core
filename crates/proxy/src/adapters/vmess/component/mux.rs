@@ -74,13 +74,7 @@ impl VmessAdapter {
         resources: &mut ResourcePreparation<'_>,
         factory: Arc<background_pool::Factory>,
     ) -> Result<Options, RegistrationError> {
-        self.mux_options(
-            input,
-            resources,
-            factory,
-            NonZeroUsize::new(1).unwrap(),
-            false,
-        )
+        self.mux_options(input, resources, factory, NonZeroUsize::new(1).unwrap())
     }
     pub(crate) fn production_mux_options(
         &self,
@@ -99,7 +93,7 @@ impl VmessAdapter {
                     "invalid native MUX carrier limit".into(),
                 ))
             })?;
-        self.mux_options(input, resources, factory, limit, true)
+        self.mux_options(input, resources, factory, limit)
     }
 
     fn mux_options(
@@ -108,7 +102,6 @@ impl VmessAdapter {
         resources: &mut ResourcePreparation<'_>,
         factory: Arc<background_pool::Factory>,
         limit: NonZeroUsize,
-        stream_only: bool,
     ) -> Result<Options, RegistrationError> {
         let OutboundProtocolConfig::Vmess {
             server,
@@ -207,10 +200,6 @@ impl VmessAdapter {
             .map_err(|source| zero_config::ConfigError::InvalidOutbound(source.to_string()))?;
         let owner = resources.share("vmess.mux.actual_pool", factory, pool_options)?;
         let options = prepared.bind(owner);
-        Ok(Options::Mux(Arc::new(if stream_only {
-            options.stream_only()
-        } else {
-            options
-        })))
+        Ok(Options::Mux(Arc::new(options)))
     }
 }
