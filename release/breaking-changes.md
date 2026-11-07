@@ -23,6 +23,11 @@ Catalog 停旧、额度安装及真实网络代次后的 cold refresh；取消�
 实现；下文先前“gate 未开启”等阶段性说明不作为当前状态。未取得统一最终候选资格，
 不要求客户端/面板修改，不改变 TEMP 的原有范围。
 
+进程内 Rust 的 Packet 缓冲现保留 `PacketBuffer` 原件，`PacketRequest` 需显式提供
+实际返回 codec 布局，工作区声明增加原控制缓冲。新增 Source/Metadata/QUIC runtime
+预算保留省略导出和协议原默认；V1 消费者无需修改。具体 Rust 接线与开发中资格边界见
+[同原件 Packet 内存与 Source 生产预算](../design/v0.0.3/compatibility.md#同原件-packet-内存与-source-生产预算续作)。
+
 ## 消费者如何判断兼容性
 
 外部消费者连接内核后应依次检查：

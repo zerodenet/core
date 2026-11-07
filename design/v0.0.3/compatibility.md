@@ -275,3 +275,30 @@ GUI/面板资格已通过。配置/API/events 与 ACK/revision/计量标识继�
 接线；完整 TX/SDK/所有预算投影和换代回归仍继续，不能再用“尚未开启 gate”概括当前
 实现。特权 TUN、真实 Windows/macOS、GUI/面板同产物及 1c1g 资格仍须适用环境验证。
 TEMP-WG-OUTER-UDP-01 仅保原 outer_udp_proxy/reconnect 历史范围，仍单独未关闭。
+
+
+## 同原件 Packet 内存与 Source 生产预算续作
+
+本轮进程内 Rust 调用者须保留 `PacketBuffer` 原存储所有者，不能把生产缓冲转回裸
+`Vec` 再补记额度。`zero_stack::packet_output::ObservedPacket.packet` 改为
+`PacketBuffer`；显式库用 Vec sender 仍有原职责，但不能充当资源缺失时的生产后备。
+`PacketStorage` 增加拒绝型默认的同步派生/预付和唯一 Vec 转交；SDK 转交实际分配时
+继续持有原 custody。内存归还不证明 native、用户或 Scope 关闭。
+
+内部 `PacketRequest` 新增 `return_memory_layout`；实际 Source 必须给出其原 codec 的
+正向事实，`None` 不推断 Native。`PacketDatagramReads` 增加可选
+`control_workspace`，由同 Host、同 Scope 在原 native 尝试前预付；WG 控制使用原
+148 字节工作区。协议只能拿到同 read0 的 allocation view，不拿 Root policy setter。
+TUN/source/返回/翻译回包在原 FIFO 前预付完整有限责任，拒绝保留原输入。
+
+新增 `metadata_max_probe_sockets`、`metadata_max_probe_attempts`、
+`metadata_max_send_calls`、`quic_source_max_connections`、
+`quic_shared_endpoint_max_users`、`inbound_max_tasks_per_carrier`、
+`inbound_max_resources_per_carrier`、`inbound_max_in_flight_requests` 均为可选
+runtime 配置。实际协议/查询保留各自省略默认；资源显式0保留原 NoResource 语义。
+配置变化仍由同宿主 StopOld、真实原件和任务回执后安装，新限额拒绝新增而不驱逐活跃
+业务或有效安全历史。字段省略不改变既有导出形状，V1 API/events/ACK/revision、
+CLI/FFI 与客户端面板协议保持。
+
+这些是开发中源码接续，尚非完整职责域或统一候选资格。TEMP 软件原件转交、适用
+helper、剩余调用者/旧执行链删除和必要回归继续，唯一 TEMP 范围不扩大。
