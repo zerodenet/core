@@ -195,10 +195,6 @@ impl TrojanAdapter {
             }),
         )?;
         let options = prepared.bind(owner);
-        Ok(Options::Mux(Arc::new(if stream_only {
-            options.stream_only()
-        } else {
-            options
-        })))
+        Ok(Options::Mux(Arc::new(options)))
     }
 }

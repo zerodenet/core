@@ -248,7 +248,6 @@ impl VlessAdapter {
             None
         };
         pool::reuse_material(&mut prepared, resources, &input.tag)?;
-        let cached_grpc_lender = lower.is_some();
         let pool_options = Arc::new(pool::Options {
             pool: Arc::new(
                 (*prepared.owned_pool_options())
@@ -286,12 +285,6 @@ impl VlessAdapter {
             )?,
         };
         let options = prepared.bind(owner);
-        Ok(Options::Mux(Arc::new(
-            if stream_only && !cached_grpc_lender {
-                options.stream_only()
-            } else {
-                options
-            },
-        )))
+        Ok(Options::Mux(Arc::new(options)))
     }
 }
