@@ -1,6 +1,5 @@
 //! One protocol-owned REALITY policy across actual TCP and installed UDP MUX.
 use super::outbound::OwnedVlessOutboundTransportPlan;
-use zero_traits::TransportBypassControl;
 use zero_transport::{RuntimeError, TcpRelayStream};
 pub(super) async fn open_carrier(
     transport: &OwnedVlessOutboundTransportPlan,

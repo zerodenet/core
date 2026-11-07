@@ -308,7 +308,6 @@ impl PreparedVmessOutboundRequestBundle {
     {
         self.requests
             .tcp_connect_request()
-            .config()
             .establish_tcp_outbound_stream(
                 stream,
                 session,
@@ -403,6 +402,7 @@ impl VmessTcpConnectRequest {
         &self,
         stream: S,
         session: &Session,
+        grpc_request_end: bool,
     ) -> Result<
         (
             impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sync + Unpin + 'static,
@@ -420,7 +420,7 @@ impl VmessTcpConnectRequest {
             + 'static,
     {
         self.config()
-            .establish_tcp_outbound_stream(stream, session, false)
+            .establish_tcp_outbound_stream(stream, session, grpc_request_end)
             .await
     }
 
