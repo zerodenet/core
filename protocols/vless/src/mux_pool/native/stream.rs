@@ -27,7 +27,7 @@ impl StreamReservation {
                 write_open: false,
                 sid,
                 down_rx: Some(rx),
-                read_pending: Vec::new(),
+                read_pending: None,
                 read_offset: 0,
                 conn: connection,
             }),
