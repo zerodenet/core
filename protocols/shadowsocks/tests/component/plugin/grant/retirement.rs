@@ -10,9 +10,9 @@ pub(super) struct Retirement {
     changed: tokio::sync::Notify,
 }
 impl Retirement {
-    pub(super) fn new(scope: &TaskScope, generation: u64) -> Self {
+    pub(super) fn new(scope: TaskScopeIdentity, generation: u64) -> Self {
         Self {
-            scope: scope.registrar().scope_identity(),
+            scope,
             generation,
             closed: Default::default(),
             changed: Default::default(),

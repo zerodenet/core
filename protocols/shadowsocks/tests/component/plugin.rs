@@ -113,7 +113,7 @@ async fn actual_single_actor_keeps_one_child_through_readiness_and_matches_its_r
 async fn same_actor_closes_declared_process_reservations_and_probe_before_the_same_job_is_ready() {
     tokio::time::timeout(std::time::Duration::from_secs(8),async {
         let mut scope=TaskScope::new(tokio::runtime::Handle::current(),NonZeroUsize::new(1).unwrap());
-        let grant=Arc::new(Grant::for_scope(&scope,1));
+        let grant=Arc::new(Grant::for_scope(&scope.registrar(),1));
         let state=crate::transport::ShadowsocksTransportState::default();
         let options=state.plugin_component_options("127.0.0.1",9999,crate::transport::plugin::fixtures::config()).with_process_endpoint(zero_core::component::NetworkGeneration(0)).unwrap();
         let spec=PluginFactory.describe(&options);

@@ -26,23 +26,33 @@ fn denied<T: Send + 'static>() -> BoxFuture<'static, Result<T, BuildError>> {
     })
 }
 #[cfg(any(target_os = "linux", windows))]
+#[path = "grant/retirement.rs"]
 mod retirement;
 #[cfg(any(target_os = "linux", windows))]
 impl Grant {
-    pub(super) fn for_scope(scope: &TaskScope, generation: u64) -> Self {
+    pub(super) fn for_scope(
+        tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+        generation: u64,
+    ) -> Self {
         let grant = Self::default();
         grant
             .generation_offset
             .store((generation - 1) as usize, Ordering::SeqCst);
         assert!(grant
             .retirement
-            .set(Arc::new(retirement::Retirement::new(scope, generation)))
+            .set(Arc::new(retirement::Retirement::new(
+                tasks.scope_identity(),
+                generation
+            )))
             .is_ok());
         grant
     }
-    pub(super) fn confirm_closed(&self, scope: &TaskScope) {
+    pub(super) fn confirm_closed(
+        &self,
+        tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+    ) {
         let observer = self.retirement.get().unwrap();
-        assert!(observer.scope.matches(&scope.registrar()));
+        assert!(observer.scope.matches(tasks));
         assert!(
             !observer.scope.resource_open(),
             "actual provider admission must be closed"
