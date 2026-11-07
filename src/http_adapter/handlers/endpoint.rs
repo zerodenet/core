@@ -2,9 +2,9 @@ use std::io;
 use zero_api::{EndpointGetQuery, EndpointListQuery, QueryRequest, QueryService};
 use zero_proxy::ProxyHandle;
 
-use super::{parse_query_param, serialize_query};
+use super::{parse_query_param, serialize_query, HttpBody};
 
-pub fn endpoints_list(handle: &ProxyHandle, query: &str) -> io::Result<Vec<u8>> {
+pub fn endpoints_list(handle: &ProxyHandle, query: &str) -> io::Result<HttpBody> {
     let params = (|| {
         let parse = |name| {
             parse_query_param(query, name)
@@ -25,7 +25,11 @@ pub fn endpoints_list(handle: &ProxyHandle, query: &str) -> io::Result<Vec<u8>> 
     serialize_query(params.and_then(|params| handle.query(QueryRequest::Endpoints(params))))
 }
 
-pub fn endpoint_get(handle: &ProxyHandle, endpoint_id: &str, details: bool) -> io::Result<Vec<u8>> {
+pub fn endpoint_get(
+    handle: &ProxyHandle,
+    endpoint_id: &str,
+    details: bool,
+) -> io::Result<HttpBody> {
     let id = percent_encoding::percent_decode_str(endpoint_id)
         .decode_utf8()
         .map_err(|_| {

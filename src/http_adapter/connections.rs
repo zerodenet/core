@@ -5,7 +5,30 @@ use zero_runtime::configuration::{ControlBudget, ControlBudgetPermit, ControlCha
 #[derive(Default)]
 pub(super) struct Connections {
     acquiring: Mutex<Option<ControlBudgetPermit>>,
-    entries: Mutex<BTreeMap<u64, (AcceptedTcpClaim, ControlBudgetPermit)>>,
+    entries: Mutex<BTreeMap<u64, Arc<Original>>>,
+}
+pub(super) struct Original {
+    claim: AcceptedTcpClaim,
+    permit: ControlBudgetPermit,
+    command: Mutex<Option<zero_runtime::configuration::ControlConnectionPermit>>,
+}
+impl Original {
+    pub(super) fn reserve_command(&self) -> io::Result<()> {
+        let mut command = self
+            .command
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if command.is_some() {
+            return Err(io::Error::other("HTTP original already holds its command"));
+        }
+        *command = Some(
+            self.permit
+                .connection_budget()
+                .expect("same actual HTTP connection issuer")
+                .reserve(zero_runtime::configuration::ControlConnectionCharge::PendingCommand)?,
+        );
+        Ok(())
+    }
 }
 impl Connections {
     pub(super) fn before(&self, budget: &Arc<ControlBudget>) -> Result<(), ChannelError> {
@@ -40,17 +63,23 @@ impl Connections {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take();
     }
-    pub(super) fn installed(&self, claim: AcceptedTcpClaim) {
+    pub(super) fn installed(&self, claim: AcceptedTcpClaim) -> Arc<Original> {
         let permit = self
             .acquiring
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take()
             .expect("charge installed before native accept");
+        let original = Arc::new(Original {
+            claim: claim.clone(),
+            permit,
+            command: Mutex::new(None),
+        });
         self.entries
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(claim.id(), (claim, permit));
+            .insert(claim.id(), original.clone());
+        original
     }
     pub(super) async fn reap(
         &self,
@@ -61,7 +90,7 @@ impl Connections {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .values()
-            .map(|(claim, _)| claim.clone())
+            .map(|original| original.claim.clone())
             .collect::<Vec<_>>();
         for claim in claims {
             if let Some(closed) = receiver

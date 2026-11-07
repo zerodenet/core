@@ -23,14 +23,19 @@ fn frame_len(event: &RawApiEvent) -> io::Result<usize> {
         + 2)
 }
 fn frame(event: &RawApiEvent) -> io::Result<Vec<u8>> {
-    let json = serde_json::to_string(event).map_err(io::Error::other)?;
-    let mut buf = String::new();
+    use std::io::Write as _;
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(frame_len(event)?)
+        .map_err(io::Error::other)?;
     if let Some(id) = event.sequence {
-        buf.push_str(&format!("id: {id}\n"));
+        writeln!(&mut bytes, "id: {id}")?;
     }
-    buf.push_str(&format!("event: {}\n", event.event_type));
-    buf.push_str(&format!("data: {json}\n\n"));
-    Ok(buf.into_bytes())
+    writeln!(&mut bytes, "event: {}", event.event_type)?;
+    bytes.extend_from_slice(b"data: ");
+    serde_json::to_writer(&mut bytes, event).map_err(io::Error::other)?;
+    bytes.extend_from_slice(b"\n\n");
+    Ok(bytes)
 }
 #[cfg(test)]
 pub async fn run_sse_stream(
