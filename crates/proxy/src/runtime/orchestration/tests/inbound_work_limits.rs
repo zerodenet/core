@@ -53,7 +53,7 @@ async fn all_actual_inbound_accepted_and_peer_budgets_are_cold_frozen_and_preser
         serde_json::json!({"type":"shadowsocks","cipher":"aes-128-gcm","password":"actual"}),
         serde_json::json!({"type":"mieru","users":[{"username":"u","password":"p"}]}),
         serde_json::json!({"type":"vless","users":[{"id":id}]}),
-        serde_json::json!({"type":"vmess","users":[{"id":id}]}),
+        serde_json::json!({"type":"vmess","users":[{"id":id}],"tls":{"cert_path":cert,"key_path":key}}),
         serde_json::json!({"type":"trojan","password":"actual","tls":{"cert_path":cert,"key_path":key}}),
         serde_json::json!({"type":"hysteria2","password":"actual","cert_path":cert,"key_path":key}),
     ] {

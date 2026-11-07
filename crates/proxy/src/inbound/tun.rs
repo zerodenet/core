@@ -35,7 +35,6 @@ use std::io;
 use std::net::IpAddr;
 #[cfg(feature = "raw-ip-runtime")]
 use std::sync::atomic::{AtomicU64, Ordering};
-#[cfg(feature = "raw-ip-runtime")]
 use std::sync::Arc;
 use std::time::Duration;
 

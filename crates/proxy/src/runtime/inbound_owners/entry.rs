@@ -55,7 +55,7 @@ pub(crate) struct InboundOwner {
     pub(super) packet_native:
         OnceLock<std::sync::Weak<super::bind::native::udp::NativeDatagramGrant>>,
     #[cfg(test)]
-    pub(crate) original_listener_address: OnceLock<std::net::SocketAddr>,
+    pub(crate) original_listener_address: Arc<OnceLock<std::net::SocketAddr>>,
     #[cfg(test)]
     last_accepted_join: Mutex<Option<zero_platform_tokio::contract::scope::TaskJoined>>,
     #[cfg(feature = "raw-ip-runtime")]
@@ -320,7 +320,7 @@ impl InboundOwner {
             terminal: OnceLock::new(),
             observation: Arc::new(observation::ObservationDisposition::new(identity)),
             #[cfg(test)]
-            original_listener_address: OnceLock::new(),
+            original_listener_address: Arc::new(OnceLock::new()),
             #[cfg(test)]
             last_accepted_join: Mutex::new(None),
             ready: InboundReady::new(),

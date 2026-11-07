@@ -34,7 +34,7 @@ async fn every_source_socket_peer_queue_and_service_limit_is_in_the_actual_cold_
         serde_json::json!({"type":"mieru","users":[{"username":"u","password":"p"}],"transport":"udp"}),
         serde_json::json!({"type":"vless","users":[{"id":id}],"fallback":{"server":"127.0.0.1","port":9}}),
         serde_json::json!({"type":"vless","users":[{"id":id}],"mkcp":{}}),
-        serde_json::json!({"type":"vmess","users":[{"id":id}]}),
+        serde_json::json!({"type":"vmess","users":[{"id":id}],"tls":{"cert_path":certificate,"key_path":key}}),
         serde_json::json!({"type":"trojan","password":"actual","tls":{"cert_path":certificate,"key_path":key}}),
         serde_json::json!({"type":"hysteria2","password":"actual","cert_path":certificate,"key_path":key,"masquerade":{"type":"file","dir":files.path()}}),
     ] {
