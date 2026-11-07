@@ -1,6 +1,9 @@
 //! The original client connection and application stream, before choosing its owner.
 use super::*;
+mod driver;
 mod flush;
+mod read;
+pub(super) use driver::OriginalDriver;
 pub(super) use flush::{FlushIo, Flushed};
 use futures_util::task::AtomicWaker;
 use std::{
@@ -12,7 +15,7 @@ use std::{
         Arc, Mutex,
     },
 };
-pub(super) type H2ClientDriver = Pin<Box<dyn Future<Output = io::Result<()>> + Send>>;
+pub(super) type H2ClientDriver = OriginalDriver;
 pub(super) struct PreparedH2Client {
     pub(super) stream: OwnedH2Client,
     pub(super) driver: H2ClientDriver,
@@ -26,9 +29,11 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let flush = Arc::new(Flushed::default());
+    let read = Arc::new(read::ReadSignal::default());
     let io = FlushIo {
         io: stream,
         flush: flush.clone(),
+        read: Some(read.clone()),
     };
     let mut builder = h2::client::Builder::new();
     if let Some(settings) = settings {
@@ -40,26 +45,17 @@ where
         .map_err(io::Error::other)?;
     let failure = Arc::new(Mutex::new(None));
     let driver_ended = Arc::new(AtomicBool::new(false));
-    let ended = driver_ended.clone();
-    let driver_failure = failure.clone();
-    let driver_flush = flush.clone();
-    let driver = Box::pin(async move {
-        // Keep only this original request's sender; no application relay task.
-        let _sender = sender;
-        let result = match connection.await {
-            Ok(()) => Ok(()),
-            Err(error) => {
-                let error = Arc::new(io::Error::other(error));
-                *driver_failure.lock().unwrap() = Some(error.clone());
-                Err(retained(&error))
-            }
-        };
-        ended.store(true, Ordering::Release);
-        if driver_flush.waiting.swap(false, Ordering::AcqRel) {
-            driver_flush.writer.wake();
-        }
-        result
-    });
+    // Handshake may use the creator's context. Only the actual original
+    // connection driver arms its persistent read wake after that phase.
+    read.arm();
+    let driver = OriginalDriver::new(
+        connection,
+        sender,
+        failure.clone(),
+        driver_ended.clone(),
+        flush.clone(),
+        read,
+    );
     Ok(PreparedH2Client {
         stream: OwnedH2Client(Mutex::new(State {
             send,

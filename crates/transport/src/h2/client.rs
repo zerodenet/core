@@ -66,7 +66,7 @@ impl Inline {
     }
 }
 impl State {
-    fn drive(driver: &mut Option<H2ClientDriver>, wake: &Arc<WakeBoth>) {
+    fn drive(driver: &mut Option<H2ClientDriver>, wake: &Arc<WakeBoth>, outbound: bool) {
         let Some(future) = driver.as_mut() else {
             return;
         };
@@ -78,7 +78,12 @@ impl State {
         }
         let driver_waker = waker_ref(wake);
         let mut cx = Context::from_waker(&driver_waker);
-        if future.as_mut().poll(&mut cx).is_ready() {
+        let result = if outbound {
+            Pin::new(&mut *future).poll_outbound(&mut cx)
+        } else {
+            Pin::new(&mut *future).poll(&mut cx)
+        };
+        if result.is_ready() {
             *driver = None;
             wake.reader.wake();
             wake.writer.wake();
@@ -97,7 +102,7 @@ impl State {
         } = self;
         wake.polling.store(true, Ordering::Release);
         let _polling = Polling(wake);
-        Self::drive(driver, wake);
+        Self::drive(driver, wake, false);
         // Stream-capacity/response notifications belong to this same inline
         // turn as native-driver readiness. The driver may grant capacity while
         // it is already being polled here; waking the application directly in
@@ -120,7 +125,7 @@ impl State {
         }
         // The same original is also driven after application enqueue/credit
         // return. Pending capacity alone cannot manufacture readiness.
-        Self::drive(driver, wake);
+        Self::drive(driver, wake, true);
         result
     }
 }
