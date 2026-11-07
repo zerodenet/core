@@ -288,6 +288,15 @@ impl ResourceAccess for HostResources {
         self.journals.open(self.component, ordinal)
     }
 
+    fn receive_protocol_report(
+        &self,
+        scope: &zero_platform_tokio::contract::scope::TaskScopeIdentity,
+        report: &mut zero_platform_tokio::contract::lifecycle::CloseReport,
+    ) -> Result<Option<Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>>, ChannelError>
+    {
+        self.receive_protocol_close_report(scope, report)
+    }
+
     fn receive_protocol_failure(
         &self,
         scope: &zero_platform_tokio::contract::scope::TaskScopeIdentity,

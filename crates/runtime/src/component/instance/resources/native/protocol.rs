@@ -21,6 +21,30 @@ impl HostResources {
         scope: &TaskScopeIdentity,
         source: &Arc<ChannelError>,
     ) -> Result<Arc<ResourceFailure>, ChannelError> {
+        let actual = self.protocol_scope(scope)?;
+        self.protocol_failures.original(actual, source.clone());
+        let retained = self.protocol_failures.get().ok_or_else(|| self.denied())?;
+        // All actual source/receipt storage is complete before any external
+        // cancellation/waker callback. It neither closes nor ACKs an original.
+        self.signal_protocol_fault();
+        Ok(retained)
+    }
+    pub(super) fn receive_protocol_close_report(
+        &self,
+        scope: &TaskScopeIdentity,
+        report: &mut zero_platform_tokio::contract::lifecycle::CloseReport,
+    ) -> Result<Option<Arc<ResourceFailure>>, ChannelError> {
+        let actual = self.protocol_scope(scope)?;
+        let retained = self.protocol_failures.close_report(actual, report)?;
+        if retained.is_some() {
+            self.signal_protocol_fault();
+        }
+        Ok(retained)
+    }
+    fn protocol_scope(
+        &self,
+        scope: &TaskScopeIdentity,
+    ) -> Result<zero_core::component::ComponentInstanceId, ChannelError> {
         // Expired identity is never reconstructed into an owner/registrar.
         // Cleanup may occur after admission closes, so this does not test open.
         let original = self
@@ -32,10 +56,9 @@ impl HostResources {
         if !scope.same_scope(&original.scope_identity()) {
             return Err(self.denied());
         }
-        self.protocol_failures.original(actual, source.clone());
-        let retained = self.protocol_failures.get().ok_or_else(|| self.denied())?;
-        // All actual source/receipt storage is complete before any external
-        // cancellation/waker callback. It neither closes nor ACKs an original.
+        Ok(actual)
+    }
+    fn signal_protocol_fault(&self) {
         self.cancel.cancel();
         if let Some(signal) = self
             .protocol_supervision
@@ -44,6 +67,5 @@ impl HostResources {
         {
             signal.signal().notify_waiters();
         }
-        Ok(retained)
     }
 }

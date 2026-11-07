@@ -423,6 +423,23 @@ pub trait ResourceAccess: Send + Sync {
         ))
     }
 
+    /// Receive diagnostic rows from an already owned actual close report.
+    /// This does not authenticate a foreign acquisition: the caller must have
+    /// retained and validated its original controller/adoption before IO.
+    /// Task IDs/classes and RF instance/controller stay those of that report;
+    /// no join, native/view close or Host registration ACK is manufactured.
+    fn receive_protocol_report(
+        &self,
+        _scope: &super::scope::TaskScopeIdentity,
+        _report: &mut super::lifecycle::CloseReport,
+    ) -> Result<Option<Arc<super::lifecycle::ResourceFailure>>, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Close,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
+
     /// Same actual Host metadata accounting, including allocations made before
     /// native acquisition. This grants no IO, task, native-close or policy right.
     /// A Kernel caller must propagate denial; it cannot create a local Root.

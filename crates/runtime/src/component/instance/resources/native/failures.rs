@@ -20,6 +20,12 @@ struct Causes {
 enum Cause {
     Original(Arc<ChannelError>),
     Child(Arc<ResourceFailure>),
+    ReportTask {
+        id: zero_platform_tokio::contract::scope::TaskId,
+        class: zero_platform_tokio::contract::lifecycle::TaskClass,
+        source: Arc<ChannelError>,
+    },
+    ReportResource(Arc<ResourceFailure>),
 }
 impl fmt::Debug for Causes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -124,7 +130,8 @@ impl DeclaredReceiver {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if !causes.iter().any(|cause| match cause {
             Cause::Original(same) => same_source(same, &source),
-            Cause::Child(same) => same_source(&same.source, &source),
+            Cause::Child(same) | Cause::ReportResource(same) => same_source(&same.source, &source),
+            Cause::ReportTask { source: same, .. } => same_source(same, &source),
         }) {
             causes.push(Cause::Original(source.clone()));
         }
@@ -243,3 +250,5 @@ fn same_source<'a>(mut first: &'a Arc<ChannelError>, mut later: &'a Arc<ChannelE
     }
     Arc::ptr_eq(first, later)
 }
+
+mod report;

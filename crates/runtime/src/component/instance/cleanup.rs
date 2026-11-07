@@ -147,6 +147,7 @@ impl Owner {
                 report.resource_failures.push(fault);
             }
         }
+        protocol_failures.append_task_rows(&mut report);
         resources.retain_resource_report(&mut report);
         if !*protocol_closed {
             report.unfinished.push(Unfinished::Resource(format!(
