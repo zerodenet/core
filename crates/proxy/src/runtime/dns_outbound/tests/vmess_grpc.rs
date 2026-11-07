@@ -90,11 +90,18 @@ async fn cancelled_vmess_grpc_dns_wire_prepare_closes_the_actual_undelivered_nat
         let held = owner.observe().unwrap();
         let original = held.slots()[0].original().clone();
         let driver = held.slots()[0].driver().map(|(_, witness)| witness.clone());
+        let auxiliary = held.slots()[0].auxiliary().expect("actual same-original preparation").clone();
+        assert!(auxiliary.scope_identity().same_scope(&owner.bound().unwrap().scope_identity()));
         assert!(original.closed().is_none());
         query.abort();
         assert!(query.await.unwrap_err().is_cancelled());
         tokio::time::timeout_at(deadline(), caller.task.wait()).await.unwrap();
-        if let Some(driver) = driver { assert!(driver.is_joined()); }
+        if let Some(driver) = driver {
+            let joined = driver.try_joined().expect("same registered H2 driver finished");
+            assert!(driver.matches_joined(&joined) && joined.registration_released());
+        }
+        let joined = auxiliary.try_joined().expect("same actual preparation finished after cancellation");
+        assert!(auxiliary.matches_joined(&joined) && joined.registration_released());
         let closed = original.closed().expect("same pre-handoff original native close");
         assert!(original.matches_closed(&closed));
         assert!(closed.had_native_acquisition());
