@@ -7,10 +7,7 @@ struct Usage {
     charged: usize,
 }
 #[derive(Debug)]
-pub struct TaskRegistrationBudget {
-    state: Mutex<Usage>,
-    changed: Notify,
-}
+pub struct TaskRegistrationBudget(Mutex<Usage>);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TaskRegistrationUsage {
     pub limit: usize,
@@ -18,28 +15,22 @@ pub struct TaskRegistrationUsage {
 }
 impl Default for TaskRegistrationBudget {
     fn default() -> Self {
-        Self {
-            state: Mutex::new(Usage {
-                limit: 4096,
-                charged: 0,
-            }),
-            changed: Notify::new(),
-        }
+        Self(Mutex::new(Usage {
+            limit: 4096,
+            charged: 0,
+        }))
     }
 }
 impl TaskRegistrationBudget {
     pub fn new(limit: NonZeroUsize) -> Arc<Self> {
-        Arc::new(Self {
-            state: Mutex::new(Usage {
-                limit: limit.get(),
-                charged: 0,
-            }),
-            changed: Notify::new(),
-        })
+        Arc::new(Self(Mutex::new(Usage {
+            limit: limit.get(),
+            charged: 0,
+        })))
     }
     pub fn usage(&self) -> TaskRegistrationUsage {
         let state = self
-            .state
+            .0
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         TaskRegistrationUsage {
@@ -61,37 +52,18 @@ impl TaskRegistrationBudget {
             return Err(std::io::ErrorKind::InvalidInput.into());
         }
         let mut state = self
-            .state
+            .0
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.charged > limit {
             return Err(std::io::ErrorKind::WouldBlock.into());
         }
-        let grew = limit > state.limit;
         state.limit = limit;
-        drop(state);
-        if grew {
-            self.changed.notify_waiters();
-        }
         Ok(())
-    }
-    /// Passive capacity observation, never a task/IO grant or reservation.
-    /// Callers still perform their actual registrar admission after waking.
-    pub async fn wait_available(&self) {
-        loop {
-            let changed = self.changed.notified();
-            tokio::pin!(changed);
-            changed.as_mut().enable();
-            let usage = self.usage();
-            if usage.charged < usage.limit {
-                return;
-            }
-            changed.await;
-        }
     }
     pub(super) fn reserve(self: &Arc<Self>) -> Result<TaskRegistrationCredit, SpawnError> {
         let mut state = self
-            .state
+            .0
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.charged >= state.limit {
@@ -106,15 +78,13 @@ impl TaskRegistrationBudget {
     }
     fn release(&self) {
         let mut state = self
-            .state
+            .0
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.charged = state
             .charged
             .checked_sub(1)
             .expect("one original task registration");
-        drop(state);
-        self.changed.notify_waiters();
     }
 }
 pub(super) struct TaskRegistrationCredit {

@@ -208,10 +208,8 @@ impl Sampler {
                     {
                         // No worker was created. Shared pressure must defer
                         // this sample rather than fault or evict active IO.
-                        tokio::select! {
-                            _ = &mut changed => {},
-                            _ = self.task_budget.wait_available() => {},
-                        }
+                        // Retry only on this same existing one-second tick.
+                        // No new waiter registry, worker or timer is created.
                         continue;
                     }
                     return Err(error);

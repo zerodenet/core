@@ -30,24 +30,6 @@ async fn two_actual_scopes_share_credit_until_the_same_native_exit_and_host_ack(
                 .spawn(TaskClass::Auxiliary, async { Ok(()) }),
             Err(SpawnError::Capacity)
         ));
-        let mut cancelled_wait = Box::pin(book.wait_available());
-        std::future::poll_fn(|cx| {
-            assert!(cancelled_wait.as_mut().poll(cx).is_pending());
-            Poll::Ready(())
-        })
-        .await;
-        drop(cancelled_wait);
-        assert_eq!(
-            book.usage().charged,
-            1,
-            "cancelling a waiter grants no refund"
-        );
-        let mut available = Box::pin(book.wait_available());
-        std::future::poll_fn(|cx| {
-            assert!(available.as_mut().poll(cx).is_pending());
-            Poll::Ready(())
-        })
-        .await;
         release.send(()).unwrap();
         let receipt = first.next_receipt().await.unwrap();
         let joined = original.wait().await;
@@ -68,12 +50,7 @@ async fn two_actual_scopes_share_credit_until_the_same_native_exit_and_host_ack(
         ));
         first.acknowledge(&receipt).unwrap();
         original.wait_registration_released().await;
-        available.await;
-        assert_eq!(
-            book.usage().charged,
-            0,
-            "capacity notification is no reservation"
-        );
+        assert_eq!(book.usage().charged, 0);
         let (_, later) = second
             .registrar()
             .spawn_tracked(TaskClass::Auxiliary, async { Ok(()) })
