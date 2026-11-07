@@ -225,7 +225,9 @@ async fn actual_status_header_clones_keep_credit_after_the_same_request_scope_jo
     };
     assert_eq!(error.message(), source.to_string());
     let mut response = error.into_http();
-    original.retain_status_header(response.headers_mut());
+    original
+        .retain_status_header(response.headers_mut())
+        .unwrap();
     let header = response.headers()["grpc-message"].clone();
     assert!(budget.usage().response_bytes > super::super::CODEC_BUFFER_SIZE);
     drop((response, original));
@@ -238,8 +240,8 @@ async fn actual_status_header_clones_keep_credit_after_the_same_request_scope_jo
         .is_complete());
     assert_eq!(
         budget.usage().grpc_requests,
-        1,
-        "actual native header bytes retain their same request lifetime"
+        0,
+        "cached header storage cannot pin concurrency after the actual request joins"
     );
     assert!(budget.usage().response_bytes > 0);
     drop(header);

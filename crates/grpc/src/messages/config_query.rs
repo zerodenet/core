@@ -69,7 +69,7 @@ impl Record {
         }
         let Some(bound) = count
             .bytes
-            .checked_mul(7)
+            .checked_mul(10)
             .and_then(|size| size.checked_add(super::CODEC_BUFFER_SIZE))
         else {
             return tonic::Status::resource_exhausted("gRPC error storage length overflow");
@@ -141,31 +141,53 @@ impl Record {
             }
         }
     }
-    pub(crate) fn retain_status_header(&self, headers: &mut hyper::HeaderMap) {
+    pub(crate) fn retain_status_header(&self, headers: &mut hyper::HeaderMap) -> io::Result<()> {
         let Some(value) = headers.get_mut("grpc-message") else {
-            return;
+            return Ok(());
         };
         let credit = self
             .status
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take();
-        let Some(credit) = credit else { return };
+        let Some(mut credit) = credit else {
+            return Ok(());
+        };
+        // Pinned Tonic add_header uses Bytes::copy_from_slice: only that exact
+        // original allocation remains after Status/Cow encoding workspace dies.
+        // HPACK may cache its HeaderValue. It retains byte credit, never the
+        // ended RPC's concurrent-request/stream or encoder workspace permits.
+        let retained = value
+            .as_bytes()
+            .len()
+            .checked_add(std::mem::size_of::<StatusHeader>() + 4 * std::mem::size_of::<usize>())
+            .ok_or_else(|| io::Error::other("retained status storage overflow"))
+            .and_then(|bytes| credit.split_response_bytes(bytes));
+        let retained = match retained {
+            Ok(retained) => retained,
+            Err(error) => {
+                *self
+                    .status
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(credit);
+                return Err(error);
+            }
+        };
         let original = std::mem::replace(value, hyper::header::HeaderValue::from_static(""));
         *value = hyper::header::HeaderValue::from_maybe_shared(hyper::body::Bytes::from_owner(
             StatusHeader {
                 original,
-                _credit: credit,
-                _lifetime: self.lifetime.clone(),
+                _credit: retained,
             },
         ))
         .expect("same already validated original header bytes");
+        drop(credit);
+        Ok(())
     }
 }
 struct StatusHeader {
     original: hyper::header::HeaderValue,
     _credit: ControlBudgetPermit,
-    _lifetime: Arc<super::registry::Lifetime>,
 }
 impl AsRef<[u8]> for StatusHeader {
     fn as_ref(&self) -> &[u8] {
@@ -221,7 +243,7 @@ fn prepare(
             // Original Status String plus pinned Tonic's percent-encoded
             // header workspace/storage, prepaid before either is allocated.
             let bound = size
-                .checked_mul(7)
+                .checked_mul(10)
                 .and_then(|size| size.checked_add(super::CODEC_BUFFER_SIZE))
                 .ok_or_else(overflow)?;
             *credit = Some(Credit::Status(

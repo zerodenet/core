@@ -87,7 +87,7 @@ impl Record {
                             io::Error::other("gRPC error exceeds its admitted message limit")
                         })?;
                     let bound = size
-                        .checked_mul(7)
+                        .checked_mul(10)
                         .and_then(|size| size.checked_add(super::CODEC_BUFFER_SIZE))
                         .ok_or_else(|| io::Error::other("gRPC error storage overflow"))?;
                     status = Some(self.budget.reserve(ControlCharge::ResponseBytes(bound))?);

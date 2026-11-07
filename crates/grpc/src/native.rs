@@ -145,10 +145,9 @@ where
                                 };
                                 parts.extensions.insert(original.clone());
                                 let request = hyper::Request::from_parts(parts, tonic::body::boxed(body));
-                                svc.call(request).await.map(|mut response| {
-                                    original.retain_status_header(response.headers_mut());
-                                    response.map(|body| tonic::body::boxed(crate::messages::Output::new(body, original)))
-                                }).map_err(std::io::Error::other)
+                                let mut response=svc.call(request).await.map_err(std::io::Error::other)?;
+                                original.retain_status_header(response.headers_mut())?;
+                                Ok(response.map(|body| tonic::body::boxed(crate::messages::Output::new(body, original))))
                             }) as std::pin::Pin<Box<dyn Future<Output = io::Result<hyper::Response<tonic::body::BoxBody>>> + Send + 'static>>
                         });
                         let mut builder = hyper::server::conn::http2::Builder::new(executor);
