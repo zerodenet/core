@@ -176,3 +176,6 @@ async fn original_prepared_stats_output_stays_frozen_through_actual_pending_io()
 
 #[path = "tests/traffic.rs"]
 mod traffic;
+
+#[path = "tests/proxy.rs"]
+mod proxy;

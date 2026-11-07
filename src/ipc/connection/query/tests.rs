@@ -192,3 +192,5 @@ fn packet_route_queries_use_original_prepaid_rows_and_preserve_missing_wire() {
         assert_eq!(budget.usage().response_bytes, 0);
     }
 }
+#[path = "tests/proxy.rs"]
+mod proxy;
