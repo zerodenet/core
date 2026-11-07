@@ -10,6 +10,7 @@ use zero_platform_tokio::contract::{
     network::{CarrierContext, UpstreamBinding, UpstreamTransport},
     CancellationToken,
 };
+mod ready;
 
 #[tokio::test]
 async fn abandoned_direct_socks_service_role_closes_its_original_without_observer_next_dial_or_shutdown(
