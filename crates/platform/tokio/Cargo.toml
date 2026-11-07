@@ -16,6 +16,8 @@ host-network-stats = []
 native-packet-origin = ["dep:zero-tun"]
 
 [dependencies]
+# Actual controlled journal rotation retains its original temporary path.
+tempfile.workspace = true
 # Native UDP metadata helper only; no Quinn runtime or protocol dependency.
 quinn-udp = { version = "=0.5.16", default-features = false }
 socket2 = { version = "0.6", features = ["all"] }
@@ -51,8 +53,6 @@ windows-sys = { version = "0.61", features = [
 libproc = "0.14.11"
 netstat2 = "0.11.2"
 
-[dev-dependencies]
-tempfile.workspace = true
 
 # Integration suites are explicit; scripts/check-test-layout.py guards coverage.
 
