@@ -7,6 +7,8 @@ use zero_platform_tokio::contract::{
 pub(in crate::component) mod accounting;
 mod bound_datagram;
 mod inbound_dependencies;
+mod packet_path;
+pub use packet_path::PacketPathFacts;
 
 trait BuildRecipe: Send + Sync {
     fn build(&self, context: BuildContext) -> Result<ComponentInstance, BuildError>;
@@ -30,6 +32,7 @@ pub struct ComponentRecipe {
     bound_datagrams: Arc<[bound_datagram::NativeBinding]>,
     carrier_total: Option<usize>,
     process_limits: Option<accounting::ProcessLimits>,
+    packet_path: Option<PacketPathFacts>,
 }
 impl ComponentRecipe {
     /// Options have already been validated by their owning factory/adapter.
@@ -42,6 +45,7 @@ impl ComponentRecipe {
             bound_datagrams: Arc::from([]),
             carrier_total: None,
             process_limits: None,
+            packet_path: None,
         }
     }
     pub fn spec(&self) -> &ComponentSpec {

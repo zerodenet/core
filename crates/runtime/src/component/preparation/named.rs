@@ -73,6 +73,7 @@ impl<'a> ResourcePreparation<'a> {
                 "cyclic named cold preparation",
             ));
         }
+        let previous_active = self.active_named.replace(tag.to_owned());
         let result = (|| {
             if self.device_alias_rebinding {
                 // Recovery consumes only the actual accepted immutable recipe;
@@ -107,12 +108,21 @@ impl<'a> ResourcePreparation<'a> {
                             "named callee is absent from this actual candidate",
                         )
                     })?;
-                let validated = factories
+                let mut validated = factories
                     .prepare_with_resources(input.protocol.protocol_name(), input, self)
                     .map_err(|source| {
                         invalid(Reason::InvalidConfig, "named callee preparation failed")
                             .with_source(source)
                     })?;
+                if let Some((identity, facts)) = self.named_packet_paths.remove(tag) {
+                    if identity.as_ref() != validated.spec().static_identity.as_ref() {
+                        return Err(invalid(
+                            Reason::StalePlan,
+                            "packet path facts differ from their actual prepared recipe",
+                        ));
+                    }
+                    validated = validated.with_packet_path_facts(facts);
+                }
                 self.named_recipes.insert(
                     tag.to_owned(),
                     (validated.component_recipe(), Some(validated)),
@@ -120,6 +130,7 @@ impl<'a> ResourcePreparation<'a> {
             }
             Ok(id)
         })();
+        self.active_named = previous_active;
         self.preparing_named.remove(tag);
         if result.is_err() {
             self.invalidate();

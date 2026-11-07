@@ -20,6 +20,13 @@ pub struct ValidatedRecipe {
     recipe: ComponentRecipe,
 }
 impl ValidatedRecipe {
+    pub(in crate::component) fn with_packet_path_facts(
+        mut self,
+        facts: super::PacketPathFacts,
+    ) -> Self {
+        self.recipe = self.recipe.with_packet_path_facts(facts);
+        self
+    }
     pub fn component_recipe(&self) -> ComponentRecipe {
         self.recipe.clone()
     }

@@ -1,4 +1,5 @@
 mod lender;
+mod packet_metadata;
 mod pool;
 mod production;
 use super::super::VlessAdapter;
@@ -6,6 +7,7 @@ use crate::component::{
     background::{pool as background_pool, stateless},
     RegistrationError, ResourcePreparation,
 };
+pub(crate) use packet_metadata::declare_packet_path;
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 use zero_config::{OutboundConfig, OutboundProtocolConfig};
 use zero_platform_tokio::contract::{

@@ -142,3 +142,11 @@ pub struct StreamOptions {
     pub(super) pool_owner: ComponentId,
     pub(super) identity: Arc<[u8]>,
 }
+
+impl StreamOptions {
+    /// Native gRPC delegates the old whole leaf instead of exposing a second
+    /// old claim. Its real cold protocol recipe retains these same semantics.
+    pub fn packet_path_metadata(&self) -> (zero_core::request::Destination, bool) {
+        (self.prepared.protocol.endpoint.clone(), true)
+    }
+}

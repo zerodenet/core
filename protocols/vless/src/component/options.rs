@@ -39,6 +39,11 @@ impl fmt::Debug for Options {
     }
 }
 impl Options {
+    /// Existing packet-path semantics from this actual validated recipe. This
+    /// is immutable data only: no role, Scope, grant or material is prepared.
+    pub fn packet_path_metadata(&self) -> (Destination, bool) {
+        (self.endpoint.clone(), true)
+    }
     pub fn from_options_refs<TTls, TWs, TGrpc, TH2, THttp, TSplit>(
         input: VlessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc, TH2, THttp, TSplit>,
         dial: DialPolicy,

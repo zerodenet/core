@@ -352,3 +352,6 @@ fn actual_named_callee_prepares_once_before_devices_and_is_consumed_by_the_same_
         "cold preparation creates no owner or task"
     );
 }
+
+#[path = "cold_union/packet_facts.rs"]
+mod packet_facts;

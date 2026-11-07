@@ -222,6 +222,20 @@ pub struct Options {
 }
 
 impl Options {
+    /// Read the same already-prepared whole leaf, without another material
+    /// decode or native/cache lookup. Execution still needs its actual role.
+    pub fn packet_path_metadata(&self) -> (zero_core::request::Destination, bool) {
+        let server = self.prepared.leaf.server();
+        let address = match zero_core::address::parse_ip_literal(server) {
+            Some(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
+            Some(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
+            None => zero_core::Address::Domain(server.to_owned()),
+        };
+        (
+            zero_core::request::Destination::new(address, self.prepared.leaf.port()),
+            true,
+        )
+    }
     /// The protocol factory declares and constructs only its qualified Stream.
     pub fn stream_only(mut self) -> Self {
         if self.datagram {

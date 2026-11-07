@@ -3,6 +3,7 @@ mod accounting;
 mod device_aliases;
 mod identities;
 mod named;
+mod packet_path;
 mod source_dependencies;
 pub use source_dependencies::SourceDependencyDeclarations;
 use super::{dependencies, instance::invalid, ComponentRecipe};
@@ -55,6 +56,8 @@ pub struct ResourcePreparation<'a> {
     primary_factories: Option<&'a super::ComponentRegistry<zero_config::OutboundConfig>>,
     named_recipes: BTreeMap<String, (ComponentRecipe, Option<super::ValidatedRecipe>)>,
     preparing_named: BTreeSet<String>,
+    active_named: Option<String>,
+    named_packet_paths: BTreeMap<String, (Arc<[u8]>, super::PacketPathFacts)>,
     source_dependencies: Option<SourceDependencyDeclarations>,
     resources: BTreeMap<Key, PreparedSharedResource>,
     identities: BTreeSet<ComponentId>,
@@ -82,6 +85,8 @@ impl<'a> ResourcePreparation<'a> {
             primary_factories: None,
             named_recipes: BTreeMap::new(),
             preparing_named: BTreeSet::new(),
+            active_named: None,
+            named_packet_paths: BTreeMap::new(),
             source_dependencies: None,
             resources: BTreeMap::new(),
             identities: BTreeSet::new(),
@@ -149,6 +154,7 @@ impl<'a> ResourcePreparation<'a> {
             if fresh
                 || !old.can_reuse()
                 || recipe.spec() != old.recipe.spec()
+                || recipe.packet_path_facts() != old.recipe.packet_path_facts()
                 || recipe.carrier_total_limit() != old.recipe.carrier_total_limit()
                 || recipe.process_limits() != old.recipe.process_limits()
             {

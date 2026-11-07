@@ -187,6 +187,9 @@ pub(crate) fn compiled_registries_with_network(
                             )?;
                             options.bind_node_dns(dns);
                         }
+                        crate::adapters::vless::component::mux::declare_packet_path(
+                            input, &options, resources,
+                        )?;
                         Ok(options)
                     },
                 )
@@ -223,6 +226,9 @@ pub(crate) fn compiled_registries_with_network(
                             )?;
                             options.bind_node_dns(dns);
                         }
+                        crate::adapters::vless::component::mux::declare_packet_path(
+                            input, &options, resources,
+                        )?;
                         Ok(options)
                     },
                 )
@@ -762,8 +768,8 @@ pub(crate) fn compiled_registries_with_network(
 }
 
 #[cfg(test)]
-pub(crate) fn component_registry()
--> crate::component::ComponentRegistry<zero_config::OutboundConfig> {
+pub(crate) fn component_registry(
+) -> crate::component::ComponentRegistry<zero_config::OutboundConfig> {
     compiled_registries().1
 }
 

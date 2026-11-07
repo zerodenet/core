@@ -23,6 +23,9 @@ pub(super) struct Controls {
     pub(super) fail: AtomicBool,
     pub(super) invalid_dependency: AtomicBool,
     pub(super) capacity: AtomicUsize,
+    pub(super) packet_facts: AtomicBool,
+    pub(super) packet_fact_wrong_stamp: AtomicBool,
+    pub(super) packet_fact_wrong_name: AtomicBool,
     pub(super) requests: Mutex<Vec<ComponentId>>,
 }
 struct ReplaySettings {
@@ -139,7 +142,32 @@ pub(super) fn catalog(controls: &Arc<Controls>) -> ComponentCatalog {
                 if input.tag == "b" && controls.fail.load(Ordering::SeqCst) {
                     return Err(options_error("selected consumer validation failed"));
                 }
-                prepared.bind(Some(dependency)).map_err(options_error)
+                let options = prepared.bind(Some(dependency)).map_err(options_error)?;
+                if controls.packet_facts.load(Ordering::SeqCst) {
+                    let identity = StreamFactory.describe(&options).static_identity;
+                    let identity = if controls.packet_fact_wrong_stamp.load(Ordering::SeqCst) {
+                        Arc::from(&b"foreign recipe stamp"[..])
+                    } else {
+                        identity
+                    };
+                    let tag = if controls.packet_fact_wrong_name.load(Ordering::SeqCst) {
+                        "not-the-active-owner"
+                    } else {
+                        input.tag()
+                    };
+                    resources.declare_named_packet_path(
+                        tag,
+                        identity,
+                        crate::component::PacketPathFacts::new(
+                            zero_core::request::Destination::new(
+                                zero_core::Address::Ipv4([127, 0, 0, 1]),
+                                *port,
+                            ),
+                            false,
+                        ),
+                    )?;
+                }
+                Ok(options)
             },
         )
         .unwrap();

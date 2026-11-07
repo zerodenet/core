@@ -10,8 +10,11 @@ mod preparation;
 mod recipe;
 mod registry;
 pub use admission::ServiceAdmission;
-pub use preparation::{PreparedSharedResource, ResourcePreparation, SharedResourceIdentities, SourceDependencyDeclarations};
-pub use recipe::ComponentRecipe;
+pub use preparation::{
+    PreparedSharedResource, ResourcePreparation, SharedResourceIdentities,
+    SourceDependencyDeclarations,
+};
+pub use recipe::{ComponentRecipe, PacketPathFacts};
 pub use registry::{ComponentRegistry, RegistrationError, ValidatedRecipe};
 #[cfg(test)]
 pub use zero_proxy::component::{DirectFactory, DirectOptions};
