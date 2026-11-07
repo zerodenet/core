@@ -44,6 +44,16 @@ impl CarrierOwnerRegistration {
         let Some(owner) = self.owner.upgrade() else {
             return (false, None);
         };
+        // Register before inspecting cancellation. A failed direct Service
+        // call can request retirement without an external pending observer or
+        // another Host event. Clone/Drop of arbitrary wakers stays lock-free.
+        let replacement = cx.waker().clone();
+        let previous = owner
+            .retirement_waker
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .replace(replacement);
+        drop(previous);
         let slots = owner.state().slots.clone();
         let mut progressed = false;
         let mut first_fault = None;

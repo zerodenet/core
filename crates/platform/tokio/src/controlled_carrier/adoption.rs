@@ -31,6 +31,18 @@ impl CarrierAdoption {
             None => self.slot.cancel.cancel(),
         }
         self.slot.notify();
+        // Wake only the already registered Root continuation. No retirement
+        // work or user callback executes under original/owner state locks.
+        let wake = self.slot.owner.upgrade().and_then(|owner| {
+            owner
+                .retirement_waker
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take()
+        });
+        if let Some(wake) = wake {
+            wake.wake();
+        }
     }
     /// Same original reservation identity; observation grants no native I/O,
     /// driver registration, transferred-user completion or close permission.

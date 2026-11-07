@@ -16,6 +16,9 @@ pub(super) struct Shared {
     pub(super) state: Mutex<State>,
     pub(super) totals: std::sync::OnceLock<Arc<super::CarrierOriginalTotals>>,
     pub(super) completion: Arc<super::registration::Completion>,
+    // The existing Root scan owns cleanup progress even before any slot was
+    // cancelled. This is one fixed wake registration for this actual owner.
+    pub(super) retirement_waker: Mutex<Option<std::task::Waker>>,
 }
 #[derive(Default)]
 pub(super) struct State {
@@ -49,6 +52,7 @@ impl CarrierOwner {
             state: Mutex::new(State::default()),
             totals: Default::default(),
             completion: Arc::new(super::registration::Completion::default()),
+            retirement_waker: Mutex::new(None),
         }))
     }
     pub fn registration(&self) -> super::CarrierOwnerRegistration {
