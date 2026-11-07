@@ -74,6 +74,21 @@ impl std::fmt::Debug for InboundPeerTasks {
     }
 }
 impl InboundPeerTasks {
+    #[cfg(test)]
+    pub(crate) fn diagnose_actual_retirement(&self) {
+        let (preparing, children, claiming, fault, bindings) = {
+            let state = self.state.lock().unwrap();
+            (state.preparing, state.children.len(), state.claiming.len(),
+             state.failure.clone(), state.active.iter().map(|(id, binding)| (*id, binding.clone())).collect::<Vec<_>>())
+        };
+        eprintln!("actual H3 source peer census: preparing={preparing} children={children} claiming={claiming} fault={fault:?}");
+        for (id, binding) in bindings {
+            eprintln!("actual H3 peer {id:?}: primaryJoined={} dispatched={} responsesPending={} processRetired={} stop={}",
+                binding.join_witness().is_some_and(|witness| witness.is_joined()),
+                binding.joined_receipt().is_some(), binding.responses_pending(),
+                binding.process_retired(), binding.cancellation().is_cancelled());
+        }
+    }
     /// Actual per-source association custody only; no task/native-close grant.
     pub(crate) fn preflight_quiescent(&self) -> bool {
         let state = self
