@@ -1,6 +1,6 @@
 use super::*;
 #[cfg(all(feature = "crypto", feature = "blake3"))]
-pub(super) fn encrypt_aes_2022_header(
+pub(crate) fn encrypt_aes_2022_header(
     cipher: CipherKind,
     master_key: &[u8],
     header: &mut [u8; 16],
@@ -28,7 +28,7 @@ pub(super) fn encrypt_aes_2022_header(
 }
 
 #[cfg(all(feature = "crypto", feature = "blake3"))]
-pub(super) fn decrypt_aes_2022_header(
+pub(crate) fn decrypt_aes_2022_header(
     cipher: CipherKind,
     master_key: &[u8],
     header: &mut [u8; 16],
