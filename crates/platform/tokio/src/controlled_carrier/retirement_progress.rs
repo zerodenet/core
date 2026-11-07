@@ -67,7 +67,6 @@ impl CarrierOwnerRegistration {
                     lock(&slot.retirement).first_fault.get_or_insert(source);
                 }
             }
-            let mut observed_credit = super::caller_credit::observe(&slot);
             let (work, credit) = {
                 let mut state = lock(&slot.retirement);
                 if state.polling || state.removed {
@@ -81,11 +80,13 @@ impl CarrierOwnerRegistration {
                     let original = slot.clone();
                     Box::pin(async move { close_slot(&original, deadline).await })
                 });
-                let credit = state.credit.take().or_else(|| observed_credit.take());
+                let credit = state.credit.take();
                 (work, credit)
             };
-            drop(observed_credit);
-            let mut credit = credit;
+            // Claim this Slot's existing polling gate before constructing a
+            // missing observer. Concurrent polls cannot allocate duplicate
+            // snapshots while this exact credit future is being driven.
+            let mut credit = credit.or_else(|| super::caller_credit::observe(&slot));
             let mut work = work;
             let result = work.as_mut().poll(cx);
             // Endpoint completion may have been strongly installed while that
