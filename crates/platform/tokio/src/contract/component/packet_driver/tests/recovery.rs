@@ -162,14 +162,31 @@ async fn actual_actor_failure_keeps_new_receipt_and_requires_source_supervision_
         assert_eq!(total.snapshot().charged, 1);
         // Error delivery and real Hosted ACK are separate from whole Source
         // retirement. The actual Source supervisor must rebuild this owner.
-        let failure = root
+        let completed = root
             .shutdown(Instant::now() + Duration::from_secs(1))
             .await
-            .unwrap_err();
+            .unwrap();
+        assert!(completed.is_complete());
+        let failure = completed.resource_failures.first().unwrap();
+        assert_eq!(failure.instance, instance);
+        assert!(Arc::ptr_eq(
+            &failure.source,
+            report.retained_source().unwrap(),
+        ));
         assert!(failure
+            .source
             .cleanup_failure_receipt()
             .unwrap()
             .same_receipt(receipt));
+        assert!(has_actual_source(&failure.source, &actual));
+        let repeated = root
+            .shutdown(Instant::now() + Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert!(Arc::ptr_eq(
+            repeated.resource_failures.first().unwrap(),
+            failure
+        ));
         scope.begin_shutdown();
         peer.write_all(&[1]).await.unwrap();
         let wire_exit = scope.next_receipt().await.unwrap();

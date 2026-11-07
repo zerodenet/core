@@ -194,7 +194,9 @@ pub(in crate::controlled_carrier) fn try_close_slot(
             ..Default::default()
         });
     }
-    let report = slot.state().pending_close.take().unwrap_or_default();
+    let retained = slot.state().pending_close.take();
+    let mut report = retained.unwrap_or_default();
+    super::task_report::append(slot, &mut report);
     drop(_closing);
     slot.remove();
     slot.notify();

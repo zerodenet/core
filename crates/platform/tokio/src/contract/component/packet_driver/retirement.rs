@@ -216,7 +216,18 @@ impl PacketDriverCalls {
                 .or_else(|| self.current_delivery().report());
         }
         match first {
-            Some(_) if self.cleanup_settled() && report.is_complete() => Ok(report),
+            Some(source) if self.cleanup_settled() && report.is_complete() => {
+                match self
+                    .source_failures
+                    .closed_failure(self.original.instance())
+                {
+                    Some(failure) => {
+                        report.resource_failures.push(failure);
+                        Ok(report)
+                    }
+                    None => Err(source),
+                }
+            }
             Some(source) => Err(source),
             None => Ok(report),
         }

@@ -49,6 +49,7 @@ pub(super) struct SourceDelivery {
     payload: Arc<Payload>,
     receipt: CleanupFailureReceipt,
     report: OnceLock<Arc<ChannelError>>,
+    terminal: OnceLock<Arc<crate::contract::lifecycle::ResourceFailure>>,
 }
 impl SourceDelivery {
     pub(super) fn new() -> Self {
@@ -60,6 +61,7 @@ impl SourceDelivery {
             payload,
             receipt,
             report: OnceLock::new(),
+            terminal: OnceLock::new(),
         }
     }
     /// The original caller installs this cell before its first callee/actor IO.
@@ -143,6 +145,28 @@ impl SourceDelivery {
                         .is_some_and(|(stored, issued)| stored.same_receipt(issued))
                 })
             })
+    }
+    // Positive cleanup must still deliver the same actual Source fault to the
+    // ordinary lifecycle/archive. Receiving its receipt is not fault erasure.
+    pub(super) fn closed_failure(
+        &self,
+        instance: zero_core::component::ComponentInstanceId,
+    ) -> Option<Arc<crate::contract::lifecycle::ResourceFailure>> {
+        if !self.receipt.is_acknowledged() {
+            return None;
+        }
+        let source = self.report.get()?;
+        Some(
+            self.terminal
+                .get_or_init(|| {
+                    Arc::new(crate::contract::lifecycle::ResourceFailure::new(
+                        instance,
+                        crate::contract::lifecycle::ResourceFailurePhase::DeclaredResources,
+                        source.clone(),
+                    ))
+                })
+                .clone(),
+        )
     }
     pub(super) fn accepted_or_empty(&self) -> bool {
         self.payload.first.get().is_none() || self.receipt.is_acknowledged()

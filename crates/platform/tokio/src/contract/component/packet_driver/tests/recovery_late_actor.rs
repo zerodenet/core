@@ -117,11 +117,16 @@ async fn a_received_actor_fault_cannot_hide_a_different_actual_late_actor_receip
         scope.acknowledge(&b).unwrap();
         first.wait_registration_released().await;
         second.wait_registration_released().await;
-        assert!(root
+        let completed = root
             .shutdown(Instant::now() + Duration::from_secs(1))
             .await
-            .unwrap()
-            .is_complete());
+            .unwrap();
+        assert!(completed.is_complete());
+        let failure = completed.resource_failures.first().unwrap();
+        assert!(Arc::ptr_eq(&failure.source, one.retained_source().unwrap()));
+        assert!(has_actual_source(&failure.source, &a.result().unwrap_err()));
+        // The same mutable pure payload also retains the distinct later actor.
+        assert!(root.source_failures.retains_child(&child_two));
         assert_eq!(
             total.snapshot().charged,
             1,

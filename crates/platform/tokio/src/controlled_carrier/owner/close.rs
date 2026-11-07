@@ -166,7 +166,9 @@ async fn close_slot_until(
                     ..Default::default()
                 });
             }
-            let report = slot.state().pending_close.take().unwrap_or_default();
+            let retained = slot.state().pending_close.take();
+            let mut report = retained.unwrap_or_default();
+            super::task_report::append(slot, &mut report);
             drop(_closing);
             slot.remove();
             slot.notify();
