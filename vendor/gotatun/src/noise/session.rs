@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use crate::crypto::aead::{Aad, CHACHA20_POLY1305, LessSafeKey, Nonce, UnboundKey};
+use crate::crypto::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use crate::{
     noise::errors::WireGuardError,
     noise::index_table::Index,
@@ -242,6 +242,15 @@ impl Session {
         // Prepare a buffer to hold our the WgData packet and our encapsulated payload.
         // TODO: we can remove this allocation by pre-allocating some extra
         // space at the beginning of `packet`s allocation, and using that.
+        #[cfg(feature = "zero-owned-packets")]
+        let mut packet = packet;
+        #[cfg(feature = "zero-owned-packets")]
+        let mut buf = match packet.take_prepaid_cipher(len) {
+            Ok(Some(cipher)) => cipher,
+            Ok(None) if !packet.has_owned_custody() => Packet::from_bytes(BytesMut::zeroed(len)),
+            Ok(None) | Err(()) => return Err(packet),
+        };
+        #[cfg(not(feature = "zero-owned-packets"))]
         let mut buf = Packet::from_bytes(BytesMut::zeroed(len));
 
         let data = WgData::mut_from_bytes(buf.buf_mut())
@@ -271,6 +280,12 @@ impl Session {
             .expect("encryption must succeed");
 
         data.tag_mut().copy_from_slice(tag.as_ref());
+        #[cfg(feature = "zero-owned-packets")]
+        if packet.has_owned_custody() || buf.has_owned_custody() {
+            // Ciphertext keeps both its actual allocation owner and the
+            // original plaintext/queued packet until its real consumer ends.
+            buf.retain_prior(packet);
+        }
 
         // this won't panic since we've correctly initialized a WgData packet
         let packet = buf.try_into_wg().expect("is a wireguard packet");

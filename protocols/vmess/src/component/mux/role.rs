@@ -186,28 +186,40 @@ impl Outbound {
     ) -> Result<crate::transport::VmessOutboundLeaf, ChannelError> {
         let session = self.admission.check(context)?;
         let options = self.options.upgrade().ok_or_else(|| {
-            self.admission.error(
-                session,
-                Stage::Prepare,
-                Reason::Revoked,
-                DeliveryState::NotSubmitted,
-            )
+            self.admission
+                .error(
+                    session,
+                    Stage::Prepare,
+                    Reason::Revoked,
+                    DeliveryState::NotSubmitted,
+                )
+                .with_source(std::io::Error::other(
+                    "actual VMess MUX recipe no longer retained by its owner",
+                ))
         })?;
         let ready = self.ready.upgrade().ok_or_else(|| {
-            self.admission.error(
-                session,
-                Stage::Prepare,
-                Reason::Revoked,
-                DeliveryState::NotSubmitted,
-            )
+            self.admission
+                .error(
+                    session,
+                    Stage::Prepare,
+                    Reason::Revoked,
+                    DeliveryState::NotSubmitted,
+                )
+                .with_source(std::io::Error::other(
+                    "actual VMess MUX role owner no longer retained",
+                ))
         })?;
         let leaf = ready.leaf.lock().unwrap().clone().ok_or_else(|| {
-            self.admission.error(
-                session,
-                Stage::Prepare,
-                Reason::Revoked,
-                DeliveryState::NotSubmitted,
-            )
+            self.admission
+                .error(
+                    session,
+                    Stage::Prepare,
+                    Reason::Revoked,
+                    DeliveryState::NotSubmitted,
+                )
+                .with_source(std::io::Error::other(
+                    "actual VMess MUX role was revoked before this open",
+                ))
         })?;
         if leaf.native_mux_instance().ok() != Some(self.pool)
             || context.upstream.binding().dial != options.prepared.pool.binding().dial

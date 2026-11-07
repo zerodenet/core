@@ -15,9 +15,10 @@ fn tunnel(private: u8, remote: u8, address: &str) -> PeerTunnel {
         keepalive_secs: 0,
         reserved: &[],
     }];
+    let addresses = [address];
     let profile = crate::validation::validate_outbound(crate::validation::OutboundInput {
         private_key: &key,
-        addresses: &[address],
+        addresses: &addresses,
         mtu: 1420,
         peers: &peers,
     })

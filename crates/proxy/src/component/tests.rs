@@ -1,5 +1,7 @@
 mod business_carrier;
 mod business_demand;
+#[cfg(all(feature = "vless", feature = "hysteria2"))]
+mod metadata_budgets;
 mod request;
 
 mod service_stream;
@@ -29,3 +31,7 @@ mod vless_grpc_ca;
     feature = "socks5"
 ))]
 mod taskless_node_dns;
+
+#[cfg(any(feature = "vless", feature = "vmess", feature = "trojan"))]
+#[path = "tests/mux_datagram.rs"]
+mod mux_datagram;

@@ -171,7 +171,15 @@ pub(super) async fn echo_with<T>(client: &Running, inspect: impl FnOnce() -> T) 
         let (mut io, _) = target.accept().await.unwrap();
         let mut body = Vec::new();
         io.read_to_end(&mut body).await.unwrap();
-        assert_eq!(body, expected);
+        assert!(
+            body == expected,
+            "target upload bytes={} expected={} first_difference={:?}",
+            body.len(),
+            expected.len(),
+            body.iter()
+                .zip(&expected)
+                .position(|(left, right)| left != right)
+        );
         io.write_all(&body).await.unwrap();
         io.shutdown().await.unwrap();
     });
@@ -205,9 +213,27 @@ pub(super) async fn echo_with<T>(client: &Running, inspect: impl FnOnce() -> T) 
     io.shutdown().await.unwrap();
     let mut received = Vec::new();
     io.read_to_end(&mut received).await.unwrap();
-    assert_eq!(received, payload);
-    drop(io);
+    // Consume the real target task before diagnosing a truncated reverse body:
+    // upload validation and target write/shutdown cannot be hidden by its panic.
     peer.await.unwrap();
+    assert!(
+        received == payload,
+        "client reverse bytes={} expected={} first_difference={:?}; actual flow failures: {:?}",
+        received.len(),
+        payload.len(),
+        received
+            .iter()
+            .zip(&payload)
+            .position(|(left, right)| left != right),
+        client
+            .proxy
+            .engine()
+            .completed_sessions()
+            .iter()
+            .filter_map(|flow| flow.failure.as_ref())
+            .collect::<Vec<_>>()
+    );
+    drop(io);
     original
 }
 pub(super) async fn wait_returned(
@@ -266,7 +292,13 @@ pub(super) async fn udp_echo_with<T>(client: &Running, inspect: impl FnOnce() ->
     let target = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let port = target.local_addr().unwrap().port();
     let codec = socks5::udp::Socks5InboundUdpCodec;
-    for payload in [&b"same actual VMess MUX"[..], &b""[..]] {
+    for payload in [
+        &b""[..],
+        &b"first VMess packet"[..],
+        &b""[..],
+        &b"last VMess packet"[..],
+        &b""[..],
+    ] {
         let wire = codec
             .encode_response_to_client(&zero_core::Address::Ipv4([127, 0, 0, 1]), port, payload)
             .unwrap();

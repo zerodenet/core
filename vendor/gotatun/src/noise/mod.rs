@@ -21,6 +21,8 @@ pub mod index_table;
 /// Rate limiting for handshake initiation packets.
 pub mod rate_limiter;
 
+#[cfg(feature = "zero-owned-packets")]
+mod owned;
 mod session;
 mod timers;
 
@@ -78,6 +80,10 @@ pub struct Tunn<R: RngCore + Send = StdRng> {
     session_counter: usize,
     /// Queue to store blocked packets.
     packet_queue: VecDeque<Packet>,
+    #[cfg(feature = "zero-owned-packets")]
+    owned_control: bool,
+    #[cfg(feature = "zero-owned-packets")]
+    control_workspace: Option<Packet>,
 
     /// Keeps tabs on the expiring timers.
     timers: timers::Timers,
@@ -143,6 +149,10 @@ impl<R: RngCore + Send> Tunn<R> {
             rx_bytes: Default::default(),
 
             packet_queue: VecDeque::new(),
+            #[cfg(feature = "zero-owned-packets")]
+            owned_control: false,
+            #[cfg(feature = "zero-owned-packets")]
+            control_workspace: None,
             timers: Timers::new(persistent_keepalive),
 
             rate_limiter,
@@ -229,8 +239,21 @@ impl<R: RngCore + Send> Tunn<R> {
     /// Returns `Err(original_packet)` if there is no active session, or if the active session's
     /// sending counter has reached `REJECT_AFTER_MESSAGES`.
     pub fn encapsulate_with_session(&mut self, packet: Packet) -> Result<Packet<WgData>, Packet> {
+        #[cfg(feature = "zero-owned-packets")]
+        let mut packet = packet;
         self.refresh_expiration();
         let current = self.current;
+        #[cfg(feature = "zero-owned-packets")]
+        if self.sessions[current % N_SESSIONS].is_some() && self.owned_control && packet.is_empty()
+        {
+            let control = match self.take_owned_control_packet(WgData::OVERHEAD) {
+                Ok(control) => control,
+                Err(_) => return Err(packet),
+            };
+            packet
+                .install_prepaid_cipher(control)
+                .unwrap_or_else(|_| unreachable!("new control packet has one actual cipher"));
+        }
         if let Some(ref session) = self.sessions[current % N_SESSIONS] {
             // Send the packet using an established session
             let packet = session.format_packet_data(packet)?;
@@ -301,6 +324,12 @@ impl<R: RngCore + Send> Tunn<R> {
 
         let mut p = p.into_bytes();
         p.truncate(0);
+        #[cfg(feature = "zero-owned-packets")]
+        if self.owned_control {
+            let control = self.take_owned_control_packet(WgData::OVERHEAD)?;
+            p.install_prepaid_cipher(control)
+                .map_err(|_| WireGuardError::DestinationBufferTooSmall)?;
+        }
 
         let keepalive_packet = session
             .format_packet_data(p)
@@ -425,6 +454,17 @@ impl<R: RngCore + Send> Tunn<R> {
 
         let starting_new_handshake = !self.handshake.is_in_progress();
 
+        #[cfg(feature = "zero-owned-packets")]
+        let packet = if self.owned_control {
+            let control = self
+                .take_owned_control_packet(std::mem::size_of::<WgHandshakeInit>())
+                .ok()?;
+            self.handshake
+                .format_handshake_initiation_into(Some(control))
+        } else {
+            self.handshake.format_handshake_initiation()
+        };
+        #[cfg(not(feature = "zero-owned-packets"))]
         let packet = self.handshake.format_handshake_initiation();
         tracing::debug!("Sending handshake_initiation");
 

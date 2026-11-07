@@ -35,8 +35,31 @@ pub trait PacketStorage: AsRef<[u8]> + AsMut<[u8]> + Send + Sync + 'static {
     /// Claim only this original's pre-reserved derived buffer lengths. The
     /// default refuses: unaccounted library storage cannot qualify production
     /// transformation by silently allocating a second set of frames.
-    fn derive_zeroed<'a>(&'a self, _lengths: &'a [usize]) -> PacketDerivation<'a> {
-        Box::pin(async { Err(PacketDeriveError::Unreserved) })
+    fn derive_zeroed<'a>(&'a self, lengths: &'a [usize]) -> PacketDerivation<'a> {
+        Box::pin(async move { self.try_derive_zeroed(lengths) })
+    }
+    /// Split only already admitted memory. This performs no IO or waiting and
+    /// creates no source/task permission. Poll-based original owners use this
+    /// before enqueueing, retaining their exact original on any error.
+    fn try_derive_zeroed(
+        &self,
+        _lengths: &[usize],
+    ) -> Result<Vec<PacketBuffer>, PacketDeriveError> {
+        Err(PacketDeriveError::Unreserved)
+    }
+    /// Admit this original's complete transmit transform before enqueueing it.
+    /// Concrete owned storage reserves every returned allocation in the same
+    /// Kernel root and preserves the original on error. No IO/task permission
+    /// or closure evidence is created. Plain library storage refuses.
+    fn prepare_transmit(&mut self, _frames: usize, _bytes: usize) -> Result<(), PacketDeriveError> {
+        Err(PacketDeriveError::Unreserved)
+    }
+    /// Move the unique Vec allocation while retaining this exact storage owner
+    /// as its custody. The consumer must keep this owner alive until the moved
+    /// bytes actually finish all uses. Unknown/shared/pool storage refuses.
+    /// Taking bytes does not refund memory or prove IO/task/native closure.
+    fn take_vec_allocation(&mut self) -> Option<Vec<u8>> {
+        None
     }
     /// Bytes retained by this owned allocation, including initialized spare
     /// capacity covered by an original IO/workspace reservation. This is memory
@@ -51,6 +74,9 @@ pub trait PacketStorage: AsRef<[u8]> + AsMut<[u8]> + Send + Sync + 'static {
     }
 }
 impl PacketStorage for Vec<u8> {
+    fn take_vec_allocation(&mut self) -> Option<Vec<u8>> {
+        Some(core::mem::take(self))
+    }
     fn allocation_bytes(&self) -> usize {
         self.capacity()
     }
@@ -78,6 +104,33 @@ impl PacketBuffer {
             Storage::Vector(_) | Storage::Bytes(_) => {
                 Box::pin(async { Err(PacketDeriveError::Unreserved) })
             }
+        }
+    }
+    pub fn try_derive_zeroed(
+        &self,
+        lengths: &[usize],
+    ) -> Result<Vec<PacketBuffer>, PacketDeriveError> {
+        match &self.0 {
+            Storage::Owner(owner) => owner.try_derive_zeroed(lengths),
+            Storage::Vector(_) | Storage::Bytes(_) => Err(PacketDeriveError::Unreserved),
+        }
+    }
+    pub fn prepare_transmit(
+        &mut self,
+        frames: usize,
+        bytes: usize,
+    ) -> Result<(), PacketDeriveError> {
+        match &mut self.0 {
+            Storage::Owner(owner) => owner.prepare_transmit(frames, bytes),
+            Storage::Vector(_) | Storage::Bytes(_) => Err(PacketDeriveError::Unreserved),
+        }
+    }
+    /// The caller retains this same owner as the moved allocation's custody.
+    pub fn take_vec_allocation(&mut self) -> Option<Vec<u8>> {
+        match &mut self.0 {
+            Storage::Vector(bytes) => Some(core::mem::take(bytes)),
+            Storage::Bytes(_) => None,
+            Storage::Owner(owner) => owner.take_vec_allocation(),
         }
     }
     pub fn allocation_bytes(&self) -> usize {

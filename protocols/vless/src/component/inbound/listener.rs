@@ -18,6 +18,8 @@ use zero_platform_tokio::contract::{
     lifecycle::{erase_lifecycle, BuildError},
     ChannelError, Impact, Reason, Stage,
 };
+#[path = "listener/limits.rs"]
+mod limits;
 pub struct Options {
     listen: Destination,
     udp: bool,
@@ -27,6 +29,11 @@ pub struct Options {
     file_root: Option<std::path::PathBuf>,
     prepared: Mutex<Option<PreparedVlessInboundListenerRequest>>,
     identity: Arc<[u8]>,
+    metadata_probes: NonZeroUsize,
+    metadata_attempts: NonZeroUsize,
+    metadata_sends: NonZeroUsize,
+    quic_connections: NonZeroUsize,
+    quic_users: NonZeroUsize,
 }
 impl Options {
     pub fn new(
@@ -56,6 +63,11 @@ impl Options {
             listen,
             prepared: Mutex::new(Some(prepared)),
             identity: identity.into(),
+            metadata_probes: NonZeroUsize::new(2).unwrap(),
+            metadata_attempts: NonZeroUsize::new(8).unwrap(),
+            metadata_sends: NonZeroUsize::new(2).unwrap(),
+            quic_connections: NonZeroUsize::new(8192).unwrap(),
+            quic_users: NonZeroUsize::new(65536).unwrap(),
         }
     }
     pub fn with_quic(
@@ -93,7 +105,7 @@ impl Options {
     }
     fn internal_tasks(&self) -> Option<NonZeroUsize> {
         if self.quic.is_some() {
-            NonZeroUsize::new(quic::driver_limit(&self.packet_masks))
+            NonZeroUsize::new(self.quic_drivers())
         } else if self.masked_mkcp() {
             NonZeroUsize::new(
                 zero_transport::finalmask::owned::driver_count(&self.packet_masks).max(1),
@@ -111,14 +123,14 @@ impl ComponentFactory for Factory {
             owner: ResourceOwner::Component,
             roles: vec![RoleKind::Inbound],
             dependencies: vec![],
-            static_identity: options.identity.clone(),
+            static_identity: options.metadata_identity(),
             task_limit: options.internal_tasks(),
             resources: {
                 let mut resources = vec![
                     if options.quic.is_some() || options.masked_mkcp() {
                         ResourceDeclaration::MetadataDatagram {
                             source: quic::endpoint(&options.listen),
-                            limits: quic::metadata_limits(&options.packet_masks),
+                            limits: options.metadata_limits(),
                             max_bind_attempts: NonZeroUsize::new(1).unwrap(),
                         }
                     } else if options.udp {
@@ -195,6 +207,11 @@ impl ComponentFactory for Factory {
                 request,
                 server,
                 options.packet_masks.clone(),
+                options.metadata_limits(),
+                zero_transport::quic::owned::OwnedEndpointLimits {
+                    drivers: NonZeroUsize::new(options.quic_drivers()).unwrap(),
+                    users: options.quic_users,
+                },
                 context,
             );
         }
@@ -203,6 +220,7 @@ impl ComponentFactory for Factory {
                 &options.listen,
                 request,
                 options.packet_masks.clone(),
+                options.metadata_limits(),
                 context,
             );
         }

@@ -39,6 +39,7 @@ where
     let io = super::owned::FlushIo {
         io: stream,
         flush: progress.flushed.clone(),
+        read: None,
     };
     let mut conn = h2::server::handshake(io).await.map_err(io::Error::other)?;
     let (request, mut respond) = conn

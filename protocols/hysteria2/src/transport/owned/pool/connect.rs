@@ -255,7 +255,7 @@ impl Generation {
             self.tasks.clone(),
             OwnedEndpointLimits {
                 drivers: n(3),
-                users: n(65536),
+                users: self.endpoint_users,
             },
         );
         state.owner = Some(owner);

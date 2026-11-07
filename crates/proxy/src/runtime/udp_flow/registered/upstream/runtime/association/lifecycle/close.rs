@@ -12,6 +12,9 @@ where
     A: UpstreamAssociationTransport<T>,
 {
     pub(crate) fn drop_after_send_error(&mut self, inbound_tag: &str, error: &EngineError) {
+        if crate::runtime::udp_flow::result::packet_rejected_before_submission(error) {
+            return;
+        }
         if let Some(assoc) = self.upstream.take() {
             let (record, association) = assoc.into_parts();
             self.retire(association, UpstreamAssociationCloseReason::Dropped);

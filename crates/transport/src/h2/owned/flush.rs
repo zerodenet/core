@@ -9,6 +9,7 @@ pub(in crate::h2) struct Flushed {
 pub(in crate::h2) struct FlushIo<S> {
     pub(in crate::h2) io: S,
     pub(in crate::h2) flush: Arc<Flushed>,
+    pub(in crate::h2) read: Option<Arc<super::read::ReadSignal>>,
 }
 impl<S: AsyncRead + Unpin> AsyncRead for FlushIo<S> {
     fn poll_read(
@@ -16,7 +17,23 @@ impl<S: AsyncRead + Unpin> AsyncRead for FlushIo<S> {
         cx: &mut Context<'_>,
         out: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().io).poll_read(cx, out)
+        let this = self.get_mut();
+        let Some(read) = this.read.as_ref().filter(|read| read.armed()) else {
+            return Pin::new(&mut this.io).poll_read(cx, out);
+        };
+        if !read.bind(cx.waker()) {
+            // A migrated context disables this scheduling optimization; use
+            // that real current caller's wake and the normal full driver.
+            return Pin::new(&mut this.io).poll_read(cx, out);
+        }
+        read.before_read();
+        let wake = futures_util::task::waker_ref(read);
+        let mut native = Context::from_waker(&wake);
+        let result = Pin::new(&mut this.io).poll_read(&mut native, out);
+        if result.is_ready() {
+            read.read_ready();
+        }
+        result
     }
 }
 impl<S: AsyncWrite + Unpin> AsyncWrite for FlushIo<S> {

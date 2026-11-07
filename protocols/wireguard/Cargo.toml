@@ -13,7 +13,7 @@ homepage.workspace = true
 default = []
 validation = ["dep:base64", "dep:zeroize"]
 routing = ["validation"]
-runtime = ["routing", "dep:gotatun", "dep:x25519-dalek"]
+runtime = ["routing", "dep:gotatun", "gotatun/zero-owned-packets", "dep:x25519-dalek", "dep:zero-tun"]
 
 [dependencies]
 base64 = { version = "0.22", default-features = false, features = ["alloc"], optional = true }
@@ -22,6 +22,7 @@ x25519-dalek = { version = "2.0.1", default-features = false, features = ["stati
 zeroize = { version = "1", default-features = false, features = ["derive"], optional = true }
 zero-core = { path = "../../crates/core" }
 zero-traits = { path = "../../crates/traits" }
+zero-tun = { path = "../../crates/tun", default-features = false, features = ["packet-memory"], optional = true }
 
 # Integration suites are explicit; scripts/check-test-layout.py guards coverage.
 

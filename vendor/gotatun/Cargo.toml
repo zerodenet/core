@@ -68,6 +68,7 @@ device = [
 pcap = ["dep:pcap-file"]
 ring = ["dep:ring"]
 zeroized-rustcrypto = ["dep:poly1305"]
+zero-owned-packets = ["dep:zero-traits"]
 socket = [
     "dep:socket2",
     "tokio/net",
@@ -77,6 +78,10 @@ tun = [
     "dep:wintun-bindings",
 ]
 windows-gro = []
+
+[dependencies.zero-traits]
+path = "../../crates/traits"
+optional = true
 
 [lib]
 name = "gotatun"

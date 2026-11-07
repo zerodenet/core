@@ -96,6 +96,8 @@ pub(crate) struct Options {
     identity: Arc<[u8]>,
     #[cfg(feature = "dns")]
     quic: Vec<std::net::SocketAddr>,
+    #[cfg(feature = "dns")]
+    quic_metadata: zero_platform_tokio::controlled_datagram::metadata::MetadataLimits,
 }
 pub(crate) fn prepare(
     resources: &mut ResourcePreparation<'_>,
@@ -139,6 +141,14 @@ fn prepare_purpose(
         }
     }
     let dns = configured.as_ref();
+    #[cfg(feature = "dns")]
+    let quic = zero_dns::native::native_quic_endpoints(dns).map_err(|source| {
+        RegistrationError::Options(zero_config::ConfigError::InvalidOutbound(
+            source.to_string(),
+        ))
+    })?;
+    #[cfg(feature = "dns")]
+    let quic_metadata = provider::quic::metadata_limits(runtime);
     let roots = if purpose == Purpose::Query {
         crate::inventory::service::dns_roots(candidate)
     } else {
@@ -158,6 +168,10 @@ fn prepare_purpose(
         hash.write(purpose.key().as_bytes());
         hash.write(format!("{limits:?}").as_bytes());
         hash.write(&bytes);
+        #[cfg(feature = "dns")]
+        if !quic.is_empty() {
+            hash.write(format!("{quic_metadata:?}").as_bytes());
+        }
         hash.write(format!("{roots:?}{ech:?}").as_bytes());
         identity.extend_from_slice(&hash.finish().to_le_bytes());
     }
@@ -173,11 +187,9 @@ fn prepare_purpose(
                 ech,
                 identity: identity.into(),
                 #[cfg(feature = "dns")]
-                quic: zero_dns::native::native_quic_endpoints(dns).map_err(|source| {
-                    RegistrationError::Options(zero_config::ConfigError::InvalidOutbound(
-                        source.to_string(),
-                    ))
-                })?,
+                quic,
+                #[cfg(feature = "dns")]
+                quic_metadata,
             }),
         )
         .map_err(|source| {

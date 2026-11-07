@@ -15,6 +15,9 @@ impl UdpDispatch {
         stage: &'static str,
         error: &EngineError,
     ) {
+        if crate::runtime::udp_flow::result::packet_rejected_before_submission(error) {
+            return;
+        }
         self.direct_socket.retire_session(flow.session.id);
         #[cfg(feature = "managed-udp-runtime")]
         self.flow_state.release_session(flow.session.id);

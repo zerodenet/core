@@ -1447,6 +1447,24 @@ where
     }
 }
 
+impl<T, B> Connection<T, B>
+where
+    T: AsyncRead + AsyncWrite + Unpin,
+    B: Buf,
+{
+    /// Progress this same connection's outbound queues and original codec.
+    ///
+    /// The caller must keep driving the normal `Connection` future for input,
+    /// shutdown and body completion. `Ready(Ok(true))` means only that the
+    /// outbound stage is flushed; it is not connection/stream/native closure.
+    /// `Ready(Ok(false))` requires a normal connection poll before continuing.
+    /// Pending retains the original codec's write wake; errors are the same
+    /// outbound errors the normal connection poll would return.
+    pub fn poll_outbound(&mut self, cx: &mut Context<'_>) -> Poll<Result<bool, crate::Error>> {
+        self.inner.poll_outbound(cx).map_err(Into::into)
+    }
+}
+
 impl<T, B> Future for Connection<T, B>
 where
     T: AsyncRead + AsyncWrite + Unpin,

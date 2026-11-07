@@ -1,9 +1,5 @@
 //! Native source over the original Metadata grant and sealed Quinn users.
 use super::*;
-pub(super) fn driver_limit(masks: &[zero_transport::finalmask::udp::Mask]) -> usize {
-    8193 + zero_transport::finalmask::owned::driver_count(masks)
-}
-const USER_LIMIT: usize = 65536;
 pub(super) fn endpoint(d: &Destination) -> std::net::SocketAddr {
     match &d.address {
         zero_core::Address::Ipv4(ip) => std::net::SocketAddr::new((*ip).into(), d.port),
@@ -11,30 +7,17 @@ pub(super) fn endpoint(d: &Destination) -> std::net::SocketAddr {
         _ => unreachable!("QUIC binder requires a validated literal endpoint"),
     }
 }
-pub(super) fn metadata_limits(
-    masks: &[zero_transport::finalmask::udp::Mask],
-) -> zero_platform_tokio::controlled_datagram::metadata::MetadataLimits {
-    let n = |v| NonZeroUsize::new(v).unwrap();
-    zero_platform_tokio::controlled_datagram::metadata::MetadataLimits {
-        main_sockets: n(1),
-        probe_sockets: n(2),
-        probe_attempts_per_initialization: n(8),
-        concurrent_send_calls: n(2),
-        // A connection retains its poller until both its driver and sealed
-        // users return. These are independent, on-demand quotas, not buffers.
-        write_pollers: n(driver_limit(masks) + USER_LIMIT + 1),
-    }
-}
 pub(super) fn build(
     listen: &Destination,
     request: crate::transport::VlessInboundListenerRequest,
     server: zero_transport::quic::QuicServerConfig,
     masks: Vec<zero_transport::finalmask::udp::Mask>,
+    metadata: zero_platform_tokio::controlled_datagram::metadata::MetadataLimits,
+    endpoint_limits: zero_transport::quic::owned::OwnedEndpointLimits,
     context: BuildContext,
 ) -> Result<ComponentInstance, BuildError> {
     let resources = context.resources.clone();
-    let drivers = driver_limit(&masks);
-    let metadata = metadata_limits(&masks);
+
     let (lifecycle, source) = zero_transport::quic::source::source(
         MetadataDatagramRequest {
             ordinal: 0,
@@ -43,10 +26,7 @@ pub(super) fn build(
         },
         server,
         masks,
-        zero_transport::quic::owned::OwnedEndpointLimits {
-            drivers: NonZeroUsize::new(drivers).unwrap(),
-            users: NonZeroUsize::new(USER_LIMIT).unwrap(),
-        },
+        endpoint_limits,
         context.resources,
         context.tasks,
         context.cancel,
@@ -83,6 +63,7 @@ pub(super) fn build_mkcp(
     listen: &Destination,
     request: crate::transport::VlessInboundListenerRequest,
     masks: Vec<zero_transport::finalmask::udp::Mask>,
+    metadata: zero_platform_tokio::controlled_datagram::metadata::MetadataLimits,
     context: BuildContext,
 ) -> Result<ComponentInstance, BuildError> {
     let limits = super::peer_limits();
@@ -90,7 +71,7 @@ pub(super) fn build_mkcp(
         MetadataDatagramRequest {
             ordinal: 0,
             source: endpoint(listen),
-            limits: metadata_limits(&masks),
+            limits: metadata,
         },
         masks,
         context.resources,

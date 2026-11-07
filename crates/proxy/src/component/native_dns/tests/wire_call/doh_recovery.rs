@@ -70,6 +70,10 @@ async fn physically_closed_doh_panic_keeps_original_faults_and_recovers_the_actu
         assert!(received.failed_tasks.iter().any(|fault| super::recovery::contains_source(&fault.error, &retained_panic)),
             "successful pool retirement cannot erase its real original fault receiver");
         proxy.protocols.commit_components(&config, || proxy.resolver.commit_reload_resources(&token).map_err(|source| source.to_string())).unwrap();
+        // The committed backend is now owned by the real current snapshot.
+        // Return this transaction's snapshot before the test-only exclusive CA
+        // mutation; keeping it would correctly retain a second backend borrow.
+        drop(token);
         zero_dns::test_support::install_doh_ca(&proxy.resolver, "wire", tls.certificate.clone()).unwrap();
         let next = proxy.resolver.resolve_real_type("recovered.actual.doh.test", 1); tokio::pin!(next);
         let (bytes, answer) = proxy.protocols.drive_component_supervision(async {

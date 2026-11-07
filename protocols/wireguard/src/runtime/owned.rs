@@ -176,7 +176,7 @@ pub(super) fn receive_scratch(
 
 // Kept protocol-private: neither the Host nor generic memory storage knows
 // WireGuard packet types. Full structural/MAC/replay validation stays in SDK.
-fn is_data_datagram(packet: &[u8]) -> bool {
+pub(super) fn is_data_datagram(packet: &[u8]) -> bool {
     packet.len() >= WgData::OVERHEAD && packet.starts_with(&4_u32.to_le_bytes())
 }
 

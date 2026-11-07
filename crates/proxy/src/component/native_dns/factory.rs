@@ -49,7 +49,7 @@ impl ComponentFactory for Factory {
                 ResourceDeclaration::ControlledMetadataDatagram {
                     endpoint: *peer,
                     dial: Default::default(),
-                    limits: provider::quic::metadata_limits(),
+                    limits: options.quic_metadata,
                     max_origins: NonZeroUsize::new((limits.originals.get() / 2).max(1)).unwrap(),
                 }
             }));
@@ -81,7 +81,7 @@ impl ComponentFactory for Factory {
                 zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOwner::new(
                     context.instance(),
                     NonZeroUsize::new((limits.originals.get() / 2).max(1)).unwrap(),
-                    provider::quic::metadata_limits(),
+                    options.quic_metadata,
                     &context.cancel,
                 )
             })

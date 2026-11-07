@@ -1,7 +1,7 @@
 //! SS security changes fence original users before the existing StopOld phase.
 use super::*;
 use std::{collections::HashMap, sync::Arc};
-use zero_config::{InboundConfig, RuntimeConfig};
+use zero_config::RuntimeConfig;
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::BoxFuture;
 
@@ -29,8 +29,42 @@ pub(in crate::runtime) fn source_total_resources(
         )
     })
 }
+/// Actual metadata recipes retain different omitted defaults for DNS and
+/// shared endpoints. Compare both concrete defaults; explicit=default has no
+/// effect on that consumer while it can change the other consumer.
+pub(in crate::runtime) fn metadata_budget_changed(
+    old: &RuntimeConfig,
+    next: &RuntimeConfig,
+) -> bool {
+    let a = &old.runtime;
+    let b = &next.runtime;
+    [1, 2].into_iter().any(|d| {
+        a.effective_metadata_max_probe_sockets(d) != b.effective_metadata_max_probe_sockets(d)
+    }) || [4, 8].into_iter().any(|d| {
+        a.effective_metadata_max_probe_attempts(d) != b.effective_metadata_max_probe_attempts(d)
+    }) || [1, 2]
+        .into_iter()
+        .any(|d| a.effective_metadata_max_send_calls(d) != b.effective_metadata_max_send_calls(d))
+        || a.effective_quic_source_max_connections() != b.effective_quic_source_max_connections()
+        || a.effective_quic_shared_endpoint_max_users()
+            != b.effective_quic_shared_endpoint_max_users()
+}
+pub(in crate::runtime) fn metadata_source_resources(
+    resources: &[zero_platform_tokio::contract::component::ResourceDeclaration],
+) -> bool {
+    resources.iter().any(|resource| {
+        matches!(
+            resource,
+            zero_platform_tokio::contract::component::ResourceDeclaration::MetadataDatagram { .. }
+        )
+    })
+}
 pub(in crate::runtime) fn ss_budget_changed(old: &RuntimeConfig, next: &RuntimeConfig) -> bool {
-    if carrier_budget_changed(old, next) {
+    if carrier_budget_changed(old, next)
+        || old.inbounds.iter().chain(&next.inbounds).any(|input| {
+            crate::adapters::metadata::metadata_source_budget_changed(input, old, next)
+        })
+    {
         return true;
     }
     if ss_source_budget_changed(old, next) {
@@ -99,6 +133,9 @@ pub(in crate::runtime) fn packet_budget_changed(old: &RuntimeConfig, next: &Runt
             != next.runtime.effective_packet_native_read_total_max_bytes()
 }
 pub(super) struct SourceBudgetPauses {
+    // Same old roots remain fenced until the actual publication finishes.
+    // This is admission metadata, never Native/Scope/IO close evidence.
+    _users: Arc<crate::component::catalog::ReplacementUsersPause>,
     _sources: Vec<crate::runtime::inbound_owners::AcquisitionPause>,
     #[cfg(feature = "raw-ip-runtime")]
     _direct: Option<crate::runtime::packet_route::host::NativeDevicePaused>,
@@ -111,7 +148,6 @@ pub(super) async fn pause_sources<'a>(
     next: &RuntimeConfig,
     changed_sources: &std::collections::BTreeSet<String>,
     candidate: &Arc<crate::component::catalog::ComponentPlan>,
-    user_pause: Arc<crate::component::catalog::ReplacementUsersPause>,
     retirement: &mut Option<crate::component::catalog::PacketSourceRetirement<'a>>,
     network_restart: bool,
 ) -> Result<SourceBudgetPauses, EngineError> {
@@ -158,6 +194,24 @@ pub(super) async fn pause_sources<'a>(
             }
         }
     }
+    // Only actual Source Main may close its idle taskless Packet-session
+    // cache. Doing this after the catalog Users check would self-deadlock:
+    // its exact BoxPacketSession still owns a charged Packet Lease until here.
+    // No component/cached carrier receiver has been revoked in this phase.
+    let user_pause = Arc::new(
+        proxy
+            .protocols
+            .try_pause_replacement_users(candidate)
+            .inspect_err(|source| {
+                #[cfg(test)]
+                eprintln!("actual replacement user preflight after Source Main pause: {source:?}");
+                tracing::debug!(
+                    ?source,
+                    "actual component users remain charged after Source Main pause"
+                );
+            })
+            .map_err(std::io::Error::other)?,
+    );
     #[cfg(feature = "raw-ip-runtime")]
     let direct = if packet_changed || carrier_changed {
         proxy
@@ -199,7 +253,7 @@ pub(super) async fn pause_sources<'a>(
     // Persist the replacement before callbacks; cancellation retains all debt.
     *retirement = proxy
         .protocols
-        .begin_packet_source_retirement(candidate, user_pause)
+        .begin_packet_source_retirement(candidate, user_pause.clone())
         .map_err(std::io::Error::other)?;
     #[cfg(feature = "raw-ip-runtime")]
     for (original, main) in mains {
@@ -240,6 +294,7 @@ pub(super) async fn pause_sources<'a>(
         direct.validate().map_err(std::io::Error::other)?;
     }
     Ok(SourceBudgetPauses {
+        _users: user_pause,
         _sources: pauses,
         #[cfg(feature = "raw-ip-runtime")]
         _direct: direct,
@@ -340,15 +395,26 @@ pub(super) fn restart_tun_and_resources<'a>(
     Box::pin(async move {
         proxy.stop_tun_for_packet_budget(config).await?;
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-        let mut prepared = proxy.protocols.prepare_resource_start(config.clone(), deadline).await?;
+        let mut prepared = proxy
+            .protocols
+            .prepare_resource_start(config.clone(), deadline)
+            .await?;
         preparing.ensure_open()?;
         // Only this point has actual old Source and component original receipts
         // and the target policy on the same roots, with BuildNew still sealed.
-        proxy.reconcile_configured_tun_for_config(config.clone()).await?;
-        proxy.protocols.refresh_prepared_device_components(&mut prepared, deadline).await?;
+        proxy
+            .reconcile_configured_tun_for_config(config.clone())
+            .await?;
+        proxy
+            .protocols
+            .refresh_prepared_device_components(&mut prepared, deadline)
+            .await?;
         let services = services.with_prepared_components()?;
         preparing.ensure_open()?;
-        prepared.start(deadline).await.map_err(std::io::Error::other)?;
+        prepared
+            .start(deadline)
+            .await
+            .map_err(std::io::Error::other)?;
         start_deferred_resources(proxy, config, &services, preparing, retained).await?;
         Ok(services)
     })
@@ -360,7 +426,9 @@ pub(super) fn prepare_devices<'a>(
     services: &'a crate::protocol_registry::TcpRuntimeServices,
 ) -> BoxFuture<'a, Result<ReloadDevices, EngineError>> {
     Box::pin(async move {
-        proxy.reconcile_configured_tun_for_config(config.clone()).await?;
+        proxy
+            .reconcile_configured_tun_for_config(config.clone())
+            .await?;
         #[cfg(feature = "raw-ip-runtime")]
         {
             proxy
