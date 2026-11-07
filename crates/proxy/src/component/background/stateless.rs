@@ -267,6 +267,7 @@ mod attempt;
 mod closing;
 mod pending;
 mod service;
+pub(crate) use service::into_stream as service_stream;
 mod setup;
 
 mod datagram;

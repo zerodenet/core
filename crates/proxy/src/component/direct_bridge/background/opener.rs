@@ -59,6 +59,25 @@ impl UpstreamOpener for Root {
         let binding = binding.clone();
         Box::pin(async move { self.open_loan(binding, request).await })
     }
+    fn open_controlled_stream(
+        &self,
+        binding: &UpstreamBinding,
+        request: ControlledStreamRequest,
+    ) -> BoxFuture<'_, Result<BoxStream, ChannelError>> {
+        let binding = binding.clone();
+        Box::pin(async move {
+            let loan = self.open_loan(binding, request).await?;
+            if !self.observe_carrier_origin(loan.owner.original()) {
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "Direct Service returned a foreign original",
+                ));
+            }
+            Ok(crate::component::background::stateless::service_stream(
+                loan,
+            ))
+        })
+    }
     fn select_background_carrier(
         &self,
         binding: Option<UpstreamBinding>,

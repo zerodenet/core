@@ -119,6 +119,7 @@ async fn chain(
     let physical = first
         .endpoint
         .clone()
+        .or_else(|| nodes.get(1).and_then(|node| node.endpoint.clone()))
         .unwrap_or_else(|| destination.clone());
     let network = match &first.tag {
         Some(tag) => services.upstream_observed(tag),

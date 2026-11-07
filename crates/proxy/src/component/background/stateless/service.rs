@@ -7,7 +7,7 @@ use std::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use zero_platform_tokio::controlled_carrier::loan::LoanIo;
-pub(super) fn into_stream(loan: StreamLoan) -> BoxStream {
+pub(crate) fn into_stream(loan: StreamLoan) -> BoxStream {
     Box::pin(ServiceIo {
         io: Some(loan.io),
         owner: loan.owner,
