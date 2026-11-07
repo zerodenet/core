@@ -23,6 +23,11 @@ pub(crate) struct Devices {
     #[cfg(feature = "wireguard")]
     pub(crate) wireguard: Option<Arc<super::wireguard::WireguardAdapter>>,
 }
+pub(crate) struct HealthRow {
+    pub(crate) outbound: usize,
+    // The label stays in the original immutable config. This String is empty.
+    pub(crate) facts: zero_api::OutboundDeviceHealthSnapshot,
+}
 
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) struct PreparedDevices {
@@ -37,6 +42,21 @@ impl std::fmt::Debug for Devices {
 }
 #[cfg(feature = "raw-ip-runtime")]
 impl Devices {
+    pub(crate) fn health_row_count(&self, config: &RuntimeConfig) -> std::io::Result<usize> {
+        #[cfg(feature = "wireguard")]
+        if let Some(owner) = &self.wireguard {
+            return owner.health_row_count(config);
+        }
+        let _ = config;
+        Ok(0)
+    }
+    pub(crate) fn fill_health_rows(&self, config: &RuntimeConfig, rows: &mut Vec<HealthRow>) {
+        #[cfg(feature = "wireguard")]
+        if let Some(owner) = &self.wireguard {
+            owner.fill_health_rows(config, rows);
+        }
+        let _ = (config, rows);
+    }
     #[cfg(feature = "wireguard")]
     pub(crate) fn actual_packet_flow_sources(
         &self,

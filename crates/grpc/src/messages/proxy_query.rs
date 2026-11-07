@@ -25,34 +25,29 @@ impl Record {
         proxy: &zero_proxy::ProxyHandle,
         request: &zero_api::QueryRequest,
     ) -> Option<Result<Vec<u8>, tonic::Status>> {
-        if !matches!(request, zero_api::QueryRequest::TunStatus(_)) {
+        if !matches!(
+            request,
+            zero_api::QueryRequest::TunStatus(_) | zero_api::QueryRequest::Health(_)
+        ) {
             return None;
         }
-        // This view has no heap workspace. The actual output permit is outside
-        // all owner guards so every failure/unwind releases them before refund.
+        // Both output and row workspace outlive original view guards so every
+        // failure/unwind releases the actual owners before refund/wake.
+        let mut workspace = match self.budget.reserve(ControlCharge::ResponseBytes(0)) {
+            Ok(original) => original,
+            Err(error) => return Some(Err(tonic::Status::resource_exhausted(error.to_string()))),
+        };
         let mut encoded: Option<Arc<Lease>> = None;
         let prepared = (|| -> io::Result<(Vec<u8>, usize)> {
-            let view = proxy
-                .control_proxy_query(request)
-                .expect("selected concrete Proxy owner");
-            let mut count = Count {
-                bytes: 0,
-                limit: self.policy.response_bytes,
-            };
-            serde_json::to_writer(&mut count, &view).map_err(io::Error::other)?;
-            let frame = super::output::frame_length(count.bytes)?;
-            encoded = Some(self.encoded(frame, ControlCharge::ResponseBytes(count.bytes))?);
-            let mut bytes = Vec::new();
-            bytes
-                .try_reserve_exact(count.bytes)
-                .map_err(io::Error::other)?;
-            serde_json::to_writer(&mut bytes, &view).map_err(io::Error::other)?;
-            if bytes.len() != count.bytes {
-                return Err(io::Error::other(
-                    "same guarded Proxy response changed during encoding",
-                ));
+            if matches!(request, zero_api::QueryRequest::Health(_)) {
+                let view = proxy.control_health_query(&mut workspace)?;
+                self.encode_proxy_view(&view, &mut encoded)
+            } else {
+                let view = proxy
+                    .control_proxy_query(request)
+                    .expect("selected concrete Proxy owner");
+                self.encode_proxy_view(&view, &mut encoded)
             }
-            Ok((bytes, frame))
         })();
         Some(match prepared {
             Ok((bytes, frame)) => {
@@ -61,6 +56,30 @@ impl Record {
             }
             Err(error) => Err(tonic::Status::resource_exhausted(error.to_string())),
         })
+    }
+    fn encode_proxy_view(
+        &self,
+        view: &impl serde::Serialize,
+        encoded: &mut Option<Arc<Lease>>,
+    ) -> io::Result<(Vec<u8>, usize)> {
+        let mut count = Count {
+            bytes: 0,
+            limit: self.policy.response_bytes,
+        };
+        serde_json::to_writer(&mut count, view).map_err(io::Error::other)?;
+        let frame = super::output::frame_length(count.bytes)?;
+        *encoded = Some(self.encoded(frame, ControlCharge::ResponseBytes(count.bytes))?);
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(count.bytes)
+            .map_err(io::Error::other)?;
+        serde_json::to_writer(&mut bytes, view).map_err(io::Error::other)?;
+        if bytes.len() != count.bytes {
+            return Err(io::Error::other(
+                "same original Proxy response changed during encoding",
+            ));
+        }
+        Ok((bytes, frame))
     }
 }
 #[cfg(test)]

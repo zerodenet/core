@@ -1,7 +1,9 @@
 //! Finite production Proxy views over actual original state, not a query SPI.
 use super::model::ProxyHandle;
 use serde::{ser::SerializeMap, Serialize, Serializer};
+mod health;
 mod tun;
+pub use health::ProxyHealthQuery;
 /// Borrow only synchronously while measuring/reserving/encoding. Destroy this
 /// and every original guard before any await or response-credit refund.
 pub struct ProxyControlQuery<'a> {

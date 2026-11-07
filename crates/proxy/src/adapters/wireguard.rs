@@ -1,6 +1,7 @@
 //! WireGuard adapter: config projection and explicit outbound capabilities.
 
 mod controlled_bind;
+mod health_query;
 pub(crate) mod inbound;
 mod inbound_state;
 pub(crate) mod lifecycle;

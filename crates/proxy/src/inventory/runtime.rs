@@ -247,6 +247,18 @@ impl ProtocolInventory {
     ) -> Vec<zero_api::OutboundDeviceHealthSnapshot> {
         self.devices.health(config)
     }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn device_health_row_count(&self, config: &RuntimeConfig) -> std::io::Result<usize> {
+        self.devices.health_row_count(config)
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn fill_device_health_rows(
+        &self,
+        config: &RuntimeConfig,
+        rows: &mut Vec<crate::adapters::devices::HealthRow>,
+    ) {
+        self.devices.fill_health_rows(config, rows);
+    }
 
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) async fn prepare_devices(

@@ -5,19 +5,28 @@ pub(super) fn prepare(
     request: &QueryRequest,
     budget: &Arc<ControlBudget>,
 ) -> io::Result<HttpBody> {
+    let mut workspace = budget.reserve(ControlCharge::ResponseBytes(0))?;
     let mut storage = None;
-    let bytes = {
-        let view = handle
-            .control_proxy_query(request)
-            .expect("selected concrete Proxy status owner");
-        let encoded = crate::ipc::owner::encode_response(
+    let bytes = if matches!(request, QueryRequest::Health(_)) {
+        let view = handle.control_health_query(&mut workspace)?;
+        crate::ipc::owner::encode_response(
             &ApiResponse::ok(view.body()),
             budget,
             &mut storage,
             true,
             false,
-        );
-        encoded
+        )
+    } else {
+        let view = handle
+            .control_proxy_query(request)
+            .expect("selected concrete Proxy status owner");
+        crate::ipc::owner::encode_response(
+            &ApiResponse::ok(view.body()),
+            budget,
+            &mut storage,
+            true,
+            false,
+        )
     }?;
     Ok(HttpBody::Prepared(crate::ipc::owner::EncodedResponse::new(
         bytes,

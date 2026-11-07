@@ -19,6 +19,7 @@ pub(super) fn handles(request: &zero_api::QueryRequest) -> bool {
             | zero_api::QueryRequest::PacketRoutes(_)
             | zero_api::QueryRequest::PacketRoute(_)
             | zero_api::QueryRequest::TunStatus(_)
+            | zero_api::QueryRequest::Health(_)
     )
 }
 pub(super) fn prepare(
@@ -37,7 +38,10 @@ fn prepare_original(
     id: Option<serde_json::Value>,
     budget: &Arc<ControlBudget>,
 ) -> io::Result<super::super::owner::EncodedResponse> {
-    if matches!(request, zero_api::QueryRequest::TunStatus(_)) {
+    if matches!(
+        request,
+        zero_api::QueryRequest::TunStatus(_) | zero_api::QueryRequest::Health(_)
+    ) {
         return proxy::prepare(handle, request, id, budget);
     }
     if matches!(
