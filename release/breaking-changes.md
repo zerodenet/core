@@ -119,6 +119,17 @@ Linux 进程原件续作增加内核 Rust 的 cold owned-process grant，保留�
 
 ## Unreleased
 
+### 第二轮内部 Datagram 原件转交续作
+
+进程内 Rust `ResourceDeclaration` 新增借入专用 `ControlledServiceDatagram`；穷举实现需
+处理新变体。`LoanDatagramIo::association()/wire_association()` 区分实际逻辑调用者与
+原 Tx/Rx 绑定，`into_session` 的真实 codec 须使用原 wire ID；SS 借入 consumer 已配对。
+`BorrowedPacketSegment` 使用同 Factory Scope 的真实 driver 和既有队列，关闭须分别
+确认原件、join 和 Host ACK。现 QUIC 完整生产 consumer 仍在实现，尚非最终资格。
+具体调用者与 Rust 适配见[同原 Datagram 转交](../design/v0.0.3/compatibility.md#同一-datagramloan-的实际-wire-与逻辑-association-续作)。
+V1/API/events、CLI/FFI 和客户端面板保持兼容，无需消费者迁移。
+
+
 ### v0.0.3 云端配置资源与 Hysteria2 出站
 
 Config 的运行资源编译迁入 `zero-runtime::configuration`。Rust 嵌入者应消费准备值；Engine 保留领域快照/策略/revision 与原有公开入口，资源持久化和恢复委托同一个 ConfigurationSource。Proxy 的跨组件提交仍使用唯一 RuntimeHost 的 ApplyOwner，已受理操作由宿主持有到最终 ACK；应用 reconciler 必须确认失败候选真实退休后才恢复。Engine-only/FFI 不扩大为网络宿主。
