@@ -319,14 +319,31 @@ impl OrchestrationState {
                 }
             }
         }
-        if budget_barrier::carrier_budget_changed(self.applied_snapshot.config(), &new_config) {
+        let carrier_changed =
+            budget_barrier::carrier_budget_changed(self.applied_snapshot.config(), &new_config);
+        if carrier_changed
+            || budget_barrier::metadata_budget_changed(self.applied_snapshot.config(), &new_config)
+        {
             for input in &new_config.inbounds {
+                let metadata_changed = crate::adapters::metadata::metadata_source_budget_changed(
+                    input,
+                    self.applied_snapshot.config(),
+                    &new_config,
+                );
+                if !carrier_changed && !metadata_changed {
+                    continue;
+                }
                 match proxy.protocols.prepare_inbound_bind_in_config(
                     candidate_runtime_factory.listener_config(input),
                     &new_config,
                 ) {
                     Ok(Some(prepared))
-                        if budget_barrier::source_total_resources(prepared.resources()) =>
+                        if (carrier_changed
+                            && budget_barrier::source_total_resources(prepared.resources()))
+                            || (metadata_changed
+                                && budget_barrier::metadata_source_resources(
+                                    prepared.resources(),
+                                )) =>
                     {
                         charged_source_changes.insert(input.tag.clone());
                     }

@@ -16,6 +16,8 @@ impl Pool {
             entry_limit: n(256),
             udp_sessions: n(4096),
             udp_pending_bytes: n(4 * 1024 * 1024),
+            metadata_limits: metadata_limits(),
+            endpoint_users: n(65536),
         }
     }
 }
@@ -50,6 +52,30 @@ impl PoolOptions {
         self.identity = identity.into();
         self.udp_sessions = sessions;
         self.udp_pending_bytes = bytes;
+        Ok(self)
+    }
+    /// Cold budgets for this same authenticated pool; no new endpoint or original.
+    pub fn with_metadata_limits(
+        mut self,
+        probes: NonZeroUsize,
+        attempts: NonZeroUsize,
+        sends: NonZeroUsize,
+        users: NonZeroUsize,
+    ) -> Result<Self, ChannelError> {
+        if probes.get() > 256 || attempts.get() > 4096 || sends.get() > 4096 || users.get() > 65536
+        {
+            return Err(error(Stage::Prepare, Reason::InvalidConfig));
+        }
+        let mut identity = self.identity.to_vec();
+        identity.extend_from_slice(b"actual-metadata-and-endpoint-users-v1");
+        for value in [probes, attempts, sends, users] {
+            identity.extend_from_slice(&value.get().to_le_bytes());
+        }
+        self.identity = identity.into();
+        self.metadata_limits.probe_sockets = probes;
+        self.metadata_limits.probe_attempts_per_initialization = attempts;
+        self.metadata_limits.concurrent_send_calls = sends;
+        self.endpoint_users = users;
         Ok(self)
     }
     pub fn profiles(&self) -> &[PoolProfile] {

@@ -6,6 +6,7 @@ pub(crate) mod http;
 #[cfg(feature = "hysteria2")]
 pub(crate) mod hysteria2;
 mod identity;
+pub(crate) mod metadata;
 #[cfg(feature = "mieru")]
 pub(crate) mod mieru;
 #[cfg(feature = "mixed")]

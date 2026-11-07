@@ -192,6 +192,25 @@ impl Hysteria2Adapter {
                         .ok_or_else(|| options_error("invalid actual HY2 UDP payload budget"))?,
                     )
                     .map_err(RegistrationError::Planning)?
+                    .with_metadata_limits(
+                        std::num::NonZeroUsize::new(
+                            config.runtime.effective_metadata_max_probe_sockets(2),
+                        )
+                        .unwrap(),
+                        std::num::NonZeroUsize::new(
+                            config.runtime.effective_metadata_max_probe_attempts(8),
+                        )
+                        .unwrap(),
+                        std::num::NonZeroUsize::new(
+                            config.runtime.effective_metadata_max_send_calls(2),
+                        )
+                        .unwrap(),
+                        std::num::NonZeroUsize::new(
+                            config.runtime.effective_quic_shared_endpoint_max_users(),
+                        )
+                        .unwrap(),
+                    )
+                    .map_err(RegistrationError::Planning)?
                     .with_prepared_ca(materials)
                     .map_err(RegistrationError::Planning)?,
             );

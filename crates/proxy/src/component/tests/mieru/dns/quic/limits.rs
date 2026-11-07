@@ -118,3 +118,36 @@ async fn actual_proxy_native_doq_hostname_failure_allows_existing_fallback_only_
     peer.close().await;
     udp.close().await;
 }
+
+#[tokio::test]
+async fn configured_probe_slots_preserve_actual_doq_n2_and_structural_scope_cost() {
+    tokio::time::timeout(Duration::from_secs(25), async {
+        let mut peer = Peer::new(false).await;
+        let mut config = config(["127.0.0.1:1".parse().unwrap(); 3]);
+        config.runtime.dns = Some(peer.config());
+        config.runtime.native_dns_max_originals = Some(2);
+        config.runtime.metadata_max_probe_sockets = Some(7);
+        config.runtime.metadata_max_probe_attempts = Some(16);
+        config.runtime.metadata_max_send_calls = Some(3);
+        let (proxy, running, _) = start(config).await;
+        peer.trust(&proxy);
+        for index in 0..2 {
+            let job = query(&proxy, &format!("actual-n2-{index}.quic.test"));
+            let request = peer.request().await;
+            let held = pending_quic(&proxy).await;
+            let original = held.metadata.clone().unwrap();
+            assert!(original.closed().is_none() && !held.task.is_joined());
+            request.answer([198, 51, 100, 95]);
+            assert_eq!(
+                job.await.unwrap().unwrap(),
+                vec![zero_traits::IpAddress::V4([198, 51, 100, 95])]
+            );
+            held.task.wait().await;
+            confirmed(&original);
+        }
+        running.shutdown().await.unwrap();
+        peer.close().await;
+    })
+    .await
+    .unwrap();
+}

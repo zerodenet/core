@@ -232,7 +232,15 @@ pub(crate) fn compiled_registries_with_network(
                 ::vless::metadata::VlessProtocol.descriptor(),
                 ::vless::component::inbound::listener::Factory,
                 move |input, resources| {
-                    inbound_adapter.inbound_options(input, resources.source_dir())
+                    match resources.candidate() {
+                        Some(candidate) => inbound_adapter.inbound_options_in_runtime(
+                            input,
+                            resources.source_dir(),
+                            &candidate.runtime,
+                        ),
+                        // Explicit primitive fixture preparation has no Proxy candidate.
+                        None => inbound_adapter.inbound_options(input, resources.source_dir()),
+                    }
                 },
             )
             .expect("unique standard VLESS inbound registration");
@@ -249,7 +257,14 @@ pub(crate) fn compiled_registries_with_network(
             .register_with_resources(
                 ::hysteria2::Hysteria2Protocol.descriptor(),
                 ::hysteria2::component::Factory,
-                move |input, resources| projected.inbound_options(input, resources.source_dir()),
+                move |input, resources| match resources.candidate() {
+                    Some(candidate) => projected.inbound_options_in_runtime(
+                        input,
+                        resources.source_dir(),
+                        &candidate.runtime,
+                    ),
+                    None => projected.inbound_options(input, resources.source_dir()),
+                },
             )
             .expect("unique standard Hysteria2 inbound registration");
         if let Some(network) = node_network.clone() {

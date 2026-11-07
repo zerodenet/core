@@ -43,6 +43,8 @@ pub struct PoolOptions {
     entry_limit: NonZeroUsize,
     udp_sessions: NonZeroUsize,
     udp_pending_bytes: NonZeroUsize,
+    metadata_limits: MetadataLimits,
+    endpoint_users: NonZeroUsize,
 }
 mod options;
 pub struct PoolFactory;
@@ -68,7 +70,7 @@ impl ComponentFactory for PoolFactory {
                 endpoint: profile.endpoint.clone(),
                 dial: profile.binding.dial.clone(),
                 ports: profile.ports(),
-                limits: metadata_limits(),
+                limits: options.metadata_limits,
                 max_origins: options.entry_limit,
             })
             .collect::<Vec<_>>();
@@ -124,7 +126,7 @@ impl PoolFactory {
                 MetadataPoolOwner::new(
                     context.instance(),
                     options.entry_limit,
-                    metadata_limits(),
+                    options.metadata_limits,
                     &context.cancel,
                 )
             })
@@ -145,6 +147,7 @@ impl PoolFactory {
             entry_limit: options.entry_limit,
             udp_sessions: options.udp_sessions,
             udp_pending_bytes: options.udp_pending_bytes,
+            endpoint_users: options.endpoint_users,
         });
         Ok(ComponentInstance {
             roles: Default::default(),
@@ -179,6 +182,7 @@ pub(super) struct Generation {
     entry_limit: NonZeroUsize,
     udp_sessions: NonZeroUsize,
     udp_pending_bytes: NonZeroUsize,
+    endpoint_users: NonZeroUsize,
 }
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct Key {

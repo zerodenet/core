@@ -1,7 +1,7 @@
 //! SS security changes fence original users before the existing StopOld phase.
 use super::*;
 use std::{collections::HashMap, sync::Arc};
-use zero_config::{InboundConfig, RuntimeConfig};
+use zero_config::RuntimeConfig;
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::BoxFuture;
 
@@ -29,8 +29,42 @@ pub(in crate::runtime) fn source_total_resources(
         )
     })
 }
+/// Actual metadata recipes retain different omitted defaults for DNS and
+/// shared endpoints. Compare both concrete defaults; explicit=default has no
+/// effect on that consumer while it can change the other consumer.
+pub(in crate::runtime) fn metadata_budget_changed(
+    old: &RuntimeConfig,
+    next: &RuntimeConfig,
+) -> bool {
+    let a = &old.runtime;
+    let b = &next.runtime;
+    [1, 2].into_iter().any(|d| {
+        a.effective_metadata_max_probe_sockets(d) != b.effective_metadata_max_probe_sockets(d)
+    }) || [4, 8].into_iter().any(|d| {
+        a.effective_metadata_max_probe_attempts(d) != b.effective_metadata_max_probe_attempts(d)
+    }) || [1, 2]
+        .into_iter()
+        .any(|d| a.effective_metadata_max_send_calls(d) != b.effective_metadata_max_send_calls(d))
+        || a.effective_quic_source_max_connections() != b.effective_quic_source_max_connections()
+        || a.effective_quic_shared_endpoint_max_users()
+            != b.effective_quic_shared_endpoint_max_users()
+}
+pub(in crate::runtime) fn metadata_source_resources(
+    resources: &[zero_platform_tokio::contract::component::ResourceDeclaration],
+) -> bool {
+    resources.iter().any(|resource| {
+        matches!(
+            resource,
+            zero_platform_tokio::contract::component::ResourceDeclaration::MetadataDatagram { .. }
+        )
+    })
+}
 pub(in crate::runtime) fn ss_budget_changed(old: &RuntimeConfig, next: &RuntimeConfig) -> bool {
-    if carrier_budget_changed(old, next) {
+    if carrier_budget_changed(old, next)
+        || old.inbounds.iter().chain(&next.inbounds).any(|input| {
+            crate::adapters::metadata::metadata_source_budget_changed(input, old, next)
+        })
+    {
         return true;
     }
     if ss_source_budget_changed(old, next) {

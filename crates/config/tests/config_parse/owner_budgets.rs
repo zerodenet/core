@@ -16,7 +16,37 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 40] = [
+    let fields: [BudgetField; 45] = [
+        (
+            "metadata_max_probe_sockets",
+            |runtime| runtime.effective_metadata_max_probe_sockets(2),
+            2,
+            256,
+        ),
+        (
+            "metadata_max_probe_attempts",
+            |runtime| runtime.effective_metadata_max_probe_attempts(8),
+            8,
+            4096,
+        ),
+        (
+            "metadata_max_send_calls",
+            |runtime| runtime.effective_metadata_max_send_calls(2),
+            2,
+            4096,
+        ),
+        (
+            "quic_source_max_connections",
+            RuntimeOptionsConfig::effective_quic_source_max_connections,
+            8192,
+            65536,
+        ),
+        (
+            "quic_shared_endpoint_max_users",
+            RuntimeOptionsConfig::effective_quic_shared_endpoint_max_users,
+            65536,
+            65536,
+        ),
         (
             "event_log_stats_max_bytes",
             RuntimeOptionsConfig::effective_event_log_stats_max_bytes,
@@ -311,4 +341,24 @@ fn control_event_payload_budget_preserves_omission_and_checks_real_byte_boundari
             .to_string()
             .contains("control_max_queued_event_bytes"));
     }
+}
+
+#[test]
+fn omitted_metadata_limits_preserve_distinct_actual_dns_and_shared_endpoint_defaults() {
+    let absent = RuntimeOptionsConfig::default();
+    assert_eq!(absent.effective_metadata_max_probe_sockets(1), 1);
+    assert_eq!(absent.effective_metadata_max_probe_sockets(2), 2);
+    assert_eq!(absent.effective_metadata_max_probe_attempts(4), 4);
+    assert_eq!(absent.effective_metadata_max_probe_attempts(8), 8);
+    assert_eq!(absent.effective_metadata_max_send_calls(1), 1);
+    assert_eq!(absent.effective_metadata_max_send_calls(2), 2);
+    let configured = parse("metadata_max_probe_sockets", 7).unwrap();
+    assert_eq!(
+        configured.runtime.effective_metadata_max_probe_sockets(1),
+        7
+    );
+    assert_eq!(
+        configured.runtime.effective_metadata_max_probe_sockets(2),
+        7
+    );
 }

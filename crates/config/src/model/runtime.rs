@@ -4,6 +4,22 @@ use super::*;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuntimeOptionsConfig {
+    /// Concurrent capability-probe socket originals per actual Metadata owner; omitted keeps that owner's existing default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata_max_probe_sockets: Option<usize>,
+    /// Total native capability-probe attempts per actual Metadata initialization; not a per-socket refund.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata_max_probe_attempts: Option<usize>,
+    /// Concurrent whole synchronous sends per actual Metadata original; failed/incomplete calls keep their permits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata_max_send_calls: Option<usize>,
+    /// On-demand connection drivers per actual QUIC Source. Default8192; original endpoint and mask drivers are additional structural work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quic_source_max_connections: Option<usize>,
+    /// Sealed users across one shared QUIC endpoint. Default65536. Single-query DoQ retains its structural three-user bound.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quic_shared_endpoint_max_users: Option<usize>,
+
     /// Per-file bound for component-owned file snapshots. Omission keeps the
     /// legacy exported config shape; production readers use 8 MiB by default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -260,6 +276,11 @@ impl Default for RuntimeOptionsConfig {
             udp_upstream_idle_timeout_seconds: default_udp_upstream_idle_timeout_seconds(),
             event_log_capacity: default_event_log_capacity(),
             event_log_stats_max_bytes: None,
+            metadata_max_probe_sockets: None,
+            metadata_max_probe_attempts: None,
+            metadata_max_send_calls: None,
+            quic_source_max_connections: None,
+            quic_shared_endpoint_max_users: None,
             event_subscriber_stats_max_bytes: None,
             latency_test_url: None,
             principal_quota_state_path: None,
@@ -403,6 +424,21 @@ impl RuntimeOptionsConfig {
     }
     pub fn effective_native_dns_max_h2_drivers(&self) -> usize {
         self.native_dns_max_h2_drivers.unwrap_or(16)
+    }
+    pub fn effective_metadata_max_probe_sockets(&self, actual_default: usize) -> usize {
+        self.metadata_max_probe_sockets.unwrap_or(actual_default)
+    }
+    pub fn effective_metadata_max_probe_attempts(&self, actual_default: usize) -> usize {
+        self.metadata_max_probe_attempts.unwrap_or(actual_default)
+    }
+    pub fn effective_metadata_max_send_calls(&self, actual_default: usize) -> usize {
+        self.metadata_max_send_calls.unwrap_or(actual_default)
+    }
+    pub fn effective_quic_source_max_connections(&self) -> usize {
+        self.quic_source_max_connections.unwrap_or(8192)
+    }
+    pub fn effective_quic_shared_endpoint_max_users(&self) -> usize {
+        self.quic_shared_endpoint_max_users.unwrap_or(65536)
     }
     pub fn effective_event_log_stats_max_bytes(&self) -> usize {
         self.event_log_stats_max_bytes.unwrap_or(8 * 1024 * 1024)

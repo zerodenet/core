@@ -1,5 +1,7 @@
 mod business_carrier;
 mod business_demand;
+#[cfg(all(feature = "vless", feature = "hysteria2"))]
+mod metadata_budgets;
 mod request;
 
 mod service_stream;

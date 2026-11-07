@@ -629,6 +629,39 @@ fn validate_runtime(
             )));
         }
     }
+    for (name, limit, maximum) in [
+        (
+            "metadata_max_probe_sockets",
+            runtime.effective_metadata_max_probe_sockets(2),
+            256,
+        ),
+        (
+            "metadata_max_probe_attempts",
+            runtime.effective_metadata_max_probe_attempts(8),
+            4096,
+        ),
+        (
+            "metadata_max_send_calls",
+            runtime.effective_metadata_max_send_calls(2),
+            4096,
+        ),
+        (
+            "quic_source_max_connections",
+            runtime.effective_quic_source_max_connections(),
+            65536,
+        ),
+        (
+            "quic_shared_endpoint_max_users",
+            runtime.effective_quic_shared_endpoint_max_users(),
+            65536,
+        ),
+    ] {
+        if !(1..=maximum).contains(&limit) {
+            return Err(ConfigError::InvalidRuntime(format!(
+                "runtime.{name} must be between 1 and {maximum}"
+            )));
+        }
+    }
     if runtime.event_log_capacity == 0 {
         return Err(ConfigError::InvalidRuntime(
             "`runtime.event_log_capacity` must be greater than 0".to_owned(),
