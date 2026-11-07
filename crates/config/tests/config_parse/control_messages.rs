@@ -9,7 +9,7 @@ fn control_payload_and_command_dimensions_are_optional_and_validate_the_actual_f
         usize,
         usize,
     );
-    let fields: [Field; 9] = [
+    let fields: [Field; 12] = [
         (
             "control_max_in_flight_request_bytes",
             RuntimeOptionsConfig::effective_control_max_in_flight_request_bytes
@@ -64,6 +64,24 @@ fn control_payload_and_command_dimensions_are_optional_and_validate_the_actual_f
             RuntimeOptionsConfig::effective_control_ipc_max_event_frames,
             32,
             4096,
+        ),
+        (
+            "control_grpc_max_requests",
+            RuntimeOptionsConfig::effective_control_grpc_max_requests,
+            1024,
+            4096,
+        ),
+        (
+            "control_grpc_max_streams_per_connection",
+            RuntimeOptionsConfig::effective_control_grpc_max_streams_per_connection,
+            32,
+            32,
+        ),
+        (
+            "control_grpc_max_request_bytes",
+            RuntimeOptionsConfig::effective_control_grpc_max_request_bytes,
+            4 * 1024 * 1024,
+            256 * 1024 * 1024,
         ),
     ];
     for (field, effective, default, max) in fields {

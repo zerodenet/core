@@ -47,6 +47,21 @@ pub(super) fn validate(runtime: &RuntimeOptionsConfig) -> Result<(), ConfigError
             runtime.effective_control_ipc_max_event_frames(),
             4096,
         ),
+        (
+            "control_grpc_max_requests",
+            runtime.effective_control_grpc_max_requests(),
+            4096,
+        ),
+        (
+            "control_grpc_max_streams_per_connection",
+            runtime.effective_control_grpc_max_streams_per_connection(),
+            32,
+        ),
+        (
+            "control_grpc_max_request_bytes",
+            runtime.effective_control_grpc_max_request_bytes(),
+            268435456,
+        ),
     ] {
         if !(1..=max).contains(&value) {
             return Err(ConfigError::InvalidRuntime(format!(

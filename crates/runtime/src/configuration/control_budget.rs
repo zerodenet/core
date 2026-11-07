@@ -17,6 +17,7 @@ pub struct ControlBudgetUsage {
     pub request_bytes: usize,
     pub response_bytes: usize,
     pub pending_commands: usize,
+    pub grpc_requests: usize,
 }
 #[derive(Clone, Copy)]
 pub enum ControlCharge {
@@ -27,6 +28,7 @@ pub enum ControlCharge {
     RequestBytes(usize),
     ResponseBytes(usize),
     PendingCommand,
+    GrpcRequest,
 }
 #[derive(Debug)]
 struct Pending {
@@ -70,6 +72,7 @@ fn fits(used: ControlBudgetUsage, limits: ControlBudgetLimits) -> bool {
         && used.request_bytes <= limits.messages.request_bytes_total
         && used.response_bytes <= limits.messages.response_bytes_total
         && used.pending_commands <= limits.messages.pending_commands
+        && used.grpc_requests <= limits.messages.grpc_requests
 }
 impl ControlBudget {
     pub fn new(limits: ControlBudgetLimits) -> Arc<Self> {
@@ -115,6 +118,7 @@ impl ControlBudget {
             ControlCharge::RequestBytes(bytes) => (&mut used.request_bytes, bytes),
             ControlCharge::ResponseBytes(bytes) => (&mut used.response_bytes, bytes),
             ControlCharge::PendingCommand => (&mut used.pending_commands, 1),
+            ControlCharge::GrpcRequest => (&mut used.grpc_requests, 1),
         };
         *counter = counter.checked_add(cost).ok_or_else(capacity)?;
         if !fits(used, state.limits)
@@ -243,6 +247,7 @@ impl Drop for ControlBudgetPermit {
             ControlCharge::RequestBytes(bytes) => (&mut state.used.request_bytes, bytes),
             ControlCharge::ResponseBytes(bytes) => (&mut state.used.response_bytes, bytes),
             ControlCharge::PendingCommand => (&mut state.used.pending_commands, 1),
+            ControlCharge::GrpcRequest => (&mut state.used.grpc_requests, 1),
         };
         *counter = counter
             .checked_sub(cost)

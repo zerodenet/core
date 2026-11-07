@@ -271,3 +271,16 @@ impl RuntimeOptionsConfig {
             .unwrap_or(DEFAULT_LATENCY_TEST_URL)
     }
 }
+
+impl RuntimeOptionsConfig {
+    pub fn effective_control_grpc_max_requests(&self) -> usize {
+        self.control_grpc_max_requests.unwrap_or(1024)
+    }
+    pub fn effective_control_grpc_max_streams_per_connection(&self) -> usize {
+        self.control_grpc_max_streams_per_connection.unwrap_or(32)
+    }
+    pub fn effective_control_grpc_max_request_bytes(&self) -> usize {
+        self.control_grpc_max_request_bytes
+            .unwrap_or(4 * 1024 * 1024)
+    }
+}

@@ -30,6 +30,9 @@ pub struct ControlMessageLimits {
     pub ipc_pending_commands: usize,
     pub pending_commands: usize,
     pub ipc_event_frames: usize,
+    pub grpc_requests: usize,
+    pub grpc_streams: usize,
+    pub grpc_request_bytes: usize,
 }
 impl ControlMessageLimits {
     pub fn from_runtime(runtime: &zero_config::RuntimeOptionsConfig) -> Self {
@@ -43,6 +46,9 @@ impl ControlMessageLimits {
             ipc_pending_commands: runtime.effective_control_ipc_max_pending_commands(),
             pending_commands: runtime.effective_control_max_pending_commands(),
             ipc_event_frames: runtime.effective_control_ipc_max_event_frames(),
+            grpc_requests: runtime.effective_control_grpc_max_requests(),
+            grpc_streams: runtime.effective_control_grpc_max_streams_per_connection(),
+            grpc_request_bytes: runtime.effective_control_grpc_max_request_bytes(),
         }
     }
 }
