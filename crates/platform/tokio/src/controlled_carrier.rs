@@ -4,7 +4,10 @@
 mod adoption;
 mod buffers;
 mod caller_credit;
-pub use buffers::{CarrierBufferBudget, CarrierBufferCredit, CarrierBufferLimits};
+pub use buffers::{
+    CarrierBufferBudget, CarrierBufferCredit, CarrierBufferFrameCredit, CarrierBufferLimits,
+    CarrierBufferWorkingLane, CarrierBufferWorkingSet, CarrierBufferWorkingShape,
+};
 mod totals;
 pub use totals::preparation::{CarrierPreparationRequest, CarrierPreparationTotalsSnapshot};
 pub(crate) use totals::{BoundCustody, MetadataCustody, SourceCustody};

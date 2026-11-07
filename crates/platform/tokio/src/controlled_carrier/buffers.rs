@@ -3,6 +3,11 @@ use std::{
     io,
     sync::{Arc, Mutex},
 };
+mod working;
+pub use working::{
+    CarrierBufferFrameCredit, CarrierBufferWorkingLane, CarrierBufferWorkingSet,
+    CarrierBufferWorkingShape,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CarrierBufferLimits {

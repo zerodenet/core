@@ -955,3 +955,17 @@ shape remain unchanged; the genuine owned Engine.events_snapshot API retains
 its library role. The superseded private HTTP DTO branch and body variant are
 removed. New same-root refusal/recovery/Pending-output regression still needs
 the exact frozen-input run before qualification.
+
+
+The same carrier book now also issues a concrete three-size working reservation
+for an existing QUIC Entry: actual receive scratch, one transmit peak and one
+receive peak. Bounds come from the owning native/borrowed/Mask producer; the
+helper neither parses private configuration nor truncates native GSO to a
+single borrowed datagram. It stores only prepaid credits, not another frame
+pool or IO resource. Actual backing must disappear before a working credit
+returns to its same lane. Return wakes that lane even when the root has no
+unreserved bytes; additional queued frames still acquire the same root credit.
+Its fixed bookkeeping count belongs to the actual Entry admission, not a claim
+that payload bytes measure opaque synchronization metadata or total RSS. This
+common precondition and its new regressions still await paired production
+consumer activation and qualification; no gate is enabled by the helper.
