@@ -125,6 +125,66 @@ impl OwnedDnsQueryTasks {
                 })
         })
     }
+    /// Confirmation of this existing receiver only, not native cleanup or
+    /// permission to reopen a failed query owner. Ordinary work admission
+    /// continues to see first_failure until that actual owner is replaced.
+    pub(super) fn confirm_failure_reception(&self) -> io::Result<()> {
+        let (first, unknown, originals) = {
+            let state = self.0.state.lock().expect("DNS query tasks poisoned");
+            (
+                state.first_failure.clone(),
+                state.identity_fault,
+                state
+                    .faults
+                    .iter()
+                    .map(|(id, original)| (*id, original.clone()))
+                    .collect::<Vec<_>>(),
+            )
+        };
+        if unknown {
+            return Err(first.map_or_else(
+                || {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "DNS original fault identity is unknown",
+                    )
+                },
+                io::Error::other,
+            ));
+        }
+        let Some(first) = first else {
+            return Ok(());
+        };
+        let mut first_received = false;
+        for (id, original) in originals {
+            let Some(actual) = original.registration.get().and_then(Option::as_ref) else {
+                return Err(io::Error::other(first));
+            };
+            let Some(joined) = actual.witness.try_joined() else {
+                return Err(io::Error::other(first));
+            };
+            let Err(source) = joined.result() else {
+                return Err(io::Error::other(first));
+            };
+            if actual.id != id
+                || joined.id() != id
+                || !actual.witness.matches_joined(&joined)
+                || !joined.failure_accepted()
+                || !joined.registration_released()
+                || !actual
+                    .witness
+                    .scope_identity()
+                    .same_scope(&self.0.registrar.scope_identity())
+            {
+                return Err(io::Error::other(source));
+            }
+            first_received |= Arc::ptr_eq(&source, &first);
+        }
+        if !first_received {
+            return Err(io::Error::other(first));
+        }
+        Ok(())
+    }
     /// Actual finite fault receiver. The first failure closes this Scope's
     /// query admission, so rows are bounded by its already registered tasks.
     /// Records remain until this owner's lifecycle hands them to its host.

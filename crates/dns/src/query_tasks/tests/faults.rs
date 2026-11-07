@@ -60,7 +60,12 @@ async fn ordinary_resolution_errors_do_not_accumulate_but_original_worker_faults
             assert!(!fault.joined.registration_released(),"local failure acceptance is not Host budget ACK");
             assert!(originals.iter().any(|original|original.same_registration(&fault.query)));
         }
+        assert!(tasks.close_descendants(&originals[0], Instant::now()+Duration::from_secs(1)).await.is_err(),
+            "canonical local acceptance without actual Host ACK cannot erase fault-delivery debt");
         for receipt in receipts {scope.acknowledge(&receipt).unwrap();}
+        tasks.close_descendants(&originals[0], Instant::now()+Duration::from_secs(1)).await.unwrap();
+        assert!(tasks.ensure_open().is_err(),
+            "confirmed descendant retirement does not reopen this genuinely failed owner");
         let executed=Arc::new(AtomicBool::new(false));
         for _ in 0..128 {
             let executed=executed.clone();
