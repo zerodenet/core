@@ -31,7 +31,7 @@ async fn two_actual_scopes_share_credit_until_the_same_native_exit_and_host_ack(
             Err(SpawnError::Capacity)
         ));
         release.send(()).unwrap();
-        let receipt = first.next_exit().await.unwrap();
+        let receipt = first.next_receipt().await.unwrap();
         let joined = original.wait().await;
         assert!(original.matches_joined(&joined));
         assert!(!joined.registration_released());
@@ -56,7 +56,7 @@ async fn two_actual_scopes_share_credit_until_the_same_native_exit_and_host_ack(
             .spawn_tracked(TaskClass::Auxiliary, async { Ok(()) })
             .unwrap();
         assert_ne!(original.native_task_id(), later.native_task_id());
-        let receipt = second.next_exit().await.unwrap();
+        let receipt = second.next_receipt().await.unwrap();
         second.acknowledge(&receipt).unwrap();
         later.wait_registration_released().await;
         assert_eq!(book.usage().charged, 0);
@@ -98,7 +98,7 @@ async fn cold_launch_prepays_both_limits_but_cannot_spawn_before_the_original_ho
             .unwrap();
         first.enable_registration().unwrap();
         let (_, original) = launch.spawn_blocking_tracked(|| Ok(())).unwrap();
-        let receipt = first.next_exit().await.unwrap();
+        let receipt = first.next_receipt().await.unwrap();
         assert!(original.native_task_id().is_some());
         assert_eq!(book.usage().charged, 1);
         first.acknowledge(&receipt).unwrap();
