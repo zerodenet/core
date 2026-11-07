@@ -210,6 +210,21 @@ pub(super) async fn run(panic_first: bool) {
         assert!(native.matches(&origin) && native.had_native_acquisition());
         assert_eq!(totals.snapshot().charged, 1);
         assert!(!phase.is_settled());
+        // This fixture owns no HostResources receiver. Retain the exact
+        // original typed fault in its actual receiver before local acceptance;
+        // the real actor Host ACK and positive native receipt remain separate.
+        let fault_receiver = original_fault.as_ref().map(|source| {
+            let receiver = totals
+                .resource_failures()
+                .into_iter()
+                .find(|fault| Arc::ptr_eq(&fault.source, source))
+                .expect("same actual original resource fault");
+            assert!(!receiver.ownership_received());
+            assert!(receiver.acknowledge_retained(&receiver));
+            assert!(receiver.ownership_received());
+            receiver
+        });
+        assert_eq!(totals.snapshot().charged, 1);
         let deferred = scope.defer_callbacks();
         scope.acknowledge(&receipt).unwrap();
         assert_eq!(totals.snapshot().charged, 1);
@@ -226,6 +241,12 @@ pub(super) async fn run(panic_first: bool) {
         .await;
         assert!(native.matches(&origin));
         assert!(phase.is_settled());
+        if let Some(receiver) = fault_receiver {
+            assert!(Arc::ptr_eq(
+                &receiver.source,
+                original_fault.as_ref().unwrap()
+            ));
+        }
         scope.begin_shutdown();
         assert!(scope.is_drained());
     })
