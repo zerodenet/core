@@ -264,9 +264,7 @@ impl InboundInstallContext {
             .map(|declaration| {
                 files::FileTrees::new(
                     declaration,
-                    self.entry.identity(),
-                    self.entry.accepted_registrar(),
-                    &self.protocols.runtime_host().original_budgets().carrier,
+                    self.entry.accepted_registrar().scope_identity(),
                     self.entry.task_access().cancellation(),
                 )
             })
