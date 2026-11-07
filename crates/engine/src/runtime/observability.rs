@@ -110,6 +110,9 @@ impl Engine {
         *self.sink_status.lock().expect("sink status lock poisoned") = status;
     }
 
+    pub(crate) fn query_sink_status(&self) -> std::sync::MutexGuard<'_, Vec<zero_api::SinkStatus>> {
+        self.sink_status.lock().expect("sink status lock poisoned")
+    }
     pub fn sink_status_snapshot(&self) -> zero_api::SinkStatusSnapshot {
         zero_api::SinkStatusSnapshot {
             sinks: self

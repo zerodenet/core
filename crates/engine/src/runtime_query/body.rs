@@ -7,6 +7,17 @@ impl Serialize for Body<'_> {
         let v = self.0;
         match v.guard.kind {
             Kind::Runtime => Runtime(v).serialize(s),
+            Kind::Sinks => {
+                let mut out = s.serialize_struct("SinkStatusSnapshot", 1)?;
+                out.serialize_field(
+                    "sinks",
+                    &**v.guard
+                        .sinks
+                        .as_ref()
+                        .expect("same actual sink status owner"),
+                )?;
+                out.end()
+            }
             Kind::Principal => {
                 let principals = v
                     .principals

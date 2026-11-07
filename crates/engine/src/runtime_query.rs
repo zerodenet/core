@@ -18,6 +18,7 @@ pub(crate) mod workspace;
 enum Kind<'a> {
     Runtime,
     Principal,
+    Sinks,
     Stats,
     Diagnostics,
     Active(&'a zero_api::FlowListQuery),
@@ -34,6 +35,7 @@ pub struct EngineRuntimeQueryGuard<'a> {
     active: Option<SessionQueryGuard<'a>>,
     completed: Option<CompletedQueryGuard<'a>>,
     stats: Option<StatsQueryGuard<'a>>,
+    sinks: Option<std::sync::MutexGuard<'a, Vec<zero_api::SinkStatus>>>,
 }
 /// Numeric rows are frozen once after every actual heap workspace is prepaid.
 pub struct EngineRuntimeQuery<'a> {
@@ -83,6 +85,7 @@ impl Engine {
         let kind = match request {
             QueryRequest::Runtime(_) => Kind::Runtime,
             QueryRequest::PrincipalFlows(_) => Kind::Principal,
+            QueryRequest::Sinks(_) => Kind::Sinks,
             QueryRequest::Stats(_) => Kind::Stats,
             QueryRequest::Diagnostics(_) => Kind::Diagnostics,
             QueryRequest::ActiveFlows(q) => Kind::Active(q),
@@ -106,6 +109,7 @@ impl Engine {
             .then(|| history.query_guard());
         let stats = matches!(kind, Kind::Runtime | Kind::Stats | Kind::Diagnostics)
             .then(|| stats.query_guard(!matches!(kind, Kind::Diagnostics)));
+        let sinks = matches!(kind, Kind::Sinks).then(|| self.query_sink_status());
         Some(EngineRuntimeQueryGuard {
             engine: self,
             snapshot,
@@ -113,6 +117,7 @@ impl Engine {
             active,
             completed,
             stats,
+            sinks,
         })
     }
 }
@@ -189,6 +194,7 @@ impl Serialize for EngineRuntimeQuery<'_> {
         let key = match self.guard.kind {
             Kind::Runtime => "runtime",
             Kind::Principal => "principal_flows",
+            Kind::Sinks => "sinks",
             Kind::Stats => "stats",
             Kind::Diagnostics => "diagnostics",
             Kind::Active(_) => "active_flows",
@@ -205,3 +211,6 @@ mod tests;
 
 #[cfg(test)]
 mod principal_tests;
+
+#[cfg(test)]
+mod sink_tests;
