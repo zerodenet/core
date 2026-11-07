@@ -166,7 +166,7 @@ impl GrpcHandle {
             handle,
             source::OriginalSource {
                 engine: Some(engine),
-                proxy: Some(proxy),
+                proxy: Some(Box::new(proxy)),
             },
         )
         .await

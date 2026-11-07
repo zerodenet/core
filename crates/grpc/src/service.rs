@@ -75,7 +75,7 @@ where
             }
         };
         #[cfg(feature = "proxy-control")]
-        if let (Some(proxy), Some(original)) = (&self.source.proxy, &original) {
+        if let (Some(proxy), Some(original)) = (self.source.proxy(), &original) {
             if let Some(result) = original.proxy_query(proxy, &query) {
                 return result.map(|payload| Response::new(QueryResponse { payload }));
             }
