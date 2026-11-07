@@ -304,6 +304,11 @@ impl InboundInstallContext {
             cancel: self.entry.task_access().cancellation(),
             datagram: match auxiliary {
                 [] => None,
+                // Already validated supplemental memory and ICMP declarations
+                // of the original Packet listener, not accepted-peer authority.
+                #[cfg(feature = "raw-ip-runtime")]
+                [ResourceDeclaration::NativeIcmp { .. },
+                    ResourceDeclaration::PacketDatagramReads { datagram: 0, .. }] => None,
                 resources
                     if resources.iter().all(|resource| {
                         matches!(
