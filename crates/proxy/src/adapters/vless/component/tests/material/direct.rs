@@ -48,11 +48,12 @@ fn capture(client: &Running) -> Vec<Original> {
                 if index == 0 {
                     assert!(record.borrowed_origin().is_none());
                 } else {
-                    assert!(record
-                        .borrowed_origin()
-                        .unwrap()
-                        .owner()
-                        .same_owner(&actual[0].owner));
+                    let donor = record.borrowed_origin().unwrap();
+                    assert!(donor.owner().same_owner(&actual[0].owner));
+                    assert_eq!(
+                        donor.endpoints().unwrap().local().unwrap().ip(),
+                        "127.0.0.2".parse::<std::net::IpAddr>().unwrap()
+                    );
                 }
                 Some(Original {
                     original: record.original().clone(),
@@ -102,7 +103,7 @@ async fn ordinary_direct_first_relay_uses_same_native_owner_and_real_node_loan_f
             let client=fixture::start(serde_json::json!({
                 "runtime":{"native_stream_max_originals":1},
                 "inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],
-                "outbounds":[{"tag":"first","protocol":{"type":"direct"}},node],
+                "outbounds":[{"tag":"first","dial":{"source_ip":"127.0.0.2","address_family":"only_ipv4"},"protocol":{"type":"direct"}},node],
                 "outbound_groups":[{"tag":"chain","type":"relay","proxies":["first","node"]}],
                 "route":{"final":{"type":"route","outbound":"chain"}}
             }),"entry").await;
