@@ -315,9 +315,54 @@ struct TransportHeader {
 fn transport_header(packet: &[u8]) -> Option<TransportHeader> {
     let (src, dst, ip_header_length, total_length) = parse_ip(packet)?;
     let end = total_length.unwrap_or(packet.len()).min(packet.len());
+    transport_from_header(packet, src, dst, ip_header_length, end, false)
+}
+// A truncated ICMP quote advertises the full original datagram length. Inspect
+// exactly the quoted bytes without allocating a normalized private copy.
+fn quoted_transport_header(packet: &[u8]) -> Option<TransportHeader> {
+    u16::try_from(packet.len()).ok()?;
+    let (src, dst, header) = match packet.first()? >> 4 {
+        4 if packet.len() >= 20 => {
+            let header = usize::from(packet[0] & 15) * 4;
+            if header < 20 || header > packet.len() {
+                return None;
+            }
+            (
+                IpAddr::V4(Ipv4Addr::new(
+                    packet[12], packet[13], packet[14], packet[15],
+                )),
+                IpAddr::V4(Ipv4Addr::new(
+                    packet[16], packet[17], packet[18], packet[19],
+                )),
+                header,
+            )
+        }
+        6 if packet.len() >= 40 => {
+            let mut src = [0; 16];
+            src.copy_from_slice(&packet[8..24]);
+            let mut dst = [0; 16];
+            dst.copy_from_slice(&packet[24..40]);
+            (
+                IpAddr::V6(Ipv6Addr::from(src)),
+                IpAddr::V6(Ipv6Addr::from(dst)),
+                40,
+            )
+        }
+        _ => return None,
+    };
+    transport_from_header(packet, src, dst, header, packet.len(), true)
+}
+fn transport_from_header(
+    packet: &[u8],
+    src: IpAddr,
+    dst: IpAddr,
+    ip_header_length: usize,
+    end: usize,
+    quoted: bool,
+) -> Option<TransportHeader> {
     if src.is_ipv4() {
         let fragment = u16::from_be_bytes([packet[6], packet[7]]);
-        if fragment & 0x3fff != 0 {
+        if fragment & if quoted { 0x1fff } else { 0x3fff } != 0 {
             return None;
         }
         return Some(TransportHeader {
