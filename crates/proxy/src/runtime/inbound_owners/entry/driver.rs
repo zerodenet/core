@@ -26,9 +26,16 @@ impl InboundOwner {
             .expect("inbound resources poisoned")
             .clone();
         let parent = Arc::downgrade(self);
-        let (task, witness) = self
-            .registrar
-            .spawn_tracked(TaskClass::Critical, async move {
+        let launch = self
+            .main_launch
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+            .ok_or_else(|| {
+                std::io::Error::other("original Source Main launch is absent or already consumed")
+            })?;
+        let (task, witness) = launch
+            .spawn_tracked(async move {
                 let outcome = AssertUnwindSafe(async {
                     for resource in &resources {
                         if cancel.is_cancelled() || *stopping.borrow() {

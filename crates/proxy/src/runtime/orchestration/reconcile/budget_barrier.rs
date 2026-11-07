@@ -21,6 +21,8 @@ pub(in crate::runtime) fn carrier_budget_changed(
 ) -> bool {
     old.runtime.effective_carrier_max_total_originals()
         != next.runtime.effective_carrier_max_total_originals()
+        || old.runtime.effective_component_total_max_tasks()
+            != next.runtime.effective_component_total_max_tasks()
 }
 /// Exactly the Source native classes now bound to the same Host total root.
 /// A packet device or role alias is not silently charged as a listener.

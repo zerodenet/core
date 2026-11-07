@@ -41,6 +41,7 @@ pub(super) struct LinkedEndpointRecipe {
     io: inbound::EndpointIoRecipe,
     static_identity: Arc<[u8]>,
     source_total_limit: Option<usize>,
+    source_worker_limit: Option<usize>,
     reuse: Option<std::sync::Weak<LinkedStackOptions>>,
     dependencies: Vec<ComponentId>,
 }
@@ -210,6 +211,9 @@ impl LinkedEndpointRecipe {
             source_total_limit: resources
                 .and_then(|resources| resources.candidate())
                 .map(|candidate| candidate.runtime.effective_carrier_max_total_originals()),
+            source_worker_limit: resources
+                .and_then(|resources| resources.candidate())
+                .map(|candidate| candidate.runtime.effective_component_total_max_tasks()),
             reuse,
             dependencies: settings
                 .dependencies

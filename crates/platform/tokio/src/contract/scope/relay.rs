@@ -279,7 +279,10 @@ impl LockedState<'_> {
 
     pub(super) fn ordinary(&mut self, entry: CompletedExit) -> TaskExit {
         match entry {
-            CompletedExit::Ordinary(exit, notification, joined) => {
+            CompletedExit::Ordinary(exit, notification, joined, global) => {
+                if let Some(global) = global {
+                    global.acknowledge();
+                }
                 self.notifications.extend(notification);
                 if let Some(joined) = joined {
                     self.registration_released(joined);
@@ -297,7 +300,7 @@ impl Drop for LockedState<'_> {
         if let Some(state) = &mut self.state {
             for entry in &mut state.completed {
                 let notification = match entry {
-                    CompletedExit::Ordinary(_, notification, _)
+                    CompletedExit::Ordinary(_, notification, _, _)
                     | CompletedExit::Hosted(_, notification) => notification.take(),
                 };
                 self.notifications.extend(notification);

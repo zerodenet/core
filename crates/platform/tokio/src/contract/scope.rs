@@ -25,6 +25,10 @@ use super::{
 
 pub use super::lifecycle::TaskClass;
 mod blocking;
+mod budget;
+pub use budget::{TaskRegistrationBudget, TaskRegistrationUsage};
+mod launch;
+pub use launch::TaskLaunch;
 mod join;
 pub use join::{TaskJoinError, TaskJoinWitness, TaskJoined};
 mod hosted;
@@ -67,6 +71,8 @@ struct State {
     registration_open: bool,
     closing: bool,
     limit: usize,
+    pending_launches: usize,
+    issued_tasks: bool,
     tasks: JoinSet<Result<(), ComponentError>>,
     records: HashMap<Id, join::Registration>,
     completed: VecDeque<CompletedExit>,
@@ -78,6 +84,7 @@ enum CompletedExit {
         TaskExit,
         Option<join::Notification>,
         Option<join::TaskJoined>,
+        Option<budget::TaskRegistrationCredit>,
     ),
     Hosted(hosted::Completion, Option<join::Notification>),
 }
@@ -89,6 +96,7 @@ struct Shared {
     runtime: Handle,
     hosted_waker: Arc<Mutex<Option<std::task::Waker>>>,
     relay: Arc<relay::JoinRelay>,
+    budget: std::sync::OnceLock<Arc<TaskRegistrationBudget>>,
 }
 
 /// Cloneable registration authority. It cannot declare resources closed.
@@ -168,6 +176,12 @@ impl State {
             .take()
             .map(|report| *report)
             .unwrap_or_default();
+        if self.pending_launches != 0 {
+            report.unfinished.push(Unfinished::Resource(format!(
+                "{} original task launches remain reserved",
+                self.pending_launches
+            )));
+        }
         report.unfinished.extend(
             self.records
                 .values()
@@ -222,6 +236,8 @@ impl TaskScope {
                 registration_open: true,
                 closing: false,
                 limit,
+                pending_launches: 0,
+                issued_tasks: false,
                 tasks: JoinSet::new(),
                 records: HashMap::new(),
                 completed: VecDeque::new(),
@@ -237,6 +253,7 @@ impl TaskScope {
             cancel: CancellationToken::new(),
             runtime,
             hosted_waker,
+            budget: std::sync::OnceLock::new(),
         }))
     }
 
@@ -263,7 +280,9 @@ impl TaskScope {
                         let exit = state.exit(result);
                         Poll::Ready(Some(state.ordinary(exit)))
                     }
-                    Poll::Ready(None) if state.closing => Poll::Ready(None),
+                    Poll::Ready(None) if state.closing && state.pending_launches == 0 => {
+                        Poll::Ready(None)
+                    }
                     _ => Poll::Pending,
                 }
             });

@@ -78,7 +78,10 @@ pub(super) fn prepare(
             };
         let source_total_changed = accounting_prepared.as_ref().is_some_and(|prepared| {
             crate::runtime::orchestration::source_total_resources(prepared.resources())
-        });
+        }) || previous_config
+            .runtime
+            .effective_component_total_max_tasks()
+            != config.runtime.effective_component_total_max_tasks();
         let replay_budget_changed = inbound.protocol.protocol_name() == "shadowsocks"
             && crate::runtime::orchestration::ss_source_budget_changed(&previous_config, config);
         let dependencies_changed = runtime_factory.source_dependencies_changed(inbound)?;

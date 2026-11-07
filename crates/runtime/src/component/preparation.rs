@@ -28,6 +28,7 @@ struct Key {
     process_limits: Option<super::recipe::accounting::ProcessLimits>,
     preparation_limits: Option<super::recipe::accounting::PreparationLimits>,
     buffer_limits: Option<zero_platform_tokio::controlled_carrier::CarrierBufferLimits>,
+    component_task_total: Option<usize>,
 }
 
 /// A real host-assigned identity and its state-only resource recipe.
@@ -168,6 +169,7 @@ impl<'a> ResourcePreparation<'a> {
                 || recipe.process_limits() != old.recipe.process_limits()
                 || recipe.preparation_limits() != old.recipe.preparation_limits()
                 || recipe.buffer_limits() != old.recipe.buffer_limits()
+                || recipe.component_task_total() != old.recipe.component_task_total()
             {
                 return None;
             }
@@ -216,12 +218,16 @@ impl<'a> ResourcePreparation<'a> {
         let Ok(buffer_limits) = self.buffer_limits_for(spec) else {
             return false;
         };
+        let Ok(component_task_total) = self.component_task_total_for(spec) else {
+            return false;
+        };
         let key = Key {
             namespace,
             accounting_limit,
             process_limits,
             preparation_limits,
             buffer_limits,
+            component_task_total,
             identity: spec.static_identity.clone(),
         };
         if self
@@ -243,6 +249,7 @@ impl<'a> ResourcePreparation<'a> {
             || old.recipe.process_limits() != process_limits
             || old.recipe.preparation_limits() != preparation_limits
             || old.recipe.buffer_limits() != buffer_limits
+            || old.recipe.component_task_total() != component_task_total
             || !old.matches_scope_identity(scope)
         {
             return false;
@@ -475,6 +482,7 @@ impl<'a> ResourcePreparation<'a> {
             process_limits: recipe.process_limits(),
             preparation_limits: recipe.preparation_limits(),
             buffer_limits: recipe.buffer_limits(),
+            component_task_total: recipe.component_task_total(),
             identity: recipe.spec().static_identity.clone(),
         };
         if let Some(existing) = self.resources.get(&key) {

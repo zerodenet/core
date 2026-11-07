@@ -476,3 +476,18 @@ public_peer_id canonical text and accepts only a peer public key by contract.
 No existing public struct literal, config default/export shape or wire contract
 changes. This continuation is not whole-domain completion or new runtime
 qualification; original Native/User/Scope/ACK receipts remain independent.
+
+
+The optional runtime `component_total_max_tasks` (default 4096, range 1–65536)
+limits the same Host's actual component and inbound Scope registrations across
+instances. Pending concrete launches, running tasks and native-joined exits
+awaiting the original supervisor acknowledgement all remain charged. Existing
+per-Scope limits still apply. A cold inbound prepays its actual Main launch
+before native bind; its original Scope Start fence still controls execution.
+Only a positively never-spawned launch can roll back without a task receipt.
+Dropping a Scope, aborting a body or observing a join does not refund a hosted
+registration. This counts registrations, not OS threads, opaque metadata or RSS;
+control worker and process-job books retain their separate units. Omission keeps
+the existing serialized configuration shape. Policy changes enter the existing
+source/component stop-before-start barrier; source-specific worker projections
+and the paired Packet implementation still require activation and qualification.

@@ -7,9 +7,9 @@ pub(crate) use bind::tests::test_standard_native_listener;
 mod entry;
 pub(in crate::runtime) use entry::AcquisitionPause;
 mod observers;
-mod source_dependencies;
 #[cfg(feature = "raw-ip-runtime")]
 mod packet_source;
+mod source_dependencies;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) use packet_source::input_identity as source_input_identity;
 #[cfg(feature = "raw-ip-runtime")]
@@ -27,12 +27,12 @@ mod recovery;
 mod state_recovery;
 #[cfg(all(test, feature = "managed-datagram-runtime"))]
 pub(crate) mod test_support;
-pub(crate) use preparing::{PreparingInbounds, preparation_stopped};
+pub(crate) use preparing::{preparation_stopped, PreparingInbounds};
 mod released_fault;
 use crate::inventory::ProtocolInventory;
 pub(crate) use entry::{
-    ClosedInboundReceipt, InboundOwner, InboundReady, InboundTaskAccess, InboundTerminal,
-    consume_reported_error, preserve_io_kind,
+    consume_reported_error, preserve_io_kind, ClosedInboundReceipt, InboundOwner, InboundReady,
+    InboundTaskAccess, InboundTerminal,
 };
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use peer_binding::{HostPeerBinding, JoinedPeer};
@@ -40,8 +40,8 @@ pub(crate) use peer_binding::{HostPeerBinding, JoinedPeer};
 pub(crate) use peers::MAX_DATAGRAM_PEERS;
 #[cfg(feature = "managed-datagram-runtime")]
 pub(crate) use peers::{
-    InboundPeerTasks,
     children::{PeerBoundDatagramAuthority, PeerBoundDatagramRegistration, PeerResourceContext},
+    InboundPeerTasks,
 };
 pub(crate) use released_fault::released_fault_identity;
 use std::{
@@ -52,7 +52,7 @@ use std::{
 use tokio::{sync::watch, time::Instant};
 use zero_core::component::ComponentInstanceId;
 use zero_engine::EngineError;
-use zero_platform_tokio::contract::{CancellationToken, lifecycle::DynResourceLifecycle};
+use zero_platform_tokio::contract::{lifecycle::DynResourceLifecycle, CancellationToken};
 
 #[derive(Default)]
 pub(crate) struct InboundOwnerRegistry {
@@ -186,7 +186,12 @@ impl InboundOwnerRegistry {
             protocols.allocate_resource_identity()?,
             limit,
             shutdown,
-        ));
+            protocols
+                .runtime_host()
+                .original_budgets()
+                .component_tasks
+                .clone(),
+        )?);
         if listener {
             entry.begin_listener_installation();
         }

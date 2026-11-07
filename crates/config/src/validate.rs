@@ -788,6 +788,11 @@ fn validate_runtime(
             256,
         ),
         (
+            "component_total_max_tasks",
+            runtime.effective_component_total_max_tasks(),
+            65536,
+        ),
+        (
             "quic_total_max_buffered_bytes",
             runtime.effective_quic_total_max_buffered_bytes(),
             1_073_741_824,

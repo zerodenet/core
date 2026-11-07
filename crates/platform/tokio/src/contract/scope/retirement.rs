@@ -27,6 +27,7 @@ impl ScopeRetirementObservation {
             && state.records.is_empty()
             && state.tasks.is_empty()
             && state.completed.is_empty()
+            && state.pending_launches == 0
     }
     /// Passive wait on this original Scope's notification. Call outside owner
     /// and Scope locks. It never polls JoinSet, consumes an exit or ACKs one.
@@ -43,6 +44,7 @@ impl ScopeRetirementObservation {
                     && state.records.is_empty()
                     && state.tasks.is_empty()
                     && state.completed.is_empty()
+                    && state.pending_launches == 0
             });
             if drained {
                 return;

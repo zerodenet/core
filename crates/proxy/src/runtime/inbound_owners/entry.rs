@@ -49,6 +49,7 @@ struct Resource {
     cleanup_failures: zero_platform_tokio::contract::lifecycle::ResourceCleanupFailures,
 }
 pub(crate) struct InboundOwner {
+    main_launch: Mutex<Option<zero_platform_tokio::contract::scope::TaskLaunch>>,
     #[cfg(feature = "raw-ip-runtime")]
     pub(super) packet_pause:
         Arc<OnceLock<Arc<zero_platform_tokio::contract::packet::PacketSourcePause>>>,
@@ -278,10 +279,20 @@ impl InboundOwner {
         identity: ComponentInstanceId,
         limit: NonZeroUsize,
         shutdown: watch::Sender<bool>,
-    ) -> Self {
-        let scope = TaskScope::suspended(tokio::runtime::Handle::current(), Some(limit));
+        budget: Arc<zero_platform_tokio::contract::scope::TaskRegistrationBudget>,
+    ) -> Result<Self, EngineError> {
+        let mut scope = TaskScope::suspended(tokio::runtime::Handle::current(), Some(limit));
+        scope
+            .bind_task_budget(budget)
+            .map_err(std::io::Error::other)?;
         let registrar = scope.registrar();
-        Self {
+        // The actual Main remains pending in this owner before any native
+        // bind. A global capacity refusal constructs no listener or worker.
+        let main_launch = registrar
+            .reserve_launch(TaskClass::Critical)
+            .map_err(|source| std::io::Error::new(std::io::ErrorKind::WouldBlock, source))?;
+        Ok(Self {
+            main_launch: Mutex::new(Some(main_launch)),
             #[cfg(feature = "raw-ip-runtime")]
             packet_pause: Arc::default(),
             #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
@@ -335,7 +346,7 @@ impl InboundOwner {
             pending_native_cause: Mutex::new(None),
             #[cfg(feature = "managed-datagram-runtime")]
             peers: Arc::default(),
-        }
+        })
     }
 
     pub(super) fn install_resource(
@@ -490,6 +501,12 @@ impl InboundOwner {
         }
     }
     fn stop(&self) {
+        let unstarted = self
+            .main_launch
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        drop(unstarted); // Known NoTask only; no native/Scope close claim.
         self.ready.wake();
         self.cancel.cancel();
         self.shutdown.send_replace(true);

@@ -64,7 +64,16 @@ impl InboundOwnerRegistry {
             )
             .into());
         }
-        let mut owner = InboundOwner::new(protocols.allocate_resource_identity()?, limit, shutdown);
+        let mut owner = InboundOwner::new(
+            protocols.allocate_resource_identity()?,
+            limit,
+            shutdown,
+            protocols
+                .runtime_host()
+                .original_budgets()
+                .component_tasks
+                .clone(),
+        )?;
         owner.shared_scope_children = true;
         let owner = Arc::new(owner);
         owner.begin_listener_installation();

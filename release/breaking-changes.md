@@ -969,3 +969,18 @@ Its fixed bookkeeping count belongs to the actual Entry admission, not a claim
 that payload bytes measure opaque synchronization metadata or total RSS. This
 common precondition and its new regressions still await paired production
 consumer activation and qualification; no gate is enabled by the helper.
+
+
+The optional runtime `component_total_max_tasks` (default 4096, range 1–65536)
+limits the same Host's actual component and inbound Scope registrations across
+instances. Pending concrete launches, running tasks and native-joined exits
+awaiting the original supervisor acknowledgement all remain charged. Existing
+per-Scope limits still apply. A cold inbound prepays its actual Main launch
+before native bind; its original Scope Start fence still controls execution.
+Only a positively never-spawned launch can roll back without a task receipt.
+Dropping a Scope, aborting a body or observing a join does not refund a hosted
+registration. This counts registrations, not OS threads, opaque metadata or RSS;
+control worker and process-job books retain their separate units. Omission keeps
+the existing serialized configuration shape. Policy changes enter the existing
+source/component stop-before-start barrier; source-specific worker projections
+and the paired Packet implementation still require activation and qualification.

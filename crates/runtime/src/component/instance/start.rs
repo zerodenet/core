@@ -49,8 +49,19 @@ impl ComponentSlot {
                 // No await or resource acquisition inside this initializer. The
                 // persistent slot owns Live before any start future can suspend.
                 let runtime = tokio::runtime::Handle::current();
-                let tasks = TaskScope::suspended_hosted(runtime, self.recipe.spec().task_limit);
                 let originals = self.original_budgets_for_start().map_err(Arc::new)?;
+                let mut tasks = TaskScope::suspended_hosted(runtime, self.recipe.spec().task_limit);
+                tasks
+                    .bind_task_budget(originals.component_tasks.clone())
+                    .map_err(|source| {
+                        Arc::new(
+                            self.failure(
+                                Reason::Capacity,
+                                "actual component task-root binding failed",
+                            )
+                            .with_source(source),
+                        )
+                    })?;
                 let resources = HostResources::new_hosted_with_packet_source(
                     self.instance_id(),
                     &self.recipe.spec().resources,

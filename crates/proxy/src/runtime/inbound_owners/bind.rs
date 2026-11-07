@@ -71,7 +71,16 @@ impl InboundOwnerRegistry {
         }
         self.mark_listener_generation();
         let identity = protocols.allocate_resource_identity()?;
-        let owner = Arc::new(InboundOwner::new(identity, limit, shutdown.clone()));
+        let owner = Arc::new(InboundOwner::new(
+            identity,
+            limit,
+            shutdown.clone(),
+            protocols
+                .runtime_host()
+                .original_budgets()
+                .component_tasks
+                .clone(),
+        )?);
         owner
             .source_dependencies
             .set(dependencies)

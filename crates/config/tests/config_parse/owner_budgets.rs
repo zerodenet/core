@@ -16,7 +16,7 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 74] = [
+    let fields: [BudgetField; 75] = [
         (
             "packet_route_max_routes",
             RuntimeOptionsConfig::effective_packet_route_max_routes,
@@ -166,6 +166,12 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
             RuntimeOptionsConfig::effective_quic_max_queue_packets,
             256,
             256,
+        ),
+        (
+            "component_total_max_tasks",
+            RuntimeOptionsConfig::effective_component_total_max_tasks,
+            4096,
+            65536,
         ),
         (
             "quic_total_max_buffered_bytes",

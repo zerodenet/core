@@ -8,6 +8,7 @@ pub(super) struct Registration {
     pub(super) id: TaskId,
     class: TaskClass,
     witness: Option<Weak<JoinedState>>,
+    global: Option<budget::TaskRegistrationCredit>,
 }
 pub(super) struct JoinedState {
     task: std::sync::OnceLock<TaskId>,
@@ -209,6 +210,7 @@ pub(super) fn complete(
             },
             None,
             None,
+            record.global,
         );
     }
     let result = result.map_err(Arc::new);
@@ -230,7 +232,10 @@ pub(super) fn complete(
         None
     };
     if hosted {
-        return CompletedExit::Hosted(hosted::Completion::new(receipt), notification);
+        return CompletedExit::Hosted(
+            hosted::Completion::new(receipt, record.global),
+            notification,
+        );
     }
     CompletedExit::Ordinary(
         TaskExit {
@@ -240,6 +245,7 @@ pub(super) fn complete(
         },
         notification,
         Some(receipt),
+        record.global,
     )
 }
 
@@ -295,6 +301,37 @@ impl TaskRegistrar {
             &tokio::runtime::Handle,
         ) -> tokio::task::AbortHandle,
     ) -> Result<TaskId, SpawnError> {
+        self.register_with_launch(class, witness, spawn, None)
+    }
+    pub(super) fn register_reserved(
+        &self,
+        class: TaskClass,
+        reserved: &mut TaskLaunch,
+        spawn: impl FnOnce(
+            &mut JoinSet<Result<(), ComponentError>>,
+            &tokio::runtime::Handle,
+        ) -> tokio::task::AbortHandle,
+    ) -> Result<(TaskId, TaskJoinWitness), SpawnError> {
+        let witness = TaskJoinWitness::new(&self.0);
+        let id = self.register_with_launch(
+            class,
+            Some(Arc::downgrade(&witness.0)),
+            spawn,
+            Some(reserved),
+        )?;
+        let _ = witness.0.task.set(id);
+        Ok((id, witness))
+    }
+    fn register_with_launch(
+        &self,
+        class: TaskClass,
+        witness: Option<Weak<JoinedState>>,
+        spawn: impl FnOnce(
+            &mut JoinSet<Result<(), ComponentError>>,
+            &tokio::runtime::Handle,
+        ) -> tokio::task::AbortHandle,
+        reserved: Option<&mut TaskLaunch>,
+    ) -> Result<TaskId, SpawnError> {
         if self.1 {
             return Err(SpawnError::Capacity);
         }
@@ -308,19 +345,40 @@ impl TaskRegistrar {
         state.reap();
         // As before, undelivered exits consume the declared budget. A witness
         // observing a join cannot acknowledge the supervisor's exit event.
-        if state.records.len() + state.completed.len() >= state.limit {
+        if reserved.is_none()
+            && state.records.len() + state.completed.len() + state.pending_launches >= state.limit
+        {
             drop(state);
             self.0.notify_hosted();
             return Err(SpawnError::Capacity);
         }
         let id = allocate_task_id()?;
+        let mut global = match reserved {
+            Some(reserved) => reserved.consume(&self.0, &mut state),
+            None => self
+                .0
+                .budget
+                .get()
+                .map(|budget| budget.reserve())
+                .transpose()?,
+        };
+        if let Some(global) = &mut global {
+            global.mark_spawned();
+        }
+        state.issued_tasks = true;
         let handle = spawn(&mut state.tasks, &self.0.runtime);
         if let Some(witness) = witness.as_ref().and_then(Weak::upgrade) {
             let _ = witness.native_task.set(handle.id());
         }
-        state
-            .records
-            .insert(handle.id(), Registration { id, class, witness });
+        state.records.insert(
+            handle.id(),
+            Registration {
+                id,
+                class,
+                witness,
+                global,
+            },
+        );
         drop(state);
         self.0.notify_hosted();
         Ok(id)

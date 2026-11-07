@@ -34,6 +34,7 @@ pub struct ComponentRecipe {
     process_limits: Option<accounting::ProcessLimits>,
     preparation_limits: Option<accounting::PreparationLimits>,
     buffer_limits: Option<zero_platform_tokio::controlled_carrier::CarrierBufferLimits>,
+    component_task_total: Option<usize>,
     packet_path: Option<PacketPathFacts>,
 }
 impl ComponentRecipe {
@@ -49,6 +50,7 @@ impl ComponentRecipe {
             process_limits: None,
             preparation_limits: None,
             buffer_limits: None,
+            component_task_total: None,
             packet_path: None,
         }
     }

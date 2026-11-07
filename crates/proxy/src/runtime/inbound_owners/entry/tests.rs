@@ -149,11 +149,17 @@ async fn publishing_a_driver_id_after_its_real_scope_exit_preserves_the_join_rec
         },
         NonZeroUsize::new(1).unwrap(),
         stop,
-    );
+        Arc::default(),
+    )
+    .unwrap();
     owner.scope.lock().await.enable_registration().unwrap();
-    let actual = owner
-        .registrar
-        .spawn(TaskClass::Critical, async { Ok(()) })
+    let (actual, _) = owner
+        .main_launch
+        .lock()
+        .unwrap()
+        .take()
+        .unwrap()
+        .spawn_tracked(async { Ok(()) })
         .unwrap();
     let exit = owner.scope.lock().await.next_exit().await.unwrap();
     assert_eq!(exit.id, actual);

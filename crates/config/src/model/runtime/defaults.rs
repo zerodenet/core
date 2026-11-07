@@ -17,6 +17,7 @@ impl Default for RuntimeOptionsConfig {
             native_mux_max_carriers: None,
             native_stream_max_originals: None,
             carrier_max_total_originals: None,
+            component_total_max_tasks: None,
             direct_max_originals: None,
             direct_max_tasks: None,
             process_max_jobs: None,

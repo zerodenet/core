@@ -86,6 +86,9 @@ impl RuntimeOptionsConfig {
     pub fn effective_carrier_max_total_originals(&self) -> usize {
         self.carrier_max_total_originals.unwrap_or(1024)
     }
+    pub fn effective_component_total_max_tasks(&self) -> usize {
+        self.component_total_max_tasks.unwrap_or(4096)
+    }
     pub fn effective_native_stream_max_originals(&self) -> usize {
         self.native_stream_max_originals.unwrap_or(4)
     }

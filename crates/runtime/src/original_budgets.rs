@@ -5,6 +5,9 @@ pub struct HostOriginalBudgets {
     pub(crate) carrier_wake: std::sync::Arc<crate::component::instance::MonitorWake>,
     /// Exact original reservation/custody records, distinct from OS FD count.
     pub carrier: std::sync::Arc<zero_platform_tokio::controlled_carrier::CarrierOriginalTotals>,
+    /// Actual component/inbound task registrations through their real ACK.
+    pub component_tasks:
+        std::sync::Arc<zero_platform_tokio::contract::scope::TaskRegistrationBudget>,
     #[cfg(any(target_os = "linux", windows))]
     pub process: std::sync::Arc<zero_platform_tokio::owned_process::ProcessBudget>,
     #[cfg(feature = "raw-ip-runtime")]
@@ -17,6 +20,8 @@ impl HostOriginalBudgets {
     ) -> bool {
         if current.effective_carrier_max_total_originals()
             != target.effective_carrier_max_total_originals()
+            || current.effective_component_total_max_tasks()
+                != target.effective_component_total_max_tasks()
             || current.effective_navigation_max_jobs() != target.effective_navigation_max_jobs()
             || current.effective_navigation_max_requests()
                 != target.effective_navigation_max_requests()
@@ -94,6 +99,10 @@ impl HostOriginalBudgets {
             max_queue_packets: runtime.effective_quic_max_queue_packets(),
             total_max_bytes: runtime.effective_quic_total_max_buffered_bytes(),
         };
+        let component_tasks = runtime.effective_component_total_max_tasks();
+        self.component_tasks
+            .check_limit(component_tasks)
+            .map_err(prepare_error)?;
         self.carrier
             .check_buffer_limits_after_retirement(buffers)
             .map_err(prepare_error)?;
@@ -169,6 +178,9 @@ impl HostOriginalBudgets {
             .map_err(|source| prepare_error(std::io::Error::other(source)))?;
         #[cfg(not(any(target_os = "linux", windows)))]
         let _ = runtime;
+        self.component_tasks
+            .install_limit(component_tasks)
+            .map_err(prepare_error)?;
         Ok(())
     }
 }

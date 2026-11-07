@@ -37,6 +37,7 @@ impl TaskRegistrar {
                 .limit
                 .saturating_sub(state.records.len())
                 .saturating_sub(state.completed.len())
+                .saturating_sub(state.pending_launches)
         {
             return Err(SpawnError::Capacity);
         }
@@ -47,6 +48,10 @@ impl TaskRegistrar {
     }
 }
 impl WeakTaskRegistrar {
+    pub fn reserve_launch(&self, class: TaskClass) -> Result<super::TaskLaunch, SpawnError> {
+        let owner = self.0.upgrade().ok_or(SpawnError::Closing)?;
+        TaskRegistrar(owner, self.1).reserve_launch(class)
+    }
     /// Read-only census from this actual issued registrar. Expiry is None,
     /// never retirement. This cannot reconstruct task or resource authority.
     pub fn retirement_observation(&self) -> Option<ScopeRetirementObservation> {
