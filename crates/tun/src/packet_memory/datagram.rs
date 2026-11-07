@@ -36,52 +36,14 @@ impl PacketReturnTotals {
         reads: [usize; 2],
         control: Option<usize>,
     ) -> Result<PacketDatagramWorkspaces, PacketMemoryError> {
-        if reads.contains(&0) || control == Some(0) {
-            return Err(PacketMemoryError::Capacity);
-        }
-        let native_bytes = reads[0]
-            .checked_add(reads[1])
-            .ok_or(PacketMemoryError::Overflow)?;
-        let transmit = PacketMemoryLimit {
-            frames: usize::from(control.is_some()),
-            bytes: control.unwrap_or(0),
-        };
-        let native = PacketMemoryLimit {
-            frames: 2,
-            bytes: native_bytes,
-        };
-        let mut state = self.state();
-        for (request, lane) in [(native, state.native), (transmit, state.transmit)] {
-            if request.frames > lane.limit.frames || request.bytes > lane.limit.bytes {
-                return Err(PacketMemoryError::Capacity);
-            }
-        }
-        if state.paused {
-            return Err(PacketMemoryError::Paused);
-        }
-        for (request, lane) in [(native, state.native), (transmit, state.transmit)] {
-            if request.frames > lane.limit.frames.saturating_sub(lane.occupied.frames)
-                || request.bytes > lane.limit.bytes.saturating_sub(lane.occupied.bytes)
-            {
-                return Err(PacketMemoryError::Busy);
-            }
-        }
-        state.native.occupied.frames += native.frames;
-        state.native.occupied.bytes += native.bytes;
-        state.transmit.occupied.frames += transmit.frames;
-        state.transmit.occupied.bytes += transmit.bytes;
-        drop(state);
-        let grant = |lane, bytes| {
-            NativeReadGrant::from_credit(credit::Credit {
-                root: self.clone(),
-                lane,
-                frames: 1,
-                bytes,
-            })
-        };
+        let work = self.io_workspaces(&reads, &control.into_iter().collect::<Vec<_>>())?;
+        let mut original = work.reads.into_iter();
         Ok(PacketDatagramWorkspaces {
-            reads: reads.map(|bytes| grant(Lane::Native, bytes)),
-            control: control.map(|bytes| grant(Lane::Transmit, bytes)),
+            reads: [
+                original.next().expect("same read0"),
+                original.next().expect("same decode"),
+            ],
+            control: work.transmit.into_iter().next(),
         })
     }
 }
