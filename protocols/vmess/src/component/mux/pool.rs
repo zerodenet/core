@@ -73,11 +73,15 @@ impl OwnedPoolFactory {
         let instance = context.instance();
         let resources = context.resources.clone();
         let cancel = context.cancel.clone();
-        let original = PoolFactory.build(options.pool.clone(), context)?;
+        let tasks = context.tasks.clone();
+        let (original, registration) =
+            PoolFactory.build_with_registration(options.pool.clone(), context)?;
         Ok(ComponentInstance {
             roles: original.roles,
             lifecycle: erase_lifecycle(Owner {
                 original: original.lifecycle,
+                registration,
+                tasks,
                 options,
                 instance,
                 resources,
@@ -90,6 +94,8 @@ impl OwnedPoolFactory {
 }
 struct Owner {
     original: Box<dyn DynResourceLifecycle>,
+    registration: zero_platform_tokio::controlled_carrier::CarrierOwnerRegistration,
+    tasks: zero_platform_tokio::contract::scope::TaskRegistrar,
     options: Arc<OwnedPoolOptions>,
     instance: ComponentInstanceId,
     resources: Arc<dyn ResourceAccess>,
@@ -99,6 +105,11 @@ struct Owner {
 }
 impl ResourceLifecycle for Owner {
     async fn start(&mut self, end: tokio::time::Instant) -> Result<(), BuildError> {
+        // Even rejected CA/ECH preparation retains this same real declaration
+        // owner. No registry claim/Ready/IO admission occurs until material
+        // succeeds and the original lifecycle below starts as before.
+        self.resources
+            .register_controlled_carrier(0, self.registration.clone(), &self.tasks)?;
         if !self.grpc_claimed {
             if let Some(admission) = &self.options.grpc_admission {
                 admission.claim_node_streams(self.instance)?;
