@@ -19,6 +19,7 @@ pub(super) struct Command {
     stop: tokio_util::sync::CancellationToken,
     observation: zero_runtime::ApplyObservation,
     operation: OnceLock<zero_platform_tokio::contract::scope::TaskJoined>,
+    cleanup: OnceLock<std::sync::Arc<std::io::Error>>,
 }
 impl Record {
     pub(crate) async fn execute<H>(
@@ -116,9 +117,18 @@ impl Command {
         // The existing wire timeout can already have returned an error while
         // its same accepted Apply still owns work/compensation. Keep this
         // original stream and its credits until that exact registration joins.
-        if let Some(joined) = self.observation.wait_joined().await {
+        let joined = self.observation.wait_joined().await;
+        if let Some(joined) = &joined {
             let _ = self.operation.set(joined.clone());
-            joined.result().map_err(std::io::Error::other)?;
+        }
+        if let Some(faults) = self.observation.completion_fault(joined.as_ref()) {
+            let original = self
+                .cleanup
+                .get_or_init(|| std::sync::Arc::new(faults.into_io_error()));
+            // The same actual request retains every typed original before the
+            // stream task reports it through its actual Scope exit. Neither a
+            // raw blocking outcome nor missing Apply fabricates a TaskJoined.
+            return Err(std::io::Error::new(original.kind(), original.clone()));
         }
         Ok(())
     }
