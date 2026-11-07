@@ -17,6 +17,7 @@ pub(crate) mod workspace;
 #[derive(Clone, Copy)]
 enum Kind<'a> {
     Runtime,
+    Principal,
     Stats,
     Diagnostics,
     Active(&'a zero_api::FlowListQuery),
@@ -39,6 +40,7 @@ pub struct EngineRuntimeQuery<'a> {
     guard: &'a EngineRuntimeQueryGuard<'a>,
     active: Option<ActiveQueryRows<'a>>,
     stats: Option<StatsQueryView<'a>>,
+    principals: Option<crate::session::PrincipalQueryRows<'a>>,
 }
 #[derive(Debug)]
 pub struct MissingFlow<'a>(&'a str);
@@ -80,6 +82,7 @@ impl Engine {
     ) -> Option<EngineRuntimeQueryGuard<'a>> {
         let kind = match request {
             QueryRequest::Runtime(_) => Kind::Runtime,
+            QueryRequest::PrincipalFlows(_) => Kind::Principal,
             QueryRequest::Stats(_) => Kind::Stats,
             QueryRequest::Diagnostics(_) => Kind::Diagnostics,
             QueryRequest::ActiveFlows(q) => Kind::Active(q),
@@ -94,8 +97,11 @@ impl Engine {
         let (registry, history, stats) = self.query_data_roots();
         // No reverse edges: removal drops registry before finish/row work; completion
         // drops stats before history. No row mutator acquires these membership guards.
-        let active = matches!(kind, Kind::Runtime | Kind::Active(_) | Kind::Flow { .. })
-            .then(|| registry.query_guard());
+        let active = matches!(
+            kind,
+            Kind::Runtime | Kind::Principal | Kind::Active(_) | Kind::Flow { .. }
+        )
+        .then(|| registry.query_guard());
         let completed = matches!(kind, Kind::Runtime | Kind::Recent(_) | Kind::Flow { .. })
             .then(|| history.query_guard());
         let stats = matches!(kind, Kind::Runtime | Kind::Stats | Kind::Diagnostics)
@@ -141,11 +147,24 @@ impl EngineRuntimeQueryGuard<'_> {
             }
             _ => (None, usize::MAX, None),
         };
-        let active = self
-            .active
-            .as_ref()
-            .map(|r| r.freeze(filter, limit, id, workspace))
-            .transpose()?;
+        let active = if matches!(self.kind, Kind::Principal) {
+            None
+        } else {
+            self.active
+                .as_ref()
+                .map(|r| r.freeze(filter, limit, id, workspace))
+                .transpose()?
+        };
+        let principals = if matches!(self.kind, Kind::Principal) {
+            Some(
+                self.active
+                    .as_ref()
+                    .expect("principal query retained actual registry")
+                    .principals(workspace)?,
+            )
+        } else {
+            None
+        };
         let stats = self
             .stats
             .as_ref()
@@ -155,6 +174,7 @@ impl EngineRuntimeQueryGuard<'_> {
             guard: self,
             active,
             stats,
+            principals,
         }))
     }
 }
@@ -168,6 +188,7 @@ impl Serialize for EngineRuntimeQuery<'_> {
         let mut map = s.serialize_map(Some(1))?;
         let key = match self.guard.kind {
             Kind::Runtime => "runtime",
+            Kind::Principal => "principal_flows",
             Kind::Stats => "stats",
             Kind::Diagnostics => "diagnostics",
             Kind::Active(_) => "active_flows",
@@ -181,3 +202,6 @@ impl Serialize for EngineRuntimeQuery<'_> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod principal_tests;

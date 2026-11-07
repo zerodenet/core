@@ -104,3 +104,6 @@ impl PrincipalFlowIndex {
         self.revision
     }
 }
+
+mod query;
+pub(crate) use query::PrincipalQueryRows;

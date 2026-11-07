@@ -7,6 +7,17 @@ impl Serialize for Body<'_> {
         let v = self.0;
         match v.guard.kind {
             Kind::Runtime => Runtime(v).serialize(s),
+            Kind::Principal => {
+                let principals = v
+                    .principals
+                    .as_ref()
+                    .expect("same actual principal query index");
+                let mut out = s.serialize_struct("PrincipalFlowsSnapshot", 3)?;
+                out.serialize_field("core_instance_id", v.guard.engine.core_instance_id())?;
+                out.serialize_field("session_registry_revision", &principals.revision)?;
+                out.serialize_field("principals", principals)?;
+                out.end()
+            }
             Kind::Stats => v
                 .stats
                 .as_ref()

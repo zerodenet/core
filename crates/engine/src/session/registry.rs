@@ -24,7 +24,7 @@ use super::observation::{
 use super::traffic::TrafficSampler;
 use super::{AdmissionLife, CompletedSessionRecord};
 use principal::PrincipalFlowIndex;
-pub(crate) use principal::PrincipalFlowObservation;
+pub(crate) use principal::{PrincipalFlowObservation, PrincipalQueryRows};
 
 #[derive(Debug, Default)]
 pub struct SessionRegistry {

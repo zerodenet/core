@@ -38,6 +38,12 @@ impl Ord for Selected<'_> {
     }
 }
 impl SessionQueryGuard<'_> {
+    pub(crate) fn principals(
+        &self,
+        workspace: &mut ControlBudgetPermit,
+    ) -> std::io::Result<super::PrincipalQueryRows<'_>> {
+        self.0.principal_flows.freeze_query(workspace)
+    }
     pub(crate) fn contains(&self, id: u64) -> bool {
         self.0.sessions.contains_key(&id)
     }
