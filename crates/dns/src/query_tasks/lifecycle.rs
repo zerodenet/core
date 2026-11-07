@@ -115,9 +115,9 @@ impl OwnedDnsQueryTasks {
         }
         while tokio::time::timeout_at(deadline, self.next_exit())
             .await
-            .map_err(|_| {
-                io::Error::new(
-                    io::ErrorKind::TimedOut,
+            .map_err(|source| {
+                crate::retirement_observation::deadline(
+                    source,
                     "DNS original Host Scope query join is unconfirmed",
                 )
             })?

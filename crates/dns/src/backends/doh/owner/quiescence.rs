@@ -55,7 +55,7 @@ impl DriverOwner {
     ) -> io::Result<()> {
         let _opening = tokio::time::timeout_at(end, self.connect_lock.lock())
             .await
-            .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
+            .map_err(|source| crate::retirement_observation::deadline(source, ""))?;
         let candidates = self
             .state
             .lock()
@@ -78,7 +78,7 @@ impl DriverOwner {
         let retired = {
             let mut clients = tokio::time::timeout_at(end, self.clients.lock())
                 .await
-                .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
+                .map_err(|source| crate::retirement_observation::deadline(source, ""))?;
             let mut retired = Vec::new();
             let mut index = 0;
             while index < clients.len() {
@@ -108,7 +108,7 @@ impl DriverOwner {
                 .ok_or_else(|| io::Error::other("original DoH registration unavailable"))?;
             let joined = tokio::time::timeout_at(end, actual.wait_registration_released())
                 .await
-                .map_err(|source| io::Error::new(io::ErrorKind::TimedOut, source))?;
+                .map_err(|source| crate::retirement_observation::deadline(source, ""))?;
             if !actual.matches_joined(&joined) || !native.retired() {
                 return Err(io::Error::other(
                     "actual DoH original or registration ACK remains retained",

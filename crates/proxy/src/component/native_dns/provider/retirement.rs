@@ -214,3 +214,30 @@ pub(in crate::component::native_dns) fn unreported_failures(
     ChannelError::new(Stage::Close, Reason::Io, Impact::Component)
         .with_source(RetirementFailures(failures))
 }
+
+#[derive(Debug)]
+struct PendingDeadline(tokio::time::error::Elapsed);
+impl std::fmt::Display for PendingDeadline {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+impl std::error::Error for PendingDeadline {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+pub(in crate::component::native_dns) fn pending_deadline(
+    source: tokio::time::error::Elapsed,
+) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::TimedOut, PendingDeadline(source))
+}
+pub(in crate::component::native_dns) fn pending_observation(source: &std::io::Error) -> bool {
+    source.get_ref().is_some_and(|actual| {
+        actual.is::<zero_dns::DnsRetirementPending>() || actual.is::<PendingDeadline>()
+    })
+}
+
+#[cfg(test)]
+#[path = "retirement/tests.rs"]
+mod tests;

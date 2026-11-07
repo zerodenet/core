@@ -69,6 +69,7 @@ impl ResourceLifecycle for Owner {
     async fn shutdown(&mut self, end: tokio::time::Instant) -> Result<CloseReport, BuildError> {
         self.revoke(CloseReason::Shutdown);
         let mut failures = Vec::new();
+        let mut unfinished = Vec::new();
         if let Some(dns) = self
             .network
             .resolver
@@ -76,17 +77,26 @@ impl ResourceLifecycle for Owner {
             .and_then(std::sync::Weak::upgrade)
         {
             if let Err(source) = dns.shutdown_native_pools(&self.provider.tasks(), end).await {
-                failures.push(provider::error(source));
+                if provider::retirement::pending_observation(&source) {
+                    unfinished.push(
+                        zero_platform_tokio::contract::lifecycle::Unfinished::Resource(
+                            "DNS pool's actual cleanup wait remains pending".into(),
+                        ),
+                    );
+                } else {
+                    failures.push(provider::error(source));
+                }
             }
         }
         let queries_joined = match self.provider.close_queries(end).await {
             Ok(()) => true,
             Err(source) => {
-                failures.push(provider::error(source));
+                if !provider::retirement::pending_observation(&source) {
+                    failures.push(provider::error(source));
+                }
                 false
             }
         };
-        let mut unfinished = Vec::new();
         for owner in &mut self.owners {
             match owner.shutdown(end).await {
                 Ok(mut report) => {
@@ -99,7 +109,15 @@ impl ResourceLifecycle for Owner {
             }
         }
         if let Err(source) = self.provider.reap(end).await {
-            failures.push(provider::error(source));
+            if provider::retirement::pending_observation(&source) {
+                unfinished.push(
+                    zero_platform_tokio::contract::lifecycle::Unfinished::Resource(
+                        "DNS original's actual cleanup wait remains pending".into(),
+                    ),
+                );
+            } else {
+                failures.push(provider::error(source));
+            }
         }
         #[cfg(feature = "dns")]
         for owner in &self.metadata {
