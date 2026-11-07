@@ -118,3 +118,6 @@ fn owning_material_requires_the_actual_ca_declaration_and_never_reopens_its_path
 
 #[path = "owned_material/authentication.rs"]
 mod authentication;
+
+#[path = "owned_material/half_close.rs"]
+mod half_close;
