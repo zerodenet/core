@@ -31,6 +31,14 @@ pub(super) struct Preparing(pub(super) Arc<Association>);
 impl Drop for Preparing {
     fn drop(&mut self) {
         self.0.preparing.store(false, Ordering::Release);
+        if !self.0.published.load(Ordering::Acquire) {
+            // This exact pending original already belongs to the Host's
+            // standing retirement scan. A cancelled/failed direct role call
+            // may have no external pending observer and no later dial. Fence
+            // this association now; the Root still needs real view/native and
+            // registration receipts before returning either original's N.
+            self.0.parent.request_retirement();
+        }
     }
 }
 impl Associations {

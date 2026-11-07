@@ -8,11 +8,12 @@ use tokio::{
     time::{Duration, Instant},
 };
 use zero_core::{
-    Address,
     component::AssociationId,
     request::{DatagramTargets, Destination},
+    Address,
 };
 use zero_platform_tokio::contract::datagram::DatagramRequest;
+mod no_observer;
 
 #[tokio::test]
 async fn cancelled_native_association_preparation_retires_the_same_early_original() {

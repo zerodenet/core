@@ -184,6 +184,12 @@ impl Control {
 impl ChannelControl for Control {
     fn cancel(&self, reason: CloseReason) {
         self.shared.stop(reason);
+        if let Some(original) = &self.original {
+            // The controller is the actual published association receiver.
+            // Request the same TCP+UDP pair; retained Tx/Rx views and native
+            // receipts still independently gate both originals' refunds.
+            original.parent().request_retirement();
+        }
     }
     async fn wait_closed(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.cancel(CloseReason::Shutdown);
@@ -205,6 +211,6 @@ impl ChannelControl for Control {
 }
 impl Drop for Control {
     fn drop(&mut self) {
-        self.shared.stop(CloseReason::Shutdown);
+        self.cancel(CloseReason::Shutdown);
     }
 }

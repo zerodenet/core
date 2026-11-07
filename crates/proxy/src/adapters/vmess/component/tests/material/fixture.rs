@@ -170,7 +170,7 @@ pub(super) fn capture(proxy: &Proxy) -> (CarrierOwnerRegistration, CarrierOrigin
 }
 #[path = "fixture/echo.rs"]
 mod echo;
-pub(super) use echo::{echo, echo_response_with, echo_with, wait_returned};
+pub(super) use echo::{echo, echo_response_with, echo_with, retirement_facts, wait_returned};
 
 pub(super) fn cached_driver(
     owner: &CarrierOwnerRegistration,

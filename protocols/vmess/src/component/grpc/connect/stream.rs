@@ -67,6 +67,7 @@ struct Control(Arc<Record>);
 impl zero_platform_tokio::contract::lifecycle::DynChannelControl for Control {
     fn cancel(&self, _: zero_platform_tokio::contract::CloseReason) {
         self.0.stop.cancel();
+        self.0.adoption.request_retirement();
     }
     fn wait_closed(
         &mut self,
@@ -77,6 +78,7 @@ impl zero_platform_tokio::contract::lifecycle::DynChannelControl for Control {
     > {
         Box::pin(async move {
             self.0.stop.cancel();
+            self.0.adoption.request_retirement();
             self.0.retire(end).await
         })
     }

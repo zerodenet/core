@@ -159,5 +159,10 @@ impl Drop for Stream {
             .user_live
             .store(false, std::sync::atomic::Ordering::Release);
         self.record.stop.cancel();
+        // This per-connection view has returned. Notify the original Root as
+        // well as the transport body: its standing retirement observer may
+        // have last polled before stop became cancelled. Native/users/actual
+        // driver join and Host ACK still gate that same slot's N refund.
+        self.record.adoption.request_retirement();
     }
 }
