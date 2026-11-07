@@ -10,6 +10,8 @@ mod principal;
 mod runtime;
 pub(crate) mod runtime_query;
 pub use runtime_query::{EngineRuntimeQuery, EngineRuntimeQueryGuard, MissingFlow};
+mod traffic_query;
+pub use traffic_query::{EngineTrafficQuery, EngineTrafficQueryGuard, TrafficQueryError};
 mod session;
 
 pub use api::{register_build_features, EngineHandle, EventSubscriber, RetainedEvent};

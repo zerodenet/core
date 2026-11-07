@@ -6,8 +6,11 @@ pub use host::HostInterfaceSample;
 mod reset;
 mod role;
 pub use role::InboundTrafficRegistration;
+mod query;
 mod source;
 mod view;
+pub use query::TrafficQueryError;
+pub(crate) use query::{TrafficQueryGuard, TrafficQueryRows};
 pub use source::PreparedEndpointTraffic;
 
 use counter::CounterSet;
@@ -26,6 +29,7 @@ use zero_api::{TrafficMetric, TrafficPlane, TrafficScope};
 pub(crate) struct TrafficRegistry {
     entries: RwLock<BTreeMap<TrafficScope, Arc<CounterSet>>>,
     pub(super) management: Mutex<()>,
+    configuration: Mutex<Option<TrafficConfiguration>>,
     pub(super) revision: AtomicU64,
     pub(super) config_revision: AtomicU64,
     pending: source::PendingSources,
@@ -52,6 +56,7 @@ impl TrafficRegistry {
                 Arc::new(CounterSet::new(Some((up, down)))),
             )])),
             management: Mutex::new(()),
+            configuration: Mutex::new(None),
             revision: AtomicU64::new(1),
             config_revision: AtomicU64::new(1),
             sample_offset: AtomicU64::new(0),
@@ -96,8 +101,10 @@ impl TrafficRegistry {
             }
         }
     }
-    pub fn reconcile(&self, config: &zero_config::RuntimeConfig, revision: u64) {
+    pub fn reconcile(&self, config: &Arc<zero_config::RuntimeConfig>, revision: u64) {
         let _guard = self.management.lock().unwrap_or_else(|e| e.into_inner());
+        *self.configuration.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some(TrafficConfiguration(config.clone()));
         self.config_revision.store(revision, Ordering::Relaxed);
         let mut current = std::collections::BTreeSet::from([
             TrafficScope::Global,
@@ -180,5 +187,14 @@ impl TrafficRegistry {
         if entries.len() != before {
             self.revision.fetch_add(1, Ordering::Relaxed);
         }
+    }
+}
+
+// One reference to the configuration that actually reconciled this registry,
+// not a cloned config or another snapshot inventory. Never expose its secrets.
+struct TrafficConfiguration(Arc<zero_config::RuntimeConfig>);
+impl std::fmt::Debug for TrafficConfiguration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("TrafficConfiguration(..)")
     }
 }

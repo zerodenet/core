@@ -4,6 +4,15 @@ use super::Engine;
 use crate::{ActiveSession, CompletedSessionRecord};
 
 impl Engine {
+    pub(crate) fn traffic_query_roots(
+        &self,
+    ) -> (
+        &crate::observability::traffic::TrafficRegistry,
+        &crate::session::SessionRegistry,
+    ) {
+        (&self.traffic, &self.session_registry)
+    }
+
     pub(crate) fn query_data_roots(
         &self,
     ) -> (

@@ -296,3 +296,6 @@ impl RuntimeConfig {
         bindings
     }
 }
+
+mod roles;
+pub use roles::EndpointRoleBindingRef;
