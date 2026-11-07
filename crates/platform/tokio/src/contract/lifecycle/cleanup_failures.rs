@@ -56,10 +56,16 @@ impl ResourceCleanupFailures {
     /// Return false when this fixed receiver did not retain this source or its
     /// exact stable receipt payload. The original producer then keeps custody.
     pub fn try_receive(&self, actual: Arc<ChannelError>, phase: CleanupFailurePhase) -> bool {
-        let retained = self.receive(actual.clone(), phase);
-        Arc::ptr_eq(&retained, &actual)
-            || actual.cleanup_failure_receipt().is_some_and(|receipt| {
-                same_receipt(&retained, receipt) && receipt.is_acknowledged()
+        // receive returns an unaccepted incoming source on overflow, so its
+        // return value is not custody. Read only this receiver's actual cells.
+        let _ = self.receive(actual.clone(), phase);
+        self.failures()
+            .chain(self.report.get().cloned())
+            .any(|retained| {
+                Arc::ptr_eq(&retained, &actual)
+                    || actual.cleanup_failure_receipt().is_some_and(|receipt| {
+                        same_receipt(&retained, receipt) && receipt.is_acknowledged()
+                    })
             })
     }
     pub fn receive(
@@ -134,3 +140,7 @@ fn same_receipt(source: &ChannelError, receipt: &CleanupFailureReceipt) -> bool 
         .cleanup_failure_receipt()
         .is_some_and(|same| same.same_receipt(receipt))
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/cleanup_failures.rs"]
+mod tests;
