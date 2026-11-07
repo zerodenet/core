@@ -13,9 +13,25 @@ pub(super) struct ConcurrentCommandTasks {
     _original: Option<ControlBudgetPermit>,
 }
 
-struct CommandCredits {
+pub(super) struct CommandCredits {
     _command: zero_runtime::configuration::ControlConnectionPermit,
     _bytes: Vec<ControlBudgetPermit>,
+    pub(super) observation: zero_runtime::ApplyObservation,
+}
+impl CommandCredits {
+    pub(super) fn new(
+        command: zero_runtime::configuration::ControlConnectionPermit,
+        bytes: Vec<ControlBudgetPermit>,
+    ) -> Self {
+        Self {
+            _command: command,
+            _bytes: bytes,
+            observation: zero_runtime::ApplyObservation::new(),
+        }
+    }
+    pub(super) async fn settle(&self) -> io::Result<()> {
+        super::super::owner::wait_command_operation(&self.observation).await
+    }
 }
 
 struct StopOnPanic(CancellationToken);
@@ -117,24 +133,26 @@ impl ConcurrentCommandTasks {
             return false;
         };
         let stop = self.stop.clone();
+        let credits = CommandCredits::new(command, retained);
+        let observation = credits.observation.clone();
         let (start, started) = tokio::sync::oneshot::channel();
         let original = self.tasks.spawn(async move {
-            if started.await.is_err() {
+            if started.await.is_err() || stop.is_cancelled() {
                 return Ok(());
             }
             let _panic = StopOnPanic(stop.clone());
-            tokio::select! {
-                _=stop.cancelled()=>Ok(()),
-                result=future=>{ if result.is_err() {stop.cancel();} result },
+            // Once this original command has started, its existing operation
+            // owns completion/cleanup. A disconnected caller cannot turn
+            // cancellation into ACK or discard its retained input capacity.
+            let result = super::super::owner::catch_work(observation.scope(future)).await;
+            let joined = super::super::owner::wait_command_operation(&observation).await;
+            let result = super::super::owner::finish_caught(result, [joined]);
+            if result.is_err() {
+                stop.cancel();
             }
+            result
         });
-        self.retained.insert(
-            original.id(),
-            CommandCredits {
-                _command: command,
-                _bytes: retained,
-            },
-        );
+        self.retained.insert(original.id(), credits);
         let _ = start.send(());
         true
     }

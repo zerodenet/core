@@ -22,6 +22,17 @@ pub(crate) async fn catch_work<F: std::future::Future>(
     .await
 }
 
+/// Observe only the same accepted configuration registration. Preserve its
+/// original typed task fault independently of the command's wire result.
+pub(crate) async fn wait_command_operation(
+    observation: &zero_runtime::ApplyObservation,
+) -> io::Result<()> {
+    match observation.wait_joined().await {
+        None => Ok(()),
+        Some(joined) => joined.result().map_err(io::Error::other),
+    }
+}
+
 pub(crate) fn close_deadline() -> tokio::time::Instant {
     tokio::time::Instant::now() + std::time::Duration::from_secs(5)
 }

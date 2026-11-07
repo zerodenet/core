@@ -42,6 +42,17 @@ where
     }
 }
 
+pub(super) async fn write_command_after_ack<W: tokio::io::AsyncWrite + Unpin>(
+    writer: Arc<TokioMutex<BufWriter<W>>>,
+    id: Option<serde_json::Value>,
+    result: zero_api::ApiResult<zero_api::CommandResponse>,
+    budget: &Arc<ControlBudget>,
+    stop: &CancellationToken,
+) -> io::Result<()> {
+    // This helper receives the final operation result, never its pending future.
+    tokio::select! {biased;_=stop.cancelled()=>Ok(()),result=write_budgeted_command_result(writer,id,result,budget)=>result}
+}
+
 #[cfg(test)]
 pub(super) async fn write_command_result<W>(
     writer: Arc<TokioMutex<BufWriter<W>>>,

@@ -10,7 +10,12 @@ pub(super) struct Connections {
 pub(super) struct Original {
     claim: AcceptedTcpClaim,
     permit: ControlBudgetPermit,
-    command: Mutex<Option<zero_runtime::configuration::ControlConnectionPermit>>,
+    command: Mutex<Option<HeldCommand>>,
+}
+struct HeldCommand {
+    _request: Arc<super::input::HeldRequest>,
+    observation: zero_runtime::ApplyObservation,
+    _permit: zero_runtime::configuration::ControlConnectionPermit,
 }
 impl Original {
     pub(super) fn connection_budget(&self) -> zero_runtime::configuration::ControlConnectionBudget {
@@ -18,7 +23,10 @@ impl Original {
             .connection_budget()
             .expect("same actual HTTP connection issuer")
     }
-    pub(super) fn reserve_command(&self) -> io::Result<()> {
+    pub(super) fn reserve_command(
+        &self,
+        request: Arc<super::input::HeldRequest>,
+    ) -> io::Result<zero_runtime::ApplyObservation> {
         let mut command = self
             .command
             .lock()
@@ -26,13 +34,29 @@ impl Original {
         if command.is_some() {
             return Err(io::Error::other("HTTP original already holds its command"));
         }
-        *command = Some(
-            self.permit
+        let observation = zero_runtime::ApplyObservation::new();
+        *command = Some(HeldCommand {
+            _permit: self
+                .permit
                 .connection_budget()
                 .expect("same actual HTTP connection issuer")
                 .reserve(zero_runtime::configuration::ControlConnectionCharge::PendingCommand)?,
-        );
-        Ok(())
+            _request: request,
+            observation: observation.clone(),
+        });
+        Ok(observation)
+    }
+    pub(super) async fn finish_command(&self) -> io::Result<()> {
+        let observation = self
+            .command
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .map(|command| command.observation.clone());
+        match observation {
+            Some(observation) => crate::ipc::owner::wait_command_operation(&observation).await,
+            None => Ok(()),
+        }
     }
 }
 impl Connections {
