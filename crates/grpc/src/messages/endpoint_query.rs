@@ -7,27 +7,42 @@ enum Failure<'a> {
     Capacity(io::Error),
 }
 struct QueryError<'a>(zero_proxy::ProxyEndpointQueryError<'a>);
+pub(crate) enum PreparedProxyQuery<'a> {
+    Ready(Result<Vec<u8>, tonic::Status>),
+    QueryError(zero_proxy::ProxyEndpointQueryError<'a>),
+}
+impl PreparedProxyQuery<'_> {
+    pub(crate) async fn finish(self, original: &Record) -> Result<Vec<u8>, tonic::Status> {
+        match self {
+            Self::Ready(result) => result,
+            Self::QueryError(error) => Err(original
+                .error_status(tonic::Code::Internal, "", &QueryError(error))
+                .await),
+        }
+    }
+}
 impl std::fmt::Display for QueryError<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}", self.0.code().as_code_str(), self.0.message())
     }
 }
 impl Record {
-    pub(crate) async fn actual_proxy_query(
+    pub(crate) fn actual_proxy_query<'a>(
         &self,
-        proxy: &zero_proxy::ProxyHandle,
-        request: &zero_api::QueryRequest,
-    ) -> Option<Result<Vec<u8>, tonic::Status>> {
-        if let Some(result) = self.endpoint_query(proxy, request).await {
+        proxy: &'a zero_proxy::ProxyHandle,
+        request: &'a zero_api::QueryRequest,
+    ) -> Option<PreparedProxyQuery<'a>> {
+        if let Some(result) = self.endpoint_query(proxy, request) {
             return Some(result);
         }
         self.proxy_query(proxy, request)
+            .map(PreparedProxyQuery::Ready)
     }
-    pub(crate) async fn endpoint_query(
+    fn endpoint_query<'a>(
         &self,
-        proxy: &zero_proxy::ProxyHandle,
-        request: &zero_api::QueryRequest,
-    ) -> Option<Result<Vec<u8>, tonic::Status>> {
+        proxy: &'a zero_proxy::ProxyHandle,
+        request: &'a zero_api::QueryRequest,
+    ) -> Option<PreparedProxyQuery<'a>> {
         if !matches!(
             request,
             zero_api::QueryRequest::Endpoints(_)
@@ -38,7 +53,11 @@ impl Record {
         }
         let mut workspace = match self.budget.reserve(ControlCharge::ResponseBytes(0)) {
             Ok(original) => original,
-            Err(error) => return Some(Err(tonic::Status::resource_exhausted(error.to_string()))),
+            Err(error) => {
+                return Some(PreparedProxyQuery::Ready(Err(
+                    tonic::Status::resource_exhausted(error.to_string()),
+                )))
+            }
         };
         let mut encoded: Option<Arc<Lease>> = None;
         let prepared = (|| -> Result<(Vec<u8>, usize), Failure<'_>> {
@@ -57,13 +76,11 @@ impl Record {
                     frame,
                     encoded.take().expect("same original endpoint envelope"),
                 );
-                Ok(bytes)
+                PreparedProxyQuery::Ready(Ok(bytes))
             }
-            Err(Failure::Query(error)) => Err(self
-                .error_status(tonic::Code::Internal, "", &QueryError(error))
-                .await),
+            Err(Failure::Query(error)) => PreparedProxyQuery::QueryError(error),
             Err(Failure::Capacity(error)) => {
-                Err(tonic::Status::resource_exhausted(error.to_string()))
+                PreparedProxyQuery::Ready(Err(tonic::Status::resource_exhausted(error.to_string())))
             }
         })
     }

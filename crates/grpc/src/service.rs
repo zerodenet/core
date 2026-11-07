@@ -75,10 +75,20 @@ where
             }
         };
         #[cfg(feature = "proxy-control")]
-        if let (Some(proxy), Some(original)) = (self.source.proxy(), &original) {
-            if let Some(result) = original.actual_proxy_query(proxy, &query).await {
-                return result.map(|payload| Response::new(QueryResponse { payload }));
+        let prepared_proxy = {
+            match (self.source.proxy(), &original) {
+                (Some(proxy), Some(original)) => original.actual_proxy_query(proxy, &query),
+                _ => None,
             }
+        };
+        #[cfg(feature = "proxy-control")]
+        if let Some(prepared) = prepared_proxy {
+            // All concrete Proxy views and references leave the synchronous
+            // preparation scope before a capacity/error encoding can await.
+            return prepared
+                .finish(original.as_ref().expect("same admitted Proxy request"))
+                .await
+                .map(|payload| Response::new(QueryResponse { payload }));
         }
         if let (Some(engine), Some(original)) = (&self.source.engine, &original) {
             if let Some(result) = original.config_query(engine, &query).await {
