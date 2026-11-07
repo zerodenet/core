@@ -1,5 +1,5 @@
 //! Real DNS requests and warm carrier loans quiesce in the existing owners.
-use crate::{DnsSystem, native::NativeDnsProvider, query_tasks::QueryPause};
+use crate::{native::NativeDnsProvider, query_tasks::QueryPause, DnsSystem};
 use std::{collections::BTreeSet, io, sync::Arc};
 use zero_core::component::ComponentInstanceId;
 
@@ -13,6 +13,10 @@ pub struct DnsDonorPause {
     #[cfg(feature = "doh")]
     owners: Vec<Arc<crate::backends::DohDriverOwner>>,
     replaced: Vec<ComponentInstanceId>,
+    cancel_sources: Vec<Arc<crate::native::NativeDnsSource>>,
+    // A retry checkpoint set only after all selected Query/Blocking actual
+    // joins, original native custody and registration ACKs were observed.
+    queries_retired: std::sync::atomic::AtomicBool,
 }
 impl DnsDonorPause {
     pub(crate) fn matches_replacement(&self, replaced: &[ComponentInstanceId]) -> bool {
@@ -24,9 +28,56 @@ impl DnsDonorPause {
                 .into_iter()
                 .collect::<Vec<_>>()
     }
+    pub(crate) fn cancel_queries(&self, dns: &DnsSystem) -> io::Result<()> {
+        if self
+            .queries_retired
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Ok(());
+        }
+        for source in &self.cancel_sources {
+            let provider = source.provider()?;
+            if !self
+                ._providers
+                .iter()
+                .any(|actual| Arc::ptr_eq(actual, &provider))
+            {
+                return Err(io::Error::other(
+                    "actual DNS query source changed before retirement",
+                ));
+            }
+        }
+        for source in &self.cancel_sources {
+            dns.retire_native_query_source(source);
+        }
+        // Cancel every selected original before awaiting one purpose: a
+        // Default finalizer can legitimately wait its real Node descendants.
+        for query in &self._queries {
+            query.cancel_queries()?;
+        }
+        Ok(())
+    }
     /// No new owner, driver or executor: retire selected existing clients and
     /// consume their actual native/loan, original joins and registration ACKs.
     pub async fn retire(&self, end: tokio::time::Instant) -> io::Result<()> {
+        // Query cancellation closes only original per-request custody. Pool
+        // drivers remain alive until all those actual users have returned.
+        if !self
+            .queries_retired
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            let mut failure = None;
+            for query in &self._queries {
+                if let Err(source) = query.settle_queries(end).await {
+                    failure.get_or_insert(source);
+                }
+            }
+            if let Some(source) = failure {
+                return Err(source);
+            }
+            self.queries_retired
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
         #[cfg(feature = "doh")]
         {
             let mut failure = None;
@@ -47,8 +98,8 @@ impl DnsDonorPause {
     }
 }
 impl DnsSystem {
-    fn donor_providers(&self) -> Vec<Arc<dyn NativeDnsProvider>> {
-        let mut result = Vec::new();
+    fn donor_sources(&self) -> Vec<Arc<crate::native::NativeDnsSource>> {
+        let mut sources = Vec::new();
         for source in self
             .native_source
             .as_ref()
@@ -57,16 +108,25 @@ impl DnsSystem {
             .chain(self.wire_query_coordinator.native_source())
             .chain(self.node_queries.as_ref().map(|node| &node.source))
         {
+            if !sources.iter().any(|actual| Arc::ptr_eq(actual, source)) {
+                sources.push(source.clone());
+            }
+        }
+        sources
+    }
+    fn donor_providers(&self) -> Vec<Arc<dyn NativeDnsProvider>> {
+        let mut providers = Vec::new();
+        for source in self.donor_sources() {
             if let Ok(provider) = source.provider() {
-                if !result
+                if !providers
                     .iter()
-                    .any(|old: &Arc<dyn NativeDnsProvider>| Arc::ptr_eq(old, &provider))
+                    .any(|actual| Arc::ptr_eq(actual, &provider))
                 {
-                    result.push(provider);
+                    providers.push(provider);
                 }
             }
         }
-        result
+        providers
     }
     /// Actual installed query owners and retained LoanOwner ancestor instances.
     /// Cold configured tags are not evidence and this grants no IO authority.
@@ -91,9 +151,18 @@ impl DnsSystem {
         &self,
         replaced: &[ComponentInstanceId],
     ) -> io::Result<DnsDonorPause> {
+        self.pause_donor_replacement(replaced, false)
+    }
+    pub(crate) fn pause_donor_replacement(
+        &self,
+        replaced: &[ComponentInstanceId],
+        cancel_queries: bool,
+    ) -> io::Result<DnsDonorPause> {
         let mut guard = DnsDonorPause {
             _queries: Vec::new(),
             _providers: Vec::new(),
+            cancel_sources: Vec::new(),
+            queries_retired: Default::default(),
             #[cfg(feature = "doh")]
             owners: Vec::new(),
             replaced: replaced
@@ -111,14 +180,7 @@ impl DnsSystem {
         {
             return Ok(guard);
         }
-        let providers = self.donor_providers();
-        for provider in &providers {
-            let tasks = provider.tasks();
-            if !guard._queries.iter().any(|old| old.same_owner(&tasks)) {
-                guard._queries.push(tasks.try_pause_queries()?);
-            }
-        }
-        guard._providers = providers;
+        let mut selected_tasks: Vec<crate::OwnedDnsQueryTasks> = Vec::new();
         #[cfg(feature = "doh")]
         for owner in self.transport_owners.actual_doh_owners() {
             if owner
@@ -126,14 +188,55 @@ impl DnsSystem {
                 .iter()
                 .any(|actual| replaced.contains(actual))
             {
-                // Cross-purpose sharing requires these same actual sources,
-                // not an equal budget or fabricated Scope identity.
+                // Canonical cross-purpose pool sharing retains the real source
+                // pair, never another equal budget or a fabricated Scope.
                 for tasks in owner.source_tasks()? {
-                    if !guard._queries.iter().any(|old| old.same_owner(&tasks)) {
-                        guard._queries.push(tasks.try_pause_queries()?);
+                    if !selected_tasks
+                        .iter()
+                        .any(|old: &crate::OwnedDnsQueryTasks| old.same_owner(&tasks))
+                    {
+                        selected_tasks.push(tasks);
                     }
                 }
                 guard.owners.push(owner);
+            }
+        }
+        for provider in self.donor_providers() {
+            let tasks = provider.tasks();
+            if provider
+                .host_scope()
+                .is_some_and(|(instance, _)| replaced.contains(&instance))
+                || selected_tasks
+                    .iter()
+                    .any(|actual| actual.same_owner(&tasks))
+            {
+                if !selected_tasks
+                    .iter()
+                    .any(|actual| actual.same_owner(&tasks))
+                {
+                    selected_tasks.push(tasks);
+                }
+                guard._providers.push(provider);
+            }
+        }
+        for tasks in selected_tasks {
+            guard._queries.push(if cancel_queries {
+                tasks.pause_queries_for_profile_change()?
+            } else {
+                tasks.try_pause_queries()?
+            });
+        }
+        if cancel_queries {
+            for source in self.donor_sources() {
+                if let Ok(provider) = source.provider() {
+                    if guard
+                        ._providers
+                        .iter()
+                        .any(|actual| Arc::ptr_eq(actual, &provider))
+                    {
+                        guard.cancel_sources.push(source);
+                    }
+                }
             }
         }
         Ok(guard)

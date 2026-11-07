@@ -1,15 +1,42 @@
 //! Reversible admission pause, never cancellation, native closure or task ACK.
 use super::*;
 #[must_use]
-pub(crate) struct QueryPause(OwnedDnsQueryTasks);
+pub(crate) struct QueryPause(OwnedDnsQueryTasks, bool);
 impl QueryPause {
-    pub(crate) fn same_owner(&self, tasks: &OwnedDnsQueryTasks) -> bool {
-        self.0.same_owner(tasks)
+    pub(crate) fn cancel_queries(&self) -> io::Result<()> {
+        if !self.1 {
+            return Ok(());
+        }
+        let records = {
+            let state = self.0 .0.state.lock().expect("DNS query tasks poisoned");
+            if state.pauses == 0 {
+                return Err(io::Error::other(
+                    "actual DNS query admission fence was lost",
+                ));
+            }
+            state
+                .records
+                .iter()
+                .filter(|record| !physical_driver(record.kind))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        for record in records {
+            record.cancel.cancel();
+        }
+        Ok(())
+    }
+    pub(crate) async fn settle_queries(&self, end: tokio::time::Instant) -> io::Result<()> {
+        if self.1 {
+            self.0.retire_paused_queries(end).await
+        } else {
+            Ok(())
+        }
     }
 }
 impl Drop for QueryPause {
     fn drop(&mut self) {
-        let mut state = self.0.0.state.lock().expect("DNS query tasks poisoned");
+        let mut state = self.0 .0.state.lock().expect("DNS query tasks poisoned");
         state.pauses = state
             .pauses
             .checked_sub(1)
@@ -29,13 +56,21 @@ fn physical_driver(kind: TaskKind) -> bool {
 }
 impl OwnedDnsQueryTasks {
     pub(crate) fn try_pause_queries(&self) -> io::Result<QueryPause> {
+        self.pause_queries(false)
+    }
+    pub(crate) fn pause_queries_for_profile_change(&self) -> io::Result<QueryPause> {
+        self.pause_queries(true)
+    }
+    fn pause_queries(&self, cancel: bool) -> io::Result<QueryPause> {
         self.reap();
         {
             // This is the same lock as final original Query/Blocking/Driver
             // registration. A call that passed ensure_open cannot cross it.
             let mut state = self.0.state.lock().expect("DNS query tasks poisoned");
             if let Some(error) = &state.first_failure {
-                return Err(io::Error::other(error.clone()));
+                if !cancel || state.identity_fault {
+                    return Err(io::Error::other(error.clone()));
+                }
             }
             if state.closing || state.identity_fault || self.0.parent.is_cancelled() {
                 return Err(io::Error::new(
@@ -43,10 +78,11 @@ impl OwnedDnsQueryTasks {
                     "original DNS owner is retiring",
                 ));
             }
-            if state
-                .records
-                .iter()
-                .any(|record| !physical_driver(record.kind))
+            if !cancel
+                && state
+                    .records
+                    .iter()
+                    .any(|record| !physical_driver(record.kind))
             {
                 return Err(io::Error::new(
                     io::ErrorKind::WouldBlock,
@@ -58,7 +94,10 @@ impl OwnedDnsQueryTasks {
                 .checked_add(1)
                 .ok_or_else(|| io::Error::other("query pause count exhausted"))?;
         }
-        let guard = QueryPause(self.clone());
+        let guard = QueryPause(self.clone(), cancel);
+        if cancel {
+            return Ok(guard);
+        }
         let originals = self
             .0
             .budget
@@ -96,3 +135,5 @@ impl OwnedDnsQueryTasks {
         Ok(guard)
     }
 }
+
+mod drain;

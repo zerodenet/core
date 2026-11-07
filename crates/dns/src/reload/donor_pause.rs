@@ -36,7 +36,8 @@ impl DnsSystem {
         }
         // Preparing may inspect/join-observe an original query and release
         // actual witnesses. No token/cache/state lock spans these callbacks.
-        let pause = Arc::new(self.try_pause_donor_replacement(replaced)?);
+        let pause =
+            Arc::new(self.pause_donor_replacement(replaced, resources.0.native_profile_changed)?);
         {
             let prepared = self
                 .prepared_reload
@@ -95,6 +96,9 @@ impl DnsSystem {
         };
         // Cancellation retains this same guard in prepared_reload. No mutex,
         // Scope join-consumer, or fresh resource owner crosses this await.
+        // Normal DNS profile changes cancel the actual old flights only after
+        // their query registration fences are retained in this same token.
+        pause.cancel_queries(self)?;
         pause.retire(end).await
     }
 }
