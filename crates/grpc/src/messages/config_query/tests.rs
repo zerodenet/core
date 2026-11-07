@@ -1,3 +1,4 @@
+mod subscription;
 use super::*;
 use std::{num::NonZeroUsize, time::Duration};
 use zero_api::QueryService;
@@ -76,6 +77,22 @@ async fn ordinary_native_grpc_uses_the_same_engine_view_and_original_error_shape
         for query in [
             zero_api::QueryRequest::Config(Default::default()),
             zero_api::QueryRequest::Policies(Default::default()),
+            zero_api::QueryRequest::Runtime(Default::default()),
+            zero_api::QueryRequest::Stats(Default::default()),
+            zero_api::QueryRequest::Diagnostics(Default::default()),
+            zero_api::QueryRequest::ActiveFlows(zero_api::FlowListQuery {
+                limit: None,
+                filter: Default::default(),
+            }),
+            zero_api::QueryRequest::RecentFlows(zero_api::FlowListQuery {
+                limit: None,
+                filter: Default::default(),
+            }),
+            zero_api::QueryRequest::PrincipalFlows(Default::default()),
+            zero_api::QueryRequest::Sinks(Default::default()),
+            zero_api::QueryRequest::Flow(zero_api::FlowGetQuery {
+                flow_id: "not-a-flow-雪".into(),
+            }),
             zero_api::QueryRequest::Policy(zero_api::PolicyGetQuery {
                 policy_tag: "pick".into(),
             }),
@@ -109,6 +126,44 @@ async fn ordinary_native_grpc_uses_the_same_engine_view_and_original_error_shape
                     assert_eq!(actual.code(), tonic::Code::Internal);
                     assert_eq!(actual.message(), expected.to_string());
                 }
+            }
+        }
+        for total in [16 * 1024, 128 * 1024] {
+            while budget.usage().grpc_requests != 0 {
+                tokio::task::yield_now().await;
+            }
+            let mut limits = budget.limits();
+            limits.messages.response_bytes_total = total;
+            budget.prepare(limits).unwrap().commit().unwrap();
+            client.ready().await.unwrap();
+            let query = zero_api::QueryRequest::Stats(Default::default());
+            let result: Result<tonic::Response<crate::QueryResponse>, tonic::Status> = client
+                .unary(
+                    tonic::Request::new(crate::QueryRequest {
+                        method: "query".into(),
+                        payload: serde_json::to_vec(&query).unwrap(),
+                    }),
+                    tonic::codegen::http::uri::PathAndQuery::from_static(
+                        "/zero.api.v1.Control/Query",
+                    ),
+                    tonic::codec::ProstCodec::default(),
+                )
+                .await;
+            if total == 16 * 1024 {
+                assert_eq!(
+                    result.unwrap_err().code(),
+                    tonic::Code::ResourceExhausted,
+                    "unary quota refusal must not wait for its own workspace"
+                );
+            } else {
+                assert_eq!(
+                    serde_json::from_slice::<serde_json::Value>(
+                        &result.unwrap().into_inner().payload
+                    )
+                    .unwrap(),
+                    serde_json::to_value(engine.query(query).unwrap()).unwrap(),
+                    "same original connection recovers through configured Root growth"
+                );
             }
         }
         drop(client);
@@ -171,7 +226,9 @@ async fn actual_status_header_clones_keep_credit_after_the_same_request_scope_jo
     };
     assert_eq!(error.message(), source.to_string());
     let mut response = error.into_http();
-    original.retain_status_header(response.headers_mut());
+    original
+        .retain_status_header(response.headers_mut())
+        .unwrap();
     let header = response.headers()["grpc-message"].clone();
     assert!(budget.usage().response_bytes > super::super::CODEC_BUFFER_SIZE);
     drop((response, original));
@@ -184,10 +241,16 @@ async fn actual_status_header_clones_keep_credit_after_the_same_request_scope_jo
         .is_complete());
     assert_eq!(
         budget.usage().grpc_requests,
-        1,
-        "actual native header bytes retain their same request lifetime"
+        0,
+        "cached header storage cannot pin concurrency after the actual request joins"
     );
     assert!(budget.usage().response_bytes > 0);
+    let mut shrink = budget.limits();
+    shrink.messages.response_bytes_total = budget.usage().response_bytes - 1;
+    assert!(
+        budget.prepare(shrink).is_err(),
+        "the cached original bytes still fence a smaller total"
+    );
     drop(header);
     assert_eq!(budget.usage().grpc_requests, 0);
     assert_eq!(budget.usage().response_bytes, 0);

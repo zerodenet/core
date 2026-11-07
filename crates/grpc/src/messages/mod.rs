@@ -5,6 +5,7 @@ mod executor;
 mod input;
 pub(super) mod output;
 mod registry;
+mod runtime_query;
 pub(super) use executor::StreamExecutor;
 pub(super) use input::Input;
 pub(super) use output::{Output, Payload};

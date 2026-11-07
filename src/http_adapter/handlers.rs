@@ -10,7 +10,7 @@ use super::{body::HttpBody, response::api_error_status};
 use zero_api::ApiResponse;
 
 type HttpApiError = (&'static str, HttpBody);
-type EventStream = (zero_engine::EventSubscriber, Vec<zero_api::RawApiEvent>);
+type EventStream = (zero_engine::EventSubscriber, zero_engine::RetainedReplay);
 
 mod endpoint;
 pub use endpoint::{endpoint_get, endpoints_list};
@@ -159,6 +159,7 @@ pub fn events_stream(
     handle: &ProxyHandle,
     query: &str,
     headers: &[(String, String)],
+    budget: &std::sync::Arc<zero_runtime::configuration::ControlBudget>,
 ) -> Result<EventStream, HttpApiError> {
     let mut filter = EventFilter::default();
     if let Some(types) = parse_query_param(query, "types") {
@@ -177,11 +178,14 @@ pub fn events_stream(
 
     let catch_up = match since {
         Some(s) => {
-            let result = handle.since(s, 256, filter.clone()).map_err(|error| {
-                let status = api_error_status(&error);
-                let body = HttpBody::BareError(error);
-                (status, body)
-            })?;
+            let credit = budget
+                .reserve(zero_runtime::configuration::ControlCharge::ResponseBytes(0))
+                .map_err(replay_capacity)?;
+            let result = handle
+                .engine_handle()
+                .inner()
+                .retained_event_replay(s, 256, &filter, credit)
+                .map_err(replay_capacity)?;
             if result.has_gap {
                 tracing::warn!(
                     requested_since = s,
@@ -189,9 +193,9 @@ pub fn events_stream(
                     "SSE catch-up has gap — events were evicted from ring buffer"
                 );
             }
-            result.events
+            result
         }
-        None => Vec::new(),
+        None => zero_engine::RetainedReplay::empty(),
     };
 
     match handle.subscribe(filter) {
@@ -202,6 +206,16 @@ pub fn events_stream(
             Err((status, body))
         }
     }
+}
+
+fn replay_capacity(error: io::Error) -> HttpApiError {
+    let code = if error.kind() == io::ErrorKind::WouldBlock {
+        ApiErrorCode::Conflict
+    } else {
+        ApiErrorCode::Internal
+    };
+    let error = ApiError::new(code, error.to_string());
+    (api_error_status(&error), HttpBody::BareError(error))
 }
 
 // ── helpers ──────────────────────────────────────────────────────────

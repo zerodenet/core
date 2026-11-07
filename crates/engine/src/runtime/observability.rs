@@ -4,6 +4,20 @@ use super::Engine;
 use crate::{ActiveSession, CompletedSessionRecord};
 
 impl Engine {
+    pub(crate) fn query_data_roots(
+        &self,
+    ) -> (
+        &crate::session::SessionRegistry,
+        &crate::session::CompletedSessionHistory,
+        &crate::observability::EngineStats,
+    ) {
+        (
+            &self.session_registry,
+            &self.completed_sessions,
+            &self.stats,
+        )
+    }
+
     pub(crate) fn subscribe_events(&self, subscriber: crate::observability::Subscriber) {
         self.event_log.subscribe(subscriber);
     }
@@ -46,6 +60,18 @@ impl Engine {
 
     pub fn events_since(&self, since: u64, limit: usize, filter: &EventFilter) -> EventReplay {
         self.event_log.events_since(since, limit, filter)
+    }
+
+    /// Prepaid original replay for concrete production control adapters. The
+    /// existing owned EventSource API retains its independent library role.
+    pub fn retained_event_replay(
+        &self,
+        since: u64,
+        limit: usize,
+        filter: &EventFilter,
+        credit: zero_runtime::configuration::ControlBudgetPermit,
+    ) -> std::io::Result<crate::RetainedReplay> {
+        self.event_log.retained_replay(since, limit, filter, credit)
     }
 
     pub fn latest_event_sequence(&self) -> u64 {
@@ -96,6 +122,9 @@ impl Engine {
         *self.sink_status.lock().expect("sink status lock poisoned") = status;
     }
 
+    pub(crate) fn query_sink_status(&self) -> std::sync::MutexGuard<'_, Vec<zero_api::SinkStatus>> {
+        self.sink_status.lock().expect("sink status lock poisoned")
+    }
     pub fn sink_status_snapshot(&self) -> zero_api::SinkStatusSnapshot {
         zero_api::SinkStatusSnapshot {
             sinks: self

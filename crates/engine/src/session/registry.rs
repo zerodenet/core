@@ -1,6 +1,8 @@
 //! Active session registry, accounting, cancellation, and snapshots.
 
 mod principal;
+mod query;
+pub(crate) use query::{ActiveQueryRows, SessionQueryGuard};
 mod traffic;
 
 use std::collections::HashMap;
@@ -22,7 +24,7 @@ use super::observation::{
 use super::traffic::TrafficSampler;
 use super::{AdmissionLife, CompletedSessionRecord};
 use principal::PrincipalFlowIndex;
-pub(crate) use principal::PrincipalFlowObservation;
+pub(crate) use principal::{PrincipalFlowObservation, PrincipalQueryRows};
 
 #[derive(Debug, Default)]
 pub struct SessionRegistry {

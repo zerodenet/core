@@ -34,11 +34,13 @@ fn dropping_the_last_shared_probe_waiter_removes_the_pending_entry() {
         intent: TcpDispatchIntent::DiagnosticProbe,
     };
     let future = async { Ok::<u64, OutboundProbeError>(1) }.boxed().shared();
+    let original = Arc::new(ProbeOriginal::default());
     let probes = Arc::new(Mutex::new(HashMap::from([(
         key.clone(),
         SharedProbeEntry {
             future: future.clone(),
             waiters: 1,
+            original: original.clone(),
         },
     )])));
 
@@ -46,9 +48,12 @@ fn dropping_the_last_shared_probe_waiter_removes_the_pending_entry() {
         probes: probes.clone(),
         key,
         future,
+        original: original.clone(),
+        attached: true,
     });
 
     assert!(probes.lock().unwrap().is_empty());
+    assert!(original.cancelled.load(Ordering::Acquire));
 }
 
 #[test]

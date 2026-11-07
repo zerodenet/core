@@ -325,7 +325,7 @@ impl InboundOwner {
                             .lock()
                             .expect("inbound resources poisoned")
                             .iter()
-                            .filter_map(|resource| resource.exit_fault.get().cloned()),
+                            .flat_map(|resource| resource.cleanup_failures()),
                     );
                     Arc::new(InboundTerminal {
                         native_bound_failures: native_bound_failures.into_boxed_slice(),

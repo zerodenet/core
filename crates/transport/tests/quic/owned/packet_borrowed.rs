@@ -33,6 +33,13 @@ fn instance(id: u64) -> ComponentInstanceId {
 
 #[tokio::test]
 async fn borrowed_packet_uses_actual_udp_and_holds_queues_until_original_scope_ack() {
+    actual_borrowed_wire(false).await;
+}
+#[tokio::test]
+async fn cancelled_host_keeps_same_borrowed_driver_for_final_accepted_fifo_and_actual_ack() {
+    actual_borrowed_wire(true).await;
+}
+async fn actual_borrowed_wire(cancelled: bool) {
     timeout(Duration::from_secs(5), async {
         let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let remote = peer.local_addr().unwrap();
@@ -81,7 +88,12 @@ async fn borrowed_packet_uses_actual_udp_and_holds_queues_until_original_scope_a
         let mut loan = native.into_datagram_loan(view, AssociationId(945)).unwrap();
         let observed = loan.receiver_observation();
         let origin = loan.owner.original().clone();
-        let mut receiver = CarrierOwner::new(instance(936), bound(1), &host);
+        // Native donor authority remains independent. The receiver's original
+        // cleanup fence is retained until endpoint/drivers return, while its
+        // actual host binding still closes admission immediately.
+        let receiver_host = Arc::new(CancellationToken::new());
+        let cleanup = Arc::new(CancellationToken::new());
+        let mut receiver = CarrierOwner::new(instance(936), bound(1), &cleanup);
         receiver
             .registration()
             .bind_declared(
@@ -91,7 +103,7 @@ async fn borrowed_packet_uses_actual_udp_and_holds_queues_until_original_scope_a
                     max_sockets: bound(1),
                 },
                 &scope.registrar(),
-                &host,
+                &receiver_host,
             )
             .unwrap();
         receiver.start(end()).await.unwrap();
@@ -151,7 +163,53 @@ async fn borrowed_packet_uses_actual_udp_and_holds_queues_until_original_scope_a
         assert_eq!(count, 1);
         assert_eq!(metadata[0].addr, remote);
         assert_eq!(&bytes[..metadata[0].len], b"same packet return");
-        segment.stop();
+        if cancelled {
+            scope.begin_shutdown();
+            receiver_host.cancel();
+            assert!(
+                receiver.grants().reserve().is_err(),
+                "actual host cancellation still denies new acquisition"
+            );
+            for contents in [
+                b"accepted final data".as_slice(),
+                b"accepted endpoint close".as_slice(),
+            ] {
+                socket
+                    .socket
+                    .try_send(&quinn::udp::Transmit {
+                        destination: remote,
+                        ecn: None,
+                        contents,
+                        segment_size: None,
+                        src_ip: None,
+                    })
+                    .unwrap();
+            }
+            segment.stop_final();
+            for expected in [
+                b"accepted final data".as_slice(),
+                b"accepted endpoint close".as_slice(),
+            ] {
+                let (count, sender) = peer.recv_from(&mut bytes).await.unwrap();
+                assert_eq!(sender, local);
+                assert_eq!(&bytes[..count], expected);
+            }
+            assert!(
+                socket
+                    .socket
+                    .try_send(&quinn::udp::Transmit {
+                        destination: remote,
+                        ecn: None,
+                        contents: b"too late",
+                        segment_size: None,
+                        src_ip: None,
+                    })
+                    .is_err(),
+                "the same final original queue is sealed"
+            );
+        } else {
+            segment.stop();
+        }
         let receipt = scope.next_receipt().await.unwrap();
         assert!(!segment
             .driver()

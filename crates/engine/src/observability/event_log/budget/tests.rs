@@ -116,3 +116,38 @@ fn history_eviction_preserves_a_queued_event_and_allows_move_on_delivery() {
 }
 
 mod limits;
+
+#[test]
+fn retained_control_event_keeps_same_history_payload_and_subscriber_credit_until_encoding_finishes()
+{
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let mut subscriber = Subscriber::new(tx, EventFilter::default());
+    let original = Arc::new(event());
+    let bytes = stats_size(&original);
+    subscriber.stats_limit = bytes;
+    let pointer = original.payload["value"].as_str().unwrap().as_ptr();
+    assert!(subscriber.send(&original, bytes));
+    let retained = crate::RetainedEvent::from_queued(rx.recv().unwrap());
+    assert_eq!(
+        retained.payload["value"].as_str().unwrap().as_ptr(),
+        pointer
+    );
+    assert_eq!(subscriber.budget.load(Ordering::Relaxed), bytes);
+    assert!(subscriber.send(&original, bytes));
+    assert!(
+        rx.try_recv().is_err(),
+        "a held original still consumes its one actual subscriber quota"
+    );
+    assert_eq!(
+        serde_json::to_value(&retained).unwrap(),
+        serde_json::to_value(&*original).unwrap()
+    );
+    assert_eq!(subscriber.budget.load(Ordering::Relaxed), bytes);
+    drop(retained);
+    assert_eq!(subscriber.budget.load(Ordering::Relaxed), 0);
+    assert!(subscriber.send(&original, bytes));
+    assert!(
+        rx.try_recv().is_ok(),
+        "the same existing queue recovers after actual original custody returns"
+    );
+}

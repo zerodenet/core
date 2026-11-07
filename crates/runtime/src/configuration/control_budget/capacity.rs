@@ -8,6 +8,29 @@ impl ControlBudget {
     }
 }
 impl ControlBudgetPermit {
+    /// Transfer already prepaid response storage to its actual retained byte
+    /// owner. This neither admits new storage nor refunds/wakes the Root book.
+    /// The original holder returns only the separately destroyed workspace.
+    pub fn split_response_bytes(&mut self, bytes: usize) -> io::Result<ControlBudgetPermit> {
+        let ControlCharge::ResponseBytes(held) = self.charge else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "original response storage required",
+            ));
+        };
+        let remaining = held.checked_sub(bytes).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "retained response exceeds its prepaid storage",
+            )
+        })?;
+        self.charge = ControlCharge::ResponseBytes(remaining);
+        Ok(ControlBudgetPermit {
+            owner: self.owner.clone(),
+            charge: ControlCharge::ResponseBytes(bytes),
+            connection: None,
+        })
+    }
     /// Admit one concrete serialized output: retained encoder growth, its raw
     /// response/event, and encoded bytes. All use this original Root book.
     /// Failure changes no counter and emits no refund notification, so a full

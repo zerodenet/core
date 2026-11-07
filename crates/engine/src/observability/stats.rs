@@ -6,6 +6,9 @@ use std::sync::{Arc, Mutex};
 
 use zero_api::{OutboundTrafficStats, StatsSnapshot, UdpUpstreamStats};
 
+mod query;
+pub(crate) use query::{StatsQueryGuard, StatsQueryView};
+
 #[derive(Debug, Default)]
 pub struct EngineStats {
     total_started: AtomicU64,

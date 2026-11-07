@@ -8,9 +8,11 @@ mod observability;
 mod plan;
 mod principal;
 mod runtime;
+pub(crate) mod runtime_query;
+pub use runtime_query::{EngineRuntimeQuery, EngineRuntimeQueryGuard, MissingFlow};
 mod session;
 
-pub use api::{register_build_features, EngineHandle, EventSubscriber};
+pub use api::{register_build_features, EngineHandle, EventSubscriber, RetainedEvent};
 pub use config_query::{EngineConfigQuery, MissingPolicy};
 pub use error::EngineError;
 pub type EventsSinceResult = zero_api::EventReplay;
@@ -60,3 +62,5 @@ pub use observability::traffic::{
     HostInterfaceSample, InboundTrafficRegistration, PreparedEndpointTraffic, TrafficMeter,
     TrafficRouteLease,
 };
+
+pub use observability::RetainedReplay;

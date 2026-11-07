@@ -43,7 +43,7 @@ impl EventJobs {
                 if cancel_for_task.is_cancelled() || event_tx.is_closed() {
                     break;
                 }
-                if let Some(event) = subscriber.try_recv() {
+                if let Some(event) = subscriber.try_recv_retained() {
                     // Serialize the full ApiEvent envelope (same format
                     // as SSE) so consumers use one parsing code path
                     // for both channels.

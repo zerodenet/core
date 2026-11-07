@@ -158,10 +158,15 @@ impl ProbeOwner {
                     .iter()
                     .map(|claim| claim.adoption.clone())
                     .collect();
-                cleanup = Some(Box::pin(pending::close(
-                    originals,
-                    Instant::now() + std::time::Duration::from_secs(5),
-                )));
+                let witness = entry.witness.get().unwrap().clone();
+                let end = Instant::now() + std::time::Duration::from_secs(5);
+                cleanup = Some(Box::pin(async move {
+                    pending::close(originals, end).await?;
+                    tokio::time::timeout_at(end, witness.wait_registration_released())
+                        .await
+                        .map_err(|source| failure(Reason::Timeout).with_source(source))?;
+                    Ok(())
+                }));
             }
             let Some(mut cleanup) = cleanup else {
                 // A failed cleanup retains this exact entry and its credit.
@@ -190,6 +195,14 @@ impl ProbeOwner {
         }
     }
     fn confirm_complete(&self, entry: &Arc<Entry>) {
+        if !entry
+            .witness
+            .get()
+            .and_then(TaskJoinWitness::try_joined)
+            .is_some_and(|joined| joined.registration_released())
+        {
+            return;
+        }
         entry.complete.store(true, Ordering::Release);
         let credit = lock(&entry.credit).take();
         drop(credit);
@@ -241,3 +254,6 @@ impl ProbeOwner {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -21,7 +21,7 @@ pub enum RouteResult {
     Respond(String, HttpBody),
     Sse {
         subscriber: zero_engine::EventSubscriber,
-        catch_up: Vec<zero_api::RawApiEvent>,
+        catch_up: zero_engine::RetainedReplay,
     },
 }
 
@@ -35,14 +35,28 @@ pub async fn route_with_budget(
     if let Some(result) = prepared::route(request, handle, auth_ctx, budget) {
         return result;
     }
-    route(request, handle, auth_ctx).await
+    route_inner(request, handle, auth_ctx, budget).await
 }
 
 /// Route the request to the appropriate handler, enforcing permissions.
+#[cfg(test)]
 pub async fn route(
     request: &HttpRequest,
     handle: &ProxyHandle,
     auth_ctx: &AuthContext,
+) -> RouteResult {
+    let budget = zero_runtime::configuration::ControlBudget::new(
+        zero_runtime::configuration::ControlBudgetLimits::from_runtime(
+            &zero_config::RuntimeOptionsConfig::default(),
+        ),
+    );
+    route_inner(request, handle, auth_ctx, &budget).await
+}
+async fn route_inner(
+    request: &HttpRequest,
+    handle: &ProxyHandle,
+    auth_ctx: &AuthContext,
+    budget: &Arc<zero_runtime::configuration::ControlBudget>,
 ) -> RouteResult {
     let method = request.method.as_str();
     let path = request.path.as_str();
@@ -83,7 +97,7 @@ pub async fn route(
                 if let Some(denied) = require_permission(auth_ctx, Permission::Read) {
                     return denied;
                 }
-                match handlers::events_stream(handle, query, &request.headers) {
+                match handlers::events_stream(handle, query, &request.headers, budget) {
                     Ok((subscriber, catch_up)) => RouteResult::Sse {
                         subscriber,
                         catch_up,

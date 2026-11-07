@@ -31,6 +31,7 @@ pub(crate) use readiness::InboundReady;
 mod accepted;
 mod acquisition;
 pub(in crate::runtime) use acquisition::AcquisitionPause;
+mod cleanup_fault;
 #[cfg(feature = "managed-datagram-runtime")]
 mod continuity;
 mod driver;
@@ -46,6 +47,8 @@ struct Resource {
     native_on_driver_exit: bool,
     requires_scope_join: bool,
     exit_fault: OnceLock<SharedError>,
+    shutdown_fault: OnceLock<SharedError>,
+    cleanup_fault: OnceLock<SharedError>,
 }
 pub(crate) struct InboundOwner {
     #[cfg(feature = "raw-ip-runtime")]
@@ -246,7 +249,9 @@ impl InboundTaskAccess {
             .spawn_tracked(TaskClass::Critical, async move {
                 work.await.map_err(|source| {
                     #[cfg(test)]
-                    eprintln!("actual Source tracked Critical work returned original error: {source:#?}");
+                    eprintln!(
+                        "actual Source tracked Critical work returned original error: {source:#?}"
+                    );
                     ChannelError::new(Stage::Close, Reason::Io, Impact::Component)
                         .with_source(source)
                 })
@@ -383,6 +388,8 @@ impl InboundOwner {
             native_on_driver_exit,
             requires_scope_join,
             exit_fault: OnceLock::new(),
+            shutdown_fault: OnceLock::new(),
+            cleanup_fault: OnceLock::new(),
         }));
         Ok(())
     }

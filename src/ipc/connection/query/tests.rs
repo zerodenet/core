@@ -142,8 +142,8 @@ fn actual_runtime_and_stats_are_encoded_before_guards_leave_and_only_output_byte
     let request = QueryRequest::Flow(zero_api::FlowGetQuery {
         flow_id: "missing-\"雪".into(),
     });
-    let expected = serde_json::to_value(ApiResponse::<()>::err(
-        handle.query(request.clone()).unwrap_err(),
+    let expected = serde_json::to_value(ApiResponse::<()>::from_api_error(
+        &handle.query(request.clone()).unwrap_err(),
     ))
     .unwrap();
     let original = prepare(&handle, &request, None, &budget).unwrap();

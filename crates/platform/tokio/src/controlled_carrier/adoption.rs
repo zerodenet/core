@@ -93,6 +93,39 @@ impl CarrierAdoption {
         F: FnOnce(I) -> Fut,
         Fut: Future<Output = Result<(), ComponentError>> + Send + 'static,
     {
+        self.spawn_driver_inner(registrar, class, io, build, true)
+    }
+    /// Register the one actual borrowed datagram queue worker in its existing
+    /// slot/Scope. Its concrete owner stops admission, seals/drains the same
+    /// finite accepted FIFO, returns the original views, then retires this slot.
+    /// Host/business cancellation cannot drop that original cleanup future.
+    /// This grants no new acquisition or permission to ignore donor revocation.
+    pub fn spawn_draining_datagram_driver<F, Fut>(
+        &self,
+        registrar: &TaskRegistrar,
+        class: TaskClass,
+        io: CarrierDriver<(super::loan::BorrowedDatagram, super::CarrierUserView)>,
+        build: F,
+    ) -> Result<(TaskId, TaskJoinWitness), ChannelError>
+    where
+        F: FnOnce((super::loan::BorrowedDatagram, super::CarrierUserView)) -> Fut,
+        Fut: Future<Output = Result<(), ComponentError>> + Send + 'static,
+    {
+        self.spawn_driver_inner(registrar, class, io, build, false)
+    }
+    fn spawn_driver_inner<I, F, Fut>(
+        &self,
+        registrar: &TaskRegistrar,
+        class: TaskClass,
+        io: CarrierDriver<I>,
+        build: F,
+        cancel_business: bool,
+    ) -> Result<(TaskId, TaskJoinWitness), ChannelError>
+    where
+        I: Send + 'static,
+        F: FnOnce(I) -> Fut,
+        Fut: Future<Output = Result<(), ComponentError>> + Send + 'static,
+    {
         if !Arc::ptr_eq(&self.slot, &io.slot) {
             return Err(error(
                 self.instance(),
@@ -142,6 +175,9 @@ impl CarrierAdoption {
         let host_cancel = bound.as_ref().map(|bound| bound.cancellation());
         let business_cancel = { self.slot.state().business_cancel.clone() };
         let task = async move {
+            if !cancel_business {
+                return task.await;
+            }
             let revoked = async {
                 match host_cancel {
                     Some(cancel) => cancel.cancelled().await,

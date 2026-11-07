@@ -78,6 +78,9 @@ where
             if let Some(result) = original.config_query(engine, &query).await {
                 return result.map(|payload| Response::new(QueryResponse { payload }));
             }
+            if let Some(result) = original.runtime_query(engine, &query) {
+                return result.map(|payload| Response::new(QueryResponse { payload }));
+            }
         }
         let result = match self.handle.query(query) {
             Ok(result) => result,
@@ -159,7 +162,16 @@ where
             .budget
             .reserve(zero_runtime::configuration::ControlCharge::Subscription)
             .map_err(|error| Status::resource_exhausted(error.to_string()))?;
-        let subscriber = match self.handle.subscribe(filter) {
+        let subscribed = match &self.engine {
+            Some(engine) => engine
+                .subscribe(filter)
+                .map(event_source::Subscriber::Engine),
+            None => self
+                .handle
+                .subscribe(filter)
+                .map(event_source::Subscriber::Standalone),
+        };
+        let subscriber = match subscribed {
             Ok(subscriber) => subscriber,
             Err(error) => {
                 return Err(error_status(
@@ -200,25 +212,26 @@ where
                 return Ok(());
             }
             while !owner.stop.load(Ordering::Acquire) && !tx.is_closed() {
-                let event = match subscriber.recv_timeout(Duration::from_millis(25)) {
-                    zero_api::EventStreamReceive::Event(event) => event,
-                    zero_api::EventStreamReceive::Timeout => continue,
-                    zero_api::EventStreamReceive::Closed => break,
+                let event = match subscriber.receive(Duration::from_millis(25)) {
+                    Ok(event) => event,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                 };
-                let mut message = PbEvent {
-                    event_type: event.event_type,
-                    event_id: event.event_id,
-                    occurred_at: event.occurred_at_unix_ms,
-                    payload: Vec::new(),
-                };
-                let bytes = budget::frame_len(&message, &event.payload)?;
+                let bytes = budget::original_frame_len(&event)?;
                 let Some((charge, encoded)) =
                     budget::reserve_message(&owner, original.as_ref(), bytes, || tx.is_closed())?
                 else {
                     return Ok(());
                 };
-                message.payload =
-                    serde_json::to_vec(&event.payload).map_err(std::io::Error::other)?;
+                // The original Engine queue reservation is still held here;
+                // reserve_message prepaid all copies before the first clone.
+                let message = PbEvent {
+                    event_type: event.event_type.clone(),
+                    event_id: event.event_id.clone(),
+                    occurred_at: event.occurred_at_unix_ms,
+                    payload: serde_json::to_vec(&event.payload).map_err(std::io::Error::other)?,
+                };
+                drop(event);
                 let mut pending = budget::QueuedEvent {
                     event: Ok(message),
                     _charge: charge,

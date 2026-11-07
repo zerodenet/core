@@ -22,6 +22,7 @@ mod pb {
     tonic::include_proto!("zero.api.v1");
 }
 mod budget;
+mod event_source;
 mod messages;
 mod native;
 mod security;

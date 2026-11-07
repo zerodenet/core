@@ -30,7 +30,15 @@ async fn ipc_disconnect_stops_the_real_probe_and_returns_credits_after_original_
     }
     assert!(request.starts_with(b"HEAD /held HTTP/1.1\r\n"));
     let mut byte=[0];
-    assert!(futures_util::poll!(peer.read(&mut byte)).is_pending(),"the actual original probe is waiting for peer response");
+    {
+    let reading = peer.read(&mut byte);
+    tokio::pin!(reading);
+    std::future::poll_fn(|cx| {
+        assert!(std::future::Future::poll(reading.as_mut(), cx).is_pending(),
+            "the actual original probe is waiting for peer response");
+        std::task::Poll::Ready(())
+    }).await;
+    }
     assert!(!task.is_finished());
     assert_eq!(originals.snapshot().charged,1);
     assert_eq!(budget.usage().pending_commands,1);
