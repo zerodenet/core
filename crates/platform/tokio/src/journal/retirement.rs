@@ -1,6 +1,6 @@
 //! Passive same-Scope observation; the journal never joins its own caller.
 use super::*;
-use crate::contract::{BoxFuture, DeliveryState, Impact, Reason, Stage};
+use crate::contract::BoxFuture;
 use crate::controlled_carrier::SourceCustody;
 use std::{
     sync::atomic::{AtomicBool, Ordering},
@@ -100,31 +100,6 @@ impl SourceCustody for Core {
         self.released()
     }
     fn failure(&self) -> Option<Arc<ChannelError>> {
-        let source = {
-            let state = match self.state.try_lock() {
-                Ok(state) => state,
-                Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
-                Err(std::sync::TryLockError::WouldBlock) => return None,
-            };
-            [&state.lock, &state.read, &state.append, &state.temporary]
-                .iter()
-                .find_map(|slot| slot.close_failure())
-                .or_else(|| state.path_failure.clone())
-        }?;
-        let mut recorded = self
-            .native_fault
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        Some(
-            recorded
-                .get_or_insert_with(|| {
-                    let mut error = ChannelError::new(Stage::Close, Reason::Io, Impact::Component)
-                        .with_source(source);
-                    error.component = self.hosted.as_ref().map(|hosted| hosted.instance.component);
-                    error.delivery = DeliveryState::Unknown;
-                    Arc::new(error)
-                })
-                .clone(),
-        )
+        Core::failure(self)
     }
 }

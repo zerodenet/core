@@ -131,11 +131,16 @@ impl Journals {
                         continue;
                     }
                     first.get_or_insert_with(|| {
-                        io_error(
-                            component,
-                            zero_platform_tokio::contract::Stage::Close,
-                            source,
-                        )
+                        owner
+                            .failure()
+                            .map(ChannelError::retained)
+                            .unwrap_or_else(|| {
+                                io_error(
+                                    component,
+                                    zero_platform_tokio::contract::Stage::Close,
+                                    source,
+                                )
+                            })
                     });
                 }
             }

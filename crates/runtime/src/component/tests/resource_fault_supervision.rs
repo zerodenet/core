@@ -91,11 +91,10 @@ async fn original_fault_blocks_reuse_without_fake_task_and_actual_close_allows_f
     assert!(!old.can_reuse());
     assert!(!old.has_started());
     let rejected = host.drive(old.start(end)).await.unwrap_err();
-    let same = std::error::Error::source(&rejected)
-        .unwrap()
-        .downcast_ref::<ChannelError>()
-        .unwrap();
-    assert!(std::ptr::eq(same, fault.source.as_ref()));
+    let same = rejected
+        .retained_source()
+        .expect("exact canonical resource fault Arc");
+    assert!(Arc::ptr_eq(same, &fault.source));
     assert_eq!(root.carrier.snapshot().charged, 1);
     let report = host.drive(old.shutdown(end)).await.unwrap();
     assert!(report.is_complete());

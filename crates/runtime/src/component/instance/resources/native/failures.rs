@@ -67,7 +67,7 @@ impl DeclaredReceiver {
         if self
             .canonical
             .get()
-            .is_some_and(|same| Arc::ptr_eq(&same.source, &source))
+            .is_some_and(|same| same_source(&same.source, &source))
         {
             return;
         }
@@ -78,7 +78,7 @@ impl DeclaredReceiver {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if !causes
             .iter()
-            .any(|cause| matches!(cause, Cause::Original(same) if Arc::ptr_eq(same, &source)))
+            .any(|cause| matches!(cause, Cause::Original(same) if same_source(same, &source)))
         {
             causes.push(Cause::Original(source.clone()));
         }
@@ -101,7 +101,7 @@ impl DeclaredReceiver {
         if self
             .canonical
             .get()
-            .is_some_and(|same| Arc::ptr_eq(&same.source, &child.source))
+            .is_some_and(|same| same_source(&same.source, &child.source))
         {
             let _ = child.acknowledge_retained(&child);
             return;
@@ -172,3 +172,21 @@ impl HostResources {
 
 #[cfg(test)]
 mod tests;
+
+// Error identity only; no source traversal is used as native/ACK evidence.
+fn same_source<'a>(mut first: &'a Arc<ChannelError>, mut later: &'a Arc<ChannelError>) -> bool {
+    if first.cleanup_failure_receipt().is_some_and(|receipt| {
+        later
+            .cleanup_failure_receipt()
+            .is_some_and(|actual| receipt.same_receipt(actual))
+    }) {
+        return true;
+    }
+    while let Some(source) = first.retained_source() {
+        first = source;
+    }
+    while let Some(source) = later.retained_source() {
+        later = source;
+    }
+    Arc::ptr_eq(first, later)
+}

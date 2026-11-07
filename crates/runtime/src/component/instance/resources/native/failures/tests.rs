@@ -106,6 +106,29 @@ async fn two_actual_journal_faults_have_one_canonical_receiver_and_held_ack_keep
     let canonical = resources.resource_fault().unwrap();
     assert!(typed.iter().all(|fault| fault.ownership_received()));
     assert!(!canonical.reported());
+    let causes = resources
+        .declared_failures
+        .causes
+        .sources
+        .lock()
+        .unwrap()
+        .len();
+    for _ in 0..32 {
+        resources.retain_resource_error(Arc::new(ChannelError::retained(typed[0].source.clone())));
+        resources.retain_resource_error(Arc::new(ChannelError::retained(typed[1].source.clone())));
+        resources.retain_resource_error(Arc::new(ChannelError::retained(canonical.source.clone())));
+    }
+    assert_eq!(
+        resources
+            .declared_failures
+            .causes
+            .sources
+            .lock()
+            .unwrap()
+            .len(),
+        causes,
+        "same original fault retries and canonical forwarding cannot grow the receiver or cycle"
+    );
     let report = resources.shutdown_io(end).await.unwrap();
     assert!(report.is_complete());
     assert!(grants.iter().all(|grant| grant.native_closed()));
