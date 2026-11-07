@@ -1,5 +1,53 @@
 # 第二轮续作：剩余生产调用者冻结
 
+## 接续检查点 2026-11-07 06:05 UTC（未冻结候选）
+
+实际 remote integration 再核仍为 `59615e69ea5a413d657a873157ea4adf8f204a90`，M 普通接续实现
+至 `29468204555ec17457b994cf603f07882bb8ac66`。A/B/C仍在同环境原worktree实施；无reset、
+覆盖dirty、强推、develop/main合入或部署。全部下列输入仍用Rust 1.99.0及同一实际锁
+`bb045365baf88f40277e4b87e2941e4990eb630841dd1cd2b2d0de3709d0b0fb`。
+
+| 精确开发输入 | 实际结果与边界 |
+| --- | --- |
+| `37dc7bb7a41f5ba5c7446a59e5cf4ae4375e28dc` | 普通Proxy all-features lib no-run exit0/759.35s，日志 SHA `d9522a76a529b564954860274f69d7fc28a7ab5638f00138c5101a78fd8a78b5`。同产物6组见 `m-37d-serial-regressions.json`：Direct/VLESS5通过1失败、VMess4失败、H3 1失败；Trojan真实wire拒绝1通过、input-only Packet预算1通过；DNS49通过1失败。Direct五项错误及Packet修复已获该输入普通回归，仍不表示全域完成 |
+| `c41ea296f8fd470312ea20b2e8774dbddebbabe2` | grpc/runtime/config lib/config_contracts no-run exit0/15.81s，日志 SHA `bb01f77025d2315ebf5c05f376e33539e2fe88565eb82a6f9f5b746582416362`；同产物gRPC14、Root控制账8、13个可选控制字段边界1均通过，实际选中且源码/锁不变。原生TCP RPC/断开后原命令future/Bytes克隆切片跨实际join仍持额已覆盖；真正Apply 15s后同原operation join及Engine DTO物化仍未接齐 |
+| 同上 `c41ea296f…` | `cargo check --locked -p zero --all-features --bin zero --tests` exit0/350.76s，日志 SHA `44c30523e64b89567870ed4fc8d1be6641d86a1c5250ebbda27706928084266b`。仅为实际全部控制消费者的类型检查，不作为运行回归或最终资格 |
+| `b21b7902d94d7ad8fb7875f3e95f151b6b1db192` | 四个codec/gRPC包 no-run exit101/23.29s，日志 SHA `c1effa80805d9b55d0bcd46a75a7e8d884519992f3fb1a9dcefb345dce46fd8f`，SS原AES helper可见性5处lib/7处libtest错误；仅扩到crate原helper已由ff9f真实修正，无crypto判断变化 |
+| `29468204555ec17457b994cf603f07882bb8ac66` | 同四包 no-run exit101/8.37s，日志 SHA `3cc396a1516ff9d74293134265941bd9408183924f7a38e02658da71df2a1013`。Mieru实际trait impl移入固定workspace子模块后命中单泛型Result别名，7处编译错误；B机械修待同完整半关闭后续合入。失败不改称通过 |
+
+H3当前真实事实是远端Source running、一个未joined实际peer且stop=false；尚未把它与web/
+HY2原endpoint对上，新增只读地址关联待同输入复验。Scope取消先撤Packet wire及retire
+直接丢已入队close帧是代码风险候选，未凭静态先后宣布根因。MUX恢复失败实际处于cold/
+instanceNone，没有新claim；`bb3c727d9`+B `0169bda7…`先安装同原CarrierOwner registration，
+再进行可失败材料准备，材料成功后才原start/Ready/claim。保留完整badCA原错误及原wire
+断言，尚待普通生产复验。
+
+DNS唯一剩余回归维持原『取消旧Query、H2/node原件join、再新bootstrap』，未改成让旧
+Query先成功或放宽期限。普通DNS配置换代与预算缩额不驱逐active业务的语义分别核查；
+新增044诊断只读取原replacing future的已ready结果，不加wait或执行新的替换。
+C新增真实cap4满TX TCP ACK/SYNACK原wire观测，待必要Proxy产物，不根据既有握手测试
+宣称Data ACK满额可运行。完整PacketCaller/cold Source/多peer memory/reconnect仍未激活。
+
+既有DatagramCodec的固定slice前置与SS全cipher、HY2/Mieru真实实现已成对接入，供C现有
+flat路径的全部层一次预付原输入/中间/输出及实际Scope转交；当前Kernel旧消费者尚未切换，
+不把standalone方法或默认Unreserved当生产新分支。必要B→C前置为M `bb3c727d9`及B
+`0169bda75913d410bd71a4112aeac38c0438a854`；完整旧链删除仍待实际调用者迁完。
+
+初轮gRPC no-run还保留9e79的19处拆分/测试接线编译错误exit101/73.66s（日志SHA
+`0e59236e592a0196c04fd4cf4e23c5543a6e5c9db65544359877e114e09b28b8`），c543的兄弟模块
+路径错误exit101/7.53s（`c1f21dbf601e3626501e999e458010a9b7bf1846fed4f59ee44d8181c9082bc5`）；
+c41修正后保全部断言实际通过。未发送中断信号，不能把曾尝试查找已退出Cargo算中断。
+更早d0a中断后下一build启动时有短暂旧rustc存活，随即复核退出；其队列操作失误保留，
+不冒充完全无重叠。后续各轮均核对实际后代退出再切verify输入；冻结输入完整性独立记录。
+
+05:37原REALITY目标www.cloudflare.com:443仍实际getaddrinfo errno -3，原始
+`reality-dns-20261107-053754.json` SHA `caad2c2b3aa8f0667839aed42ced20ba62255de98fbc14fb9fca4a7ba308657e`。
+目标、断言、期限、网络策略与用户系统网络均未改。环境DNS待恢复与内核缺口分别保留。
+未运行的后续/跨平台/GUI/特权TUN/1c1g以及统一最终候选CI均未取得资格；最终下载归档
+仍须包含同一candidate.Cargo.lock、精确源码输入、原始日志、结束码及调用者/删除/依赖表。
+五域继续实施，唯一TEMP-WG-OUTER-UDP-01原范围未关闭、不扩大。
+
+
 ## 接续检查点 2026-11-07 05:23 UTC（继续实现，五域未完成）
 
 实际 remote 仍为 `https://github.com/zerodenet/core.git`，远端 integration 完整 SHA 仍为

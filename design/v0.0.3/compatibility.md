@@ -363,3 +363,17 @@ H2并发32及send buffer32KiB不变；可选已验证上限由原body长度观�
 退款或自唤醒；没有新调度器、任务或池。已受理命令future在断开后由原H2任务inline续驱动，
 不另开清理任务；真正Apply原操作超时后的join观察和Engine DTO物化前计额仍待完整接入，
 不能把此局部接线当作控制/G8或预算职责完成。
+
+## 既有DatagramCodec固定工作区及MUX原件前置
+
+现有DatagramCodec增加纯encode/decode_buffer_lengths与encode/decode_buffered、
+DatagramCodecOutput和DatagramCodecBufferError；固定slice承担所有实际中间和最终字节，
+容量先验后才nonce/replay/RNG。SS全现有cipher及HY2/Mieru实现同一原codec方法，不引入
+替代SPI、resolver、池或资源调度器。旧Vec方法仅保显式库职责；Kernel仍等完整flat路径
+多层预付消费端迁完再切换，不用默认Unreserved拒绝旧合法内建配置。移动Domain Vec
+必须由原Target/workspace持同原额度到真实用途结束。当前仍在开发，不是预算域资格。
+
+PoolFactory.build_with_registration返回同一个cold ComponentInstance和其原CarrierOwner
+登记观察，供VLESS/VMess真实start在可失败的材料准备前安装；它不Ready、claim或启动IO。
+原start仍检同原owner/Scope/ordinal，重复只允许同一实际登记；错误/空原件的真实关闭、
+驱动及Host ACK另验。V1配置/API/事件/消费者保持不变。
