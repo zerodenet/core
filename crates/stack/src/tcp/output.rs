@@ -159,3 +159,6 @@ impl PacketStorage for Outgoing {
         self.packet.derive_zeroed(lengths)
     }
 }
+
+#[cfg(all(test, feature = "packet-memory"))]
+mod tests;

@@ -23,7 +23,9 @@ impl PacketWireMemory {
                 let encoded = padded
                     .checked_add(usize::from(overhead))
                     .ok_or(PacketDeriveError::Overflow)?;
-                Ok(vec![padded, encoded])
+                // Padding occupies the already admitted cipher payload. The
+                // actual codec needs only this additional output allocation.
+                Ok(vec![encoded])
             }
         }
     }

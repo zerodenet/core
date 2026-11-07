@@ -68,17 +68,44 @@ fn source() -> Option<SocketAddr> {
     Some("127.0.0.1:51820".parse().unwrap())
 }
 
+// Real Root storage behind a non-movable owner stays a valid production
+// source; encrypting it may read, but must not request a new padded copy.
+struct OpaqueSource(PacketBuffer);
+impl AsRef<[u8]> for OpaqueSource {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+impl AsMut<[u8]> for OpaqueSource {
+    fn as_mut(&mut self) -> &mut [u8] {
+        &mut self.0
+    }
+}
+impl zero_traits::PacketStorage for OpaqueSource {
+    fn allocation_bytes(&self) -> usize {
+        self.0.allocation_bytes()
+    }
+    fn prepare_transmit(&mut self, frames: usize, bytes: usize) -> Result<(), PacketDeriveError> {
+        self.0.prepare_transmit(frames, bytes)
+    }
+    fn try_derive_zeroed(&self, lengths: &[usize]) -> Result<Vec<PacketBuffer>, PacketDeriveError> {
+        self.0.try_derive_zeroed(lengths)
+    }
+}
+
 #[test]
 fn queued_owned_data_at_exact_tx_limit_does_not_block_real_handshake_or_read_promise() {
     let mut client = tunnel(1, 2, "10.0.0.1/32");
     let mut server = tunnel(2, 1, "10.0.0.2/32");
-    // Actual original20 + padded32 + cipher64 + original control148.
-    let root = root(4, 264);
+    // Actual original20 + cipher64 + original control148. Padding lives
+    // inside the existing cipher payload; there is no padded plaintext Vec.
+    let root = root(3, 232);
     let work = root.datagram_workspaces([256; 2], Some(148)).unwrap();
     let control = work.control.as_ref().unwrap();
     let payload = ip();
-    let mut packet = root.transmit_packet(payload.len(), 2, 96).unwrap();
+    let mut packet = root.transmit_packet(payload.len(), 1, 64).unwrap();
     packet.copy_from_slice(&payload);
+    let packet = PacketBuffer::from_owner(OpaqueSource(packet));
     let output = client.send_ip_packet_owned(packet, received(control, &[0; 148]));
     assert!(output.unused_control.is_none());
     let initiation = networks(output.result.unwrap());
@@ -89,8 +116,8 @@ fn queued_owned_data_at_exact_tx_limit_does_not_block_real_handshake_or_read_pro
     assert_eq!(
         root.transmit().occupied,
         PacketMemoryLimit {
-            frames: 4,
-            bytes: 264
+            frames: 3,
+            bytes: 232
         }
     );
     assert!(root.reserve_transmit(&[1]).is_err());
@@ -203,17 +230,20 @@ fn missing_prepaid_cipher_preserves_same_plaintext_and_first_real_wire_counter()
     assert!(server.time_since_last_handshake().is_some());
 
     // The responder has a real established session and has not sent Data.
-    // Its same Root prepays plaintext32 + ciphertext64, but the first call
+    // Its same Root prepays original20 + ciphertext64, but the first call
     // deliberately has not transferred that existing cipher into the SDK.
-    let root = root(2, 96);
-    let mut original = root.transmit_packet(32, 1, 64).unwrap();
+    let root = root(2, 84);
+    let mut original = root.transmit_packet(20, 1, 64).unwrap();
     let mut payload = ip();
     payload[12..16].copy_from_slice(&[10, 0, 0, 2]);
     payload[16..20].copy_from_slice(&[10, 0, 0, 1]);
     original[..payload.len()].copy_from_slice(&payload);
     let pointer = original.as_ptr();
-    let original = Packet::from_owned_buffer(original)
+    let mut original = Packet::from_owned_buffer(original)
         .unwrap_or_else(|_| panic!("same unique admitted plaintext"));
+    original
+        .install_owned_padding(32)
+        .expect("actual packet is padded inside cipher");
     let mut returned = match server.engine.encapsulate_with_session(original) {
         Err(original) => original,
         Ok(_) => panic!("owned plaintext lacks its prepaid cipher transfer"),
@@ -247,7 +277,7 @@ fn missing_prepaid_cipher_preserves_same_plaintext_and_first_real_wire_counter()
         root.transmit().occupied,
         PacketMemoryLimit {
             frames: 2,
-            bytes: 96
+            bytes: 84
         }
     );
     drop(wire);
