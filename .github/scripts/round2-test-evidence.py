@@ -51,7 +51,7 @@ def main():
         }
     elif mode == "finish":
         record = json.loads(metadata.read_text())
-        text = log.read_text(errors="replace")
+        text = re.sub(r"\x1b\[[0-9;]*m", "", log.read_text(errors="replace"))
         record.update(ended_utc=now(), exit=int(arguments[0]), state="exited",
                       raw_log_sha256=sha(log), used_lock_sha256=sha("Cargo.lock"),
                       checkout_after=command(["git", "rev-parse", "HEAD"]))
