@@ -189,3 +189,72 @@ fn tx_full_rejects_only_unsubmitted_data_and_retry_preserves_real_replay_accepta
         }
     );
 }
+
+#[test]
+fn missing_prepaid_cipher_preserves_same_plaintext_and_first_real_wire_counter() {
+    let mut client = tunnel(1, 2, "10.0.0.1/32");
+    let mut server = tunnel(2, 1, "10.0.0.2/32");
+    let initiation = networks(client.initiate_handshake().unwrap());
+    let response = networks(server.receive_datagram(source(), &initiation[0]).unwrap());
+    let keepalive = networks(client.receive_datagram(source(), &response[0]).unwrap());
+    assert_eq!(keepalive.len(), 1);
+    server.receive_datagram(source(), &keepalive[0]).unwrap();
+    assert!(client.time_since_last_handshake().is_some());
+    assert!(server.time_since_last_handshake().is_some());
+
+    // The responder has a real established session and has not sent Data.
+    // Its same Root prepays plaintext32 + ciphertext64, but the first call
+    // deliberately has not transferred that existing cipher into the SDK.
+    let root = root(2, 96);
+    let mut original = root.transmit_packet(32, 1, 64).unwrap();
+    let mut payload = ip();
+    payload[12..16].copy_from_slice(&[10, 0, 0, 2]);
+    payload[16..20].copy_from_slice(&[10, 0, 0, 1]);
+    original[..payload.len()].copy_from_slice(&payload);
+    let pointer = original.as_ptr();
+    let original = Packet::from_owned_buffer(original)
+        .unwrap_or_else(|_| panic!("same unique admitted plaintext"));
+    let mut returned = server
+        .engine
+        .encapsulate_with_session(original)
+        .expect_err("owned plaintext lacks its prepaid cipher transfer");
+    assert_eq!(returned.as_ptr(), pointer);
+    let cipher = returned
+        .try_derive_owned_buffers(&[64])
+        .unwrap()
+        .pop()
+        .unwrap();
+    let cipher = Packet::from_owned_buffer(cipher)
+        .unwrap_or_else(|_| panic!("same Root's prepaid ciphertext"));
+    returned
+        .install_prepaid_cipher(cipher)
+        .unwrap_or_else(|_| panic!("no previous cipher was installed"));
+    let wire = server
+        .engine
+        .encapsulate_with_session(returned)
+        .expect("same original can retry in the actual established session");
+    assert_eq!(
+        wire.header.counter.get(),
+        0,
+        "admission failure cannot consume a nonce"
+    );
+    let actions = client.receive_datagram(source(), wire.as_ref()).unwrap();
+    assert!(actions.iter().any(|action| matches!(action,
+        TunnelAction::ReceiveIp { packet, .. } if packet.as_ref() == payload.as_slice())));
+    drop(actions);
+    assert_eq!(
+        root.transmit().occupied,
+        PacketMemoryLimit {
+            frames: 2,
+            bytes: 96
+        }
+    );
+    drop(wire);
+    assert_eq!(
+        root.transmit().occupied,
+        PacketMemoryLimit {
+            frames: 0,
+            bytes: 0
+        }
+    );
+}
