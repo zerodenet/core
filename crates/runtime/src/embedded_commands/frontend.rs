@@ -35,7 +35,7 @@ pub(crate) struct Original {
     raw_no_work: AtomicBool,
 }
 enum Credit {
-    Root(ControlBudgetPermit),
+    Root { _original: ControlBudgetPermit },
     Connection(ControlConnectionPermit),
 }
 enum Registration {
@@ -51,7 +51,7 @@ impl EmbeddedCommandOwner {
         let proof = credit
             .command_custody()
             .ok_or_else(|| std::io::Error::other("not an actual command permission"))?;
-        self.adopt(Credit::Root(credit), proof, Vec::new())
+        self.adopt(Credit::Root { _original: credit }, proof, Vec::new())
     }
     pub fn adopt_connection_command(
         self: &Arc<Self>,
