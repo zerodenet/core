@@ -9,14 +9,14 @@ use std::{
     time::Duration,
 };
 use tokio::net::{TcpSocket, UdpSocket};
-struct Node {
-    address: SocketAddr,
-    queries: Arc<AtomicUsize>,
+pub(super) struct Node {
+    pub(super) address: SocketAddr,
+    pub(super) queries: Arc<AtomicUsize>,
     stop: zero_platform_tokio::contract::CancellationToken,
     task: tokio::task::JoinHandle<()>,
 }
 impl Node {
-    async fn start() -> Self {
+    pub(super) async fn start() -> Self {
         let io = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let address = io.local_addr().unwrap();
         let stop = zero_platform_tokio::contract::CancellationToken::new();
@@ -77,7 +77,7 @@ impl Node {
             task,
         }
     }
-    async fn close(self) {
+    pub(super) async fn close(self) {
         self.stop.cancel();
         self.task.await.unwrap();
     }

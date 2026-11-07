@@ -212,7 +212,9 @@ pub(super) async fn echo_with<T>(client: &Running, inspect: impl FnOnce() -> T) 
     let original = inspect();
     io.shutdown().await.unwrap();
     let mut received = Vec::new();
-    io.read_to_end(&mut received).await.unwrap();
+    let reverse = io.read_to_end(&mut received).await;
+    eprintln!("actual VMess reverse read={reverse:?} bytes={} active boundaries(id,port,up,down,inRx,inTx,outRx,outTx)={:?}",received.len(),client.proxy.engine().active_sessions().iter().map(|flow|(flow.id,flow.port,flow.bytes_up,flow.bytes_down,flow.inbound_rx_bytes,flow.inbound_tx_bytes,flow.outbound_rx_bytes,flow.outbound_tx_bytes)).collect::<Vec<_>>());
+    reverse.unwrap();
     // Consume the real target task before diagnosing a truncated reverse body:
     // upload validation and target write/shutdown cannot be hidden by its panic.
     peer.await.unwrap();
