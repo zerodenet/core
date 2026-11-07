@@ -7,6 +7,7 @@ mod flow;
 pub(crate) use flow::RawIpFlowSource;
 mod device;
 mod incarnation;
+pub(crate) mod memory;
 mod packet;
 mod pool;
 pub(crate) use incarnation::next as next_incarnation;
@@ -14,7 +15,9 @@ pub(crate) use incarnation::next as next_incarnation;
 #[cfg(test)]
 pub(crate) use carrier::DirectRawIpWireCarrier;
 pub(crate) use carrier::{HostedRawIpWireCarrier, ProxiedRawIpWireCarrier, RawIpWireCarrier};
-pub(crate) use contract::{RawIpAction, RawIpOutboundPlan, RawIpPeerPlan, RawIpTunnel};
+pub(crate) use contract::{
+    OwnedWireFailure, OwnedWireResult, RawIpAction, RawIpOutboundPlan, RawIpPeerPlan, RawIpTunnel,
+};
 pub(crate) use datagram::RawIpDatagramOperation;
 pub(crate) use device::{
     EndpointPacket, EndpointStackOwner, EndpointStackRecipe, SharedRawIpDevice, WireStackRecipe,

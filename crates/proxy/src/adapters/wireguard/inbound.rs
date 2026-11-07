@@ -16,6 +16,7 @@ use wireguard::{
 use zero_config::{InboundConfig, InboundProtocolConfig, WireguardSecret};
 use zero_engine::EngineError;
 
+mod codec;
 pub(crate) mod cold;
 mod device;
 mod recovery;
@@ -132,133 +133,6 @@ pub(super) fn prepare_device(inbound: &InboundConfig) -> Result<InboundDevice, E
 }
 
 struct WireguardInboundDevice(Arc<LiveInboundDevice>);
-
-impl RawIpInboundDevice for WireguardInboundDevice {
-    fn quiescent(&self) -> bool {
-        self.0
-            .device
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .quiescent()
-    }
-
-    fn is_local_address(&self, address: IpAddr) -> bool {
-        self.0
-            .device
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_local_address(address)
-    }
-    fn peer_identity(&self, peer: usize) -> Option<String> {
-        self.0
-            .device
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .public_peer_id(peer)
-    }
-
-    fn authenticated_endpoint(&self, peer: usize) -> Option<SocketAddr> {
-        self.0
-            .peer_source(peer)
-            .and_then(|source| source.authenticated_endpoint)
-    }
-
-    fn generation(&self) -> u64 {
-        self.0.generation.load(Ordering::Acquire)
-    }
-
-    fn mtu(&self) -> u16 {
-        self.0
-            .device
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .mtu()
-    }
-
-    fn peer_count(&self) -> usize {
-        self.0
-            .device
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .peer_count()
-    }
-
-    fn peer_for_destination(&self, destination: IpAddr) -> Option<usize> {
-        self.0
-            .device
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .peer_for_destination(destination)
-    }
-
-    fn receive_datagram(
-        &mut self,
-        source: Option<SocketAddr>,
-        packet: &[u8],
-    ) -> Result<RawIpInboundDispatch, EngineError> {
-        let dispatch = self
-            .0
-            .device
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .receive_datagram_with_source(source, packet)
-            .map_err(invalid)?;
-        Ok(RawIpInboundDispatch {
-            peer_index: dispatch.peer_index,
-            authenticated: dispatch.authenticated,
-            source_rejected_packets: dispatch.source_rejected_packets,
-            actions: dispatch.actions.into_iter().map(map_action).collect(),
-        })
-    }
-
-    fn send_ip_packet(
-        &mut self,
-        peer: usize,
-        packet: &[u8],
-    ) -> Result<Vec<RawIpInboundAction>, EngineError> {
-        self.0
-            .device
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .send_ip_packet(peer, packet)
-            .map(|actions| actions.into_iter().map(map_action).collect())
-            .map_err(invalid)
-    }
-
-    fn tick_peer(&mut self, peer: usize) -> Result<Vec<RawIpInboundAction>, EngineError> {
-        self.0
-            .device
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .tick_peer(peer)
-            .map(|actions| actions.into_iter().map(map_action).collect())
-            .map_err(invalid)
-    }
-
-    fn handshake_age(&self, peer: usize) -> Option<std::time::Duration> {
-        self.0
-            .device
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .time_since_last_handshake(peer)
-    }
-
-    fn timer_schedule(&self, peer: usize) -> crate::runtime::raw_ip::timer::TimerSchedule {
-        self.0
-            .device
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .next_timer_delay(peer)
-            .into()
-    }
-}
-
-fn map_action(action: TunnelAction) -> RawIpInboundAction {
-    match action {
-        TunnelAction::SendNetwork(packet) => RawIpInboundAction::SendNetwork(packet),
-        TunnelAction::ReceiveIp { packet, .. } => RawIpInboundAction::ReceiveIp(packet),
-    }
-}
 
 fn invalid(error: impl std::fmt::Debug) -> EngineError {
     EngineError::Io(std::io::Error::new(

@@ -63,6 +63,7 @@ pub(crate) struct SharedRawIpDevice {
     ready: watch::Receiver<Option<Result<(), String>>>,
     task: Arc<workers::DeviceWorkers>,
     carrier: Option<Arc<dyn RawIpWireCarrier>>,
+    packet_wire_memory: Option<zero_stack::packet_output::memory::PacketWireMemory>,
 }
 
 impl SharedRawIpDevice {

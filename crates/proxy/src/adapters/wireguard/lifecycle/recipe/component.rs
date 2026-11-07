@@ -14,6 +14,8 @@ use zero_platform_tokio::contract::{
     ChannelError, CloseReason, Impact, Reason, Stage,
 };
 
+mod lifecycle;
+
 pub(in crate::adapters::wireguard::lifecycle) struct LinkedStackFactory;
 pub(in crate::adapters::wireguard) struct LinkedStackOptions {
     pub(super) plan: Arc<WireguardRawIpPlan>,
@@ -28,14 +30,20 @@ pub(in crate::adapters::wireguard) struct LinkedStackOptions {
     stacks: Mutex<Option<Vec<EndpointStackRecipe>>>,
     dependencies: OnceLock<Arc<[ComponentInstanceId]>>,
     scope: Mutex<Option<zero_platform_tokio::contract::scope::TaskScopeIdentity>>,
+    source_memory: Arc<OnceLock<zero_tun::packet_memory::PacketMemoryView>>,
 }
 impl LinkedStackOptions {
     pub(super) fn new(
         recipe: &LinkedEndpointRecipe,
-        stacks: Vec<EndpointStackRecipe>,
+        mut stacks: Vec<EndpointStackRecipe>,
         task_limit: Option<NonZeroUsize>,
     ) -> Result<Self, EngineError> {
+        let source_memory = Arc::new(OnceLock::new());
+        for stack in &mut stacks {
+            stack.set_packet_memory_cell(source_memory.clone());
+        }
         Ok(Self {
+            source_memory,
             plan: recipe.plan.clone(),
             carrier: OnceLock::new(),
             resource: OnceLock::new(),
@@ -65,6 +73,25 @@ impl LinkedStackOptions {
             dependencies: OnceLock::new(),
             scope: Mutex::new(None),
         })
+    }
+    pub(in crate::adapters::wireguard) fn install_source_memory(
+        &self,
+        memory: zero_tun::packet_memory::PacketMemoryView,
+    ) -> Result<(), EngineError> {
+        self.check_current()?;
+        memory
+            .check_open()
+            .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
+        match self.source_memory.get() {
+            Some(installed) if installed.same_original(&memory) => Ok(()),
+            Some(_) => Err(invalid(
+                "linked graph cannot replace its original Source memory view",
+            )),
+            None => self
+                .source_memory
+                .set(memory)
+                .map_err(|_| invalid("actual Source memory was already installed")),
+        }
     }
     pub(super) fn reusable_in(
         &self,
@@ -191,115 +218,6 @@ impl LinkedStackOptions {
                 .start(stack)?;
         }
         self.check_current()
-    }
-}
-impl ComponentFactory for LinkedStackFactory {
-    type Options = LinkedStackOptions;
-    fn describe(&self, options: &LinkedStackOptions) -> ComponentSpec {
-        options.spec.clone()
-    }
-    fn build(
-        &self,
-        options: Arc<LinkedStackOptions>,
-        context: BuildContext,
-    ) -> Result<ComponentInstance, BuildError> {
-        // No task runs in build. The host-installed lifecycle owns Options
-        // before start, and each peer retains only this original weak authority.
-        options
-            .bind_dependencies(&context.dependencies)
-            .map_err(prepare_error)?;
-        options
-            .bind(context.tasks.downgrade())
-            .map_err(prepare_error)?;
-        let carrier = Arc::new(super::carrier::Carrier {
-            options: super::carrier::Graph::Linked(options.clone()),
-            resources: context.resources,
-            scope: context.tasks.scope_identity(),
-        });
-        options.carrier.set(Arc::downgrade(&carrier)).map_err(|_| {
-            prepare_error(invalid("linked roles cannot bind a second actual graph"))
-        })?;
-        Ok(ComponentInstance {
-            roles: ComponentRoles {
-                stream: Some(carrier.clone()),
-                datagram: Some(carrier.clone()),
-                packet: Some(carrier),
-                ..Default::default()
-            },
-            lifecycle: erase_lifecycle(Owner { options }),
-        })
-    }
-}
-struct Owner {
-    options: Arc<LinkedStackOptions>,
-}
-impl ResourceLifecycle for Owner {
-    async fn start(&mut self, deadline: tokio::time::Instant) -> Result<(), BuildError> {
-        #[cfg(test)]
-        eprintln!(
-            "actual linked graph {} start before original workers",
-            self.options.tag
-        );
-        self.options.start_graph().map_err(prepare_error)?;
-        #[cfg(test)]
-        eprintln!(
-            "actual linked graph {} workers registered; waiting real Ready",
-            self.options.tag
-        );
-        for peer in 0..self.options.peers {
-            let device = self
-                .options
-                .pending
-                .peer_stack(peer)
-                .and_then(|owner| owner.device())
-                .ok_or_else(|| {
-                    prepare_error(invalid("same linked software driver was not installed"))
-                })?;
-            tokio::time::timeout_at(deadline, device.wait_ready())
-                .await
-                .map_err(|source| {
-                    ChannelError::new(Stage::Prepare, Reason::Timeout, Impact::Component)
-                        .with_source(source)
-                })?
-                .map_err(prepare_error)?;
-        }
-        #[cfg(test)]
-        eprintln!(
-            "actual linked graph {} original workers Ready",
-            self.options.tag
-        );
-        Ok(())
-    }
-    fn revoke(&self, _: CloseReason) {
-        self.options.pending.revoke();
-    }
-    async fn shutdown(
-        &mut self,
-        deadline: tokio::time::Instant,
-    ) -> Result<CloseReport, BuildError> {
-        let closed = self.options.pending.stop_peer_resources(deadline).await;
-        if let Some(source) = closed.failures.first() {
-            #[cfg(test)]
-            eprintln!(
-                "same original linked peer graph {} cleanup source: {source:?}",
-                self.options.tag
-            );
-            tracing::warn!(tag = %self.options.tag, ?source, "same original linked peer cleanup failed");
-            return Err(
-                ChannelError::new(Stage::Close, Reason::Io, Impact::Component)
-                    .with_source(source.clone()),
-            );
-        }
-        let mut report = CloseReport::default();
-        if !closed.is_complete() {
-            report.unfinished.push(Unfinished::Resource(format!(
-                "linked peer graph {}",
-                self.options.tag
-            )));
-        }
-        // Real task IDs/failures are delivered by the same slot's TaskMonitor.
-        // This virtual graph cannot issue its listener's physical-close receipt.
-        Ok(report)
     }
 }
 fn prepare_error(source: EngineError) -> ChannelError {

@@ -6,9 +6,15 @@ impl WireguardAdapter {
         &self,
         outbounds: &[&OutboundConfig],
         inbounds: &[InboundConfig],
-        context: OutboundDevicePreparationContext,
+        mut context: OutboundDevicePreparationContext,
         cold: Option<Arc<pending_map::PendingEntries>>,
     ) -> Result<PreparedWireguardDevices, EngineError> {
+        context.stack_options = context.stack_options.with_packet_wire_memory(
+            zero_stack::packet_output::memory::PacketWireMemory::PaddedEnvelope {
+                multiple: 16,
+                overhead: 32,
+            },
+        );
         if cold.is_none() {
             PendingEndpoints::ensure_available(&self.pending_endpoints)?;
         }

@@ -16,6 +16,18 @@ impl DirectAdapter {
         let stack = crate::runtime::raw_ip::RawIpStackOptions::from_config(
             &config.runtime.network.udp_receive_queue,
         )
+        .with_packet_native_read_limits(
+            config
+                .runtime
+                .effective_packet_native_read_total_max_frames(),
+            config
+                .runtime
+                .effective_packet_native_read_total_max_bytes(),
+        )
+        .with_packet_transmit_limits(
+            config.runtime.effective_packet_transmit_total_max_frames(),
+            config.runtime.effective_packet_transmit_total_max_bytes(),
+        )
         .with_packet_return_limits(
             config.runtime.effective_packet_return_max_frames(),
             config.runtime.effective_packet_return_max_bytes(),

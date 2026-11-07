@@ -51,6 +51,10 @@ impl ResourceLifecycle for Owner {
             interface: grant.interface.clone(),
             identity: grant.identity.clone(),
             original: grant.original.clone(),
+            memory: grant
+                .native_read
+                .memory_view()
+                .map_err(|source| error(Stage::Prepare, Reason::Revoked).with_source(source))?,
         };
         self.shared
             .metadata
@@ -83,9 +87,12 @@ impl ResourceLifecycle for Owner {
         self.shared.checkpoint.lock().unwrap().take();
         let unused = { self.shared.state.lock().unwrap().io.take() };
         drop(unused);
-        self.shared.incoming.lock().unwrap().take();
-        self.shared.outgoing.lock().unwrap().take();
-        self.shared.pending_tx.lock().unwrap().take();
+        let retired = { self.shared.incoming.lock().unwrap().take() };
+        drop(retired);
+        let retired = { self.shared.outgoing.lock().unwrap().take() };
+        drop(retired);
+        let retired = { self.shared.pending_tx.lock().unwrap().take() };
+        drop(retired);
         match failure {
             Some(source) => Err(crate::component::instance::retained(source)),
             None => Ok(CloseReport::default()),

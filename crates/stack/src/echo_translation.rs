@@ -150,6 +150,12 @@ impl<C> EchoTranslation<C> {
         }
     }
 
+    /// Pending originals and their prepaid response storage still belong to
+    /// this actual translation table until reply, expiry or matching sink close.
+    pub fn is_empty(&self) -> bool {
+        self.pending.is_empty()
+    }
+
     pub fn clear(&mut self) {
         self.pending = HashMap::new();
         self.bytes = 0;

@@ -37,71 +37,87 @@ impl SharedRawIpDevice {
             .forwarded_packets
             .try_reserve()
             .map_err(|_| rejected(error(Reason::Capacity)))?;
+        let wire = self
+            .packet_wire_memory
+            .ok_or_else(|| rejected(error(Reason::InvalidConfig)))?;
+        if frame.payload().len() > request.mtu
+            && !zero_stack::packet::ipv4_fragmentation_allowed(frame.payload())
+        {
+            return Err(rejected(error(Reason::Protocol)));
+        }
+        if !request.translate {
+            let fragments =
+                zero_stack::packet::fragment_packet_lengths(frame.payload(), request.mtu)
+                    .map_err(|source| rejected(error(Reason::Protocol).with_source(source)))?;
+            let mut lengths = fragments.clone();
+            for length in if fragments.is_empty() {
+                vec![frame.payload().len()]
+            } else {
+                fragments
+            } {
+                lengths.extend(
+                    wire.workspace_lengths(length)
+                        .map_err(|source| rejected(error(Reason::Capacity).with_source(source)))?,
+                );
+            }
+            let bytes = lengths
+                .iter()
+                .try_fold(0usize, |sum, n| sum.checked_add(*n))
+                .ok_or_else(|| rejected(error(Reason::Capacity)))?;
+            frame
+                .prepare_transmit_buffers(lengths.len(), bytes)
+                .map_err(|source| rejected(error(Reason::Capacity).with_source(source)))?;
+            self.returns
+                .register_source(
+                    source,
+                    request.source,
+                    request.replies.clone(),
+                    request.observer.clone(),
+                    zero_stack::packet::packet_conversation_key(frame.payload()),
+                )
+                .map_err(|source| rejected(error(Reason::Io).with_source(source)))?;
+        }
         let hop = zero_stack::packet::ip_hop_limit(frame.payload());
         if !zero_stack::packet::advance_ip_hop(frame.payload_mut()) {
             return Err(rejected(error(Reason::Protocol)));
         }
-        let result = (|| {
-            let packets = if request.translate {
-                let translated = self
-                    .returns
-                    .translate(
-                        frame.payload(),
-                        request.local,
-                        request.replies.clone(),
-                        request.observer.clone(),
-                    )
-                    .map_err(|source| rejected(error(Reason::Io).with_source(source)))?;
-                if translated.len() > request.mtu {
-                    let fragments =
-                        zero_stack::packet::fragment_forwarded_packet(&translated, request.mtu);
-                    if fragments.is_empty() {
-                        return Err(rejected(error(Reason::Protocol)));
-                    }
-                    fragments.into_iter().map(Into::into).collect()
-                } else {
-                    vec![translated.into()]
+        let frame = original.take().expect("same original reserved above");
+        let association = frame.return_association.clone();
+        let ingress = frame.ingress();
+        let bytes = frame.payload().len();
+        let identification = if frame.payload().first().is_some_and(|byte| byte >> 4 == 4) {
+            u32::from(u16::from_be_bytes([frame.payload()[4], frame.payload()[5]]))
+        } else {
+            0
+        };
+        let packets = if request.translate {
+            match self.returns.translate_owned(
+                frame.into_payload(),
+                request.local,
+                request.replies.clone(),
+                request.observer.clone(),
+                request.mtu,
+                wire,
+            ) {
+                Ok(packets) => packets,
+                Err(failure) => {
+                    restore(original, failure.original, association, ingress, hop);
+                    return Err(rejected(error(Reason::Io).with_source(failure.source)));
                 }
-            } else {
-                self.returns
-                    .register_source(
-                        source,
-                        request.source,
-                        request.replies.clone(),
-                        request.observer.clone(),
-                        zero_stack::packet::packet_conversation_key(frame.payload()),
-                    )
-                    .map_err(|source| rejected(error(Reason::Io).with_source(source)))?;
-                if frame.payload().len() > request.mtu {
-                    let fragments =
-                        zero_stack::packet::fragment_forwarded_packet(frame.payload(), request.mtu);
-                    if fragments.is_empty() {
-                        return Err(rejected(error(Reason::Protocol)));
-                    }
-                    fragments.into_iter().map(Into::into).collect()
-                } else {
-                    Vec::new()
+            }
+        } else {
+            match zero_stack::packet::fragment_ip_packet_prepaid(
+                frame.into_payload(),
+                request.mtu,
+                identification,
+            ) {
+                Ok(packets) => packets,
+                Err(failure) => {
+                    restore(original, failure.original, association, ingress, hop);
+                    return Err(rejected(error(Reason::Capacity).with_source(failure.cause)));
                 }
-            };
-            Ok(packets)
-        })();
-        let mut packets = match result {
-            Ok(packets) => packets,
-            Err(source) => {
-                if let Some(hop) = hop {
-                    zero_stack::packet::restore_ip_hop(frame.payload_mut(), hop);
-                }
-                return Err(source);
             }
         };
-        let frame = original.take().expect("same original reserved above");
-        let bytes = frame.payload().len();
-        if !request.translate && packets.is_empty() {
-            // Move the original allocation, never copy a borrowed packet to
-            // claim owned submission. Fragment/translation outputs are actual
-            // stack transformations and consume this same original here.
-            packets.push(frame.into_payload());
-        }
         permit.send(ForwardedPackets {
             packets,
             observer: request.observer,
@@ -115,4 +131,22 @@ fn error(reason: Reason) -> ChannelError {
 }
 fn rejected(error: ChannelError) -> SendFailure {
     SendFailure::new(error, DeliveryState::NotSubmitted)
+}
+
+fn restore(
+    slot: &mut Option<IpPacket>,
+    mut payload: zero_traits::PacketBuffer,
+    association: zero_core::packet::ReturnAssociation,
+    ingress: Option<zero_core::packet::PacketIngress>,
+    hop: Option<u8>,
+) {
+    if let Some(hop) = hop {
+        zero_stack::packet::restore_ip_hop(&mut payload, hop);
+    }
+    let mut packet =
+        IpPacket::new(payload, association).expect("same validated original IP envelope");
+    if let Some(ingress) = ingress {
+        packet = packet.with_ingress(ingress);
+    }
+    *slot = Some(packet);
 }

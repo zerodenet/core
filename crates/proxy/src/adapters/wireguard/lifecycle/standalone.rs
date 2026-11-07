@@ -1,5 +1,6 @@
 //! One standard host slot owns each standalone peer's existing wire and stack.
 mod component;
+mod pause;
 mod preparation;
 mod resolve;
 use super::*;
@@ -34,6 +35,7 @@ pub(super) struct Peer {
     owner: Arc<EndpointStackOwner>,
     original: OnceLock<Arc<crate::runtime::raw_ip::HostedRawIpWireCarrier>>,
     pause: OnceLock<Arc<ReadPause>>,
+    memory: Arc<OnceLock<zero_tun::packet_memory::PacketMemoryView>>,
 }
 struct State {
     scope: Option<TaskScopeIdentity>,
@@ -80,6 +82,7 @@ impl StandaloneStackOptions {
             resources.push(ResourceDeclaration::PacketDatagramReads {
                 datagram,
                 workspaces: [NonZeroUsize::new(65_536).unwrap(); 2],
+                control_workspace: NonZeroUsize::new(148),
             });
         }
         use sha2::{Digest, Sha256};
@@ -133,6 +136,7 @@ impl StandaloneStackOptions {
                     owner: EndpointStackOwner::suspended(),
                     original: OnceLock::new(),
                     pause: OnceLock::new(),
+                    memory: Arc::default(),
                 })
                 .collect(),
             state: Mutex::new(State {
@@ -220,90 +224,4 @@ fn error(stage: Stage, reason: Reason) -> ChannelError {
 }
 fn failure(stage: Stage, source: EngineError) -> ChannelError {
     error(stage, Reason::Io).with_source(source)
-}
-
-impl WireguardAdapter {
-    pub(crate) async fn fence_standalone_acquisition(
-        &self,
-        deadline: tokio::time::Instant,
-    ) -> Result<Vec<crate::runtime::packet_route::host::NativeDeviceFenced>, EngineError> {
-        let roots = {
-            let current = self
-                .profiles
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            current
-                .values()
-                .filter_map(|profile| profile.graph.as_ref())
-                .map(|root| {
-                    root.upgrade()
-                        .ok_or_else(|| invalid("actual standalone factory owner was released"))
-                })
-                .collect::<Result<Vec<_>, _>>()?
-        };
-        let mut pauses = Vec::new();
-        for root in roots {
-            for peer in &root.peers {
-                let pause = peer
-                    .pause
-                    .get()
-                    .ok_or_else(|| invalid("actual standalone wire checkpoint is unavailable"))?;
-                pauses.push(pause.fence(deadline).await.map_err(std::io::Error::other)?);
-            }
-        }
-        Ok(pauses)
-    }
-    pub(crate) async fn pause_standalone_if_idle(
-        &self,
-        deadline: tokio::time::Instant,
-    ) -> Result<Vec<crate::runtime::packet_route::host::NativeDevicePaused>, EngineError> {
-        let roots = {
-            let current = self
-                .profiles
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            current
-                .values()
-                .filter_map(|profile| profile.graph.as_ref())
-                .map(|root| {
-                    root.upgrade()
-                        .ok_or_else(|| invalid("actual standalone factory owner was released"))
-                })
-                .collect::<Result<Vec<_>, _>>()?
-        };
-        let mut pauses = Vec::new();
-        for root in roots {
-            for peer in &root.peers {
-                let pause = peer
-                    .pause
-                    .get()
-                    .ok_or_else(|| invalid("actual standalone wire checkpoint is unavailable"))?;
-                pauses.push(pause.pause(deadline).await.map_err(std::io::Error::other)?);
-            }
-        }
-        Ok(pauses)
-    }
-}
-
-impl StandaloneStackOptions {
-    pub(super) fn actual_flow_sources(
-        &self,
-    ) -> Result<
-        Vec<(
-            Arc<SharedRawIpDevice>,
-            zero_platform_tokio::controlled_carrier::CarrierOrigin,
-        )>,
-        EngineError,
-    > {
-        (0..self.peers.len())
-            .map(|index| {
-                let device = self.device(index).map_err(std::io::Error::other)?;
-                let original = self.original(index).map_err(std::io::Error::other)?;
-                Ok((
-                    device,
-                    zero_platform_tokio::controlled_carrier::CarrierOrigin::from_listener(original),
-                ))
-            })
-            .collect()
-    }
 }

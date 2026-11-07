@@ -51,14 +51,14 @@ impl PacketReturns {
             return Ok(None);
         }
         let storage = match replies.return_mtu() {
-            Some(mtu) => self
-                .retain_reply_buffer_wait(original, mtu)
-                .await
-                .map_err(|source| {
-                    ChannelError::new(Stage::Receive, Reason::Capacity, Impact::Packet)
-                        .with_source(source)
-                })?,
-            // The explicit old library sink has no actual Source link metadata.
+            Some(mtu) => {
+                let layout = replies.wire_memory().ok_or_else(|| {
+                    ChannelError::new(Stage::Receive, Reason::InvalidConfig, Impact::Component)
+                })?;
+                self.retain_transmit_reply_wait(original, mtu, layout)
+                    .await?
+            }
+            // Explicit pre-standard library sinks have no Source metadata.
             None => {
                 self.send_reply(&replies, original, observer.as_deref());
                 return Ok(None);

@@ -54,11 +54,17 @@ impl PacketRoleSessions {
         translated: bool,
         facts: Arc<PacketFacts>,
         return_mtu: u16,
+        return_memory: zero_stack::packet_output::memory::PacketWireMemory,
         packet: IpPacket,
         route: &InboundRouteRuntimeFactory,
         source: &InboundTaskAccess,
         inner: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> Result<Option<Arc<str>>, OwnedSendFailure> {
+        let return_memory_layout =
+            match crate::runtime::raw_ip::memory::source_layout(return_memory) {
+                Ok(layout) => layout,
+                Err(_) => return Err(rejected(packet, Reason::InvalidConfig)),
+            };
         let key = (selected, translated);
         let _opening = self.0.opening.lock().await;
         let existing = {
@@ -87,6 +93,7 @@ impl PacketRoleSessions {
                         PacketRequest {
                             endpoint: facts.endpoint,
                             return_mtu: Some(return_mtu),
+                            return_memory_layout: Some(return_memory_layout),
                             limits: PacketLimits {
                                 mtu: 65_535,
                                 families: vec![IpFamily::Ipv4, IpFamily::Ipv6],

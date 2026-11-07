@@ -45,6 +45,7 @@ struct Acquired {
     interface: Arc<str>,
     identity: PacketDeviceIdentity,
     original: PacketProviderRegistration,
+    memory: zero_tun::packet_memory::PacketMemoryView,
 }
 impl SystemTunSourceState {
     /// The real native acquisition stays with the same host provider. Waiting

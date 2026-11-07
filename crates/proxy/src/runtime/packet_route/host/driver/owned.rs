@@ -43,35 +43,40 @@ pub(super) async fn owned_write<W: tokio::io::AsyncWrite + Unpin>(
         return false;
     }
     let mtu = write.mtu();
-    let mut fragments = if write.bytes().len() > mtu {
-        packet::fragment_forwarded_packet(write.bytes(), mtu)
-            .into_iter()
-            .map(Into::into)
-            .collect::<Vec<zero_traits::PacketBuffer>>()
+    let identification = if write.bytes().first().is_some_and(|byte| byte >> 4 == 4) {
+        u32::from(u16::from_be_bytes([write.bytes()[4], write.bytes()[5]]))
     } else {
-        Vec::new()
+        0 // IPv6 router fragmentation is refused before native queue admission.
     };
-    if write.bytes().len() > mtu && fragments.is_empty() {
+    if let Err(source) = packet::write_packet_fragments(
+        write.packet.payload(),
+        mtu,
+        identification,
+        &mut write.fragments,
+    ) {
         if let Some(hop) = hop {
             packet::restore_ip_hop(write.packet.payload_mut(), hop);
         }
-        write.finish(Err(send_failure(
-            Reason::Protocol,
-            "native Packet cannot be fragmented",
+        write.finish(Err(SendFailure::new(
+            zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Send,
+                Reason::Protocol,
+                zero_platform_tokio::contract::Impact::Packet,
+            )
+            .with_source(source),
             DeliveryState::NotSubmitted,
-            None,
         )));
         return false;
     }
     // Fragmentation is an actual L3 transformation. The queued original stays
     // owned by this same physical driver until all its writes finish.
     let original_length = write.bytes().len();
-    let count = fragments.len().max(1);
+    let count = write.fragments.len().max(1);
     for index in 0..count {
-        let bytes = if fragments.is_empty() {
+        let bytes = if write.fragments.is_empty() {
             write.bytes()
         } else {
-            fragments[index].as_ref()
+            write.fragments[index].as_ref()
         };
         let result = write_one(&write, writer, bytes, stopped).await;
         match result {
@@ -94,7 +99,7 @@ pub(super) async fn owned_write<W: tokio::io::AsyncWrite + Unpin>(
             }
         }
     }
-    fragments.clear();
+    write.fragments.clear();
     write.finish(Ok(SendReceipt::accepted(original_length)));
     false
 }

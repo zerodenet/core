@@ -9,6 +9,7 @@ use zero_platform_tokio::contract::{packet::PacketRx, SendFailure, SendReceipt};
 type WriteResult = (IpPacket, Result<SendReceipt, SendFailure>);
 pub(in crate::runtime::packet_route::host) struct OwnedWrite {
     pub(in crate::runtime::packet_route::host) packet: IpPacket,
+    pub(in crate::runtime::packet_route::host) fragments: Vec<zero_traits::PacketBuffer>,
     session: Arc<Session>,
     result: oneshot::Sender<WriteResult>,
     _pending: PendingWrite,

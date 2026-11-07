@@ -44,6 +44,7 @@ pub(super) fn spec(inbound: &InboundConfig) -> ComponentSpec {
             ResourceDeclaration::PacketDatagramReads {
                 datagram: 0,
                 workspaces: [NonZeroUsize::new(65_536).unwrap(); 2],
+                control_workspace: NonZeroUsize::new(148),
             },
         ],
     }

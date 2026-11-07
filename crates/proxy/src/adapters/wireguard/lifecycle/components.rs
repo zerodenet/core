@@ -1,5 +1,7 @@
 //! Production linked graph recipes and invocations in the actual candidate map.
 use super::*;
+mod install;
+mod memory;
 mod resolve;
 use super::{
     pending_map::PendingEntries,
@@ -83,6 +85,24 @@ impl WireguardAdapter {
             .ok_or_else(|| invalid("plain linked device graph requires its actual host network"))?;
         let options = crate::runtime::raw_ip::RawIpStackOptions::from_config(
             &config.runtime.network.udp_receive_queue,
+        )
+        .with_packet_wire_memory(
+            zero_stack::packet_output::memory::PacketWireMemory::PaddedEnvelope {
+                multiple: 16,
+                overhead: 32,
+            },
+        )
+        .with_packet_native_read_limits(
+            config
+                .runtime
+                .effective_packet_native_read_total_max_frames(),
+            config
+                .runtime
+                .effective_packet_native_read_total_max_bytes(),
+        )
+        .with_packet_transmit_limits(
+            config.runtime.effective_packet_transmit_total_max_frames(),
+            config.runtime.effective_packet_transmit_total_max_bytes(),
         )
         .with_packet_return_limits(
             config.runtime.effective_packet_return_max_frames(),
@@ -224,61 +244,6 @@ impl WireguardAdapter {
             deferred.insert(recipe.into_retained_component(resources, &candidate)?);
         }
         Ok(deferred)
-    }
-    pub(super) async fn install_component_link(
-        &self,
-        candidate: &Arc<PendingEntries>,
-        tag: &str,
-        outbound: &OutboundConfig,
-        staged: &mut crate::runtime::raw_ip::StagedRawIpDevices,
-        identity: [u8; 32],
-        generation: u64,
-    ) -> Result<Arc<inbound::LinkedEndpoint>, EngineError> {
-        let pending = candidate
-            .get(tag)
-            .ok_or_else(|| invalid("actual deferred linked peer originals are missing"))?;
-        let link = candidate
-            .invocations
-            .lock()
-            .await
-            .get_mut(tag)
-            .ok_or_else(|| invalid("actual linked invocation was not retained"))?
-            .install(pending)?;
-        let devices = link
-            .state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .devices
-            .clone();
-        for (peer, device) in devices.into_iter().enumerate() {
-            let previous = self
-                .pool
-                .reusable_cell(&outbound.tag, peer, identity, generation)
-                .filter(|cell| {
-                    cell.get()
-                        .is_some_and(|original| Arc::ptr_eq(original, &device))
-                });
-            let fresh = previous.is_none();
-            let cell = match previous {
-                Some(cell) => cell,
-                None => {
-                    let cell = Arc::new(OnceCell::new());
-                    cell.set(device)
-                        .map_err(|_| invalid("duplicate canonical peer device"))?;
-                    cell
-                }
-            };
-            staged.insert(
-                outbound.tag.clone(),
-                peer,
-                identity,
-                generation,
-                cell,
-                fresh,
-                false,
-            )?;
-        }
-        Ok(link)
     }
 }
 

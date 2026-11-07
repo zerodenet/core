@@ -18,10 +18,23 @@ struct NativeWireGrant {
     driver: TaskJoinWitness,
     checkpoint: crate::runtime::packet_route::host::pause::Checkpoint,
 }
-pub(in crate::runtime::raw_ip::device) struct WireReads(pub [NativeReadGrant; 2]);
+pub(in crate::runtime::raw_ip::device) struct WireReads {
+    pub reads: [NativeReadGrant; 2],
+    pub control: NativeReadGrant,
+}
+impl WireReads {
+    pub(in crate::runtime::raw_ip::device) fn memory(
+        &self,
+    ) -> zero_tun::packet_memory::PacketDatagramWorkspaces {
+        zero_tun::packet_memory::PacketDatagramWorkspaces {
+            reads: self.reads.clone(),
+            control: Some(self.control.clone()),
+        }
+    }
+}
 impl Drop for WireReads {
     fn drop(&mut self) {
-        for grant in &self.0 {
+        for grant in self.reads.iter().chain(std::iter::once(&self.control)) {
             grant.revoke();
         }
     }
@@ -102,10 +115,11 @@ impl PendingNativeWire {
         self,
         grant: GrantedBoundDatagram,
         reads: [NativeReadGrant; 2],
+        control: NativeReadGrant,
         driver: TaskJoinWitness,
         checkpoint: crate::runtime::packet_route::host::pause::Checkpoint,
     ) -> Result<(), EngineError> {
-        let reads = WireReads(reads);
+        let reads = WireReads { reads, control };
         let origin = grant
             .socket
             .original()

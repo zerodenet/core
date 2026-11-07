@@ -116,7 +116,7 @@ impl ResourceLifecycle for Owner {
                     self.options.plan.mtu(),
                     endpoint,
                     tunnel,
-                    options,
+                    options.with_packet_memory_cell(peer.memory.clone()),
                 )
                 .map_err(|source| failure(Stage::Prepare, source))?;
             peer.original
@@ -141,6 +141,15 @@ impl ResourceLifecycle for Owner {
             let ordinal = index * 2;
             let binding = resources.activate_bound_datagram(ordinal, &driver)?;
             let reads = resources.take_packet_datagram_reads(ordinal)?;
+            let control = resources
+                .take_packet_datagram_control(ordinal)?
+                .ok_or_else(|| error(Stage::Prepare, Reason::InvalidConfig))?;
+            let memory = reads[0]
+                .memory_view()
+                .map_err(|source| error(Stage::Prepare, Reason::Revoked).with_source(source))?;
+            peer.memory
+                .set(memory)
+                .map_err(|_| error(Stage::Prepare, Reason::StalePlan))?;
             let granted = resources
                 .open_bound_datagram_attempt(BoundDatagramRequest {
                     binding,
@@ -149,7 +158,7 @@ impl ResourceLifecycle for Owner {
                 })
                 .map_err(|failure| failure.into_parts().0)?;
             pending
-                .install(granted, reads, driver, checkpoint)
+                .install(granted, reads, control, driver, checkpoint)
                 .map_err(|source| failure(Stage::Prepare, source))?;
             tokio::time::timeout_at(deadline, device.wait_ready())
                 .await

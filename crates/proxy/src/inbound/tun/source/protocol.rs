@@ -66,6 +66,14 @@ impl PacketReply for Reply {
     fn link_mtu(&self) -> Option<u16> {
         Some(self.shared.mtu)
     }
+    fn packet_memory(&self) -> Option<zero_platform_tokio::contract::packet::PacketSourceMemory> {
+        let acquired = self.shared.metadata.acquired.get()?;
+        acquired.memory.check_open().ok()?;
+        Some(zero_platform_tokio::contract::packet::PacketSourceMemory {
+            view: acquired.memory.clone(),
+            layout: zero_platform_tokio::contract::packet::PacketMemoryLayout::Native,
+        })
+    }
     fn facts(&self) -> &PacketFacts {
         &self.facts
     }
