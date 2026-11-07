@@ -221,7 +221,7 @@ pub(super) fn serialize_query(resp: Result<QueryResponse, ApiError>) -> io::Resu
     Ok(HttpBody::query(resp))
 }
 
-fn parse_flow_list_params(query: &str) -> FlowListQuery {
+pub(super) fn parse_flow_list_params(query: &str) -> FlowListQuery {
     let limit = parse_query_param(query, "limit")
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(100);

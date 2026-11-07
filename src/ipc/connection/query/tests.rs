@@ -99,3 +99,54 @@ fn capacity_rejection_and_original_not_found_errors_leave_no_engine_guard_or_byt
     drop(original);
     assert_eq!(budget.usage().response_bytes, 0);
 }
+
+#[test]
+fn actual_runtime_and_stats_are_encoded_before_guards_leave_and_only_output_bytes_remain() {
+    let handle = handle();
+    let budget = ControlBudget::new(ControlBudgetLimits::from_runtime(
+        &zero_config::RuntimeOptionsConfig::default(),
+    ));
+    for request in [
+        QueryRequest::Stats(Default::default()),
+        QueryRequest::ActiveFlows(zero_api::FlowListQuery {
+            limit: None,
+            filter: Default::default(),
+        }),
+        QueryRequest::RecentFlows(zero_api::FlowListQuery {
+            limit: None,
+            filter: Default::default(),
+        }),
+    ] {
+        let expected =
+            serde_json::to_value(ApiResponse::ok(handle.query(request.clone()).unwrap())).unwrap();
+        let original = prepare(&handle, &request, None, &budget).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(original.bytes()).unwrap(),
+            expected
+        );
+        // Original workspace/Engine guards are gone; only the actual wire Vec stays charged.
+        assert_eq!(budget.usage().response_bytes, original.bytes().len());
+        handle
+            .engine_handle()
+            .inner()
+            .record_udp_upstream_association_created();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(original.bytes()).unwrap(),
+            expected
+        );
+        drop(original);
+        assert_eq!(budget.usage().response_bytes, 0);
+    }
+    let request = QueryRequest::Flow(zero_api::FlowGetQuery {
+        flow_id: "missing-\"雪".into(),
+    });
+    let expected = serde_json::to_value(ApiResponse::<()>::err(
+        handle.query(request.clone()).unwrap_err(),
+    ))
+    .unwrap();
+    let original = prepare(&handle, &request, None, &budget).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(original.bytes()).unwrap(),
+        expected
+    );
+}

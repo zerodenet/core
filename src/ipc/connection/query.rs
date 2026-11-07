@@ -6,6 +6,12 @@ pub(super) fn handles(request: &zero_api::QueryRequest) -> bool {
         zero_api::QueryRequest::Config(_)
             | zero_api::QueryRequest::Policies(_)
             | zero_api::QueryRequest::Policy(_)
+            | zero_api::QueryRequest::Runtime(_)
+            | zero_api::QueryRequest::Stats(_)
+            | zero_api::QueryRequest::Diagnostics(_)
+            | zero_api::QueryRequest::ActiveFlows(_)
+            | zero_api::QueryRequest::RecentFlows(_)
+            | zero_api::QueryRequest::Flow(_)
     )
 }
 pub(super) fn prepare(
@@ -24,6 +30,14 @@ fn prepare_original(
     id: Option<serde_json::Value>,
     budget: &Arc<ControlBudget>,
 ) -> io::Result<super::super::owner::EncodedResponse> {
+    if !matches!(
+        request,
+        zero_api::QueryRequest::Config(_)
+            | zero_api::QueryRequest::Policies(_)
+            | zero_api::QueryRequest::Policy(_)
+    ) {
+        return runtime::prepare(handle, request, id, budget);
+    }
     let mut storage = None;
     let bytes = {
         let snapshot = handle.engine_handle().inner().runtime_snapshot();
@@ -62,3 +76,5 @@ fn prepare_original(
 
 #[cfg(test)]
 mod tests;
+
+mod runtime;
