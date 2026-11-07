@@ -346,7 +346,7 @@ impl<S> VmessAeadStream<S> {
             pending_write_len: None,
             write_shutdown_sent: false,
             write_shutdown_flushed: false,
-            native_shutdown: NativeShutdown::Idle,
+            native_shutdown: NativeShutdown::default(),
             confirmation: Confirmation::default(),
         })
     }
