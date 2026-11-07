@@ -277,6 +277,9 @@ pub(in crate::runtime) async fn run(
                     Ok(())=>true,
                     Err(source)=>{checkpoint.reject(request,source);false}
                 }}else{false};
+                #[cfg(test)]
+                if !idle { eprintln!("actual Packet Main pause rejected: source={:?} request={} pins={} sending={} responses={} closing_roles={}",
+                    facts.inbound,request,pins.quiescent(),sending.is_some(),responses.len(),closing_packet_roles.is_some()); }
                 checkpoint.acknowledge(request,idle);
                 tokio::select! {_=cancel.cancelled()=>break Ok(()),_=checkpoint.resumed(request)=>{}}
             },

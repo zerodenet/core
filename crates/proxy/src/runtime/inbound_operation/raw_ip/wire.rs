@@ -139,8 +139,16 @@ pub(super) async fn run(
                 if let Some(endpoint)=&operation.endpoint {
                     idle &= endpoint.packets.is_empty();
                     let devices=endpoint.peers.borrow().devices.clone();
-                    for device in devices { idle &= device.quiescent().await; }
+                    for device in devices {
+                        let quiet=device.quiescent().await;
+                        #[cfg(test)]
+                        if !quiet { eprintln!("actual Packet wire stack pause rejected: source={:?} request={} device={}",facts.inbound,request,device.incarnation); }
+                        idle &= quiet;
+                    }
                 }
+                #[cfg(test)]
+                if !idle { eprintln!("actual Packet wire pause rejected: source={:?} request={} receiving={} fragments={} endpoint_fragments={} responses={} packets_used={} proxied={} proxy_tasks={} protocol={} reads_returned={}",
+                    facts.inbound,request,receiving.is_some(),fragments.pending_datagrams(),endpoint_fragments.pending_datagrams(),responses.len(),packets.max_capacity()-packets.capacity(),proxied_rx.len(),proxied_tasks.len(),operation.device.quiescent(),read_memory.0.iter().all(|read|read.workspace_returned())); }
                 checkpoint.acknowledge(request,idle);
                 tokio::select! {changed=shutdown.changed()=>{if changed.is_err()||*shutdown.borrow(){break Ok(());}},_=checkpoint.resumed(request)=>{}}
             },

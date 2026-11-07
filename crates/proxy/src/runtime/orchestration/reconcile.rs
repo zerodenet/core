@@ -197,6 +197,8 @@ impl OrchestrationState {
             match proxy.protocols.try_pause_replacement_users(&components) {
                 Ok(pause) => Some(std::sync::Arc::new(pause)),
                 Err(error) => {
+                    #[cfg(test)]
+                    eprintln!("actual replacement user preflight before Source pause: {error:?}");
                     self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
                         .await;
                     return;
@@ -222,6 +224,8 @@ impl OrchestrationState {
                 Ok(pauses) => Some(pauses),
                 Err(error) => {
                     let cold_only = source_retirement.is_none();
+                    #[cfg(test)]
+                    eprintln!("actual Source idle/receiver retirement barrier, cold_only={cold_only}: {error:?}");
                     drop(source_retirement.take());
                     self.reject_before_start(proxy, &new_snapshot, error.to_string(), cold_only)
                         .await;
