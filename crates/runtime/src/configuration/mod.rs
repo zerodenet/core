@@ -4,7 +4,8 @@ mod control_budget;
 mod ss_security_budget;
 pub use control_budget::{
     ControlBudget, ControlBudgetCandidate, ControlBudgetLimits, ControlBudgetPermit,
-    ControlBudgetUsage, ControlCharge, ControlMessageLimits,
+    ControlBudgetUsage, ControlCharge, ControlConnectionBudget, ControlConnectionCharge,
+    ControlConnectionPermit, ControlMessageLimits,
 };
 pub use ss_security_budget::SsSecurityBudgetLimits;
 mod io;

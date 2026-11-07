@@ -79,3 +79,6 @@ fn pipe_workspaces_share_one_total_and_candidate_without_borrowing_event_bytes()
 
 #[path = "control_budget/messages.rs"]
 mod messages;
+
+#[path = "control_budget/connection.rs"]
+mod connection;

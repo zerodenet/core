@@ -6,6 +6,8 @@ use std::{
 };
 
 mod capacity;
+mod connection;
+pub use connection::{ControlConnectionBudget, ControlConnectionCharge, ControlConnectionPermit};
 mod limits;
 pub use limits::{ControlBudgetLimits, ControlMessageLimits};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -41,6 +43,8 @@ struct State {
     used: ControlBudgetUsage,
     pending: Option<Pending>,
     closed: bool,
+    connection_serial: u64,
+    connections: std::collections::BTreeMap<u64, connection::Usage>,
 }
 #[derive(Debug)]
 pub struct ControlBudget(Mutex<State>, Arc<tokio::sync::Notify>);
@@ -50,6 +54,7 @@ pub struct ControlBudget(Mutex<State>, Arc<tokio::sync::Notify>);
 pub struct ControlBudgetPermit {
     owner: Arc<ControlBudget>,
     charge: ControlCharge,
+    connection: Option<ControlConnectionBudget>,
 }
 /// Exact finite host attempt; Drop deliberately does not authorize publication
 /// or retirement. The existing application attempt retains it across awaits.
@@ -82,6 +87,8 @@ impl ControlBudget {
                 used: ControlBudgetUsage::default(),
                 pending: None,
                 closed: false,
+                connection_serial: 0,
+                connections: Default::default(),
             }),
             Arc::new(tokio::sync::Notify::new()),
         ))
@@ -129,10 +136,22 @@ impl ControlBudget {
         {
             return Err(capacity());
         }
+        let connection = if matches!(charge, ControlCharge::Connection) {
+            let id = state
+                .connection_serial
+                .checked_add(1)
+                .ok_or_else(capacity)?;
+            state.connection_serial = id;
+            state.connections.insert(id, connection::Usage::default());
+            Some(ControlConnectionBudget::issued(self.clone(), id))
+        } else {
+            None
+        };
         state.used = used;
         Ok(ControlBudgetPermit {
             owner: self.clone(),
             charge,
+            connection,
         })
     }
     pub fn validate(&self, limits: ControlBudgetLimits) -> io::Result<()> {
@@ -143,7 +162,7 @@ impl ControlBudget {
         if state.pending.is_some() {
             return Err(io::Error::other("root control candidate still owned"));
         }
-        if !fits(state.used, limits) {
+        if !fits(state.used, limits) || !connection::fits_all(&state, limits) {
             return Err(capacity());
         }
         Ok(())
@@ -161,7 +180,7 @@ impl ControlBudget {
                 "root control candidate cannot replace an unresolved owner",
             ));
         }
-        if !fits(state.used, limits) {
+        if !fits(state.used, limits) || !connection::fits_all(&state, limits) {
             return Err(capacity());
         }
         let identity = Arc::new(());
@@ -252,6 +271,9 @@ impl Drop for ControlBudgetPermit {
         *counter = counter
             .checked_sub(cost)
             .expect("same root control charge returned once");
+        if let Some(connection) = &self.connection {
+            connection::close(&mut state, connection);
+        }
         drop(state);
         self.owner.1.notify_waiters();
     }
