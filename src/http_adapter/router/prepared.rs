@@ -87,6 +87,12 @@ fn prepare(
             }
         },
     };
+    if matches!(
+        &request,
+        QueryRequest::TrafficStat(_) | QueryRequest::TrafficStats(_)
+    ) {
+        return traffic::prepare(handle, &request, budget);
+    }
     if runtime::handles(&request) {
         return runtime::prepare(handle, &request, budget);
     }
@@ -157,3 +163,5 @@ fn encode_failure(
 mod tests;
 
 mod runtime;
+
+mod traffic;
