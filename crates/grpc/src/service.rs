@@ -186,7 +186,7 @@ where
                             _ => tonic::Code::Internal,
                         };
                         return Err(
-                            error_status(&original, code, "subscribe failed: ", &error).await
+                            original.error_status(code, "subscribe failed: ", &error).await
                         );
                     }
                 };
