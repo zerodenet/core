@@ -65,17 +65,32 @@ where
                     let resp = ipc_ok(id, "pong");
                     frames::write_response_until(&writer, &resp, &budget, &stop).await?;
                 }
-                IpcRequest::Query { id, request } => match handle.query(request) {
-                    Ok(query_resp) => {
-                        let resp = ApiResponse::ok_with_id(id, query_resp);
-                        frames::write_response_until(&writer, &resp, &budget, &stop).await?;
+                IpcRequest::Query { id, request } => {
+                    if query::handles(&request) {
+                        let response = query::prepare(&handle, &request, id, &budget)?;
+                        tokio::select! {biased;_=stop.cancelled()=>{},result=async {
+                            let mut writer=writer.lock().await;
+                            writer.write_all(response.bytes()).await?;
+                            writer.flush().await
+                        }=>result?}
+                    } else {
+                        match handle.query(request) {
+                            Ok(query_resp) => {
+                                let resp = ApiResponse::ok_with_id(id, query_resp);
+                                frames::write_response_until(&writer, &resp, &budget, &stop)
+                                    .await?;
+                            }
+                            Err(error) => {
+                                let resp = super::super::owner::BorrowedErrorResponse::new(
+                                    id.as_ref(),
+                                    &error,
+                                );
+                                frames::write_response_until(&writer, &resp, &budget, &stop)
+                                    .await?;
+                            }
+                        }
                     }
-                    Err(error) => {
-                        let resp =
-                            super::super::owner::BorrowedErrorResponse::new(id.as_ref(), &error);
-                        frames::write_response_until(&writer, &resp, &budget, &stop).await?;
-                    }
-                },
+                }
                 IpcRequest::Command { id, method, params } => {
                     let command = parse_owned_command(method, params);
                     match command {

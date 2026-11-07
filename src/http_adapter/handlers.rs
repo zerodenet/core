@@ -217,7 +217,7 @@ pub fn events_stream(
 /// ```
 ///
 /// IPC responses preserve the externally-tagged enum for typed dispatch.
-fn serialize_query(resp: Result<QueryResponse, ApiError>) -> io::Result<HttpBody> {
+pub(super) fn serialize_query(resp: Result<QueryResponse, ApiError>) -> io::Result<HttpBody> {
     Ok(HttpBody::query(resp))
 }
 

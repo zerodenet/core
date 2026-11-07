@@ -30,6 +30,7 @@ mod commands;
 mod events;
 mod frames;
 mod input;
+mod query;
 mod run;
 #[cfg(test)]
 use command::write_command_result;

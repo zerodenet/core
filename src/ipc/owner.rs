@@ -1,6 +1,10 @@
 //! Retained original control tasks and their existing cleanup helpers.
 use std::{io, sync::Arc};
+mod encoded;
 mod error;
+mod message;
+pub(crate) use encoded::{encode_response, EncodedResponse};
+pub(crate) use message::BorrowedMessageResponse;
 mod task;
 pub(crate) use error::BorrowedErrorResponse;
 pub(crate) use task::ControlTask;
