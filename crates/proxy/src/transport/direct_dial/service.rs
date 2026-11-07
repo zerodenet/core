@@ -12,6 +12,16 @@ pub(crate) async fn open_service_candidates(
     policy: &zero_traits::DialPolicy,
     context: CarrierContext,
 ) -> Result<TokioSocket, ChannelError> {
+    open_service_candidates_using(candidates, egress, policy, context, &LegacyCandidateOpener).await
+}
+
+pub(crate) async fn open_service_candidates_using<D: CandidateOpener>(
+    candidates: Vec<SocketAddr>,
+    egress: &EgressInterfaceControl,
+    policy: &zero_traits::DialPolicy,
+    context: CarrierContext,
+    opener: &D,
+) -> Result<D::Socket, ChannelError> {
     let failure = |reason| {
         let mut error = ChannelError::new(Stage::Dial, reason, Impact::Session);
         error.session = context.session;
@@ -28,7 +38,7 @@ pub(crate) async fn open_service_candidates(
             "DNS returned no permitted root endpoint",
         )));
     }
-    let dial = dial_tcp_candidates_with_policy(candidates, egress, policy);
+    let dial = dial_tcp_candidates_using(candidates, egress, policy, opener);
     tokio::select! {biased;
         _=context.cancel.cancelled()=>Err(failure(Reason::Cancelled)),
         result=with_deadline(context.deadline,dial)=>{

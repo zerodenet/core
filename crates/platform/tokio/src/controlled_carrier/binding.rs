@@ -223,7 +223,8 @@ impl BoundAuthority {
         self.available()
             && matches!(
                 self.declaration,
-                ResourceDeclaration::ControlledNodeCarrier { .. }
+                ResourceDeclaration::ControlledDirectStream { .. }
+                    | ResourceDeclaration::ControlledNodeCarrier { .. }
                     | ResourceDeclaration::ControlledNodeStream { .. }
                     | ResourceDeclaration::ControlledServiceStream { .. }
             )
@@ -241,7 +242,8 @@ impl BoundAuthority {
             || (self.available()
                 && matches!(
                     self.declaration,
-                    ResourceDeclaration::ControlledNodeStream { .. }
+                    ResourceDeclaration::ControlledDirectStream { .. }
+                        | ResourceDeclaration::ControlledNodeStream { .. }
                         | ResourceDeclaration::ControlledNodeCarrier { .. }
                 ))
     }
@@ -444,6 +446,14 @@ impl CarrierOwnerBinding {
             } => Some((endpoint, binding)),
             _ => None,
         }
+    }
+    pub(super) fn matches_direct_service(
+        &self,
+        destination: &Destination,
+        binding: &UpstreamBinding,
+    ) -> bool {
+        matches!(&self.authority.declaration, ResourceDeclaration::ControlledDirectStream {dial,..}
+            if dial == &binding.dial && binding.prefix.is_empty() && destination.port != 0)
     }
     pub fn matches_direct(&self, destination: &Destination, binding: &UpstreamBinding) -> bool {
         self.authority.matches_direct(destination, binding)

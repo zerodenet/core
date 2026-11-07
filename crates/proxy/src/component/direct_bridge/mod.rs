@@ -1,4 +1,5 @@
 //! One temporary boundary from existing probe callers to standard Stream roles.
+pub(in crate::component) mod background;
 pub(super) mod controlled;
 pub(super) mod network;
 mod source;

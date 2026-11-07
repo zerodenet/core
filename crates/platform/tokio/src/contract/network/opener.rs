@@ -210,6 +210,20 @@ pub trait UpstreamOpener: Send + Sync {
         false
     }
 
+    /// The same controlled dynamic request with the actual original logical
+    /// custody returned, for an existing selected prefix. No grants are minted.
+    fn open_controlled_stream_loan(
+        &self,
+        _: &UpstreamBinding,
+        request: ControlledStreamRequest,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::loan::StreamLoan, ChannelError>> {
+        let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+        error.component = Some(request.grants.instance().component);
+        error.session = request.context.session;
+        error.delivery = DeliveryState::NotSubmitted;
+        Box::pin(async move { Err(error) })
+    }
+
     /// Multi-candidate resolution/acquisition is opt-in. Reject before legacy
     /// execution or native I/O; an unsupported opener cannot silently fall back.
     fn open_controlled_stream(

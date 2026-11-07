@@ -79,6 +79,14 @@ impl BackgroundPath<'_> {
                     invalid(Reason::StalePlan, "Packet prefix host retired")
                         .with_source(source.clone())
                 })?;
+                if first.slot.recipe.spec().resources.iter().any(|resource|matches!(resource,
+                    zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. })) {
+                    let target = nodes.get(1).and_then(|node|node.endpoint.clone()).unwrap_or_else(||endpoint.clone());
+                    crate::component::direct_bridge::background::Root::transport(
+                        &first.slot,Arc::downgrade(plan),services.upstream_observed(first.tag.as_deref().unwrap_or("")),
+                        target,root_binding,crate::component::direct_bridge::background::Caller {business:None,call:Some(call.clone()),waiting},
+                    )?.1
+                } else {
                 if !plan.has_device_carrier_provider(first.slot.role_id()) {
                     return Err(invalid(
                         Reason::Revoked,
@@ -91,6 +99,7 @@ impl BackgroundPath<'_> {
                     waiting,
                     call.clone(),
                 )?
+                }
             }
         };
         for (index, node) in nodes.iter().enumerate() {
@@ -139,7 +148,7 @@ impl BackgroundPath<'_> {
                 deadline: call.deadline,
                 cancel: call.cancel.clone(),
                 upstream,
-                observer: if index == 0 && node.endpoint.is_none() {
+                observer: if index == 0 && node.endpoint.is_none() && !node.slot.recipe.spec().resources.iter().any(|resource|matches!(resource,zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..})) {
                     let tag = node.tag.as_deref().ok_or_else(|| {
                         invalid(
                             Reason::StalePlan,

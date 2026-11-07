@@ -8,9 +8,9 @@ use zero_core::{
 use zero_traits::DialPolicy;
 
 use super::{
-    BoxFuture, ChannelError,
     datagram::{BoxDatagramSession, DatagramRequest},
     stream::BoxStream,
+    BoxFuture, ChannelError,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -296,6 +296,14 @@ impl UpstreamTransport {
     ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierIo, ChannelError>> {
         self.opener
             .acquire_controlled_stream(&self.binding, destination, context, grant)
+    }
+
+    pub fn open_controlled_stream_loan(
+        &self,
+        request: ControlledStreamRequest,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::loan::StreamLoan, ChannelError>> {
+        self.opener
+            .open_controlled_stream_loan(&self.binding, request)
     }
 
     pub fn open_controlled_stream(

@@ -2,7 +2,7 @@ pub(super) mod candidate;
 pub(crate) use candidate::CandidateOpener;
 use candidate::LegacyCandidateOpener;
 mod service;
-pub(crate) use service::open_service_candidates;
+pub(crate) use service::{open_service_candidates, open_service_candidates_using};
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;

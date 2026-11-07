@@ -4,7 +4,7 @@ mod carrier;
 mod datagram;
 pub(crate) use datagram::ServiceDatagram;
 mod roots;
-pub(crate) use roots::{ServiceRoot, dns_roots};
+pub(crate) use roots::{dns_roots, ServiceRoot};
 mod selection;
 use super::ProtocolInventory;
 use crate::{
@@ -14,7 +14,7 @@ use crate::{
 };
 pub(crate) use selection::ServiceSelections;
 use std::sync::Arc;
-use zero_core::{Address, request::Destination};
+use zero_core::{request::Destination, Address};
 use zero_engine::ResolvedOutbound;
 use zero_platform_tokio::contract::dns::DnsQueryRole;
 
@@ -73,7 +73,9 @@ impl ProtocolInventory {
                     .map_err(|error| invalid().with_source(error.error))?
                     .ok_or_else(invalid)?;
                 if node.slot.role_id() != *role
-                    || (node.endpoint.is_none() && !components.has_device_carrier_provider(*role))
+                    || (node.endpoint.is_none()
+                        && !components.has_device_carrier_provider(*role)
+                        && !components.has_preparing_node_carrier_provider(*role))
                 {
                     return Err(invalid());
                 }
@@ -98,7 +100,9 @@ impl ProtocolInventory {
                     };
                     if node.endpoint.is_none()
                         && (!nodes.is_empty()
-                            || !components.has_device_carrier_provider(node.slot.role_id()))
+                            || (!components.has_device_carrier_provider(node.slot.role_id())
+                                && !components
+                                    .has_preparing_node_carrier_provider(node.slot.role_id())))
                     {
                         return Ok(None);
                     }
