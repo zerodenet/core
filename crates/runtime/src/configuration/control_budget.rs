@@ -5,7 +5,10 @@ use std::{
     sync::{Arc, Mutex, Weak},
 };
 
+mod candidate;
 mod capacity;
+mod custody;
+pub use custody::ControlCommandCustody;
 mod connection;
 pub use connection::{ControlConnectionBudget, ControlConnectionCharge, ControlConnectionPermit};
 mod limits;
@@ -36,6 +39,8 @@ pub enum ControlCharge {
 struct Pending {
     identity: Arc<()>,
     limits: ControlBudgetLimits,
+    scope_pause: Option<Arc<crate::embedded_commands::limits::CommandScopePause>>,
+    committed: bool,
 }
 #[derive(Debug)]
 struct State {
@@ -47,7 +52,11 @@ struct State {
     connections: std::collections::BTreeMap<u64, connection::Usage>,
 }
 #[derive(Debug)]
-pub struct ControlBudget(Mutex<State>, Arc<tokio::sync::Notify>);
+pub struct ControlBudget(
+    Mutex<State>,
+    Arc<tokio::sync::Notify>,
+    Arc<crate::EmbeddedCommandOwner>,
+);
 /// Each live permit is retained by the actual original, not by a waiter. Its
 /// owner releases it only after matching native close / real worker and queue
 /// custody return, as appropriate to that charge.
@@ -55,6 +64,7 @@ pub struct ControlBudgetPermit {
     owner: Arc<ControlBudget>,
     charge: ControlCharge,
     connection: Option<ControlConnectionBudget>,
+    command_identity: Option<Arc<()>>,
 }
 /// Exact finite host attempt; Drop deliberately does not authorize publication
 /// or retirement. The existing application attempt retains it across awaits.
@@ -80,8 +90,12 @@ fn fits(used: ControlBudgetUsage, limits: ControlBudgetLimits) -> bool {
         && used.grpc_requests <= limits.messages.grpc_requests
 }
 impl ControlBudget {
+    pub fn command_owner(&self) -> Arc<crate::EmbeddedCommandOwner> {
+        self.2.clone()
+    }
     pub fn new(limits: ControlBudgetLimits) -> Arc<Self> {
-        Arc::new(Self(
+        let commands = Arc::new(crate::EmbeddedCommandOwner::default());
+        let owner = Arc::new(Self(
             Mutex::new(State {
                 limits,
                 used: ControlBudgetUsage::default(),
@@ -91,7 +105,10 @@ impl ControlBudget {
                 connections: Default::default(),
             }),
             Arc::new(tokio::sync::Notify::new()),
-        ))
+            commands.clone(),
+        ));
+        commands.bind_book(&owner);
+        owner
     }
     pub fn limits(&self) -> ControlBudgetLimits {
         self.0
@@ -152,6 +169,7 @@ impl ControlBudget {
             owner: self.clone(),
             charge,
             connection,
+            command_identity: matches!(charge, ControlCharge::PendingCommand).then(|| Arc::new(())),
         })
     }
     pub fn validate(&self, limits: ControlBudgetLimits) -> io::Result<()> {
@@ -184,15 +202,54 @@ impl ControlBudget {
             return Err(capacity());
         }
         let identity = Arc::new(());
+        let scope_pause = self
+            .2
+            .pause_for_limit(limits.messages.pending_commands, &identity)?;
         state.pending = Some(Pending {
             identity: identity.clone(),
             limits,
+            scope_pause,
+            committed: false,
         });
         Ok(ControlBudgetCandidate {
             owner: Arc::downgrade(self),
             identity,
             limits,
         })
+    }
+    /// The application calls this only after its previous concrete servers were
+    /// positively retired. Empty accounting is a separate prerequisite, never a
+    /// replacement for their native/worker close receipts.
+    pub fn reopen_after_retirement(&self) -> io::Result<()> {
+        self.reopen_for_runtime(self.limits())
+    }
+    /// A real retired startup uses its actual Engine generation, including
+    /// after an operation unwound between metadata commit and its wake duty.
+    pub fn reopen_for_runtime(&self, limits: ControlBudgetLimits) -> io::Result<()> {
+        let mut state = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !state.closed {
+            return if state.limits == limits {
+                Ok(())
+            } else {
+                Err(io::Error::other(
+                    "live control owner differs from startup generation",
+                ))
+            };
+        }
+        if state.used != ControlBudgetUsage::default()
+            || state.pending.is_some()
+            || !self.2.retirement_complete()
+        {
+            return Err(capacity());
+        }
+        state.limits = limits;
+        state.closed = false;
+        drop(state);
+        self.1.notify_waiters();
+        Ok(())
     }
     pub fn close_admission(&self) {
         self.0
@@ -212,41 +269,6 @@ impl ControlBudget {
             ));
         }
         Ok(())
-    }
-}
-impl ControlBudgetCandidate {
-    pub fn limits(&self) -> ControlBudgetLimits {
-        self.limits
-    }
-    fn finish(&self, commit: bool) -> io::Result<()> {
-        let owner = self
-            .owner
-            .upgrade()
-            .ok_or_else(|| io::Error::other("original root control owner expired"))?;
-        let mut state = owner
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let pending = state
-            .pending
-            .as_ref()
-            .ok_or_else(|| io::Error::other("root control candidate was already settled"))?;
-        if !Arc::ptr_eq(&pending.identity, &self.identity) || pending.limits != self.limits {
-            return Err(io::Error::other("foreign root control candidate"));
-        }
-        if commit {
-            state.limits = self.limits;
-        }
-        state.pending = None;
-        drop(state);
-        owner.1.notify_waiters();
-        Ok(())
-    }
-    pub fn commit(&self) -> io::Result<()> {
-        self.finish(true)
-    }
-    pub fn retire(&self) -> io::Result<()> {
-        self.finish(false)
     }
 }
 impl Drop for ControlBudgetPermit {
@@ -281,3 +303,12 @@ impl Drop for ControlBudgetPermit {
 #[cfg(test)]
 #[path = "../tests/control_budget.rs"]
 mod tests;
+
+impl Drop for ControlBudget {
+    fn drop(&mut self) {
+        // Active originals retain this same book via their real permission.
+        // An idle kernel Drop may stop its receipt driver but issues no join or
+        // native-close receipt; graceful callers use the explicit shutdown.
+        self.2.begin_shutdown();
+    }
+}

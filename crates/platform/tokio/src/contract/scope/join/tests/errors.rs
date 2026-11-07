@@ -94,6 +94,8 @@ async fn panic_receipt_and_shutdown_report_retain_same_native_join_error_object(
     let native = original
         .source()
         .unwrap()
+        .source()
+        .unwrap()
         .downcast_ref::<JoinError>()
         .unwrap();
     assert!(native.is_panic());
@@ -105,6 +107,8 @@ async fn panic_receipt_and_shutdown_report_retain_same_native_join_error_object(
         .source()
         .unwrap()
         .downcast_ref::<ChannelError>()
+        .unwrap()
+        .source()
         .unwrap()
         .source()
         .unwrap()

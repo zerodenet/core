@@ -30,10 +30,12 @@ impl Usage {
 pub struct ControlConnectionBudget {
     owner: Arc<ControlBudget>,
     id: u64,
+    command_task: Arc<std::sync::OnceLock<tokio::task::AbortHandle>>,
 }
 pub struct ControlConnectionPermit {
     connection: ControlConnectionBudget,
     charge: ControlConnectionCharge,
+    command_identity: Option<Arc<()>>,
 }
 impl ControlBudgetPermit {
     /// Only this actual Connection reservation can issue its shared local book.
@@ -44,7 +46,11 @@ impl ControlBudgetPermit {
 }
 impl ControlConnectionBudget {
     pub(super) fn issued(owner: Arc<ControlBudget>, id: u64) -> Self {
-        Self { owner, id }
+        Self {
+            owner,
+            id,
+            command_task: Arc::default(),
+        }
     }
     pub fn reserve(&self, charge: ControlConnectionCharge) -> io::Result<ControlConnectionPermit> {
         let mut state = self
@@ -96,6 +102,8 @@ impl ControlConnectionBudget {
         Ok(ControlConnectionPermit {
             connection: self.clone(),
             charge,
+            command_identity: matches!(charge, ControlConnectionCharge::PendingCommand)
+                .then(|| Arc::new(())),
         })
     }
 }
@@ -147,5 +155,30 @@ impl Drop for ControlConnectionPermit {
         }
         drop(state);
         self.connection.owner.1.notify_waiters();
+    }
+}
+
+impl ControlConnectionPermit {
+    pub fn command_custody(&self) -> Option<super::ControlCommandCustody> {
+        Some(super::ControlCommandCustody {
+            owner: Arc::downgrade(&self.connection.owner),
+            live: Arc::downgrade(self.command_identity.as_ref()?),
+        })
+    }
+}
+
+impl ControlConnectionBudget {
+    /// The original connection JoinSet installs its opaque actual registration
+    /// before opening the original handler's start gate. No numeric ID setter.
+    pub fn register_command_task(&self, task: tokio::task::AbortHandle) -> bool {
+        self.command_task.set(task).is_ok()
+    }
+}
+impl ControlConnectionPermit {
+    pub fn command_owner(&self) -> Arc<crate::EmbeddedCommandOwner> {
+        self.connection.owner.command_owner()
+    }
+    pub(crate) fn original_command_task(&self) -> Option<tokio::task::AbortHandle> {
+        self.connection.command_task.get().cloned()
     }
 }

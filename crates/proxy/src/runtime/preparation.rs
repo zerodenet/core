@@ -50,7 +50,8 @@ impl ProxyPreparation {
         &self,
         runtime: &zero_config::RuntimeOptionsConfig,
     ) -> Result<(), EngineError> {
-        install_original_limit(&self.protocols, runtime)
+        install_original_limit(&self.protocols, runtime)?;
+        install_control_limit(&self.protocols, runtime)
     }
     pub fn application_network_originals(
         &self,
@@ -120,4 +121,19 @@ mod tests {
             "cold assembly never opens or charges an original"
         );
     }
+}
+
+pub(super) fn install_control_limit(
+    protocols: &ProtocolInventory,
+    runtime: &zero_config::RuntimeOptionsConfig,
+) -> Result<(), EngineError> {
+    let host = protocols.runtime_host();
+    let limits = zero_runtime::configuration::ControlBudgetLimits::from_runtime(runtime);
+    host.embedded_commands()
+        .validate_limit(limits.messages.pending_commands)?;
+    let budget = host.control_budget();
+    if budget.limits() != limits {
+        budget.prepare(limits)?.commit()?;
+    }
+    Ok(())
 }

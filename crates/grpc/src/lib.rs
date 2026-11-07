@@ -49,13 +49,24 @@ pub fn prepare(
     addr: SocketAddr,
     security: GrpcServerSecurity,
 ) -> Result<Arc<GrpcHandle>, Box<dyn std::error::Error>> {
-    prepare_with_budget(addr, security, budget::defaults())
+    prepare_original(addr, security, budget::defaults(), true)
 }
 
+/// The supplied book's owner also retires its shared command Scope after all
+/// control servers have joined. This server cannot retire another frontend's
+/// same-Host duty. `prepare` owns and retires its independent book itself.
 pub fn prepare_with_budget(
     addr: SocketAddr,
     security: GrpcServerSecurity,
     budget: Arc<zero_runtime::configuration::ControlBudget>,
+) -> Result<Arc<GrpcHandle>, Box<dyn std::error::Error>> {
+    prepare_original(addr, security, budget, false)
+}
+fn prepare_original(
+    addr: SocketAddr,
+    security: GrpcServerSecurity,
+    budget: Arc<zero_runtime::configuration::ControlBudget>,
+    owns_commands: bool,
 ) -> Result<Arc<GrpcHandle>, Box<dyn std::error::Error>> {
     security.validate_for(addr)?;
     let tls = security
@@ -65,9 +76,11 @@ pub fn prepare_with_budget(
         .transpose()?;
     let (scope, original) = native::cold(addr)?;
     let requests = Arc::new(messages::Requests::new(budget.clone()));
-    let subscriptions = Arc::new(Subscriptions::new(budget));
+    let subscriptions = Arc::new(Subscriptions::new(budget.clone()));
     Ok(Arc::new(GrpcHandle {
         address: addr,
+        command_budget: budget.clone(),
+        owns_commands,
         local_addr: Mutex::new(addr),
         auth: security.auth,
         tls,
@@ -109,6 +122,8 @@ struct GrpcOriginals {
 /// Retains the actual server, Scope, native controls and subscription jobs.
 pub struct GrpcHandle {
     address: SocketAddr,
+    command_budget: Arc<zero_runtime::configuration::ControlBudget>,
+    owns_commands: bool,
     local_addr: Mutex<SocketAddr>,
     auth: Option<GrpcServerAuth>,
     tls: Option<tokio_rustls::TlsAcceptor>,
@@ -213,6 +228,9 @@ impl GrpcHandle {
     }
     pub async fn shutdown(&self) -> std::io::Result<()> {
         self.task.close_admission();
+        if self.owns_commands {
+            self.command_budget.command_owner().begin_shutdown();
+        }
         self.originals
             .subscriptions
             .stop
@@ -239,12 +257,25 @@ impl GrpcHandle {
             .map_err(std::io::Error::other)
             .and_then(|report| tasks::confirmed_report("gRPC native", report));
         let scope = tasks::confirmed_report("gRPC Scope", tasks);
+        let commands = if self.owns_commands {
+            self.command_budget
+                .command_owner()
+                .shutdown(native::deadline())
+                .await
+                .map_err(std::io::Error::other)
+        } else {
+            Ok(())
+        };
         let requests = self.originals.requests.confirm_released();
-        if scope.is_ok() && native.is_ok() && requests.is_ok() {
+        if scope.is_ok()
+            && native.is_ok()
+            && requests.is_ok()
+            && (!self.owns_commands || self.command_budget.command_owner().retirement_complete())
+        {
             self.originals.connections.confirm_all_closed();
             self.retired.store(true, Ordering::Release);
         }
-        tasks::finish([server, jobs, scope, native, requests])
+        tasks::finish([server, jobs, scope, native, commands, requests])
     }
 }
 impl Drop for GrpcHandle {

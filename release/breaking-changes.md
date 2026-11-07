@@ -809,3 +809,5 @@ Service facts、body 完成或 Drop 当成原件关闭。System TUN ordinary Sou
 预算和不可变授予 CA 的 TLS backend 接线正在组合；省略字段导出、V1 配置/API/events、CLI、
 FFI 和客户端面板工作流保持原契约，最终资格尚未取得。TEMP-WG-OUTER-UDP-01 未关闭，
 没有扩大其 outer_udp_proxy/reconnect 边界。未发布或部署。
+
+- Round2 Rust integration: Scope panic sources now retain the exact `Arc<tokio::task::JoinError>` through `TaskJoinError`; its `Error::source` exposes the original join error. Internal consumers that directly downcast the immediate source must follow this wrapper. This does not change V1 command/config/event or wire fields. Command cleanup, caller ACK and byte custody are separate; supplied control-book owners retire the shared command Scope after their actual frontends join.

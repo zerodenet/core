@@ -14,23 +14,30 @@ pub(super) struct ConcurrentCommandTasks {
 }
 
 pub(super) struct CommandCredits {
-    _command: zero_runtime::configuration::ControlConnectionPermit,
-    _bytes: Vec<ControlBudgetPermit>,
+    pub(super) _command: zero_runtime::FrontendCommand,
     pub(super) observation: zero_runtime::ApplyObservation,
 }
 impl CommandCredits {
     pub(super) fn new(
         command: zero_runtime::configuration::ControlConnectionPermit,
         bytes: Vec<ControlBudgetPermit>,
-    ) -> Self {
-        Self {
+    ) -> io::Result<Self> {
+        let owner = command.command_owner();
+        let command = owner.adopt_connection_command_with_input(command, bytes)?;
+        let observation = command.observation();
+        Ok(Self {
             _command: command,
-            _bytes: bytes,
-            observation: zero_runtime::ApplyObservation::new(),
-        }
+            observation,
+        })
     }
     pub(super) async fn settle(&self) -> io::Result<()> {
-        super::super::owner::wait_command_operation(&self.observation).await
+        let result = super::super::owner::wait_command_operation(&self.observation).await;
+        let returned = self
+            ._command
+            .finish_inline()
+            .await
+            .map_err(io::Error::other);
+        super::super::owner::finish_work([result, returned])
     }
 }
 
@@ -90,7 +97,13 @@ impl ConcurrentCommandTasks {
         }
         // The original JoinHandle result has been consumed and its typed fault
         // retained before this exact job's command/input capacity is returned.
-        drop(self.retained.remove(&id));
+        if let Some(credits) = self.retained.remove(&id) {
+            assert!(
+                credits._command.joined_by_original_receiver(id),
+                "same original IPC command join"
+            );
+            drop(credits);
+        }
     }
 
     pub(super) fn has_tasks(&self) -> bool {
@@ -133,8 +146,11 @@ impl ConcurrentCommandTasks {
             return false;
         };
         let stop = self.stop.clone();
-        let credits = CommandCredits::new(command, retained);
+        let Ok(credits) = CommandCredits::new(command, retained) else {
+            return false;
+        };
         let observation = credits.observation.clone();
+        let completion = credits._command.clone();
         let (start, started) = tokio::sync::oneshot::channel();
         let original = self.tasks.spawn(async move {
             if started.await.is_err() || stop.is_cancelled() {
@@ -148,12 +164,17 @@ impl ConcurrentCommandTasks {
                 super::super::owner::catch_work(observation.scope_with_stop(stop.clone(), future))
                     .await;
             let joined = super::super::owner::wait_command_operation(&observation).await;
-            let result = super::super::owner::finish_caught(result, [joined]);
+            let returned = completion.finish_inline().await.map_err(io::Error::other);
+            let result = super::super::owner::finish_caught(result, [joined, returned]);
             if result.is_err() {
                 stop.cancel();
             }
             result
         });
+        assert!(
+            credits._command.register_joinset(original.clone()),
+            "same original command registration before gate"
+        );
         self.retained.insert(original.id(), credits);
         let _ = start.send(());
         true

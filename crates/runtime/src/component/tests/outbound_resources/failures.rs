@@ -124,6 +124,8 @@ fn actual_registration_panic_retains_unknown_state_and_the_real_task_join_error(
     let join = failure
         .source()
         .unwrap()
+        .source()
+        .unwrap()
         .downcast_ref::<tokio::task::JoinError>()
         .unwrap();
     assert!(join.is_panic());

@@ -46,7 +46,10 @@ pub(super) async fn run_ipc_server(
 
                 let connection_stop = stop.child_token();
                 let connection_budget = budget.clone();
+                let registered=local_budget.clone();
+                let (start,started)=tokio::sync::oneshot::channel();
                 let task = connections.spawn(async move {
+                    if started.await.is_err(){return Ok(());}
                     let emit_handle = handle.clone();
                     let result = connection::handle_ipc_connection_with_connection_until(stream, handle, connection_stop, connection_budget,local_budget).await;
 
@@ -76,6 +79,8 @@ pub(super) async fn run_ipc_server(
                 });
                 let original = originals.activating.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take().expect("accepted original installed before activation");
                 originals.active.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(task.id(), original);
+                assert!(registered.register_command_task(task.clone()),"same original Unix connection task before gate");
+                let _=start.send(());
             }
             result = connections.join_next_with_id(), if !connections.is_empty() => {
                 if let Some(result) = result {

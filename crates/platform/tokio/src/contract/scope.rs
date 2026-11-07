@@ -26,7 +26,7 @@ use super::{
 pub use super::lifecycle::TaskClass;
 mod blocking;
 mod join;
-pub use join::{TaskJoinWitness, TaskJoined};
+pub use join::{TaskJoinError, TaskJoinWitness, TaskJoined};
 mod hosted;
 mod identity;
 mod registrar;
@@ -136,7 +136,7 @@ impl State {
             Err(source) => {
                 Err(
                     ChannelError::new(Stage::Close, Reason::Internal, Impact::Component)
-                        .with_source(source),
+                        .with_source(TaskJoinError::new(source)),
                 )
             }
         };

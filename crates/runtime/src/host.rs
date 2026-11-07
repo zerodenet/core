@@ -9,6 +9,8 @@ pub struct RuntimeHost<A = ()> {
     components: ComponentCatalog,
     originals: Arc<crate::HostOriginalBudgets>,
     probes: Arc<crate::probe_owner::ProbeOwner>,
+    embedded_commands: Arc<crate::EmbeddedCommandOwner>,
+    control_budget: Arc<crate::configuration::ControlBudget>,
     apply: Arc<ApplyOwner>,
     apply_lock: Arc<tokio::sync::Mutex<()>>,
     reload_ack: Mutex<Option<A>>,
@@ -30,14 +32,21 @@ impl<A> RuntimeHost<A> {
         factories: ComponentRegistry<OutboundConfig>,
         originals: Arc<crate::HostOriginalBudgets>,
     ) -> Self {
+        let control_budget = crate::configuration::ControlBudget::new(
+            crate::configuration::ControlBudgetLimits::from_runtime(&Default::default()),
+        );
+        let embedded_commands = control_budget.command_owner();
         let probes = Arc::new(crate::probe_owner::ProbeOwner::default());
         let components = ComponentCatalog::with_factories(factories);
+        components.attach_embedded_commands(Arc::downgrade(&embedded_commands));
         components.attach_probe_owner(Arc::downgrade(&probes));
         components.bind_original_budgets(originals.clone());
         Self {
             components,
             originals,
             probes,
+            embedded_commands,
+            control_budget,
             apply: Arc::default(),
             apply_lock: Arc::default(),
             reload_ack: Mutex::default(),
@@ -46,6 +55,12 @@ impl<A> RuntimeHost<A> {
 }
 
 impl<A> RuntimeHost<A> {
+    pub fn control_budget(&self) -> Arc<crate::configuration::ControlBudget> {
+        self.control_budget.clone()
+    }
+    pub fn embedded_commands(&self) -> &Arc<crate::EmbeddedCommandOwner> {
+        &self.embedded_commands
+    }
     pub fn original_budgets(&self) -> Arc<crate::HostOriginalBudgets> {
         self.originals.clone()
     }

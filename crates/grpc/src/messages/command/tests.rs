@@ -49,10 +49,9 @@ async fn actual_raw_join_error_is_retained_before_the_same_request_task_reports_
         let handler = RawPanic::default();
         let expected = handler.0.clone();
         let held = original.clone();
-        let mut scope = TaskScope::new(
-            tokio::runtime::Handle::current(),
-            NonZeroUsize::new(1).unwrap(),
-        );
+        let mut scope =
+            TaskScope::suspended_hosted(tokio::runtime::Handle::current(), NonZeroUsize::new(1));
+        scope.enable_registration().unwrap();
         let (begin, started) = tokio::sync::oneshot::channel();
         let (_, witness) = scope
             .registrar()
@@ -73,8 +72,8 @@ async fn actual_raw_join_error_is_retained_before_the_same_request_task_reports_
             .unwrap();
         assert!(original.bind(witness.clone()));
         begin.send(()).unwrap();
-        let exit = scope.next_exit().await.unwrap();
-        assert!(exit.result.is_err());
+        let receipt = scope.next_receipt().await.unwrap();
+        assert!(receipt.result().is_err());
         let native_raw = expected.lock().unwrap().clone().unwrap();
         let retained = original.command.cleanup.get().unwrap();
         assert!(Arc::ptr_eq(
@@ -89,15 +88,26 @@ async fn actual_raw_join_error_is_retained_before_the_same_request_task_reports_
             original.command.operation.get().is_none(),
             "raw completion cannot invent an Apply TaskJoined"
         );
-        let outcome = original.command.observation.blocking_outcome().unwrap();
+        let outcome = original
+            .command
+            .observation
+            .get()
+            .unwrap()
+            .blocking_outcome()
+            .unwrap();
         assert_eq!(outcome.task_id(), native_raw.id());
         assert!(Arc::ptr_eq(outcome.failure().unwrap(), &native_raw));
-        assert!(witness.try_joined().unwrap().registration_released());
+        assert!(!witness.try_joined().unwrap().registration_released());
         assert_eq!(
             budget.usage().pending_commands,
             1,
             "the actual request still holds command custody"
         );
+        assert!(requests.confirm_released().is_err());
+        scope.acknowledge(&receipt).unwrap();
+        while budget.usage().pending_commands != 0 {
+            tokio::task::yield_now().await;
+        }
         requests.confirm_released().unwrap();
         drop(original);
         assert_eq!(budget.usage().pending_commands, 0);
@@ -107,6 +117,12 @@ async fn actual_raw_join_error_is_retained_before_the_same_request_task_reports_
             .shutdown(crate::native::deadline())
             .await
             .is_complete());
+        budget
+            .command_owner()
+            .shutdown(crate::native::deadline())
+            .await
+            .unwrap_err();
+        assert!(budget.command_owner().retirement_complete());
         budget.close_admission();
         budget.confirm_released().unwrap();
     })

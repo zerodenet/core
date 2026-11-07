@@ -127,6 +127,8 @@ async fn work_panic_closes_same_original_then_resumes_in_the_same_registered_tas
             .source
             .source()
             .unwrap()
+            .source()
+            .unwrap()
             .downcast_ref::<tokio::task::JoinError>()
             .unwrap();
         assert!(original.is_panic());

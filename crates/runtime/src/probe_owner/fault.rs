@@ -5,8 +5,29 @@ use super::*;
 pub struct ProbeOwnershipFailure {
     original: Arc<ChannelError>,
     entry: Weak<Entry>,
+    settled: Arc<AtomicBool>,
 }
 impl ProbeOwnershipFailure {
+    /// Wait only for this same ProbeOwner entry's positive physical retirement.
+    /// Caller/worker/Scope faults stay in their original receivers independently.
+    pub async fn wait_settled(&self) -> Result<(), ChannelError> {
+        if self.settled.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        let entry = self
+            .entry
+            .upgrade()
+            .ok_or_else(|| failure(Reason::Revoked))?;
+        loop {
+            let changed = entry.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if entry.complete.load(Ordering::Acquire) {
+                return Ok(());
+            }
+            changed.await;
+        }
+    }
     pub fn original(&self) -> &Arc<ChannelError> {
         &self.original
     }
@@ -71,6 +92,7 @@ pub(super) fn retained_probe(error: &Arc<ChannelError>, entry: &Arc<Entry>) -> C
     retained(error).with_source(ProbeOwnershipFailure {
         original: error.clone(),
         entry: Arc::downgrade(entry),
+        settled: entry.complete.clone(),
     })
 }
 

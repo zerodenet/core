@@ -137,6 +137,8 @@ async fn disconnected_wire_command_keeps_input_and_command_credit_until_actual_f
         assert!(owner.retirement_complete());
         assert!(owner.originals.scope.lock().await.shutdown(crate::native::deadline()).await.is_complete());
         assert_eq!(owner.originals.original.lock().await.confirmed_close_count(), 1);
+        budget.command_owner().shutdown(crate::native::deadline()).await.unwrap();
+        assert!(budget.command_owner().retirement_complete());
         budget.close_admission();
         budget.confirm_released().unwrap();
     }).await.unwrap();
@@ -171,6 +173,12 @@ async fn actual_wire_decoder_enforces_configured_limit_before_the_typed_query_ru
         assert_eq!(service.queries.load(Ordering::Acquire), 0);
         drop(client);
         owner.shutdown().await.unwrap();
+        budget
+            .command_owner()
+            .shutdown(crate::native::deadline())
+            .await
+            .unwrap();
+        assert!(budget.command_owner().retirement_complete());
         budget.close_admission();
         budget.confirm_released().unwrap();
     })
@@ -210,6 +218,12 @@ async fn actual_wire_query_keeps_the_existing_json_protobuf_and_native_retiremen
         drop(client);
         owner.shutdown().await.unwrap();
         assert!(owner.retirement_complete());
+        budget
+            .command_owner()
+            .shutdown(crate::native::deadline())
+            .await
+            .unwrap();
+        assert!(budget.command_owner().retirement_complete());
         budget.close_admission();
         budget.confirm_released().unwrap();
     })

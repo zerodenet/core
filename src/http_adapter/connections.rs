@@ -11,13 +11,20 @@ pub(super) struct Original {
     claim: AcceptedTcpClaim,
     permit: ControlBudgetPermit,
     command: Mutex<Option<HeldCommand>>,
+    worker: std::sync::OnceLock<zero_platform_tokio::contract::scope::TaskJoinWitness>,
 }
 struct HeldCommand {
     _request: Arc<super::input::HeldRequest>,
     observation: zero_runtime::ApplyObservation,
-    _permit: zero_runtime::configuration::ControlConnectionPermit,
+    _permit: zero_runtime::FrontendCommand,
 }
 impl Original {
+    pub(super) fn register_worker(
+        &self,
+        actual: zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> bool {
+        self.worker.set(actual).is_ok()
+    }
     pub(super) fn connection_budget(&self) -> zero_runtime::configuration::ControlConnectionBudget {
         self.permit
             .connection_budget()
@@ -27,20 +34,36 @@ impl Original {
         &self,
         request: Arc<super::input::HeldRequest>,
     ) -> io::Result<zero_runtime::ApplyObservation> {
-        let mut command = self
+        let command = self
             .command
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if command.is_some() {
             return Err(io::Error::other("HTTP original already holds its command"));
         }
-        let observation = zero_runtime::ApplyObservation::new();
+        drop(command);
+        let permit = self
+            .permit
+            .connection_budget()
+            .expect("same actual HTTP connection issuer")
+            .reserve(zero_runtime::configuration::ControlConnectionCharge::PendingCommand)?;
+        let actual = permit.command_owner().adopt_connection_command(permit)?;
+        let worker = self
+            .worker
+            .get()
+            .cloned()
+            .ok_or_else(|| io::Error::other("HTTP original handler registration missing"))?;
+        assert!(
+            actual.register_scoped(worker),
+            "same actual accepted HTTP task"
+        );
+        let observation = actual.observation();
+        let mut command = self
+            .command
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         *command = Some(HeldCommand {
-            _permit: self
-                .permit
-                .connection_budget()
-                .expect("same actual HTTP connection issuer")
-                .reserve(zero_runtime::configuration::ControlConnectionCharge::PendingCommand)?,
+            _permit: actual,
             _request: request,
             observation: observation.clone(),
         });
@@ -54,7 +77,20 @@ impl Original {
             .as_ref()
             .map(|command| command.observation.clone());
         match observation {
-            Some(observation) => crate::ipc::owner::wait_command_operation(&observation).await,
+            Some(observation) => {
+                let work = crate::ipc::owner::wait_command_operation(&observation).await;
+                let command = self
+                    .command
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .as_ref()
+                    .map(|command| command._permit.clone());
+                let returned = match command {
+                    Some(command) => command.finish_inline().await.map_err(io::Error::other),
+                    None => Ok(()),
+                };
+                crate::ipc::owner::finish_work([work, returned])
+            }
             None => Ok(()),
         }
     }
@@ -103,6 +139,7 @@ impl Connections {
             claim: claim.clone(),
             permit,
             command: Mutex::new(None),
+            worker: std::sync::OnceLock::new(),
         });
         self.entries
             .lock()

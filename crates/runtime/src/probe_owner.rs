@@ -42,7 +42,7 @@ struct Entry {
     cleanup: Mutex<Option<BoxFuture<'static, Result<(), ChannelError>>>>,
     fault: OnceLock<Arc<ChannelError>>,
     fault_received: AtomicBool,
-    complete: AtomicBool,
+    complete: Arc<AtomicBool>,
     changed: Notify,
     credit: Mutex<Option<ProbeAdmission>>,
 }

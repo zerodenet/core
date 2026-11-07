@@ -11,6 +11,7 @@ pub(super) struct Registration {
 }
 pub(super) struct JoinedState {
     task: std::sync::OnceLock<TaskId>,
+    native_task: std::sync::OnceLock<tokio::task::Id>,
     hosted: bool,
     owner: Weak<Shared>,
     joined: Mutex<Option<TaskJoined>>,
@@ -49,7 +50,11 @@ impl std::fmt::Debug for JoinedState {
 #[derive(Clone, Debug)]
 pub struct TaskJoinWitness(Arc<JoinedState>);
 impl TaskJoinWitness {
-    /// Original registration identity, published before spawn_tracked returns.
+    /// Original Tokio registration identity, never a native IO close receipt.
+    pub fn native_task_id(&self) -> Option<tokio::task::Id> {
+        self.0.native_task.get().copied()
+    }
+    /// Original Scope registration identity, published before spawn returns.
     pub fn task_id(&self) -> Option<TaskId> {
         self.0.task.get().copied()
     }
@@ -74,6 +79,7 @@ impl TaskJoinWitness {
         Self(Arc::new(JoinedState {
             hosted,
             task: std::sync::OnceLock::new(),
+            native_task: std::sync::OnceLock::new(),
             owner: Arc::downgrade(owner),
             joined: Mutex::new(None),
             changed: Notify::new(),
@@ -309,6 +315,9 @@ impl TaskRegistrar {
         }
         let id = allocate_task_id()?;
         let handle = spawn(&mut state.tasks, &self.0.runtime);
+        if let Some(witness) = witness.as_ref().and_then(Weak::upgrade) {
+            let _ = witness.native_task.set(handle.id());
+        }
         state
             .records
             .insert(handle.id(), Registration { id, class, witness });
@@ -320,3 +329,6 @@ impl TaskRegistrar {
 
 #[cfg(test)]
 mod tests;
+
+mod error;
+pub use error::TaskJoinError;

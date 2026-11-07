@@ -83,6 +83,9 @@ impl ApplicationServices {
             return false;
         }
         drop(originals);
+        if !self.embedded_commands.retirement_complete() {
+            return false;
+        }
         self.control_budget.confirm_released().is_ok()
     }
     pub(in crate::application) async fn shutdown_control(self: &Arc<Self>) -> io::Result<()> {
@@ -93,6 +96,7 @@ impl ApplicationServices {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
         let mut outcomes = Vec::new();
+        self.embedded_commands.begin_shutdown();
         if let Some(original) = originals.ipc {
             outcomes.push(original.shutdown().await);
             if original.retirement_complete() {
@@ -122,6 +126,16 @@ impl ApplicationServices {
                     .grpc = None;
             }
         }
+        // Parent control tasks must really join/ACK before their command
+        // records can return capacity; do not wait for those ACKs while the
+        // original servers have not yet received stop.
+        outcomes.push(
+            self.embedded_commands
+                .shutdown(tokio::time::Instant::now() + std::time::Duration::from_secs(5))
+                .await
+                .map_err(std::io::Error::other),
+        );
+        outcomes.push(self.control_budget.retire_candidate_after_shutdown().await);
         if !self.control_retirement_complete() {
             // Unknown native/users/worker or budget debt retains the exact
             // application. A consumed, fully retired fault is still returned,

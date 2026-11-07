@@ -27,6 +27,8 @@ struct State {
     producers: usize,
     original: Option<Original>,
     faults: faults::FaultState,
+    embedded: Option<std::sync::Weak<crate::embedded_commands::Entry>>,
+    frontend: Option<std::sync::Weak<crate::embedded_commands::frontend::Original>>,
 }
 enum Original {
     Registering(Arc<ApplyOwner>),
@@ -53,7 +55,7 @@ impl ApplyObservation {
             ..Default::default()
         }))
     }
-    pub(super) fn current() -> Option<Self> {
+    pub(crate) fn current() -> Option<Self> {
         CURRENT.try_with(|current| current.observation.clone()).ok()
     }
     /// The existing control caller's stop signal only. This grants no IO,
@@ -101,6 +103,19 @@ impl ApplyObservation {
         work: impl Future<Output = T>,
     ) -> T {
         let _producer = self.enter();
+        if let Some(stop) = stop.as_ref() {
+            let original = self
+                .0
+                .state
+                .lock()
+                .expect("command observation poisoned")
+                .frontend
+                .as_ref()
+                .and_then(std::sync::Weak::upgrade);
+            if let Some(original) = original {
+                original.attach_stop(stop.clone());
+            }
+        }
         CURRENT
             .scope(
                 Invocation {
@@ -254,3 +269,5 @@ pub use faults::{
     BlockingCommandOutcome, CommandCleanupAccepted, CommandCleanupKind, CommandInvocationFault,
     CommandInvocationFaults,
 };
+
+mod custody;

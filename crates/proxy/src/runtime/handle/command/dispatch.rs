@@ -134,33 +134,9 @@ impl zero_api::CommandService for ProxyHandle {
                 });
             }
 
-            let handle = self.clone();
-            // Carry only this request's observation into the existing worker.
-            // Capture before spawn: a lost waiter cannot certify the original
-            // unstarted/running worker as KnownNoAcceptedWork.
-            let observation = zero_runtime::ApplyObservation::capture();
-            let original = tokio::task::spawn_blocking(move || match observation {
-                Some(observation) => observation.run_sync(|| handle.execute(command)),
-                None => handle.execute(command),
-            });
-            let id = original.id();
-            match original.await {
-                Ok(result) => {
-                    let _ = zero_runtime::ApplyObservation::record_blocking_outcome(id, None);
-                    result
-                }
-                Err(error) => {
-                    let error = std::sync::Arc::new(error);
-                    let _ = zero_runtime::ApplyObservation::record_blocking_outcome(
-                        id,
-                        Some(error.clone()),
-                    );
-                    Err(zero_api::ApiError::new(
-                        zero_api::ApiErrorCode::Internal,
-                        format!("command execution task failed: {error}"),
-                    ))
-                }
-            }
+            let current =
+                zero_runtime::ApplyObservation::current_frontend(&self.proxy.host.control_budget());
+            return super::embedded::execute(self.clone(), command, current).await;
         })
     }
 }

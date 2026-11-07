@@ -135,6 +135,14 @@ impl ComponentCatalog {
             {
                 return fault;
             }
+            if let Some(fault) = self
+                .embedded_commands
+                .get()
+                .and_then(std::sync::Weak::upgrade)
+                .and_then(|owner| owner.original_failure())
+            {
+                return fault;
+            }
             if let Some(fault) = self.first_task_fault() {
                 return fault.error();
             }
@@ -145,7 +153,16 @@ impl ComponentCatalog {
             {
                 return crate::component::instance::retained(fault);
             }
-            changed.await;
+            let embedded = self
+                .embedded_commands
+                .get()
+                .and_then(std::sync::Weak::upgrade);
+            tokio::select! {
+                _ = &mut changed => {},
+                failure = async {
+                    match embedded { Some(owner) => owner.observe_failure().await, None => std::future::pending().await }
+                } => return failure,
+            }
         }
     }
 
@@ -210,5 +227,17 @@ impl ComponentCatalog {
                 })?
         };
         plan.direct(tag)?.probe_registrar()
+    }
+}
+
+impl ComponentCatalog {
+    pub(crate) fn attach_embedded_commands(
+        &self,
+        owner: std::sync::Weak<crate::EmbeddedCommandOwner>,
+    ) {
+        assert!(
+            self.embedded_commands.set(owner).is_ok(),
+            "one embedded control owner per Host"
+        );
     }
 }

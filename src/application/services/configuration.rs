@@ -128,12 +128,26 @@ impl ConfigApplyReconciler for ApplicationServices {
         let limits =
             zero_runtime::configuration::ControlBudgetLimits::from_runtime(&target.runtime);
         let attempt = state.attempt.as_mut().unwrap();
-        if attempt.control_budget.is_none() && self.control_budget.limits() != limits {
+        if self.proxy_control_budget {
+            // The same Proxy accepted operation owns this exact candidate;
+            // the application neither prepares nor commits a second one.
+            self.control_budget
+                .candidate_for_publication(limits)
+                .map_err(|error| error.to_string())?;
+        } else if attempt.control_budget.is_none() && self.control_budget.limits() != limits {
             attempt.control_budget = Some(
                 self.control_budget
                     .prepare(limits)
                     .map_err(|error| error.to_string())?,
             );
+        }
+        if let Some(candidate) = attempt.control_budget.as_ref() {
+            candidate
+                .retire_command_scope(
+                    tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                )
+                .await
+                .map_err(|error| error.to_string())?;
         }
         self.install_target(&mut state, target).await
     }

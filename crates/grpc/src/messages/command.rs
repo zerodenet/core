@@ -9,15 +9,15 @@ use std::{
     },
     task::{Context, Poll},
 };
-use zero_runtime::configuration::{ControlBudgetPermit, ControlCharge};
+use zero_runtime::configuration::ControlCharge;
 type Work = Pin<Box<dyn Future<Output = zero_api::ApiResult<zero_api::CommandResponse>> + Send>>;
 #[derive(Default)]
 pub(super) struct Command {
     work: Mutex<Option<Work>>,
-    credit: Mutex<Option<ControlBudgetPermit>>,
+    frontend: OnceLock<zero_runtime::FrontendCommand>,
     fault: AtomicBool,
     stop: tokio_util::sync::CancellationToken,
-    observation: zero_runtime::ApplyObservation,
+    observation: OnceLock<zero_runtime::ApplyObservation>,
     operation: OnceLock<zero_platform_tokio::contract::scope::TaskJoined>,
     cleanup: OnceLock<std::sync::Arc<std::io::Error>>,
 }
@@ -30,22 +30,42 @@ impl Record {
     where
         H: zero_api::CommandService + Send + Sync + 'static,
     {
+        if self.command.frontend.get().is_some() {
+            return Err(tonic::Status::internal("duplicate original gRPC command"));
+        }
+        let registration = self
+            .command_registration()
+            .ok_or_else(|| tonic::Status::internal("original RPC registration absent"))?;
         let credit = self
             .budget
             .reserve(ControlCharge::PendingCommand)
             .map_err(|error| tonic::Status::resource_exhausted(error.to_string()))?;
-        {
-            let mut retained = self
-                .command
-                .credit
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if retained.is_some() {
-                return Err(tonic::Status::internal("duplicate original gRPC command"));
-            }
-            *retained = Some(credit);
+        // Transfer this exact permission into the same Host's strong row.
+        // This is the already registered RPC task, not another executor.
+        let row = self
+            .budget
+            .command_owner()
+            .adopt_command(credit)
+            .map_err(|error| tonic::Status::resource_exhausted(error.to_string()))?;
+        if !row.register_scoped(registration) {
+            row.finish_inline()
+                .await
+                .map_err(|error| tonic::Status::internal(error.to_string()))?;
+            return Err(tonic::Status::internal(
+                "foreign original RPC command registration",
+            ));
         }
-        let observation = self.command.observation.clone();
+        let observation = row.observation();
+        if let Err(row) = self.command.frontend.set(row) {
+            row.finish_inline()
+                .await
+                .map_err(|error| tonic::Status::internal(error.to_string()))?;
+            return Err(tonic::Status::internal("duplicate original gRPC command"));
+        }
+        self.command
+            .observation
+            .set(observation.clone())
+            .map_err(|_| tonic::Status::internal("duplicate original gRPC command observation"))?;
         let stop = self.command.stop.clone();
         *self
             .command
@@ -117,17 +137,30 @@ impl Command {
         // The existing wire timeout can already have returned an error while
         // its same accepted Apply still owns work/compensation. Keep this
         // original stream and its credits until that exact registration joins.
-        let joined = self.observation.wait_joined().await;
+        let Some(observation) = self.observation.get() else {
+            return Ok(());
+        };
+        let joined = observation.wait_joined().await;
         if let Some(joined) = &joined {
             let _ = self.operation.set(joined.clone());
         }
-        if let Some(faults) = self.observation.completion_fault(joined.as_ref()) {
+        let row_result = match self.frontend.get() {
+            Some(row) => row.finish_inline().await,
+            None => Ok(()),
+        };
+        if let Some(faults) = observation.completion_fault(joined.as_ref()) {
             let original = self
                 .cleanup
                 .get_or_init(|| std::sync::Arc::new(faults.into_io_error()));
             // The same actual request retains every typed original before the
             // stream task reports it through its actual Scope exit. Neither a
             // raw blocking outcome nor missing Apply fabricates a TaskJoined.
+            return Err(std::io::Error::new(original.kind(), original.clone()));
+        }
+        if let Err(fault) = row_result {
+            let original = self
+                .cleanup
+                .get_or_init(|| std::sync::Arc::new(std::io::Error::other(fault)));
             return Err(std::io::Error::new(original.kind(), original.clone()));
         }
         Ok(())

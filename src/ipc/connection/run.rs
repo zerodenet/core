@@ -165,7 +165,8 @@ where
                                 let credits = commands::CommandCredits::new(
                                     command,
                                     vec![request_storage.take().unwrap()],
-                                );
+                                )?;
+                                let _ = credits._command.register_original_connection();
                                 let observation = credits.observation.clone();
                                 inline_command = Some(credits);
                                 let written = observation

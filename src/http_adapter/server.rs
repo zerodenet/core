@@ -45,7 +45,9 @@ pub(super) async fn run_server(
                     let limiters = limiters.clone();
                     let connection_stop = stop.child_token();
                     let connection_budget = budget.clone();
-                    match accepted.spawn_handler_bound(TaskClass::Auxiliary, move |stream, _tasks| async move {
+                    match accepted.spawn_handler_bound(TaskClass::Auxiliary, move |stream, tasks| async move {
+                        let (_,actual)=tasks.current_task().ok_or_else(||component_io(io::Error::other("HTTP actual handler registration missing")))?;
+                        assert!(connection_original.register_worker(actual),"same original HTTP Work before request IO");
                         if let Err(error) = serve_connection(stream, handle, auth.as_deref(), &limiters, connection_stop, connection_budget,connection_original).await {
                             if input::client_frame(&error) { debug!(?remote_addr,%error,"HTTP client frame rejected by its actual owner");return Ok(()); }
                             if is_transient_disconnect(&error) { debug!(?remote_addr, %error, "http connection closed early"); }

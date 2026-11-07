@@ -22,7 +22,6 @@ pub mod supervision;
 #[path = "tests/plan.rs"]
 mod tests;
 mod transaction;
-pub use transaction::PreparedComponentStart;
 use super::{
     instance::{invalid, ComponentSlot, SharedError},
     ComponentRegistry,
@@ -34,6 +33,7 @@ use std::{
         Arc, Mutex, OnceLock,
     },
 };
+pub use transaction::PreparedComponentStart;
 use zero_config::{OutboundConfig, RuntimeConfig};
 use zero_core::component::{ComponentId, ResourceGeneration};
 use zero_platform_tokio::contract::{ChannelError, Reason};
@@ -112,6 +112,7 @@ pub struct ComponentCatalog {
     factories: OnceLock<ComponentRegistry<OutboundConfig>>,
     originals: OnceLock<Arc<crate::HostOriginalBudgets>>,
     probes: OnceLock<std::sync::Weak<crate::probe_owner::ProbeOwner>>,
+    embedded_commands: OnceLock<std::sync::Weak<crate::EmbeddedCommandOwner>>,
     next_id: AtomicU64,
     #[cfg(feature = "managed-datagram-runtime")]
     next_association: AtomicU64,
@@ -126,6 +127,7 @@ impl Default for ComponentCatalog {
             factories: OnceLock::new(),
             originals: OnceLock::new(),
             probes: OnceLock::new(),
+            embedded_commands: OnceLock::new(),
             next_id: AtomicU64::new(0),
             #[cfg(feature = "managed-datagram-runtime")]
             next_association: AtomicU64::new(0),
@@ -150,7 +152,11 @@ impl ComponentCatalog {
     ) -> Option<Result<Arc<ComponentPlan>, SharedError>> {
         let state = self.state.lock().expect("component catalog poisoned");
         if let Some(candidate) = state.cold.as_ref().filter(|entry| entry.matches(config)) {
-            if candidate.plan.as_ref().map_or(true, |plan| plan.device_pass) {
+            if candidate
+                .plan
+                .as_ref()
+                .map_or(true, |plan| plan.device_pass)
+            {
                 return Some(candidate.plan.clone());
             }
         }

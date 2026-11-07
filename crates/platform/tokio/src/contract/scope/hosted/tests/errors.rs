@@ -86,6 +86,8 @@ async fn hosted_panic_preserves_the_real_native_join_identity_and_same_source_on
     let native = original
         .source()
         .unwrap()
+        .source()
+        .unwrap()
         .downcast_ref::<JoinError>()
         .unwrap();
     assert!(native.is_panic());
@@ -103,6 +105,8 @@ async fn hosted_panic_preserves_the_real_native_join_identity_and_same_source_on
     assert!(std::ptr::eq(
         native,
         source
+            .source()
+            .unwrap()
             .source()
             .unwrap()
             .downcast_ref::<JoinError>()
@@ -144,6 +148,8 @@ fn native_runtime_cancellation_is_joined_as_a_real_cancelled_exit_not_a_drop_rec
     assert_eq!(receipt.id(), id);
     let original = receipt.result().unwrap_err();
     let source = original
+        .source()
+        .unwrap()
         .source()
         .unwrap()
         .downcast_ref::<JoinError>()

@@ -142,6 +142,8 @@ impl ApplyObservation {
                 *slot = Some(source.clone());
             }
         }
+        drop(state);
+        receiver.ownership_fault_published();
         Ok(CommandCleanupAccepted {
             receiver: Arc::downgrade(&receiver.0),
             source: Arc::downgrade(&source),

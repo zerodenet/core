@@ -92,6 +92,8 @@ async fn actual_wire_timeout_preserves_input_until_the_same_accepted_apply_reall
         assert!(service.base.acknowledged.load(Ordering::Acquire));
         assert!(owner.retirement_complete());
         assert_eq!(owner.originals.original.lock().await.confirmed_close_count(), 1);
+        budget.command_owner().shutdown(crate::native::deadline()).await.unwrap();
+        assert!(budget.command_owner().retirement_complete());
         budget.close_admission(); budget.confirm_released().unwrap();
     }).await.unwrap();
 }

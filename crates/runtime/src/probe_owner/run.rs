@@ -45,7 +45,7 @@ impl ProbeOwner {
             cleanup: Mutex::new(None),
             fault: OnceLock::new(),
             fault_received: AtomicBool::new(false),
-            complete: AtomicBool::new(false),
+            complete: Arc::new(AtomicBool::new(false)),
             changed: Notify::new(),
             credit: Mutex::new(Some(credit)),
         });

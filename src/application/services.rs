@@ -34,6 +34,8 @@ pub(super) struct ApplicationServices {
     control: std::sync::Mutex<control::ControlServers>,
     parent_input: std::sync::OnceLock<Arc<zero_platform_tokio::parent_input::ParentInputOwner>>,
     control_budget: Arc<zero_runtime::configuration::ControlBudget>,
+    embedded_commands: Arc<zero_runtime::EmbeddedCommandOwner>,
+    proxy_control_budget: bool,
 }
 
 struct ApplicationAttempt {
@@ -116,12 +118,16 @@ impl ApplicationServices {
                 ),
             ))
         };
-        Self::start_with_network(
+        Self::start_with_network_owned(
             engine,
             ipc_hook_socket,
             #[cfg(feature = "event-dispatcher")]
             event_network,
             &APPLICATION_STARTUP,
+            Some((
+                proxy.application_control_budget(),
+                proxy.embedded_command_owner(),
+            )),
         )
         .await
     }
@@ -132,7 +138,44 @@ impl ApplicationServices {
         #[cfg(feature = "event-dispatcher")] event_network: zero_connector::EventDispatcherNetwork,
         startup: &ApplicationStartupSlot,
     ) -> Result<Arc<Self>, Box<dyn Error>> {
+        Self::start_with_network_owned(
+            engine,
+            ipc_hook_socket,
+            #[cfg(feature = "event-dispatcher")]
+            event_network,
+            startup,
+            None,
+        )
+        .await
+    }
+    async fn start_with_network_owned(
+        engine: Engine,
+        ipc_hook_socket: Option<&str>,
+        #[cfg(feature = "event-dispatcher")] event_network: zero_connector::EventDispatcherNetwork,
+        startup: &ApplicationStartupSlot,
+        owned: Option<(
+            Arc<zero_runtime::configuration::ControlBudget>,
+            Arc<zero_runtime::EmbeddedCommandOwner>,
+        )>,
+    ) -> Result<Arc<Self>, Box<dyn Error>> {
         let config = engine.config();
+        let proxy_control_budget = owned.is_some();
+        let (control_budget, embedded_commands) = match owned {
+            Some((budget, commands)) => {
+                assert!(
+                    Arc::ptr_eq(&commands, &budget.command_owner()),
+                    "same actual Host control owner"
+                );
+                (budget, commands)
+            }
+            None => {
+                let budget = zero_runtime::configuration::ControlBudget::new(
+                    zero_runtime::configuration::ControlBudgetLimits::from_runtime(&config.runtime),
+                );
+                let commands = budget.command_owner();
+                (budget, commands)
+            }
+        };
         let services = Arc::new(Self {
             engine,
             #[cfg(feature = "event-dispatcher")]
@@ -142,9 +185,9 @@ impl ApplicationServices {
             event_network,
             control: std::sync::Mutex::new(control::ControlServers::default()),
             parent_input: std::sync::OnceLock::new(),
-            control_budget: zero_runtime::configuration::ControlBudget::new(
-                zero_runtime::configuration::ControlBudgetLimits::from_runtime(&config.runtime),
-            ),
+            control_budget,
+            embedded_commands,
+            proxy_control_budget,
             state: Mutex::new(ApplicationServiceState {
                 config: config.clone(),
                 installed: false,
@@ -172,6 +215,20 @@ impl ApplicationServices {
 
         // This exact original is installed before any cancellable await.
         startup.install(services.clone())?;
+        // Only this actual startup slot may reopen after its old native servers
+        // and workers have positively retired. A failed reserve never reopens.
+        if let Err(error) = services
+            .embedded_commands
+            .reopen_after_retirement()
+            .and_then(|_| {
+                services.control_budget.reopen_for_runtime(
+                    zero_runtime::configuration::ControlBudgetLimits::from_runtime(&config.runtime),
+                )
+            })
+        {
+            startup.clear(&services);
+            return Err(error.into());
+        }
         if let Err(error) = services.validate(config.as_ref(), config.as_ref()) {
             // Validation is pure and no service resource exists yet.
             startup.clear(&services);

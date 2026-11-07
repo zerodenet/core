@@ -8,3 +8,5 @@ mod tun;
 
 #[cfg(test)]
 mod tests;
+
+mod embedded;

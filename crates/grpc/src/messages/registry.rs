@@ -70,6 +70,9 @@ impl Record {
                 .is_some_and(|actual| actual.same_registration(&witness)),
         }
     }
+    pub(super) fn command_registration(&self) -> Option<TaskJoinWitness> {
+        self.witness.get().cloned()
+    }
     fn released(&self) -> bool {
         !self.command.unknown()
             && self.witness.get().is_some_and(|actual| {

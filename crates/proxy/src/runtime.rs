@@ -183,9 +183,15 @@ impl Proxy {
         engine: Engine,
         preparation: ProxyPreparation,
     ) -> Result<Self, EngineError> {
-        let ProxyPreparation { egress_interface, node_network, background, protocols } = preparation;
+        let ProxyPreparation {
+            egress_interface,
+            node_network,
+            background,
+            protocols,
+        } = preparation;
         let config = engine.config();
         preparation::install_original_limit(&protocols, &config.runtime)?;
+        preparation::install_control_limit(&protocols, &config.runtime)?;
         protocols.validate_config(&config)?;
         protocols.validate_dial_environment(&config)?;
         protocols.validate_components(config.clone())?;
@@ -284,12 +290,22 @@ impl Proxy {
     /// Transfer the existing Host's concrete custody root to application-owned
     /// event network resources, together with one identity issued by its catalog.
     /// This does not create a host, pool, task authority or native resource.
+    /// The same cold Host book used by embedded and production control calls.
+    pub fn application_control_budget(&self) -> Arc<zero_runtime::configuration::ControlBudget> {
+        self.host.control_budget()
+    }
+    pub fn embedded_command_owner(&self) -> Arc<zero_runtime::EmbeddedCommandOwner> {
+        self.host.embedded_commands().clone()
+    }
     pub fn application_network_originals(
         &self,
-    ) -> Result<(
-        zero_core::component::ComponentInstanceId,
-        Arc<zero_platform_tokio::controlled_carrier::CarrierOriginalTotals>,
-    ), EngineError> {
+    ) -> Result<
+        (
+            zero_core::component::ComponentInstanceId,
+            Arc<zero_platform_tokio::controlled_carrier::CarrierOriginalTotals>,
+        ),
+        EngineError,
+    > {
         Ok((
             self.protocols.allocate_resource_identity()?,
             self.host.original_budgets().carrier.clone(),
@@ -297,7 +313,9 @@ impl Proxy {
     }
 
     #[cfg(test)]
-    pub(crate) fn orchestration_readiness(&self)->tokio::sync::watch::Receiver<bool>{self.orchestration_ready.subscribe()}
+    pub(crate) fn orchestration_readiness(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.orchestration_ready.subscribe()
+    }
     pub(crate) fn mark_orchestration_ready(&self) {
         self.orchestration_ready.send_replace(true);
     }
@@ -386,13 +404,16 @@ impl Proxy {
         &self,
         config: &Arc<RuntimeConfig>,
     ) -> Result<TcpRuntimeServices, zero_engine::EngineError> {
-        let snapshot = self.pending_configuration_snapshot()
+        let snapshot = self
+            .pending_configuration_snapshot()
             .filter(|snapshot| Arc::ptr_eq(snapshot.config(), config))
             .or_else(|| {
                 let current = self.engine.runtime_snapshot();
                 Arc::ptr_eq(current.config(), config).then_some(current)
             })
-            .ok_or_else(|| std::io::Error::other("Source configuration has no matching owned snapshot"))?;
+            .ok_or_else(|| {
+                std::io::Error::other("Source configuration has no matching owned snapshot")
+            })?;
         Ok(self.tcp_runtime_services_for_snapshot(snapshot))
     }
 
