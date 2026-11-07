@@ -17,7 +17,9 @@ async fn original_setup_reserves_before_actor_and_keeps_real_udp_until_original_
         let limits = MetadataLimits {
             main_sockets: one,
             probe_sockets: one,
-            probe_attempts_per_initialization: one,
+            // Existing native GSO/GRO initialization may test v4 and v6.
+            // This positive original/ACK fixture does not test probe quota.
+            probe_attempts_per_initialization: NonZeroUsize::new(4).unwrap(),
             concurrent_send_calls: one,
             write_pollers: one,
         };

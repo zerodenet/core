@@ -13,7 +13,9 @@ pub(super) async fn run(panic_first: bool) {
         let limits = MetadataLimits {
             main_sockets: one,
             probe_sockets: one,
-            probe_attempts_per_initialization: one,
+            // Existing native GSO/GRO initialization may test v4 and v6.
+            // This positive original/ACK fixture does not test probe quota.
+            probe_attempts_per_initialization: NonZeroUsize::new(4).unwrap(),
             concurrent_send_calls: one,
             write_pollers: one,
         };
@@ -105,9 +107,32 @@ pub(super) async fn run(panic_first: bool) {
             .unwrap();
         assert!(begin.send((retained.clone(), actor.clone())).is_ok());
         let mut bytes = [0; 64];
-        let (size, _) = peer.recv_from(&mut bytes).await.unwrap();
+        let mut early_receipt = None;
+        // Keep the actual original task result observable if native setup
+        // fails before its first wire write, instead of reporting only outer
+        // Elapsed while the real Scope already holds its typed cause.
+        let first = tokio::select! { biased;
+            wire = peer.recv_from(&mut bytes) => Ok(wire.unwrap()),
+            receipt = scope.next_receipt() => Err(receipt.unwrap()),
+        };
+        let (size, _) = match first {
+            Ok(wire) => wire,
+            Err(receipt) => {
+                assert!(actor.matches_joined(receipt.joined()));
+                assert!(
+                    receipt.result().is_ok(),
+                    "actual setup actor failed before UDP wire: {:?}",
+                    receipt.result()
+                );
+                early_receipt = Some(receipt);
+                peer.recv_from(&mut bytes).await.unwrap()
+            }
+        };
         assert_eq!(&bytes[..size], b"same Root retained UDP");
-        let receipt = scope.next_receipt().await.unwrap();
+        let receipt = match early_receipt {
+            Some(receipt) => receipt,
+            None => scope.next_receipt().await.unwrap(),
+        };
         assert!(actor.matches_joined(receipt.joined()) && receipt.result().is_ok());
         assert!(!receipt.joined().registration_released());
         assert!(origin.closed().is_none());
