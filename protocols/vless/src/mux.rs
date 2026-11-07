@@ -1077,7 +1077,7 @@ pub(crate) fn encode_end_frame(session_id: u16) -> Result<Vec<u8>, Error> {
     codec::encode_end_frame(session_id)
 }
 
-#[cfg(feature = "reality")]
+#[cfg(all(test, feature = "reality"))]
 pub(crate) async fn read_mux_frame_tokio<R>(reader: &mut R) -> Result<MuxFrame, Error>
 where
     R: tokio::io::AsyncRead + Unpin,
