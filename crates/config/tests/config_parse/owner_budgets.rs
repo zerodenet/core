@@ -16,7 +16,61 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 51] = [
+    let fields: [BudgetField; 60] = [
+        (
+            "inbound_max_accepted_sockets",
+            RuntimeOptionsConfig::effective_inbound_max_accepted_sockets,
+            4096,
+            65536,
+        ),
+        (
+            "inbound_max_datagram_associations",
+            RuntimeOptionsConfig::effective_inbound_max_datagram_associations,
+            4096,
+            65536,
+        ),
+        (
+            "inbound_max_datagram_peers",
+            |r| r.effective_inbound_max_datagram_peers(128),
+            128,
+            65536,
+        ),
+        (
+            "inbound_max_packets_per_peer",
+            |r| r.effective_inbound_max_packets_per_peer(256),
+            256,
+            65536,
+        ),
+        (
+            "inbound_max_pending_sends",
+            |r| r.effective_inbound_max_pending_sends(32),
+            32,
+            65536,
+        ),
+        (
+            "inbound_max_bind_attempts",
+            RuntimeOptionsConfig::effective_inbound_max_bind_attempts,
+            50,
+            4096,
+        ),
+        (
+            "inbound_max_target_sockets",
+            RuntimeOptionsConfig::effective_inbound_max_target_sockets,
+            4096,
+            65536,
+        ),
+        (
+            "inbound_max_file_sessions",
+            RuntimeOptionsConfig::effective_inbound_max_file_sessions,
+            16,
+            4096,
+        ),
+        (
+            "inbound_max_handoff_probe_attempts",
+            RuntimeOptionsConfig::effective_inbound_max_handoff_probe_attempts,
+            1000,
+            65536,
+        ),
         (
             "hysteria2_h3_max_pending_classifications",
             RuntimeOptionsConfig::effective_hysteria2_h3_max_pending_classifications,

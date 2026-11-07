@@ -631,6 +631,51 @@ fn validate_runtime(
     }
     for (name, limit, maximum) in [
         (
+            "inbound_max_accepted_sockets",
+            runtime.effective_inbound_max_accepted_sockets(),
+            65536,
+        ),
+        (
+            "inbound_max_datagram_associations",
+            runtime.effective_inbound_max_datagram_associations(),
+            65536,
+        ),
+        (
+            "inbound_max_datagram_peers",
+            runtime.effective_inbound_max_datagram_peers(128),
+            65536,
+        ),
+        (
+            "inbound_max_packets_per_peer",
+            runtime.effective_inbound_max_packets_per_peer(256),
+            65536,
+        ),
+        (
+            "inbound_max_pending_sends",
+            runtime.effective_inbound_max_pending_sends(32),
+            65536,
+        ),
+        (
+            "inbound_max_bind_attempts",
+            runtime.effective_inbound_max_bind_attempts(),
+            4096,
+        ),
+        (
+            "inbound_max_target_sockets",
+            runtime.effective_inbound_max_target_sockets(),
+            65536,
+        ),
+        (
+            "inbound_max_file_sessions",
+            runtime.effective_inbound_max_file_sessions(),
+            4096,
+        ),
+        (
+            "inbound_max_handoff_probe_attempts",
+            runtime.effective_inbound_max_handoff_probe_attempts(),
+            65536,
+        ),
+        (
             "metadata_max_probe_sockets",
             runtime.effective_metadata_max_probe_sockets(2),
             256,

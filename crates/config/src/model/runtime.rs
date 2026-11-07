@@ -4,6 +4,42 @@ use super::*;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuntimeOptionsConfig {
+    /// Actual Source accepted sockets; None preserves the producer default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_accepted_sockets: Option<usize>,
+
+    /// Actual Source datagram associations; None preserves the producer default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_datagram_associations: Option<usize>,
+
+    /// Actual Source datagram peers; None preserves the producer default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_datagram_peers: Option<usize>,
+
+    /// Actual Source packets per peer; None preserves the producer default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_packets_per_peer: Option<usize>,
+
+    /// Actual Source pending sends; None preserves the producer default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_pending_sends: Option<usize>,
+
+    /// Actual Source bind attempts; None preserves the producer default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_bind_attempts: Option<usize>,
+
+    /// Actual Source target sockets; None preserves the producer default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_target_sockets: Option<usize>,
+
+    /// Actual Source file sessions; None preserves the producer default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_file_sessions: Option<usize>,
+
+    /// Actual Source handoff probe attempts; None preserves the producer default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbound_max_handoff_probe_attempts: Option<usize>,
+
     /// On-demand pending classifications per actual inbound HY2 HTTP/3 connection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hysteria2_h3_max_pending_classifications: Option<usize>,
@@ -327,6 +363,42 @@ pub const DEFAULT_LATENCY_TEST_URL: &str = "http://www.gstatic.com/generate_204"
 pub const DEFAULT_EVENT_LOG_CAPACITY: usize = 1024;
 
 impl RuntimeOptionsConfig {
+    pub fn effective_inbound_max_accepted_sockets(&self) -> usize {
+        self.inbound_max_accepted_sockets.unwrap_or(4096)
+    }
+
+    pub fn effective_inbound_max_datagram_associations(&self) -> usize {
+        self.inbound_max_datagram_associations.unwrap_or(4096)
+    }
+
+    pub fn effective_inbound_max_datagram_peers(&self, actual_default: usize) -> usize {
+        self.inbound_max_datagram_peers.unwrap_or(actual_default)
+    }
+
+    pub fn effective_inbound_max_packets_per_peer(&self, actual_default: usize) -> usize {
+        self.inbound_max_packets_per_peer.unwrap_or(actual_default)
+    }
+
+    pub fn effective_inbound_max_pending_sends(&self, actual_default: usize) -> usize {
+        self.inbound_max_pending_sends.unwrap_or(actual_default)
+    }
+
+    pub fn effective_inbound_max_bind_attempts(&self) -> usize {
+        self.inbound_max_bind_attempts.unwrap_or(50)
+    }
+
+    pub fn effective_inbound_max_target_sockets(&self) -> usize {
+        self.inbound_max_target_sockets.unwrap_or(4096)
+    }
+
+    pub fn effective_inbound_max_file_sessions(&self) -> usize {
+        self.inbound_max_file_sessions.unwrap_or(16)
+    }
+
+    pub fn effective_inbound_max_handoff_probe_attempts(&self) -> usize {
+        self.inbound_max_handoff_probe_attempts.unwrap_or(1000)
+    }
+
     pub fn effective_process_max_jobs(&self) -> usize {
         self.process_max_jobs.unwrap_or(64)
     }
