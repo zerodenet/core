@@ -1,3 +1,35 @@
+## 2026-11-07 续作：7fff 实际 Proxy、f1e 控制与 4f827 清理
+
+本次再次核对 origin 为 `https://github.com/zerodenet/core.git`；远端 integration
+仍是 `59615e69ea5a413d657a873157ea4adf8f204a90`。无 reset、变基或强推。
+下面均为开发定向，五个完整职责域仍未完成，无统一最终候选/同 head CI/最终下载归档。
+
+实际验证锁均为 `bb045365baf88f40277e4b87e2941e4990eb630841dd1cd2b2d0de3709d0b0fb`，
+Rust 1.99.0。命令、逐文件输入、工具、环境、原始日志及产物摘要保留在对应 harness input/result。
+
+| 实际 checkout | 命令/结果 | 原始日志 SHA-256 |
+| --- | --- | --- |
+| `7fff412cabefc7e072b244ddf27e88af3692dc66` | Proxy all-features lib --no-run exit0，746.64s，jobs1；产物 c69edfbc43d71082a8f6f1b4d8258798b87ccf169eeaf30bd8c48afa93ad2426 | a49ef1f1bd2e32f8c30abf1b498f57567330ec74d52d34566aa66faa34fe339b |
+| 同7fff，同一产物 | H3 0/1 FAIL，实际 Task19 remote 与 HY2 native 原端点一致，非 web peer | bb071236f3e0185392537e8807348d5c30161e51ca510159e664f1a725fcb7f8 |
+| 同7fff，同一产物 | VLESS 6 PASS，含原 owner MUX material 失败恢复 | c203f40eabf70da678836a16efc38376aaaef4dc9ac993e730cb145f214c4cdf |
+| 同7fff，同一产物 | VMess 2 PASS/3 FAIL；真实 raw TLS tail 和 MUX 通过；gRPC/relay 仍正确前缀261120/262144后 Receive Io | a98bf855be665316708063dd48a8861664a7fd344eb11e77a3820bae79a6599d |
+| 同7fff，同一产物 | DNS49 PASS/1 FAIL，normal profile replacement 已返回实际query/blocking仍live；原query未退出 | b0bed239ffa30d73c86813f9b9887771337a5b2fafc4a9afa4b3118cd0c60052 |
+| 同7fff，同一产物 | fullTX 0/1 FAIL，DuplicateInboundListen port0，未触达WG ACK；fixture修复f693已普通合入，不能据此声称ACK已验 | 1cd7d5dce31e4c70cc3a7fca77074699f83d40c09afaeba1764d32b6b6ab5f2f |
+| 同7fff，同一产物 | Packet ordinary budget/input-only 1 PASS | aeff5c465cd1938b2fe603e43f209f3c7f6661fbf9a84293434978886314e5e6 |
+| `f1e8d72fa06b0258ec37d6cb90c2d051a72b48b3` | gRPC all-features lib 17 PASS，含真实空闲断订阅worker回收、锁外退款、同Apply原注册观察 | 3fc206e5662976e65a1365706c9183ddb2aec6f0320f619e6e8e0b59ac3d49d1 |
+| `4f8270cf188710685d36678c01833c6e66d3d74b` | transport all-features lib packet group 4 PASS，真实Scope取消后原FIFO data/close按序送达、actualjoin/issuerreceipt和Nativeclose分别确认 | 0bf940480638d64186ea718a296069a8238b9c03a50922ac9e336019b48f024f |
+
+Proxy前两次构建均中断：实际僵尸wait_status=9，无成功结果/资格；未确认信号来源，
+不能归因为OOM。v3 detached原命令成功；没有提高生产容量、栈、测试期限或弱化断言。
+`4f8270c` 保留同清理Aux直到最终endpoint实际users/drivers退出后封住原FIFO并排空；
+UDP hop用原队列有限前缀，非第二池。仅transport定向已验，普通H3尚未重验。
+
+当前完整调用者仍按下表及 execution.md 冻结：A DNS资源/设备detour与旧链删除；
+B全部合法transport/MUX/Mieru、动态BND双原件、无observer custody、process和计量；
+C完整Packet Source/预付/设备/TUN/独立WG provider与helper；控制全部DTO及G8恢复；
+实际各owner生产总额度。A现复用control角色，B/C各自继续完整域，M唯一共享写入与排队。
+TEMP-WG-OUTER-UDP-01单独保留，其余实现缺口均未改列平台待验或新增豁免。
+
 # 第二轮续作：剩余生产调用者冻结
 
 ## 接续检查点 2026-11-07 06:49 UTC（五域继续实施）
