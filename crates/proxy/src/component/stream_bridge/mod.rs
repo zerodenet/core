@@ -1,6 +1,6 @@
 //! The single temporary conversion from native proxy roles to legacy relay I/O.
 use super::{
-    instance::{ComponentSlot, invalid},
+    instance::{invalid, ComponentSlot},
     legacy_stream::LegacyStream,
 };
 use crate::{
@@ -9,12 +9,12 @@ use crate::{
     transport::{EstablishedTcpOutbound, TcpOutboundFailure},
 };
 use std::{error::Error, fmt, io, sync::Arc};
-use zero_core::{Address, Session, component::NetworkGeneration, request::Destination};
+use zero_core::{component::NetworkGeneration, request::Destination, Address, Session};
 use zero_platform_tokio::contract::{
-    ChannelError, Reason,
     context::OpenContext,
     network::{UpstreamBinding, UpstreamTransport},
     stream::ConnectRequest,
+    ChannelError, Reason,
 };
 #[cfg(any(
     feature = "upstream-association-runtime",
@@ -160,6 +160,44 @@ pub(super) fn failure_optional(
     error: ChannelError,
     endpoint: Option<&(String, u16)>,
 ) -> TcpOutboundFailure {
+    #[cfg(test)]
+    {
+        // Read only the retained typed facts before legacy display projection.
+        // These facts grant no IO, admission, retry or cleanup authority.
+        let mut pending: Vec<&(dyn std::error::Error + 'static)> = vec![&error];
+        let mut visited = Vec::new();
+        for depth in 0..64 {
+            let Some(source) = pending.pop() else { break };
+            if visited.iter().any(|actual| std::ptr::eq(*actual, source)) {
+                continue;
+            }
+            visited.push(source);
+            if let Some(channel) = source.downcast_ref::<ChannelError>() {
+                eprintln!("actual native Stream failure stage={stage} depth={depth} component={:?} session={:?} operation={:?} reason={:?} impact={:?} delivery={:?}",channel.component,channel.session,channel.stage,channel.reason,channel.impact,channel.delivery);
+            }
+            if let Some(native) = source.downcast_ref::<io::Error>() {
+                // Only these known static lifecycle diagnostics are emitted;
+                // no arbitrary profile, credential or payload is formatted.
+                let message = native.to_string();
+                if matches!(
+                    message.as_str(),
+                    "component was stopped"
+                        | "component task registration is closed"
+                        | "actual VMess MUX recipe no longer retained by its owner"
+                        | "actual VMess MUX role owner no longer retained"
+                        | "actual VMess MUX role was revoked before this open"
+                ) {
+                    eprintln!("actual native Stream lifecycle source depth={depth} kind={:?} message={message}",native.kind());
+                }
+                if let Some(inner) = native.get_ref() {
+                    pending.push(inner)
+                }
+            }
+            if let Some(next) = source.source() {
+                pending.push(next)
+            }
+        }
+    }
     let kind = match error.reason {
         Reason::Timeout => io::ErrorKind::TimedOut,
         Reason::Cancelled | Reason::Revoked | Reason::StalePlan => io::ErrorKind::Interrupted,
