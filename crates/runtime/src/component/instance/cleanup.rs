@@ -82,11 +82,10 @@ impl Owner {
                         io.append(report);
                         Ok(())
                     }
-                    Err(error) => retain_resource_failure(
-                        &resource_failures[1], instance_id,
-                        zero_platform_tokio::contract::lifecycle::ResourceFailurePhase::DeclaredResources,
-                        error,
-                    ),
+                    Err(error) => {
+                        resources.retain_resource_error(std::sync::Arc::new(error));
+                        Ok::<(), ChannelError>(())
+                    }
                 }
             };
             let collect_users = async {
@@ -105,9 +104,9 @@ impl Owner {
         pending.io.append(resources.take_returned_bound_io());
         let evidence = resources.io_evidence();
         evidence.retain_carrier_task_failures(&mut pending.report);
-        if let Some(source) = evidence.sticky_faults.first() {
-            return Err(super::retained(source.clone()));
-        }
+        // Canonical receiver owns every actual declaration fault independently
+        // of current physical closure. Unknown still contributes unfinished IO.
+        resources.retain_resource_report(&mut pending.report);
         let mut pending = pending_close
             .take()
             .map(|report| *report)
@@ -133,6 +132,7 @@ impl Owner {
                 report.resource_failures.push(fault.clone());
             }
         }
+        resources.retain_resource_report(&mut report);
         if !*protocol_closed {
             report.unfinished.push(Unfinished::Resource(format!(
                 "component {} original protocol controller remains unfinished",

@@ -11,6 +11,7 @@ use zero_platform_tokio::contract::{
 mod icmp;
 mod native;
 pub use icmp::{HostIcmpProbeGrant, HostIcmpProbeOwner};
+pub(in crate::component) use native::DeclaredReceiver;
 pub use native::HostDatagramListenerOwner;
 pub use native::HostResources;
 pub use native::{

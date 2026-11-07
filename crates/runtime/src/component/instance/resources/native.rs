@@ -34,6 +34,7 @@ pub struct HostResources {
     packets: Vec<packet_device::PacketDeviceOwner>,
     reads: read_workspaces::ReadDeclarations,
     journals: journal::Journals,
+    declared_failures: Arc<failures::DeclaredReceiver>,
     #[cfg(any(target_os = "linux", windows))]
     processes: process::ProcessDeclarations,
     cancel: CancellationToken,
@@ -104,6 +105,8 @@ mod carrier;
 mod coverage;
 mod dependency;
 mod evidence;
+mod failures;
+pub(in crate::component) use failures::DeclaredReceiver;
 mod files;
 mod journal;
 mod listener;

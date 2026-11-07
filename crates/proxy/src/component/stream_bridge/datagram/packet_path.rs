@@ -23,7 +23,7 @@ use zero_engine::EngineError;
 use zero_platform_tokio::contract::{
     context::{OpenContext, RequestIdentity},
     datagram::{BoxDatagramSession, DatagramLimits, DatagramRequest, DatagramRx, DatagramTx},
-    lifecycle::network::{UpstreamBinding, UpstreamTransport},
+    network::{UpstreamBinding, UpstreamTransport},
     CancellationToken, ChannelError, CloseReason, Reason,
 };
 pub(crate) struct StandardPacketPath {

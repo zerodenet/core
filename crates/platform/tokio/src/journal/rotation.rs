@@ -43,12 +43,12 @@ impl JournalGrant {
                 ))
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
+            Err(error) => return super::faults::actual(Err(error), &mut state.work_failure),
         }
         match std::fs::rename(&self.0.spec.path, &destination) {
             Ok(()) => Ok(Some(destination)),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(error),
+            Err(error) => super::faults::actual(Err(error), &mut state.work_failure),
         }
     }
 }

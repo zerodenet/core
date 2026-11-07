@@ -119,7 +119,7 @@ async fn ready_original_report_survives_cancelled_close_while_second_real_tcp_vi
             opening: false.into(),
         });
         let mut control = super::super::Control {
-            inner: Box::new(LoanControl(first.owner)),
+            inner: Box::new(LoanControl(first.owner)).into(),
             transfer,
             cleanup: Mutex::default(),
         };

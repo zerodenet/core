@@ -34,10 +34,10 @@ pub struct CarrierOriginalTotals {
 struct State {
     limit: NonZeroUsize,
     preparation_limits: [NonZeroUsize; 2],
-    originals: BTreeMap<usize, Arc<dyn custody::CarrierCustody>>,
-    metadata: Vec<Arc<dyn MetadataCustody>>,
-    bound: Vec<Arc<dyn BoundCustody>>,
-    source: Vec<Arc<dyn SourceCustody>>,
+    originals: BTreeMap<usize, Arc<fault::Retained<dyn custody::CarrierCustody>>>,
+    metadata: Vec<Arc<fault::Retained<dyn MetadataCustody>>>,
+    bound: Vec<Arc<fault::Retained<dyn BoundCustody>>>,
+    source: Vec<Arc<fault::Retained<dyn SourceCustody>>>,
 }
 struct Original {
     // Strong custody is deliberate until actual native/users/registration
@@ -127,7 +127,7 @@ impl CarrierOriginalTotals {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
-    fn originals(&self) -> Vec<(usize, Arc<dyn custody::CarrierCustody>)> {
+    fn originals(&self) -> Vec<(usize, Arc<fault::Retained<dyn custody::CarrierCustody>>)> {
         self.lock()
             .originals
             .iter()
@@ -204,18 +204,21 @@ impl CarrierOriginalTotals {
         );
         state.originals.insert(
             id,
-            Arc::new(Original {
-                owner: owner.clone(),
-                slot: slot.clone(),
-                waiting: Mutex::default(),
-                polling: AtomicBool::new(false),
-                repoll: AtomicBool::new(false),
-                first_fault: Mutex::default(),
-            }),
+            fault::Retained::new(
+                Arc::new(Original {
+                    owner: owner.clone(),
+                    slot: slot.clone(),
+                    waiting: Mutex::default(),
+                    polling: AtomicBool::new(false),
+                    repoll: AtomicBool::new(false),
+                    first_fault: Mutex::default(),
+                }) as Arc<dyn custody::CarrierCustody>,
+                Some(owner.instance),
+            ),
         );
         Ok(())
     }
-    fn release(&self, id: usize, original: &Arc<dyn custody::CarrierCustody>) {
+    fn release(&self, id: usize, original: &Arc<fault::Retained<dyn custody::CarrierCustody>>) {
         let released = {
             let mut state = self.lock();
             if state
@@ -238,120 +241,42 @@ impl CarrierOriginalTotals {
     }
     pub(crate) fn reconcile(&self) {
         for (id, original) in self.originals() {
-            if original.released() {
+            if original.received(original.failure(), original.resource_failure())
+                && original.released()
+            {
                 self.release(id, &original);
             }
         }
         let metadata = self.lock().metadata.clone();
         for original in metadata {
-            if original.released() {
+            if original.received(original.failure(), original.resource_failure())
+                && original.released()
+            {
                 self.release_metadata(&original);
             }
         }
         let source = self.lock().source.clone();
         for original in source {
-            if original.released() {
+            if original.received(original.failure(), original.resource_failure())
+                && original.released()
+            {
                 self.release_source(&original);
             }
         }
         let bound = self.lock().bound.clone();
         for original in bound {
-            if original.released() {
+            if original.received(original.failure(), original.resource_failure())
+                && original.released()
+            {
                 self.release_bound(&original);
             }
         }
-    }
-    /// Called inline by the existing Host supervisor. Cancelled originals use
-    /// their existing persistent retirement continuation and immutable deadline.
-    /// The root never revokes a live sibling, creates a task, or ACKs an exit.
-    pub fn poll_cancelled_retirements(&self, cx: &mut Context<'_>) -> bool {
-        let mut changed = false;
-        let source = self.lock().source.clone();
-        for original in source {
-            changed |= original.poll_retirement(cx);
-            if original.released() {
-                self.release_source(&original);
-                changed = true;
-            }
-        }
-        let metadata = self.lock().metadata.clone();
-        for original in metadata {
-            changed |= original.poll_retirement(cx);
-            if original.released() {
-                self.release_metadata(&original);
-                changed = true;
-            }
-        }
-        let bound = self.lock().bound.clone();
-        for original in bound {
-            changed |= original.poll_retirement(cx);
-            if original.released() {
-                self.release_bound(&original);
-                changed = true;
-            }
-        }
-        let originals = self.originals();
-        let mut owners = std::collections::BTreeSet::new();
-        for (_, original) in &originals {
-            if owners.insert(original.owner_identity()) {
-                changed |= original.poll_cancelled_owner(cx);
-            }
-        }
-        for (id, original) in originals {
-            if !original.released() {
-                changed |= original.poll_ack(cx);
-            }
-            if original.released() {
-                self.release(id, &original);
-                changed = true;
-            }
-        }
-        changed
-    }
-    /// Original typed failures stay owned even if the protocol Owner is lost.
-    /// This does not accept an error on behalf of its actual task/receiver.
-    pub fn failures(&self) -> Vec<Arc<ChannelError>> {
-        self.failures_with_instances()
-            .into_iter()
-            .map(|actual| actual.source)
-            .collect()
-    }
-    /// Read only. An unknown original instance cannot be attributed to a current
-    /// Slot or converted to a successful no-acquisition/retirement observation.
-    pub fn failures_with_instances(&self) -> Vec<CarrierOriginalFailure> {
-        let metadata = self.lock().metadata.clone();
-        let bound = self.lock().bound.clone();
-        let source = self.lock().source.clone();
-        self.originals()
-            .into_iter()
-            .filter_map(|(_, original)| {
-                original.failure().map(|source| CarrierOriginalFailure {
-                    instance: original.instance(),
-                    source,
-                })
-            })
-            .chain(metadata.into_iter().filter_map(|original| {
-                original.failure().map(|source| CarrierOriginalFailure {
-                    instance: original.instance(),
-                    source,
-                })
-            }))
-            .chain(bound.into_iter().filter_map(|original| {
-                original.failure().map(|source| CarrierOriginalFailure {
-                    instance: original.instance(),
-                    source,
-                })
-            }))
-            .chain(source.into_iter().filter_map(|original| {
-                original.failure().map(|source| CarrierOriginalFailure {
-                    instance: original.instance(),
-                    source,
-                })
-            }))
-            .collect()
     }
 }
+mod failures;
+mod fault;
 mod original;
+mod retirement;
 
 mod datagram;
 

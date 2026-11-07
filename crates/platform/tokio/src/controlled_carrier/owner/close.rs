@@ -149,6 +149,23 @@ async fn close_slot_until(
                     ..Default::default()
                 });
             }
+            let fault_received = protocol.as_ref().is_none_or(|phase| phase.fault_received())
+                && slot
+                    .retirement
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .resource_failure
+                    .as_ref()
+                    .is_none_or(|fault| fault.ownership_received());
+            if !fault_received {
+                return Ok(CloseReport {
+                    unfinished: vec![Unfinished::Resource(format!(
+                        "{} actual resource fault awaits its retained receiver",
+                        slot.label()
+                    ))],
+                    ..Default::default()
+                });
+            }
             let report = slot.state().pending_close.take().unwrap_or_default();
             drop(_closing);
             slot.remove();

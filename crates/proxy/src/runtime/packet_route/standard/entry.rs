@@ -3,7 +3,7 @@ use std::{
     pin::Pin,
     sync::atomic::{AtomicBool, Ordering},
 };
-use zero_platform_tokio::contract::lifecycle::packet::{
+use zero_platform_tokio::contract::packet::{
     self, BoxPacketSession, PacketRx, PacketTx,
 };
 pub(super) struct Entry {

@@ -82,6 +82,7 @@ pub struct ComponentSlot {
     owned_start: OnceLock<owned_start::OwnedStart>,
     owned_start_host: OnceLock<std::sync::Mutex<Option<owned_start::OwnedStart>>>,
     start_wake: Arc<MonitorWake>,
+    declared_failures: Arc<resources::DeclaredReceiver>,
     originals: OnceLock<Arc<crate::HostOriginalBudgets>>,
     packet_source: Arc<OnceLock<zero_platform_tokio::controlled_carrier::CarrierOrigin>>,
 }
@@ -185,7 +186,25 @@ impl ComponentSlot {
                     )
                     .await
             }
-            Some(Err(_)) | None => Ok(CloseReport::default()),
+            Some(Err(_)) | None => {
+                let mut report = CloseReport::default();
+                if let Some(fault) = self.observe_resource_fault() {
+                    report.resource_failures.push(fault);
+                }
+                if self
+                    .originals
+                    .get()
+                    .is_some_and(|root| root.carrier.retained_for_instance(self.instance_id()) != 0)
+                {
+                    report.unfinished.push(
+                        zero_platform_tokio::contract::lifecycle::Unfinished::Resource(
+                            "actual root still retains originals for this unbuilt/failed Slot"
+                                .into(),
+                        ),
+                    );
+                }
+                Ok(report)
+            }
         }
     }
     pub fn revoke(&self) {
@@ -263,3 +282,7 @@ pub(in crate::component) fn demand_process_endpoint_ordinal(
         _ => None,
     }
 }
+
+#[cfg(test)]
+#[path = "tests/resource_fault_supervision.rs"]
+mod resource_fault_supervision_tests;

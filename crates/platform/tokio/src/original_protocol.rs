@@ -168,6 +168,19 @@ impl Phase {
         drop(failure);
         complete
     }
+    pub(crate) fn resource_failure(
+        &self,
+    ) -> Option<Arc<crate::contract::lifecycle::ResourceFailure>> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .resource_fault
+            .clone()
+    }
+    pub(crate) fn fault_received(&self) -> bool {
+        self.resource_failure()
+            .is_none_or(|fault| fault.ownership_received())
+    }
     pub(crate) fn failure(&self) -> Option<Arc<ChannelError>> {
         self.state
             .lock()

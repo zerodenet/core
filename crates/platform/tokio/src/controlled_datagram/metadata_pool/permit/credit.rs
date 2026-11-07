@@ -5,6 +5,15 @@ impl MetadataPoolPermit {
     pub(in crate::controlled_datagram::metadata_pool) fn release_registration_credit(
         &self,
     ) -> bool {
+        let phase = self
+            .0
+            .protocol
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        if phase.as_ref().is_some_and(|phase| !phase.fault_received()) {
+            return false;
+        }
         if self.0.closed.get().is_none() {
             return false;
         }

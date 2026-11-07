@@ -1,6 +1,7 @@
 //! Synchronous exact-path calls. The durable State owns every acquired file
 //! before invoking domain parsing/encoding, including a panic at that boundary.
 use super::*;
+use faults::actual;
 use slots::{failure, finish};
 use std::{
     fs::OpenOptions,
@@ -26,17 +27,23 @@ impl JournalGrant {
         {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error),
+            Err(error) => return actual(Err(error), &mut state.work_failure),
         };
         state.read.install(file);
         let work = (|| {
-            check_regular_size(state.read.original(), self.max_bytes())?;
+            check_regular_size_slot(&mut state, false, self.max_bytes())?;
+            let State {
+                read: slot,
+                work_failure,
+                ..
+            } = &mut *state;
             let mut reader = LimitedReader {
-                file: state.read.original(),
+                file: slot.original(),
+                failure: work_failure,
                 left: self.max_bytes(),
             };
             let result = read(&mut reader)?;
-            check_regular_size(state.read.original(), self.max_bytes())?;
+            check_regular_size_slot(&mut state, false, self.max_bytes())?;
             Ok(Some(result))
         })();
         let closed = state.read.close();
@@ -59,23 +66,31 @@ impl JournalGrant {
             ));
         }
         if state.append.confirmed() {
-            let file = append_file(&self.0.spec.path)?;
+            let opened = append_file(&self.0.spec.path);
+            let file = actual(opened, &mut state.work_failure)?;
             state.append.install(file);
-            let valid = state.append.original().validate_regular();
+            let validated = state.append.original().validate_regular();
+            let valid = actual(validated, &mut state.work_failure);
             if let Err(error) = valid {
                 let close = state.append.close();
                 return Err(failure(Some(Arc::new(error)), close.err()));
             }
         }
-        let current = check_regular_size(state.append.original(), self.max_bytes())?;
+        let current = check_regular_size_slot(&mut state, true, self.max_bytes())?;
         let total = current.checked_add(encoded_bytes).ok_or_else(capacity)?;
         if total > self.max_bytes() {
             return Err(capacity());
         }
         state.append_dirty = true;
         let work = (|| {
+            let State {
+                append,
+                work_failure,
+                ..
+            } = &mut *state;
             let mut writer = LimitedWriter {
-                file: state.append.original(),
+                file: append.original(),
+                failure: work_failure,
                 left: encoded_bytes,
             };
             let value = encode(&mut writer)?;
@@ -122,13 +137,20 @@ impl JournalGrant {
             .parent()
             .filter(|path| !path.as_os_str().is_empty())
             .unwrap_or_else(|| std::path::Path::new("."));
-        let (file, mut path) = tempfile::NamedTempFile::new_in(parent)?.into_parts();
+        let temporary = tempfile::NamedTempFile::new_in(parent);
+        let (file, mut path) = actual(temporary, &mut state.work_failure)?.into_parts();
         path.disable_cleanup(true);
         state.temporary.install(file);
         state.temporary_path = Some(path);
         let work = (|| {
+            let State {
+                temporary,
+                work_failure,
+                ..
+            } = &mut *state;
             let mut writer = LimitedWriter {
-                file: state.temporary.original(),
+                file: temporary.original(),
+                failure: work_failure,
                 left: encoded_bytes,
             };
             let value = encode(&mut writer)?;
@@ -139,7 +161,8 @@ impl JournalGrant {
                 ));
             }
             writer.flush()?;
-            state.temporary.original().sync_all()?;
+            let synced = state.temporary.original().sync_all();
+            actual(synced, &mut state.work_failure)?;
             Ok(value)
         })();
         let closed = state.temporary.close();
@@ -150,7 +173,7 @@ impl JournalGrant {
             .expect("temporary installed before encoding");
         if let Err((path, error)) = super::rotation::persist(path, &self.0.spec.path) {
             state.temporary_path = Some(path);
-            return Err(error);
+            return actual(Err(error), &mut state.work_failure);
         }
         state.append_dirty = false;
         Ok(value)
@@ -159,21 +182,20 @@ impl JournalGrant {
         self.0.require_scope()?;
         let mut state = self.0.call_state()?;
         self.0.require_open(&state)?;
-        if let Some(file) = state.append.file.as_ref() {
-            if let Ok(metadata) = file.metadata() {
-                return usize::try_from(metadata.len()).map_err(|_| capacity());
-            }
+        if !state.append.confirmed() {
+            return check_regular_size_slot(&mut state, true, self.max_bytes());
         }
         // Read via the same retained position; no metadata-only unowned open.
         state
             .read
             .close()
             .map_err(|source| failure(None, Some(source)))?;
-        let file = regular_options(&self.0.spec.path)?
+        let opened = regular_options(&self.0.spec.path)?
             .read(true)
-            .open(&self.0.spec.path)?;
+            .open(&self.0.spec.path);
+        let file = actual(opened, &mut state.work_failure)?;
         state.read.install(file);
-        let work = check_regular_size(state.read.original(), self.max_bytes());
+        let work = check_regular_size_slot(&mut state, false, self.max_bytes());
         let closed = state.read.close();
         finish(work, closed)
     }
@@ -201,9 +223,14 @@ fn append_file(path: &std::path::Path) -> io::Result<std::fs::File> {
     }
     options.open(path)
 }
-fn check_regular_size(file: &OriginalFile, limit: usize) -> io::Result<usize> {
-    file.validate_regular()?;
-    let metadata = file.metadata()?;
+fn check_regular_size_slot(state: &mut State, append: bool, limit: usize) -> io::Result<usize> {
+    let slot = if append {
+        &mut state.append
+    } else {
+        &mut state.read
+    };
+    actual(slot.original().validate_regular(), &mut state.work_failure)?;
+    let metadata = actual(slot.original().metadata(), &mut state.work_failure)?;
     if !metadata.is_file() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -224,6 +251,7 @@ fn capacity() -> io::Error {
 }
 struct LimitedReader<'a> {
     file: &'a mut OriginalFile,
+    failure: &'a mut Option<Arc<io::Error>>,
     left: usize,
 }
 impl Read for LimitedReader<'_> {
@@ -232,20 +260,21 @@ impl Read for LimitedReader<'_> {
             return Ok(0);
         }
         if self.left == 0 {
-            return if self.file.read(&mut [0])? == 0 {
+            return if actual(self.file.read(&mut [0]), self.failure)? == 0 {
                 Ok(0)
             } else {
                 Err(capacity())
             };
         }
         let take = bytes.len().min(self.left);
-        let count = self.file.read(&mut bytes[..take])?;
+        let count = actual(self.file.read(&mut bytes[..take]), self.failure)?;
         self.left -= count;
         Ok(count)
     }
 }
 struct LimitedWriter<'a> {
     file: &'a mut OriginalFile,
+    failure: &'a mut Option<Arc<io::Error>>,
     left: usize,
 }
 impl Write for LimitedWriter<'_> {
@@ -253,11 +282,11 @@ impl Write for LimitedWriter<'_> {
         if bytes.len() > self.left {
             return Err(capacity());
         }
-        let count = self.file.write(bytes)?;
+        let count = actual(self.file.write(bytes), self.failure)?;
         self.left -= count;
         Ok(count)
     }
     fn flush(&mut self) -> io::Result<()> {
-        self.file.flush()
+        actual(self.file.flush(), self.failure)
     }
 }

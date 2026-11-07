@@ -160,3 +160,5 @@ fn a_file_over_the_recovery_limit_is_preserved_and_can_reopen_with_larger_explic
         .is_some());
     assert!(larger.matches_closed(&larger.try_close().unwrap().unwrap()));
 }
+
+mod actual_fault;
