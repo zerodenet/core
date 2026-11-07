@@ -16,7 +16,8 @@ pub(crate) use incarnation::next as next_incarnation;
 pub(crate) use carrier::DirectRawIpWireCarrier;
 pub(crate) use carrier::{HostedRawIpWireCarrier, ProxiedRawIpWireCarrier, RawIpWireCarrier};
 pub(crate) use contract::{
-    OwnedWireFailure, OwnedWireResult, RawIpAction, RawIpOutboundPlan, RawIpPeerPlan, RawIpTunnel,
+    OwnedWireFailure, OwnedWireResult, PreparedWireData, PreparedWireReceive, RawIpAction,
+    RawIpOutboundPlan, RawIpPeerPlan, RawIpTunnel,
 };
 pub(crate) use datagram::RawIpDatagramOperation;
 pub(crate) use device::{

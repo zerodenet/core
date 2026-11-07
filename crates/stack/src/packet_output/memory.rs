@@ -208,6 +208,24 @@ impl super::PacketSender {
     }
     /// The actual Source's allocation-only view. A pure return sink or an
     /// explicit independent library Root cannot impersonate this original.
+    /// The actual connection's finite receive window is charged before its
+    /// SYN. This returns only the same Source's Native memory, not IO/Scope.
+    pub(crate) fn native_receive_buffer(
+        &self,
+        bytes: usize,
+    ) -> Result<Option<zero_tun::packet_memory::NativeReadBuffer>, PacketDeriveError> {
+        let view = match self.memory.as_ref().map(|binding| &binding.origin) {
+            Some(Origin::Original(view)) => view,
+            Some(Origin::PendingOriginal(cell)) => {
+                cell.get().ok_or(PacketDeriveError::Unreserved)?
+            }
+            // Existing explicit library/root/return sinks retain their prior
+            // responsibilities; no actual Kernel original may enter this case.
+            Some(Origin::Standalone(_) | Origin::ExistingStorage) | None => return Ok(None),
+        };
+        let workspace = view.native_workspace(bytes).map_err(memory_error)?;
+        workspace.try_buffer().map(Some).map_err(memory_error)
+    }
     pub fn packet_memory_view(&self) -> Option<zero_tun::packet_memory::PacketMemoryView> {
         match &self.memory.as_ref()?.origin {
             Origin::Original(view) => Some(view.clone()),

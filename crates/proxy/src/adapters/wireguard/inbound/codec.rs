@@ -39,6 +39,63 @@ impl RawIpInboundDevice for WireguardInboundDevice {
             actions: dispatch.actions.into_iter().map(map_action).collect(),
         })
     }
+    fn prepare_datagram_owned(
+        &mut self,
+        source: Option<SocketAddr>,
+        packet: zero_traits::PacketBuffer,
+        decode: zero_tun::packet_memory::NativeReadBuffer,
+        control: zero_traits::PacketBuffer,
+        memory: &zero_tun::packet_memory::PacketDatagramWorkspaces,
+    ) -> crate::runtime::raw_ip::OwnedWireResult<
+        crate::runtime::raw_ip::PreparedWireReceive<RawIpInboundDispatch>,
+    > {
+        let _read = memory.reads[0].defer_notifications();
+        let _decode = memory.reads[1].defer_notifications();
+        let mut device = self.0.device.lock().unwrap_or_else(|e| e.into_inner());
+        let output =
+            device.prepare_datagram_owned(source, packet, decode, &memory.reads[1], control);
+        inbound_owned(output, |received| match received {
+            wireguard::runtime::PreparedReceive::Complete(dispatch) => {
+                crate::runtime::raw_ip::PreparedWireReceive::Complete(RawIpInboundDispatch {
+                    peer_index: dispatch.peer_index,
+                    authenticated: dispatch.authenticated,
+                    source_rejected_packets: dispatch.source_rejected_packets,
+                    actions: dispatch.actions.into_iter().map(map_action).collect(),
+                })
+            }
+            wireguard::runtime::PreparedReceive::Data(data) => {
+                let (identity, packet, peer) = data.into_parts();
+                let allowed = peer
+                    .zip(zero_stack::packet::ip_source(&packet))
+                    .is_some_and(|(peer, source)| device.prepared_source_allowed(peer, source));
+                crate::runtime::raw_ip::PreparedWireReceive::Data(
+                    crate::runtime::raw_ip::PreparedWireData {
+                        identity,
+                        packet,
+                        peer,
+                        allowed,
+                    },
+                )
+            }
+        })
+    }
+    fn commit_prepared_datagram(
+        &mut self,
+        data: &crate::runtime::raw_ip::PreparedWireData,
+        source: Option<SocketAddr>,
+    ) -> Result<(), EngineError> {
+        self.0
+            .device
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .commit_prepared_data(
+                data.peer
+                    .ok_or_else(|| invalid("prepared peer identity missing"))?,
+                &data.identity,
+                source,
+            )
+            .map_err(invalid)
+    }
     fn send_ip_packet_owned(
         &mut self,
         peer: usize,

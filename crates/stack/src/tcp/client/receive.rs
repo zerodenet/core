@@ -1,20 +1,24 @@
 //! Atomic client reply classification and delivery under one connection lock.
-
 use super::*;
-
 impl ClientTcpStack {
-    /// Return true for a matching tuple even when its TCP state rejects the
-    /// segment. Such replies must never become fresh inbound connections.
+    /// Real tuple correlation remains atomic for ordinary library delivery.
     pub async fn feed_correlated(&self, raw_packet: &[u8]) -> bool {
+        let locked = self.connections.lock().await;
+        #[cfg(feature = "packet-memory")]
+        let _memory_notifications = self.outbound.defer_memory_notifications();
+        let mut connections = locked;
+        self.feed_correlated_locked(&mut connections, raw_packet)
+    }
+    pub(super) fn feed_correlated_locked(
+        &self,
+        connections: &mut HashMap<ConnKey, Conn>,
+        raw_packet: &[u8],
+    ) -> bool {
         let Some(tcp) = packet::parse_tcp(raw_packet) else {
             return false;
         };
         let key = key_from_parsed(&tcp);
         let rev = key_reversed(&key);
-        let locked = self.connections.lock().await;
-        #[cfg(feature = "packet-memory")]
-        let _memory_notifications = self.outbound.defer_memory_notifications();
-        let mut connections = locked;
         let Some(conn) = connections.get_mut(&key) else {
             return false;
         };

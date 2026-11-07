@@ -289,3 +289,6 @@ fn missing_prepaid_cipher_preserves_same_plaintext_and_first_real_wire_counter()
         }
     );
 }
+
+#[path = "tests/prepared.rs"]
+mod prepared;

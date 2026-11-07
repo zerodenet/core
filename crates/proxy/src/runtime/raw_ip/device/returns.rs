@@ -14,7 +14,9 @@ mod delivery;
 mod limits;
 mod maintenance;
 mod registration;
+mod tcp_fence;
 mod translated;
+pub(in crate::runtime::raw_ip::device) use tcp_fence::TcpReturnFence;
 
 use tokio::sync::mpsc;
 use zero_stack::packet;

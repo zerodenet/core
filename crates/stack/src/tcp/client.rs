@@ -25,8 +25,10 @@ const FIRST_EPHEMERAL_PORT: u16 = 49_152;
 const EPHEMERAL_PORT_COUNT: usize = 16_384;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
+mod control_receive;
 mod opening;
 mod receive;
+pub use control_receive::ClientTcpControlReceive;
 pub use opening::{ClientTcpClosed, ClientTcpOpening, ClientTcpSocketControl};
 
 #[cfg(test)]
@@ -44,6 +46,8 @@ pub enum ClientTcpStackError {
     ConnectionReset,
     DestinationUnreachable,
     PacketMemory(zero_traits::PacketDeriveError),
+    /// Actual receive backing could not be admitted before any SYN submission.
+    ReceiveMemory(zero_traits::PacketDeriveError),
 }
 
 impl std::fmt::Display for ClientTcpStackError {
@@ -54,7 +58,7 @@ impl std::fmt::Display for ClientTcpStackError {
 impl std::error::Error for ClientTcpStackError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::PacketMemory(source) => Some(source),
+            Self::PacketMemory(source) | Self::ReceiveMemory(source) => Some(source),
             _ => None,
         }
     }
@@ -234,7 +238,10 @@ impl ClientTcpStack {
             let iss = next_iss();
             let connection_id = NEXT_CONNECTION_ID.fetch_add(1, Ordering::Relaxed);
             let (waiter, ready) = oneshot::channel();
-            let receive_buffer = Arc::new(TcpReceiveBuffer::new(TCP_RECEIVE_BUFFER_BYTES));
+            let receive_buffer = Arc::new(
+                TcpReceiveBuffer::new_for_output(TCP_RECEIVE_BUFFER_BYTES, &self.outbound)
+                    .map_err(ClientTcpStackError::ReceiveMemory)?,
+            );
             let send_control = Arc::new(TcpSendControl::new_network(iss, 0, self.mss));
             let syn = super::output::CachedPacket::build(
                 packet::TcpPacketSpec {

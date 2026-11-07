@@ -13,6 +13,12 @@ pub(super) struct TcpReceiveBuffer {
 #[derive(Default)]
 struct ReceiveState {
     chunks: VecDeque<Vec<u8>>,
+    #[cfg(feature = "packet-memory")]
+    native: Option<zero_tun::packet_memory::NativeReadBuffer>,
+    #[cfg(feature = "packet-memory")]
+    read_at: usize,
+    #[cfg(feature = "packet-memory")]
+    write_at: usize,
     front_offset: usize,
     buffered: usize,
     closed: bool,
@@ -37,12 +43,58 @@ impl TcpReceiveBuffer {
         }
     }
 
+    pub(super) fn new_for_output(
+        capacity: usize,
+        output: &crate::packet_output::PacketSender,
+    ) -> Result<Self, zero_traits::PacketDeriveError> {
+        let buffer = Self::new(capacity);
+        #[cfg(feature = "packet-memory")]
+        if let Some(native) = output.native_receive_buffer(buffer.capacity)? {
+            buffer
+                .state
+                .lock()
+                .expect("new actual receive buffer")
+                .native = Some(native);
+        }
+        #[cfg(not(feature = "packet-memory"))]
+        let _ = output;
+        Ok(buffer)
+    }
+
+    /// A protocol's prepared receiver only matches the actually installed
+    /// owned RX storage, never a missing Kernel grant/library fallback.
+    #[cfg(feature = "packet-memory")]
+    pub(super) fn has_owned_storage(&self) -> bool {
+        self.state
+            .lock()
+            .expect("TCP receive buffer lock poisoned")
+            .native
+            .is_some()
+    }
+
     pub(super) fn push(&self, payload: &[u8]) -> bool {
         let mut state = self.state.lock().expect("TCP receive buffer lock poisoned");
         if state.closed || payload.len() > self.capacity.saturating_sub(state.buffered) {
             return false;
         }
         state.buffered += payload.len();
+        #[cfg(feature = "packet-memory")]
+        if state.native.is_some() {
+            let start = state.write_at;
+            let first = payload.len().min(self.capacity - start);
+            let storage = state
+                .native
+                .as_mut()
+                .expect("same installed actual RX allocation")
+                .as_mut_bytes();
+            storage[start..start + first].copy_from_slice(&payload[..first]);
+            storage[..payload.len() - first].copy_from_slice(&payload[first..]);
+            state.write_at = (start + payload.len()) % self.capacity;
+        } else {
+            // Explicit library receiver, without a Source original binding.
+            state.chunks.push_back(payload.to_vec());
+        }
+        #[cfg(not(feature = "packet-memory"))]
         state.chunks.push_back(payload.to_vec());
         let waker = state.reader_waker.take();
         drop(state);
@@ -104,22 +156,39 @@ impl TcpReceiveBuffer {
         let target = buf.remaining();
         let mut copied = 0;
 
-        while copied < target {
-            let Some(front) = state.chunks.pop_front() else {
-                break;
-            };
-            let available = &front[state.front_offset..];
-            let count = available.len().min(target - copied);
-            buf.put_slice(&available[..count]);
-            copied += count;
+        #[cfg(feature = "packet-memory")]
+        if let Some(storage) = &state.native {
+            let count = state.buffered.min(target);
+            let start = state.read_at;
+            let first = count.min(self.capacity - start);
+            buf.put_slice(&storage.as_bytes()[start..start + first]);
+            buf.put_slice(&storage.as_bytes()[..count - first]);
+            state.read_at = (start + count) % self.capacity;
             state.buffered -= count;
+            copied = count;
+        }
+        #[cfg(feature = "packet-memory")]
+        let library = state.native.is_none();
+        #[cfg(not(feature = "packet-memory"))]
+        let library = true;
+        if library {
+            while copied < target {
+                let Some(front) = state.chunks.pop_front() else {
+                    break;
+                };
+                let available = &front[state.front_offset..];
+                let count = available.len().min(target - copied);
+                buf.put_slice(&available[..count]);
+                copied += count;
+                state.buffered -= count;
 
-            if count < available.len() {
-                state.front_offset += count;
-                state.chunks.push_front(front);
-                break;
+                if count < available.len() {
+                    state.front_offset += count;
+                    state.chunks.push_front(front);
+                    break;
+                }
+                state.front_offset = 0;
             }
-            state.front_offset = 0;
         }
 
         state.released_since_update = state.released_since_update.saturating_add(copied);

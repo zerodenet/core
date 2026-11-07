@@ -64,6 +64,12 @@ impl Stream {
             // Settle this same opening before the matching logical removal;
             // cancellation of this cleanup still leaves its actual worker in
             // the original host Scope, with its same send-control/tuple ID.
+            let no_syn = source
+                .get_ref()
+                .and_then(|cause| cause.downcast_ref::<zero_stack::ClientTcpStackError>())
+                .is_some_and(|cause| {
+                    matches!(cause, zero_stack::ClientTcpStackError::ReceiveMemory(_))
+                });
             self.connecting.take();
             self.control.close().await;
             let reason = match source.kind() {
@@ -73,7 +79,12 @@ impl Stream {
                 io::ErrorKind::BrokenPipe => Reason::Revoked,
                 _ => Reason::Io,
             };
-            return Err(ChannelError::new(Stage::Dial, reason, Impact::Session).with_source(source));
+            let mut error =
+                ChannelError::new(Stage::Dial, reason, Impact::Session).with_source(source);
+            if no_syn {
+                error.delivery = zero_platform_tokio::contract::DeliveryState::NotSubmitted;
+            }
+            return Err(error);
         }
         Ok(self)
     }
@@ -195,7 +206,7 @@ fn stack_io_error(source: zero_stack::ClientTcpStackError) -> io::Error {
         | Error::InvalidMtu
         | Error::UnknownLocalAddress
         | Error::AddressFamilyMismatch => io::ErrorKind::InvalidInput,
-        Error::PacketMemory(memory) => match memory {
+        Error::PacketMemory(memory) | Error::ReceiveMemory(memory) => match memory {
             zero_traits::PacketDeriveError::Busy | zero_traits::PacketDeriveError::Capacity => {
                 io::ErrorKind::WouldBlock
             }

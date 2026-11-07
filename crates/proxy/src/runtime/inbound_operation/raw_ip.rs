@@ -65,6 +65,30 @@ pub(crate) trait RawIpInboundDevice: Send {
     ) -> crate::runtime::raw_ip::OwnedWireResult<RawIpInboundDispatch> {
         crate::runtime::raw_ip::OwnedWireResult::unsupported(Some(packet), control)
     }
+    fn prepare_datagram_owned(
+        &mut self,
+        source: Option<SocketAddr>,
+        packet: zero_traits::PacketBuffer,
+        decode: zero_tun::packet_memory::NativeReadBuffer,
+        control: zero_traits::PacketBuffer,
+        memory: &zero_tun::packet_memory::PacketDatagramWorkspaces,
+    ) -> crate::runtime::raw_ip::OwnedWireResult<
+        crate::runtime::raw_ip::PreparedWireReceive<RawIpInboundDispatch>,
+    > {
+        self.receive_datagram_owned(source, packet, decode, control, memory)
+            .map(crate::runtime::raw_ip::PreparedWireReceive::Complete)
+    }
+    fn commit_prepared_datagram(
+        &mut self,
+        _data: &crate::runtime::raw_ip::PreparedWireData,
+        _source: Option<SocketAddr>,
+    ) -> Result<(), EngineError> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "codec has no prepared Data operation",
+        )
+        .into())
+    }
     fn send_ip_packet_owned(
         &mut self,
         _peer: usize,

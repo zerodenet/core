@@ -8,6 +8,7 @@ use crate::runtime::raw_ip::timer::{self, PeerTimers};
 use std::time::Instant;
 use zero_api::TrafficPlane;
 use zero_stack::{packet, OwnedFragmentOutcome, OwnedFragmentReassembler};
+mod prepared;
 mod receive;
 use receive::{Delivery, ReadMemory};
 
@@ -192,10 +193,10 @@ pub(super) async fn run(
                 if size > 65_535 || proxied_peer.is_some() && received_revision != peer_revision { traffic.aggregate.dropped_reason(TrafficPlane::Outer, false, zero_api::TrafficDropReason::InvalidPacket); continue; }
                 let original = buffer.take().expect("same original read allocation").into_packet(size)
                     .map_err(|_original|std::io::Error::new(std::io::ErrorKind::InvalidData,"native read exceeded its allocation"))?;
-                let output = operation.device.receive_datagram_owned(source, original, decode,
+                let output = operation.device.prepare_datagram_owned(source, original, decode,
                     control_buffer(&read_memory.1)?, &protocol_memory);
                 drop(output.unused_control);
-                let dispatch = match output.result {
+                let prepared = match output.result {
                     Ok(dispatch) => dispatch,
                     Err(failure) if matches!(failure.storage,Some(zero_traits::PacketDeriveError::Busy | zero_traits::PacketDeriveError::Capacity)) => {
                         traffic.aggregate.dropped_reason(TrafficPlane::Outer,false,zero_api::TrafficDropReason::QueueFull);
@@ -207,6 +208,7 @@ pub(super) async fn run(
                     }
                     Err(failure) => return Err(failure.source),
                 };
+                let Some(dispatch) = prepared::finish(&mut operation,prepared,source,proxied_peer,&read_memory.0[0],&traffic).await? else {continue;};
                 if let Some(peer) = dispatch.peer_index { timers.update(peer, operation.device.timer_schedule(peer)); }
                 if dispatch.authenticated { traffic.peer(dispatch.peer_index).peer_rx(TrafficPlane::Outer, size); }
                 traffic.peer(dispatch.peer_index).dropped_count(TrafficPlane::Inner, true, zero_api::TrafficDropReason::SourceRejected, dispatch.source_rejected_packets);

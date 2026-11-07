@@ -1,5 +1,6 @@
 //! The existing standalone wire driver consumes its unique prepaid native IO.
 use super::*;
+mod prepared;
 use zero_stack::OwnedFragmentReassembler;
 use zero_tun::packet_memory::{NativeReadBuffer, NativeReadGrant};
 
@@ -85,14 +86,14 @@ pub(super) async fn run(
                 let original = buffer.take().expect("same prepaid wire read").into_packet(size)
                     .map_err(|_original| std::io::Error::new(std::io::ErrorKind::InvalidData, "wire read exceeded its actual allocation"))?;
                 device.traffic.rx(TrafficPlane::Outer, size, false);
-                let output = device.tunnel.receive_datagram_owned(sender, original, decode, control(&reads.control)?, &reads.memory());
+                let output = device.tunnel.prepare_datagram_owned(sender, original, decode, control(&reads.control)?, &reads.memory());
                 // Only the protocol can report a capacity refusal before SDK
                 // submission/authentication/replay commitment. Actual queued
                 // or admitted inner returns are never evicted by this branch.
                 let unused = output.unused_control;
                 let result = output.result;
                 drop(unused);
-                let (actions, authenticated) = match result {
+                let received = match result {
                     Ok(received) => received,
                     Err(failure) if matches!(failure.storage,
                         Some(zero_traits::PacketDeriveError::Busy | zero_traits::PacketDeriveError::Capacity)) => {
@@ -107,6 +108,7 @@ pub(super) async fn run(
                     }
                     Err(failure) => return Err(failure.source),
                 };
+                let Some((actions,authenticated))=prepared::finish(device,received,sender,&reads.reads[0]).await? else {continue;};
                 if authenticated { device.traffic.peer_rx(TrafficPlane::Outer, size); }
                 if let Some(sender) = sender.filter(|sender| *sender != device.endpoint) {
                     if !authenticated || sender.is_ipv4() != device.endpoint.is_ipv4() {

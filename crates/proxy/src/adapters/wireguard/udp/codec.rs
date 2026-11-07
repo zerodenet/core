@@ -49,6 +49,54 @@ impl RawIpTunnel for WireguardRawIpTunnel {
             |received| (convert(received.actions), received.authenticated),
         )
     }
+    fn prepare_datagram_owned(
+        &mut self,
+        source: Option<std::net::SocketAddr>,
+        datagram: zero_traits::PacketBuffer,
+        decode: zero_tun::packet_memory::NativeReadBuffer,
+        control: zero_traits::PacketBuffer,
+        memory: &zero_tun::packet_memory::PacketDatagramWorkspaces,
+    ) -> crate::runtime::raw_ip::OwnedWireResult<
+        crate::runtime::raw_ip::PreparedWireReceive<(Vec<RawIpAction>, bool)>,
+    > {
+        let _read = memory.reads[0].defer_notifications();
+        let _decode = memory.reads[1].defer_notifications();
+        owned_result(
+            self.tunnel
+                .prepare_datagram_owned(source, datagram, decode, control),
+            |received| match received {
+                wireguard::runtime::PreparedReceive::Complete(received) => {
+                    crate::runtime::raw_ip::PreparedWireReceive::Complete((
+                        convert(received.actions),
+                        received.authenticated,
+                    ))
+                }
+                wireguard::runtime::PreparedReceive::Data(data) => {
+                    let (identity, packet, peer) = data.into_parts();
+                    let allowed = zero_stack::packet::ip_source(&packet).is_some_and(|source| {
+                        self.profile
+                            .allows_authenticated_source(self.peer_index, source)
+                    });
+                    crate::runtime::raw_ip::PreparedWireReceive::Data(
+                        crate::runtime::raw_ip::PreparedWireData {
+                            identity,
+                            packet,
+                            peer,
+                            allowed,
+                        },
+                    )
+                }
+            },
+        )
+    }
+    fn commit_prepared_datagram(
+        &mut self,
+        data: &crate::runtime::raw_ip::PreparedWireData,
+    ) -> Result<(), EngineError> {
+        self.tunnel
+            .commit_prepared_data(&data.identity)
+            .map_err(tunnel_error)
+    }
     fn tick_owned(
         &mut self,
         control: zero_traits::PacketBuffer,

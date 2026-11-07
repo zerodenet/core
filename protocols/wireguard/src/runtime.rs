@@ -1,4 +1,6 @@
 mod owned;
+mod prepared;
+pub use prepared::{PreparedData, PreparedReceive};
 mod quiescence;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -110,6 +112,7 @@ impl UnknownSourceHandshakeLimiter {
 /// No Tokio socket, task, endpoint, or private configuration string is retained.
 pub struct PeerTunnel {
     engine: Tunn,
+    prepared_data: Option<prepared::PendingData>,
     rate_limiter: Arc<RateLimiter>,
     mtu: usize,
     emitted_data_messages: u64,
@@ -221,6 +224,7 @@ impl PeerTunnel {
             rate_limiter,
             mtu: usize::from(mtu),
             emitted_data_messages: 0,
+            prepared_data: None,
             unknown_source_handshakes: UnknownSourceHandshakeLimiter::new(),
         })
     }

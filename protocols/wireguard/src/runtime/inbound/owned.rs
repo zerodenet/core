@@ -260,7 +260,7 @@ impl InboundDevice {
         )
     }
 }
-fn memory_error(error: zero_tun::packet_memory::PacketMemoryError) -> PacketDeriveError {
+pub(super) fn memory_error(error: zero_tun::packet_memory::PacketMemoryError) -> PacketDeriveError {
     use zero_tun::packet_memory::PacketMemoryError;
     match error {
         PacketMemoryError::Capacity => PacketDeriveError::Capacity,

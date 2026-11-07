@@ -208,7 +208,7 @@ impl Session {
     }
 
     /// Returns true if receiving counter is good to use, and marks it as used {
-    fn receiving_counter_mark(&self, counter: u64) -> Result<(), WireGuardError> {
+    pub(super) fn receiving_counter_mark(&self, counter: u64) -> Result<(), WireGuardError> {
         let mut counter_validator = self.receiving_key_counter.lock();
         let ret = counter_validator.mark_did_receive(counter);
         if ret.is_ok() {
@@ -312,8 +312,18 @@ impl Session {
     /// Decapsulate `packet` and return the decrypted data.
     pub(super) fn receive_packet_data(
         &self,
-        mut packet: Packet<WgData>,
+        packet: Packet<WgData>,
     ) -> Result<Packet, WireGuardError> {
+        let (packet, counter) = self.prepare_packet_data(packet)?;
+        self.receiving_counter_mark(counter)?;
+        Ok(packet)
+    }
+    /// Authentication and plaintext custody only. No replay/timer/session
+    /// mutation is committed until the actual caller has admitted all memory.
+    pub(super) fn prepare_packet_data(
+        &self,
+        mut packet: Packet<WgData>,
+    ) -> Result<(Packet, u64), WireGuardError> {
         if packet.header.receiver_idx.get() != self.receiving_index.value() {
             return Err(WireGuardError::WrongIndex);
         }
@@ -348,9 +358,7 @@ impl Session {
         buf.advance(WgDataHeader::LEN);
         buf.truncate(decrypted_len);
 
-        // After decryption is done, check counter again, and mark as received
-        self.receiving_counter_mark(counter)?;
-        Ok(packet)
+        Ok((packet, counter))
     }
 
     /// Returns the estimated downstream packet loss for this session

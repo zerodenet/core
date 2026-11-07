@@ -47,7 +47,7 @@ pub use fragment::{
     OwnedFragmentReassembler,
 };
 pub use system::{SystemTcpStack, SystemUdpStack};
-pub use tcp::client::{ClientTcpStack, ClientTcpStackError};
+pub use tcp::client::{ClientTcpControlReceive, ClientTcpStack, ClientTcpStackError};
 pub use tcp::{UserTcpStack, UserTcpStream};
 pub use udp::UserUdpStack;
 

@@ -40,6 +40,10 @@ use crate::packet::{Packet, WgCookieReply, WgData, WgHandshakeInit, WgHandshakeR
 use crate::tun::MtuWatcher;
 use crate::x25519;
 
+#[cfg(feature = "zero-owned-packets")]
+mod prepared_data;
+#[cfg(feature = "zero-owned-packets")]
+pub use prepared_data::PreparedDataCommit;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
@@ -72,7 +76,7 @@ pub struct Tunn<R: RngCore + Send = StdRng> {
     /// The handshake currently in progress.
     handshake: handshake::Handshake,
     /// The [`N_SESSIONS`] most recent sessions.
-    sessions: [Option<session::Session>; N_SESSIONS],
+    sessions: [Option<std::sync::Arc<session::Session>>; N_SESSIONS],
     /// Index of the most recently used session.
     current: usize,
     /// Counter for slot selection when inserting new sessions.
@@ -387,7 +391,7 @@ impl<R: RngCore + Send> Tunn<R> {
     /// If the slot was occupied, the old session (and its [`Index`](index_table::Index)) is dropped,
     /// which automatically frees the index from the shared table.
     fn put_session(&mut self, slot: usize, session: session::Session) {
-        self.sessions[slot % N_SESSIONS] = Some(session);
+        self.sessions[slot % N_SESSIONS] = Some(std::sync::Arc::new(session));
     }
 
     /// Decrypt a data packet, and return a [`TunnResult::WriteToTunnel`] (`Ipv4` or `Ipv6`) if

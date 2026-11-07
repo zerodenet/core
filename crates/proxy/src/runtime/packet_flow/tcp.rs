@@ -106,7 +106,7 @@ fn stack_error(error: ClientTcpStackError) -> EngineError {
         | Error::InvalidMtu
         | Error::UnknownLocalAddress
         | Error::AddressFamilyMismatch => std::io::ErrorKind::InvalidInput,
-        Error::PacketMemory(memory) => match memory {
+        Error::PacketMemory(memory) | Error::ReceiveMemory(memory) => match memory {
             zero_traits::PacketDeriveError::Busy | zero_traits::PacketDeriveError::Capacity => {
                 std::io::ErrorKind::WouldBlock
             }

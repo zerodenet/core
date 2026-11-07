@@ -1,5 +1,5 @@
 mod owned;
-pub(crate) use owned::{OwnedWireFailure, OwnedWireResult};
+pub(crate) use owned::{OwnedWireFailure, OwnedWireResult, PreparedWireData, PreparedWireReceive};
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
@@ -38,6 +38,24 @@ pub(crate) trait RawIpTunnel: Send {
         _memory: &zero_tun::packet_memory::PacketDatagramWorkspaces,
     ) -> OwnedWireResult<(Vec<RawIpAction>, bool)> {
         OwnedWireResult::unsupported(Some(datagram), control)
+    }
+    fn prepare_datagram_owned(
+        &mut self,
+        source: Option<SocketAddr>,
+        datagram: zero_traits::PacketBuffer,
+        decode: zero_tun::packet_memory::NativeReadBuffer,
+        control: zero_traits::PacketBuffer,
+        memory: &zero_tun::packet_memory::PacketDatagramWorkspaces,
+    ) -> OwnedWireResult<PreparedWireReceive<(Vec<RawIpAction>, bool)>> {
+        self.receive_datagram_owned(source, datagram, decode, control, memory)
+            .map(PreparedWireReceive::Complete)
+    }
+    fn commit_prepared_datagram(&mut self, _data: &PreparedWireData) -> Result<(), EngineError> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "codec has no prepared Data operation",
+        )
+        .into())
     }
     fn tick_owned(
         &mut self,

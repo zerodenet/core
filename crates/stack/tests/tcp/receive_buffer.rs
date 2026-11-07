@@ -51,3 +51,81 @@ fn many_small_reads_accumulate_a_window_update_without_ack_per_byte() {
     }
     assert_eq!(buffer.window(), 5);
 }
+
+#[cfg(feature = "packet-memory")]
+#[test]
+fn same_native_receive_backing_wraps_without_per_packet_allocation_or_early_refund() {
+    use std::sync::Arc;
+    use zero_tun::packet_memory::{PacketMemoryLimit, PacketReturnTotals};
+    let root = Arc::new(PacketReturnTotals::new_with_transmit(
+        PacketMemoryLimit {
+            frames: 1,
+            bytes: 1,
+        },
+        PacketMemoryLimit {
+            frames: 2,
+            bytes: 9,
+        },
+        PacketMemoryLimit {
+            frames: 1,
+            bytes: 1,
+        },
+    ));
+    let read = root.native_grant(1).unwrap();
+    let (sender, _receiver) = tokio::sync::mpsc::channel::<zero_traits::PacketBuffer>(1);
+    let output = crate::packet_output::PacketSender::from(sender)
+        .with_packet_memory_view(
+            read.memory_view().unwrap(),
+            crate::packet_output::memory::PacketWireMemory::Native,
+        )
+        .unwrap();
+    let buffer = TcpReceiveBuffer::new_for_output(8, &output).unwrap();
+    assert_eq!(
+        root.native().occupied,
+        PacketMemoryLimit {
+            frames: 2,
+            bytes: 9
+        }
+    );
+    assert!(buffer.push(b"123456"));
+    let mut cx = Context::from_waker(Waker::noop());
+    let mut first = [0; 4];
+    assert!(buffer
+        .poll_read(&mut cx, &mut ReadBuf::new(&mut first), 4)
+        .0
+        .is_ready());
+    assert_eq!(&first, b"1234");
+    assert!(buffer.push(b"78ABCD"));
+    assert!(!buffer.push(b"x"), "same actual window is full");
+    let mut rest = [0; 8];
+    assert!(buffer
+        .poll_read(&mut cx, &mut ReadBuf::new(&mut rest), 4)
+        .0
+        .is_ready());
+    assert_eq!(&rest, b"5678ABCD");
+    assert_eq!(
+        root.native().occupied,
+        PacketMemoryLimit {
+            frames: 2,
+            bytes: 9
+        },
+        "empty ring still retains its actual allocation"
+    );
+    drop(buffer);
+    assert_eq!(
+        root.native().occupied,
+        PacketMemoryLimit {
+            frames: 1,
+            bytes: 1
+        }
+    );
+    drop(output);
+    drop(read);
+    assert_eq!(
+        root.native().occupied,
+        PacketMemoryLimit {
+            frames: 0,
+            bytes: 0
+        }
+    );
+}

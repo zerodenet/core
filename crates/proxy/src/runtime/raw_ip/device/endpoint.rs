@@ -1,5 +1,6 @@
 //! Active client stacks attached to a neutral bidirectional IP endpoint.
 mod driver;
+mod prepared_receive;
 mod readiness;
 use driver::run_endpoint_stack;
 
