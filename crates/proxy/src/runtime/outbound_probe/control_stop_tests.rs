@@ -55,7 +55,11 @@ async fn explicit_control_stop_detaches_only_its_waiter_and_retains_same_native_
         assert!(!first.is_finished() && !second.is_finished());
         assert!(native.closed().is_none() && !witness.is_joined());
         let mut byte = [0];
-        assert!(futures_util::poll!(peer.read(&mut byte)).is_pending(), "other actual caller keeps the same native IO");
+        {
+            let read = peer.read(&mut byte);
+            tokio::pin!(read);
+            assert!(futures_util::poll!(&mut read).is_pending(), "other actual caller keeps the same native IO");
+        }
         assert_eq!(owner.observe().unwrap().retained(), 1);
         second_stop.cancel();
         for task in [first, second] {

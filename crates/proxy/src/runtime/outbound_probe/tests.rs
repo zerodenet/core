@@ -1,10 +1,11 @@
 use super::{
-    probe_deadline_for_dns, OutboundProbeDeadline, OutboundProbeError, ProbeKey, SharedProbeEntry,
-    SharedProbeWaiter, OUTBOUND_PROBE_TRANSPORT_TIMEOUT_MS,
+    probe_deadline_for_dns, OutboundProbeDeadline, OutboundProbeError, ProbeKey, ProbeOriginal,
+    SharedProbeEntry, SharedProbeWaiter, OUTBOUND_PROBE_TRANSPORT_TIMEOUT_MS,
 };
 use crate::runtime::tcp_dispatch::TcpDispatchIntent;
 use futures_util::FutureExt;
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 #[test]
