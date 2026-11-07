@@ -33,6 +33,7 @@ pub struct HostResources {
     bounds: bound_datagram::BoundDeclarations,
     packets: Vec<packet_device::PacketDeviceOwner>,
     reads: read_workspaces::ReadDeclarations,
+    journals: journal::Journals,
     #[cfg(any(target_os = "linux", windows))]
     processes: process::ProcessDeclarations,
     cancel: CancellationToken,
@@ -104,6 +105,7 @@ mod coverage;
 mod dependency;
 mod evidence;
 mod files;
+mod journal;
 mod listener;
 mod metadata;
 mod metapool;
@@ -189,6 +191,14 @@ impl HostResources {
     }
 }
 impl ResourceAccess for HostResources {
+    fn journal(
+        &self,
+        ordinal: usize,
+    ) -> Result<zero_platform_tokio::journal::JournalGrant, ChannelError> {
+        self.require_start()?;
+        self.journals.open(self.component, ordinal)
+    }
+
     fn carrier_buffer_budget(
         &self,
     ) -> Option<zero_platform_tokio::controlled_carrier::CarrierBufferBudget> {
@@ -548,3 +558,7 @@ impl HostResources {
         self.carriers.poll_cancelled(cx)
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/resource_journal.rs"]
+mod journal_tests;

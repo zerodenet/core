@@ -88,6 +88,14 @@ impl HostResources {
             identity.clone(),
             cancel.clone(),
         )?;
+        let journals = journal::Journals::new(
+            declarations,
+            component,
+            identity.as_ref().map(|(instance, _)| *instance),
+            original_tasks.as_ref(),
+            &originals.carrier,
+            &cancel,
+        )?;
         let mut packets = Vec::new();
         let mut icmp = None;
         let mut remaining = BTreeMap::new();
@@ -271,7 +279,8 @@ impl HostResources {
                 ResourceDeclaration::File { path, max_bytes } => {
                     files.declare(component, path, *max_bytes)?
                 }
-                ResourceDeclaration::PacketDatagramReads { .. }
+                ResourceDeclaration::ControlledJournal { .. }
+                | ResourceDeclaration::PacketDatagramReads { .. }
                 | ResourceDeclaration::BoundOutboundDatagram { .. }
                 | ResourceDeclaration::ControlledOutboundDatagram { .. }
                 | ResourceDeclaration::ControlledOutboundStream { .. }
@@ -323,6 +332,7 @@ impl HostResources {
             bounds,
             reads,
             packets,
+            journals,
             #[cfg(any(target_os = "linux", windows))]
             processes,
             cancel,

@@ -76,3 +76,16 @@ mod tests;
 mod windows_tests;
 
 pub mod tree;
+
+/// Internal same-policy write service path check; this never opens a handle.
+pub(crate) fn validate_regular_path(path: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        windows::validate_path(path)?;
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+    }
+    Ok(())
+}

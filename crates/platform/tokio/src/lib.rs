@@ -889,3 +889,6 @@ pub use tokio_util::sync::PollSender;
 
 mod local_stream;
 pub use local_stream::{OriginalLocalStream, OriginalLocalStreamClosed};
+
+/// Declared read/write journal originals; no protocol persistence policy.
+pub mod journal;

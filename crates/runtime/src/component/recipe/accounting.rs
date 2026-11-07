@@ -7,7 +7,8 @@ pub(in crate::component) fn owns_carrier_custody(spec: &ComponentSpec) -> bool {
     spec.resources.iter().any(|resource| {
         matches!(
             resource,
-            R::InboundTargets { .. }
+            R::ControlledJournal { .. }
+                | R::InboundTargets { .. }
                 | R::TcpListener { .. }
                 | R::ListenerHandoff { .. }
                 | R::DatagramListener { .. }

@@ -99,6 +99,18 @@ impl OriginalFile {
         }
     }
 
+    /// Check this actual original before a journal performs any IO.
+    pub(crate) fn validate_regular(&self) -> io::Result<()> {
+        #[cfg(windows)]
+        super::windows::validate(self.original()?)?;
+        if !self.metadata()?.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "journal original is not a regular file",
+            ));
+        }
+        Ok(())
+    }
     pub fn metadata(&self) -> io::Result<Metadata> {
         self.original()?.metadata()
     }

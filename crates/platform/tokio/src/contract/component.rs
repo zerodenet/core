@@ -267,6 +267,11 @@ pub enum ResourceDeclaration {
         root: PathBuf,
         max_sessions: NonZeroUsize,
     },
+    /// One exact-path lock/read/append/atomic-replace original graph.
+    /// Its provider retains native receipts independently of the caller Scope.
+    ControlledJournal {
+        spec: crate::journal::JournalSpec,
+    },
     File {
         path: PathBuf,
         max_bytes: usize,
@@ -328,6 +333,14 @@ pub struct InboundListenerEndpoints {
     pub datagram: std::net::SocketAddr,
 }
 pub trait ResourceAccess: Send + Sync {
+    /// The same declared journal controller/grant. No raw File is exported.
+    fn journal(&self, _ordinal: usize) -> Result<crate::journal::JournalGrant, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
     /// The same Host's pure buffer accounting. This confers no acquisition,
     /// IO, task, native-close, logical-user or Scope authority. Missing actual
     /// production accounting cannot fall back to an independent local book.

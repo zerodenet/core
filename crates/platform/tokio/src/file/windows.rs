@@ -11,6 +11,14 @@ use windows_sys::Win32::{
 };
 
 pub(super) fn open(path: &Path) -> io::Result<File> {
+    validate_path(path)?;
+    // std uses OPEN_EXISTING without WaitNamedPipe. In particular it never waits
+    // or retries ERROR_PIPE_BUSY. A reparse target still needs the actual handle
+    // check below before any metadata or read operation.
+    OpenOptions::new().read(true).open(path)
+}
+
+pub(super) fn validate_path(path: &Path) -> io::Result<()> {
     // Do not open explicit device/NT namespaces (including physical volumes and
     // local named pipes). A UNC pipe share is also not an ordinary file grant.
     // This validates syntax only; it does not canonicalize or grant a new path.
@@ -33,10 +41,7 @@ pub(super) fn open(path: &Path) -> io::Result<File> {
             ));
         }
     }
-    // std uses OPEN_EXISTING without WaitNamedPipe. In particular it never waits
-    // or retries ERROR_PIPE_BUSY. A reparse target still needs the actual handle
-    // check below before any metadata or read operation.
-    OpenOptions::new().read(true).open(path)
+    Ok(())
 }
 
 pub(super) fn validate(file: &File) -> io::Result<()> {

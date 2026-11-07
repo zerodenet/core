@@ -22,6 +22,7 @@ impl HostResources {
             state.closed = true;
             state.start_deadline = None;
         }
+        let journal_result = self.journals.close(self.component);
         self.bounds.revoke();
         self.reads.revoke();
         // Persist each original receipt before the first cancellation point.
@@ -105,6 +106,7 @@ impl HostResources {
                 .clone()
                 .or_else(|| state.io.failures.values().next().cloned())
         };
+        let journal_report = journal_result?;
         if let Some(error) = bound_failure {
             return Err(error);
         }
@@ -146,6 +148,7 @@ impl HostResources {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut report = std::mem::take(&mut state.io.receipts);
         report.append(std::mem::take(&mut state.files.receipts));
+        report.append(journal_report);
         report.append(packet_report);
         report.append(process_report);
         report.unfinished.extend(

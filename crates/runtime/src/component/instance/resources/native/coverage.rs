@@ -19,6 +19,7 @@ pub(in crate::component) enum DeclaredResourceKind {
     MetadataDatagram,
     ControlledMetadataDatagram,
     File,
+    ControlledJournal,
     FileTree,
     TcpListener,
     DatagramListener,
@@ -34,6 +35,7 @@ pub(in crate::component) enum DeclaredResourceKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::component) enum DeclarationProvider {
     File(usize),
+    Journal(usize),
     Native(usize),
     Carrier(usize),
     Metadata(usize),
@@ -65,6 +67,7 @@ pub(super) enum CoverageBinding {
     BoundDatagram,
     Icmp,
     File(PathBuf),
+    Journal,
     Tcp(SocketAddr),
     Datagram(SocketAddr),
     Unaccounted(DeclaredResourceKind),
@@ -118,6 +121,7 @@ impl CoverageBinding {
                 Self::Unaccounted(DeclaredResourceKind::FileTree)
             }
             ResourceDeclaration::File { path, .. } => Self::File(path.clone()),
+            ResourceDeclaration::ControlledJournal { .. } => Self::Journal,
             ResourceDeclaration::TcpListener { destination, .. } => {
                 Self::Tcp(sockets::literal(component, destination)?)
             }
@@ -163,6 +167,7 @@ impl CoverageBinding {
             Self::PacketDevice => (DeclaredResourceKind::ControlledPacketDevice, None),
             Self::PacketReads => (DeclaredResourceKind::PacketDatagramReads, None),
             Self::BoundDatagram => (DeclaredResourceKind::BoundOutboundDatagram, None),
+            Self::Journal => (DeclaredResourceKind::ControlledJournal, None),
             Self::File(path) => (
                 DeclaredResourceKind::File,
                 files
@@ -201,6 +206,7 @@ impl evidence::HostIoEvidence {
             return false;
         }
         let mut files = vec![false; self.files.len()];
+        let mut journals = vec![false; self.journals.len()];
         let mut metapools = vec![false; self.metapools.len()];
         let mut native = vec![false; self.native.len()];
         let mut carriers = vec![false; self.carriers.len()];
@@ -261,6 +267,17 @@ impl evidence::HostIoEvidence {
                     }
                 }
 
+                DeclarationProvider::Journal(index)
+                    if declaration.kind == DeclaredResourceKind::ControlledJournal =>
+                {
+                    match (self.journals.get(index), journals.get_mut(index)) {
+                        (Some(owner), Some(seen)) if !*seen && owner.ordinal == ordinal => {
+                            *seen = true;
+                            owner.confirmed
+                        }
+                        _ => false,
+                    }
+                }
                 DeclarationProvider::File(index)
                     if declaration.kind == DeclaredResourceKind::File =>
                 {
@@ -369,6 +386,7 @@ impl evidence::HostIoEvidence {
         }
         icmp_seen == self.icmp.is_some()
             && files.into_iter().all(|seen| seen)
+            && journals.into_iter().all(|seen| seen)
             && metapools.into_iter().all(|seen| seen)
             && native.into_iter().all(|seen| seen)
             && carriers.into_iter().all(|seen| seen)
