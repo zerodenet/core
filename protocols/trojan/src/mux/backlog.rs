@@ -11,6 +11,7 @@ pub(crate) struct MuxResponseBacklog {
 struct MuxResponseBacklogInner {
     limit: usize,
     used: AtomicUsize,
+    released: Arc<tokio::sync::Notify>,
 }
 
 pub(crate) struct BufferedMuxResponse<T> {
@@ -25,6 +26,7 @@ impl MuxResponseBacklog {
             inner: Arc::new(MuxResponseBacklogInner {
                 limit,
                 used: AtomicUsize::new(0),
+                released: Arc::new(tokio::sync::Notify::new()),
             }),
         }
     }
@@ -64,6 +66,46 @@ impl MuxResponseBacklog {
         }
     }
 
+    #[cfg(feature = "runtime")]
+    pub(crate) fn payload_limit(&self, maximum: usize, header: usize) -> std::num::NonZeroUsize {
+        // Valid configurations have room for the protocol header and DATA.
+        std::num::NonZeroUsize::new(maximum.min(self.inner.limit.saturating_sub(header)))
+            .expect("validated MUX byte budget accommodates TCP DATA")
+    }
+
+    #[cfg(feature = "runtime")]
+    /// Wait only for byte credit of this same actual response FIFO.
+    pub(crate) fn poll_buffer<T>(
+        &self,
+        cx: &mut std::task::Context<'_>,
+        bytes: usize,
+        value: T,
+        waiter: &mut Option<std::pin::Pin<Box<tokio::sync::futures::OwnedNotified>>>,
+    ) -> std::task::Poll<Result<BufferedMuxResponse<T>, T>> {
+        if bytes > self.inner.limit {
+            return std::task::Poll::Ready(Err(value));
+        }
+        let mut value = value;
+        loop {
+            let notified = waiter
+                .get_or_insert_with(|| Box::pin(self.inner.released.clone().notified_owned()));
+            // Register before testing credit; release cannot be lost between
+            // the actual atomic reservation and this original writer's wait.
+            notified.as_mut().enable();
+            match self.try_buffer(bytes, value) {
+                Ok(buffered) => {
+                    *waiter = None;
+                    return std::task::Poll::Ready(Ok(buffered));
+                }
+                Err(returned) => value = returned,
+            }
+            if std::future::Future::poll(notified.as_mut(), cx).is_pending() {
+                return std::task::Poll::Pending;
+            }
+            *waiter = None;
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn used(&self) -> usize {
         self.inner.used.load(Ordering::Acquire)
@@ -84,5 +126,6 @@ impl<T> Drop for BufferedMuxResponse<T> {
             .inner
             .used
             .fetch_sub(self.bytes, Ordering::AcqRel);
+        self.backlog.inner.released.notify_waiters();
     }
 }
