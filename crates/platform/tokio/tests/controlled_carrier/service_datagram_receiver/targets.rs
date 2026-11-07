@@ -156,7 +156,11 @@ async fn selected_domain_receiver_keeps_nominal_binding_and_real_numeric_udp_nat
         assert!(adoption.closed().unwrap().had_native_acquisition());
         assert!(donor.shutdown(deadline()).await.unwrap().is_complete());
         donor_scope.begin_shutdown();
-        assert!(donor_scope.is_drained());
+        assert!(donor_scope.next_exit().await.is_none());
+        assert!(donor_scope
+            .registrar()
+            .retirement_observation()
+            .is_drained());
     })
     .await
     .unwrap();
