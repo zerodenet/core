@@ -1,5 +1,6 @@
 //! Taskless custody keeps native or borrowed controls in their actual owner.
 use super::*;
+use crate::contract::lifecycle::DynChannelControl;
 use crate::{
     contract::{lifecycle::CloseReport, BoxFuture, ChannelError, CloseReason},
     controlled_carrier::{CarrierAdoption, CarrierIo, CarrierUserView},
