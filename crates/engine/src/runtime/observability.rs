@@ -86,6 +86,12 @@ impl Engine {
         self.event_log.retained_replay(since, limit, filter, credit)
     }
 
+    /// Synchronous borrowing of this Engine's original history. Consumers
+    /// reserve their own custody before cloning an immutable event Arc.
+    pub fn original_event_history(&self) -> crate::OriginalEventHistory<'_> {
+        self.event_log.original_history()
+    }
+
     pub fn latest_event_sequence(&self) -> u64 {
         self.event_log.latest_sequence()
     }

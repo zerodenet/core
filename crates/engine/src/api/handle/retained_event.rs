@@ -23,6 +23,14 @@ impl RetainedEvent {
     pub(crate) fn from_queued(event: crate::observability::QueuedEvent) -> Self {
         Self(Original::Queued(event))
     }
+    /// Transfer this immutable original after the receiving owner has prepaid
+    /// its custody. The original subscriber reservation ends at this transfer.
+    pub fn into_shared(self) -> std::sync::Arc<RawApiEvent> {
+        match self.0 {
+            Original::Queued(event) => event.event,
+            Original::Initial(event) => std::sync::Arc::new(event),
+        }
+    }
     pub(super) fn into_event(self) -> RawApiEvent {
         match self.0 {
             Original::Queued(event) => event.into_event(),

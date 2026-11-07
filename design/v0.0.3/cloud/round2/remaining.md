@@ -1,3 +1,35 @@
+## 2026-11-07 12:58 UTC：实际cap4、MUX尾部与完整生产事件source
+
+远端integration再次核实仍为59615e69ea5a413d657a873157ea4adf8f204a90；
+本地普通合入至81b69566bc3ff7a73d7ba3b6c219b11b76479b1d，无reset/强推/脏覆盖。
+五域未闭合，仍非最终候选。完整Source隔离片继续，不启未完成gate。
+
+- WG原0bf cap4首SYN失败由同控制原件1+cache/outgoing/padded/cipher4超过4产生。
+  C18eb与M5ced SDK成对改为保留实际不可移明文、直接写预付cipher；同算法/首nonce，
+  不提高cap/栈/期限。7c779固定548锁实际stack1与WG真实握手/重试3项通过。
+  这不证明后续TCP ACK，原fullTX已排至81b大产物后的实际回归。
+- B842+4423真实三协议client FIFO在原bytebook背压，旧SID pending帧不串新receiver。
+  首新类型检查发现VLESS native构造者遗漏，原失败完整保留；e0b追加None修复。
+  81b同548锁三协议响应真实回归各5项通过。VMess旧3个outer timeout仍需实际归因。
+- 09f含8f原始initial snapshot、63e6 Metadata localACK，Engine/Runtime typecheck
+  79.53s exit0、Root/Grpc/Platform全控制typecheck389.39s exit0；新实际回归正在排队，
+  不把0bf旧ELF或历史通过数追认为最新片资格。
+- M本次完整Connector producer/生产installation配套：optional kernel-events实际Engine源，
+  live同RetainedEvent在原SourceBook取得count/bytes后转交同Arc，回放在原history guard下
+  先预付再保留，不构造Value DTO/选择Vec；同book replay优先避免N1未来帧饿死缺失前缀。
+  持久sink用真实登记后cursor代原来被丢弃的flow.snapshot，初始engine.started先行，
+  reload仍用原continuation cursor/待投递原件。原generic API仅保独立嵌入真实用途，
+  唯一普通application调用者改到具体kernel入口。原始指针/额度拒绝/真实桥线程join/
+  N1前缀进展/实际JSONL旧源退休后新订阅handoff回归均已实现，尚未编测；本地依赖边
+  将在当前Cargo队列结束后由实际offline metadata解析，同新锁再验证，不冒用548资格。
+- B继续完整QUIC与Metadata genuine per-attempt Aux/实际hop unique queue切换责任；
+  A继续同Host唯一ControlBudget/真实三frontend任务交接；C继续实际失败close continuation、
+  原错误receiver接收与Host ACK后有限恢复epoch、完整Source生产装配及旧链删除。
+  部分query已迁、现Windows原始provider存在及小回归通过，均不代整域完成。
+
+原日志/input/result/同锁/ELF摘要保持仓库外。尚无最终同head CI或可下载最终归档。
+REALITY原www.cloudflare.com:443保持目标/断言/期限，环境DNS恢复后仍须定向复验。
+
 ## 2026-11-07 11:56 UTC：原首帧、局部ACK额度与完整未闭合调用者
 
 当前主线实现 `63e6a17da9c1657702661217a188120d77ed345c`，工作树干净；仍非最终候选。

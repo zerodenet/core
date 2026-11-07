@@ -1,7 +1,9 @@
 //! Engine event history, replay, subscription, and event projection.
 
 mod budget;
+mod original_history;
 mod retained_replay;
+pub use original_history::OriginalEventHistory;
 pub use retained_replay::RetainedReplay;
 #[cfg(test)]
 #[path = "../../tests/event_identity/mod.rs"]

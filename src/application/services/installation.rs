@@ -79,7 +79,7 @@ impl ApplicationServices {
                 .map_err(|error| error.to_string())?;
             state.network_generation_started = true;
             state.dispatcher = Some(
-                zero_connector::prepare_event_dispatcher_paused_with_network(
+                zero_connector::prepare_kernel_event_dispatcher_paused_with_network(
                     self.engine.clone(),
                     target.api.clone(),
                     target.source_dir.clone(),

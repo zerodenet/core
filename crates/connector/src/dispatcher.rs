@@ -8,13 +8,13 @@ use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 use zero_api::{
-    EventFilter, EventSink, EventSource, EventStream, EventStreamReceive, OutboxRecoveryStatus,
-    OutboxStorageStatus, RawApiEvent, SinkDeliveryStatus, SinkStatus, event_type,
+    event_type, EventFilter, EventSink, EventSource, EventStream, EventStreamReceive,
+    OutboxRecoveryStatus, OutboxStorageStatus, RawApiEvent, SinkDeliveryStatus, SinkStatus,
 };
 use zero_config::{ApiConfig, EventDispatcherConfig};
 
 use crate::network::EventDispatcherNetwork;
-use crate::registry::{ConfiguredEventSink, build_event_sinks, resolve_path};
+use crate::registry::{build_event_sinks, resolve_path, ConfiguredEventSink};
 use crate::resources::{DispatcherResources, RetainedDeadLetter};
 use crate::{ConnectorError, ConnectorResult};
 
@@ -32,8 +32,8 @@ use admission::{dispatch_event, fill_pending_from_outbox, is_discardable_sample}
 pub(crate) mod outbox;
 mod source;
 mod worker;
+pub use continuation::{resume_event_dispatcher_with_network, EventDispatcherContinuation};
 use continuation::{ContinuationState, ShutdownMode};
-pub use continuation::{EventDispatcherContinuation, resume_event_dispatcher_with_network};
 use source::drain_event_source;
 
 use outbox::{DeliveryOutbox, OutboxDelivery};
@@ -254,7 +254,7 @@ where
     S: EventSource + Send + Sync + 'static,
 {
     let mut handle = prepare_event_dispatcher_inner(
-        source,
+        source::Source::standalone(source),
         api,
         source_dir,
         options,
@@ -286,7 +286,32 @@ where
     S: EventSource + Send + Sync + 'static,
 {
     prepare_event_dispatcher_inner(
-        source,
+        source::Source::standalone(source),
+        api,
+        source_dir,
+        options,
+        network,
+        bootstrap_engine_started,
+        continuation,
+        true,
+    )
+}
+
+/// Prepare delivery from the same concrete Engine and immutable event originals.
+/// Persistent sinks consume a registration cursor, not a second flow snapshot.
+#[cfg(feature = "kernel-events")]
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_kernel_event_dispatcher_paused_with_network(
+    engine: zero_engine::EngineHandle,
+    api: ApiConfig,
+    source_dir: Option<PathBuf>,
+    options: EventDispatcherOptions,
+    network: EventDispatcherNetwork,
+    bootstrap_engine_started: bool,
+    continuation: Option<EventDispatcherContinuation>,
+) -> EventDispatcherHandle {
+    prepare_event_dispatcher_inner(
+        source::Source::kernel(engine),
         api,
         source_dir,
         options,
@@ -299,7 +324,7 @@ where
 
 #[allow(clippy::too_many_arguments)]
 fn prepare_event_dispatcher_inner<S>(
-    source: S,
+    source: source::Source<S>,
     api: ApiConfig,
     source_dir: Option<PathBuf>,
     options: EventDispatcherOptions,
@@ -332,8 +357,8 @@ where
     let worker_resources = resources.clone();
 
     let task = tokio::task::spawn_blocking(move || {
-        let core_instance_id = match source.since(0, 0, EventFilter::default()) {
-            Ok(replay) => replay.core_instance_id,
+        let core_instance_id = match source.core_instance_id() {
+            Ok(identity) => identity,
             Err(error) => {
                 let _ = init_tx.send(Err(ConnectorError::Api(error)));
                 return None;
@@ -419,29 +444,27 @@ where
         // Fallback for replacement before the bridge consumes its initial
         // snapshot. Capture the boundary before subscribing so concurrent
         // facts are replayable, rather than adopting the new snapshot watermark.
-        let startup_sequence = match source.latest(1, EventFilter::default()) {
-            Ok(events) => events.first().and_then(|event| event.sequence).unwrap_or(0),
+        let startup_sequence = match source.startup_sequence() {
+            Ok(sequence) => sequence,
             Err(error) => {
                 let _ = init_tx.send(Err(ConnectorError::Api(error)));
                 return None;
             }
         };
-        let subscriber = match source.subscribe(EventFilter::default()) {
-            Ok(subscriber) => subscriber,
+        let (subscriber, baseline) = match source.subscribe() {
+            Ok(subscription) => subscription,
             Err(error) => {
                 let _ = init_tx.send(Err(ConnectorError::Api(error)));
                 return None;
             }
         };
+        let source_budget = source::SourceBudget::new(
+            dispatcher_config.replay_batch_size,
+            dispatcher_config.source_queue_max_bytes,
+        );
         let bootstrap_events = if bootstrap_engine_started {
-            match source.latest(
-                1,
-                EventFilter {
-                    event_types: vec![event_type::ENGINE_STARTED.to_owned()],
-                    ..EventFilter::default()
-                },
-            ) {
-                Ok(events) => events,
+            match source.bootstrap(&source_budget) {
+                Ok(event) => event.into_iter().collect(),
                 Err(error) => {
                     let _ = init_tx.send(Err(ConnectorError::Api(error)));
                     return None;
@@ -470,6 +493,8 @@ where
         Some(runtime.block_on(run_event_dispatcher(
             source,
             subscriber,
+            baseline,
+            source_budget,
             bootstrap_events,
             sinks,
             &stats_for_thread,
@@ -503,9 +528,11 @@ where
 
 #[allow(clippy::too_many_arguments)]
 async fn run_event_dispatcher<S>(
-    source: S,
-    subscriber: S::Stream,
-    bootstrap_events: Vec<RawApiEvent>,
+    source: source::Source<S>,
+    subscriber: source::Subscriber<S::Stream>,
+    baseline: Option<u64>,
+    source_budget: Arc<source::SourceBudget>,
+    bootstrap_events: Vec<BlockedEvent>,
     sinks: Vec<ConfiguredEventSink>,
     stats: &SharedSinkStats,
     options: EventDispatcherOptions,
@@ -535,6 +562,7 @@ where
         source_cancelled.clone(),
         dispatcher_config.replay_batch_size,
         dispatcher_config.source_queue_max_bytes,
+        source_budget,
     );
     children.source(source_task, source_cancelled.clone(), source_budget.clone());
     for (_, sink) in stats.lock().expect("sink stats").iter() {
@@ -547,11 +575,11 @@ where
     }
     let mut pending = VecDeque::new();
     refresh_pending_stats(stats, &pending, &workers, outbox.as_ref());
+    // Bootstrap is consumed before the live cursor, exactly as the prior
+    // initial-snapshot path. An inherited reload cursor takes precedence.
     let mut last_sequence = None;
-    let mut blocked_events = bootstrap_events
-        .into_iter()
-        .map(BlockedEvent::new)
-        .collect::<VecDeque<_>>();
+    let mut blocked_events = bootstrap_events.into_iter().collect::<VecDeque<_>>();
+    let inherited = continuation.is_some();
     if let Some(mut state) = continuation {
         last_sequence = state.last_sequence;
         pending.append(&mut state.deliveries);
@@ -566,6 +594,7 @@ where
     for delivery in &mut pending {
         delivery.reservation = Some(delivery_budget.inherit(delivery.byte_charge));
     }
+    let mut initial_baseline = if inherited { None } else { baseline };
     let mut source_events = VecDeque::new();
     let mut completed_results = VecDeque::new();
     let mut source_closed = false;
@@ -614,6 +643,8 @@ where
                 &mut blocked_events,
                 dispatcher_config,
                 &delivery_budget,
+                &source_budget,
+                &mut initial_baseline,
             );
             submit_pending(
                 &mut workers,
@@ -681,6 +712,8 @@ where
                     &mut blocked_events,
                     dispatcher_config,
                     &delivery_budget,
+                    &source_budget,
+                    &mut initial_baseline,
                 ) {}
                 if handing_off || (outbox.is_some() && !blocked_events.is_empty()) {
                     // Storage backpressure prevents draining the bounded
@@ -1142,9 +1175,12 @@ struct BlockedEvent {
 
 impl BlockedEvent {
     fn new(event: RawApiEvent) -> Self {
+        Self::from_shared(Arc::new(event))
+    }
+    fn from_shared(event: Arc<RawApiEvent>) -> Self {
         Self {
             prepared: None,
-            event: Arc::new(event),
+            event,
             source_reservation: None,
             persisted_sinks: HashSet::new(),
             reported_failures: HashSet::new(),

@@ -68,4 +68,4 @@ pub use observability::traffic::{
     TrafficRouteLease,
 };
 
-pub use observability::RetainedReplay;
+pub use observability::{OriginalEventHistory, RetainedReplay};
