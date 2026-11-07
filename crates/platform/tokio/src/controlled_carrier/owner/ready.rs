@@ -7,6 +7,9 @@ pub(in crate::controlled_carrier) fn try_close_native_slot(
         unfinished: vec![Unfinished::Io(slot.label())],
         ..Default::default()
     };
+    // Local failure acceptance invokes Host wakers: receive the exact job
+    // outside this original's close gate and all Slot/Owner state locks.
+    crate::controlled_carrier::preparation::try_accept_job_exit(slot)?;
     let Ok(_closing) = slot.closing.try_lock() else {
         return Ok(pending());
     };

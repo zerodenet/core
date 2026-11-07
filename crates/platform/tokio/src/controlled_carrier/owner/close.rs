@@ -38,6 +38,25 @@ async fn close_slot_until(
             })
         }
     }
+    // Only this original's sealed noncached job is received here. Its real
+    // Scope result must be retained before local acceptance can wake the Host.
+    match timeout_at(
+        deadline,
+        crate::controlled_carrier::preparation::accept_job_exit(slot),
+    )
+    .await
+    {
+        Ok(result) => result?,
+        Err(_) => {
+            return Ok(CloseReport {
+                unfinished: vec![Unfinished::Resource(format!(
+                    "{} preparation job join",
+                    slot.label()
+                ))],
+                ..Default::default()
+            })
+        }
+    }
     let _closing = match timeout_at(deadline, slot.closing.lock()).await {
         Ok(guard) => guard,
         Err(_) => {

@@ -8,6 +8,7 @@ mod spawn;
 use super::{error, slot::Slot, CarrierGrant, CarrierUserView, CarrierUsersClosed};
 use crate::contract::{scope::TaskJoinWitness, ChannelError, DeliveryState, Reason, Stage};
 pub use closed::CarrierPreparationClosed;
+pub(in crate::controlled_carrier) use job::exit::{accept_job_exit, try_accept_job_exit};
 pub(in crate::controlled_carrier) use job::staged::cancel_staged;
 pub use job::{CarrierPreparationJob, CarrierPreparationJobRetained, StagedCarrierPreparationJob};
 use std::sync::{

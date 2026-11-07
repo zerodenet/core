@@ -106,7 +106,7 @@ impl CarrierOriginalTotals {
         self.changed.notify_waiters();
         Ok(())
     }
-    pub(crate) fn reserve_preparation(
+    pub(in crate::controlled_carrier) fn reserve_preparation(
         self: &Arc<Self>,
         slot: &Arc<Slot>,
     ) -> Result<PreparationBudget, ChannelError> {

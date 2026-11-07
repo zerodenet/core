@@ -14,6 +14,7 @@ pub struct StagedCarrierPreparationJob {
     pub return_delay: std::time::Duration,
     pub work: crate::contract::BoxFuture<'static, Result<(), ChannelError>>,
 }
+pub(super) mod exit;
 mod failure;
 mod retained;
 pub(super) mod staged;
@@ -24,6 +25,7 @@ pub(in crate::controlled_carrier) struct Job {
     scope: crate::contract::scope::TaskScopeIdentity,
     failure: Mutex<Option<(Arc<ChannelError>, TaskJoined)>>,
     install_failure: OnceLock<Arc<ChannelError>>,
+    execution_exit: OnceLock<TaskJoined>,
     driver: OnceLock<TaskJoinWitness>,
     sealed: AtomicBool,
     staged: Mutex<Option<StagedWork>>,
@@ -85,6 +87,7 @@ impl CarrierPreparation {
             scope: actual.scope_identity(),
             failure: Mutex::new(None),
             install_failure: OnceLock::new(),
+            execution_exit: OnceLock::new(),
             driver: OnceLock::new(),
             sealed: AtomicBool::new(false),
             staged: Mutex::new(None),
@@ -116,7 +119,7 @@ fn revoked() -> ChannelError {
     )
 }
 impl CarrierPreparationJob {
-    pub(crate) fn matches_slot(&self, slot: &Arc<Slot>, tasks: &TaskRegistrar) -> bool {
+    pub(in crate::controlled_carrier) fn matches_slot(&self, slot: &Arc<Slot>, tasks: &TaskRegistrar) -> bool {
         self.slot
             .upgrade()
             .is_some_and(|actual| Arc::ptr_eq(&actual, slot))

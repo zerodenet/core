@@ -158,6 +158,10 @@ async fn exercise(peer_failure: bool) {
             let joined = driver.wait().await;
             assert!(driver.matches_joined(&joined));
             assert!(Arc::ptr_eq(&reported, &joined.result().unwrap_err()));
+            assert!(
+                !receipt.local_failure_accepted(),
+                "reading the real failed receipt cannot itself accept the job"
+            );
             Some(reported)
         } else {
             assert!(
@@ -196,7 +200,11 @@ async fn exercise(peer_failure: bool) {
             );
         }
         scope.acknowledge(&receipt).unwrap();
-        driver.wait_registration_released().await;
+        let acknowledged = driver.wait_registration_released().await;
+        if let Some(retained) = retained {
+            assert!(driver.matches_joined(&acknowledged));
+            assert!(Arc::ptr_eq(&retained, &acknowledged.result().unwrap_err()));
+        }
         std::future::poll_fn(|cx| {
             totals.poll_cancelled_retirements(cx);
             if totals.snapshot().charged == 0 {
