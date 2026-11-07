@@ -4,6 +4,7 @@ use super::session::{ReceiveWindows, SenderSession};
 use crate::shared::CipherKind;
 use zero_core::{Address, Error};
 use zero_traits::{DatagramCodec, UdpDatagramFraming};
+mod buffered;
 
 #[cfg(feature = "blake3")]
 #[derive(Debug, Default)]
@@ -92,6 +93,40 @@ impl DatagramCodec<Address> for ShadowsocksDatagramCodec {
             },
         )
     }
+    fn encode_buffer_lengths(
+        &self,
+        target: &Address,
+        _port: u16,
+        payload_len: usize,
+    ) -> Result<Vec<usize>, zero_traits::DatagramCodecBufferError<Error>> {
+        self.encoded_lengths(target, payload_len)
+    }
+    fn encode_buffered(
+        &self,
+        target: &Address,
+        port: u16,
+        payload: &[u8],
+        buffers: &mut [zero_traits::PacketBuffer],
+    ) -> Result<zero_traits::DatagramCodecOutput, zero_traits::DatagramCodecBufferError<Error>>
+    {
+        self.encode_reserved(target, port, payload, buffers)
+    }
+    fn decode_buffer_lengths(
+        &self,
+        wire_len: usize,
+    ) -> Result<Vec<usize>, zero_traits::DatagramCodecBufferError<Error>> {
+        self.decoded_lengths(wire_len)
+    }
+    fn decode_buffered(
+        &self,
+        wire: &[u8],
+        buffers: &mut [zero_traits::PacketBuffer],
+    ) -> Result<
+        Option<(Address, u16, zero_traits::DatagramCodecOutput)>,
+        zero_traits::DatagramCodecBufferError<Error>,
+    > {
+        self.decode_reserved(wire, buffers)
+    }
     fn decode(&self, data: &[u8]) -> Option<(Address, u16, Vec<u8>)> {
         #[cfg(feature = "blake3")]
         if self.cipher.is_blake3() {
@@ -144,3 +179,7 @@ impl core::fmt::Debug for ShadowsocksDatagramCodec {
             .finish_non_exhaustive()
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/udp_session/buffered.rs"]
+mod buffered_tests;

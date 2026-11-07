@@ -15,6 +15,7 @@ use zero_core::{
     ProtocolType, SessionAuth, UdpFlowPacket,
 };
 use zero_traits::DatagramCodec;
+mod buffered;
 
 #[cfg(feature = "tokio")]
 use tokio::sync::{broadcast, mpsc};
@@ -1499,6 +1500,40 @@ struct Hysteria2UdpLeafKey {
 
 impl DatagramCodec<Address> for Hysteria2DatagramCodec {
     type Error = Error;
+    fn encode_buffer_lengths(
+        &self,
+        target: &Address,
+        port: u16,
+        payload_len: usize,
+    ) -> Result<Vec<usize>, zero_traits::DatagramCodecBufferError<Error>> {
+        self.encoded_lengths(target, port, payload_len)
+    }
+    fn encode_buffered(
+        &self,
+        target: &Address,
+        port: u16,
+        payload: &[u8],
+        buffers: &mut [zero_traits::PacketBuffer],
+    ) -> Result<zero_traits::DatagramCodecOutput, zero_traits::DatagramCodecBufferError<Error>>
+    {
+        self.encode_reserved(target, port, payload, buffers)
+    }
+    fn decode_buffer_lengths(
+        &self,
+        wire_len: usize,
+    ) -> Result<Vec<usize>, zero_traits::DatagramCodecBufferError<Error>> {
+        self.decoded_lengths(wire_len)
+    }
+    fn decode_buffered(
+        &self,
+        wire: &[u8],
+        buffers: &mut [zero_traits::PacketBuffer],
+    ) -> Result<
+        Option<(Address, u16, zero_traits::DatagramCodecOutput)>,
+        zero_traits::DatagramCodecBufferError<Error>,
+    > {
+        self.decode_reserved(wire, buffers)
+    }
 
     fn encode(&self, target: &Address, port: u16, payload: &[u8]) -> Result<Vec<u8>, Self::Error> {
         encode_udp_flow_packet(target, port, payload)
@@ -1526,3 +1561,7 @@ mod channel;
 pub(crate) mod dispatch;
 #[cfg(feature = "runtime")]
 pub use channel::Hysteria2UdpChannel;
+
+#[cfg(test)]
+#[path = "../tests/udp_buffered.rs"]
+mod buffered_tests;

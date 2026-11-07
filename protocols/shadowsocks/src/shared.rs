@@ -65,6 +65,7 @@ pub(crate) mod legacy_replay;
 
 mod address;
 mod aead;
+pub(crate) use aead::buffered::transform as aead_udp_buffered;
 #[cfg(feature = "blake3")]
 mod block;
 #[cfg(feature = "blake3")]
@@ -77,7 +78,7 @@ pub use address::*;
 pub use aead::{aead_decrypt, aead_encrypt};
 pub(crate) use aead::{aead_decrypt_udp, aead_encrypt_udp};
 #[cfg(feature = "blake3")]
-use block::{decrypt_aes_2022_header, encrypt_aes_2022_header};
+pub(crate) use block::{decrypt_aes_2022_header, encrypt_aes_2022_header};
 #[cfg(feature = "blake3")]
 use eih::encode_udp_2022_identity_headers;
 #[cfg(feature = "blake3")]

@@ -5,6 +5,8 @@ use alloc::vec::Vec;
 use zero_core::{Address, Error};
 use zero_traits::DatagramCodec;
 
+mod buffered;
+
 use super::packet::{decode_udp_flow_packet, encode_udp_flow_packet, MieruInboundUdpPacket};
 
 /// Codec state for Mieru UDP flow datagrams.
@@ -308,15 +310,6 @@ struct MieruUdpLeafKey {
     password: String,
 }
 
-impl DatagramCodec<Address> for MieruUdpFlowCodec {
-    type Error = Error;
-
-    fn encode(&self, target: &Address, port: u16, payload: &[u8]) -> Result<Vec<u8>, Self::Error> {
-        encode_udp_flow_packet(target, port, payload)
-    }
-
-    fn decode(&self, data: &[u8]) -> Option<(Address, u16, Vec<u8>)> {
-        let decoded = decode_udp_flow_packet(data).ok()?;
-        Some(decoded.into_parts())
-    }
-}
+#[cfg(test)]
+#[path = "../../tests/udp_buffered.rs"]
+mod buffered_tests;
