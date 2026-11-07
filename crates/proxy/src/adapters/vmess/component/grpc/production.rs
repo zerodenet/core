@@ -42,7 +42,10 @@ pub(crate) fn whole_streams_selected(config: &RuntimeConfig, native: bool) -> bo
                         name,
                         node.tag(),
                         &mut std::collections::BTreeSet::new(),
-                    ) == Some(false)
+                    )
+                    .is_some_and(|referenced| {
+                        !referenced || (native && !super::super::mux::has_mux(node))
+                    })
                 })
             })
         })

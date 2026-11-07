@@ -212,7 +212,7 @@ impl Managed {
                     let loan = upstream
                         .borrow_stream(owner.options.base.endpoint.clone(), call.clone())
                         .await?;
-                    grant.adopt_stream_loan(
+                    grant.adopt_service_stream_loan(
                         upstream.binding(),
                         owner.options.base.endpoint.clone(),
                         &call,

@@ -109,3 +109,6 @@ async fn ordinary_mux_full_tls_transports_use_same_protocol_file_material_and_ca
     .await
     .unwrap();
 }
+
+#[path = "material/relay.rs"]
+mod relay;
