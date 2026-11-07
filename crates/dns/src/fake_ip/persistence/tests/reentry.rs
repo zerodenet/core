@@ -46,6 +46,7 @@ async fn actual_file_write_wakes_original_root_with_unlocked_metadata_and_same_c
         JournalSpec {
             path,
             max_bytes: NonZeroUsize::new(4096).unwrap(),
+            parent_private: true,
         },
         zero_core::component::ComponentInstanceId {
             component: zero_core::component::ComponentId(1308),

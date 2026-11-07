@@ -35,6 +35,7 @@ impl FakeIpStateLease {
         let owner = JournalOwner::standalone(JournalSpec {
             path: path.clone(),
             max_bytes,
+            parent_private: true,
         })?;
         let lease = Arc::new(Self {
             path,

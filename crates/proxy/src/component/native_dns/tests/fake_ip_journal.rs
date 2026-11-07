@@ -50,6 +50,7 @@ fn instances(
                 assert_eq!(journals.len(), 1);
                 assert_eq!(journals[0].path, path);
                 assert_eq!(journals[0].max_bytes.get(), limit);
+                assert!(journals[0].parent_private);
                 query = Some(instance);
             }
             ResourceOwner::Endpoint(name) if name == "proxy.dns_node_queries" => {

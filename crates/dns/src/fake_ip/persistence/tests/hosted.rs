@@ -31,6 +31,7 @@ async fn hosted_pause_preserves_valid_history_and_fresh_journal_waits_for_actual
         JournalSpec {
             path: path.clone(),
             max_bytes: NonZeroUsize::new(4096).unwrap(),
+            parent_private: true,
         },
         instance(1),
         tasks.retirement_observation(),
@@ -79,6 +80,7 @@ async fn hosted_pause_preserves_valid_history_and_fresh_journal_waits_for_actual
         JournalSpec {
             path: path.clone(),
             max_bytes: NonZeroUsize::new(4096).unwrap(),
+            parent_private: true,
         },
         instance(2),
         fresh_scope.registrar().retirement_observation(),

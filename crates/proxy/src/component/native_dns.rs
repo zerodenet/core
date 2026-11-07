@@ -154,6 +154,7 @@ fn prepare_purpose(
         path.map(|path| zero_platform_tokio::journal::JournalSpec {
             path,
             max_bytes: NonZeroUsize::new(runtime.effective_file_read_max_bytes()).unwrap(),
+            parent_private: true,
         })
     } else {
         None
