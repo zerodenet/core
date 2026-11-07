@@ -58,6 +58,12 @@ struct ControlWorker {
 }
 
 impl TcpControlPackets {
+    #[cfg(feature = "packet-memory")]
+    pub(super) fn defer_memory_notifications(
+        &self,
+    ) -> Option<crate::packet_output::memory::PacketSendNotifications> {
+        self.outbound.defer_memory_notifications()
+    }
     pub(super) fn pending_packets(&self) -> usize {
         self.pending.load(Ordering::Acquire)
     }

@@ -24,6 +24,10 @@ impl Wake for CheckUnlocked {
             self.stream.write.try_lock().is_ok(),
             "same actual TCP writer must be unlocked before memory wake"
         );
+        assert!(
+            self.stream.read.try_lock().is_ok(),
+            "same actual TCP reader must unlock before its ACK memory wake"
+        );
         self.calls.fetch_add(1, Ordering::AcqRel);
     }
 }
@@ -116,6 +120,57 @@ async fn original_tcp_writer_and_connection_map_unlock_before_reentrant_root_not
         drop(sent);
     }
     assert!(release.0.lock().unwrap().is_none());
+    // The application read really frees receive-window space and emits an ACK
+    // in that same poll. Its original FIFO receiver can return memory inline.
+    let payload = [7_u8; 1460];
+    stack
+        .feed(&client(
+            packet::tcp_flags::ACK | packet::tcp_flags::PSH,
+            1001,
+            sequence.wrapping_add(1 + "real-owned-tcp-output".len() as u32),
+            &payload,
+        ))
+        .await;
+    drop(received.recv().await.expect("actual payload ACK"));
+    let read_release = Arc::new(ReleaseOnEnqueue(std::sync::Mutex::new(Some(
+        view.transmit_packet(128, 0, 0).unwrap(),
+    ))));
+    let release_waker = Waker::from(read_release.clone());
+    {
+        let notification = root.notified();
+        tokio::pin!(notification);
+        assert!(notification
+            .as_mut()
+            .poll(&mut Context::from_waker(&check_waker))
+            .is_pending());
+        let receive = received.recv();
+        tokio::pin!(receive);
+        assert!(receive
+            .as_mut()
+            .poll(&mut Context::from_waker(&release_waker))
+            .is_pending());
+        let mut read = [0_u8; 1460];
+        let mut target = ReadBuf::new(&mut read);
+        assert!(matches!(
+            stream.poll_read_inner(&mut Context::from_waker(&check_waker), &mut target),
+            Poll::Ready(Ok(()))
+        ));
+        assert_eq!(target.filled(), payload);
+        assert!(read_release.0.lock().unwrap().is_none());
+        assert!(notification
+            .as_mut()
+            .poll(&mut Context::from_waker(&check_waker))
+            .is_ready());
+        let ack = match receive
+            .as_mut()
+            .poll(&mut Context::from_waker(&release_waker))
+        {
+            Poll::Ready(Some(packet)) => packet,
+            _ => panic!("actual receive-window ACK must be enqueued"),
+        };
+        assert!(packet::parse_tcp(&ack).unwrap().payload.is_empty());
+        drop(ack);
+    }
     drop(checks);
     drop(check_waker);
     drop(stream);
