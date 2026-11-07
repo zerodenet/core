@@ -68,6 +68,8 @@ mod decode;
 mod ip;
 mod ipv4;
 mod ipv6;
+#[cfg(feature = "zero-owned-packets")]
+mod owned;
 mod pool;
 mod tcp;
 mod udp;
@@ -127,6 +129,14 @@ struct PacketInner {
     // If the [BytesMut] was allocated by a [PacketBufPool], this will return the buffer to be
     // re-used later.
     _return_to_pool: Option<ReturnToPool>,
+    #[cfg(feature = "zero-owned-packets")]
+    _custody: Option<zero_traits::PacketBuffer>,
+    #[cfg(feature = "zero-owned-packets")]
+    _cipher: Option<Box<Packet>>,
+    #[cfg(feature = "zero-owned-packets")]
+    _prior: Option<Box<Packet>>,
+    #[cfg(feature = "zero-owned-packets")]
+    _source: Option<std::sync::Arc<zero_traits::PacketBuffer>>,
 }
 
 /// Plain ol' data. A helper trait for types that can be cast to/from bytes.
@@ -165,6 +175,14 @@ impl<T: IntoBytes + FromBytes + KnownLayout + Immutable + ?Sized> Packet<T> {
             inner: PacketInner {
                 buf: BytesMut::from(payload.as_bytes()),
                 _return_to_pool: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _custody: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _cipher: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _prior: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _source: None,
             },
             _kind: PhantomData::<T>,
         }
@@ -179,6 +197,11 @@ impl<T: IntoBytes + FromBytes + KnownLayout + Immutable + ?Sized> Packet<T> {
         mut self,
         payload: &Y,
     ) -> Packet<Y> {
+        #[cfg(feature = "zero-owned-packets")]
+        assert!(
+            !self.has_owned_custody() || payload.as_bytes().len() <= self.inner.buf.capacity(),
+            "owned packet transform exceeds its actual prepaid allocation"
+        );
         self.inner.buf.clear();
         self.inner.buf.extend_from_slice(payload.as_bytes());
         self.cast()
@@ -255,6 +278,14 @@ impl Default for Packet<[u8]> {
             inner: PacketInner {
                 buf: BytesMut::default(),
                 _return_to_pool: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _custody: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _cipher: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _prior: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _source: None,
             },
             _kind: PhantomData,
         }
@@ -267,6 +298,10 @@ impl Packet<[u8]> {
     /// retain that guard until they finish with the backing allocation.
     #[inline]
     pub fn try_into_unpooled_buffer(self) -> Result<BytesMut, Self> {
+        #[cfg(feature = "zero-owned-packets")]
+        if self.has_owned_custody() {
+            return Err(self);
+        }
         if self.inner._return_to_pool.is_some() {
             Err(self)
         } else {
@@ -283,6 +318,14 @@ impl Packet<[u8]> {
             inner: PacketInner {
                 buf: bytes,
                 _return_to_pool: Some(return_to_pool),
+                #[cfg(feature = "zero-owned-packets")]
+                _custody: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _cipher: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _prior: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _source: None,
             },
             _kind: PhantomData::<[u8]>,
         }
@@ -294,6 +337,14 @@ impl Packet<[u8]> {
             inner: PacketInner {
                 buf: bytes,
                 _return_to_pool: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _custody: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _cipher: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _prior: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _source: None,
             },
             _kind: PhantomData::<[u8]>,
         }
@@ -309,13 +360,49 @@ impl Packet<[u8]> {
     /// This observes Rust storage only; it grants no IO or native-close proof.
     pub fn retained_allocation_bytes(&self) -> usize {
         let capacity = self.inner.buf.capacity();
-        let Some((start, retained)) = self.inner._return_to_pool.as_ref().and_then(ReturnToPool::allocation_origin) else { return capacity; };
-        let current = self.inner.buf.as_ptr() as usize;
-        if current.checked_sub(start).is_some_and(|offset| offset <= retained && capacity <= retained - offset) {
-            retained
-        } else {
-            retained.saturating_add(capacity)
-        }
+        let direct = self
+            .inner
+            ._return_to_pool
+            .as_ref()
+            .and_then(ReturnToPool::allocation_origin)
+            .map_or(capacity, |(start, retained)| {
+                let current = self.inner.buf.as_ptr() as usize;
+                if current
+                    .checked_sub(start)
+                    .is_some_and(|offset| offset <= retained && capacity <= retained - offset)
+                {
+                    retained
+                } else {
+                    retained.saturating_add(capacity)
+                }
+            });
+        #[cfg(feature = "zero-owned-packets")]
+        let direct = direct
+            .max(
+                self.inner
+                    ._custody
+                    .as_ref()
+                    .map_or(0, zero_traits::PacketBuffer::allocation_bytes),
+            )
+            .saturating_add(
+                self.inner
+                    ._prior
+                    .as_ref()
+                    .map_or(0, |packet| packet.retained_allocation_bytes()),
+            )
+            .saturating_add(
+                self.inner
+                    ._cipher
+                    .as_ref()
+                    .map_or(0, |packet| packet.retained_allocation_bytes()),
+            )
+            .saturating_add(
+                self.inner
+                    ._source
+                    .as_ref()
+                    .map_or(0, |packet| packet.allocation_bytes()),
+            );
+        direct
     }
     /// Get direct mutable access to the backing buffer.
     pub fn buf_mut(&mut self) -> &mut BytesMut {
@@ -537,7 +624,15 @@ impl<Kind: ?Sized> Clone for Packet<Kind> {
         Self {
             inner: PacketInner {
                 buf: self.inner.buf.clone(),
-                _return_to_pool: None, // Clone does not return to pool
+                _return_to_pool: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _custody: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _cipher: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _prior: None,
+                #[cfg(feature = "zero-owned-packets")]
+                _source: None, // Clone does not return to pool
             },
             _kind: PhantomData,
         }

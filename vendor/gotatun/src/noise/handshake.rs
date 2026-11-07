@@ -10,7 +10,7 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use crate::crypto::aead::{Aad, CHACHA20_POLY1305, LessSafeKey, Nonce, UnboundKey};
+use crate::crypto::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use crate::noise::errors::WireGuardError;
 use crate::noise::index_table::{Index, IndexTable};
 use crate::noise::session::Session;
@@ -786,6 +786,12 @@ impl Handshake {
     }
 
     pub(super) fn format_handshake_initiation(&mut self) -> crate::packet::Packet<WgHandshakeInit> {
+        self.format_handshake_initiation_into(None)
+    }
+    pub(super) fn format_handshake_initiation_into(
+        &mut self,
+        buffer: Option<crate::packet::Packet>,
+    ) -> crate::packet::Packet<WgHandshakeInit> {
         let mut handshake = WgHandshakeInit::new();
 
         let local_index = self.index_table.new_index();
@@ -863,7 +869,10 @@ impl Handshake {
 
         self.init_mac1_and_mac2(&mut handshake, local_index_val);
 
-        Packet::copy_from(&handshake)
+        match buffer {
+            Some(buffer) => buffer.overwrite_with(&handshake),
+            None => Packet::copy_from(&handshake),
+        }
     }
 
     fn format_handshake_response(
