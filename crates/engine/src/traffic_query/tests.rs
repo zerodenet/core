@@ -42,6 +42,23 @@ fn times(expected: &mut serde_json::Value, actual: &serde_json::Value) {
 }
 fn compare(engine: &Engine, request: QueryRequest) {
     let mut expected = serde_json::to_value(engine.query(request.clone()).unwrap()).unwrap();
+    let expected_rows = match &request {
+        QueryRequest::TrafficStat(_) => 1,
+        QueryRequest::TrafficStats(query) => {
+            let count = expected["traffic_stats"]["scopes"]
+                .as_array()
+                .unwrap()
+                .len();
+            if count == 0 {
+                assert!(
+                    query.scopes.is_empty(),
+                    "this empty-page input has no selected-scope workspace"
+                );
+            }
+            count
+        }
+        _ => unreachable!("same actual traffic query fixture"),
+    };
     let book = budget();
     let mut workspace = book.reserve(ControlCharge::ResponseBytes(0)).unwrap();
     {
@@ -55,7 +72,18 @@ fn compare(engine: &Engine, request: QueryRequest) {
             actual.as_object().unwrap().values().next().unwrap().clone()
         );
     }
-    assert!(book.usage().response_bytes > 0);
+    if expected_rows == 0 {
+        assert_eq!(
+            book.usage().response_bytes,
+            0,
+            "the actual empty page has no heap row workspace"
+        );
+    } else {
+        assert!(
+            book.usage().response_bytes > 0,
+            "every actual returned row is prepaid"
+        );
+    }
     drop(workspace);
     assert_eq!(book.usage().response_bytes, 0);
 }
