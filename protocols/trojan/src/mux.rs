@@ -436,17 +436,42 @@ impl TrojanInboundMuxTcpRelay {
     ) -> impl AsyncRead + AsyncWrite + Send + Sync + Unpin + 'static {
         let sid = self.session_id;
         let output = self.writer.clone();
-        zero_transport::stream::ChannelStream::new(
-            self.up_rx,
-            move |bytes: &[u8]| {
-                output
-                    .data(sid, bytes)
-                    .map(|_| bytes.len())
-                    .map_err(io::Error::other)
-            },
-            move || self.writer.end(sid).map(|_| ()).map_err(io::Error::other),
-            std::num::NonZeroUsize::new(MUX_MAX_DATA_LEN).unwrap(),
-            Vec::new(),
+        let sender = output.write_tx.clone();
+        let mut waiter = None;
+        let maximum = output.backlog.payload_limit(
+            MUX_MAX_DATA_LEN,
+            encode_keep_stream(sid, &[])
+                .expect("fixed TCP header")
+                .len(),
+        );
+        zero_transport::pooled_driver::ExclusiveIo::new(
+            zero_transport::stream::QueuedChannelStream::new(
+                self.up_rx,
+                sender,
+                move |cx, bytes: Option<&[u8]>| {
+                    let frame = match bytes {
+                        Some(bytes) => encode_keep_stream(sid, bytes),
+                        None => encode_end_stream(sid),
+                    }
+                    .map_err(io::Error::other)?;
+                    let len = frame.len();
+                    output
+                        .backlog
+                        .poll_buffer(cx, len, frame, &mut waiter)
+                        .map(|result| {
+                            result.map_err(|_| {
+                                io::Error::other(
+                                    "Trojan MUX frame exceeds its original byte budget",
+                                )
+                            })
+                        })
+                },
+                move || {
+                    let _ = self.writer.end(sid);
+                },
+                maximum,
+                Vec::new(),
+            ),
         )
     }
     fn new(
