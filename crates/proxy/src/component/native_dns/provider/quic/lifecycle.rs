@@ -33,7 +33,7 @@ impl Query {
     ) -> std::io::Result<MetadataPoolClosed> {
         let mut state = tokio::time::timeout_at(end, self.state.lock())
             .await
-            .map_err(std::io::Error::other)?;
+            .map_err(super::super::retirement::pending_deadline)?;
         if state.closed.is_none() {
             state.return_unbound()?;
             if let Some(owner) = &state.owner {
@@ -52,13 +52,20 @@ impl Query {
                 {
                     continue;
                 }
-                let delivery = state
-                    .receiver
-                    .as_mut()
-                    .expect("retained actual driver receiver")
-                    .receive(task, end)
-                    .await
-                    .map_err(std::io::Error::other)?;
+                // Own this observation deadline instead of classifying a
+                // callee's Timeout error. Its original receiver/record remains
+                // in state when this actual wait is cancelled by the timer.
+                let delivery = tokio::time::timeout_at(
+                    end,
+                    state
+                        .receiver
+                        .as_mut()
+                        .expect("retained actual driver receiver")
+                        .receive_original(task),
+                )
+                .await
+                .map_err(super::super::retirement::pending_deadline)?
+                .map_err(std::io::Error::other)?;
                 // Each original exit/source persists before another await.
                 state.received.push(delivery);
             }
@@ -77,13 +84,12 @@ impl Query {
                 }
             }
             if let Some(owner) = &state.owner {
-                let report = owner
-                    .shutdown_users(end)
+                let report = tokio::time::timeout_at(end, owner.shutdown_users_original())
                     .await
+                    .map_err(super::super::retirement::pending_deadline)?
                     .map_err(std::io::Error::other)?;
                 if !report.users_and_drivers_complete() {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
+                    return Err(super::super::retirement::pending_incomplete(
                         "DoQ original users or driver reception remains unconfirmed",
                     ));
                 }
@@ -94,8 +100,7 @@ impl Query {
                 .as_ref()
                 .map(|completion| {
                     completion.try_owned_closed().ok_or_else(|| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::TimedOut,
+                        super::super::retirement::pending_incomplete(
                             "DoQ original views remain retained",
                         )
                     })
@@ -106,10 +111,12 @@ impl Query {
                 .close(receipt.as_ref(), &state.tasks)
                 .map_err(std::io::Error::other)?;
             state.closed = Some(native);
-            self.capacity
+            let capacity = self
+                .capacity
                 .lock()
                 .expect("DNS QUIC budget poisoned")
                 .take();
+            drop(capacity);
         }
         if let Some(source) = state
             .received
