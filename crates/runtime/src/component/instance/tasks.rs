@@ -15,6 +15,8 @@ use zero_platform_tokio::contract::{
 mod guard;
 mod identity;
 mod retirement;
+#[cfg(test)]
+mod test_handoff;
 pub(in crate::component) mod wake;
 use wake::{MonitorWake, WaitTarget};
 

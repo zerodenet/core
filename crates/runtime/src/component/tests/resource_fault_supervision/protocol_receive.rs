@@ -189,7 +189,7 @@ async fn actual_scope_protocol_receiver_preserves_two_os_sources_through_held_ac
             .unwrap();
         // Consume the actual exit but withhold its unique Host ACK. Callback
         // deferral is deliberately not used as a substitute for receipt custody.
-        let receipt = poll_fn(|cx| live.tasks.lock().scope.poll_exit(cx))
+        let receipt = poll_fn(|cx| live.tasks.poll_held_exit_for_test(cx))
             .await
             .unwrap();
         let joined = receipt.joined().clone();
@@ -213,14 +213,10 @@ async fn actual_scope_protocol_receiver_preserves_two_os_sources_through_held_ac
                 .charged,
             1
         );
-        {
-            let mut actual = live.tasks.lock();
-            // Same persistent Host report owns the real ID before ACK.
-            actual.report.exited_tasks.push(receipt.id());
-            actual.scope.acknowledge(&receipt).unwrap();
-        }
+        live.tasks
+            .retain_and_ack_exit_for_test(&witness, &receipt)
+            .unwrap();
         drop(receipt);
-        live.tasks.changed.notify_waiters();
         let report = closing.await.unwrap();
         assert!(report.is_complete(), "actual cleanup: {report:?}");
         assert!(joined.registration_released());
