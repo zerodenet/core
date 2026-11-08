@@ -216,7 +216,7 @@ async fn actual_failure(user_receives: bool) {
                     identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
                         origin: ServiceOrigin::Runtime,
                         purpose: ServicePurpose::DiagnosticProbe,
-                    })),
+                    }).into()),
                     deadline: Some(end()),
                     cancel: CancellationToken::new(),
                     upstream,
