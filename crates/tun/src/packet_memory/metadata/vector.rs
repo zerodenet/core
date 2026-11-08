@@ -1,7 +1,7 @@
 //! Same Source table allocation, not a second census or resource scheduler.
 //! Moving/removing a row does not refund its still-allocated table capacity.
 use super::*;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 pub struct PacketMetadataVec<T> {
     values: Vec<T>,
@@ -22,6 +22,22 @@ impl<T> PacketMetadataVec<T> {
     pub fn try_reserve_one(
         &mut self,
         memory: &PacketMemoryView,
+        max_rows: usize,
+    ) -> Result<(), PacketMemoryError> {
+        self.reserve_one(Admission::Packet(memory), max_rows)
+    }
+    /// Same exact allocation implementation, for an actual Host metadata-only
+    /// view. No native read grant, IO or independent local Root is required.
+    pub fn try_reserve_one_with_metadata(
+        &mut self,
+        memory: &PacketDriverMetadataView,
+        max_rows: usize,
+    ) -> Result<(), PacketMemoryError> {
+        self.reserve_one(Admission::Host(memory), max_rows)
+    }
+    fn reserve_one(
+        &mut self,
+        memory: Admission<'_>,
         max_rows: usize,
     ) -> Result<(), PacketMemoryError> {
         if self.values.len() >= max_rows {
@@ -57,11 +73,11 @@ impl<T> PacketMetadataVec<T> {
             Ok(layout) => layout,
             Err(source) => return Err(source),
         };
-        let limit = memory.driver_metadata().limit;
+        let limit = memory.snapshot().limit;
         if peak.allocations() > limit.allocations() || peak.bytes() > limit.bytes() {
             return Err(PacketMemoryError::Capacity);
         }
-        let next_credit = match memory.reserve_driver_metadata(layout) {
+        let next_credit = match memory.reserve(layout) {
             Ok(credit) => credit,
             Err(source) => return Err(source),
         };
@@ -93,6 +109,23 @@ impl<T> PacketMetadataVec<T> {
         self.push_reserved(value)
             .map_err(|value| (PacketMemoryError::Capacity, value))
     }
+    pub fn try_push_with_metadata(
+        &mut self,
+        value: T,
+        memory: &PacketDriverMetadataView,
+        max_rows: usize,
+    ) -> Result<(), (PacketMemoryError, T)> {
+        if let Err(source) = self.try_reserve_one_with_metadata(memory, max_rows) {
+            return Err((source, value));
+        }
+        self.push_reserved(value)
+            .map_err(|value| (PacketMemoryError::Capacity, value))
+    }
+    /// Remove rows without releasing the actual allocated array capacity. As
+    /// with other row operations, defer Root notifications before owner locks.
+    pub fn retain(&mut self, mut keep: impl FnMut(&T) -> bool) {
+        self.values.retain(|value| keep(value));
+    }
     /// Consume only capacity already charged on THIS actual table. No reserve,
     /// reallocation or callback occurs while installing the real record.
     pub fn push_reserved(&mut self, value: T) -> Result<(), T> {
@@ -113,6 +146,35 @@ impl<T> Deref for PacketMetadataVec<T> {
     type Target = [T];
     fn deref(&self) -> &[T] {
         &self.values
+    }
+}
+impl<T> DerefMut for PacketMetadataVec<T> {
+    fn deref_mut(&mut self) -> &mut [T] {
+        &mut self.values
+    }
+}
+// Closed delegation between the two existing concrete admissions. This is not
+// an allocator/provider trait or callback; the packet branch keeps its original
+// revoked-grant check, while the Host branch grants metadata accounting only.
+enum Admission<'a> {
+    Packet(&'a PacketMemoryView),
+    Host(&'a PacketDriverMetadataView),
+}
+impl Admission<'_> {
+    fn snapshot(&self) -> PacketMetadataSnapshot {
+        match self {
+            Self::Packet(memory) => memory.driver_metadata(),
+            Self::Host(memory) => memory.snapshot(),
+        }
+    }
+    fn reserve(
+        &self,
+        layout: PacketMetadataLayout,
+    ) -> Result<PacketMetadataCredit, PacketMemoryError> {
+        match self {
+            Self::Packet(memory) => memory.reserve_driver_metadata(layout),
+            Self::Host(memory) => memory.reserve(layout),
+        }
     }
 }
 impl<T> Drop for PacketMetadataVec<T> {

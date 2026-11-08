@@ -109,3 +109,82 @@ fn pending_table_slot_is_paid_before_row_install_and_empty_storage_is_not_a_refu
         charged(PacketMetadataLayout::new(0, 0))
     );
 }
+
+#[test]
+fn neutral_host_table_keeps_exact_capacity_paid_across_mutation_retain_and_reuse() {
+    let one = PacketMemoryLimit {
+        frames: 1,
+        bytes: 1,
+    };
+    let root = Arc::new(
+        PacketReturnTotals::new_with_metadata(
+            one,
+            one,
+            one,
+            charged(PacketMetadataLayout::new(2, 3 * std::mem::size_of::<u64>())),
+        )
+        .unwrap(),
+    );
+    let memory = root.driver_metadata_view();
+    let mut table = PacketMetadataVec::default();
+    table.try_reserve_one_with_metadata(&memory, 2).unwrap();
+    assert!(table.is_empty());
+    assert_eq!(table.push_reserved(7u64), Ok(()));
+    table.try_push_with_metadata(11, &memory, 2).unwrap();
+    assert_eq!(table.capacity(), 2);
+    let actual = memory.snapshot().occupied;
+    assert_eq!(
+        actual,
+        charged(PacketMetadataLayout::array::<u64>(2).unwrap())
+    );
+    let (source, same) = table.try_push_with_metadata(13, &memory, 2).unwrap_err();
+    assert_eq!(source, PacketMemoryError::Capacity);
+    assert_eq!(same, 13);
+    *table.iter_mut().find(|value| **value == 7).unwrap() = 17;
+    assert_eq!(table[0], 17);
+    *table.get_mut(0).unwrap() = 18;
+    table.retain(|value| *value == 18);
+    assert_eq!(&*table, &[18]);
+    assert_eq!(memory.snapshot().occupied, actual);
+    table.retain(|_| false);
+    assert!(table.is_empty());
+    assert_eq!(table.capacity(), 2);
+    assert_eq!(memory.snapshot().occupied, actual);
+    table.try_push_with_metadata(19, &memory, 2).unwrap();
+    assert_eq!(memory.snapshot().occupied, actual);
+    assert_eq!(
+        root.native().occupied,
+        PacketMemoryLimit {
+            frames: 0,
+            bytes: 0
+        },
+        "neutral table requires no native workspace or device"
+    );
+    drop(table);
+    assert_eq!(
+        memory.snapshot().occupied,
+        charged(PacketMetadataLayout::new(0, 0))
+    );
+}
+#[test]
+fn neutral_growth_pays_old_and_new_and_old_packet_entry_keeps_revocation_fence() {
+    let (root, read, packet) = original(1, 2 * std::mem::size_of::<u64>());
+    let host = root.driver_metadata_view();
+    let mut table = PacketMetadataVec::default();
+    table.try_push_with_metadata(7u64, &host, 2).unwrap();
+    let (source, same) = table.try_push_with_metadata(11, &host, 2).unwrap_err();
+    assert_eq!(source, PacketMemoryError::Capacity);
+    assert_eq!(same, 11);
+    assert_eq!(&*table, &[7]);
+    drop(table);
+    read.revoke();
+    let mut revoked = PacketMetadataVec::<u64>::default();
+    assert_eq!(
+        revoked.try_reserve_one(&packet, 1),
+        Err(PacketMemoryError::Stopped)
+    );
+    assert_eq!(revoked.capacity(), 0);
+    // Metadata-only Host authority is distinct from revoked native/read IO.
+    revoked.try_reserve_one_with_metadata(&host, 1).unwrap();
+    assert_eq!(revoked.push_reserved(same), Ok(()));
+}
