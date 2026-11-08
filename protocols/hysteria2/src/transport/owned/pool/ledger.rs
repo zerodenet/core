@@ -3,6 +3,7 @@
 use super::*;
 pub(super) struct FailedGroup {
     pub(super) drivers: Vec<DriverDelivery>,
+    pub(super) native: Option<Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>>,
     pub(super) application: Vec<zero_platform_tokio::contract::scope::TaskJoined>,
 }
 pub(super) fn append_report<'a>(
@@ -28,13 +29,44 @@ pub(super) fn append_report<'a>(
 }
 impl EntryState {
     pub(super) fn has_failures(&self) -> bool {
-        !self.retired_drivers.is_empty() || !self.retired_application.is_empty()
+        !self.retired_drivers.is_empty()
+            || !self.retired_application.is_empty()
+            || self.native_failure.is_some()
     }
     fn take_failures(&mut self) -> FailedGroup {
         FailedGroup {
+            native: self.native_failure.take(),
             drivers: std::mem::take(&mut self.retired_drivers),
             application: std::mem::take(&mut self.retired_application),
         }
+    }
+}
+impl Entry {
+    /// Receive the actual native-only capsule outside the Entry state lock.
+    /// The canonical receiver is returned only through CloseReport, never the
+    /// same task error or a payload retained by that receiver.
+    pub(super) async fn receive_native_failure(&self) -> Result<(), ChannelError> {
+        let actual = {
+            let state = self.state.lock().await;
+            state
+                .native_sources
+                .as_ref()
+                .and_then(|sources| sources.canonical_error())
+                .zip(state.tasks.as_ref().map(|tasks| tasks.scope_identity()))
+        };
+        if let Some((source, scope)) = actual {
+            let failure = self.resources.receive_protocol_failure(&scope, &source)?;
+            let mut state = self.state.lock().await;
+            if let Some(previous) = &state.native_failure {
+                assert!(
+                    Arc::ptr_eq(previous, &failure),
+                    "same actual lifecycle receiver"
+                );
+            } else {
+                state.native_failure = Some(failure);
+            }
+        }
+        Ok(())
     }
 }
 impl Generation {

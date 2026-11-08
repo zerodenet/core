@@ -124,6 +124,7 @@ impl MetadataPoolGrants {
                 registration_uncertain: std::sync::atomic::AtomicBool::new(false),
                 registration_scope,
                 registration: MetadataPoolRegistration::new(&owner),
+                close_cohort: OnceLock::new(),
                 native: Mutex::new(Native {
                     owner: native,
                     control: None,
@@ -144,6 +145,13 @@ impl MetadataPoolGrants {
                     slot.clone(),
                 )))?;
             }
+            let cohort = sources::MetadataCloseCohort::new(owner.instance, owner.limits);
+            slot.native
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .owner
+                .install_close_sources(cohort.originals());
+            assert!(slot.close_cohort.set(cohort).is_ok());
             // Both existing original books paid before phase heap is created.
             // No query/actor/native capability has escaped this owner gate.
             if let Some(control) = protocol.take() {

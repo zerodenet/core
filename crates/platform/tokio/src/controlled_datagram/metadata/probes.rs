@@ -4,6 +4,7 @@ use quinn_udp::controlled::{NativeProbes, ProbeKind};
 #[derive(Debug)]
 pub(super) struct Probes {
     pub(super) owner: ControlledDatagramOwner,
+    pub(super) close_sources: Option<super::super::metadata_pool::MetadataOriginalSources>,
     limit: NonZeroUsize,
     attempts: usize,
     /// Bounded by this initialization's native attempt and capability counts.
@@ -13,6 +14,7 @@ impl Probes {
     pub(super) fn new(sockets: NonZeroUsize, attempts: NonZeroUsize) -> Self {
         Self {
             owner: ControlledDatagramOwner::new(sockets),
+            close_sources: None,
             limit: attempts,
             attempts: 0,
             diagnostics: Vec::new(),
@@ -49,6 +51,19 @@ impl Probes {
             match self.owner.bind_raw_listener(address) {
                 Ok(socket) => return Ok(socket),
                 Err(error) => {
+                    if let (Some(sources), Some(reservation)) =
+                        (&self.close_sources, error.reservation)
+                    {
+                        sources.acquisition(
+                            super::super::metadata_pool::MetadataOriginalNamespace::Probe,
+                            reservation,
+                            &error.source,
+                        );
+                        sources.capture(
+                            super::super::metadata_pool::MetadataOriginalNamespace::Probe,
+                            &self.owner,
+                        );
+                    }
                     self.diagnostics.push(error.source.clone());
                     // A refusal before reservation is a provider/budget fault,
                     // not evidence that this native family lacks capability.
@@ -80,6 +95,13 @@ impl NativeProbes for Probes {
         };
         let result = result.map_err(|error| {
             let error = Arc::new(error);
+            if let Some(sources) = &self.close_sources {
+                sources.acquisition(
+                    super::super::metadata_pool::MetadataOriginalNamespace::Probe,
+                    socket.reservation(),
+                    &error,
+                );
+            }
             *socket
                 .entry
                 .acquisition_failure
@@ -89,7 +111,14 @@ impl NativeProbes for Probes {
         });
         // Even option failure is not permission to abandon an actual probe.
         // Confirm the original before publishing capability or using fallback.
-        socket.close().map_err(std_io::Error::other)?;
+        let closed = socket.close();
+        if let Some(sources) = &self.close_sources {
+            sources.capture(
+                super::super::metadata_pool::MetadataOriginalNamespace::Probe,
+                &self.owner,
+            );
+        }
+        closed.map_err(std_io::Error::other)?;
         self.owner.reap_confirmed(); // Commit receipt before the next operation.
         match result {
             Ok(value) => Ok(value),

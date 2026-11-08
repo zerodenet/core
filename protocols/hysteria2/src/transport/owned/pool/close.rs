@@ -25,7 +25,11 @@ impl Entry {
         if state.closed {
             return Ok(());
         }
-        state.retire_endpoint(end).await?;
+        let retirement = state.retire_endpoint(end).await;
+        drop(state);
+        self.receive_native_failure().await?;
+        retirement?;
+        let state = self.state.lock().await;
         let uncertain = state.setup_registration.clone();
         drop(state);
         self.wait_endpoint_ack(end).await?;

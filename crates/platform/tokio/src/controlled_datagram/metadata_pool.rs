@@ -21,6 +21,8 @@ mod permit;
 mod preparation;
 mod protocol_control;
 mod registration;
+mod sources;
+pub use sources::{MetadataOriginalFault, MetadataOriginalNamespace, MetadataOriginalSources};
 mod totals;
 pub(crate) use permit::MetadataCandidate;
 pub use permit::{MetadataPoolClosed, MetadataPoolOrigin, MetadataPoolPermit};
@@ -76,6 +78,7 @@ struct Slot {
     registration_scope: Option<crate::contract::scope::ScopeRetirementObservation>,
     registration: MetadataPoolRegistration,
     native: Mutex<Native>,
+    close_cohort: OnceLock<sources::MetadataCloseCohort>,
 }
 impl Slot {
     fn native(&self) -> Result<std::sync::MutexGuard<'_, Native>, ChannelError> {

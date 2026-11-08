@@ -105,11 +105,15 @@ impl Generation {
         }
         // This is the original provider's real native/probe close. No next
         // socket, endpoint or worker is prepared until it confirms this slot.
-        state
+        let closed = state
             .permit
             .as_ref()
             .unwrap()
-            .close(state.receipt.as_ref(), &self.tasks)?;
+            .close(state.receipt.as_ref(), &self.tasks);
+        drop(state);
+        entry.receive_native_failure().await?;
+        closed?;
+        let mut state = entry.state.lock().await;
         let failure = state
             .segment
             .as_ref()
@@ -141,6 +145,7 @@ impl Generation {
         let permit = self.metadata[profile]
             .grants()
             .reserve(state.caller.as_ref().unwrap())?;
+        state.native_sources = permit.origin().original_sources();
         state.origin = Some(permit.origin());
         state.permit = Some(permit);
         let (peer, grant) = state

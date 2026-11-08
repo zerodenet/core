@@ -1,4 +1,10 @@
 use super::*;
+// Diagnostic identity only: the Root row now encloses this actual Phase child.
+fn phase_source(source: &ChannelError) -> Option<&ChannelError> {
+    std::error::Error::source(source)?
+        .source()?
+        .downcast_ref::<ChannelError>()
+}
 pub(super) async fn run(panic_first: bool, late_io: bool) {
     timeout(Duration::from_secs(3), async {
         let one = NonZeroUsize::new(1).unwrap();
@@ -162,7 +168,8 @@ pub(super) async fn run(panic_first: bool, late_io: bool) {
                 .failures()
                 .into_iter()
                 .find(|failure| {
-                    std::error::Error::source(failure.as_ref())
+                    phase_source(failure.as_ref())
+                        .and_then(std::error::Error::source)
                         .and_then(|source| {
                             source.downcast_ref::<crate::original_protocol::OriginalPollPanic>()
                         })
@@ -237,9 +244,9 @@ pub(super) async fn run(panic_first: bool, late_io: bool) {
                     .kind(),
                 std::io::ErrorKind::NotFound
             );
-            assert!(Arc::ptr_eq(
-                sources.poll_panic().unwrap(),
-                original_fault.as_ref().unwrap()
+            assert!(std::ptr::eq(
+                sources.poll_panic().unwrap().as_ref(),
+                phase_source(original_fault.as_ref().unwrap()).unwrap()
             ));
             assert!(sources.foreign_source().is_none());
         }

@@ -145,6 +145,15 @@ impl ResourceLifecycle for Owner {
             .collect::<Vec<_>>();
         for entry in entries {
             let state = entry.state.lock().await;
+            if let Some(failure) = &state.native_failure {
+                if !report
+                    .resource_failures
+                    .iter()
+                    .any(|same| Arc::ptr_eq(same, failure))
+                {
+                    report.resource_failures.push(failure.clone());
+                }
+            }
             ledger::append_report(
                 &mut report,
                 state
@@ -157,6 +166,15 @@ impl ResourceLifecycle for Owner {
         {
             let failures = self.generation.failures.lock().unwrap();
             for group in failures.iter() {
+                if let Some(failure) = &group.native {
+                    if !report
+                        .resource_failures
+                        .iter()
+                        .any(|same| Arc::ptr_eq(same, failure))
+                    {
+                        report.resource_failures.push(failure.clone());
+                    }
+                }
                 ledger::append_report(
                     &mut report,
                     group

@@ -137,6 +137,7 @@ impl PoolFactory {
             .ok_or_else(|| error(Stage::Prepare, Reason::Unsupported))?;
         let generation = Arc::new(Generation {
             buffers,
+            resources: context.resources.clone(),
             instance: context.instance(),
             profiles: options.profiles.clone(),
             upstreams,
@@ -172,6 +173,7 @@ struct Owner {
     attempted: bool,
 }
 pub(super) struct Generation {
+    resources: Arc<dyn ResourceAccess>,
     buffers: zero_platform_tokio::controlled_carrier::CarrierBufferBudget,
     instance: ComponentInstanceId,
     profiles: Arc<[PoolProfile]>,
@@ -197,6 +199,7 @@ struct Key {
     dns_generation: Option<zero_platform_tokio::contract::dns::DnsGeneration>,
 }
 struct Entry {
+    resources: Arc<dyn ResourceAccess>,
     initialization: tokio::sync::Mutex<()>,
     cancel: zero_platform_tokio::contract::CancellationToken,
     state: tokio::sync::Mutex<EntryState>,
@@ -219,6 +222,9 @@ struct EntryState {
     auth: Option<Arc<OwnedAuthentication>>,
     permit: Option<MetadataPoolPermit>,
     origin: Option<MetadataPoolOrigin>,
+    native_sources:
+        Option<zero_platform_tokio::controlled_datagram::metadata_pool::MetadataOriginalSources>,
+    native_failure: Option<Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>>,
     segment: Option<PacketSegment>,
     queues: Option<PacketQueues>,
     receipt: Option<

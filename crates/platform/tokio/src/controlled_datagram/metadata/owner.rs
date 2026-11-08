@@ -14,6 +14,7 @@ impl MetadataOwner {
     }
     /// Cold construction only. Even capability probes have an owner now.
     pub fn new(limits: MetadataLimits) -> std_io::Result<Self> {
+        super::super::metadata_pool::MetadataOriginalSources::validate_limits(limits)?;
         if limits.concurrent_send_calls.get() > tokio::sync::Semaphore::MAX_PERMITS {
             return Err(std_io::Error::new(
                 std_io::ErrorKind::InvalidInput,
@@ -33,6 +34,7 @@ impl MetadataOwner {
             })?;
         Ok(Self {
             main: ControlledDatagramOwner::new(limits.main_sockets),
+            close_sources: None,
             probes: probes::Probes::new(
                 limits.probe_sockets,
                 limits.probe_attempts_per_initialization,
@@ -49,7 +51,10 @@ impl MetadataOwner {
         source: SocketAddr,
     ) -> Result<GrantedMetadataDatagram, DatagramAcquisitionError> {
         self.prepare_acquisition()?;
-        let socket = self.main.bind_raw_listener(source)?;
+        let socket = self.main.bind_raw_listener(source).map_err(|source| {
+            self.capture_acquisition(&source);
+            source
+        })?;
         self.initialize(socket, None)
     }
     /// The same original/probe custody as listeners, with actual host egress.
@@ -60,7 +65,13 @@ impl MetadataOwner {
         selection: &crate::EgressSelection,
     ) -> Result<GrantedMetadataDatagram, DatagramAcquisitionError> {
         self.prepare_acquisition()?;
-        let socket = self.main.acquire_raw(peer, None, policy, selection)?;
+        let socket = self
+            .main
+            .acquire_raw(peer, None, policy, selection)
+            .map_err(|source| {
+                self.capture_acquisition(&source);
+                source
+            })?;
         self.initialize(socket, Some(peer))
     }
     fn prepare_acquisition(&mut self) -> Result<(), DatagramAcquisitionError> {
@@ -99,6 +110,14 @@ impl MetadataOwner {
             Ok(state) => state,
             Err(error) => {
                 let source = Arc::new(error);
+                if let Some(sources) = &self.close_sources {
+                    sources.acquisition(
+                        super::super::metadata_pool::MetadataOriginalNamespace::Main,
+                        socket.reservation(),
+                        &source,
+                    );
+                    sources.mark_failed();
+                }
                 *socket
                     .entry
                     .acquisition_failure
@@ -108,6 +127,7 @@ impl MetadataOwner {
                     Ok(receipt) => AcquisitionOutcome::Closed(receipt),
                     Err(_) => AcquisitionOutcome::Unknown(socket.reservation()),
                 };
+                self.capture_sources();
                 self.main.reap_confirmed();
                 return Err(self.main.acquisition_error(
                     Some(socket.reservation()),
@@ -116,7 +136,10 @@ impl MetadataOwner {
                 ));
             }
         };
-        let socket = self.main.register_native(socket)?;
+        let socket = self.main.register_native(socket).map_err(|source| {
+            self.capture_acquisition(&source);
+            source
+        })?;
         let pollers = poller::Broker::new(self.limits.write_pollers);
         // This can only fail if a freshly initialized checked namespace cannot
         // allocate its first ID; no user callback runs between these operations.
@@ -132,6 +155,7 @@ impl MetadataOwner {
         });
         self.views
             .insert(shared.socket.reservation(), shared.clone());
+        self.capture_sources();
         Ok(GrantedMetadataDatagram {
             rx: MetadataDatagramRx {
                 shared: shared.clone(),
@@ -166,107 +190,7 @@ impl MetadataOwner {
     pub fn occupied_probes(&mut self) -> usize {
         self.probes.owner.occupied()
     }
-    /// Aggregate confirmed counts are committed before any new acquisition.
-    /// Main and probe namespaces remain distinct in these actual owner reports.
-    pub fn take_report(&mut self) -> MetadataOwnerReport {
-        self.gather_report(false)
-    }
-    /// Revoke native I/O and drain its original gate before closing. This is
-    /// native cleanup only: no Quinn user, task join or failure ACK is asserted.
-    pub fn close_all(&mut self) -> MetadataOwnerReport {
-        self.gather_report(true)
-    }
-    /// Extract and immediately persist this branch before calling another
-    /// branch. Unknown originals and their original sources remain retained.
-    pub fn take_main_report(&mut self) -> DatagramOwnerReport {
-        self.pending_main
-            .take()
-            .unwrap_or_else(|| self.main.take_report())
-    }
-    pub fn take_probe_report(&mut self) -> DatagramOwnerReport {
-        self.pending_probes
-            .take()
-            .unwrap_or_else(|| self.probes.owner.take_report())
-    }
-    /// None leaves all prior receipts/sources owned; an actual native gate or
-    /// close lease is busy. No blocking second lookup follows a try-check.
-    pub fn try_take_main_report(&mut self) -> Option<DatagramOwnerReport> {
-        match self.pending_main.take() {
-            Some(report) => Some(report),
-            None => self.main.try_take_report(),
-        }
-    }
-    pub fn try_take_probe_report(&mut self) -> Option<DatagramOwnerReport> {
-        match self.pending_probes.take() {
-            Some(report) => Some(report),
-            None => self.probes.owner.try_take_report(),
-        }
-    }
-    /// Main and probe native receipts are independent. Callers using these
-    /// separate methods persist each result before the next operation.
-    pub fn close_main(&mut self) -> DatagramOwnerReport {
-        if let Some(report) = self.pending_main.take() {
-            return report;
-        }
-        for shared in self.views.values() {
-            shared.socket.entry.retired.cancel();
-            shared.pollers.signal();
-        }
-        self.main.close_all()
-    }
-    pub fn close_probes(&mut self) -> DatagramOwnerReport {
-        self.pending_probes
-            .take()
-            .unwrap_or_else(|| self.probes.owner.close_all())
-    }
-    /// None means an actual native call/close lease still owns its gate. No
-    /// receipt is extracted; already completed originals remain in the ledger.
-    pub fn try_close_main(&mut self) -> Option<DatagramOwnerReport> {
-        if let Some(report) = self.pending_main.take() {
-            return Some(report);
-        }
-        for shared in self.views.values() {
-            shared.socket.entry.retired.cancel();
-            shared.pollers.signal();
-        }
-        try_close_owner(&mut self.main)
-    }
-    pub fn try_close_probes(&mut self) -> Option<DatagramOwnerReport> {
-        if let Some(report) = self.pending_probes.take() {
-            return Some(report);
-        }
-        try_close_owner(&mut self.probes.owner)
-    }
-    fn gather_report(&mut self, close: bool) -> MetadataOwnerReport {
-        if self.pending_main.is_none() {
-            let main = if close {
-                self.close_main()
-            } else {
-                self.main.take_report()
-            };
-            self.pending_main = Some(main);
-        }
-        if self.pending_probes.is_none() {
-            let probes = if close {
-                self.probes.owner.close_all()
-            } else {
-                self.probes.owner.take_report()
-            };
-            self.pending_probes = Some(probes);
-        }
-        // A last-view/waker destructor can panic here. Both actual deltas
-        // already belong to this persistent owner, rather than its stack.
-        self.reap();
-        MetadataOwnerReport {
-            main: self.pending_main.take().expect("installed main report"),
-            probes: self.pending_probes.take().expect("installed probe report"),
-        }
-    }
 }
 
-fn try_close_owner(owner: &mut ControlledDatagramOwner) -> Option<DatagramOwnerReport> {
-    for entry in owner.entries.values() {
-        let _result = entry.try_close()?;
-    }
-    owner.try_take_report()
-}
+mod report;
+mod sources;

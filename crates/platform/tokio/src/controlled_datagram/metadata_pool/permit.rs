@@ -12,6 +12,7 @@ pub struct MetadataPoolOrigin {
     closed: Arc<OnceLock<bool>>,
     owner: MetadataPoolRegistration,
     retired: CancellationToken,
+    sources: Option<MetadataOriginalSources>,
 }
 #[derive(Clone)]
 pub struct MetadataPoolClosed {
@@ -72,6 +73,7 @@ impl MetadataPoolPermit {
             closed: self.0.closed.clone(),
             owner: self.0.registration.clone(),
             retired: self.0.retired.clone(),
+            sources: self.0.close_cohort.get().map(|cohort| cohort.originals()),
         }
     }
     pub fn close(
@@ -165,25 +167,32 @@ impl MetadataPoolPermit {
         }
         let report = Arc::new(native.owner.close_all());
         let complete = report.is_complete();
-        let first = report
-            .main
-            .unconfirmed
-            .first()
-            .or_else(|| report.probes.unconfirmed.first())
-            .map(|unknown| unknown.source.clone());
+        let unknown = !report.main.unconfirmed.is_empty() || !report.probes.unconfirmed.is_empty();
         native.acquired_confirmed |= report.main.confirmed_closed > 0;
         let acquired = native.acquired_confirmed;
-        native.report = Some(report);
-        if let Some(source) = first {
-            return Err(error(Reason::Io, "metadata original close is unknown")
-                .with_source(OriginalIo(source)));
+        // All actual sources were captured by MetadataOwner before report
+        // extraction. Retire the former report only after the native lock.
+        let previous = native.report.replace(report);
+        if unknown {
+            let source = self
+                .0
+                .close_cohort
+                .get()
+                .and_then(|cohort| cohort.failure())
+                .expect("captured actual unknown native original");
+            drop(native);
+            drop(previous);
+            return Err(ChannelError::retained(source));
         }
         if !complete {
+            drop(native);
+            drop(previous);
             return Ok(None);
         }
         let _ = self.0.closed.set(acquired);
         self.0.retired.cancel();
         drop(native);
+        drop(previous);
         if let Some(owner) = self.0.owner.upgrade() {
             if acquired {
                 owner
@@ -195,19 +204,11 @@ impl MetadataPoolPermit {
         Ok(self.origin().closed())
     }
 }
-#[derive(Debug)]
-struct OriginalIo(Arc<std::io::Error>);
-impl std::fmt::Display for OriginalIo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(self.0.as_ref(), f)
-    }
-}
-impl std::error::Error for OriginalIo {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(self.0.as_ref())
-    }
-}
 impl MetadataPoolOrigin {
+    /// Durable native-only sources. No Slot, controller, Scope or receiver back edge.
+    pub fn original_sources(&self) -> Option<MetadataOriginalSources> {
+        self.sources.clone()
+    }
     pub fn is_retired(&self) -> bool {
         self.retired.is_cancelled() || self.slot.upgrade().is_none()
     }

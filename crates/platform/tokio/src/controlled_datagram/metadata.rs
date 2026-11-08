@@ -31,6 +31,7 @@ pub struct MetadataLimits {
 }
 pub struct MetadataOwner {
     main: ControlledDatagramOwner,
+    close_sources: Option<super::metadata_pool::MetadataOriginalSources>,
     probes: probes::Probes,
     limits: MetadataLimits,
     views: BTreeMap<DatagramReservationId, Arc<Shared>>,

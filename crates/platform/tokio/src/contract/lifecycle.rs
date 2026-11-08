@@ -45,7 +45,7 @@ pub struct ResourceFailure {
     pub instance: zero_core::component::ComponentInstanceId,
     pub controller: ResourceFailurePhase,
     pub source: Arc<ChannelError>,
-    original_sources: Option<Arc<OriginalProtocolFailures>>,
+    original_sources: std::sync::OnceLock<Arc<OriginalProtocolFailures>>,
     reported: AtomicBool,
     ownership: std::sync::OnceLock<Arc<ChannelError>>,
 }
@@ -59,17 +59,29 @@ impl ResourceFailure {
             instance,
             controller,
             source,
-            original_sources: None,
+            original_sources: std::sync::OnceLock::new(),
             reported: false.into(),
             ownership: std::sync::OnceLock::new(),
         }
     }
-    pub(crate) fn with_original_sources(mut self, sources: Arc<OriginalProtocolFailures>) -> Self {
-        self.original_sources = Some(sources);
+    pub(crate) fn with_original_sources(self, sources: Arc<OriginalProtocolFailures>) -> Self {
+        assert!(self.install_original_sources(sources));
         self
     }
+    /// Exact owning row only: a later Phase adds its same original ledger,
+    /// never a replacement source or another resource-failure identity.
+    pub(crate) fn install_original_sources(&self, sources: Arc<OriginalProtocolFailures>) -> bool {
+        let actual = self.original_sources.get_or_init(|| sources.clone());
+        if !Arc::ptr_eq(actual, &sources) {
+            return false;
+        }
+        if self.ownership_received() {
+            actual.accept();
+        }
+        true
+    }
     pub fn original_sources(&self) -> Option<&Arc<OriginalProtocolFailures>> {
-        self.original_sources.as_ref()
+        self.original_sources.get()
     }
     /// Exact local ownership delivery, independent of publication, physical
     /// close, actual task join and Host registration ACK.
@@ -98,7 +110,7 @@ impl ResourceFailure {
             assert!(
                 receipt.bind_payload(Arc::new(original_failures::SourcePayload {
                     first: self.source.clone(),
-                    _original: self.original_sources.clone(),
+                    _original: self.original_sources.get().cloned(),
                 }))
             );
             Arc::new(
@@ -110,7 +122,7 @@ impl ResourceFailure {
             .unwrap()
             .acknowledge_retained(notice);
         if accepted {
-            if let Some(sources) = &self.original_sources {
+            if let Some(sources) = self.original_sources.get() {
                 sources.accept();
             }
         }

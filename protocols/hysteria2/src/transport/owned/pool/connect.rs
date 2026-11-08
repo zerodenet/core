@@ -76,6 +76,7 @@ impl Generation {
                     return Err(error(Stage::Prepare, Reason::Capacity));
                 }
                 let entry = Arc::new(Entry {
+                    resources: self.resources.clone(),
                     initialization: Default::default(),
                     cancel: self.cancel.child_token(),
                     state: Default::default(),
@@ -165,7 +166,11 @@ impl Generation {
                     }
                     // Native/users closure is independent of the failed setup's
                     // Host acknowledgement. Publish both before fresh admission.
-                    state.retire_endpoint(end).await?;
+                    let retirement = state.retire_endpoint(end).await;
+                    drop(state);
+                    entry.receive_native_failure().await?;
+                    retirement?;
+                    let state = entry.state.lock().await;
                     let count = state
                         .candidates
                         .as_ref()
@@ -195,6 +200,7 @@ impl Generation {
         let permit = self.metadata[profile]
             .grants()
             .reserve(state.caller.as_ref().unwrap())?;
+        state.native_sources = permit.origin().original_sources();
         state.origin = Some(permit.origin());
         state.permit = Some(permit);
         let port = options

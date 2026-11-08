@@ -174,30 +174,28 @@ impl MetadataTotalsOriginal {
 
         changed
     }
-    pub(crate) fn failure(&self) -> Option<Arc<ChannelError>> {
-        self.first_fault
+    fn close_cohort(&self) -> Option<&sources::MetadataCloseCohort> {
+        let cohort = self.slot.close_cohort.get()?;
+        let phase = self
+            .slot
+            .protocol
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
-            .or_else(|| {
-                self.slot
-                    .protocol
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .as_ref()
-                    .and_then(|phase| phase.failure())
-            })
+            .clone();
+        if let Some(failure) = phase.as_ref().and_then(|phase| phase.resource_failure()) {
+            cohort.receive_protocol(failure);
+        }
+        Some(cohort)
+    }
+    pub(crate) fn failure(&self) -> Option<Arc<ChannelError>> {
+        self.close_cohort().and_then(|cohort| cohort.failure())
     }
 }
 
 impl crate::controlled_carrier::MetadataCustody for MetadataTotalsOriginal {
     fn resource_failure(&self) -> Option<Arc<crate::contract::lifecycle::ResourceFailure>> {
-        self.slot
-            .protocol
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_ref()
-            .and_then(|phase| phase.resource_failure())
+        self.close_cohort()
+            .and_then(|cohort| cohort.resource_failure())
     }
     fn instance(&self) -> Option<zero_core::component::ComponentInstanceId> {
         Some(MetadataTotalsOriginal::instance(self))

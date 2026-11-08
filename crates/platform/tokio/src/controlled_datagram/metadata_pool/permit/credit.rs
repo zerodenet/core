@@ -11,6 +11,14 @@ impl MetadataPoolPermit {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
+        if let Some(cohort) = self.0.close_cohort.get() {
+            if let Some(failure) = phase.as_ref().and_then(|phase| phase.resource_failure()) {
+                cohort.receive_protocol(failure);
+            }
+            if !cohort.fault_received() {
+                return false;
+            }
+        }
         if phase.as_ref().is_some_and(|phase| !phase.fault_received()) {
             return false;
         }
