@@ -399,9 +399,11 @@ pub trait ResourceAccess: Send + Sync {
         ))
     }
 
-    /// Pure sources of this exact Host declaration graph. Only its outer
-    /// protocol lifecycle may retain this capsule; never feed it back into the
-    /// same declaration receiver. No collection, IO, ACK or close authority.
+    /// Pure sources of this exact Host declaration graph. An original's matched
+    /// custody record may retain this data before IO; only its outer cleanup
+    /// receiver may publish it in a lifecycle failure. Never return it through
+    /// a per-slot control error or feed it back into this declaration receiver.
+    /// No collection, IO, ACK or close authority.
     fn declared_resource_sources(&self) -> Option<super::lifecycle::DeclaredResourceSources> {
         None
     }

@@ -2,6 +2,14 @@
 use super::*;
 
 impl ComponentSlot {
+    pub(in crate::component) fn declared_sources_for_original(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::lifecycle::DeclaredResourceSources> {
+        let live = self.live.get()?.as_ref().ok()?;
+        zero_platform_tokio::contract::component::ResourceAccess::declared_resource_sources(
+            live.resources.as_ref(),
+        )
+    }
     pub(in crate::component) fn resource_fault(
         &self,
     ) -> Option<Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>> {

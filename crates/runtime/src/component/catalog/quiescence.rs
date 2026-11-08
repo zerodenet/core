@@ -1,6 +1,7 @@
 //! Pause actual retired user roots without revoking live I/O or claiming closure.
 use super::*;
 mod receiver;
+mod sources;
 
 /// Retained by the real replacement transaction until commit or rollback.
 /// Dropping it only restores admission; normal StopOld still proves closure.

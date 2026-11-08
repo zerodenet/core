@@ -3,9 +3,11 @@ use std::{error::Error, fmt, sync::Arc};
 use zero_core::component::ComponentInstanceId;
 
 /// Diagnostic data only. This holds neither an owner, Scope, controller nor IO.
-/// Host assembly constructs it from its existing cause capsule; a protocol must
-/// not return this capsule to that same declaration receiver (which would form
-/// a source cycle). Keeping it alive does not acknowledge any contained fault.
+/// Host assembly constructs it from its existing cause capsule. A matched
+/// original may hold this pure data before IO for its outer cleanup receiver;
+/// it must not return it through a per-slot error or to this same declaration
+/// receiver (which would form a source cycle). Keeping it alive acknowledges
+/// no contained fault and authenticates no acquisition.
 #[derive(Clone)]
 pub struct DeclaredResourceSources {
     instance: ComponentInstanceId,

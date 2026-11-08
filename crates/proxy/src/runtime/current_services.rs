@@ -87,6 +87,18 @@ impl CurrentServiceSource {
             .validate_owned_carrier_adoption(role, adoption)
             .map_err(io::Error::other)
     }
+    /// Pure actual owner data only; no retained plan or resource authority.
+    pub(crate) fn owned_carrier_declared_sources(
+        &self,
+        role: zero_core::component::RoleInstanceId,
+        adoption: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> io::Result<zero_platform_tokio::contract::lifecycle::DeclaredResourceSources> {
+        self.protocols()?
+            .runtime_host()
+            .components()
+            .owned_carrier_declared_sources(role, adoption)
+            .map_err(io::Error::other)
+    }
     pub(crate) fn validate_owned_carrier_instance(
         &self,
         consumer: zero_core::component::ComponentInstanceId,
