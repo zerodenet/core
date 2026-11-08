@@ -4,6 +4,7 @@ mod credit;
 mod requested_ring;
 pub use requested_ring::{RequestedRingCapacityCredit, RequestedRingLimits, RequestedRingSnapshot};
 mod metadata;
+pub use metadata::PacketDriverMetadataPause;
 pub use metadata::{
     PacketDriverMetadataView, PacketMetadataArc, PacketMetadataAttachment, PacketMetadataCredit,
     PacketMetadataLayout, PacketMetadataSnapshot, PacketMetadataVec, PacketMetadataWeak,
@@ -49,6 +50,8 @@ struct State {
     transmit: PacketMemorySnapshot,
     ring: RequestedRingSnapshot,
     paused: bool,
+    metadata_pauses: usize,
+    metadata_epoch: usize,
 }
 /// Constructed once beside the kernel's Devices and passed into its existing
 /// RuntimeHost. Old, failed and retiring buffers retain this exact same Arc.
@@ -132,6 +135,8 @@ impl PacketReturnTotals {
                 },
                 ring: RequestedRingSnapshot::default(),
                 paused: false,
+                metadata_pauses: 0,
+                metadata_epoch: 0,
             }),
             metadata,
             changed: Notify::new(),

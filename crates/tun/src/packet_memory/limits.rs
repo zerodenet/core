@@ -73,7 +73,16 @@ impl PacketReturnTotals {
             requested_ring::check(state.ring, ring)?;
         }
         // Admission takes this Root mutex; only refunds can race these checks.
+        // Old admission guards belong to the policy being replaced. Only a
+        // successful atomic install may finish that epoch. Candidate startup
+        // can then prepay memory even while old user fences remain through pub.
+        let next_epoch = state
+            .metadata_epoch
+            .checked_add(1)
+            .ok_or(PacketMemoryError::Overflow)?;
         self.metadata.install_limit(metadata)?;
+        state.metadata_epoch = next_epoch;
+        state.metadata_pauses = 0;
         state.returns.limit = returns;
         state.native.limit = native;
         state.transmit.limit = transmit;

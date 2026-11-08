@@ -2,6 +2,8 @@
 //! Counter/credit have no runtime dependency and travel after PacketStorage.
 use super::*;
 mod attachment;
+mod policy;
+pub use policy::PacketDriverMetadataPause;
 mod custody;
 mod vector;
 pub use attachment::PacketMetadataAttachment;
@@ -56,7 +58,7 @@ impl PacketReturnTotals {
         // or credits, so this preserves the old credit's lifetime without a cycle.
         let wake = std::task::Waker::from(self.clone());
         let state = self.state();
-        if state.paused {
+        if state.paused || state.metadata_pauses != 0 {
             return Err(PacketMemoryError::Paused);
         }
         self.metadata.reserve(layout, wake)

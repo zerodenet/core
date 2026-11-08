@@ -7,6 +7,7 @@ mod receiver;
 pub struct ReplacementUsersPause {
     pub(super) _roots: Vec<crate::component::instance::PausedUsers>,
     pub(super) candidate: std::sync::Weak<ComponentPlan>,
+    _metadata: Option<zero_tun::packet_memory::PacketDriverMetadataPause>,
 }
 impl ReplacementUsersPause {
     /// This exact old generation was put under THIS actual candidate's user
@@ -167,26 +168,46 @@ impl ComponentCatalog {
         candidate: &Arc<ComponentPlan>,
         mains: &[&zero_platform_tokio::contract::packet::PacketSourceMainPaused],
     ) -> Result<ReplacementUsersPause, ChannelError> {
-        let old = {
+        let (old, metadata_limit) = {
             let state = self.state.lock().expect("component catalog poisoned");
-            let owned = state
+            let metadata_limit = state
                 .current
                 .iter()
                 .chain(state.cold.iter())
                 .chain(state.staged.iter())
-                .filter_map(|entry| entry.plan.as_ref().ok())
-                .any(|plan| Arc::ptr_eq(plan, candidate));
-            if !owned {
-                return Err(invalid(
-                    Reason::StalePlan,
-                    "replacement candidate is not owned by this catalog",
-                ));
-            }
-            state
-                .current
-                .as_ref()
-                .and_then(|entry| entry.plan.as_ref().ok())
-                .cloned()
+                .find_map(|entry| {
+                    entry
+                        .plan
+                        .as_ref()
+                        .ok()
+                        .filter(|plan| Arc::ptr_eq(plan, candidate))
+                        .map(|_| {
+                            zero_tun::packet_memory::PacketMetadataLayout::new(
+                                entry
+                                    .config
+                                    .runtime
+                                    .effective_packet_driver_metadata_total_max_allocations(),
+                                entry
+                                    .config
+                                    .runtime
+                                    .effective_packet_driver_metadata_total_max_bytes(),
+                            )
+                        })
+                })
+                .ok_or_else(|| {
+                    invalid(
+                        Reason::StalePlan,
+                        "replacement candidate is not owned by this catalog",
+                    )
+                })?;
+            (
+                state
+                    .current
+                    .as_ref()
+                    .and_then(|entry| entry.plan.as_ref().ok())
+                    .cloned(),
+                metadata_limit,
+            )
         };
         let mut roots = Vec::new();
         if let Some(old) = old {
@@ -209,9 +230,27 @@ impl ComponentCatalog {
                 roots.push(root);
             }
         }
+        // Active business is rejected by the actual roots above before any
+        // metadata fence is touched. This read-only capacity preflight cannot
+        // evict live TCP/history or revoke an old original to make room.
+        let metadata = self
+            .original_budgets()
+            .packet
+            .pause_driver_metadata_for_limit(metadata_limit)
+            .map_err(|source| {
+                let mut error = ChannelError::new(
+                    zero_platform_tokio::contract::Stage::Prepare,
+                    Reason::Capacity,
+                    zero_platform_tokio::contract::Impact::Component,
+                )
+                .with_source(source);
+                error.delivery = zero_platform_tokio::contract::DeliveryState::NotSubmitted;
+                error
+            })?;
         Ok(ReplacementUsersPause {
             _roots: roots,
             candidate: Arc::downgrade(candidate),
+            _metadata: metadata,
         })
     }
 }

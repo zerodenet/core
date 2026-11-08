@@ -10,6 +10,8 @@ use crate::runtime::Proxy;
 mod control_budget;
 #[cfg(feature = "wireguard")]
 mod endpoint_persistence;
+#[cfg(feature = "socks5")]
+mod metadata_budget;
 mod notifications;
 mod owned;
 mod persistence;
