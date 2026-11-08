@@ -44,7 +44,7 @@ async fn actual_declared_capsule_survives_tcp_journal_failure_and_original_scope
             .install_after_retirement(std::num::NonZeroUsize::new(2).unwrap())
             .unwrap();
         catalog.drive_supervised(plan.start(end())).await.unwrap();
-        catalog.admission.publish([slot.admission_grant()]);
+        catalog.admission.publish([slot.admission_grant()].into_iter());
         assert!(
             slot.stream(end()).await.is_ok(),
             "genuine actual Direct Stream role"

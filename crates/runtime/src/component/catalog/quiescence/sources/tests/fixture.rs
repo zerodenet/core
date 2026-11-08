@@ -165,7 +165,7 @@ pub(super) fn install(
     ));
     slot.bind_original_budgets(catalog.original_budgets());
     slot.bind_admission(catalog.admission.clone());
-    catalog.admission.stage([slot.admission_grant()]);
+    catalog.admission.stage([slot.admission_grant()].into_iter());
     let plan = Arc::new(ComponentPlan {
         builtin: slot.clone(),
         borrowing: catalog.admission.clone(),
