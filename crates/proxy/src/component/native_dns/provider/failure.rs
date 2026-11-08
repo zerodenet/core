@@ -29,16 +29,12 @@ impl Receiver {
     }
     fn receive_related(&self, resources: &dyn ResourceAccess) -> std::io::Result<()> {
         if let Some(source) = &self.related_sources {
+            // A missing outer receiver leaves the pure capsule in this actual
+            // custody record. Never return it through a per-slot control error:
+            // that error can itself enter this declaration graph's causes.
             resources
                 .receive_protocol_failure(&self.scope, source)
-                .map_err(|receiver| {
-                    std::io::Error::other(BuildError::retained(source.clone()).with_source(
-                        Unreceived {
-                            original: source.clone(),
-                            _receiver: Arc::new(receiver),
-                        },
-                    ))
-                })?;
+                .map_err(std::io::Error::other)?;
         }
         Ok(())
     }
