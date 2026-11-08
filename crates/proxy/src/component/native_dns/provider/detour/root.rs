@@ -7,6 +7,7 @@ use zero_platform_tokio::{
 };
 mod controlled;
 mod direct;
+mod pending;
 #[cfg(any(target_os = "linux", windows))]
 mod process;
 pub(super) struct Root {
@@ -320,58 +321,9 @@ impl UpstreamOpener for Root {
         binding: &UpstreamBinding,
         adoption: zero_platform_tokio::controlled_carrier::CarrierAdoption,
     ) -> Result<(), ChannelError> {
-        self.check_pending(binding, &adoption)?;
-        let ceiling = self.pending_carrier_capacity(binding).ok_or_else(|| {
-            crate::component::instance::invalid(
-                zero_platform_tokio::contract::Reason::StalePlan,
-                "DNS pending graph capacity is no longer available",
-            )
-        })?;
-        let mut pending = self.pending.lock().expect("DNS pending originals poisoned");
-        // Candidate retries share one actual caller. Completed earlier native
-        // attempts are not concurrent occupancy or a retained query history.
-        // Unknown native disposition or users still held remain charged here.
-        pending.retain(|entry| {
-            !entry.task.same_registration(&self.caller)
-                || !entry
-                    .original
-                    .closed()
-                    .is_some_and(|closed| closed.matches(&entry.original))
-                || !entry
-                    .original
-                    .users_closed()
-                    .is_some_and(|closed| closed.matches(&entry.original))
-        });
-        if pending.iter().any(|entry| {
-            entry.task.same_registration(&self.caller) && entry.original.same_slot(&adoption)
-        }) {
-            return Ok(());
-        }
-        // Metadata follows actual declared original owners, including a
-        // negotiated TCP/UDP pair. It grants no additional native capacity.
-        if pending
-            .iter()
-            .filter(|entry| entry.task.same_registration(&self.caller))
-            .count()
-            >= ceiling
-        {
-            return Err(crate::component::instance::invalid(
-                zero_platform_tokio::contract::Reason::Capacity,
-                "DNS actual pending carrier path is full",
-            ));
-        }
-        pending.push(Arc::new(custody::NativeUse {
-            receiver: self.receiver.clone(),
-            pending_report: Mutex::default(),
-            task: self.caller.clone(),
-            cancel: self.cancel.clone(),
-            original: adoption,
-            capacity: Mutex::new(None),
-            pending_roles: self.roles.clone().into(),
-            logical: Default::default(),
-        }));
-        Ok(())
+        self.retain_original_pending(binding, adoption)
     }
+
     fn supports_controlled_stream(&self) -> bool {
         self.direct_transport(&self.binding).is_ok()
     }
