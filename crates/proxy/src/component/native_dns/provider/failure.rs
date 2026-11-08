@@ -7,9 +7,39 @@ use zero_platform_tokio::contract::{
 pub(in crate::component::native_dns::provider) struct Receiver {
     resources: std::sync::Weak<dyn ResourceAccess>,
     scope: TaskScopeIdentity,
+    // Pure declaration causes from an actual retained original. Never hold a
+    // plan, Host, ResourceAccess, controller or Scope in the receiver's causes.
+    related_sources: Option<Arc<BuildError>>,
 }
 impl Receiver {
+    pub(super) fn with_declared_sources(
+        mut self,
+        sources: zero_platform_tokio::contract::lifecycle::DeclaredResourceSources,
+    ) -> Self {
+        let instance = sources.instance();
+        let mut source = BuildError::new(
+            zero_platform_tokio::contract::Stage::Close,
+            zero_platform_tokio::contract::Reason::Io,
+            zero_platform_tokio::contract::Impact::Component,
+        )
+        .with_source(sources);
+        source.component = Some(instance.component);
+        self.related_sources = Some(Arc::new(source));
+        self
+    }
+    fn receive_related(&self, resources: &dyn ResourceAccess) -> std::io::Result<()> {
+        if let Some(source) = &self.related_sources {
+            // A missing outer receiver leaves the pure capsule in this actual
+            // custody record. Never return it through a per-slot control error:
+            // that error can itself enter this declaration graph's causes.
+            resources
+                .receive_protocol_failure(&self.scope, source)
+                .map_err(std::io::Error::other)?;
+        }
+        Ok(())
+    }
     pub(super) fn receive_report(&self, report: &mut CloseReport) -> std::io::Result<()> {
+        let has_fault = !report.failed_tasks.is_empty() || !report.resource_failures.is_empty();
         let resources = self.resources.upgrade().ok_or_else(|| {
             std::io::Error::new(
                 std::io::ErrorKind::NotConnected,
@@ -19,6 +49,9 @@ impl Receiver {
         resources
             .receive_protocol_report(&self.scope, report)
             .map_err(std::io::Error::other)?;
+        if has_fault {
+            self.receive_related(resources.as_ref())?;
+        }
         Ok(())
     }
     pub(super) fn retain_error(&self, source: std::io::Error) -> std::io::Result<std::io::Error> {
@@ -36,7 +69,10 @@ impl Receiver {
                     "original DNS fault receiver retired",
                 )
             })
-            .and_then(|resources| resources.receive_protocol_failure(&self.scope, &original));
+            .and_then(|resources| {
+                resources.receive_protocol_failure(&self.scope, &original)?;
+                self.receive_related(resources.as_ref()).map_err(error)
+            });
         result.map_err(|receiver| {
             std::io::Error::other(
                 BuildError::retained(original.clone()).with_source(Unreceived {
@@ -96,6 +132,7 @@ impl Provider {
         Receiver {
             resources: Arc::downgrade(&self.resources),
             scope: self.registrar.scope_identity(),
+            related_sources: None,
         }
     }
 }
