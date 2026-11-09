@@ -1,7 +1,8 @@
 use super::*;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use zero_platform_tokio::contract::scope::{TaskClass, TaskScope};
-static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub(in crate::ipc::client::owner) static SERIAL: tokio::sync::Mutex<()> =
+    tokio::sync::Mutex::const_new(());
 fn end() -> tokio::time::Instant {
     crate::ipc::owner::close_deadline()
 }
@@ -186,27 +187,36 @@ async fn actual_pending_io_panic_retains_original_task_error_but_positive_cleanu
         original.read_pending.load(Ordering::Acquire),
         "actual underlying OS read must be Pending before the real Scope task panics"
     );
+    tokio::time::timeout_at(end(), async {
+        while !original.retired.load(Ordering::Acquire) {
+            tokio::task::yield_now().await
+        }
+    })
+    .await
+    .unwrap();
+    let rows = lock(&original.faults.joined).clone();
+    assert_eq!(rows.len(), 1);
+    let same = rows[0].result().unwrap_err();
+    assert!(rows[0].registration_released());
     let error = caller
         .finish()
         .await
         .expect_err("original task panic must reach real cleanup receiver");
     assert!(original.retired.load(Ordering::Acquire));
     assert_eq!(original.book.usage().connections, 0);
-    let rows = lock(&original.faults.joined).clone();
-    assert_eq!(rows.len(), 1);
-    let same = rows[0].result().unwrap_err();
-    assert!(rows[0].registration_released());
-    let root = error
+    let received = error
         .get_ref()
         .unwrap()
-        .downcast_ref::<Arc<io::Error>>()
-        .expect("same real ControlTask result");
-    let faults = root
-        .get_ref()
-        .unwrap()
-        .downcast_ref::<ClientFaults>()
-        .expect("same actual Scope error rows");
-    assert!(Arc::ptr_eq(&faults.errors[0], &same));
+        .downcast_ref::<handoff::Handoff>()
+        .expect("actual complete client fault handoff");
+    assert!(Arc::ptr_eq(
+        &received.retained_tasks().unwrap().errors[0],
+        &same
+    ));
+    assert!(
+        lock(&original.faults.joined).is_empty(),
+        "accepted local task diagnostics cannot pin retired payloads"
+    );
     let next = Caller::begin(Limits::default()).await.unwrap();
     assert!(Arc::ptr_eq(&next.original.book, &original.book));
     next.finish().await.unwrap();
