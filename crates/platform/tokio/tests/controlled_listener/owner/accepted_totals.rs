@@ -148,7 +148,22 @@ async fn same_live_source_accepts_again_only_after_original_native_users_and_hos
             let waker = std::task::Waker::from(returned.clone());
             assert!(global_return.as_mut().poll(&mut std::task::Context::from_waker(&waker)).is_pending());
             assert_eq!(returned.wakes.load(std::sync::atomic::Ordering::Acquire), 0);
+            // This explicit standalone fixture has no Host supervisor. Poll
+            // that same existing Root operation with the real test Context to
+            // install its passive original-registration ACK wait first.
+            poll_fn(|cx| {
+                roots.poll_cancelled_retirements(cx);
+                Poll::Ready(())
+            }).await;
+            assert!(!lineage.is_settled());
             scope.acknowledge(&receipt).unwrap();
+            // ACK is not execution of the Root. Its original continuation now
+            // consumes that positive gate and removes this exact global row;
+            // the reentrant observer below runs synchronously from removal.
+            poll_fn(|cx| {
+                roots.poll_cancelled_retirements(cx);
+                if lineage.is_settled() {Poll::Ready(())} else {Poll::Pending}
+            }).await;
             assert!(returned.wakes.load(std::sync::atomic::Ordering::Acquire) > 0);
             global_return.await.unwrap();
             assert!(lineage.is_settled());
