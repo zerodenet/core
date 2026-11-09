@@ -27,7 +27,7 @@ impl InboundOwner {
                     cleanup = None;
                     if let Err(mut error) = result {
                         error.component.get_or_insert(self.identity.component);
-                        self.failure.lock().expect("inbound failure poisoned").get_or_insert_with(|| Arc::new(error));
+                        self.failure.lock().expect("inbound failure poisoned").get_or_insert_with(|| Arc::new(error).into());
                         // No retained owner or unknown native outcome is released.
                         self.stop();
                     }
@@ -47,7 +47,7 @@ impl InboundOwner {
                 self.failure
                     .lock()
                     .expect("inbound failure poisoned")
-                    .get_or_insert(source.clone());
+                    .get_or_insert(source.clone().into());
                 self.stop();
                 first_failure.get_or_insert_with(|| retained(source));
             }
@@ -66,7 +66,7 @@ impl InboundOwner {
                 self.failure
                     .lock()
                     .expect("inbound failure poisoned")
-                    .get_or_insert(source.clone());
+                    .get_or_insert(source.clone().into());
                 // Persist the original source and revoke admission before any
                 // other group's cleanup can suspend or call back into the host.
                 self.stop();

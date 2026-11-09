@@ -27,7 +27,7 @@ impl InboundOwner {
                         self.failure
                             .lock()
                             .expect("inbound failure poisoned")
-                            .get_or_insert(error.clone());
+                            .get_or_insert(error.clone().into());
                         failure.get_or_insert_with(|| std::io::Error::other(retained(error)));
                         continue;
                     }
@@ -94,7 +94,7 @@ impl InboundOwner {
                         self.failure
                             .lock()
                             .expect("inbound failure poisoned")
-                            .get_or_insert(source);
+                            .get_or_insert(source.into());
                     }
                 }
                 if let Some(error) = failure {

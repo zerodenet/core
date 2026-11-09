@@ -21,7 +21,7 @@ impl PacketReturns {
             .iter()
             .find(|(actual, _)| *actual == destination)
             .map(|(_, value)| value)
-            .filter(|route| (!route.replies.is_closed() || route.touched.elapsed() < IDLE_TIMEOUT))
+            .filter(|route| !route.replies.is_closed() || route.touched.elapsed() < IDLE_TIMEOUT)
             .map(|route| route.replies.clone());
         let Some(replies) = replies else {
             return Ok(Some(original));
@@ -35,7 +35,7 @@ impl PacketReturns {
                 .find(|(actual, _)| *actual == key)
                 .map(|(_, value)| value)
                 .filter(|entry| {
-                    (!entry.replies.is_closed() || entry.touched.elapsed() < IDLE_TIMEOUT)
+                    !entry.replies.is_closed() || entry.touched.elapsed() < IDLE_TIMEOUT
                 })
                 .and_then(|entry| entry.observer.clone())
         });
@@ -48,8 +48,8 @@ impl PacketReturns {
                     .find(|(actual, _)| *actual == key)
                     .map(|(_, value)| value)
                     .filter(|entry| {
-                        (!entry.replies.is_closed()
-                            || entry.touched.elapsed() < Duration::from_secs(600))
+                        !entry.replies.is_closed()
+                            || entry.touched.elapsed() < Duration::from_secs(600)
                     })
                     .map(|entry| entry.replies.clone())
             })
@@ -97,7 +97,7 @@ impl PacketReturns {
             .iter()
             .find(|(actual, _)| *actual == destination)
             .map(|(_, value)| value)
-            .filter(|route| (!route.replies.is_closed() || route.touched.elapsed() < IDLE_TIMEOUT))
+            .filter(|route| !route.replies.is_closed() || route.touched.elapsed() < IDLE_TIMEOUT)
             .map(|route| route.replies.clone());
         let Some(replies) = replies else {
             return Err(packet);
@@ -111,8 +111,7 @@ impl PacketReturns {
                 .find(|(actual, _)| *actual == key)
                 .map(|(_, value)| value)
                 .filter(|observation| {
-                    (!observation.replies.is_closed()
-                        || observation.touched.elapsed() < IDLE_TIMEOUT)
+                    !observation.replies.is_closed() || observation.touched.elapsed() < IDLE_TIMEOUT
                 })
                 .and_then(|observation| observation.observer.clone())
         });
@@ -126,7 +125,7 @@ impl PacketReturns {
                     .find(|(actual, _)| *actual == key)
                     .map(|(_, value)| value)
                     .filter(|c| {
-                        (!c.replies.is_closed() || c.touched.elapsed() < Duration::from_secs(600))
+                        !c.replies.is_closed() || c.touched.elapsed() < Duration::from_secs(600)
                     })
                     .map(|c| c.replies.clone())
             })

@@ -12,7 +12,7 @@ use zero_core::component::TaskId;
 use zero_platform_tokio::contract::{
     lifecycle::{CloseReport, TaskFailure},
     scope::{TaskClass, TaskExit, TaskRegistrar, TaskScope},
-    ChannelError, CloseReason, Impact, Reason, Stage,
+    ChannelError, CloseReason, Impact, Reason, RetainedError, Stage,
 };
 #[cfg(feature = "raw-ip-runtime")]
 mod native_progress;
@@ -97,7 +97,7 @@ pub(crate) struct InboundOwner {
     registrar: TaskRegistrar,
     resources: Mutex<Vec<Arc<Resource>>>,
     report: Mutex<CloseReport>,
-    failure: Mutex<Option<SharedError>>,
+    failure: Mutex<Option<RetainedError>>,
     accepted_receiver: Mutex<Vec<zero_platform_tokio::AcceptedTcpTaskReceiver>>,
     acquisition: Arc<acquisition::Acquisition>,
     client_failure: OnceLock<zero_platform_tokio::contract::scope::TaskJoined>,

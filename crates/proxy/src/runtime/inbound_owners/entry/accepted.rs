@@ -101,7 +101,7 @@ impl InboundOwner {
             self.failure
                 .lock()
                 .expect("inbound failure poisoned")
-                .get_or_insert_with(|| Arc::new(source));
+                .get_or_insert_with(|| Arc::new(source).into());
             // This is a listener supervision fault, not a fabricated failed
             // TaskExit. The real successful task receipt remains unchanged.
             self.ready.wake();

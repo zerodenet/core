@@ -15,7 +15,7 @@ impl PacketReturns {
                 .find(|(actual, _)| *actual == destination)
                 .map(|(_, value)| value)
                 .is_some_and(|route| {
-                    (!route.replies.is_closed() || route.touched.elapsed() < IDLE_TIMEOUT)
+                    !route.replies.is_closed() || route.touched.elapsed() < IDLE_TIMEOUT
                 })
         }) {
             return None;

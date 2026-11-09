@@ -138,7 +138,7 @@ fn retain_failure(parent: &Weak<InboundOwner>, source: SharedError) {
             .failure
             .lock()
             .expect("inbound failure poisoned")
-            .get_or_insert(source);
+            .get_or_insert(source.into());
     }
 }
 

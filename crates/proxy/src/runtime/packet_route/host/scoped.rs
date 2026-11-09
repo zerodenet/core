@@ -82,7 +82,7 @@ impl HostPacketDevice {
         options: &crate::runtime::raw_ip::RawIpStackOptions,
     ) -> Result<(Arc<Self>, PendingScopedDevice), ChannelError> {
         let (writes, rx) = mpsc::channel::<Write>(config.write_queue.get());
-        let returns = Arc::new(PacketReturns::default().with_limits(options).map_err(
+        let returns = Arc::new(PacketReturns::new_for_options(options, true, None).map_err(
             |source| {
                 failure(
                     Reason::Capacity,

@@ -12,10 +12,10 @@ pub(crate) struct InboundTerminal {
     observation: Arc<observation::ObservationDisposition>,
     joined_tasks: usize,
     closed_io_receipts: usize,
-    failure: Option<SharedError>,
+    failure: Option<RetainedError>,
     tasks: Box<[InboundTaskFailure]>,
     client_failure: Option<zero_platform_tokio::contract::scope::TaskJoined>,
-    native_bound_failures: Box<[SharedError]>,
+    native_bound_failures: Box<[RetainedError]>,
     resource_failures: Box<[Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>]>,
 }
 impl InboundTerminal {
@@ -28,10 +28,10 @@ impl InboundTerminal {
     pub(crate) fn identity(&self) -> ComponentInstanceId {
         self.identity
     }
-    pub(crate) fn failure(&self) -> Option<SharedError> {
+    pub(crate) fn failure(&self) -> Option<RetainedError> {
         self.failure.clone()
     }
-    pub(crate) fn native_bound_failures(&self) -> &[SharedError] {
+    pub(crate) fn native_bound_failures(&self) -> &[RetainedError] {
         &self.native_bound_failures
     }
     pub(crate) fn client_failure(
@@ -153,7 +153,7 @@ impl InboundOwner {
             self.failure
                 .lock()
                 .expect("inbound failure poisoned")
-                .get_or_insert(error.clone());
+                .get_or_insert(error.clone().into());
             report.failed_tasks.push(TaskFailure {
                 id: exit.id,
                 class: exit.class,
@@ -207,7 +207,7 @@ impl InboundOwner {
             self.failure
                 .lock()
                 .expect("inbound failure poisoned")
-                .get_or_insert(source.clone());
+                .get_or_insert(source.clone().into());
             self.task_failures
                 .lock()
                 .expect("inbound task faults poisoned")
@@ -332,14 +332,16 @@ impl InboundOwner {
                         )
                         .into_vec();
                     #[cfg(not(test))]
-                    let native_bound_failures = Vec::new();
-                    let mut native_bound_failures = native_bound_failures;
+                    let native_bound_failures: Vec<SharedError> = Vec::new();
+                    let mut native_bound_failures: Vec<RetainedError> =
+                        native_bound_failures.into_iter().map(Into::into).collect();
                     native_bound_failures.extend(
                         self.resources
                             .lock()
                             .expect("inbound resources poisoned")
                             .iter()
-                            .flat_map(|resource| resource.cleanup_failures()),
+                            .flat_map(|resource| resource.cleanup_failures())
+                            .map(Into::into),
                     );
                     let resource_failures = self
                         .report
