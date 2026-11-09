@@ -262,7 +262,7 @@ impl Delivery {
         match packet::ip_protocol(&packet) {
             Some(packet::IPPROTO_TCP) => self.tcp.feed(&packet).await,
             Some(packet::IPPROTO_UDP) => {
-                self.udp.feed(&packet);
+                let _ = self.udp.feed_packet(packet);
             }
             Some(packet::IPPROTO_ICMP) | Some(packet::IPPROTO_ICMPV6) => {
                 if let Some(error) = packet::parse_icmp_error(&packet) {

@@ -208,7 +208,7 @@ impl SharedRawIpDevice {
         };
         let delivered = match packet::ip_protocol(&packet) {
             Some(packet::IPPROTO_TCP) => self.tcp.feed_correlated(&packet).await,
-            Some(packet::IPPROTO_UDP) => self.udp.feed_correlated(&packet),
+            Some(packet::IPPROTO_UDP) => return self.udp.feed_correlated_packet(packet),
             Some(packet::IPPROTO_ICMP) | Some(packet::IPPROTO_ICMPV6) => {
                 let Some(error) = packet::parse_icmp_error(&packet) else {
                     return Err(packet);

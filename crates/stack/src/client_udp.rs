@@ -17,11 +17,13 @@ use sender::SocketState;
 pub use sender::{ClientUdpCloseReceipt, ClientUdpSendError, ClientUdpSender};
 mod maintenance;
 mod observation;
+mod owned;
 mod queue;
 mod receive;
 use crate::packet::{self, Endpoint};
 use crate::FragmentReassembler;
 use observation::observe_discard;
+pub use owned::{ClientUdpPacketDatagram, ClientUdpPacketEvent};
 pub use queue::ClientUdpReceiveQueueConfig;
 use queue::{ByteBudget, QueueBudget, QueuedEvent};
 
@@ -144,27 +146,10 @@ impl ClientUdpSocket {
         &mut self,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<ClientUdpEvent>> {
-        use std::task::Poll;
-        if self.inner.closed.load(Ordering::Acquire) || self.state.closed() {
-            self.discard_queued();
-            return Poll::Ready(None);
-        }
-        match self.receiver.poll_recv(cx) {
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(event) => {
-                if self.inner.closed.load(Ordering::Acquire) || self.state.closed() {
-                    if event.is_some() {
-                        self.observe_closed_discard();
-                    }
-                    drop(event);
-                    self.discard_queued();
-                    Poll::Ready(None)
-                } else {
-                    Poll::Ready(event.map(QueuedEvent::into_event))
-                }
-            }
-        }
+        self.poll_recv_packet_event(cx)
+            .map(|event| event.map(ClientUdpPacketEvent::into_library_event))
     }
+
     fn observe_closed_discard(&self) {
         observe_discard(
             self.observer.as_ref(),
