@@ -100,7 +100,7 @@ impl Reply {
     pub(super) fn raw(&self) -> io::Result<&RawValue> {
         serde_json::from_slice(&self.frame.bytes).map_err(io::Error::other)
     }
-    pub(super) fn header(&self) -> io::Result<Guard<header::Header<'_>>> {
+    fn header(&self) -> io::Result<Guard<header::Header<'_>>> {
         let credit = self.book.reserve(ControlCharge::ResponseBytes(
             count::scan(&self.frame.bytes)?
                 .scratch()?
