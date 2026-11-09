@@ -20,7 +20,7 @@ impl ScopedTracing {
                 if joined.result().is_err() && !lane.failure_delivered {
                     continue;
                 }
-                if !witness.registration_released() {
+                if !joined.registration_released() {
                     continue;
                 }
             }
@@ -132,10 +132,10 @@ impl ScopedTracing {
         if self.shared.book.preparing() != 0
             || self.lanes.iter().any(|lane| {
                 lane.creating
-                    || lane
-                        .witness
-                        .as_ref()
-                        .is_some_and(|w| !w.is_joined() || !w.registration_released())
+                    || lane.witness.as_ref().is_some_and(|w| {
+                        w.try_joined()
+                            .is_none_or(|joined| !joined.registration_released())
+                    })
             })
         {
             return false;

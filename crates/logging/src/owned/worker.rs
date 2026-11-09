@@ -13,9 +13,12 @@ pub(super) fn run(entry: file::Output) -> Result<(), ComponentError> {
         }
         if let Err(error) = entry.open() {
             let source = entry.receive_open_failure(error);
-            return Err(zero_platform_tokio::contract::ChannelError::retained(
-                source.diagnostic(),
-            ));
+            return Err(zero_platform_tokio::contract::ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::Io,
+                zero_platform_tokio::contract::Impact::Component,
+            )
+            .with_metadata_source(source.diagnostic()));
         }
         entry.mark_ready();
     }

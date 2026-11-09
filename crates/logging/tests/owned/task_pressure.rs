@@ -46,7 +46,10 @@ async fn actual_task_panic_full_archive_redelivers_same_original_after_budget_gr
     assert_eq!(witness.task_id(), Some(joined.id()));
     assert_eq!(joined.class(), TaskClass::Critical);
     assert!(!joined.failure_accepted());
-    assert!(!witness.registration_released());
+    assert!(!witness
+        .try_joined()
+        .expect("actual original task has joined")
+        .registration_released());
     assert!(
         !owner.native_closed(),
         "original FD closure is independent of failed task join"
@@ -62,7 +65,10 @@ async fn actual_task_panic_full_archive_redelivers_same_original_after_budget_gr
     drop(candidate);
     until(&mut scope, &mut owner, ScopedTracing::drained).await;
     assert!(joined.failure_accepted());
-    assert!(witness.registration_released());
+    assert!(witness
+        .try_joined()
+        .expect("actual original task has joined")
+        .registration_released());
     assert_eq!(owner.failures().len(), 1);
     assert!(
         matches!(&owner.failures()[0], LoggingFailure::Worker(source)

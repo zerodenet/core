@@ -77,7 +77,10 @@ async fn original_idle_job_must_join_and_ack_before_the_next_chunk_runs() {
     let witness = owner.witness(0).unwrap();
     assert!(witness.matches_joined(receipt.joined()));
     assert!(witness.is_joined());
-    assert!(!witness.registration_released());
+    assert!(!witness
+        .try_joined()
+        .expect("actual original task has joined")
+        .registration_released());
     let mut writer = owner.writer(0).unwrap();
     writer.write_all(b"old\n").unwrap();
     owner.drive(&scope.registrar()).unwrap();
@@ -86,7 +89,10 @@ async fn original_idle_job_must_join_and_ack_before_the_next_chunk_runs() {
     assert_eq!(owner.usage().pending_bytes, 4);
     scope.acknowledge(&receipt).unwrap();
     drop(receipt);
-    assert!(witness.registration_released());
+    assert!(witness
+        .try_joined()
+        .expect("actual original task has joined")
+        .registration_released());
     drop(witness); // actual observed header, not just an ACK
     until(&mut scope, &mut owner, |owner| owner.drained()).await;
     assert_eq!(fs::read(&path).unwrap(), b"old\n");

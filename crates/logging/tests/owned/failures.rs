@@ -79,13 +79,19 @@ async fn real_worker_panic_preserves_original_task_chunk_and_host_ack() {
     ));
     assert_eq!(source.failed_bytes(), Some(b"bad\n".as_slice()));
     assert!(owner.accept_worker_failure(&source)); // actual local typed receiver
-    assert!(!witness.registration_released());
+    assert!(!witness
+        .try_joined()
+        .expect("actual original task has joined")
+        .registration_released());
     owner.drive(&scope.registrar()).unwrap();
     assert!(owner.witness(0).unwrap().same_registration(&witness));
     assert!(!owner.close_after_workers());
     scope.acknowledge(&receipt).unwrap();
     drop(receipt);
-    assert!(witness.registration_released());
+    assert!(witness
+        .try_joined()
+        .expect("actual original task has joined")
+        .registration_released());
     drop(witness);
     owner.drive(&scope.registrar()).unwrap(); // closes old original before reuse
     writer.write_all(b"good").unwrap();
@@ -133,13 +139,19 @@ async fn actual_os_error_and_original_task_panic_are_both_received_before_ack() 
     assert!(owner.failures().iter().any(|source| matches!(source, LoggingFailure::Io(source) if source.failed_bytes() == Some(b"bad\n".as_slice()))));
     assert!(owner.failures().iter().any(|source| matches!(source, LoggingFailure::Worker(source) if Arc::ptr_eq(&source.joined().result().unwrap_err(), &original))));
     assert!(receipt.local_failure_accepted());
-    assert!(!witness.registration_released());
+    assert!(!witness
+        .try_joined()
+        .expect("actual original task has joined")
+        .registration_released());
     owner.drive(&scope.registrar()).unwrap();
     assert_eq!(owner.failures().len(), 2);
     assert!(owner.witness(0).unwrap().same_registration(&witness));
     scope.acknowledge(&receipt).unwrap();
     drop(receipt);
-    assert!(witness.registration_released());
+    assert!(witness
+        .try_joined()
+        .expect("actual original task has joined")
+        .registration_released());
     drop(witness);
     fs::remove_dir(path.with_extension("1")).unwrap();
     writer.write_all(b"good").unwrap();

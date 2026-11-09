@@ -171,10 +171,10 @@ impl ScopedTracing {
         }
         if self.lanes.iter().any(|lane| {
             lane.creating
-                || lane
-                    .witness
-                    .as_ref()
-                    .is_some_and(|w| !w.is_joined() || !w.registration_released())
+                || lane.witness.as_ref().is_some_and(|w| {
+                    w.try_joined()
+                        .is_none_or(|joined| !joined.registration_released())
+                })
         }) {
             return false;
         }
