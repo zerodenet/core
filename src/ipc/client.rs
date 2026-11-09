@@ -1,6 +1,7 @@
 //! Application-owned control client. The daemon's budget is never borrowed.
 use std::{io, sync::Arc};
 use zero_runtime::configuration::{ControlBudget, ControlBudgetLimits, ControlMessageLimits};
+mod document;
 mod frames;
 mod native;
 mod owner;
@@ -93,5 +94,12 @@ mod tests;
 impl Caller {
     pub(crate) fn raw_json<'a>(&self, text: &'a str) -> io::Result<wire::RawInput<'a>> {
         wire::RawInput::new(text, &self.original.book)
+    }
+}
+
+impl Caller {
+    pub(crate) fn read_document(&self, path: &str) -> io::Result<document::Document> {
+        let source = Arc::new(zero_runtime::configuration::ConfigurationSource::default());
+        document::load(&source, std::path::Path::new(path), &self.original.book)
     }
 }
