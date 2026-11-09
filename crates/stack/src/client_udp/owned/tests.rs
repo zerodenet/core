@@ -13,7 +13,9 @@ fn input(
     let bytes = packet::build_udp(remote.ip, local.ip, remote.port, local.port, payload);
     let mut original = read.try_buffer().unwrap();
     original.as_mut_bytes()[..bytes.len()].copy_from_slice(&bytes);
-    original.into_packet(bytes.len()).unwrap()
+    original
+        .into_packet(bytes.len())
+        .unwrap_or_else(|_| panic!("initialized packet length fits the original read workspace"))
 }
 fn fixture() -> (
     Arc<PacketReturnTotals>,

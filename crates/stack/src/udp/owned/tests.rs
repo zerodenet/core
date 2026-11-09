@@ -26,7 +26,9 @@ async fn one_actual_native_read_moves_into_udp_range_without_a_second_frame_or_c
     );
     let mut incoming = read.try_buffer().unwrap();
     incoming.as_mut_bytes()[..input.len()].copy_from_slice(&input);
-    let original = incoming.into_packet(input.len()).unwrap();
+    let original = incoming
+        .into_packet(input.len())
+        .unwrap_or_else(|_| panic!("initialized packet length fits the original read workspace"));
     let payload_address = original[28..].as_ptr();
     assert!(matches!(read.try_buffer(), Err(PacketMemoryError::Busy)));
     let (sender, _outgoing) = mpsc::channel::<zero_traits::PacketBuffer>(1);
