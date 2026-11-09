@@ -35,3 +35,54 @@ authoritative. Client connect/read gain no arbitrary observer timeout or retry.
 Windows client acquisition must be a real named-pipe provider, not a regular-file
 ConfigurationSource grant. No second Runtime, resolver, pool or generic executor
 is introduced.
+
+## Reconstructed control input checkpoint
+
+The client migration is now implemented by the complete ClientAttempt/native
+provider/Scope pair (M integration `81097b687` and later fault handoff repairs).
+One actual application-owned ControlBudget is reused through recovery. Original
+connect/read have no new deadline; the native, raw driver, worker Scope and host
+registration acknowledgements remain independent. Retired local copies release
+paid data only after a real external fault receiver accepts it; a delivered
+failed task remains a failed task instead of becoming `Ok(())`.
+
+Fresh coordinator evidence at `42da3030f7643914a272ef7c7f1b9e20ca01c1b2`
+(records under `/workspace/r2-cont-evidence/recovery-42da-*`) reports CLI9,
+HTTP input4, owned command decoding2 and original event-child1 passing, plus the
+Root all-feature binary check. Its exact lock is
+`e531d45444635b84e30795e5b09703c65f440a6abbdad03f75334356f635fd74`.
+Those results do not qualify subsequent sources or Windows execution. A later
+private `25a293e3c` adds the malformed, unterminated escaped-prefix scratch repair
+and a real held DecodeFailure regression; it has not been executed by A.
+
+| Frozen subsequent pair | Actual owner and current status |
+| --- | --- |
+| Server decoded JSON, 30 files; patch SHA256 `4e82cb0c436ec7c845b2efcddeabffff01ad1c099827a12837fc6fbe388f490b` | Outside proposal `a-server-decoded`, exact base `7250cc3b5`, M-only apply. IPC borrowed fixed envelope removes the intermediate Content tree. HTTP HeldRequest and gRPC Record prepay actual tree/Content/typed vectors before the original serde result producer, retaining input through original Work/join/ACK. Pure runtime measurement creates no decoder/Scope/IO authority. The synchronous rejection path retains original input until its actual unstarted DTO/future is freed. Rustfmt and apply-check only, no build or test qualification. |
+| Canonical configuration String, 5 files; patch SHA256 `141ac5eff8007e5a95aff21bd4d98de9de1dbd1bd97737c8bfce78dc5a999f74` | Outside proposal `a-config-canonical-input`, M-only apply. Proxy ConfigApply/Runtime and ConfigValidate count immutable Value output before allocating from their original Host book. Bounded serialization preserves original bytes. The original Engine validation body still uses the same source, error mapping and routing material checks. It counts only temporary canonical document storage, not an AST or native-close receipt. |
+
+Both outside pairs include exact input/output file manifests and their actual
+production consumers. Source construction facts for JSON capacity are kept in
+outside evidence (Rust1.99.0 BTreeMap nodes, serde1.0.228 Content, requested Vec
+capacity/overlap); archive/license checks do not imply runtime qualification.
+RawValue magic-token interpretation, duplicate/null/first-key behavior and
+original serde errors are tested against the actual former decoder. Capacity
+measurement does not replace that decoder with a different JSON protocol.
+
+The post-decode candidate is long-lived core state: actual Apply captures
+RuntimeConfig, and the immutable Engine snapshot and its plan/borrowers retain
+its configuration Arc beyond the request. A request's 15-second return is not
+its storage lifetime. A blanket permit field shared by deep `RuntimeConfig`
+clones or a permit beside a snapshot whose public config Arc escapes would not
+account the actual copies; no such shortcut is implemented or claimed. The
+early logging whole-Value projection and concrete normalization/materialization
+storage remain separately identified work. Existing file/source/resource and
+control request bounds retain their documented units; they are not a process
+RSS allocator or a second configuration pool.
+
+B/C reconfirmed no new complete advanced or TEMP donor qualification on this
+checkpoint. Two actual Kernel PacketPath(None) borrowers are in B/M's complete
+pending producer/consumer pair, not standalone-library exemptions. Therefore
+`ProxyDnsOutboundConnector`, detour Session0 and `prepare_datagram_exchange`
+retain their remaining callers until the real legal paths and their original
+native/user/Scope/ACK receipts are complete. This control checkpoint does not
+close the DNS domain.
