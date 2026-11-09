@@ -68,6 +68,10 @@ async fn ordinary_quic_native_and_borrowed_doh_use_the_same_real_query_and_endpo
             handle.apply_runtime_config_and_wait(target, Duration::from_secs(5)).await.unwrap();
             assert!(donor.closed().unwrap().matches(&donor)); returned(child);
             let old_join = actual.task.try_joined().unwrap(); assert!(old_join.registration_released()); old_join.result().unwrap();
+            // Budget replacement constructs a fresh actual DoH backend; its
+            // fixture-only trust is intentionally not copied from the retired
+            // pool. Keep the SAME CA and real hostname/certificate checks.
+            zero_dns::test_support::install_doh_ca(&proxy.resolver, "query", tls.certificate.clone()).unwrap();
             let mut next = query(&proxy, "replacement.real.quic.doh.test");
             let (bytes, reply) = tokio::select! {
                 request=tokio::time::timeout_at(deadline(),tls.requests.recv())=>request.unwrap().unwrap(),
