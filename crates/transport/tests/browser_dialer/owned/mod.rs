@@ -10,3 +10,4 @@ use zero_platform_tokio::contract::{
 };
 mod fixture;
 mod ownership;
+mod stream;
