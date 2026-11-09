@@ -193,15 +193,22 @@ impl ControlledTcpListenerOwner {
                 // the permanent Unknown, replacing only the pre-call sentinel.
                 state.error = Some(source.clone());
             }
-            if state.error.is_none() && state.raw.is_none() && state.listener.is_none() {
+            let settled = state.error.is_none() && state.raw.is_none() && state.listener.is_none();
+            if settled {
                 // Only this observed synchronous failed exit can certify that
                 // no view or wire driver was published from this exact attempt.
                 attempt.failed_return();
+            }
+            let unknown = state.error.is_some();
+            drop(state);
+            // Settlement inspects this same provider's retained fault, and may
+            // wake its global capacity waiter. Neither can run under its lock.
+            if settled {
                 if let Some(charge) = &charge {
                     charge.release_settled();
                 }
             }
-            return Err(failure(stage, source, state.error.is_some()));
+            return Err(failure(stage, source, unknown));
         }
         self.acquired = true;
         attempt.publish_view();
