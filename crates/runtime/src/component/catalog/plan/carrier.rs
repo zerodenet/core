@@ -3,6 +3,7 @@ use super::*;
 mod metadata;
 mod preparation;
 mod process;
+mod protocol;
 impl ComponentPlan {
     /// Planning capacity only; retain still validates each installed original
     /// through validate_carrier_adoption before it can enter the caller ledger.
@@ -64,6 +65,7 @@ impl ComponentPlan {
                     | R::ControlledDirectStream { max_sockets, .. }
                     | R::ControlledOutboundStream { max_sockets, .. }
                     | R::ControlledDatagramCarrier { max_sockets, .. } => max_sockets.get(),
+                    R::ControlledMetadataCarrier { max_origins, .. } => max_origins.get(),
                     _ => 0,
                 };
                 capacity = capacity.checked_add(limit).ok_or_else(|| {
