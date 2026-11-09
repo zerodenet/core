@@ -48,10 +48,11 @@ pub(super) async fn read_request(
     stream: &mut (impl tokio::io::AsyncRead + Unpin),
     budget: &Arc<ControlBudget>,
 ) -> io::Result<HeldRequest> {
-    let mut head = Vec::new();
     let mut raw = budget
         .reserve(ControlCharge::RequestBytes(0))
         .map_err(capacity)?;
+    // Every failure exit destroys this original capacity before refund/wake.
+    let mut head = Vec::new();
     loop {
         let maximum = budget.limits().messages.http_header_bytes;
         if head.len() >= maximum {
@@ -82,14 +83,29 @@ pub(super) async fn read_request(
     }
     let head = String::from_utf8(head).map_err(|_| invalid("request is not utf-8"))?;
     // Method/path/header strings coexist with this original header during parse.
+    let header_rows = head
+        .lines()
+        .skip(1)
+        .filter(|line| line.split_once(':').is_some())
+        .count();
+    let metadata = header_rows
+        .checked_mul(std::mem::size_of::<(String, String)>())
+        .and_then(|rows| rows.checked_add(head.len()))
+        .ok_or_else(|| invalid("http header metadata overflow"))?;
     let decoded = budget
-        .reserve(ControlCharge::RequestBytes(head.len()))
+        .reserve(ControlCharge::RequestBytes(metadata))
         .map_err(capacity)?;
     let first = head
         .lines()
         .next()
         .ok_or_else(|| invalid("missing request line"))?;
     let mut parts = first.split_whitespace();
+    // Exact finite row allocation, paid before method/path/header copies.
+    // Preserve original order, duplicate headers and ignored colonless lines.
+    let mut headers = Vec::new();
+    headers
+        .try_reserve_exact(header_rows)
+        .map_err(io::Error::other)?;
     let method = parts
         .next()
         .ok_or_else(|| invalid("missing method"))?
@@ -98,12 +114,9 @@ pub(super) async fn read_request(
         .next()
         .ok_or_else(|| invalid("missing path"))?
         .to_owned();
-    let headers = head
-        .lines()
-        .skip(1)
-        .filter_map(|line| line.split_once(':'))
-        .map(|(name, value)| (name.trim().to_owned(), value.trim().to_owned()))
-        .collect::<Vec<_>>();
+    for (name, value) in head.lines().skip(1).filter_map(|line| line.split_once(':')) {
+        headers.push((name.trim().to_owned(), value.trim().to_owned()));
+    }
     let length = content_length(&headers)?;
     if length > budget.limits().messages.http_body_bytes {
         return Err(invalid("request body too large"));

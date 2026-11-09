@@ -47,3 +47,59 @@ async fn actual_http_body_cap_rejects_before_allocating_announced_payload() {
     assert!(client_frame(&error));
     assert_eq!(budget.usage().request_bytes, 0);
 }
+
+#[tokio::test]
+async fn actual_http_header_rows_keep_paid_capacity_order_and_duplicates_until_request_return() {
+    let limits = ControlBudgetLimits::from_runtime(&Default::default());
+    let book = ControlBudget::new(limits);
+    let wire = b"GET /health HTTP/1.1\r\nX:a\r\nignored\r\nX:b\r\n\r\n";
+    let (mut sender, mut receiver) = tokio::io::duplex(256);
+    sender.write_all(wire).await.unwrap();
+    let request = read_request(&mut receiver, &book).await.unwrap();
+    assert_eq!(request.method, "GET");
+    assert_eq!(request.path, "/health");
+    assert_eq!(
+        request.headers,
+        &[
+            ("X".to_owned(), "a".to_owned()),
+            ("X".to_owned(), "b".to_owned())
+        ]
+    );
+    assert_eq!(request.headers.capacity(), 2);
+    assert_eq!(
+        book.usage().request_bytes,
+        wire.len() + 2 * std::mem::size_of::<(String, String)>()
+    );
+    let mut lower = limits;
+    lower.messages.request_bytes_total = wire.len();
+    assert!(
+        book.prepare(lower).is_err(),
+        "held concrete header metadata cannot be ignored by shrink"
+    );
+    drop(request);
+    assert_eq!(book.usage().request_bytes, 0);
+    book.prepare(lower).unwrap().retire().unwrap();
+}
+#[tokio::test]
+async fn actual_http_header_metadata_refuses_before_copying_and_failed_admission_leaves_no_bytes() {
+    let mut limits = ControlBudgetLimits::from_runtime(&Default::default());
+    limits.messages.http_header_bytes = 64;
+    let wire = b"GET /health HTTP/1.1\r\nX:a\r\nX:b\r\n\r\n";
+    limits.messages.request_bytes_total = 64 + wire.len();
+    let book = ControlBudget::new(limits);
+    let (mut sender, mut receiver) = tokio::io::duplex(256);
+    sender.write_all(wire).await.unwrap();
+    let error = read_request(&mut receiver, &book).await.err().unwrap();
+    assert!(
+        matches!(error.get_ref().and_then(|source|source.downcast_ref::<ClientFrame>()),Some(ClientFrame::Capacity(source)) if source.kind()==io::ErrorKind::WouldBlock)
+    );
+    assert_eq!(book.usage().request_bytes, 0);
+    let mut target = limits;
+    target.messages.request_bytes_total += 2 * std::mem::size_of::<(String, String)>();
+    book.prepare(target).unwrap().commit().unwrap();
+    sender.write_all(wire).await.unwrap();
+    let request = read_request(&mut receiver, &book).await.unwrap();
+    assert_eq!(request.headers.len(), 2);
+    drop(request);
+    assert_eq!(book.usage().request_bytes, 0);
+}
