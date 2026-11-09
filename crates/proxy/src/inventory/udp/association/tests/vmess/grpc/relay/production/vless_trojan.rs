@@ -90,7 +90,7 @@ async fn ordinary_vless_trojan_mux_prefix_loans_share_one_original_for_real_grpc
                         .await
                         .unwrap();
                     second.dispatch(input(53, b"borrowed")).await.unwrap();
-                    assert_eq!(response(&mut second).await.2, b"borrowed");
+                    assert_eq!(response(&mut second).await.2.as_ref(), b"borrowed");
                     assert_eq!(registration.observe().unwrap().retained(), 1);
                     close_flow(&proxy, first).await;
                     assert!(loan.closed().is_some());
@@ -131,7 +131,7 @@ async fn ordinary_vless_trojan_mux_prefix_udp_keeps_actual_pool_accounting_and_s
                 assert!(proxy.tcp_runtime_services().components.as_ref().unwrap().configured("legacy").is_none());
                 let registration=pool_owner(&proxy,"pool");assert_eq!(registration.limit().get(),4);
                 let mut business=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch("business").await.unwrap();
-                business.dispatch(input(53,b"shared")).await.unwrap();assert_eq!(response(&mut business).await.2,b"shared");
+                business.dispatch(input(53,b"shared")).await.unwrap();assert_eq!(response(&mut business).await.2.as_ref(),b"shared");
                 let view=registration.observe().unwrap();let physical=view.slots()[0].original().clone();let driver=view.slots()[0].driver().unwrap().1.clone();
                 let mut retained_sender=None;
                 for name in ["legacy","pool"] {
@@ -193,7 +193,7 @@ async fn ordinary_vless_trojan_mux_prefix_pending_suffix_replacement_confirms_or
             let applying=tokio::spawn(async move{handle.apply_runtime_config_and_wait(candidate,Duration::from_secs(10)).await});assert!(opening.await.is_err());applying.await.unwrap().unwrap();
             assert!(physical.matches_closed(&physical.closed().unwrap()));assert!(driver.is_joined());assert!(registration.closed().unwrap().matches(&registration));assert!(consumer.closed().unwrap().matches(&consumer));
             assert!(old_role.datagram(end()).await.is_err());assert_eq!(pool_owner(&proxy,"pool").observe().unwrap().retained(),0);
-            let mut fresh=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch("fresh").await.unwrap();fresh.dispatch(input(53,b"replace")).await.unwrap();assert_eq!(response(&mut fresh).await.2,b"replace");close_flow(&proxy,fresh).await;
+            let mut fresh=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch("fresh").await.unwrap();fresh.dispatch(input(53,b"replace")).await.unwrap();assert_eq!(response(&mut fresh).await.2.as_ref(),b"replace");close_flow(&proxy,fresh).await;
             server.finish().await;running.shutdown().await.unwrap();old.close().await;next.close().await;held.close().await;ready.close().await;
         }
     }).await.unwrap();

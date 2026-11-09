@@ -37,7 +37,7 @@ async fn ordinary_vmess_grpc_budget_apply_waits_for_old_users_driver_and_origina
         let runtime=UdpIngressRuntime::new(proxy.tcp_runtime_services());
         let mut dispatch=runtime.new_dispatch("incoming").await.unwrap();
         dispatch.dispatch(input(53,b"held")).await.unwrap();
-        assert_eq!(response(&mut dispatch).await.2,b"held");
+        assert_eq!(response(&mut dispatch).await.2.as_ref(),b"held");
         ready.await.unwrap();
         let registration=original(&proxy);let observed=registration.observe().unwrap();
         let original=observed.slots()[0].original().clone();

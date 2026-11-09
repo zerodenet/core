@@ -10,7 +10,7 @@ async fn ordinary_vmess_grpc_datagram_keeps_native_admission_after_business_canc
             let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services());
             let mut dispatch = runtime.new_dispatch("incoming").await.unwrap();
             let id = dispatch.dispatch(input(53, b"cancel")).await.unwrap();
-            assert_eq!(response(&mut dispatch).await.2, b"cancel");
+            assert_eq!(response(&mut dispatch).await.2.as_ref(), b"cancel");
             let original = original(&proxy);
             let observed = original.observe().unwrap();
             let native = observed.slots()[0].original().clone();

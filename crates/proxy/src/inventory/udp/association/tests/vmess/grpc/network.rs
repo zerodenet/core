@@ -17,7 +17,7 @@ async fn ordinary_vmess_grpc_datagram_waits_for_old_original_before_acquiring_on
                 let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services());
                 let mut dispatch = runtime.new_dispatch("incoming").await.unwrap();
                 dispatch.dispatch(input(53, b"network")).await.unwrap();
-                assert_eq!(response(&mut dispatch).await.2, b"network");
+                assert_eq!(response(&mut dispatch).await.2.as_ref(), b"network");
                 let registration = original(&proxy);
                 let first = registration.observe().unwrap().slots()[0]
                     .original()
@@ -43,7 +43,7 @@ async fn ordinary_vmess_grpc_datagram_waits_for_old_original_before_acquiring_on
                 let mut packet = input(53, b"network");
                 packet.client_session_id = Some(10);
                 dispatch.dispatch(packet).await.unwrap();
-                assert_eq!(response(&mut dispatch).await.2, b"network");
+                assert_eq!(response(&mut dispatch).await.2.as_ref(), b"network");
                 dispatch.finish_all();
                 assert!(retired
                     .progress_retired(Instant::now() + Duration::from_secs(3))

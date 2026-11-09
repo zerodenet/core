@@ -83,7 +83,7 @@ async fn ordinary_vmess_grpc_mux_prefix_uses_one_hosted_original_for_two_real_h2
                     .await
                     .unwrap();
                 second.dispatch(input(53, b"ordinary")).await.unwrap();
-                assert_eq!(response(&mut second).await.2, b"ordinary");
+                assert_eq!(response(&mut second).await.2.as_ref(), b"ordinary");
                 assert_eq!(registration.observe().unwrap().retained(), 1);
                 close_flow(&proxy, first).await;
                 assert!(loan.closed().is_some());
@@ -130,7 +130,7 @@ async fn ordinary_vmess_grpc_mux_prefix_compat_udp_uses_actual_pool_without_bloc
             assert!(plan.configured("legacy").is_none());
             let registration=pool_owner(&proxy,"pool");assert_eq!(registration.limit().get(),4);
             let mut business=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch("business").await.unwrap();
-            business.dispatch(input(53,b"shared")).await.unwrap();assert_eq!(response(&mut business).await.2,b"shared");
+            business.dispatch(input(53,b"shared")).await.unwrap();assert_eq!(response(&mut business).await.2.as_ref(),b"shared");
             let view=registration.observe().unwrap();let original=view.slots()[0].original().clone();let driver=view.slots()[0].driver().unwrap().1.clone();
             for tag in ["legacy","pool"] {
                 let mut dispatch=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch(tag).await.unwrap();
