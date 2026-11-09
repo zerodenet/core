@@ -4,7 +4,9 @@ use zero_platform_tokio::contract::lifecycle::TaskClass;
 
 #[tokio::test]
 async fn actual_fixed_direct_handler_keeps_source_join_and_native_close_separate() {
-    timeout(Duration::from_secs(8), async {
+    let phase = std::sync::atomic::AtomicUsize::new(0);
+    let stage = |value| phase.store(value, std::sync::atomic::Ordering::Relaxed);
+    let result = timeout(Duration::from_secs(8), async {
         // Keep the real endpoint reserved where a non-listener refuses connects.
         // Darwin instead drops SYNs to a bound non-listener, so release that
         // external fixture there to exercise an actual native refusal.
@@ -87,8 +89,11 @@ async fn actual_fixed_direct_handler_keeps_source_join_and_native_close_separate
             .unwrap();
         owner.seal_listener_installation();
         let exercise = async {
+            stage(1); // first connection / actual native refusal
             let mut rejected = TcpStream::connect(address).await.unwrap();
+            stage(2); // wait for first accepted original EOF
             assert_eq!(rejected.read(&mut [0]).await.unwrap(), 0);
+            stage(3); // first native EOF has actually arrived
             assert!(
                 owner.is_running(),
                 "ordinary upstream refusal must not stop listener"
@@ -97,14 +102,19 @@ async fn actual_fixed_direct_handler_keeps_source_join_and_native_close_separate
             let target = target.listen(1).unwrap();
             #[cfg(target_os = "macos")]
             let target = TcpListener::bind(target_address).await.unwrap();
+            stage(4); // second TCP connect
             let mut client = TcpStream::connect(address).await.unwrap();
+            stage(5); // second TCP established / application write
             client.write_all(b"same-original").await.unwrap();
+            stage(6); // second actual upstream accept
             let (mut peer, _) = target.accept().await.unwrap();
+            stage(7); // original forward bytes
             let mut wire = [0; 13];
             peer.read_exact(&mut wire).await.unwrap();
             assert_eq!(&wire, b"same-original");
             peer.write_all(&wire).await.unwrap();
             let mut reply = [0; 13];
+            stage(8); // original reverse bytes
             client.read_exact(&mut reply).await.unwrap();
             assert_eq!(reply, wire);
             // Observe real pending original byte I/O before cancellation.
@@ -119,11 +129,13 @@ async fn actual_fixed_direct_handler_keeps_source_join_and_native_close_separate
                 .await;
             }
             assert!(owner.terminal().is_none());
+            stage(9); // exact pending read observed; driver shutdown/join
             shutdown.send_replace(true);
             (client, peer, target)
         };
         let (observed, (mut client, peer, target)) = tokio::join!(owner.observe_driver(), exercise);
         observed.unwrap();
+        stage(10); // actual original Source driver result received
         assert!(owner.terminal().is_none());
         // Driver retirement explicitly closed native IO while the original
         // external observer consumed its children. That is not yet whole-owner
@@ -132,6 +144,7 @@ async fn actual_fixed_direct_handler_keeps_source_join_and_native_close_separate
         assert_eq!(client.read(&mut [0]).await.unwrap(), 0);
         // Actual persistent cleanup concurrently consumes the remaining handler
         // and closes the same accepted original only after its true view/join.
+        stage(11); // full original Scope / native terminal confirmation
         let receipt = proxy
             .inbound_owners
             .confirm_shutdown("first", Instant::now() + Duration::from_secs(2))
@@ -174,7 +187,14 @@ async fn actual_fixed_direct_handler_keeps_source_join_and_native_close_separate
         assert_eq!(client.read(&mut [0]).await.unwrap(), 0);
         drop((client, peer, target));
         assert_eq!(rebound.local_addr().unwrap(), address);
+        stage(12);
     })
-    .await
-    .unwrap();
+    .await;
+    if result.is_err() {
+        eprintln!(
+            "actual paid Direct Source timed out at stage {}",
+            phase.load(std::sync::atomic::Ordering::Relaxed)
+        );
+    }
+    result.unwrap();
 }

@@ -76,7 +76,22 @@ async fn ordinary_packet_chain_returns_real_dynamic_bnd_originals_and_survives_f
         let first=sessions.iter().find(|session|session.network==Network::Udp&&session.target==Address::Ipv4([203,0,113,1])).expect("first actual business").id;
         let second=sessions.iter().find(|session|session.network==Network::Udp&&session.target==Address::Ipv4([203,0,113,2])).expect("second actual business").id;
         assert_ne!(first,second);
-        proxy.engine().track_session(first).finish(zero_engine::SessionOutcome::DirectRelayed).unwrap();
+        // Use the real administrative close operation. A second bookkeeping
+        // SessionHandle::finish would remove only Engine's row while the actual
+        // UdpDispatch owner still holds and must finalize this flow exactly once.
+        proxy.engine().close_flow(&first.to_string()).unwrap();
+        timeout(Duration::from_secs(3), async {
+            loop {
+                if let Some(completed) = proxy.engine().completed_sessions().iter().find(|flow| flow.id == first) {
+                    assert_eq!(completed.outcome, zero_engine::SessionOutcome::Cancelled);
+                    assert_eq!(completed.close_reason.as_deref(), Some("manual"));
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        }).await.unwrap();
+        assert!(!proxy.engine().active_sessions().iter().any(|flow| flow.id == first));
+        assert!(proxy.engine().active_sessions().iter().any(|flow| flow.id == second));
         send(&socket,relay,2,b"still-live").await;receive_observed(&socket,2,b"still-live",&proxy,&phase,&peer).await;
         let same=carrier.observe().unwrap();assert_eq!(same.slots().len(),2);
         for original in &originals {assert!(same.slots().iter().any(|slot|original.same_original(slot.original())));assert!(original.closed().is_none());}
