@@ -8,8 +8,22 @@ pub(super) async fn run_inner(
     dns_hijack: bool,
     dns_hijacked_queries: Arc<AtomicU64>,
     #[cfg(feature = "raw-ip-runtime")] owned: Option<OwnedTunUdpTasks>,
+    #[cfg(feature = "raw-ip-runtime")] scratch: Option<super::scratch::UdpScratch>,
 ) -> Result<(), EngineError> {
-    let mut buffer = vec![0_u8; 65_535];
+    #[cfg(feature = "raw-ip-runtime")]
+    let mut buffer = match (&owned, scratch) {
+        (Some(_), Some(scratch)) if scratch.is_owned() => scratch,
+        #[cfg(test)]
+        (None, None) => super::scratch::UdpScratch::library(),
+        _ => {
+            return Err(std::io::Error::other(
+                "hosted UDP dispatcher lacks its original prepaid working buffer",
+            )
+            .into())
+        }
+    };
+    #[cfg(not(feature = "raw-ip-runtime"))]
+    let mut buffer = super::scratch::UdpScratch::library();
     let mut next_id = 1_u64;
     #[cfg(feature = "raw-ip-runtime")]
     let (max_associations, max_dns) = owned.as_ref().map_or(

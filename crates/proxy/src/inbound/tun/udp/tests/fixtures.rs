@@ -18,6 +18,8 @@ pub(super) async fn run(
         dns_hijacked_queries,
         #[cfg(feature = "raw-ip-runtime")]
         None,
+        #[cfg(feature = "raw-ip-runtime")]
+        None,
     )
     .await
 }
