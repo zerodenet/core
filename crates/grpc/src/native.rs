@@ -192,19 +192,20 @@ where
         .wait_closed(deadline())
         .await
         .map_err(io::Error::other);
+    let native = native.map(|report| owner.report_failures.receive("gRPC original", report));
+    if native.as_ref().is_ok_and(|report| report.complete) {
+        owner.connections.confirm_all_closed();
+    }
     let result = match work {
         Ok(result) => result,
         Err(payload) => std::panic::resume_unwind(payload),
     };
-    result?;
-    jobs?;
-    if !native?.is_complete() {
-        return Err(io::Error::other(
-            "gRPC actual original closure remains incomplete",
-        ));
-    }
-    owner.connections.confirm_all_closed();
-    failure.map_or(Ok(()), Err)
+    tasks::finish([
+        result,
+        jobs,
+        native.and_then(|report| report.into_result()),
+        failure.map_or(Ok(()), Err),
+    ])
 }
 pub(super) async fn catch_work<F: Future>(
     work: F,

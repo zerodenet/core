@@ -7,6 +7,7 @@ pub(super) struct ServerResources {
     pub(super) receiver: zero_platform_tokio::AcceptedTcpTaskReceiver,
     pub(super) budget: Arc<zero_runtime::configuration::ControlBudget>,
     pub(super) connections: Arc<connections::Connections>,
+    pub(super) report_failures: Arc<crate::ipc::owner::ReportReceiver>,
 }
 pub(super) async fn run_server(
     mut listener: ControlledTcpListener,
@@ -21,6 +22,7 @@ pub(super) async fn run_server(
         receiver,
         budget,
         connections,
+        report_failures,
     } = resources;
     let limiters = Arc::new(ratelimit::ApiRateLimiters::default());
     let stop = CancellationToken::new();
@@ -100,11 +102,16 @@ pub(super) async fn run_server(
         .wait_closed(crate::ipc::owner::close_deadline())
         .await
         .map_err(io::Error::other);
-    let native =
-        native.and_then(|report| crate::ipc::owner::confirmed_report("HTTP original", report));
-    if native.is_ok() {
+    let native = native.map(|report| report_failures.receive("HTTP original", report));
+    if native.as_ref().is_ok_and(|report| report.complete) {
         connections.confirm_all_closed();
     }
     info!("http api server cleanup driven");
-    crate::ipc::owner::finish_caught(work, [native, failure.map_or(Ok(()), Err)])
+    crate::ipc::owner::finish_caught(
+        work,
+        [
+            native.and_then(|report| report.into_result()),
+            failure.map_or(Ok(()), Err),
+        ],
+    )
 }

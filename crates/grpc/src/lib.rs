@@ -95,6 +95,7 @@ fn prepare_original(
             stop: tokio_util::sync::CancellationToken::new(),
             connections: Arc::new(native::connections::Connections::default()),
             requests,
+            report_failures: Arc::default(),
         }),
     }))
 }
@@ -118,6 +119,7 @@ struct GrpcOriginals {
     stop: tokio_util::sync::CancellationToken,
     connections: Arc<native::connections::Connections>,
     requests: Arc<messages::Requests>,
+    report_failures: Arc<tasks::ReportReceiver>,
 }
 /// Retains the actual server, Scope, native controls and subscription jobs.
 pub struct GrpcHandle {
@@ -255,8 +257,12 @@ impl GrpcHandle {
             .wait_closed(native::deadline())
             .await
             .map_err(std::io::Error::other)
-            .and_then(|report| tasks::confirmed_report("gRPC native", report));
-        let scope = tasks::confirmed_report("gRPC Scope", tasks);
+            .map(|report| {
+                self.originals
+                    .report_failures
+                    .receive("gRPC native", report)
+            });
+        let scope = self.originals.report_failures.receive("gRPC Scope", tasks);
         let commands = if self.owns_commands {
             self.command_budget
                 .command_owner()
@@ -267,15 +273,22 @@ impl GrpcHandle {
             Ok(())
         };
         let requests = self.originals.requests.confirm_released();
-        if scope.is_ok()
-            && native.is_ok()
+        if scope.complete
+            && native.as_ref().is_ok_and(|report| report.complete)
             && requests.is_ok()
             && (!self.owns_commands || self.command_budget.command_owner().retirement_complete())
         {
             self.originals.connections.confirm_all_closed();
             self.retired.store(true, Ordering::Release);
         }
-        tasks::finish([server, jobs, scope, native, commands, requests])
+        tasks::finish([
+            server,
+            jobs,
+            scope.into_result(),
+            native.and_then(|report| report.into_result()),
+            commands,
+            requests,
+        ])
     }
 }
 impl Drop for GrpcHandle {

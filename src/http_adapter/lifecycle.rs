@@ -32,16 +32,22 @@ impl HttpServerHandle {
                 .wait_closed(crate::ipc::owner::close_deadline())
                 .await
                 .map_err(io::Error::other)
-                .and_then(|report| crate::ipc::owner::confirmed_report("HTTP native", report)),
-            None => Ok(()),
+                .map(|report| self.report_failures.receive("HTTP native", report)),
+            None => Ok(self
+                .report_failures
+                .receive("HTTP native", Default::default())),
         };
-        let scope = crate::ipc::owner::confirmed_report("HTTP Scope", tasks);
-        if scope.is_ok() && native.is_ok() {
+        let scope = self.report_failures.receive("HTTP Scope", tasks);
+        if scope.complete && native.as_ref().is_ok_and(|report| report.complete) {
             self.connections.confirm_all_closed();
             self.retired
                 .store(true, std::sync::atomic::Ordering::Release);
         }
-        crate::ipc::owner::finish_work([server, scope, native])
+        crate::ipc::owner::finish_work([
+            server,
+            scope.into_result(),
+            native.and_then(|report| report.into_result()),
+        ])
     }
 }
 
@@ -69,6 +75,7 @@ pub fn prepare_http_server_with_budget(
         bound: std::sync::Mutex::new(None),
         budget,
         connections: Arc::new(connections::Connections::default()),
+        report_failures: Arc::default(),
     })
 }
 impl HttpServerHandle {
@@ -107,6 +114,7 @@ impl HttpServerHandle {
         let auth = self.auth.clone();
         let budget = self.budget.clone();
         let connections = self.connections.clone();
+        let report_failures = self.report_failures.clone();
         let (begin, started) = oneshot::channel();
         registration.install(tokio::spawn(async move {
             started
@@ -123,6 +131,7 @@ impl HttpServerHandle {
                     receiver,
                     budget,
                     connections,
+                    report_failures,
                 },
             )
             .await
@@ -134,3 +143,6 @@ impl HttpServerHandle {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod reports;

@@ -212,36 +212,5 @@ impl std::error::Error for Failures {
 #[path = "tests/tasks.rs"]
 mod tests;
 
-/// A real incomplete Scope/native report remains diagnostic debt, never a receipt.
-pub(super) fn confirmed_report(
-    label: &'static str,
-    report: zero_platform_tokio::contract::lifecycle::CloseReport,
-) -> io::Result<()> {
-    if report.is_complete() {
-        Ok(())
-    } else {
-        Err(io::Error::other(IncompleteReport { label, report }))
-    }
-}
-#[derive(Debug)]
-struct IncompleteReport {
-    label: &'static str,
-    report: zero_platform_tokio::contract::lifecycle::CloseReport,
-}
-impl std::fmt::Display for IncompleteReport {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "{} original cleanup remains retained: {:?}",
-            self.label, self.report
-        )
-    }
-}
-impl std::error::Error for IncompleteReport {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.report
-            .failed_tasks
-            .first()
-            .map(|failed| &failed.error as _)
-    }
-}
+mod report;
+pub(crate) use report::ReportReceiver;

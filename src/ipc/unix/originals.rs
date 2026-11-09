@@ -21,22 +21,28 @@ impl UnixOriginals {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take();
     }
-    pub(super) async fn close(original: &UnixOriginal) -> io::Result<()> {
+    pub(super) async fn close(
+        original: &UnixOriginal,
+    ) -> io::Result<super::super::owner::ReportObservation> {
         let mut control = original.control.lock().await;
         control.cancel(CloseReason::Shutdown);
         let report = control
             .wait_closed(super::super::owner::close_deadline())
             .await
             .map_err(io::Error::other)?;
-        if !report.is_complete() {
-            return Err(io::Error::other("IPC accepted original close incomplete"));
+        let report = original
+            .report_failures
+            .receive("IPC accepted original", report);
+        if report.complete {
+            original
+                .charge
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take();
         }
-        original
-            .charge
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
-        Ok(())
+        // Fault delivery and native settlement remain independent. The caller
+        // receives this same pure payload before removing the original row.
+        Ok(report)
     }
     pub(super) async fn close_all(&self) -> io::Result<()> {
         let mut failures = Vec::new();
@@ -47,15 +53,18 @@ impl UnixOriginals {
             .clone();
         if let Some(original) = activating {
             match Self::close(&original).await {
-                Ok(()) => {
-                    self.activating
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .take();
+                Ok(report) => {
+                    if report.complete {
+                        self.activating
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .take();
+                    }
+                    if let Err(error) = report.into_result() {
+                        failures.push(error);
+                    }
                 }
-                Err(error) => {
-                    failures.push(error);
-                }
+                Err(error) => failures.push(error),
             }
         }
         let originals: Vec<_> = self
@@ -67,15 +76,18 @@ impl UnixOriginals {
             .collect();
         for (id, original) in originals {
             match Self::close(&original).await {
-                Ok(()) => {
-                    self.active
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .remove(&id);
+                Ok(report) => {
+                    if report.complete {
+                        self.active
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .remove(&id);
+                    }
+                    if let Err(error) = report.into_result() {
+                        failures.push(error);
+                    }
                 }
-                Err(error) => {
-                    failures.push(error);
-                }
+                Err(error) => failures.push(error),
             }
         }
         super::super::owner::finish_work(failures.into_iter().map(Err))
