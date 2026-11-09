@@ -10,8 +10,11 @@ use tokio_util::sync::WaitForCancellationFutureOwned;
 
 /// Same actual stream first, then its permit: dropping this sealed wrapper
 /// releases the raw stream before returning user capacity. It proves no FD close.
+type FinishFuture = Pin<Box<dyn Future<Output = io::Result<()>> + Send + Sync>>;
 pub struct OwnedSendStream {
     stream: quinn::SendStream,
+    finish: Option<FinishFuture>,
+    finished: bool,
     cancelled: Pin<Box<WaitForCancellationFutureOwned>>,
     permit: Permit,
 }
@@ -27,6 +30,8 @@ impl OwnedSendStream {
             stream,
             cancelled,
             permit,
+            finish: _,
+            finished: _,
         } = self;
         super::h3::SendStream::new(stream, cancelled, permit)
     }
@@ -37,6 +42,8 @@ impl OwnedSendStream {
             stream,
             permit,
             cancelled,
+            finish: None,
+            finished: false,
         }
     }
     pub fn finish(&mut self) -> Result<(), quinn::ClosedStream> {
@@ -125,6 +132,36 @@ impl AsyncWrite for OwnedSendStream {
         if cancelled(&mut this.cancelled, cx) {
             return Poll::Ready(Err(stopped()));
         }
-        AsyncWrite::poll_shutdown(Pin::new(&mut this.stream), cx)
+        if this.finished {
+            return Poll::Ready(Ok(()));
+        }
+        if this.finish.is_none() {
+            std::task::ready!(AsyncWrite::poll_shutdown(Pin::new(&mut this.stream), cx))?;
+            // Quinn's poll_shutdown only queues FIN. Keep the same original
+            // stopped future in THIS stream, across cancellation of a borrowing
+            // shutdown waiter, until all accepted data+FIN are really ACKed.
+            let stopped = this.stream.stopped();
+            this.finish = Some(Box::pin(async move {
+                match stopped.await.map_err(io::Error::other)? {
+                    None => Ok(()),
+                    Some(code) => Err(io::Error::new(io::ErrorKind::BrokenPipe, PeerStopped(code))),
+                }
+            }));
+        }
+        let result = std::task::ready!(this.finish.as_mut().unwrap().as_mut().poll(cx));
+        this.finished = result.is_ok();
+        // Dispose the actual original future before publishing its terminal
+        // result. This is a write-half ACK, never native/users/Scope closure.
+        this.finish = None;
+        Poll::Ready(result)
     }
 }
+
+#[derive(Debug)]
+struct PeerStopped(quinn::VarInt);
+impl std::fmt::Display for PeerStopped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "QUIC peer stopped stream: {}", self.0)
+    }
+}
+impl std::error::Error for PeerStopped {}
