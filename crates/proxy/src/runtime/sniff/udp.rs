@@ -1,16 +1,17 @@
-use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::time::Instant;
-
-use zero_core::{Address, InboundUdpDispatch, TargetHostSource};
-use zero_transport::quic_initial::{
-    looks_like_client_initial, QuicInitialOutcome, QuicInitialSniffer,
-};
-
-use super::{
-    normalize_sniffed_domain, sniff_tls_handshake, SniffProgress, SniffedDomain, SniffedProtocol,
-    SniffingPolicy, SNIFF_TIMEOUT,
-};
-
+mod domain;
+mod key;
+mod observe;
+pub(crate) mod queue;
+pub(crate) mod rows;
+mod source;
+use super::inline::InlineName;
+use super::{SniffedProtocol, SniffingPolicy};
+use domain::Held;
+use key::FlowKey;
+use queue::Packets;
+use rows::Rows;
+use zero_core::{InboundUdpDispatch, TargetHostSource};
 const MAX_PENDING_FLOWS: usize = 32;
 const MAX_DECISIONS: usize = 64;
 const MAX_BUFFERED_DATAGRAMS: usize = 8;
@@ -18,273 +19,173 @@ const MAX_BUFFERED_BYTES: usize = 64 * 1024;
 const MAX_QUEUED_DATAGRAMS: usize = 64;
 const MAX_QUEUED_BYTES: usize = 256 * 1024;
 const MAX_DECODED_DATAGRAM_BYTES: usize = 8 * 1024;
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct FlowKey {
-    target: Address,
-    port: u16,
-    client_session_id: Option<u64>,
-}
-
-impl FlowKey {
-    fn from_dispatch(dispatch: &InboundUdpDispatch) -> Self {
-        Self {
-            target: dispatch.target().clone(),
-            port: dispatch.port(),
-            client_session_id: dispatch.client_session_id(),
-        }
-    }
-}
-
 struct PendingQuic {
-    sniffer: QuicInitialSniffer,
-    datagrams: VecDeque<BufferedDispatch>,
+    id: u64,
+    sniffer: zero_transport::quic_initial::QuicInitialSniffer,
+    datagrams: usize,
     buffered_bytes: usize,
     deadline: Instant,
     fake_dns_fallback: bool,
 }
-
-struct BufferedDispatch {
-    sequence: u64,
-    dispatch: InboundUdpDispatch,
+struct PendingRow {
+    key: FlowKey,
+    value: PendingQuic,
 }
-
-#[derive(Clone)]
+struct DecisionRow {
+    key: FlowKey,
+    value: Decision,
+}
+#[derive(Clone, Copy)]
 enum Decision {
     Domain {
-        sniffed: SniffedDomain,
+        name: InlineName,
+        protocol: SniffedProtocol,
+        source: TargetHostSource,
         fake_dns_fallback: bool,
     },
     Fallback,
 }
-
 pub(crate) struct UdpSniffingState {
     policy: SniffingPolicy,
+    memory: Option<zero_platform_tokio::contract::component::PacketDriverMetadataView>,
     runtime: crate::runtime::udp_ingress::UdpIngressRuntime,
-    pending: HashMap<FlowKey, PendingQuic>,
-    decisions: HashMap<FlowKey, Decision>,
-    ready: BTreeMap<u64, InboundUdpDispatch>,
+    pending: Rows<PendingRow>,
+    decisions: Rows<DecisionRow>,
+    packets: Packets<Held>,
+    output_pressure: Option<zero_traits::packet_metadata::PacketMemoryError>,
     next_sequence: u64,
     next_emit: u64,
     queued_datagrams: usize,
     queued_bytes: usize,
 }
-
 impl UdpSniffingState {
-    pub(crate) fn new(
-        policy: SniffingPolicy,
-        runtime: crate::runtime::udp_ingress::UdpIngressRuntime,
-    ) -> Self {
-        Self {
-            policy,
-            runtime,
-            pending: HashMap::new(),
-            decisions: HashMap::new(),
-            ready: BTreeMap::new(),
-            next_sequence: 0,
-            next_emit: 0,
-            queued_datagrams: 0,
-            queued_bytes: 0,
-        }
-    }
-
     pub(crate) fn pop_ready(&mut self) -> Option<InboundUdpDispatch> {
-        let dispatch = self.ready.remove(&self.next_emit)?;
+        let held = self.packets.current_mut(self.next_emit)?;
+        if let Err(source) = held.prepare(self.memory.as_ref(), &self.policy) {
+            self.output_pressure = Some(source);
+            tracing::trace!(%source,"same queued known Domain awaits actual Root capacity");
+            return None;
+        }
+        self.output_pressure = None;
+        let dispatch = self.packets.pop(self.next_emit)?.into_dispatch();
         self.next_emit = self.next_emit.saturating_add(1);
         self.queued_datagrams = self.queued_datagrams.saturating_sub(1);
         self.queued_bytes = self.queued_bytes.saturating_sub(dispatch.payload().len());
         Some(dispatch)
     }
-
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
-        self.pending.values().map(|pending| pending.deadline).min()
+        self.pending.iter().map(|row| row.value.deadline).min()
     }
-
     pub(crate) fn release_for_capacity(&mut self) -> bool {
         if self.queued_datagrams < MAX_QUEUED_DATAGRAMS
             && self.queued_bytes <= MAX_QUEUED_BYTES - MAX_DECODED_DATAGRAM_BYTES
         {
             return false;
         }
-        let oldest = self
+        let Some(index) = self
             .pending
             .iter()
-            .filter_map(|(key, pending)| {
-                pending
-                    .datagrams
-                    .front()
-                    .map(|buffered| (buffered.sequence, key.clone()))
-            })
-            .min_by_key(|(sequence, _)| *sequence)
-            .map(|(_, key)| key);
-        let Some(oldest) = oldest else {
+            .enumerate()
+            .min_by_key(|(_, row)| row.value.id)
+            .map(|(index, _)| index)
+        else {
             return false;
         };
-        self.resolve(oldest, Decision::Fallback);
+        self.resolve(index, Decision::Fallback);
         true
     }
-
-    pub(crate) async fn observe(&mut self, dispatch: InboundUdpDispatch) {
-        let sequence = self.next_sequence;
-        self.next_sequence = self.next_sequence.saturating_add(1);
-        self.queued_datagrams = self.queued_datagrams.saturating_add(1);
-        self.queued_bytes = self.queued_bytes.saturating_add(dispatch.payload().len());
-        let dispatch = if self.policy.enabled() {
-            dispatch.with_skip_fake_ip_restore()
-        } else {
-            dispatch
-        };
-        let metadata = self
-            .policy
-            .fake_dns_metadata(self.runtime.resolver(), dispatch.target())
-            .await;
-        let fake_dns_fallback = match metadata {
-            super::FakeDnsMetadata::Domain(sniffed) => {
-                let decision = if self.policy.accepts(&sniffed) {
-                    Decision::Domain {
-                        sniffed,
-                        fake_dns_fallback: false,
-                    }
-                } else {
-                    Decision::Fallback
-                };
-                let key = FlowKey::from_dispatch(&dispatch);
-                if self.decisions.len() < MAX_DECISIONS {
-                    self.decisions.insert(key, decision.clone());
-                }
-                let dispatch = self.apply_decision(dispatch, decision);
-                self.ready.insert(sequence, dispatch);
-                return;
-            }
-            super::FakeDnsMetadata::ContentFallback => true,
-            super::FakeDnsMetadata::None => false,
-        };
-        if !self.policy.sniffs_quic(fake_dns_fallback) {
-            self.ready.insert(sequence, dispatch);
-            return;
-        }
-        let key = FlowKey::from_dispatch(&dispatch);
-        if let Some(decision) = self.decisions.get(&key).cloned() {
-            let dispatch = self.apply_decision(dispatch, decision);
-            self.ready.insert(sequence, dispatch);
-            return;
-        }
-        if !self.pending.contains_key(&key) && !looks_like_client_initial(dispatch.payload()) {
-            if self.decisions.len() < MAX_DECISIONS {
-                self.decisions.insert(key, Decision::Fallback);
-            }
-            self.ready.insert(sequence, dispatch);
-            return;
-        }
-        if !self.pending.contains_key(&key) && self.pending.len() >= MAX_PENDING_FLOWS {
-            self.ready.insert(sequence, dispatch);
-            return;
-        }
-
-        let pending = self
-            .pending
-            .entry(key.clone())
-            .or_insert_with(|| PendingQuic {
-                sniffer: QuicInitialSniffer::new(),
-                datagrams: VecDeque::new(),
-                buffered_bytes: 0,
-                deadline: Instant::now() + SNIFF_TIMEOUT,
-                fake_dns_fallback,
-            });
-        pending.buffered_bytes = pending
-            .buffered_bytes
-            .saturating_add(dispatch.payload().len());
-        let outcome = pending.sniffer.ingest(dispatch.payload());
-        pending
-            .datagrams
-            .push_back(BufferedDispatch { sequence, dispatch });
-        let fake_dns_fallback = pending.fake_dns_fallback;
-        if pending.datagrams.len() > MAX_BUFFERED_DATAGRAMS
-            || pending.buffered_bytes > MAX_BUFFERED_BYTES
-        {
-            self.resolve(key, Decision::Fallback);
-            return;
-        }
-        match outcome {
-            QuicInitialOutcome::Pending => {}
-            QuicInitialOutcome::ClientHello(client_hello) => {
-                let decision = match sniff_tls_handshake(&client_hello) {
-                    SniffProgress::Domain(sniffed) => normalize_sniffed_domain(sniffed.domain)
-                        .map(|domain| SniffedDomain {
-                            domain,
-                            protocol: SniffedProtocol::Quic,
-                            source: TargetHostSource::QuicSni,
-                        })
-                        .filter(|sniffed| {
-                            self.policy
-                                .accepts_with_fake_dns_fallback(sniffed, fake_dns_fallback)
-                        })
-                        .map_or(Decision::Fallback, |sniffed| Decision::Domain {
-                            sniffed,
-                            fake_dns_fallback,
-                        }),
-                    SniffProgress::Pending | SniffProgress::NoMatch => Decision::Fallback,
-                };
-                self.resolve(key, decision);
-            }
-            QuicInitialOutcome::NotInitial | QuicInitialOutcome::Rejected => {
-                self.resolve(key, Decision::Fallback);
-            }
-        }
-    }
-
     pub(crate) fn flush_expired(&mut self, now: Instant) {
-        let expired = self
+        while let Some(index) = self
             .pending
             .iter()
-            .filter_map(|(key, pending)| (pending.deadline <= now).then_some(key.clone()))
-            .collect::<Vec<_>>();
-        for key in expired {
-            self.resolve(key, Decision::Fallback);
+            .position(|row| row.value.deadline <= now)
+        {
+            self.resolve(index, Decision::Fallback);
         }
     }
-
     pub(crate) fn flush_all(&mut self) {
-        let pending = self.pending.keys().cloned().collect::<Vec<_>>();
-        for key in pending {
-            self.resolve(key, Decision::Fallback);
+        while !self.pending.is_empty() {
+            self.resolve(0, Decision::Fallback);
         }
     }
-
-    fn resolve(&mut self, key: FlowKey, decision: Decision) {
-        let Some(mut pending) = self.pending.remove(&key) else {
-            return;
-        };
-        if self.decisions.len() < MAX_DECISIONS {
-            self.decisions.insert(key, decision.clone());
-        }
-        while let Some(buffered) = pending.datagrams.pop_front() {
-            let dispatch = self.apply_decision(buffered.dispatch, decision.clone());
-            self.ready.insert(buffered.sequence, dispatch);
-        }
+    fn push(&mut self, sequence: u64, pending: Option<u64>, dispatch: InboundUdpDispatch) {
+        self.push_decision(sequence, pending, dispatch, Decision::Fallback);
     }
-
-    fn apply_decision(
-        &self,
+    fn push_decision(
+        &mut self,
+        sequence: u64,
+        pending: Option<u64>,
         dispatch: InboundUdpDispatch,
         decision: Decision,
-    ) -> InboundUdpDispatch {
-        match decision {
-            Decision::Domain {
-                sniffed,
-                fake_dns_fallback,
-            } => dispatch.with_sniffed_domain(
-                sniffed.domain,
-                sniffed.source,
-                self.policy.route_only()
-                    && sniffed.protocol != SniffedProtocol::FakeDns
-                    && !fake_dns_fallback,
-            ),
-            Decision::Fallback => dispatch,
+    ) {
+        self.packets
+            .push(sequence, pending, Held::new(dispatch, decision));
+    }
+    pub(crate) fn row_pressure(&self) -> bool {
+        self.packets.row_pressure() || self.output_pressure.is_some()
+    }
+    pub(crate) async fn wait_capacity(&mut self) {
+        if self.output_pressure.is_some() {
+            let memory = self
+                .memory
+                .as_ref()
+                .expect("only actual Root admission can refuse")
+                .clone();
+            let changed = memory.changed_since(memory.snapshot());
+            tokio::pin!(changed);
+            let ready = std::future::poll_fn(|cx| {
+                use std::future::Future;
+                std::task::Poll::Ready(changed.as_mut().poll(cx).is_ready())
+            })
+            .await;
+            if let Some(held) = self.packets.current_mut(self.next_emit) {
+                if held.prepare(Some(&memory), &self.policy).is_ok() {
+                    self.output_pressure = None;
+                    return;
+                }
+            }
+            if !ready {
+                changed.await;
+            }
+            return;
+        }
+        if let Some(deadline) = self.next_deadline() {
+            self.packets.wait_capacity(deadline.into()).await;
+            self.flush_expired(Instant::now());
+        } else {
+            self.packets.release_all();
         }
     }
+    fn cache(&mut self, dispatch: &InboundUdpDispatch, decision: Decision) {
+        if self.decisions.len() >= MAX_DECISIONS {
+            return;
+        }
+        let Ok(key) = FlowKey::try_from_dispatch(dispatch, self.memory.as_ref()) else {
+            return;
+        };
+        let _ = self.decisions.try_push(
+            DecisionRow {
+                key,
+                value: decision,
+            },
+            MAX_DECISIONS,
+        );
+    }
+    fn resolve(&mut self, index: usize, decision: Decision) {
+        let row = self.pending.remove(index);
+        self.packets.release(row.value.id, |mut held| {
+            held.decision = decision;
+            held
+        });
+        let _ = self.decisions.try_push(
+            DecisionRow {
+                key: row.key,
+                value: decision,
+            },
+            MAX_DECISIONS,
+        );
+    }
 }
-
 #[cfg(test)]
 #[path = "udp/tests.rs"]
 mod tests;

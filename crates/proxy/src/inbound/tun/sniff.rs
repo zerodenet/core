@@ -6,6 +6,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use zero_core::{Address, Session, TargetHostSource};
 
 use crate::transport::{RecordingStream, ReplayStream};
+#[cfg(feature = "udp-runtime")]
+mod borrowed;
 
 #[cfg(feature = "udp-runtime")]
 pub(super) mod udp;

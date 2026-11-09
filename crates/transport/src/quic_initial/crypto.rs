@@ -51,12 +51,12 @@ impl InitialKeys {
         Ok(mask)
     }
 
-    pub(super) fn decrypt(
+    pub(super) fn decrypt_into(
         &self,
         packet_number: u64,
         header: &[u8],
         ciphertext: &mut [u8],
-    ) -> Result<Vec<u8>, ()> {
+    ) -> Result<usize, ()> {
         let mut nonce = self.iv;
         for (left, right) in nonce[4..].iter_mut().zip(packet_number.to_be_bytes()) {
             *left ^= right;
@@ -70,7 +70,16 @@ impl InitialKeys {
                 ciphertext,
             )
             .map_err(|_| ())?;
-        Ok(plaintext.to_vec())
+        Ok(plaintext.len())
+    }
+    pub(super) fn decrypt(
+        &self,
+        packet_number: u64,
+        header: &[u8],
+        ciphertext: &mut [u8],
+    ) -> Result<Vec<u8>, ()> {
+        let length = self.decrypt_into(packet_number, header, ciphertext)?;
+        Ok(ciphertext[..length].to_vec())
     }
 }
 
@@ -83,14 +92,20 @@ impl hkdf::KeyType for OutputLength {
 }
 
 fn expand<const N: usize>(secret: &hkdf::Prk, label: &str) -> Result<[u8; N], ()> {
-    let label = format!("tls13 {label}");
-    let mut info = Vec::with_capacity(4 + label.len());
-    info.extend_from_slice(&(N as u16).to_be_bytes());
-    info.push(label.len().try_into().map_err(|_| ())?);
-    info.extend_from_slice(label.as_bytes());
-    info.push(0);
-    let mut output = [0_u8; N];
-    let info_parts = [info.as_slice()];
+    let label_length = 6usize.checked_add(label.len()).ok_or(())?;
+    let prefix = [
+        (N >> 8) as u8,
+        N as u8,
+        u8::try_from(label_length).map_err(|_| ())?,
+    ];
+    let context = [0u8];
+    let mut output = [0u8; N];
+    let info_parts = [
+        prefix.as_slice(),
+        b"tls13 ".as_slice(),
+        label.as_bytes(),
+        context.as_slice(),
+    ];
     let output_key = secret
         .expand(&info_parts, OutputLength(N))
         .map_err(|_| ())?;

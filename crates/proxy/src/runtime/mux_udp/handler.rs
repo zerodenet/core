@@ -37,6 +37,12 @@ where
             {
                 continue;
             }
+            if let Some(sniffing) = &mut self.sniffing {
+                if sniffing.row_pressure() {
+                    sniffing.wait_capacity().await;
+                    continue;
+                }
+            }
             if self.relay_ended {
                 return Ok(PacketSessionUdpReadResult::End);
             }

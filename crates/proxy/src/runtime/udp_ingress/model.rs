@@ -1,4 +1,5 @@
 use crate::protocol_registry::{TcpRuntimeServices, UdpRuntimeServices};
+mod inspection;
 
 #[derive(Clone)]
 pub(crate) struct UdpIngressRuntime {

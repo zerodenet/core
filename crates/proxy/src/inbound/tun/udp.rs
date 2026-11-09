@@ -47,6 +47,7 @@ pub(super) struct TunDatagram {
 }
 
 struct TunUdpRelay {
+    memory: zero_platform_tokio::contract::component::PacketDriverMetadataView,
     source: SocketAddress,
     receiver: mpsc::Receiver<TunDatagram>,
 }
@@ -80,7 +81,7 @@ impl InboundDatagramUdpRelay<Arc<UserUdpStack>> for TunUdpRelay {
                 receiver: self.receiver,
                 current_destination: None,
                 session_destinations: HashMap::new(),
-                quic_sniffer: TunQuicSniffer::default(),
+                quic_sniffer: TunQuicSniffer::with_metadata(self.memory),
             },
             None,
         )
@@ -266,10 +267,18 @@ fn spawn_association(
         let stop = runtime
             .peer_resources()
             .map(|context| context.binding().cancellation());
+        let memory = match runtime.inspection_metadata() {
+            Ok(memory) => memory,
+            Err(source_error) => return (source, id, Err(source_error)),
+        };
         let relay = crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
             runtime,
             stack,
-            TunUdpRelay { source, receiver },
+            TunUdpRelay {
+                source,
+                receiver,
+                memory,
+            },
             &inbound_tag,
             true,
         );
