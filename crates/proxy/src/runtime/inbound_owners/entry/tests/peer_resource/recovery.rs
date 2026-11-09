@@ -139,7 +139,10 @@ async fn prove_recovery(consume_before_publication: bool) {
         .find(|failure| failure.id == peer_task)
         .unwrap();
     assert_eq!(actual.class, TaskClass::Critical);
-    assert!(Arc::ptr_eq(&actual.source, &original));
+    assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
+        actual.source.as_ref(),
+        original.as_ref()
+    ));
     crate::runtime::inbound_owners::test_support::assert_tracked_panic(
         &binding,
         peer_task,
@@ -183,7 +186,7 @@ async fn prove_recovery(consume_before_publication: bool) {
             Ok(terminal.failure().unwrap())
         })
         .unwrap();
-    assert!(Arc::ptr_eq(&original, &handed_off));
+    assert!(original.ptr_eq(&handed_off));
     assert!(crate::runtime::inbound_owners::consume_reported_error(
         &observed
     ));

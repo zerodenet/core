@@ -10,6 +10,7 @@ use zero_platform_tokio::contract::{
     network::{CarrierContext, UpstreamBinding, UpstreamTransport},
     CancellationToken,
 };
+#[path = "no_observer/ready.rs"]
 mod ready;
 
 #[tokio::test]
