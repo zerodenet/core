@@ -25,7 +25,7 @@ impl MetadataDriverRetained {
         &self.protocol
     }
     pub(crate) fn names(&self, original: &MetadataPoolOrigin) -> bool {
-        self.instance() == original.instance && self.slot.ptr_eq(&original.slot)
+        self.instance() == original.instance() && self.slot.ptr_eq(&original.slot)
     }
 }
 impl MetadataPoolOrigin {
@@ -120,7 +120,7 @@ impl MetadataPoolOrigin {
         }
         let retained = MetadataDriverRetained {
             slot: Arc::downgrade(&slot),
-            owner: self.owner.clone(),
+            owner: self.owner().clone(),
             views,
             protocol,
         };

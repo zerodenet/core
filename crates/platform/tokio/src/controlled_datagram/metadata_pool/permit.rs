@@ -6,7 +6,7 @@ pub(crate) use open::MetadataCandidate;
 pub struct MetadataPoolPermit(pub(super) Arc<Slot>);
 #[derive(Clone)]
 pub struct MetadataPoolOrigin {
-    slot: Weak<Slot>,
+    pub(super) slot: Weak<Slot>,
     instance: ComponentInstanceId,
     ordinal: u64,
     closed: completion::Completion,
