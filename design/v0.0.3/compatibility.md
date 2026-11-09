@@ -6,6 +6,12 @@ ConfigurationSource 的 Kernel 持久化现在绑定实际 Host ControlBudget，
 缺原件后备。Host 关闭后候选不再允许新分配。原文件补偿、revision、V1、CLI/FFI保持；
 对应新输入运行资格尚在验证，详见[当前接续](cloud/round2/checkpoints/20261109-2228.md)。
 
+进程内 Rust 的 RouteInstallRequest 增加 metadata：标准 System TUN 调用者传同 Host
+的只读 PacketDriverMetadataView，经三平台实际 RouteLease 保留；独立库调用可明确传
+None。此视图只供具体 journal backing 计额，不授予 I/O、任务或关闭凭据。旧 Proxy
+路由 install/spawn/run/state 执行链已确认无外部调用者并删除；实际 OwnedRoutes 的
+原 worker/Scope/native 清理保持。journal 完整消费及跨平台原件资格仍在实现/验证。
+
 必要的公开 Rust 接口迁移不放宽 GUI、面板的 V1 行为和现有 FFI ABI。历史消费者观察未包含未提交工作区内容，真实组合验证尚待 PR01/PR10。
 
 [方案入口](README.md) · [架构](architecture.md) · [契约](contracts.md) · [迁移与任务卡](migration.md) · [兼容](compatibility.md) · [验证](validation.md) · [来源](references.md)
