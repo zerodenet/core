@@ -3,7 +3,7 @@
 use std::{io, net::IpAddr};
 use zero_stack::packet;
 
-use super::{ForwardedPackets, SharedRawIpDevice};
+use super::{forwarded::ForwardedPacketBatch, ForwardedPackets, SharedRawIpDevice};
 
 impl SharedRawIpDevice {
     pub(crate) fn forward_translated_packet(
@@ -43,7 +43,7 @@ impl SharedRawIpDevice {
             vec![translated.into()]
         };
         permit.send(ForwardedPackets {
-            packets,
+            packets: ForwardedPacketBatch::Legacy(packets),
             observer,
             return_channel,
         });

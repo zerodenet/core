@@ -119,7 +119,7 @@ impl SharedRawIpDevice {
             }
         };
         permit.send(ForwardedPackets {
-            packets,
+            packets: ForwardedPacketBatch::Owned(packets),
             observer: request.observer,
             return_channel: request.replies,
         });

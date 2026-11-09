@@ -45,9 +45,11 @@ pub(crate) use endpoint::{EndpointPacket, EndpointStackOwner, EndpointStackRecip
 use health::DeviceHealth;
 pub(crate) use returns::{PacketReturnTotals, PacketReturns};
 
+mod forwarded;
+use forwarded::ForwardedPacketBatch;
 pub(super) struct ForwardedPackets {
     return_channel: zero_stack::packet_output::PacketSender,
-    packets: zero_traits::PacketBatch,
+    packets: ForwardedPacketBatch,
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
 }
 
@@ -176,7 +178,7 @@ impl SharedRawIpDevice {
             conversation,
         )?;
         permit.send(ForwardedPackets {
-            packets: zero_traits::PacketBatch::from_library(std::mem::take(packets)),
+            packets: ForwardedPacketBatch::Legacy(std::mem::take(packets)),
             observer,
             return_channel,
         });
