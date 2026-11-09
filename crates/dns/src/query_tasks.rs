@@ -15,7 +15,7 @@ tokio::task_local! {
     static QUERY_ORIGIN: TaskJoinWitness;
     static QUERY_CANCEL: CancellationToken;
     static QUERY_RECORD: Arc<Record>;
-    static BOOTSTRAP_TARGET: std::sync::Weak<Shared>;
+    static BOOTSTRAP_TARGET: storage::WeakStorage;
 }
 mod descendants;
 #[cfg(feature = "doh")]
@@ -39,7 +39,8 @@ pub use system::NativeSystemLookup;
 /// nor service/business authority. A native provider must separately validate
 /// its private root grant and the original witness's actual Scope identity.
 #[derive(Clone, Debug)]
-pub struct OwnedDnsQueryTasks(Arc<Shared>);
+pub struct OwnedDnsQueryTasks(storage::Storage);
+mod storage;
 #[derive(Debug)]
 struct Shared {
     registrar: WeakTaskRegistrar,
@@ -158,7 +159,7 @@ impl OwnedDnsQueryBudget {
 }
 impl OwnedDnsQueryTasks {
     pub(crate) fn same_owner(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
+        self.0.same(&other.0)
     }
     pub async fn close(&self, deadline: tokio::time::Instant) -> io::Result<()> {
         self.shutdown(deadline).await
@@ -202,7 +203,7 @@ impl OwnedDnsQueryTasks {
         class: TaskClass,
         budget: OwnedDnsQueryBudget,
     ) -> Self {
-        Self(Arc::new(Shared {
+        Self(storage::Storage::new(Shared {
             registrar: registrar.downgrade(),
             parent: registrar.cancellation(),
             limit: max_queries,
