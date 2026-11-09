@@ -12,6 +12,7 @@ struct Server {
     supervisor: Option<Original>,
     transfer: Option<Transfer>,
     child: ChildOriginal,
+    request: Option<Box<[u8]>>,
 }
 pub(super) fn serve(stream: &mut UnixStream) -> io::Result<()> {
     serve_with_initial(stream, None)
@@ -22,6 +23,7 @@ pub(super) fn serve_with_initial(stream: &mut UnixStream, name: Option<&str>) ->
         supervisor: None,
         transfer: None,
         child: ChildOriginal::new(),
+        request: None,
     };
     let result = match name {
         Some(name) => server
@@ -39,7 +41,8 @@ impl Server {
         loop {
             // Never clone the control FD into a BufReader. Plain byte reads
             // must leave the next ancillary marker in its original channel.
-            let mut bytes = [0_u8; 65_536];
+            let mut bootstrap = [0_u8; 65_536];
+            let bytes = self.request.as_deref_mut().unwrap_or(&mut bootstrap);
             let mut length = 0;
             loop {
                 let mut byte = [0];

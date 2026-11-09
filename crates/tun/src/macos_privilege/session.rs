@@ -57,6 +57,7 @@ struct Epoch {
     create_attempted: bool,
     shutdown_started: bool,
     local_tool: tool::ChildOriginal,
+    _peer_request: crate::packet_memory::PacketMetadataCredit,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Stage {
@@ -75,6 +76,7 @@ impl MacosHelperOwner {
         memory: &PacketMemoryView,
         output_limit: usize,
         dedicated_worker: bool,
+        request_capacity: usize,
     ) -> io::Result<Self> {
         if output_limit == 0 {
             return Err(io::Error::other("helper output allowance is zero"));
@@ -82,10 +84,20 @@ impl MacosHelperOwner {
         let owner_layout = PacketMetadataArc::<Session>::layout().map_err(io::Error::other)?;
         let failures_layout = PacketMetadataArc::<Failures>::layout().map_err(io::Error::other)?;
         let transfer_layout = PacketMetadataArc::<Transfer>::layout().map_err(io::Error::other)?;
+        if request_capacity < rpc::CAPACITY {
+            return Err(io::Error::other(
+                "helper request layout is smaller than bootstrap framing",
+            ));
+        }
+        let request_layout = rpc::Request::layout(request_capacity);
         let all = owner_layout
             .checked_add(failures_layout)
             .and_then(|layout| layout.checked_add(transfer_layout))
             .and_then(|layout| layout.checked_add(transfer_layout))
+            .and_then(|layout| layout.checked_add(request_layout))
+            .and_then(|layout| layout.checked_add(request_layout))
+            .and_then(|layout| layout.checked_add(request_layout))
+            .and_then(|layout| layout.checked_add(request_layout))
             .map_err(io::Error::other)?;
         let mut credit = memory
             .reserve_driver_metadata(all)
@@ -111,12 +123,16 @@ impl MacosHelperOwner {
                 native: native::Native::new(),
                 transfer,
                 tools: tool::Supervisor::new(),
-                rpc: rpc::Rpc::new(),
+                rpc: rpc::Rpc::from_prepaid(
+                    request_capacity,
+                    credit.split(request_layout).map_err(io::Error::other)?,
+                )?,
                 stage: Stage::Cold,
                 command: 0,
                 create_attempted: false,
                 shutdown_started: false,
                 local_tool: tool::ChildOriginal::new(),
+                _peer_request: credit.split(request_layout).map_err(io::Error::other)?,
             }));
         }
         let [first, second] = epochs;

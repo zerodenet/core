@@ -18,7 +18,10 @@ impl Epoch {
             self.native.authenticate(self.id, &response)?;
             self.tools.prepare(self.id)?;
             self.rpc.begin(
-                &HelperRequest::InstallSupervisor { transfer: self.id },
+                &HelperRequest::InstallSupervisor {
+                    transfer: self.id,
+                    request_capacity: self.rpc.request_capacity(),
+                },
                 None,
             )?;
             self.stage = Stage::SupervisorRequest;

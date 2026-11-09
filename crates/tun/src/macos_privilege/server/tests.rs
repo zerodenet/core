@@ -9,7 +9,10 @@ fn actual_owned_helper_protocol_retains_supervisor_and_fixed_tool_before_reply_a
     supervisor.prepare(101).unwrap();
     serde_json::to_writer(
         &mut parent,
-        &HelperRequest::InstallSupervisor { transfer: 101 },
+        &HelperRequest::InstallSupervisor {
+            transfer: 101,
+            request_capacity: 65_536,
+        },
     )
     .unwrap();
     parent.write_all(b"\n").unwrap();

@@ -16,7 +16,9 @@ impl AdoptedTunOwner {
         memory: &PacketMemoryView,
         output_limit: usize,
         dedicated_worker: bool,
+        request_capacity: usize,
     ) -> io::Result<crate::MacosHelperAccess> {
+        let _notifications = memory.defer_notifications();
         let state = self.lock();
         if !matches!(*state, State::Cold) || self.macos_helper.get().is_some() {
             return Err(io::Error::other(
@@ -24,7 +26,8 @@ impl AdoptedTunOwner {
             ));
         }
         // Pure allocations are all paid before helper/listener/Child syscalls.
-        let helper = MacosHelperOwner::prepare(memory, output_limit, dedicated_worker)?;
+        let helper =
+            MacosHelperOwner::prepare(memory, output_limit, dedicated_worker, request_capacity)?;
         let access = helper.access();
         self.macos_helper
             .set(helper)

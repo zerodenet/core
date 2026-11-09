@@ -1,9 +1,11 @@
 //! The original request and response offsets survive a failed observer/waiter.
 use super::*;
 use std::io::Cursor;
-const CAPACITY: usize = 65_536;
+pub(super) const CAPACITY: usize = 65_536;
+mod request;
+pub(super) use request::Request;
 pub(super) struct Rpc {
-    request: [u8; CAPACITY],
+    request: Request,
     length: usize,
     written: usize,
     response: [u8; CAPACITY],
@@ -14,9 +16,19 @@ pub(super) struct Rpc {
     parsed: Option<HelperResponse>,
 }
 impl Rpc {
+    #[cfg(test)]
     pub(super) fn new() -> Self {
+        Self::with_request(Request::library())
+    }
+    pub(super) fn from_prepaid(
+        bytes: usize,
+        credit: crate::packet_memory::PacketMetadataCredit,
+    ) -> io::Result<Self> {
+        Ok(Self::with_request(Request::from_prepaid(bytes, credit)?))
+    }
+    fn with_request(request: Request) -> Self {
         Self {
-            request: [0; CAPACITY],
+            request,
             length: 0,
             written: 0,
             response: [0; CAPACITY],
@@ -40,7 +52,7 @@ impl Rpc {
         let mut cursor = Cursor::new(&mut self.request[..]);
         serde_json::to_writer(&mut cursor, request).map_err(io::Error::other)?;
         let length = usize::try_from(cursor.position()).map_err(io::Error::other)?;
-        if length == CAPACITY {
+        if length == self.request.len() {
             return Err(io::Error::other("helper request leaves no framing byte"));
         }
         self.request[length] = b'\n';
@@ -52,6 +64,9 @@ impl Rpc {
         self.command = command;
         self.started = true;
         Ok(())
+    }
+    pub(super) fn request_capacity(&self) -> usize {
+        self.request.len()
     }
     pub(super) fn submitted(&self) -> bool {
         self.started && self.written == self.length
