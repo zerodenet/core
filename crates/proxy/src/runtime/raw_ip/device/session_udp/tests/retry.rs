@@ -77,7 +77,9 @@ pub(super) async fn actual_retry(
     drop(packet);
     let mut native = read.try_buffer().unwrap();
     native.as_mut_bytes()[..reply.len()].copy_from_slice(&reply);
-    let original_reply = native.into_packet(reply.len()).unwrap();
+    let original_reply = native
+        .into_packet(reply.len())
+        .unwrap_or_else(|_| panic!("initialized packet length fits the original read workspace"));
     let original_payload = original_reply[28..].as_ptr();
     stack.feed_correlated_packet(original_reply).unwrap();
     let received = poll_fn(|cx| rx.as_mut().poll_recv(cx))

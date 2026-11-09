@@ -64,7 +64,9 @@ async fn source_queue_association_sniffer_and_core_pipe_move_one_actual_paid_pay
     );
     let mut incoming = read.try_buffer().unwrap();
     incoming.as_mut_bytes()[..input.len()].copy_from_slice(&input);
-    let original = incoming.into_packet(input.len()).unwrap();
+    let original = incoming
+        .into_packet(input.len())
+        .unwrap_or_else(|_| panic!("initialized packet length fits the original read workspace"));
     let input_payload_address = original[28..].as_ptr();
     stack.feed_owned_with_peer(original, None).await;
     let dequeued = stack.recv_datagram_with_peer().await.unwrap();

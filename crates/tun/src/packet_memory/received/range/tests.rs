@@ -15,7 +15,9 @@ fn refused_owned_range_returns_the_exact_original_without_new_native_or_metadata
     let view = read.memory_view().unwrap();
     let mut buffer = read.try_buffer().unwrap();
     buffer.as_mut_bytes()[..4].copy_from_slice(b"same");
-    let original = buffer.into_packet(4).unwrap();
+    let original = buffer
+        .into_packet(4)
+        .unwrap_or_else(|_| panic!("initialized packet length fits the original read workspace"));
     let address = original.as_ptr();
     let baseline = root.driver_metadata().occupied;
     let (cause, original) = view.retain_received_range(original, 0..5).unwrap_err();
