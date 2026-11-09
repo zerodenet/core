@@ -5,7 +5,9 @@ use std::{io, time::Duration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 mod custom;
 mod fragment;
+mod owned;
 mod prepared;
+pub use owned::OwnedMasks;
 mod stream;
 pub use prepared::{wrap_prepared, PreparedMasks};
 #[derive(Debug, Clone)]
@@ -109,3 +111,7 @@ fn invalid(message: &'static str) -> io::Error {
 #[cfg(test)]
 #[path = "../../tests/finalmask/tcp.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../tests/finalmask/tcp_owned.rs"]
+mod owned_tests;

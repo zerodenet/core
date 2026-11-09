@@ -10,8 +10,7 @@ pub(super) struct Table {
 }
 impl Table {
     pub(super) fn new(password: &str, layout: layout::Layout) -> Self {
-        static BASE: OnceLock<Vec<Vec<[u8; 4]>>> = OnceLock::new();
-        let base = BASE.get_or_init(patterns);
+        let base = base();
         let hash = ring::digest::digest(&ring::digest::SHA256, password.as_bytes());
         let seed = i64::from_be_bytes(hash.as_ref()[..8].try_into().unwrap());
         let mut order: Vec<_> = (0..base.len()).collect();
@@ -99,4 +98,49 @@ fn patterns() -> Vec<Vec<[u8; 4]>> {
     }
     assert!(patterns.iter().all(|choices| !choices.is_empty()));
     patterns
+}
+
+// The pre-existing fixed reference-algorithm dataset is process-constant. This
+// is not a per-password material pool and is shared by the same old builder.
+fn base() -> &'static Vec<Vec<[u8; 4]>> {
+    static BASE: OnceLock<Vec<Vec<[u8; 4]>>> = OnceLock::new();
+    BASE.get_or_init(patterns)
+}
+pub(super) fn material_bound(count: usize) -> io::Result<usize> {
+    // One real table selects 256 of these 288 deterministic rows. Summing all
+    // rows bounds every password ordering without a second table construction.
+    let hints = base()
+        .iter()
+        .try_fold(0usize, |sum, row| sum.checked_add(row.len()))
+        .ok_or(io::ErrorKind::InvalidInput)?;
+    let buckets = hints
+        .checked_mul(8)
+        .and_then(|v| v.checked_add(6))
+        .map(|v| v / 7)
+        .and_then(usize::checked_next_power_of_two)
+        .ok_or(io::ErrorKind::InvalidInput)?;
+    // Original choice Vec growth: new <=2*len; retain an old allocation as
+    // well. Raw hash buckets/control bytes allow BOTH old/new tables plus
+    // alignment tails. Allocator usable-size/RSS is not claimed by this unit.
+    let choices = hints
+        .checked_mul(3 * std::mem::size_of::<[u8; 4]>())
+        .ok_or(io::ErrorKind::InvalidInput)?;
+    let maps = buckets
+        .checked_mul(2 * (std::mem::size_of::<([u8; 4], u8)>() + 1))
+        .and_then(|v| v.checked_add(64))
+        .ok_or(io::ErrorKind::InvalidInput)?;
+    let per = choices
+        .checked_add(maps)
+        .and_then(|v| {
+            v.checked_add(
+                256 * std::mem::size_of::<Vec<[u8; 4]>>()
+                    + 512
+                    + 2 * std::mem::size_of::<Table>()
+                    + 288 * std::mem::size_of::<usize>(),
+            )
+        })
+        .ok_or(io::ErrorKind::InvalidInput)?;
+    per.checked_mul(count)
+        .and_then(|v| v.checked_add(32))
+        .ok_or_else(|| io::ErrorKind::InvalidInput.into())
 }
