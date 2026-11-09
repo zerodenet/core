@@ -50,6 +50,21 @@ impl PacketMemoryView {
         }
         self.original.0.root.native_grant(bytes)
     }
+    /// One actual fragment assembly in the SAME Native frame/byte lane.
+    /// This is memory-only admission, never another IO/read/Scope permission.
+    pub fn try_assembly(&self, bytes: usize) -> Result<NativeReadBuffer, PacketMemoryError> {
+        let _notifications = self.defer_notifications();
+        let state = self
+            .original
+            .0
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.revoked {
+            return Err(PacketMemoryError::Stopped);
+        }
+        self.original.0.root.native_assembly(bytes)
+    }
     /// Read-only identity of the exact granting original, never a close proof.
     pub fn same_original(&self, other: &Self) -> bool {
         PacketMetadataArc::ptr_eq(&self.original.0, &other.original.0)

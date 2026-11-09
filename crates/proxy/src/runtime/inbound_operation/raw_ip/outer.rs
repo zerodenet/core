@@ -124,8 +124,8 @@ pub(super) async fn refresh_endpoint_peers(
             }
         })
         .collect();
-    *fragments = OwnedFragmentReassembler::new();
-    *endpoint_fragments = OwnedFragmentReassembler::new();
+    fragments.reset();
+    endpoint_fragments.reset();
     Ok(())
 }
 

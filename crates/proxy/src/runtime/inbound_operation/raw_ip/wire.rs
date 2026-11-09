@@ -85,8 +85,13 @@ pub(super) async fn run(
     let mut receiving: Option<
         zero_platform_tokio::contract::BoxFuture<'static, Result<(), EngineError>>,
     > = None;
-    let mut fragments = OwnedFragmentReassembler::new();
-    let mut endpoint_fragments = OwnedFragmentReassembler::new();
+    let memory = read_memory.0[0]
+        .memory_view()
+        .map_err(std::io::Error::other)?;
+    let mut fragments =
+        OwnedFragmentReassembler::new_with_memory(memory.clone()).map_err(std::io::Error::other)?;
+    let mut endpoint_fragments =
+        OwnedFragmentReassembler::new_with_memory(memory).map_err(std::io::Error::other)?;
     let mut maintenance = tokio::time::interval(Duration::from_secs(5));
     maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut fragment_id = 1_u32;

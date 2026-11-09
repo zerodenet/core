@@ -23,7 +23,11 @@ pub(super) async fn run(
     let mut next_tcp_sweep = Instant::now() + Duration::from_secs(60);
     let mut buffer: Option<NativeReadBuffer> = None;
     let mut decode: Option<NativeReadBuffer> = None;
-    let mut fragments = OwnedFragmentReassembler::new();
+    let memory = reads.reads[0]
+        .memory_view()
+        .map_err(std::io::Error::other)?;
+    let mut fragments =
+        OwnedFragmentReassembler::new_with_memory(memory).map_err(std::io::Error::other)?;
     let mut receiving: Option<
         zero_platform_tokio::contract::BoxFuture<'static, Result<(), EngineError>>,
     > = None;

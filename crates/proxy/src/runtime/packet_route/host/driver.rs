@@ -41,10 +41,23 @@ pub(super) async fn run<D: zero_tun::TunDevice + 'static>(
     while !*activated.borrow_and_update() {
         tokio::select! { biased; _ = stopped.changed() => return DriverIo::Stopped(device), result = activated.changed() => { if result.is_err() { return DriverIo::Stopped(device); } } }
     }
+    let fragments = match read_credit
+        .0
+        .memory_view()
+        .and_then(OwnedFragmentReassembler::new_with_memory)
+    {
+        Ok(fragments) => fragments,
+        Err(source) => {
+            return DriverIo::Exited {
+                device,
+                failure: Some(Arc::new(io::Error::other(source))),
+            }
+        }
+    };
     let (mut reader, mut writer) = tokio::io::split(device);
     let mut failure = None;
     let mut buffer: Option<NativeReadBuffer> = None;
-    let mut fragments = OwnedFragmentReassembler::new();
+    let mut fragments = fragments;
     let mut returning: Option<
         zero_platform_tokio::contract::BoxFuture<'static, Result<(), ChannelError>>,
     > = None;
