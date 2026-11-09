@@ -40,6 +40,7 @@ impl ComponentCatalog {
         )?;
         let nodes: BTreeMap<_, _> = order.iter().map(|slot| (slot.id, slot.clone())).collect();
         let plan = ComponentPlan {
+            dns_wire: Default::default(),
             builtin: nodes[&original.builtin.id].clone(),
             outbounds: original
                 .outbounds
@@ -161,6 +162,7 @@ impl ComponentCatalog {
         super::cold::extend_deferred(&order, &mut deferred_devices);
         let nodes: BTreeMap<_, _> = order.iter().map(|slot| (slot.id, slot.clone())).collect();
         let plan = ComponentPlan {
+            dns_wire: Default::default(),
             builtin: nodes[&original.builtin.id].clone(),
             outbounds: original
                 .outbounds

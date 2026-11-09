@@ -297,7 +297,7 @@ async fn exchange_peer(
         match config {
             DnsServerConfig::Udp { .. } => {
                 crate::backends::write_framed(&mut io, query).await?;
-                crate::backends::read_framed(&mut io).await
+                crate::wire_memory::read_framed(&mut io).await
             }
             #[cfg(feature = "dot")]
             _ => Box::pin(tls::exchange(config, backend, io, query)).await,
@@ -317,12 +317,13 @@ async fn exchange_datagram(loan: DatagramLoan, request: &Query<'_>) -> Attempt {
         return attempt::settle(&mut owner, end, Err(source)).await;
     }
     let work = async {
+        let memory = OwnedDnsQueryTasks::current_wire_memory();
+        let mut bytes = crate::wire_memory::WireBuffer::zeroed(65536, memory.as_ref())?;
         io.send(request.bytes).await?;
-        let mut bytes = vec![0; 65536];
         loop {
-            let size = io.receive(&mut bytes).await?;
+            let size = io.receive(bytes.as_mut()).await?;
             if crate::message::parse_response(request.bytes, &bytes[..size]).is_ok() {
-                return Ok(bytes[..size].to_vec());
+                return crate::DnsWireResponse::copy(&bytes[..size], memory.as_ref());
             }
         }
     };

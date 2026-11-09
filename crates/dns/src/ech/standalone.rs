@@ -48,7 +48,7 @@ impl DnsSystem {
                 .with_wire_query(&query)
                 .with_endpoint(endpoint.as_str());
             let end = self.ech_deadline();
-            let mut response = self
+            let response = self
                 .wire_query_coordinator
                 .resolve(key, async move {
                     let resolver = backend.owned_udp().expect("actual UDP root backend");
@@ -57,9 +57,10 @@ impl DnsSystem {
                         .await
                         .into_parts(None)
                         .0
+                        .map(crate::DnsWireResponse::library)
                 })
                 .await?;
-            response[..2].copy_from_slice(&original[..2]);
+            let response = response.with_id([original[0], original[1]], None)?;
             let parsed = crate::message::parse_ech_config_response(&original, &response)?;
             Ok(EchDnsRecord {
                 config_list: parsed.config_list,

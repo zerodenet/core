@@ -78,20 +78,22 @@ impl DnsSystem {
         let execution = self.prepare_owned_ech(server)?;
         let mut scope = QueryScope::new(DnsQueryRole::Node, execution.generation.network.0);
         scope.config_generation = execution.generation.resolver;
-        let query = crate::message::build_query(&name, crate::message::TYPE_HTTPS)?;
+        let memory = node.source.wire_memory()?;
+        let query =
+            crate::DnsWireResponse::query(&name, crate::message::TYPE_HTTPS, memory.as_ref())?;
         let id = [query[0], query[1]];
         let key = QueryKey::new(&name, crate::message::TYPE_HTTPS, scope)
-            .with_wire_query(&query)
+            .with_owned_wire_query(query.clone())
             .with_endpoint(execution.endpoint.as_str());
         let original = query.clone();
         let tasks = node.source.tasks()?;
-        let mut response = tasks
+        let response = tasks
             .bootstrap(
                 node.wire
                     .resolve(key, async move { execution.exchange(&query).await }),
             )
             .await??;
-        response[..2].copy_from_slice(&id);
+        let response = response.with_id(id, memory.as_ref())?;
         parsed(&original, &response)
     }
 }
@@ -122,11 +124,13 @@ impl Execution {
                 ttl_seconds: crate::message::DEFAULT_NEGATIVE_TTL_SECONDS,
             });
         }
-        let query = crate::message::build_query(&name, crate::message::TYPE_HTTPS)?;
+        let memory = self.source.wire_memory()?;
+        let query =
+            crate::DnsWireResponse::query(&name, crate::message::TYPE_HTTPS, memory.as_ref())?;
         let response = self.exchange(&query).await?;
         parsed(&query, &response)
     }
-    async fn exchange(self, query: &[u8]) -> io::Result<Vec<u8>> {
+    async fn exchange(self, query: &[u8]) -> io::Result<crate::DnsWireResponse> {
         self.check()?;
         OwnedDnsQueryTasks::bind_ech_endpoint(&self.endpoint)?;
         let caller = OwnedDnsQueryTasks::current_witness()?;

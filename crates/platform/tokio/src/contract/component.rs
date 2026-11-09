@@ -1,5 +1,7 @@
 // This neutral memory-only view does not enable a native packet provider.
-pub use zero_tun::packet_memory::{PacketDriverMetadataView, PacketMetadataVec};
+pub use zero_tun::packet_memory::{
+    PacketDriverMetadataView, PacketMetadataVec, PacketRootNotifications,
+};
 pub(crate) mod packet_driver;
 pub use packet_driver::{
     GrantedPacketServiceCaller, PacketDriverCallGrant, PacketDriverCallRetained, PacketDriverCalls,

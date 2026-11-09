@@ -1,10 +1,11 @@
 use super::{CoordinatorState, QueryKey};
+use crate::wire_memory::MetadataMutex as Mutex;
 use std::{
     error::Error,
     fmt, io,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Mutex,
+        Arc,
     },
 };
 use tokio::{sync::Notify, task::AbortHandle};
@@ -47,10 +48,16 @@ pub(super) struct Flight<T> {
     pub(super) caller_registration: Arc<crate::wire_call::Registration>,
 }
 impl<T> Flight<T> {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(
+        metadata: Option<zero_platform_tokio::contract::component::PacketDriverMetadataView>,
+    ) -> Self {
+        let result = Mutex::new(None);
+        result.bind(metadata.clone());
+        let abort_handle = Mutex::new(None);
+        abort_handle.bind(metadata);
         Self {
-            result: Mutex::new(None),
-            abort_handle: Mutex::new(None),
+            result,
+            abort_handle,
             completed: Notify::new(),
             cancel: zero_platform_tokio::contract::CancellationToken::new(),
             waiters: Arc::new(AtomicUsize::new(0)),

@@ -6,21 +6,30 @@ impl DnsSystem {
     pub fn prepare_udp_query<'a>(
         &'a self,
         query: &'a [u8],
-    ) -> (DnsQueryCall, BoxFuture<'a, io::Result<Vec<u8>>>) {
+    ) -> (
+        DnsQueryCall,
+        BoxFuture<'a, io::Result<crate::DnsWireResponse>>,
+    ) {
         self.prepare_wire_query(query, false)
     }
     /// The same actual caller/worker ownership for DNS-over-TCP framing.
     pub fn prepare_tcp_query<'a>(
         &'a self,
         query: &'a [u8],
-    ) -> (DnsQueryCall, BoxFuture<'a, io::Result<Vec<u8>>>) {
+    ) -> (
+        DnsQueryCall,
+        BoxFuture<'a, io::Result<crate::DnsWireResponse>>,
+    ) {
         self.prepare_wire_query(query, true)
     }
     fn prepare_wire_query<'a>(
         &'a self,
         query: &'a [u8],
         tcp: bool,
-    ) -> (DnsQueryCall, BoxFuture<'a, io::Result<Vec<u8>>>) {
+    ) -> (
+        DnsQueryCall,
+        BoxFuture<'a, io::Result<crate::DnsWireResponse>>,
+    ) {
         let state = State::new();
         let returned = Returned(state.clone());
         let original = DnsQueryCall(state.clone());

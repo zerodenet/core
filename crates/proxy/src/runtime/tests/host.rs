@@ -38,6 +38,7 @@ async fn component_host_debug_does_not_expose_a_pending_configuration() {
         previous: snapshot,
 
         compensating: false,
+        wire: None,
         sender,
     });
     let debug = format!("{:?}", proxy.protocols);

@@ -3,7 +3,7 @@ use super::*;
 use zero_platform_tokio::controlled_carrier::{loan::LoanClosed, CarrierOriginClosed};
 
 pub(crate) struct Attempt {
-    result: io::Result<Vec<u8>>,
+    result: io::Result<crate::DnsWireResponse>,
     closed: Option<Proof>,
 }
 enum Proof {
@@ -27,7 +27,7 @@ enum Proof {
 impl Attempt {
     #[cfg(feature = "doh")]
     pub(crate) fn pooled(
-        result: io::Result<Vec<u8>>,
+        result: io::Result<crate::DnsWireResponse>,
         settled: Option<crate::backends::doh::NativeCompletion>,
     ) -> Self {
         Self {
@@ -46,40 +46,41 @@ impl Attempt {
             let question = crate::message::parse_question(query)?;
             crate::family::filter_addresses(&question.domain, addresses, family)
         });
+        let memory = OwnedDnsQueryTasks::current_wire_memory();
         let result = if !matches!(
             query_type,
             crate::message::TYPE_A | crate::message::TYPE_AAAA
         ) {
-            Ok(crate::message::build_error_response(
+            crate::DnsWireResponse::error(
                 query,
                 crate::message::RCODE_NOTIMP,
                 false,
-            ))
+                memory.as_ref(),
+            )
         } else {
             match lookup.result {
-                Ok(addresses) => {
-                    let addresses = addresses
-                        .into_iter()
-                        .filter(|address| {
-                            matches!(
-                                (query_type, address),
-                                (crate::message::TYPE_A, zero_traits::IpAddress::V4(_))
-                                    | (crate::message::TYPE_AAAA, zero_traits::IpAddress::V6(_))
-                            )
-                        })
-                        .collect::<Vec<_>>();
-                    Ok(crate::message::build_address_response(
+                Ok(mut addresses) => {
+                    addresses.retain(|address| {
+                        matches!(
+                            (query_type, address),
+                            (crate::message::TYPE_A, zero_traits::IpAddress::V4(_))
+                                | (crate::message::TYPE_AAAA, zero_traits::IpAddress::V6(_))
+                        )
+                    });
+                    crate::DnsWireResponse::addresses(
                         query,
                         &addresses,
                         crate::message::DEFAULT_NEGATIVE_TTL_SECONDS,
-                    ))
+                        memory.as_ref(),
+                    )
                 }
                 Err(source) if source.kind() == io::ErrorKind::NotFound => {
-                    Ok(crate::message::build_error_response(
+                    crate::DnsWireResponse::error(
                         query,
                         crate::message::RCODE_NXDOMAIN,
                         false,
-                    ))
+                        memory.as_ref(),
+                    )
                 }
                 Err(source) => Err(source),
             }
@@ -153,7 +154,7 @@ impl Attempt {
                 crate::message::parse_response(query, response).is_ok_and(|parsed| parsed.truncated)
             })
     }
-    pub(crate) fn into_parts(self) -> (io::Result<Vec<u8>>, bool) {
+    pub(crate) fn into_parts(self) -> (io::Result<crate::DnsWireResponse>, bool) {
         let settled = self.can_retry();
         (self.result, settled)
     }
@@ -175,7 +176,7 @@ pub(super) async fn failed_service(
 pub(super) async fn settle(
     owner: &mut LoanOwner,
     end: Instant,
-    result: io::Result<Vec<u8>>,
+    result: io::Result<crate::DnsWireResponse>,
 ) -> Attempt {
     let confirmation = async {
         let report = owner.close(end).await.map_err(io::Error::other)?;
@@ -218,7 +219,7 @@ pub(super) async fn settle(
 pub(super) async fn settle_quic(
     owner: &mut dyn crate::native::NativeDnsQuicControl,
     end: Instant,
-    result: io::Result<Vec<u8>>,
+    result: io::Result<crate::DnsWireResponse>,
 ) -> Attempt {
     let original = owner.original().clone();
     match owner.close(end).await {

@@ -588,6 +588,7 @@ impl OrchestrationState {
         message: String,
         cold_only: bool,
     ) -> BoxFuture<'a, ()> {
+        proxy.rollback_pending_dns_wire(rejected);
         if !cold_only {
             return self.reject_reload(proxy, rejected, message);
         }

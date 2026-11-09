@@ -272,6 +272,7 @@ impl ComponentCatalog {
             *slot = nodes[&slot.id].clone();
         }
         Ok(ComponentPlan {
+            dns_wire: Default::default(),
             builtin,
             borrowing: self.admission.clone(),
             borrowing_revision,

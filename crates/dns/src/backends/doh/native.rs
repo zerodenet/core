@@ -227,9 +227,16 @@ impl DohDnsResolver {
                 };
                 request
                     .body
-                    .send_data(Bytes::copy_from_slice(query), true)
+                    .send_data(
+                        Bytes::from_owner(crate::DnsWireResponse::copy(
+                            query,
+                            crate::OwnedDnsQueryTasks::current_wire_memory().as_ref(),
+                        )?),
+                        true,
+                    )
                     .map_err(io::Error::other)?;
-                let answer = read_response(response.await.map_err(io::Error::other)?).await?;
+                let answer =
+                    read_native_response(response.await.map_err(io::Error::other)?).await?;
                 crate::message::parse_response(query, &answer)?;
                 client.complete()?;
                 request.complete = true;

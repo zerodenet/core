@@ -1,8 +1,9 @@
+use crate::wire_memory::MetadataMutex as Mutex;
 use std::collections::HashMap;
 use std::future::Future;
 use std::io;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use tokio::task::JoinSet;
@@ -39,10 +40,23 @@ pub(super) struct QueryKey {
     domain: String,
     query_type: u16,
     scope: QueryScope,
-    wire_query: Option<Vec<u8>>,
+    wire_query: Option<WireKey>,
     endpoint: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct WireKey(crate::DnsWireResponse);
+impl PartialEq for WireKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.get(2..) == other.0.get(2..)
+    }
+}
+impl Eq for WireKey {}
+impl std::hash::Hash for WireKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash(&self.0.get(2..), state)
+    }
+}
 impl QueryKey {
     pub(super) fn new(domain: &str, query_type: u16, scope: QueryScope) -> Self {
         Self {
@@ -59,10 +73,16 @@ impl QueryKey {
         self
     }
 
+    pub(super) fn with_owned_wire_query(mut self, query: crate::DnsWireResponse) -> Self {
+        self.wire_query = Some(WireKey(query));
+        self
+    }
     /// Preserve all wire-query semantics except the transaction ID, which is
     /// rewritten independently for every coalesced caller.
     pub(super) fn with_wire_query(mut self, query: &[u8]) -> Self {
-        self.wire_query = query.get(2..).map(ToOwned::to_owned);
+        self.wire_query = query
+            .get(2..)
+            .map(|_| WireKey(crate::DnsWireResponse::library(query.to_vec())));
         self
     }
 }
@@ -128,6 +148,11 @@ where
     T: Clone + Send + 'static,
 {
     pub(crate) fn set_native_source(&mut self, source: Arc<crate::native::NativeDnsSource>) {
+        let metadata = source
+            .cold_wire_memory()
+            .map(|memory| memory.metadata.clone());
+        self.state.bind(metadata.clone());
+        self.graph.bind(metadata);
         self.native_source = Some(source);
     }
     fn current_tasks(&self) -> io::Result<Option<crate::OwnedDnsQueryTasks>> {
@@ -231,7 +256,7 @@ where
             let selected = match state.in_flight.get(&key) {
                 Some(flight) => (flight.clone(), false),
                 None => {
-                    let flight = Arc::new(Flight::new());
+                    let flight = Arc::new(Flight::new(self.state.metadata()));
                     state.in_flight.insert(key.clone(), flight.clone());
                     (flight, true)
                 }

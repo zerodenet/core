@@ -1,6 +1,9 @@
 //! Native operations use this provider's original Scope and native ledger.
 use super::*;
 impl NativeDnsProvider for Provider {
+    fn wire_memory(&self) -> Option<zero_dns::DnsWireMemory> {
+        Some(self.memory.clone())
+    }
     fn host_scope(
         &self,
     ) -> Option<(

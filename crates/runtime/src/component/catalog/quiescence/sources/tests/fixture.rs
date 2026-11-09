@@ -170,6 +170,7 @@ pub(super) fn install(
         .admission
         .stage([slot.admission_grant()].into_iter());
     let plan = Arc::new(ComponentPlan {
+        dns_wire: Default::default(),
         builtin: slot.clone(),
         borrowing: catalog.admission.clone(),
         borrowing_revision: 0,

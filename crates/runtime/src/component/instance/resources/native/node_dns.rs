@@ -19,9 +19,16 @@ impl HostResources {
             .get()
             .and_then(|cell| cell.get())
             .ok_or_else(|| self.denied())?;
-        Ok(HostNodeDnsSource::for_host(
-            source.clone(),
-            self.carriers.host_fence()?,
-        ))
+        let tasks = self.original_tasks.as_ref().ok_or_else(|| self.denied())?;
+        let instance = self.instance.ok_or_else(|| self.denied())?;
+        Ok(
+            HostNodeDnsSource::for_host(source.clone(), self.carriers.host_fence()?)
+                .with_memory_root(
+                    self.originals.dns_wire.clone(),
+                    self.originals.packet.driver_metadata_view(),
+                    instance,
+                    tasks.scope_identity(),
+                ),
+        )
     }
 }

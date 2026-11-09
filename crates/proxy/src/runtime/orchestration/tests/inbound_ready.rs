@@ -50,6 +50,7 @@ async fn candidate_ack_waits_for_actual_plugin_activation_and_both_listener_loop
         previous: previous.clone(),
 
         compensating: false,
+        wire: None,
         sender,
     });
     drop(reserved);

@@ -1096,3 +1096,23 @@ metadata only. They grant no IO, task, receipt or ACK authority. New logger
 fault views borrow/retain their paid source; they do not export a bare new
 TaskJoined/Arc observer. Standard-library opaque allocations and arbitrary
 original panic payloads are not redefined as fully measured process memory.
+
+
+### DNS wire backing 原件与同 Root 额度续作（开发中）
+
+`runtime.dns_wire_total_max_buffered_bytes` 保留可选字段/省略不导出与默认 16 MiB。
+本片把该同 Host 计额接到实际 DNS 自有 query/reply Vec backing：UDP 接收工作区、
+TCP/DoT/DoQ 帧、DoH 自有请求/聚合应答、事务 ID/TTL/地址策略副本和持久 wire cache。
+实际分配容量持续计额；Query 的 native/join/Host ACK 不归还仍被输出/缓存持有的 backing。
+该单位不是总 RSS、OS socket buffer、第三方库内部分配或解析后的任意 DTO 总量。
+
+配置仍由唯一 Proxy Apply 使用同 counter 的候选：旧 caller 不提前使用增长，新目标实际
+Source 可在同次 warm 中取得预付的候选内存；失败恢复原准入而不退款实际 held backing。
+缩额不足拒绝新配置，不驱逐有效缓存/应答或替换该账本。内存许可不是 IO、任务或关闭权限。
+
+进程内 Rust 调用者需要适配：`answer_udp_query`/`answer_tcp_query` 及 prepared wire future
+返回不可变的 `DnsWireResponse`；其 `AsRef<[u8]>`/Deref/as_slice 提供同原 wire 内容，Clone
+共享同一实际 backing/额度。`busy_response` 现在也返回 io::Result；未获额度不能另分配无账
+错误帧。真正的 standalone provider 保留显式原 owner 与库责任，Kernel 缺 book 不回退。
+V1 控制 JSON、DNS wire、默认 UDP/DoH 能力、Query 原 deadline/Scope/原 pool 与 ACK 不变。
+新源码及新增回归尚需实际同输入编测；不代表完整 DNS/控制域或全部高级 donor 已完成。

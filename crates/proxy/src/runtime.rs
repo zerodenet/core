@@ -196,6 +196,7 @@ impl Proxy {
         let config = engine.config();
         preparation::install_original_limit(&protocols, &config.runtime)?;
         preparation::install_control_limit(&protocols, &config.runtime)?;
+        preparation::install_dns_wire(&protocols, &node_network, &config.runtime)?;
         protocols.validate_config(&config)?;
         protocols.validate_dial_environment(&config)?;
         protocols.validate_components(config.clone())?;
@@ -358,6 +359,11 @@ impl Proxy {
             }
         };
         if let Some(pending) = pending {
+            if result.is_err() {
+                if let Some(wire) = &pending.wire {
+                    wire.rollback();
+                }
+            }
             let _ = pending.sender.send(result);
         }
     }

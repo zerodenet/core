@@ -149,6 +149,11 @@ impl ResourceLifecycle for Owner {
                 ),
             );
         }
+        if protocol_complete {
+            if let Some(memory) = self.provider.wire_memory() {
+                memory.revoke_source();
+            }
+        }
         let mut report = std::mem::take(&mut self.pending);
         report.unfinished = unfinished;
         Ok(report)

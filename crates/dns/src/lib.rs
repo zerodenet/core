@@ -5,6 +5,8 @@
 //! with zero additional allocation.
 
 use zero_runtime::configuration::DnsConfigPreparation;
+mod wire_memory;
+pub use wire_memory::{DnsWireInput, DnsWireMemory, DnsWireResponse};
 mod backends;
 mod cache;
 mod coordinator;
@@ -113,7 +115,7 @@ pub struct DnsSystem {
     fake_ip_state_lease: std::sync::Mutex<Option<Arc<fake_ip::StateLease>>>,
     query_attempts: Arc<std::sync::Mutex<VecDeque<DnsQueryAttempt>>>,
     query_coordinator: QueryCoordinator<Vec<IpAddress>>,
-    wire_query_coordinator: QueryCoordinator<Vec<u8>>,
+    wire_query_coordinator: QueryCoordinator<DnsWireResponse>,
     outbound_connector: std::sync::RwLock<Option<Arc<dyn DnsOutboundConnector>>>,
     transport_owners: Arc<transport_owners::TransportOwners>,
 }
@@ -169,7 +171,7 @@ struct ResolveSnapshot {
     query_attempts: Arc<std::sync::Mutex<VecDeque<DnsQueryAttempt>>>,
     outbound_connector: Option<Arc<dyn DnsOutboundConnector>>,
     query_coordinator: QueryCoordinator<Vec<IpAddress>>,
-    wire_query_coordinator: QueryCoordinator<Vec<u8>>,
+    wire_query_coordinator: QueryCoordinator<DnsWireResponse>,
     egress_interface: zero_platform_tokio::EgressInterfaceControl,
     egress_generation: u64,
     config_generation: u64,
@@ -773,33 +775,58 @@ impl DnsSystem {
         }
     }
 
+    pub fn prepare_wire_input(&self, size: usize) -> io::Result<DnsWireInput> {
+        let memory = self.wire_memory()?;
+        Ok(DnsWireInput {
+            buffer: wire_memory::WireBuffer::zeroed(size, memory.as_ref())?,
+        })
+    }
+    fn wire_memory(&self) -> io::Result<Option<DnsWireMemory>> {
+        match self
+            .native_source
+            .as_ref()
+            .or_else(|| self.wire_query_coordinator.native_source())
+        {
+            Some(source) => source.wire_memory(),
+            None => Ok(None),
+        }
+    }
     /// Answer one DNS datagram. Invalid requests and upstream failures are
     /// converted into FORMERR/SERVFAIL responses so clients do not time out.
-    pub async fn answer_udp_query(&self, query: &[u8]) -> io::Result<Vec<u8>> {
-        let response = self.answer_query(query).await;
-        Ok(message::fit_response_to_udp(query, response))
+    pub async fn answer_udp_query(&self, query: &[u8]) -> io::Result<DnsWireResponse> {
+        let memory = self.wire_memory()?;
+        self.answer_query(query)
+            .await?
+            .fit_udp(query, memory.as_ref())
     }
 
     /// Answer one DNS-over-TCP message without UDP payload truncation.
-    pub async fn answer_tcp_query(&self, query: &[u8]) -> io::Result<Vec<u8>> {
-        Ok(self.answer_query(query).await)
+    pub async fn answer_tcp_query(&self, query: &[u8]) -> io::Result<DnsWireResponse> {
+        self.answer_query(query).await
     }
 
     /// Build a bounded explicit failure for a query that cannot be admitted.
-    pub fn busy_response(&self, query: &[u8]) -> Vec<u8> {
-        message::fit_response_to_udp(
-            query,
-            message::build_error_response(query, message::RCODE_SERVFAIL, false),
-        )
+    pub fn busy_response(&self, query: &[u8]) -> io::Result<DnsWireResponse> {
+        let memory = self.wire_memory()?;
+        DnsWireResponse::error(query, message::RCODE_SERVFAIL, false, memory.as_ref())?
+            .fit_udp(query, memory.as_ref())
     }
 
-    async fn answer_query(&self, query: &[u8]) -> Vec<u8> {
+    async fn answer_query(&self, query: &[u8]) -> io::Result<DnsWireResponse> {
+        let memory = self.wire_memory()?;
         if self.wire_query_coordinator.ensure_local_open().is_err() {
-            return message::build_error_response(query, message::RCODE_SERVFAIL, false);
+            return DnsWireResponse::error(query, message::RCODE_SERVFAIL, false, memory.as_ref());
         }
         let question = match message::parse_question(query) {
             Ok(question) => question,
-            Err(_) => return message::build_error_response(query, message::RCODE_FORMERR, false),
+            Err(_) => {
+                return DnsWireResponse::error(
+                    query,
+                    message::RCODE_FORMERR,
+                    false,
+                    memory.as_ref(),
+                )
+            }
         };
         let (snapshot, config_generation) = self.snapshot_with_generation();
         if localhost::is_localhost(&question.domain) {
@@ -807,10 +834,11 @@ impl DnsSystem {
                 .as_ref()
                 .map(|snapshot| snapshot.policy.address_family)
                 .unwrap_or_default();
-            return message::build_address_response(
+            return DnsWireResponse::addresses(
                 query,
                 &localhost::addresses(policy),
                 message::DEFAULT_SYNTHETIC_TTL_SECONDS,
+                memory.as_ref(),
             );
         }
         let address_policy = snapshot.as_ref().map(|snapshot| {
@@ -826,10 +854,11 @@ impl DnsSystem {
             (question.query_type == message::TYPE_A && !policy.allow_ipv4)
                 || (question.query_type == message::TYPE_AAAA && !policy.allow_ipv6)
         }) {
-            return message::build_address_response(
+            return DnsWireResponse::addresses(
                 query,
                 &[],
                 message::DEFAULT_SYNTHETIC_TTL_SECONDS,
+                memory.as_ref(),
             );
         }
         if let Some(allocator) = snapshot
@@ -839,48 +868,67 @@ impl DnsSystem {
             if !allocator.is_excluded(&question.domain) {
                 if question.query_type == message::TYPE_A {
                     return match allocator.alloc_ipv4(&question.domain).await {
-                        Ok(Some(address)) => message::build_address_response(
+                        Ok(Some(address)) => DnsWireResponse::addresses(
                             query,
                             &[address],
                             allocator.ttl_seconds(),
+                            memory.as_ref(),
                         ),
-                        Ok(None) => {
-                            message::build_error_response(query, message::RCODE_SERVFAIL, false)
-                        }
+                        Ok(None) => DnsWireResponse::error(
+                            query,
+                            message::RCODE_SERVFAIL,
+                            false,
+                            memory.as_ref(),
+                        ),
                         Err(error) => {
                             tracing::error!(
                                 %error,
                                 domain = %question.domain,
                                 "failed to persist Fake-IP mapping; returning SERVFAIL"
                             );
-                            message::build_error_response(query, message::RCODE_SERVFAIL, false)
+                            DnsWireResponse::error(
+                                query,
+                                message::RCODE_SERVFAIL,
+                                false,
+                                memory.as_ref(),
+                            )
                         }
                     };
                 }
                 if question.query_type == message::TYPE_AAAA {
                     if !allocator.ipv6_enabled() {
-                        return message::build_address_response(
+                        return DnsWireResponse::addresses(
                             query,
                             &[],
                             allocator.ttl_seconds(),
+                            memory.as_ref(),
                         );
                     }
                     return match allocator.alloc_ipv6(&question.domain).await {
-                        Ok(Some(address)) => message::build_address_response(
+                        Ok(Some(address)) => DnsWireResponse::addresses(
                             query,
                             &[address],
                             allocator.ttl_seconds(),
+                            memory.as_ref(),
                         ),
-                        Ok(None) => {
-                            message::build_error_response(query, message::RCODE_SERVFAIL, false)
-                        }
+                        Ok(None) => DnsWireResponse::error(
+                            query,
+                            message::RCODE_SERVFAIL,
+                            false,
+                            memory.as_ref(),
+                        ),
                         Err(error) => {
                             tracing::error!(
                                 %error,
                                 domain = %question.domain,
                                 "failed to persist IPv6 Fake-IP mapping; returning SERVFAIL"
                             );
-                            message::build_error_response(query, message::RCODE_SERVFAIL, false)
+                            DnsWireResponse::error(
+                                query,
+                                message::RCODE_SERVFAIL,
+                                false,
+                                memory.as_ref(),
+                            )
                         }
                     };
                 }
@@ -893,7 +941,7 @@ impl DnsSystem {
             .cloned()
         {
             if let Some(cached) = cache
-                .get_response(
+                .get_response_with_memory(
                     snapshot
                         .as_ref()
                         .expect("configured cache")
@@ -901,46 +949,43 @@ impl DnsSystem {
                     &question.domain,
                     question.query_type,
                     query,
+                    memory.as_ref(),
                 )
-                .await
+                .await?
             {
-                return cached;
+                return Ok(cached);
             }
         }
 
         let result = match snapshot.as_ref() {
             Some(snapshot) => {
                 let coordinator = snapshot.wire_query_coordinator.clone();
+                let query = DnsWireResponse::copy(query, memory.as_ref())?;
                 let key = QueryKey::new(
                     &question.domain,
                     question.query_type,
                     snapshot.query_scope(DnsQueryRole::Default),
                 )
-                .with_wire_query(query);
+                .with_owned_wire_query(query.clone());
                 let query_id = [query[0], query[1]];
-                let query = query.to_vec();
                 let domain = question.domain.clone();
                 let snapshot = snapshot.clone();
                 let address_policy = address_policy.expect("configured DNS has an address policy");
+                let worker_memory = memory.clone();
                 coordinator
                     .resolve(key, async move {
                         exchange_snapshot(&query, &domain, DnsQueryRole::Default, &snapshot)
                             .await
                             .and_then(|(response, _)| {
-                                message::apply_response_address_policy(
+                                response.apply_policy(
                                     &query,
-                                    response,
                                     address_policy,
+                                    worker_memory.as_ref(),
                                 )
                             })
                     })
                     .await
-                    .map(|mut response| {
-                        if let Some(response_id) = response.get_mut(..2) {
-                            response_id.copy_from_slice(&query_id);
-                        }
-                        response
-                    })
+                    .and_then(|response| response.with_id(query_id, memory.as_ref()))
             }
             None if matches!(question.query_type, message::TYPE_A | message::TYPE_AAAA) => self
                 .resolve_system_type_coordinated(
@@ -950,36 +995,34 @@ impl DnsSystem {
                     config_generation,
                 )
                 .await
-                .map(|addresses| {
-                    message::build_address_response(
+                .and_then(|addresses| {
+                    DnsWireResponse::addresses(
                         query,
                         &addresses,
                         message::DEFAULT_NEGATIVE_TTL_SECONDS,
+                        memory.as_ref(),
                     )
                 })
                 .or_else(|error| {
                     if error.kind() == io::ErrorKind::NotFound {
-                        Ok(message::build_error_response(
+                        DnsWireResponse::error(
                             query,
                             message::RCODE_NXDOMAIN,
                             false,
-                        ))
+                            memory.as_ref(),
+                        )
                     } else {
                         Err(error)
                     }
                 }),
-            None => Ok(message::build_error_response(
-                query,
-                message::RCODE_NOTIMP,
-                false,
-            )),
+            None => DnsWireResponse::error(query, message::RCODE_NOTIMP, false, memory.as_ref()),
         };
         match result.and_then(|mut response| {
             if let Some(cache) = snapshot
                 .as_ref()
                 .and_then(|snapshot| snapshot.cache.as_ref())
             {
-                cache.cap_response_ttls(&mut response)?;
+                response = cache.cap_wire_response_ttls(response, memory.as_ref())?;
             }
             let parsed = message::parse_response(query, &response)?;
             Ok((response, parsed))
@@ -1023,7 +1066,7 @@ impl DnsSystem {
                                     question.query_type,
                                     DnsWireCacheValue {
                                         addresses: parsed.addresses.clone(),
-                                        query: query.to_vec(),
+                                        query: DnsWireResponse::copy(query, memory.as_ref())?,
                                         response: response.clone(),
                                         ttl_seconds,
                                     },
@@ -1032,11 +1075,11 @@ impl DnsSystem {
                         }
                     }
                 }
-                response
+                Ok(response)
             }
             Err(error) => {
                 tracing::warn!(%error, domain = %question.domain, "DNS query failed; returning SERVFAIL");
-                message::build_error_response(query, message::RCODE_SERVFAIL, false)
+                DnsWireResponse::error(query, message::RCODE_SERVFAIL, false, memory.as_ref())
             }
         }
     }
@@ -1229,7 +1272,8 @@ async fn resolve_snapshot_type_uncached(
 ) -> io::Result<Vec<IpAddress>> {
     // 2. Dispatch to the selected backend, then walk the explicit fallback
     // chain on transport failure, timeout, malformed data, or retryable RCODE.
-    let query = message::build_query(domain, query_type)?;
+    let memory = snapshot_wire_memory(&snapshot)?;
+    let query = DnsWireResponse::query(domain, query_type, memory.as_ref())?;
     let result = exchange_snapshot(&query, domain, role, &snapshot)
         .await
         .and_then(|(_, mut parsed)| {
@@ -1310,7 +1354,7 @@ async fn exchange_snapshot(
     domain: &str,
     role: DnsQueryRole,
     snapshot: &ResolveSnapshot,
-) -> io::Result<(Vec<u8>, message::ParsedDnsResponse)> {
+) -> io::Result<(DnsWireResponse, message::ParsedDnsResponse)> {
     let (selected, fallbacks) = match role {
         DnsQueryRole::Default => (
             snapshot.dispatcher.select(domain),
@@ -1469,5 +1513,16 @@ fn ip_address_to_std(ip: IpAddress) -> std::net::IpAddr {
     match ip {
         IpAddress::V4(octets) => std::net::IpAddr::V4(std::net::Ipv4Addr::from(octets)),
         IpAddress::V6(octets) => std::net::IpAddr::V6(std::net::Ipv6Addr::from(octets)),
+    }
+}
+
+fn snapshot_wire_memory(snapshot: &ResolveSnapshot) -> io::Result<Option<DnsWireMemory>> {
+    match snapshot
+        .native_source
+        .as_ref()
+        .or_else(|| snapshot.query_coordinator.native_source())
+    {
+        Some(source) => source.wire_memory(),
+        None => Ok(None),
     }
 }

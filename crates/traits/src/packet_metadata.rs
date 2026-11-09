@@ -1,5 +1,6 @@
-//! Pure owned metadata units. No IO, allocator hook, runtime, policy issuer,
-//! task, or closure authority lives here. The actual Host owns this counter.
+//! Pure owned metadata units and same-counter allocation policy. No IO,
+//! allocator hook, task or native-close authority lives here. The actual
+//! Host owns this counter and binds candidate permissions to its operation.
 use alloc::sync::Arc;
 use core::{
     alloc::Layout,
@@ -10,6 +11,10 @@ use core::{
 mod counter;
 mod custody;
 mod header;
+pub use counter::policy::{
+    PacketMetadataCandidateCredit, PacketMetadataCandidateIssuer, PacketMetadataCandidateSource,
+    PacketMetadataLimitCandidate,
+};
 pub use counter::{PacketMetadataCounter, PacketMetadataCredit};
 pub use custody::{PacketMetadataArc, PacketMetadataError, PacketMetadataWeak};
 pub use header::{

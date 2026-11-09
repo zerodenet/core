@@ -54,6 +54,11 @@ pub enum NativeDnsUdpLoan {
 
 /// Executable native I/O, not a Service label or a declaration-only capability.
 pub trait NativeDnsProvider: Send + Sync {
+    /// The actual Host's wire backing lane, bound to this original Source.
+    /// This is pure memory custody and grants no network/task authority.
+    fn wire_memory(&self) -> Option<crate::DnsWireMemory> {
+        None
+    }
     /// Exact original host generation and Scope, for cold preservation checks.
     /// This is observation only, never task/native acquisition or closure.
     fn host_scope(
@@ -213,19 +218,73 @@ pub trait NativeDnsProvider: Send + Sync {
     ) -> BoxFuture<'_, io::Result<DatagramLoan>>;
 }
 #[derive(Default)]
-pub struct NativeDnsSource(RwLock<Option<Weak<dyn NativeDnsProvider>>>);
+pub struct NativeDnsSource {
+    provider: RwLock<Option<Weak<dyn NativeDnsProvider>>>,
+    wire_memory: std::sync::OnceLock<crate::DnsWireMemory>,
+}
 impl fmt::Debug for NativeDnsSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("NativeDnsSource")
     }
 }
 impl NativeDnsSource {
+    pub(crate) fn cold_wire_memory(&self) -> Option<crate::DnsWireMemory> {
+        self.wire_memory.get().cloned()
+    }
+    /// Cold binding uses the same Host counter before even local responses can
+    /// allocate. Rebinding cannot fork a production Source into a second book.
+    pub fn bind_wire_memory(&self, memory: crate::DnsWireMemory) -> io::Result<()> {
+        if let Err(memory) = self.wire_memory.set(memory) {
+            if !self
+                .wire_memory
+                .get()
+                .is_some_and(|same| same.same_root(&memory))
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "DNS Source wire memory was already bound to another Host",
+                ));
+            }
+        }
+        Ok(())
+    }
+    pub(crate) fn wire_memory(&self) -> io::Result<Option<crate::DnsWireMemory>> {
+        let Some(root) = self.wire_memory.get() else {
+            return Ok(None);
+        };
+        if let Some(current) = OwnedDnsQueryTasks::current_wire_memory() {
+            if !current.same_root(root) {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "DNS query wire backing crossed its actual Host",
+                ));
+            }
+            return Ok(Some(current.for_new_query()?));
+        }
+        match self.provider() {
+            Ok(provider) => {
+                let memory = provider
+                    .wire_memory()
+                    .filter(|actual| actual.same_root(root))
+                    .ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::PermissionDenied,
+                            "Kernel DNS provider lacks its actual wire backing lane",
+                        )
+                    })?;
+                Ok(Some(memory.for_new_query()?))
+            }
+            // Cold local/localhost answers still have the original Host book;
+            // this value grants no provider, task, native or fallback executor.
+            Err(_) => Ok(Some(root.for_new_query()?)),
+        }
+    }
     /// Settle old actual registrations if this purpose is assembled. A source
     /// with no installed provider grants no resource and has nothing to poll;
     /// the RuntimeHost retains withdrawn owners through its replacement barrier.
     pub async fn fence_old_network(&self, generation: u64, end: Instant) -> io::Result<()> {
         let provider = self
-            .0
+            .provider
             .read()
             .expect("DNS native source poisoned")
             .as_ref()
@@ -243,7 +302,7 @@ impl NativeDnsSource {
         end: Instant,
     ) -> io::Result<()> {
         let provider = self
-            .0
+            .provider
             .read()
             .expect("DNS native source poisoned")
             .as_ref()
@@ -262,7 +321,30 @@ impl NativeDnsSource {
         self.provider().ok()?.budget()
     }
     pub fn install(&self, provider: &Arc<dyn NativeDnsProvider>) -> io::Result<()> {
-        let mut current = self.0.write().expect("DNS native source poisoned");
+        if let Some(root) = self.wire_memory.get() {
+            let memory = provider
+                .wire_memory()
+                .filter(|actual| actual.same_root(root))
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "Kernel DNS provider has no same-Host wire memory",
+                    )
+                })?;
+            let (instance, scope) = provider.host_scope().ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "Kernel DNS wire Source has no actual Scope",
+                )
+            })?;
+            if !memory.matches_source(instance, &scope) {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "DNS wire Source differs from its actual Scope",
+                ));
+            }
+        }
+        let mut current = self.provider.write().expect("DNS native source poisoned");
         if current.as_ref().is_some_and(|old| old.strong_count() != 0) {
             return Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
@@ -274,7 +356,7 @@ impl NativeDnsSource {
         Ok(())
     }
     pub fn withdraw(&self, provider: &Arc<dyn NativeDnsProvider>) -> bool {
-        let mut current = self.0.write().expect("DNS native source poisoned");
+        let mut current = self.provider.write().expect("DNS native source poisoned");
         if current
             .as_ref()
             .is_some_and(|old| Weak::ptr_eq(old, &Arc::downgrade(provider)))
@@ -286,7 +368,7 @@ impl NativeDnsSource {
         }
     }
     pub(crate) fn provider(&self) -> io::Result<Arc<dyn NativeDnsProvider>> {
-        self.0
+        self.provider
             .read()
             .expect("DNS native source poisoned")
             .as_ref()

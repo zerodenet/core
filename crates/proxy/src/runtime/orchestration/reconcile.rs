@@ -165,6 +165,15 @@ impl OrchestrationState {
                 return;
             }
         };
+        if !compensating {
+            if let Some(wire) = proxy.pending_wire_transition(&new_snapshot) {
+                if let Err(error) = wire.bind_plan(&new_snapshot, &components) {
+                    self.reject_before_start(proxy, &new_snapshot, error, budget_changed)
+                        .await;
+                    return;
+                }
+            }
+        }
         let mut source_dependency_changes = match proxy
             .inbound_owners
             .changed_source_dependency_tags(&new_config, &components)

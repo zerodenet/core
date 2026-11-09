@@ -27,6 +27,10 @@ impl NodeOpener {
                     "Service Node DNS binding changed",
                 ));
             }
+            // Keep the provisional header until the original cache guard is
+            // gone, including resolve errors and cancellation. Its final
+            // metadata refund may notify the real Host.
+            let allocation;
             let mut cached = self.service_candidates.lock().await;
             if cached.is_none() {
                 let resolver =
@@ -38,12 +42,19 @@ impl NodeOpener {
                         Arc::new(self.services.egress_control()),
                         self.services.observer(),
                     )?;
-                *cached = Some((
-                    resolver
-                        .resolve_controlled_carrier(&binding, endpoint, invocation.clone())
-                        .await?,
-                    0,
-                ));
+                allocation = match self.plan.as_ref().and_then(std::sync::Weak::upgrade) {
+                    Some(plan) => plan
+                        .host_node_dns_source(grant.instance())?
+                        .prepare_wire_allocation()?,
+                    None => None,
+                };
+                let resolving =
+                    resolver.resolve_controlled_carrier(&binding, endpoint, invocation.clone());
+                let candidates = match allocation.as_ref() {
+                    Some(allocation) => allocation.with_memory(resolving).await?,
+                    None => resolving.await?,
+                };
+                *cached = Some((candidates, 0));
             }
             let (candidates, next) = cached.as_mut().unwrap();
             if *next == candidates.len() {

@@ -39,16 +39,19 @@ impl ServiceDatagramTargetIssuer {
                 request.family = self.binding.dial.effective_family().map_err(|source| {
                     failure(instance, Reason::InvalidConfig).with_source(source)
                 })?;
-                let response = resolver
-                    .resolve(
-                        request,
-                        DnsQueryContext {
-                            deadline: self.call.deadline,
-                            cancel: self.call.cancel.clone(),
-                            expected_generation: Some(generation),
-                        },
-                    )
-                    .await?;
+                let allocation = source.prepare_wire_allocation()?;
+                let resolving = resolver.resolve(
+                    request,
+                    DnsQueryContext {
+                        deadline: self.call.deadline,
+                        cancel: self.call.cancel.clone(),
+                        expected_generation: Some(generation),
+                    },
+                );
+                let response = match allocation {
+                    Some(allocation) => allocation.with_memory(resolving).await?,
+                    None => resolving.await?,
+                };
                 if response.generation != generation || resolver.generation() != generation {
                     return Err(failure(instance, Reason::StalePlan));
                 }

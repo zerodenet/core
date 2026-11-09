@@ -6,14 +6,16 @@ mod parse;
 mod policy;
 
 pub(crate) use build::{
-    build_address_response, build_error_response, build_query, fit_response_to_udp,
+    address_response_size, build_address_response, build_address_response_into,
+    build_error_response, build_error_response_into, build_query, build_query_into,
+    error_response_size,
 };
 pub(crate) use name::normalize_domain;
 pub use parse::DnsQuestion;
 pub(crate) use parse::{
     parse_ech_config_response, parse_question, parse_response, ParsedDnsResponse,
 };
-pub(crate) use policy::{apply_response_address_policy, ResponseAddressPolicy};
+pub(crate) use policy::{apply_response_address_policy_in_place, ResponseAddressPolicy};
 
 pub(crate) fn rewrite_response_ttls(
     response: &mut [u8],

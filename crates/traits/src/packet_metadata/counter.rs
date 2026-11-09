@@ -1,12 +1,20 @@
 //! One exact metadata lane, also owned by the actual runtime's packet root.
 //! The tiny gate protects only scalar loads/stores; never a user wake/drop.
 use super::*;
+pub(super) mod policy;
 pub struct PacketMetadataCounter {
     gate: AtomicBool,
     allocations: AtomicUsize,
     bytes: AtomicUsize,
     max_allocations: AtomicUsize,
     max_bytes: AtomicUsize,
+    policy_serial: AtomicUsize,
+    policy_pending: AtomicUsize,
+    policy_allocations: AtomicUsize,
+    policy_bytes: AtomicUsize,
+    policy_previous_allocations: AtomicUsize,
+    policy_previous_bytes: AtomicUsize,
+    policy_rolled_back: AtomicBool,
 }
 struct Gate<'a>(&'a AtomicBool);
 impl Drop for Gate<'_> {
@@ -33,6 +41,13 @@ impl PacketMetadataCounter {
             bytes: AtomicUsize::new(owned.bytes),
             max_allocations: AtomicUsize::new(limit.allocations),
             max_bytes: AtomicUsize::new(limit.bytes),
+            policy_serial: AtomicUsize::new(0),
+            policy_pending: AtomicUsize::new(0),
+            policy_allocations: AtomicUsize::new(0),
+            policy_bytes: AtomicUsize::new(0),
+            policy_previous_allocations: AtomicUsize::new(0),
+            policy_previous_bytes: AtomicUsize::new(0),
+            policy_rolled_back: AtomicBool::new(false),
         }))
     }
     fn lock(&self) -> Gate<'_> {
@@ -59,7 +74,14 @@ impl PacketMetadataCounter {
     }
     pub fn snapshot(&self) -> PacketMetadataSnapshot {
         let _gate = self.lock();
-        self.current()
+        let mut snapshot = self.current();
+        if self.policy_pending.load(Ordering::Relaxed) != 0 {
+            snapshot.limit = PacketMetadataLayout::new(
+                self.policy_previous_allocations.load(Ordering::Relaxed),
+                self.policy_previous_bytes.load(Ordering::Relaxed),
+            );
+        }
+        snapshot
     }
     fn validate(&self, limit: PacketMetadataLayout) -> Result<(), PacketMemoryError> {
         let own = Self::owned_layout();
@@ -76,10 +98,16 @@ impl PacketMetadataCounter {
     /// serialize this with its other lanes; a consumer only receives a credit.
     pub fn check_limit(&self, limit: PacketMetadataLayout) -> Result<(), PacketMemoryError> {
         let _gate = self.lock();
+        if self.policy_pending.load(Ordering::Relaxed) != 0 {
+            return Err(PacketMemoryError::Paused);
+        }
         self.validate(limit)
     }
     pub fn install_limit(&self, limit: PacketMetadataLayout) -> Result<(), PacketMemoryError> {
         let _gate = self.lock();
+        if self.policy_pending.load(Ordering::Relaxed) != 0 {
+            return Err(PacketMemoryError::Paused);
+        }
         self.validate(limit)?;
         self.max_allocations
             .store(limit.allocations, Ordering::Relaxed);
@@ -93,17 +121,62 @@ impl PacketMetadataCounter {
         layout: PacketMetadataLayout,
         wake: Waker,
     ) -> Result<PacketMetadataCredit, PacketMemoryError> {
+        self.reserve_for(layout, wake, None)
+    }
+    fn reserve_for(
+        self: &Arc<Self>,
+        layout: PacketMetadataLayout,
+        wake: Waker,
+        candidate: Option<&policy::State>,
+    ) -> Result<PacketMetadataCredit, PacketMemoryError> {
         let gate = self.lock();
+        let candidate = candidate
+            .map(policy::State::reservation)
+            .transpose()?
+            .flatten();
+        let pending = self.policy_pending.load(Ordering::Relaxed);
         let current = self.current();
-        if layout.allocations > current.limit.allocations || layout.bytes > current.limit.bytes {
+        if candidate.is_some_and(|token| token != pending) {
+            return Err(PacketMemoryError::Stopped);
+        }
+        let limit = if pending != 0 {
+            let target = PacketMetadataLayout::new(
+                self.policy_allocations.load(Ordering::Relaxed),
+                self.policy_bytes.load(Ordering::Relaxed),
+            );
+            if self.policy_rolled_back.load(Ordering::Relaxed) {
+                PacketMetadataLayout::new(
+                    self.policy_previous_allocations.load(Ordering::Relaxed),
+                    self.policy_previous_bytes.load(Ordering::Relaxed),
+                )
+            } else if candidate == Some(pending) {
+                target
+            } else {
+                // Candidate backing belongs to the same total. Old callers
+                // never gain the target's growth before actual publication.
+                PacketMetadataLayout::new(
+                    self.policy_previous_allocations
+                        .load(Ordering::Relaxed)
+                        .min(target.allocations),
+                    self.policy_previous_bytes
+                        .load(Ordering::Relaxed)
+                        .min(target.bytes),
+                )
+            }
+        } else {
+            if candidate.is_some() {
+                return Err(PacketMemoryError::Stopped);
+            }
+            current.limit
+        };
+        if layout.allocations > limit.allocations || layout.bytes > limit.bytes {
             return Err(PacketMemoryError::Capacity);
         }
         if layout.allocations
-            > current
-                .limit
+            > limit
                 .allocations
                 .saturating_sub(current.occupied.allocations)
-            || layout.bytes > current.limit.bytes.saturating_sub(current.occupied.bytes)
+            || layout.bytes > limit.bytes.saturating_sub(current.occupied.bytes)
         {
             return Err(PacketMemoryError::Busy);
         }

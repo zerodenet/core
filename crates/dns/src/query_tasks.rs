@@ -50,6 +50,7 @@ struct Shared {
     budget: OwnedDnsQueryBudget,
     state: Mutex<State>,
     finalizer: OnceLock<std::sync::Weak<dyn crate::native::NativeDnsProvider>>,
+    wire_memory: OnceLock<crate::DnsWireMemory>,
 }
 #[derive(Debug, Default)]
 struct State {
@@ -68,6 +69,7 @@ enum TaskKind {
     Driver,
 }
 struct Record {
+    wire_memory: Mutex<Option<crate::DnsWireMemory>>,
     budget: OwnedDnsQueryBudget,
     ech: Mutex<Option<crate::EchDnsEndpoint>>,
     retirement: Arc<Retirement>,
@@ -211,7 +213,42 @@ impl OwnedDnsQueryTasks {
             budget,
             state: Mutex::new(State::default()),
             finalizer: OnceLock::new(),
+            wire_memory: OnceLock::new(),
         }))
+    }
+    pub fn bind_wire_memory(&self, memory: crate::DnsWireMemory) -> io::Result<()> {
+        if !memory.matches_scope(&self.0.registrar.scope_identity()) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "DNS memory and original query Scope differ",
+            ));
+        }
+        if let Err(memory) = self.0.wire_memory.set(memory) {
+            if !self
+                .0
+                .wire_memory
+                .get()
+                .is_some_and(|same| same.same_root(&memory))
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "DNS task memory already bound",
+                ));
+            }
+        }
+        Ok(())
+    }
+    pub(crate) fn current_wire_memory() -> Option<crate::DnsWireMemory> {
+        QUERY_RECORD
+            .try_with(|record| {
+                record
+                    .wire_memory
+                    .lock()
+                    .expect("DNS wire memory poisoned")
+                    .clone()
+            })
+            .ok()
+            .flatten()
     }
     pub(crate) fn current_witness() -> io::Result<TaskJoinWitness> {
         QUERY_ORIGIN.try_with(Clone::clone).map_err(|_| {
