@@ -232,3 +232,6 @@ mod wake;
 
 #[path = "source_memory/large.rs"]
 mod large;
+
+#[path = "source_memory/admission.rs"]
+mod admission;

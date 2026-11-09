@@ -47,6 +47,12 @@ impl ControlBudget {
             .0
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.closed {
+            return Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "root control admission closed",
+            ));
+        }
         let pending = state
             .pending
             .as_ref()
