@@ -66,7 +66,7 @@ impl Root {
             return Err(fail());
         }
         plan.authorize_carrier_prefix(original.instance(), &original.binding().prefix)?;
-        let ceiling = plan.pending_carrier_capacity(&self.roles)?;
+        let ceiling = plan.protocol_original_capacity(&self.roles)?;
         let entry = self
             .query_entry
             .get()
