@@ -163,7 +163,7 @@ async fn hosted_vmess_grpc_pooled_relay_real_mux_loans_share_original_and_preser
                         .await
                         .unwrap();
                     second.dispatch(input(53, b"pooled")).await.unwrap();
-                    assert_eq!(response(&mut second).await.2, b"pooled");
+                    assert_eq!(response(&mut second).await.2.as_ref(), b"pooled");
                     assert_eq!(
                         registration.observe().unwrap().retained(),
                         1,
@@ -228,7 +228,7 @@ async fn hosted_vmess_grpc_pooled_relay_mixed_prefixes_preserve_nested_original_
                     .await
                     .unwrap();
                 flow.dispatch(input(53, b"pooled")).await.unwrap();
-                assert_eq!(response(&mut flow).await.2, b"pooled");
+                assert_eq!(response(&mut flow).await.2.as_ref(), b"pooled");
                 assert_eq!(first.count.load(std::sync::atomic::Ordering::SeqCst), 1);
                 let plan = proxy.tcp_runtime_services().components.clone().unwrap();
                 let root_registration = plan
@@ -295,7 +295,7 @@ async fn ordinary_vmess_grpc_pooled_relay_pending_suffix_replacement_waits_for_o
         assert!(opening.await.is_err());applying.await.unwrap().unwrap();
         assert!(driver.is_joined());assert!(physical.matches_closed(&physical.closed().unwrap()));assert!(registration.closed().unwrap().matches(&registration));assert!(consumer.closed().unwrap().matches(&consumer));
         let fresh=proxy.tcp_runtime_services().components.clone().unwrap();assert_ne!(fresh.configured("node").unwrap().instance_id(),prior.instance_id());assert!(prior.datagram(end()).await.is_err());assert_eq!(pool_owner(&proxy,"pool").observe().unwrap().retained(),0,"new physical pool starts only on demand after confirmed old close");
-        let mut flow=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch("fresh").await.unwrap();flow.dispatch(input(53,b"owned")).await.unwrap();assert_eq!(response(&mut flow).await.2,b"owned");close_flow(&proxy,flow).await;
+        let mut flow=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch("fresh").await.unwrap();flow.dispatch(input(53,b"owned")).await.unwrap();assert_eq!(response(&mut flow).await.2.as_ref(),b"owned");close_flow(&proxy,flow).await;
         server.finish().await;running.shutdown().await.unwrap();old.close().await;next.close().await;held.close().await;ready.close().await;
     }).await.unwrap();
 }

@@ -73,6 +73,13 @@ impl UpstreamOpener for PreparingCaller {
         }
         self.caller()
     }
+    fn protocol_original_observer(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::network::PendingCarrierObserver> {
+        self.waiting
+            .as_ref()
+            .and_then(|waiting| waiting.protocol_original_observer())
+    }
     fn has_pending_carrier_observer(&self) -> bool {
         self.waiting.is_some()
     }

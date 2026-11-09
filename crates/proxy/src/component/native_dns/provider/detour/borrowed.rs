@@ -12,7 +12,7 @@ impl Provider {
         binding: &UpstreamBinding,
         call: &CarrierContext,
         caller: TaskJoinWitness,
-        upstream: UpstreamTransport,
+        root: Arc<root::Root>,
     ) -> std::io::Result<StreamLoan> {
         let grants = &self
             .peers
@@ -28,6 +28,7 @@ impl Provider {
         let entry = Arc::new(custody::NativeUse {
             receiver: self.cleanup_receiver(),
             pending_report: Mutex::default(),
+            protocol_originals: Mutex::default(),
             task: caller.clone(),
             cancel: call.cancel.clone(),
             original: grant.adoption(),
@@ -43,8 +44,10 @@ impl Provider {
                     "DNS original capacity exhausted",
                 ));
             }
-            users.push(entry);
+            users.push(entry.clone());
         }
+        root.bind_query_entry(&entry)?;
+        let upstream = root.query_transport();
         let loan = crate::runtime::tcp_dispatch::service::connect_carrier_stream(
             execution,
             &destination(peer),

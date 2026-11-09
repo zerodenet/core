@@ -318,3 +318,5 @@ pub use json::{
     control_json_decoder_workspace, control_json_map_bound, control_json_response_storage_bound,
     control_json_storage_bound, control_json_typed_array_bound, ControlJsonStorage,
 };
+
+pub(in crate::configuration) use json::initial_storage;

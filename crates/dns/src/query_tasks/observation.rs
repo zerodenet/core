@@ -11,6 +11,12 @@ pub struct OwnedDnsQueryObservation {
     pub io_pending: bool,
 }
 impl OwnedDnsQueryTasks {
+    /// Exact current registered caller only. Pure observation; no native,
+    /// task/Scope authority, cleanup, ACK or permission to fabricate a row.
+    pub fn matches_current_caller(caller: &TaskJoinWitness) -> bool {
+        Self::current_witness().is_ok_and(|actual| actual.same_registration(caller))
+    }
+
     /// The provider records its original before awaiting QUIC setup. This weak
     /// observation grants neither acquisition nor close authority.
     pub fn record_metadata(

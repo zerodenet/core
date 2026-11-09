@@ -81,6 +81,7 @@ impl CarrierGrants {
             })?;
             state.next = next;
             let slot = Arc::new(Slot {
+                root_bound: self.0.totals.get().is_some(),
                 preparation_usage: Arc::default(),
                 completion: Default::default(),
                 removed: Default::default(),
@@ -101,7 +102,8 @@ impl CarrierGrants {
             // The same local declaration and Root original N are now paid. No
             // phase allocation occurs on a refused local or Root reservation.
             if let Some(control) = protocol.take() {
-                let phase = crate::original_protocol::Phase::new(control, slot.instance);
+                let phase =
+                    crate::original_protocol::Phase::new(control, slot.instance, slot.root_bound);
                 assert!(slot.protocol_stop.set(phase.cancellation()).is_ok());
                 slot.state().protocol = Some(phase);
             }

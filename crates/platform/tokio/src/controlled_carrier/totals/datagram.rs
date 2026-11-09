@@ -32,6 +32,9 @@ impl CarrierOriginalTotals {
                 .map(|index| state.metadata.swap_remove(index))
         };
         let changed = removed.is_some();
+        if changed {
+            original.root_released();
+        }
         drop(removed);
         if changed {
             self.changed.notify_waiters();
@@ -73,6 +76,18 @@ impl CarrierOriginalTotals {
         drop(removed);
         if changed {
             self.changed.notify_waiters();
+        }
+    }
+}
+
+#[cfg(test)]
+impl CarrierOriginalTotals {
+    #[cfg(test)]
+    pub(crate) fn snapshot_without_reconcile(&self) -> CarrierOriginalTotalsSnapshot {
+        let state = self.lock();
+        CarrierOriginalTotalsSnapshot {
+            limit: state.limit,
+            charged: state.charged(),
         }
     }
 }

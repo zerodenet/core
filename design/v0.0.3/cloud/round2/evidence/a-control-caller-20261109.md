@@ -25,13 +25,15 @@ server helper returned Ok for a complete report and dropped failed task/RF rows.
 The repaired receiver retains actual TaskId/class/source and exact RF, then
 accepts that source's local receipt. This never acknowledges HostedScope exits
 or creates native-close evidence. Physical retirement and typed return error
-are now separate values. Returned errors keep the source-only receiver after
-the retired server owner is dropped; it has no IO, Scope or owner reference.
+are now separate values. The followup `420cbcc8900cf7d7a2993682bf5a3154a05f9971` makes returned errors
+keep an immutable projection of the actual task/RF sources, rather than a
+mutable receiver. Returning that error through the same Scope cannot create a
+receiver-to-itself strong cycle; exact source identity and local receipts remain.
 
-The bootstrap `zero_logging::init_tracing` backend is a distinct existing
-library caller: it creates RotatingWriter fs files and tracing-appender workers
+The bootstrap `zero_logging::init_tracing` backend is a distinct ordinary production
+caller in `main.rs`: it creates RotatingWriter fs files and tracing-appender workers
 and retains WorkerGuard for process lifetime. This document does not claim
-those library handles are controlled Source/Scope originals, or reclassify the
+those handles are controlled Source/Scope originals, or reclassify the
 early input fix as a logger-provider migration. No logging backend ownership
 rewrite is included in the bounded-document proposal.
 
@@ -51,3 +53,16 @@ shared pool and device donor has been consumed with its original pending,
 LoanOwner, native/user and Scope/ACK evidence. Existing native Default/Node,
 System tracked-blocking, persistent DoH and FakeIP journal paths are retained;
 no second resolver/Source/pool is introduced to bypass a missing donor.
+
+## Later exact-input verification
+
+Coordinator input `9aa037bcaea80b88b31a785ce058985d8f65b92d` with lock
+`576b313f0fdc9223aca8404dc0d8c4a3b838fe42b5dbdeccb3c5a7bc38dc6513`:
+gRPC standalone `tasks::` eight actual tests passed, including panic/drain,
+Scope/Unix reports and feedback-cycle tests. Input
+`80b2db9e50bdd6371d3ba22c459b1b4355b022bf` with that same lock: minimal Root
+status-api ELF passed seventeen actual tests (IPC reports four, HTTP shutdown
+one, CLI wire nine, CLI Source document three). Those results qualify their
+recorded input and features, not this whole table, all-feature production, or
+Windows execution. Early logging/initial input and logger ownership above
+remain open implementation duties.

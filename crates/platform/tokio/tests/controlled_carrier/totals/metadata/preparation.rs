@@ -156,3 +156,6 @@ mod phase;
 
 #[path = "preparation/rejected.rs"]
 mod rejected;
+
+#[path = "preparation/protocol_observer.rs"]
+mod protocol_observer;

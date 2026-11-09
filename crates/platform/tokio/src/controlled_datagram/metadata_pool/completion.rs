@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub(super) struct State {
     native: OnceLock<bool>,
     returned: AtomicBool,
+    root_returned: AtomicBool,
     changed: tokio::sync::Notify,
 }
 #[derive(Clone)]
@@ -29,6 +30,14 @@ impl Completion {
             "registration return follows actual native settlement"
         );
         self.0.returned.store(true, Ordering::Release);
+        self.0.changed.notify_waiters();
+    }
+    pub(super) fn publish_root_return(&self) {
+        assert!(
+            self.0.returned.load(Ordering::Acquire),
+            "global return follows actual local original ACK settlement"
+        );
+        self.0.root_returned.store(true, Ordering::Release);
         self.0.changed.notify_waiters();
     }
     pub(super) fn observation(
@@ -58,6 +67,11 @@ pub struct MetadataPoolRegistrationReleased {
 impl MetadataPoolRegistrationObservation {
     pub fn instance(&self) -> ComponentInstanceId {
         self.instance
+    }
+    /// Positive publication by the actual charged Root after removing its row.
+    /// Native close or disappearance of a weak provider does not set this bit.
+    pub fn root_returned(&self) -> bool {
+        self.completion.0.root_returned.load(Ordering::Acquire)
     }
     pub fn released(&self) -> Option<MetadataPoolRegistrationReleased> {
         self.completion.0.returned.load(Ordering::Acquire).then(|| {

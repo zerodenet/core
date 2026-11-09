@@ -75,7 +75,7 @@ async fn ordinary_vmess_grpc_ca_apply_waits_for_originals_before_loading_new_tru
         });
         let runtime=UdpIngressRuntime::new(proxy.tcp_runtime_services());
         let mut dispatch=runtime.new_dispatch("incoming").await.unwrap();
-        dispatch.dispatch(input(53,b"held")).await.unwrap();assert_eq!(response(&mut dispatch).await.2,b"held");ready.await.unwrap();
+        dispatch.dispatch(input(53,b"held")).await.unwrap();assert_eq!(response(&mut dispatch).await.2.as_ref(),b"held");ready.await.unwrap();
         let registration=original(&proxy);let observed=registration.observe().unwrap();
         let native=observed.slots()[0].original().clone();let driver=observed.slots()[0].driver().unwrap().1.clone();
         let plan=proxy.tcp_runtime_services().components.clone().unwrap();let old=plan.configured("node").unwrap();
@@ -100,7 +100,7 @@ async fn ordinary_vmess_grpc_ca_apply_waits_for_originals_before_loading_new_tru
         assert_eq!(original(&proxy).observe().unwrap().retained(),0);
         std::fs::remove_file(dir.path().join("next.pem")).unwrap();
         let mut fresh=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch("new").await.unwrap();
-        fresh.dispatch(input(53,b"new-trust")).await.unwrap();assert_eq!(response(&mut fresh).await.2,b"new-trust");
+        fresh.dispatch(input(53,b"new-trust")).await.unwrap();assert_eq!(response(&mut fresh).await.2.as_ref(),b"new-trust");
         let replacement=original(&proxy);let native=replacement.observe().unwrap().slots()[0].original().clone();
         fresh.finish_all();assert!(retired.wait_closed(Instant::now()+Duration::from_secs(3)).await.unwrap().is_complete());
         assert!(native.matches_closed(&native.closed().unwrap()));

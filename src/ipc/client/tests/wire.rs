@@ -156,7 +156,8 @@ async fn typed_response_ignores_unknown_root_value_fields_but_validates_its_actu
             .unwrap();
         let old: crate::ipc::protocol::IpcResponse = serde_json::from_str(raw).unwrap();
         let actual = Reply::new_response(frame, book.clone()).unwrap();
-        assert_eq!(actual.header().unwrap().ok, old.ok);
+        let actual = actual.ensure_ok("original response wire fixture");
+        assert_eq!(actual.is_ok(), old.ok);
         drop(actual);
         assert_eq!(book.usage().response_bytes, 0);
     }

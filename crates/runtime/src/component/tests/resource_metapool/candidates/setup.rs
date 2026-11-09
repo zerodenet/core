@@ -3,7 +3,6 @@ use zero_core::{request::Destination, Address};
 use zero_platform_tokio::{
     contract::{
         network::{CarrierContext, UpstreamBinding, UpstreamOpener},
-        scope::TaskClass,
     },
     controlled_carrier::{CarrierCandidates, NativeCarrierOpener},
 };

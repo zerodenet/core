@@ -234,6 +234,9 @@ impl CarrierOriginalTotals {
         // The exact original's controllers, typed faults and captured close
         // continuation may have destructors/wakers. Never drop under root lock.
         let changed = released.is_some();
+        if changed {
+            original.root_released();
+        }
         drop(released);
         if changed {
             self.changed.notify_waiters();

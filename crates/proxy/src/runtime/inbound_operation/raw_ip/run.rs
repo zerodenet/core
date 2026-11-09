@@ -66,6 +66,10 @@ pub(in crate::runtime) async fn run(
         std::io::Error::other("actual Packet Source omitted its original allocation view/layout")
     })?;
     memory.view.check_open().map_err(std::io::Error::other)?;
+    // This Source is not Ready and no Raw child has been spawned. Reject a
+    // new candidate before it can admit TCP/UDP work, never late in an already
+    // running dispatcher. Its real Root view comes from this accepted original.
+    let udp_scratch = crate::inbound::tun::udp::UdpScratch::prepare(&memory.view)?;
     let link_mtu = accepted
         .link_mtu()
         .ok_or_else(|| std::io::Error::other("packet source omitted link MTU"))?;
@@ -211,6 +215,7 @@ pub(in crate::runtime) async fn run(
                         udp_stack,
                         udp_tag,
                         udp_owners,
+                        udp_scratch,
                         policy,
                     )
                     .await
@@ -221,6 +226,7 @@ pub(in crate::runtime) async fn run(
                         udp_stack,
                         udp_tag,
                         udp_owners,
+                        udp_scratch,
                     )
                     .await
                 }

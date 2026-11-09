@@ -45,7 +45,7 @@ async fn ordinary_vmess_grpc_stream_datagram_and_service_keep_one_managed_scope_
             refused.finish_all();
             drop(tcp);
             let mut udp=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch("incoming").await.unwrap();
-            udp.dispatch(input(53,b"live")).await.unwrap();assert_eq!(response(&mut udp).await.2,b"live");
+            udp.dispatch(input(53,b"live")).await.unwrap();assert_eq!(response(&mut udp).await.2.as_ref(),b"live");
             assert!(originals[0].0.matches_closed(&originals[0].0.closed().unwrap()));
             assert!(originals[0].1.matches_joined(&originals[0].1.try_joined().unwrap()));
             let next=business.observe().unwrap();assert_eq!(next.retained(),1);

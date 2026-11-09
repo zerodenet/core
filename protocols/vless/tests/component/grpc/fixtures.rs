@@ -203,7 +203,7 @@ impl Assembly {
             identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
                 origin: ServiceOrigin::Runtime,
                 purpose: ServicePurpose::DiagnosticProbe,
-            })),
+            }).into()),
             deadline: Some(deadline()),
             cancel: CancellationToken::new(),
             upstream: self.upstream.clone(),

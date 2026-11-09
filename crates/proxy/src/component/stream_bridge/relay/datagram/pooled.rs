@@ -23,6 +23,11 @@ impl UpstreamOpener for Selected {
             .select_background_carrier_observed(binding, call, waiting)
     }
 
+    fn protocol_original_observer(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::network::PendingCarrierObserver> {
+        self.upstream.protocol_original_observer()
+    }
     fn has_pending_carrier_observer(&self) -> bool {
         self.upstream.observed_pending_carrier().is_some()
     }

@@ -101,6 +101,7 @@ impl Root {
                 pending.push(Arc::new(custody::NativeUse {
                     receiver,
                     pending_report: Mutex::default(),
+                    protocol_originals: Mutex::default(),
                     task: self.caller.clone(),
                     cancel: self.cancel.clone(),
                     original: adoption,

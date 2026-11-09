@@ -88,6 +88,11 @@ impl Pending {
     }
 }
 impl UpstreamOpener for Pending {
+    fn protocol_original_observer(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::network::PendingCarrierObserver> {
+        self.upstream.protocol_original_observer()
+    }
     fn has_pending_carrier_observer(&self) -> bool {
         true
     }

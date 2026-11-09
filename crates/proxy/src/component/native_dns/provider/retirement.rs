@@ -12,6 +12,7 @@ impl custody::NativeUse {
                 .is_none_or(|owner| owner.closed().is_some_and(|closed| closed.matches(owner)))
         };
         logical_complete
+            && self.protocol_originals_settled()
             && self
                 .original
                 .closed()

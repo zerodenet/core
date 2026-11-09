@@ -369,6 +369,9 @@ impl BoundAuthority {
             && matches!(&self.declaration, ResourceDeclaration::ControlledServiceStream { endpoint, dial, .. }
                 if endpoint == destination && dial == &binding.dial)
     }
+    pub(super) fn protocol_scope_identity(&self) -> TaskScopeIdentity {
+        self.scope.clone()
+    }
     pub(super) fn permits_service_datagram_loan(
         &self,
         binding: &UpstreamBinding,

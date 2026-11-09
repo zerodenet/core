@@ -34,7 +34,7 @@ async fn ordinary_vmess_grpc_relay_pending_prefix_replacement_retires_actual_con
         assert_eq!(next.count.load(std::sync::atomic::Ordering::SeqCst),0);
         let fresh_plan=proxy.tcp_runtime_services().components.clone().unwrap();assert_ne!(prior_slot.instance_id(),fresh_plan.configured("node").unwrap().instance_id());
         assert!(prior_slot.datagram(Instant::now()+Duration::from_secs(3)).await.is_err());
-        let mut fresh=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch("fresh").await.unwrap();fresh.dispatch(input(53,b"owned")).await.unwrap();assert_eq!(response(&mut fresh).await.2,b"owned");
+        let mut fresh=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch("fresh").await.unwrap();fresh.dispatch(input(53,b"owned")).await.unwrap();assert_eq!(response(&mut fresh).await.2.as_ref(),b"owned");
         close_flow(&proxy,fresh).await;server.finish().await;running.shutdown().await.unwrap();old_prefix.close().await;next.close().await;
     }).await.unwrap();
 }

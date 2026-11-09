@@ -10,8 +10,10 @@ pub(super) struct Sources {
 }
 impl Sources {
     fn exceptional(&self) -> bool {
-        self.physical.get().is_some()
-            || (self.operation.get().is_some() && self.terminal.get().is_some())
+        // Normal initializer cancellation returns Ok from its actual Aux.
+        // Any independently failed real TaskJoined (including a panic before
+        // operation produced a result) is an exceptional source in its own right.
+        self.physical.get().is_some() || self.terminal.get().is_some()
     }
 }
 impl std::fmt::Debug for Sources {
@@ -155,3 +157,7 @@ impl Diagnostics {
 fn capacity(source: impl std::error::Error + Send + Sync + 'static) -> ChannelError {
     error(Stage::Prepare, Reason::Capacity).with_source(source)
 }
+
+#[cfg(test)]
+#[path = "diagnostics/tests.rs"]
+mod tests;

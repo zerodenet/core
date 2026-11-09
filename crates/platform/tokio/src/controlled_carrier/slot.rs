@@ -8,6 +8,7 @@ use tokio::sync::{Mutex as AsyncMutex, Notify};
 use tokio_util::sync::CancellationToken;
 use zero_core::component::{ComponentInstanceId, TaskId};
 pub(super) struct Slot {
+    pub(super) root_bound: bool,
     pub(super) preparation_usage: Arc<super::totals::preparation::PreparationUsage>,
     pub(super) removed: std::sync::atomic::AtomicBool,
     pub(super) completion: Arc<std::sync::OnceLock<bool>>,
@@ -139,7 +140,9 @@ impl Slot {
         let protocol = self.state().protocol.clone();
         if actually_removed {
             if let Some(protocol) = protocol {
-                protocol.settle();
+                if !self.root_bound {
+                    protocol.settle();
+                }
             }
         }
         // An explicit close may win while its inline continuation is waiting

@@ -1,6 +1,6 @@
 //! Bounded dual-stack Fake-IP mapping lifecycle for transparent proxying.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicU64, Ordering};

@@ -113,3 +113,5 @@ mod relay;
 
 #[cfg(all(feature = "vmess", feature = "trojan"))]
 mod mux_material;
+
+mod quic;

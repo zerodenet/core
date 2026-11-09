@@ -24,6 +24,9 @@ mod scoped;
 pub(crate) use owned::OwnedTunUdpTasks;
 mod association;
 mod run;
+mod scratch;
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) use scratch::UdpScratch;
 mod task_set;
 use association::{AdmissionRejection, AssociationRegistry, Delivery};
 use run::run_inner;
@@ -143,6 +146,7 @@ pub(crate) async fn run_with_owned_tasks(
     stack: Arc<UserUdpStack>,
     inbound_tag: String,
     owners: OwnedTunUdpTasks,
+    scratch: UdpScratch,
 ) -> Result<(), EngineError> {
     run_inner(
         runtime,
@@ -151,6 +155,7 @@ pub(crate) async fn run_with_owned_tasks(
         false,
         Arc::new(AtomicU64::new(0)),
         Some(owners),
+        Some(scratch),
     )
     .await
 }
@@ -161,6 +166,7 @@ pub(crate) async fn run_with_device_tasks(
     stack: Arc<UserUdpStack>,
     inbound_tag: String,
     owners: OwnedTunUdpTasks,
+    scratch: UdpScratch,
     ingress: super::TunIngressOptions,
 ) -> Result<(), EngineError> {
     run_inner(
@@ -170,6 +176,7 @@ pub(crate) async fn run_with_device_tasks(
         ingress.dns_hijack,
         ingress.dns_hijacked_queries,
         Some(owners),
+        Some(scratch),
     )
     .await
 }

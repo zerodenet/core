@@ -21,7 +21,7 @@ async fn ordinary_packet_chain_returns_real_dynamic_bnd_originals_and_survives_f
             "outbound_groups":[{"tag":"chain","type":"relay","proxies":["carrier","ss"]}],
             "route":{"final":{"type":"route","outbound":"chain"}}
         }).to_string()).unwrap();
-        let codec=crate::adapters::shadowsocks::udp::transport_leaf(&Default::default(),"ss",&config.outbounds[1].protocol).unwrap().udp_packet_path_plan().unwrap().carrier_codec();
+        let codec=crate::adapters::shadowsocks::transport_leaf(&Default::default(),"ss",&config.outbounds[1].protocol).unwrap().udp_packet_path_plan().unwrap().carrier_codec();
         let peer=tokio::spawn(async move {
             let (tcp,_)=listener.accept().await.unwrap();
             let mut control=zero_platform_tokio::TokioSocket::new(tcp);

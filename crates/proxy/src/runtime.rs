@@ -190,7 +190,7 @@ impl Proxy {
         let ProxyPreparation {
             egress_interface,
             node_network,
-            background,
+            background: _background,
             protocols,
         } = preparation;
         let config = engine.config();

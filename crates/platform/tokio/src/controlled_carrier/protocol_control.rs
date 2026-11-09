@@ -43,7 +43,8 @@ impl CarrierGrant {
                 ),
             });
         }
-        let phase = crate::original_protocol::Phase::new(control, self.slot.instance);
+        let phase =
+            crate::original_protocol::Phase::new(control, self.slot.instance, self.slot.root_bound);
         let handle = phase.handle();
         let installed = self.slot.protocol_stop.set(phase.cancellation());
         assert!(installed.is_ok(), "one protocol phase per exact original");

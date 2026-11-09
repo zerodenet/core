@@ -37,7 +37,7 @@ async fn ordinary_vmess_grpc_relay_native_root_dns_and_network_replacement_wait_
                     let mut packet = input(53, b"owned");
                     packet.client_session_id = Some(identity);
                     dispatch.dispatch(packet).await.unwrap();
-                    assert_eq!(response(&mut dispatch).await.2, b"owned");
+                    assert_eq!(response(&mut dispatch).await.2.as_ref(), b"owned");
                     dispatch
                 };
                 let opening = tokio::spawn(open(proxy.clone(), 1));
@@ -104,7 +104,7 @@ async fn ordinary_vmess_grpc_relay_delegates_final_domain_to_prefix_and_preserve
         }).await;
         assert_standard_relay(&proxy);
         proxy.protocols.drive_component_supervision(async {
-            let mut dispatch=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch("incoming").await.unwrap();dispatch.dispatch(input(53,b"owned")).await.unwrap();assert_eq!(response(&mut dispatch).await.2,b"owned");
+            let mut dispatch=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch("incoming").await.unwrap();dispatch.dispatch(input(53,b"owned")).await.unwrap();assert_eq!(response(&mut dispatch).await.2.as_ref(),b"owned");
             let target=prefix.request().await;assert_eq!(target.address,Address::Domain("final.relay.test".into()));
             dns.no_new_request();assert!(proxy.resolver.native_query_observations().is_empty(),"the final proxy name is resolved by the selected prefix, not by a root DNS escape");
             let registration=original(&proxy);let native=registration.observe().unwrap().slots()[0].original().clone();
