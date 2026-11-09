@@ -121,10 +121,7 @@ impl DatagramCodec<Address> for ShadowsocksDatagramCodec {
         &self,
         wire: &[u8],
         buffers: &mut [zero_traits::PacketBuffer],
-    ) -> Result<
-        Option<(Address, u16, zero_traits::DatagramCodecOutput)>,
-        zero_traits::DatagramCodecBufferError<Error>,
-    > {
+    ) -> zero_traits::DatagramCodecDecodeResult<Address, Error> {
         self.decode_reserved(wire, buffers)
     }
     fn decode(&self, data: &[u8]) -> Option<(Address, u16, Vec<u8>)> {
