@@ -100,7 +100,7 @@ impl Serialize for Extra<'_> {
             map.serialize_entry("protocol", protocol)?;
         }
         if let Some(source) = self.source {
-            if let Some(value) = source.get_all("referer").iter().last() {
+            if let Some(value) = source.get_all("referer").iter().next_back() {
                 map.serialize_entry("referrer", value.to_str().expect("validated same header"))?;
             }
             if source
@@ -138,7 +138,7 @@ impl Serialize for Headers<'_> {
                 .0
                 .get_all(name)
                 .iter()
-                .last()
+                .next_back()
                 .expect("same actual header");
             map.serialize_entry(name, value.to_str().expect("validated same header"))?;
             previous = Some(name);

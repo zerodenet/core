@@ -40,7 +40,8 @@ impl CarrierAdoption {
                 DeliveryState::Unknown,
             )
         };
-        if !Arc::ptr_eq(&self.slot, &io.slot)
+        if self.slot.acquisition_sealed()
+            || !Arc::ptr_eq(&self.slot, &io.slot)
             || !job.matches_slot(&self.slot, registrar)
             || !job.ready_for_spawn()
         {
@@ -75,7 +76,7 @@ impl CarrierAdoption {
             .map_err(|_| fail(Reason::Revoked))?;
         {
             let mut state = self.slot.state();
-            if self.slot.cancel.is_cancelled()
+            if self.slot.acquisition_sealed()
                 || state.closed
                 || state.spawn_attempted
                 || state.spawning
@@ -92,6 +93,7 @@ impl CarrierAdoption {
         let host = bound.cancellation();
         let scope = registrar.cancellation();
         let original = self.slot.cancel.clone();
+        let protocol = self.slot.protocol_stop.get().cloned();
         let (admit, admitted) = tokio::sync::oneshot::channel();
         let callbacks = registrar.defer_callbacks();
         let adoption = self.clone();
@@ -120,6 +122,12 @@ impl CarrierAdoption {
                 _=host.cancelled()=>Ok(()),
                 _=scope.cancelled()=>Ok(()),
                 _=original.cancelled()=>Ok(()),
+                _=async {
+                    match protocol {
+                        Some(stop) => stop.cancelled().await,
+                        None => std::future::pending::<()>().await,
+                    }
+                }=>Ok(()),
                 result=future=>result,
             }
         });

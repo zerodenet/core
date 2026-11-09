@@ -6,6 +6,7 @@ use zero_platform_tokio::contract::CleanupFailureReceipt;
 pub(super) struct Sources {
     operation: OnceLock<RetainedError>,
     terminal: OnceLock<Arc<ChannelError>>,
+    tcp_driver: OnceLock<Arc<ChannelError>>,
     physical: OnceLock<RetainedError>,
 }
 impl Sources {
@@ -13,7 +14,9 @@ impl Sources {
         // Normal initializer cancellation returns Ok from its actual Aux.
         // Any independently failed real TaskJoined (including a panic before
         // operation produced a result) is an exceptional source in its own right.
-        self.physical.get().is_some() || self.terminal.get().is_some()
+        self.physical.get().is_some()
+            || self.terminal.get().is_some()
+            || self.tcp_driver.get().is_some()
     }
 }
 impl std::fmt::Debug for Sources {
@@ -21,6 +24,7 @@ impl std::fmt::Debug for Sources {
         f.debug_struct("ActualQuicSetupSources")
             .field("operation", &self.operation.get().is_some())
             .field("terminal", &self.terminal.get().is_some())
+            .field("tcp_driver", &self.tcp_driver.get().is_some())
             .field("physical", &self.physical.get().is_some())
             .finish()
     }
@@ -37,6 +41,7 @@ impl std::error::Error for Sources {
             .or_else(|| self.operation.get())
             .map(|source| source as _)
             .or_else(|| self.terminal.get().map(|source| source.as_ref() as _))
+            .or_else(|| self.tcp_driver.get().map(|source| source.as_ref() as _))
     }
 }
 pub(in crate::component::quic) struct Diagnostics {
@@ -64,6 +69,7 @@ impl Diagnostics {
             Sources {
                 operation: OnceLock::new(),
                 terminal: OnceLock::new(),
+                tcp_driver: OnceLock::new(),
                 physical: OnceLock::new(),
             },
             header,
@@ -115,6 +121,19 @@ impl Diagnostics {
         // This is the sole exact TaskJoined, never another arbitrary retry.
         if self.payload.terminal.get().is_none() {
             let _ = self.payload.terminal.set(source);
+        }
+    }
+    pub fn tcp_driver(&self, source: Arc<ChannelError>) {
+        // The actual single TCP driver's receipt has its own finite source
+        // cell, independent of the establishing Aux. Both enter this same
+        // prepaid pure capsule before either original is locally accepted.
+        if let Some(previous) = self.payload.tcp_driver.get() {
+            assert!(
+                Arc::ptr_eq(previous, &source),
+                "same original driver's stable TaskJoined result"
+            );
+        } else {
+            let _ = self.payload.tcp_driver.set(source);
         }
     }
     pub fn physical(&self, source: ChannelError) {

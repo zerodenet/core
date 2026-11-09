@@ -12,6 +12,7 @@ pub(super) mod actor;
 mod cleanup;
 mod control;
 pub(super) mod diagnostics;
+mod table;
 pub(super) use control::{LogicalControl, ProtocolControl, View};
 pub(super) struct Generation {
     pub instance: ComponentInstanceId,
@@ -24,9 +25,10 @@ pub(super) struct Generation {
     pub cancel: CancellationToken,
     pub cleanup: CancellationToken,
     pub buffers: zero_platform_tokio::controlled_carrier::CarrierBufferBudget,
+    pub masks: zero_transport::finalmask::Profile,
     pub metadata_memory: PacketDriverMetadataView,
     pub resolver: Option<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>,
-    pub entries: Mutex<Table>,
+    pub entries: PacketMetadataArc<Mutex<Table>>,
 }
 pub(super) struct Table {
     next: u64,
@@ -40,12 +42,71 @@ pub(super) struct Row {
     entry: Option<PacketMetadataArc<Entry>>,
 }
 pub(super) struct Position {
-    generation: PacketMetadataArc<Generation>,
+    entries: PacketMetadataArc<Mutex<Table>>,
     ordinal: u64,
     index: usize,
     published: bool,
 }
 impl Table {
+    /// Exact missing-original claims from the selected upload/download groups.
+    /// This only claims the existing local Entry positions: each real Root
+    /// controller/grant must still be installed before either initializing IO.
+    pub fn reserve_needed(
+        entries: &PacketMetadataArc<Mutex<Self>>,
+        needed: [bool; 2],
+    ) -> Result<[Option<Position>; 2], ChannelError> {
+        let count = needed.into_iter().filter(|needed| *needed).count();
+        let mut table = entries.lock().unwrap();
+        let next = table
+            .next
+            .checked_add(count as u64)
+            .ok_or_else(|| error(Stage::Prepare, Reason::Capacity))?;
+        let used = table
+            .used
+            .checked_add(count)
+            .filter(|used| *used <= table.rows.len())
+            .ok_or_else(|| error(Stage::Prepare, Reason::Capacity))?;
+        let mut ordinal = table.next;
+        // All arithmetic and capacity checks precede the first row mutation.
+        let positions = needed.map(|needed| {
+            if !needed {
+                return None;
+            }
+            let (index, row) = table
+                .rows
+                .iter_mut()
+                .enumerate()
+                .find(|(_, row)| !row.reserved)
+                .expect("same actual shared Entry admission");
+            ordinal += 1;
+            row.reserved = true;
+            row.ordinal = ordinal;
+            Some(Position {
+                entries: entries.clone(),
+                ordinal,
+                index,
+                published: false,
+            })
+        });
+        table.next = next;
+        table.used = used;
+        Ok(positions)
+    }
+    pub fn shared(
+        memory: &PacketDriverMetadataView,
+        limit: usize,
+    ) -> Result<PacketMetadataArc<Mutex<Self>>, ChannelError> {
+        let credit = memory
+            .reserve(
+                PacketMetadataArc::<Mutex<Self>>::layout().map_err(|source| {
+                    error(Stage::Prepare, Reason::Capacity).with_source(source)
+                })?,
+            )
+            .map_err(|source| error(Stage::Prepare, Reason::Capacity).with_source(source))?;
+        let table = Self::new(memory, limit)?;
+        PacketMetadataArc::from_prepaid(Mutex::new(table), credit)
+            .map_err(|(source, _, _)| error(Stage::Prepare, Reason::Capacity).with_source(source))
+    }
     pub fn new(memory: &PacketDriverMetadataView, limit: usize) -> Result<Self, ChannelError> {
         let credit = memory
             .reserve(
@@ -90,6 +151,11 @@ pub(super) struct Owners {
 }
 #[derive(Default)]
 pub(super) struct State {
+    pub tcp_masks: Option<zero_transport::finalmask::tcp::OwnedMasks>,
+    pub tcp_setup: Option<super::mixed::tcp::setup::Setup>,
+    pub tcp: Option<zero_transport::split_http::PreparedXhttpTcp>,
+    pub tcp_driver: Option<zero_platform_tokio::contract::scope::TaskJoinWitness>,
+    pub tcp_joined: Option<zero_platform_tokio::contract::scope::TaskJoined>,
     pub endpoint: Option<zero_transport::quic::owned::OwnedEndpointOwner>,
     pub receiver: Option<zero_transport::quic::owned::DriverExitReceiver>,
     pub segment: Option<Segment>,
@@ -111,80 +177,44 @@ pub(super) enum Segment {
 }
 impl Generation {
     pub fn reap(&self) {
-        let mut previous = 0;
-        while let Some((ordinal, entry)) = self.next_entry(previous) {
-            previous = ordinal;
-            if entry.retirement.is_settled() {
-                let removed = {
-                    let mut table = self.entries.lock().unwrap();
-                    let row = table
-                        .rows
-                        .iter_mut()
-                        .find(|row| row.ordinal == ordinal && row.reserved)
-                        .expect("same actual entry row");
-                    let removed = row.entry.take();
-                    if removed.is_some() {
-                        row.reserved = false;
-                        table.used -= 1;
-                    }
-                    removed
-                };
-                drop(removed);
-            }
-        }
+        Table::reap(&self.entries);
     }
     pub fn reserve(generation: &PacketMetadataArc<Self>) -> Result<Position, ChannelError> {
         generation.reap();
-        let mut table = generation.entries.lock().unwrap();
         if generation.cancel.is_cancelled() {
             return Err(error(Stage::Prepare, Reason::Revoked));
         }
-        if table.used >= generation.options.origins.get() {
-            return Err(error(Stage::Prepare, Reason::Capacity));
+        let [position, _] = Table::reserve_needed(&generation.entries, [true, false])?;
+        Ok(position.expect("one actual requested position"))
+    }
+    /// Two actual QUIC halves share this same table, not two independent N.
+    pub fn reserve_joint(
+        generations: [&PacketMetadataArc<Self>; 2],
+    ) -> Result<[Position; 2], ChannelError> {
+        if !PacketMetadataArc::ptr_eq(&generations[0].entries, &generations[1].entries) {
+            return Err(error(Stage::Prepare, Reason::StalePlan));
         }
-        table.next = table
-            .next
-            .checked_add(1)
-            .ok_or_else(|| error(Stage::Prepare, Reason::Capacity))?;
-        table.used += 1;
-        let ordinal = table.next;
-        let (index, row) = table
-            .rows
-            .iter_mut()
-            .enumerate()
-            .find(|(_, row)| !row.reserved)
-            .expect("same finite entry admission");
-        row.reserved = true;
-        row.ordinal = ordinal;
-        Ok(Position {
-            generation: generation.clone(),
-            ordinal,
-            index,
-            published: false,
-        })
+        generations[0].reap();
+        if generations
+            .iter()
+            .any(|generation| generation.cancel.is_cancelled())
+        {
+            return Err(error(Stage::Prepare, Reason::Revoked));
+        }
+        let [first, second] = Table::reserve_needed(&generations[0].entries, [true, true])?;
+        Ok([first.unwrap(), second.unwrap()])
     }
     pub fn next_entry(&self, previous: u64) -> Option<(u64, PacketMetadataArc<Entry>)> {
-        self.entries
-            .lock()
-            .unwrap()
-            .rows
-            .iter()
-            .filter(|row| row.reserved && row.ordinal > previous && row.entry.is_some())
-            .min_by_key(|row| row.ordinal)
-            .map(|row| (row.ordinal, row.entry.as_ref().unwrap().clone()))
+        Table::next_entry(&self.entries, previous)
     }
     pub fn request_retirement(&self) {
-        let mut previous = 0;
-        while let Some((ordinal, entry)) = self.next_entry(previous) {
-            previous = ordinal;
-            entry.retirement.request_retirement();
-        }
+        Table::request_retirement(&self.entries);
     }
 }
 impl Position {
     pub fn publish(mut self, entry: PacketMetadataArc<Entry>) -> PacketMetadataArc<Entry> {
         let previous = {
-            let mut table = self.generation.entries.lock().unwrap();
+            let mut table = self.entries.lock().unwrap();
             let row = &mut table.rows[self.index];
             assert!(row.reserved && row.ordinal == self.ordinal);
             row.entry.replace(entry.clone())
@@ -197,7 +227,7 @@ impl Position {
 impl Drop for Position {
     fn drop(&mut self) {
         if !self.published {
-            let mut table = self.generation.entries.lock().unwrap();
+            let mut table = self.entries.lock().unwrap();
             let row = &mut table.rows[self.index];
             assert!(row.reserved && row.ordinal == self.ordinal && row.entry.is_none());
             row.reserved = false;

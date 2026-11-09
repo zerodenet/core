@@ -58,7 +58,7 @@ impl CarrierPreparation {
             || actual.is_joined()
             || !actual.scope_identity().resource_open()
             || self.state.published.load(Ordering::Acquire)
-            || slot.cancel.is_cancelled()
+            || slot.acquisition_sealed()
         {
             return Err(fail());
         }
@@ -143,7 +143,7 @@ impl CarrierPreparationJob {
         work: crate::contract::BoxFuture<'static, Result<(), ChannelError>>,
     ) -> Result<(), ChannelError> {
         let slot = self.slot.upgrade().ok_or_else(revoked)?;
-        if slot.cancel.is_cancelled()
+        if slot.acquisition_sealed()
             || self.job.sealed.load(Ordering::Acquire)
             || self
                 .preparation
@@ -157,7 +157,7 @@ impl CarrierPreparationJob {
         let mut staged = self.job.staged.lock().unwrap();
         // Serialize the check with the cancelled-slot take. A cancelling
         // Root either takes this exact future, or staging sees its fence.
-        if staged.is_some() || slot.cancel.is_cancelled() {
+        if staged.is_some() || slot.acquisition_sealed() {
             return Err(revoked());
         }
         *staged = Some(StagedWork {
@@ -218,7 +218,7 @@ impl CarrierPreparationJob {
         };
         let state = slot.state();
         let driver = self.job.driver.get().ok_or_else(fail)?;
-        if slot.cancel.is_cancelled()
+        if slot.acquisition_sealed()
             || !self.job.scope.resource_open()
             || state
                 .business_cancel
@@ -243,7 +243,7 @@ impl CarrierPreparationJob {
     pub async fn request(&self) -> Result<CarrierPreparationRequest, ChannelError> {
         let slot = self.slot.upgrade().ok_or_else(revoked)?;
         if !self.job.sealed.load(Ordering::Acquire)
-            || slot.cancel.is_cancelled()
+            || slot.acquisition_sealed()
             || !self.job.scope.resource_open()
             || self.job.driver.get().is_none_or(TaskJoinWitness::is_joined)
         {

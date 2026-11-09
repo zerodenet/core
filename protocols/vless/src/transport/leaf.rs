@@ -2,6 +2,9 @@
 mod grpc;
 mod native;
 mod owned_quic;
+mod owned_xhttp;
+pub(crate) use owned_quic::OwnedQuicParts;
+pub(crate) use owned_xhttp::OwnedXhttpRecipe;
 mod relay;
 mod reverse;
 pub use reverse::VlessReverseBridge;
@@ -37,6 +40,39 @@ pub struct VlessOutboundLeaf {
 }
 
 impl VlessOutboundLeaf {
+    pub fn from_owned_options_refs<TTls, TWs, TGrpc, TH2, THttp, TSplit>(
+        source_dir: Option<&Path>,
+        mut options: super::options::VlessOutboundBuildOptionsRef<
+            '_,
+            TTls,
+            TWs,
+            TGrpc,
+            TH2,
+            THttp,
+            TSplit,
+        >,
+        runtime: &VlessTransportRuntime,
+    ) -> Result<(Self, zero_transport::finalmask::Settings), zero_core::Error>
+    where
+        TTls: ClientTlsProfile + ?Sized,
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+        TH2: H2TransportProfile + ?Sized,
+        THttp: HttpUpgradeTransportProfile + ?Sized,
+        TSplit: SplitHttpTransportProfile + ?Sized,
+    {
+        let settings = options.final_mask.take().unwrap_or_default();
+        let leaf = Self::from_options_refs_with_mask_identity(
+            source_dir,
+            options,
+            runtime,
+            Some(zero_transport::finalmask::Profile::settings_identity(
+                &settings,
+            )),
+        )?;
+        Ok((leaf, settings))
+    }
+
     pub fn from_options_refs<TTls, TWs, TGrpc, TH2, THttp, TSplit>(
         source_dir: Option<&Path>,
         options: super::options::VlessOutboundBuildOptionsRef<
@@ -49,6 +85,31 @@ impl VlessOutboundLeaf {
             TSplit,
         >,
         runtime: &VlessTransportRuntime,
+    ) -> Result<Self, zero_core::Error>
+    where
+        TTls: ClientTlsProfile + ?Sized,
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+        TH2: H2TransportProfile + ?Sized,
+        THttp: HttpUpgradeTransportProfile + ?Sized,
+        TSplit: SplitHttpTransportProfile + ?Sized,
+    {
+        Self::from_options_refs_with_mask_identity(source_dir, options, runtime, None)
+    }
+
+    fn from_options_refs_with_mask_identity<TTls, TWs, TGrpc, TH2, THttp, TSplit>(
+        source_dir: Option<&Path>,
+        options: super::options::VlessOutboundBuildOptionsRef<
+            '_,
+            TTls,
+            TWs,
+            TGrpc,
+            TH2,
+            THttp,
+            TSplit,
+        >,
+        runtime: &VlessTransportRuntime,
+        mask_identity: Option<[u8; 32]>,
     ) -> Result<Self, zero_core::Error>
     where
         TTls: ClientTlsProfile + ?Sized,
@@ -103,7 +164,12 @@ impl VlessOutboundLeaf {
             zero_transport::finalmask::Profile::new(final_mask.unwrap_or_default())
                 .map_err(|_| zero_core::Error::Config("invalid FinalMask settings"))?;
         leaf.relay_pools = runtime.xhttp_pool_access();
-        leaf.transport.share_xhttp_pool(runtime, tag);
+        match mask_identity {
+            Some(identity) => leaf
+                .transport
+                .share_owned_mask_pools(runtime, tag, identity),
+            None => leaf.transport.share_xhttp_pool(runtime, tag),
+        }
         leaf.transport.share_browser_dialer(runtime);
         leaf.transport.set_download(download, runtime, tag);
         leaf.transport

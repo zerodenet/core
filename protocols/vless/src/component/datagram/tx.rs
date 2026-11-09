@@ -11,24 +11,31 @@ use zero_platform_tokio::contract::{
     datagram::DatagramTx, BoxFuture, CloseReason, SendFailure, SendReceipt,
 };
 pub struct Tx {
-    shared: Arc<Shared>,
     limits: DatagramLimits,
-    bytes: Vec<u8>,
+    bytes: memory::Buffer,
     offset: usize,
     payload: Option<usize>,
     started: bool,
     cancelled: BoxFuture<'static, ()>,
+    _cancel_metadata: Option<zero_traits::packet_metadata::PacketMetadataCredit>,
+    shared: SharedRef,
 }
 impl Tx {
-    pub(super) fn new(shared: Arc<Shared>, limits: DatagramLimits) -> Self {
+    pub(super) fn new(
+        shared: SharedRef,
+        limits: DatagramLimits,
+        bytes: memory::Buffer,
+        cancel_metadata: Option<zero_traits::packet_metadata::PacketMetadataCredit>,
+    ) -> Self {
         Self {
             cancelled: shared.cancellation(),
             shared,
             limits,
-            bytes: vec![],
+            bytes,
             offset: 0,
             payload: None,
             started: false,
+            _cancel_metadata: cancel_metadata,
         }
     }
     fn delivery(&self) -> DeliveryState {
@@ -69,14 +76,15 @@ impl DatagramTx for Tx {
             if frame.association != this.shared.association {
                 return Poll::Ready(Err(this.failure(Reason::StalePlan)));
             }
-            this.bytes = crate::udp::encode_plain_response(&frame.payload).map_err(|source| {
-                SendFailure::new(
-                    this.shared
-                        .error(Stage::Send, Reason::Protocol, DeliveryState::NotSubmitted)
-                        .with_source(source),
-                    DeliveryState::NotSubmitted,
-                )
-            })?;
+            if frame.payload.len() > u16::MAX as usize {
+                return Poll::Ready(Err(this.failure(Reason::Protocol)));
+            }
+            this.bytes.clear();
+            // Hosted backing was reserved and allocated before opening IO;
+            // explicit library buffers keep their original Vec growth duty.
+            this.bytes
+                .extend_from_slice(&(frame.payload.len() as u16).to_be_bytes());
+            this.bytes.extend_from_slice(&frame.payload);
             this.payload = Some(frame.payload.len());
         }
         let mut state = this.shared.state.lock().unwrap();

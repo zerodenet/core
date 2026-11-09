@@ -6,6 +6,7 @@ pub(crate) struct ServiceDatagram {
     pub(crate) slot: Arc<ComponentSlot>,
     pub(crate) tag: Option<String>,
     pub(crate) direct: bool,
+    pub(crate) device: bool,
     pub(crate) native: Option<(usize, zero_core::request::Destination)>,
 }
 impl ProtocolInventory {
@@ -33,6 +34,7 @@ impl ProtocolInventory {
                 tag: node.tag,
                 native: None,
                 direct: true,
+                device: false,
             }));
         }
         let ResolvedOutbound::Single(zero_engine::ResolvedLeafOutbound::Proxy { identity }) =
@@ -63,7 +65,8 @@ impl ProtocolInventory {
         // Datagram itself. Other Datagram roles may still require this Query
         // to supply their control Stream/UDP originals; an observer is not IO.
         let metadata = slot.dial == Default::default()
-            && components.has_metadata_stream_provider(slot.role_id())
+            && (components.has_metadata_stream_provider(slot.role_id())
+                || components.has_cached_stream_provider(slot.role_id()))
             && components.stream_dependencies_supported(slot.role_id());
         // The logical role publishes no native resources of its own. Its
         // installed background dependency already owns the shared physical
@@ -119,6 +122,7 @@ impl ProtocolInventory {
             tag: Some(outbound.tag.clone()),
             native,
             direct: false,
+            device,
         }))
     }
 }

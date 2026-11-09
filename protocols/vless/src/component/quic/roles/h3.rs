@@ -52,24 +52,49 @@ impl Outbound {
         // Group retains its physical connection, never the first caller's factory.
         let generation = self.generation.clone();
         let current = context.clone();
-        let factory: zero_transport::split_http::XhttpCarrierFactory = Arc::new(move || {
+        let call_memory = self.generation.metadata_memory.clone();
+        let callback = move || {
             let generation = generation.clone();
             let mut current = current.clone();
-            Box::pin(async move {
-                if let Some(receiver) =
+            zero_transport::split_http::OwnedXhttpFactoryCall::prepare(&call_memory, async move {
+                if current.cancel.is_cancelled() {
+                    return Err(
+                        std::io::Error::other(error(Stage::Prepare, Reason::Cancelled)).into(),
+                    );
+                }
+                if current
+                    .deadline
+                    .is_some_and(|end| tokio::time::Instant::now() >= end)
+                {
+                    return Err(
+                        std::io::Error::other(error(Stage::Prepare, Reason::Timeout)).into(),
+                    );
+                }
+                if let Some((receiver, stop)) =
                     super::super::pending::for_current(&generation, current.upstream.binding())
                         .map_err(std::io::Error::other)?
                 {
                     current.upstream = receiver;
+                    current.cancel = stop;
+                    current.deadline = None;
                 }
                 let original = entry::Generation::acquire(&generation, &current)
                     .await
                     .map_err(std::io::Error::other)?;
                 Ok(XhttpCarrier::OwnedHttp3(original.into_h3()))
             })
-        });
+        };
+        let layout =
+            zero_transport::split_http::OwnedXhttpCarrierFactory::metadata_layout_for(&callback)
+                .map_err(|source| error(Stage::Prepare, Reason::Capacity).with_source(source))?;
+        let memory = self.generation.memory(layout)?;
+        let factory =
+            zero_transport::split_http::OwnedXhttpCarrierFactory::from_prepaid(callback, memory)
+                .map_err(|(source, _, _)| {
+                    error(Stage::Prepare, Reason::Capacity).with_source(source)
+                })?;
         let (stream, origin) = pool
-            .connect_owned(
+            .prepare_owned(
                 factory,
                 profile,
                 None,
@@ -78,8 +103,13 @@ impl Outbound {
                     scope: self.generation.tasks.scope_identity(),
                     binding: context.upstream.binding(),
                     memory: self.generation.metadata_memory.clone(),
+                    buffers: self.generation.buffers.clone(),
                 },
+                zero_transport::split_http::OwnedConnectionKinds::multiplexed(),
             )
+            .await
+            .map_err(|source| error(Stage::Prepare, Reason::Io).with_source(source))?
+            .finish()
             .await
             .map_err(|source| error(Stage::Handshake, Reason::Io).with_source(source))?;
         let returned = stream

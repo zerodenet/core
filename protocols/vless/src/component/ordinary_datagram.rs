@@ -24,7 +24,7 @@ impl DatagramOutbound for Outbound {
                 DeliveryState::NotSubmitted,
             ));
         };
-        let target = target.clone();
+
         if self.options.flow.is_some()
             || target.port == 0
             || context.upstream.binding().dial != self.options.dial
@@ -36,22 +36,25 @@ impl DatagramOutbound for Outbound {
                 DeliveryState::NotSubmitted,
             ));
         }
-        let bytes = crate::shared::build_request_to(
-            &target.address,
-            target.port,
-            &self.options.uuid,
-            crate::shared::CMD_UDP,
-        )
-        .map_err(|source| {
-            self.admission
-                .error(
-                    session,
-                    Stage::Prepare,
-                    Reason::InvalidConfig,
-                    DeliveryState::NotSubmitted,
-                )
-                .with_source(source)
-        })?;
+        let mut prepared = datagram::Prepared::new(
+            self.datagram_budget.as_ref(),
+            &context.cancel,
+            &self.admission,
+            target,
+        )?;
+        let target = target.clone();
+        let bytes = prepared
+            .request(&target, &self.options.uuid)
+            .map_err(|source| {
+                self.admission
+                    .error(
+                        session,
+                        Stage::Prepare,
+                        Reason::InvalidConfig,
+                        DeliveryState::NotSubmitted,
+                    )
+                    .with_source(source)
+            })?;
         let mut io = self.open_transport(&context, session).await?;
         let handshake = async {
             io.write_all(&bytes).await?;
@@ -68,6 +71,7 @@ impl DatagramOutbound for Outbound {
             observer.record(session, ConnectFact::RequestSubmitted);
             observer.protocol_traffic(session, 0, bytes.len() as u64);
         }
+        drop(bytes);
         let response =
             datagram::response::read(&mut io, &context, &self.admission, session).await?;
         if let Some(observer) = &context.observer {
@@ -85,6 +89,7 @@ impl DatagramOutbound for Outbound {
             self.admission.clone(),
             session,
             target,
+            prepared,
         ))
     }
 }

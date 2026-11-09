@@ -11,6 +11,7 @@ pub(super) struct Group {
     remaining_requests: AtomicI64,
     expires: Option<Instant>,
     closed: AtomicBool,
+    kind: std::sync::OnceLock<super::owned_connect::OwnedConnectionKind>,
     idle_since: Mutex<Instant>,
 }
 impl Group {
@@ -33,6 +34,7 @@ impl Group {
             expires: (seconds > 0)
                 .then(|| Instant::now() + std::time::Duration::from_secs(seconds as u64)),
             closed: AtomicBool::new(false),
+            kind: std::sync::OnceLock::new(),
             idle_since: Mutex::new(Instant::now()),
         }
     }
@@ -51,6 +53,21 @@ impl Group {
             (Some(actual), Some(owner)) => actual.same(owner),
             _ => false,
         }
+    }
+    pub(super) fn connection_kind(&self) -> super::owned_connect::OwnedConnectionKind {
+        self.kind
+            .get()
+            .copied()
+            .unwrap_or(super::owned_connect::OwnedConnectionKind::Multiplexed)
+    }
+    pub(super) fn bind_connection_kind(
+        &self,
+        kind: super::owned_connect::OwnedConnectionKind,
+    ) -> io::Result<()> {
+        if self.kind.get_or_init(|| kind) != &kind {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        Ok(())
     }
     pub(super) fn has_responses(&self) -> bool {
         self.responses.load(Ordering::Acquire) != 0

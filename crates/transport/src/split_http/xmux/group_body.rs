@@ -10,6 +10,7 @@ struct Body {
     inner: Option<ReceivedBody>,
     connection: Option<connection::Connection>,
     response: Option<group::ResponseUse>,
+    group: GroupRef,
 }
 pub(in crate::split_http) struct OwnedGroupBody {
     inner: ManuallyDrop<Box<Body>>,
@@ -23,6 +24,7 @@ impl OwnedGroupBody {
         body: ReceivedBody,
         connection: connection::Connection,
         response: group::ResponseUse,
+        group: GroupRef,
         memory: PacketMetadataCredit,
     ) -> Self {
         assert!(memory.layout().bytes() >= Self::layout().bytes());
@@ -31,6 +33,7 @@ impl OwnedGroupBody {
                 inner: Some(body),
                 connection: Some(connection),
                 response: Some(response),
+                group,
             })),
             memory: Some(memory),
         }
@@ -49,7 +52,13 @@ impl hyper::body::Body for OwnedGroupBody {
         };
         if matches!(result, Poll::Ready(None)) {
             drop(self.inner.inner.take());
-            drop(self.inner.connection.take());
+            if let Some(connection) = self.inner.connection.take() {
+                if matches!(connection.sender, client::carrier::Sender::Http1(_)) {
+                    self.inner.group.connections.recycle(connection);
+                } else {
+                    drop(connection);
+                }
+            }
             drop(self.inner.response.take());
         }
         result

@@ -17,6 +17,7 @@ pub(super) struct Outbound {
     pub(super) options: Arc<StreamOptions>,
     pub(super) admission: Arc<SessionAdmission>,
     pub(super) pool: ComponentInstanceId,
+    pub(super) datagram_budget: Option<crate::component::datagram::Budget>,
 }
 struct Owner {
     inner: SessionOwner,
@@ -39,6 +40,25 @@ impl ComponentFactory for StreamFactory {
         &self,
         options: Arc<StreamOptions>,
         context: BuildContext,
+    ) -> Result<ComponentInstance, BuildError> {
+        self.build_with_memory(options, context, None)
+    }
+}
+impl StreamFactory {
+    pub fn build_hosted(
+        &self,
+        options: Arc<StreamOptions>,
+        context: BuildContext,
+    ) -> Result<ComponentInstance, BuildError> {
+        let budget =
+            crate::component::datagram::Budget::from_resources(context.resources.as_ref())?;
+        self.build_with_memory(options, context, Some(budget))
+    }
+    fn build_with_memory(
+        &self,
+        options: Arc<StreamOptions>,
+        context: BuildContext,
+        datagram_budget: Option<crate::component::datagram::Budget>,
     ) -> Result<ComponentInstance, BuildError> {
         let (inner, admission) = SessionOwner::new(context.component, &context.cancel);
         let pool = context
@@ -64,12 +84,14 @@ impl ComponentFactory for StreamFactory {
                     options: options.clone(),
                     admission: admission.clone(),
                     pool,
+                    datagram_budget: datagram_budget.clone(),
                 })),
                 datagram: Some(zero_platform_tokio::contract::datagram::erase_datagram(
                     Outbound {
                         options,
                         admission,
                         pool,
+                        datagram_budget,
                     },
                 )),
                 ..Default::default()

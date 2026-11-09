@@ -95,3 +95,45 @@ impl CarrierGrants {
         }
     }
 }
+
+impl CarrierGrants {
+    /// The same Root-held original/phase, for an existing cached TCP pool.
+    /// Reserve both mixed halves before either real initializing Aux starts.
+    pub fn reserve_stream_protocol_original(
+        &self,
+        tasks: &TaskRegistrar,
+        control: crate::contract::lifecycle::BoxChannelControl,
+    ) -> Result<(CarrierGrant, CarrierProtocolRetirement), RejectedOriginalProtocolControl> {
+        let bound = { self.0.state().binding.clone() };
+        if !bound
+            .as_ref()
+            .is_some_and(|bound| bound.permits_stream_protocol_control(tasks))
+        {
+            return Err(RejectedOriginalProtocolControl {
+                control,
+                error: error(
+                    self.0.instance,
+                    Stage::Prepare,
+                    Reason::Revoked,
+                    DeliveryState::NotSubmitted,
+                ),
+            });
+        }
+        match self.reserve_with_protocol(Some(control)) {
+            Ok(grant) => {
+                let retirement = grant
+                    .slot
+                    .state()
+                    .protocol
+                    .as_ref()
+                    .expect("paid original phase installed before publication")
+                    .handle();
+                Ok((grant, retirement))
+            }
+            Err((error, returned)) => Err(RejectedOriginalProtocolControl {
+                error,
+                control: returned.expect("refused original did not consume control"),
+            }),
+        }
+    }
+}

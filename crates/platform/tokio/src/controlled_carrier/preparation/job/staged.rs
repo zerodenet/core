@@ -58,7 +58,7 @@ impl crate::controlled_carrier::CarrierAdoption {
     }
 }
 pub(in crate::controlled_carrier) fn cancel_staged(slot: &Arc<Slot>) {
-    if !slot.cancel.is_cancelled() {
+    if !slot.acquisition_sealed() {
         return;
     }
     let job = slot

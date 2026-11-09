@@ -19,6 +19,7 @@ pub(super) fn public(seed: u8) -> String {
 }
 pub(super) struct Peer {
     pub address: SocketAddr,
+    outer_source: std::sync::Arc<std::sync::Mutex<Option<SocketAddr>>>,
     stop: CancellationToken,
     task: JoinHandle<()>,
 }
@@ -53,6 +54,8 @@ impl Peer {
         let (tcp, _) = UserNetworkStack::new(send.clone(), 1380).into_parts();
         let stop = CancellationToken::new();
         let cancel = stop.clone();
+        let outer_source = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let source_observation = outer_source.clone();
         let task = tokio::spawn(async move {
             let mut children = tokio::task::JoinSet::new();
             let mut endpoint = None;
@@ -76,7 +79,7 @@ impl Peer {
                         });continue;
                     },
                     result=socket.recv_from(&mut bytes)=>{
-                        let (size,source)=result.unwrap();endpoint=Some(source);
+                        let (size,source)=result.unwrap();endpoint=Some(source); *source_observation.lock().unwrap() = Some(source);
                         tunnel.receive_datagram(Some(source),&bytes[..size]).unwrap()
                     },
                     response=responses.recv()=>tunnel.send_ip_packet(&response.unwrap()).unwrap(),
@@ -119,9 +122,13 @@ impl Peer {
         });
         Self {
             address,
+            outer_source,
             stop,
             task,
         }
+    }
+    pub(super) fn actual_outer_source(&self) -> Option<SocketAddr> {
+        *self.outer_source.lock().unwrap()
     }
     pub async fn close(self) {
         self.stop.cancel();

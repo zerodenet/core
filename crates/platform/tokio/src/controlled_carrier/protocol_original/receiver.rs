@@ -176,3 +176,47 @@ impl ProtocolOriginal {
         Ok(ProtocolReceiverPrepared::new(&phase, receiver))
     }
 }
+
+impl CarrierAdoption {
+    /// One actual cached TCP input has exactly this installed native driver.
+    /// Unlike a borrowed datagram endpoint, it has no additional Quinn graph.
+    pub fn prepare_stream_protocol_receiver(
+        &self,
+        tasks: &crate::contract::scope::TaskRegistrar,
+        retirement: &CarrierProtocolRetirement,
+    ) -> Result<ProtocolReceiverPrepared, ChannelError> {
+        let fail = || {
+            ChannelError::new(
+                crate::contract::Stage::Prepare,
+                crate::contract::Reason::StalePlan,
+                crate::contract::Impact::Component,
+            )
+        };
+        let owner = self.slot.owner.upgrade().ok_or_else(fail)?;
+        let bound = { owner.state().binding.clone() }.ok_or_else(fail)?;
+        let keeper = self.retained_driver().ok_or_else(fail)?;
+        if !bound.permits_stream_protocol_control(tasks)
+            || !keeper.retains(self)
+            || !self.slot.root_bound
+            || !keeper
+                .driver()
+                .scope_identity()
+                .same_scope(&tasks.scope_identity())
+        {
+            return Err(fail());
+        }
+        let phase = {
+            let state = self.slot.state();
+            if state.closed || state.unknown.is_some() {
+                return Err(fail());
+            }
+            state.protocol.clone()
+        }
+        .ok_or_else(fail)?;
+        if !retirement.matches_phase(&phase) {
+            return Err(fail());
+        }
+        let receiver = ProtocolOriginalReceiver::carrier(keeper.clone(), keeper.driver().clone());
+        Ok(ProtocolReceiverPrepared::new(&phase, receiver))
+    }
+}

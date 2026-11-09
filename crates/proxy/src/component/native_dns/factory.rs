@@ -17,11 +17,27 @@ impl ComponentFactory for Factory {
             )
             .collect::<Vec<_>>();
         resources.extend(options.roots.iter().map(|root| {
-            ResourceDeclaration::ControlledCarrierPool {
-                endpoint: root.endpoint.clone(),
-                dial: root.dial.clone(),
-                datagram: root.datagram,
-                max_sockets: limits.originals,
+            if root.logical {
+                if root.datagram {
+                    ResourceDeclaration::ControlledServiceDatagram {
+                        endpoint: root.endpoint.clone(),
+                        dial: root.dial.clone(),
+                        max_sockets: limits.originals,
+                    }
+                } else {
+                    ResourceDeclaration::ControlledServiceStream {
+                        endpoint: root.endpoint.clone(),
+                        dial: root.dial.clone(),
+                        max_sockets: limits.originals,
+                    }
+                }
+            } else {
+                ResourceDeclaration::ControlledCarrierPool {
+                    endpoint: root.endpoint.clone(),
+                    dial: root.dial.clone(),
+                    datagram: root.datagram,
+                    max_sockets: limits.originals,
+                }
             }
         }));
         resources.extend(options.ech.iter().map(|endpoint| {

@@ -186,6 +186,52 @@ impl Ledger {
         }
         None
     }
+    /// Stop only logical work; Hyper's genuine Task/Pipe/Send originals must
+    /// still return within the same physical driver's own continuation.
+    pub(super) fn cancel_logical(&self) {
+        let mut after = None;
+        loop {
+            let mut node = self
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .head
+                .clone();
+            let mut selected = None;
+            while let Some(actual) = node {
+                node = actual
+                    .next
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone();
+                if after.is_none_or(|after| actual.ordinal > after)
+                    && selected
+                        .as_ref()
+                        .is_none_or(|old: &PacketMetadataArc<Node>| actual.ordinal < old.ordinal)
+                {
+                    selected = Some(actual);
+                }
+            }
+            let Some(node) = selected else { break };
+            after = Some(node.ordinal);
+            let work = {
+                let mut work = node
+                    .work
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if matches!(work.as_ref(), Some(Work::Http2Delegate(_))) {
+                    None
+                } else {
+                    work.take()
+                }
+            };
+            if let Some(work) = work {
+                let removed = self.remove(node.ordinal);
+                drop(work);
+                drop(removed);
+            }
+        }
+    }
     /// Physical driver teardown returns/drops every original concrete work item
     /// outside all owner gates. This is not NativeClosed or a task ACK.
     pub fn cancel_all(&self) {
@@ -227,6 +273,7 @@ pub(super) struct PaidFuture {
     _memory: PacketMetadataCredit,
     // Original work/future allocation is destroyed before publishing return.
     _returned: Option<super::logical::WorkReturn>,
+    _delegate: Option<super::tcp::DelegateReturn>,
 }
 impl PaidFuture {
     pub(super) fn prepare_returning<F: Future<Output = ()> + Send + 'static>(
@@ -241,6 +288,22 @@ impl PaidFuture {
             inner: Box::pin(future),
             _memory: credit,
             _returned: returned,
+            _delegate: None,
+        })
+    }
+    pub(super) fn prepare_delegate<F: Future<Output = ()> + Send + 'static>(
+        future: F,
+        memory: &PacketDriverMetadataView,
+        returned: super::tcp::DelegateReturn,
+    ) -> io::Result<Self> {
+        let credit = memory
+            .reserve(PacketMetadataLayout::boxed::<F>())
+            .map_err(io::Error::other)?;
+        Ok(Self {
+            inner: Box::pin(future),
+            _memory: credit,
+            _returned: None,
+            _delegate: Some(returned),
         })
     }
     pub(super) fn poll(&mut self, cx: &mut Context<'_>) -> Poll<()> {

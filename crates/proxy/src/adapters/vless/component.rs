@@ -4,6 +4,7 @@ pub(crate) mod grpc;
 mod material;
 pub(crate) mod mux;
 pub(crate) mod quic;
+pub(crate) mod xhttp;
 use zero_config::{ConfigError, OutboundConfig, OutboundProtocolConfig};
 pub(crate) const LEGACY_CONNECT_STAGE: &str = "connect_upstream_vless";
 pub(crate) fn native_input(input: &OutboundConfig) -> bool {

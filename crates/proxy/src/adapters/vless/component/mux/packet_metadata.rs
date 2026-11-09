@@ -16,6 +16,7 @@ pub(crate) fn declare_packet_path(
         Options::Mux(options) => options.packet_path_metadata(),
         Options::Grpc(options) => options.packet_path_metadata(),
         Options::Quic(options) => options.inner.packet_path_metadata(),
+        Options::Xhttp(options) => options.inner.packet_path_metadata(),
     };
     let description = Factory.describe(options);
     // The old whole VLESS packet path supported Base and Associated. A missing

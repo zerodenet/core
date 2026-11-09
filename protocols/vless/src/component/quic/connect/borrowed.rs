@@ -120,7 +120,7 @@ async fn initialize(
     let candidates = demand.borrowed(generation, &grant, caller).await?;
     let peer = candidates.peer(index)?;
     let plan = zero_transport::finalmask::owned::PreparedMasks::new(
-        options.plan.owned_quic_masks(),
+        generation.masks.udp(),
         false,
         generation.buffers.clone(),
         generation.metadata_memory.clone(),

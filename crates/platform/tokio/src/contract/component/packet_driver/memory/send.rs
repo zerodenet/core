@@ -77,34 +77,27 @@ impl PacketDriverSendCopy {
         }
     }
 
+    #[cfg(feature = "native-packet-origin")]
     fn copy_packet(&mut self, bytes: &[u8]) -> Result<zero_traits::PacketBuffer, ChannelError> {
-        #[cfg(not(feature = "native-packet-origin"))]
-        {
-            let _ = bytes;
-            Err(failure(Reason::Unsupported))
+        if self.record.call.cancel.is_cancelled() || self.record.original.is_retired() {
+            return Err(failure(Reason::Revoked));
         }
-        #[cfg(feature = "native-packet-origin")]
-        {
-            if self.record.call.cancel.is_cancelled() || self.record.original.is_retired() {
-                return Err(failure(Reason::Revoked));
-            }
-            let buffer = self
-                .buffer
-                .as_mut()
-                .ok_or_else(|| failure(Reason::Protocol))?;
-            if bytes.len() > buffer.as_bytes().len() {
-                return Err(failure(Reason::Capacity));
-            }
-            buffer.as_mut_bytes()[..bytes.len()].copy_from_slice(bytes);
-            self.buffer
-                .take()
-                .expect("same checked unique copy")
-                .into_packet(bytes.len())
-                .map_err(|original| {
-                    drop(original);
-                    failure(Reason::Internal)
-                })
+        let buffer = self
+            .buffer
+            .as_mut()
+            .ok_or_else(|| failure(Reason::Protocol))?;
+        if bytes.len() > buffer.as_bytes().len() {
+            return Err(failure(Reason::Capacity));
         }
+        buffer.as_mut_bytes()[..bytes.len()].copy_from_slice(bytes);
+        self.buffer
+            .take()
+            .expect("same checked unique copy")
+            .into_packet(bytes.len())
+            .map_err(|original| {
+                drop(original);
+                failure(Reason::Internal)
+            })
     }
 }
 impl PacketDriverDatagramHandoff {

@@ -126,7 +126,7 @@ impl Groups {
         // Vec owns the same exact prepaid allocation and sufficient capacity.
         let next = unsafe { Vec::from_raw_parts(ptr, 0, capacity) };
         let mut previous = std::mem::replace(&mut self.values, next);
-        self.values.extend(previous.drain(..));
+        self.values.append(&mut previous);
         drop(previous);
         drop(self.credit.replace(credit));
         Ok(())

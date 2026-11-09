@@ -102,7 +102,7 @@ async fn initialize(
         .peer(index)
         .ok_or_else(|| error(Stage::Prepare, Reason::InvalidConfig))?;
     let plan = zero_transport::finalmask::owned::PreparedMasks::new(
-        options.plan.owned_quic_masks(),
+        generation.masks.udp(),
         false,
         generation.buffers.clone(),
         generation.metadata_memory.clone(),

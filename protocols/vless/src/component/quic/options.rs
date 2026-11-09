@@ -17,6 +17,7 @@ pub struct Options {
     pub(super) limits: MetadataLimits,
     pub(super) identity: Arc<[u8]>,
     suffix: Arc<[u8]>,
+    pub(super) raw_masks: Option<zero_transport::finalmask::Settings>,
     pub(super) buffers: zero_platform_tokio::controlled_carrier::CarrierBufferLimits,
     pub(super) dependencies: Vec<zero_core::component::ComponentId>,
 }
@@ -43,6 +44,23 @@ impl Options {
         let Some(parts) = leaf.plain_owned_quic_parts() else {
             return Ok(None);
         };
+        Self::from_material_parts(
+            parts, runtime, dial, origins, users, limits, source_dir, file_bytes,
+        )
+        .map(Some)
+    }
+    // Same accepted value projection, also used for an actual H3 half of the
+    // independent download recipe. No second leaf/config/material decode.
+    pub(super) fn from_material_parts(
+        parts: crate::transport::OwnedQuicParts,
+        runtime: &VlessTransportRuntime,
+        dial: DialPolicy,
+        origins: NonZeroUsize,
+        users: NonZeroUsize,
+        limits: MetadataLimits,
+        source_dir: Option<&std::path::Path>,
+        file_bytes: NonZeroUsize,
+    ) -> Result<Self, zero_transport::RuntimeError> {
         dial.validate().map_err(std::io::Error::other)?;
         let profile = parts.profile;
         let tls = OwnedClientTlsProfile {
@@ -109,6 +127,7 @@ impl Options {
         identity.extend_from_slice(&suffix);
         let mut prepared = Self {
             suffix: suffix.into(),
+            raw_masks: None,
             buffers: Default::default(),
             dependencies: vec![],
             protocol,
@@ -121,7 +140,7 @@ impl Options {
             identity: identity.into(),
         };
         prepared.refresh_material_identity();
-        Ok(Some(prepared))
+        Ok(prepared)
     }
     fn alpn_for(profile: &crate::transport::VlessQuicClientProfile, h3: bool) -> Vec<Vec<u8>> {
         if h3 {
@@ -133,16 +152,48 @@ impl Options {
     pub(super) fn alpn(&self) -> Vec<Vec<u8>> {
         Self::alpn_for(&self.profile, self.h3.is_some())
     }
+    /// Accepted raw settings stay in the immutable recipe; actual table
+    /// allocations belong only to a concrete Host generation.
+    pub fn with_owned_mask_settings(
+        mut self,
+        settings: zero_transport::finalmask::Settings,
+    ) -> Self {
+        let mut suffix = self.suffix.to_vec();
+        suffix.extend_from_slice(b"actual-host-mask-material.v1");
+        suffix.extend_from_slice(&zero_transport::finalmask::Profile::settings_identity(
+            &settings,
+        ));
+        self.suffix = suffix.into();
+        self.raw_masks = Some(settings);
+        self.refresh_material_identity();
+        self
+    }
+    fn mask_settings(&self) -> &[zero_transport::finalmask::udp::Mask] {
+        self.raw_masks
+            .as_ref()
+            .map_or_else(|| self.plan.owned_quic_masks(), |raw| raw.udp.as_slice())
+    }
+    pub(super) fn prepare_masks(
+        &self,
+        book: zero_platform_tokio::controlled_carrier::CarrierBufferBudget,
+        memory: zero_platform_tokio::contract::component::PacketDriverMetadataView,
+    ) -> std::io::Result<zero_transport::finalmask::Profile> {
+        match &self.raw_masks {
+            Some(raw) => zero_transport::finalmask::Profile::new_owned_from_ref(raw, book, memory),
+            // Only the original explicit library constructor supplies this
+            // already-materialized profile. Kernel assembly always moves raw.
+            None => Ok(self.plan.final_mask_profile().clone()),
+        }
+    }
     pub(super) fn drivers(&self) -> usize {
         2 + usize::from(self.h3.is_some())
-            + zero_transport::finalmask::owned::driver_count(self.plan.owned_quic_masks())
+            + zero_transport::finalmask::owned::driver_count(self.mask_settings())
     }
     pub fn packet_path_metadata(&self) -> (zero_core::request::Destination, bool) {
         (self.protocol.endpoint.clone(), true)
     }
     pub fn requires_icmp(&self) -> bool {
-        self.plan
-            .owned_quic_masks()
+        self.mask_settings()
             .iter()
             .any(|mask| matches!(mask, zero_transport::finalmask::udp::Mask::Xicmp { .. }))
     }

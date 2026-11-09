@@ -11,7 +11,9 @@ mod navigation;
 mod options;
 mod outbound;
 mod profile;
-pub(crate) use outbound::OwnedVlessOutboundTransportPlan;
+pub(crate) use outbound::{
+    OwnedVlessOutboundTransportPlan, OwnedXhttpHalf, OwnedXhttpKind, OwnedXhttpParts,
+};
 pub(crate) use profile::{client_tls_for_stream, VlessQuicClientProfile};
 mod runtime;
 
@@ -19,6 +21,7 @@ pub use inbound::{
     PreparedVlessInboundListenerRequest, VlessInboundBindPlan, VlessInboundListenerRequest,
     VlessInboundStreamMetadata, VlessInboundTransportStreams,
 };
+pub(crate) use leaf::{OwnedQuicParts, OwnedXhttpRecipe};
 pub use leaf::{VlessOutboundLeaf, VlessReverseBridge};
 pub use managed_udp::{VlessManagedUdpConnectorFlow, VlessManagedUdpFlowResume};
 pub use options::{

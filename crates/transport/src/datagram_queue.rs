@@ -430,22 +430,19 @@ impl AsyncUdpSocket for Socket {
             .is_none_or(|caps| caps.may_fragment)
     }
 }
+type FrameWait = Pin<
+    Box<
+        dyn Future<
+                Output = io::Result<
+                    zero_platform_tokio::controlled_carrier::CarrierBufferFrameCredit,
+                >,
+            > + Send,
+    >,
+>;
 struct Poller {
     outgoing: PollSender<Packet>,
     memory: Option<Arc<memory::Shared>>,
-    waiting: Mutex<
-        Option<
-            Pin<
-                Box<
-                    dyn Future<
-                            Output = io::Result<
-                                zero_platform_tokio::controlled_carrier::CarrierBufferFrameCredit,
-                            >,
-                        > + Send,
-                >,
-            >,
-        >,
-    >,
+    waiting: Mutex<Option<FrameWait>>,
     waiting_bytes: usize,
     mask: crate::finalmask::memory::Wait,
 }

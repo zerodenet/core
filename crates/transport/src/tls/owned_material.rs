@@ -8,6 +8,8 @@ pub struct OwnedPreparedClient {
     server_name: String,
 }
 #[derive(Clone)]
+// Prepared backend values remain inline; this adds no untracked wrapper box.
+#[allow(clippy::large_enum_variant)]
 enum Backend {
     Rustls(Arc<rustls::ClientConfig>),
     OpenSsl(openssl::PreparedMaterial),

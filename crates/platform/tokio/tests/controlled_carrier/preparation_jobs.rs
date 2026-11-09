@@ -250,3 +250,6 @@ async fn rejected_original_job_keeps_native_and_n1_until_actual_job_ack_without_
 
 #[path = "preparation_jobs/polling.rs"]
 mod polling;
+
+#[path = "preparation_jobs/protocol_stop.rs"]
+mod protocol_stop;

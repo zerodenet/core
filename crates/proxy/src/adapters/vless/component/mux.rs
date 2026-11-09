@@ -24,6 +24,7 @@ pub(crate) enum Options {
     Mux(Arc<::vless::component::mux::Options>),
     Grpc(Arc<::vless::component::grpc::StreamOptions>),
     Quic(Arc<super::quic::Options>),
+    Xhttp(Arc<super::xhttp::Options>),
 }
 impl Options {
     pub(crate) fn bind_node_dns(&mut self, dependency: zero_core::component::ComponentId) {
@@ -47,6 +48,7 @@ impl ComponentFactory for Factory {
             Options::Mux(options) => ::vless::component::mux::Factory.describe(options),
             Options::Grpc(options) => ::vless::component::grpc::StreamFactory.describe(options),
             Options::Quic(options) => super::quic::Factory.describe(options),
+            Options::Xhttp(options) => super::xhttp::Factory.describe(options),
         }
     }
     fn build(
@@ -63,9 +65,10 @@ impl ComponentFactory for Factory {
                 ::vless::component::mux::Factory.build(options.clone(), context)
             }
             Options::Grpc(options) => {
-                ::vless::component::grpc::StreamFactory.build(options.clone(), context)
+                ::vless::component::grpc::StreamFactory.build_hosted(options.clone(), context)
             }
             Options::Quic(options) => super::quic::Factory.build(options.clone(), context),
+            Options::Xhttp(options) => super::xhttp::Factory.build(options.clone(), context),
         }
     }
 }
@@ -93,6 +96,7 @@ pub(crate) fn eligible(input: &OutboundConfig) -> bool {
         || super::grpc::eligible(input)
         || grpc_eligible(input)
         || super::quic::eligible(input)
+        || super::xhttp::eligible(input)
     {
         return true;
     }
@@ -157,6 +161,9 @@ impl VlessAdapter {
         limit: NonZeroUsize,
         stream_only: bool,
     ) -> Result<Options, RegistrationError> {
+        if super::xhttp::eligible(input) {
+            return self.xhttp_options(input, resources, factory.network.clone());
+        }
         if super::quic::eligible(input) {
             return self.quic_options(input, resources, factory.network.clone());
         }

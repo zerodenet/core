@@ -3,12 +3,12 @@
 use super::*;
 use zero_platform_tokio::contract::RetainedError;
 use zero_traits::packet_metadata::PacketMetadataCredit;
-pub(super) struct Branch {
+pub(in crate::component::quic) struct Branch {
     source: Option<RetainedError>,
     credit: Option<PacketMetadataCredit>,
     report: CloseReport,
 }
-pub(super) struct OriginalSources([Branch; 2]);
+pub(in crate::component::quic) struct OriginalSources([Branch; 2]);
 impl OriginalSources {
     pub fn prepare(memory: &PacketDriverMetadataView) -> Result<Self, BuildError> {
         let layout = RetainedError::metadata_layout().map_err(capacity)?;
@@ -27,11 +27,21 @@ impl OriginalSources {
         generation: &entry::Generation,
         report: &mut CloseReport,
     ) -> Result<(), BuildError> {
+        self.report_to(
+            generation.resources.as_ref(),
+            &generation.tasks.scope_identity(),
+            report,
+        )
+    }
+    pub fn report_to(
+        &mut self,
+        resources: &dyn ResourceAccess,
+        scope: &zero_platform_tokio::contract::scope::TaskScopeIdentity,
+        report: &mut CloseReport,
+    ) -> Result<(), BuildError> {
         for branch in &mut self.0 {
             if let Some(source) = &branch.source {
-                let failure = generation
-                    .resources
-                    .receive_protocol_failure(&generation.tasks.scope_identity(), source)?;
+                let failure = resources.receive_protocol_failure(scope, source)?;
                 if !branch
                     .report
                     .resource_failures
