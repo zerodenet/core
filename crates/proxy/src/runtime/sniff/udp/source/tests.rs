@@ -187,7 +187,7 @@ async fn known_name_scope_cancel_keeps_native_until_actual_body_drop_and_registr
         "actual task body dropped the held original"
     );
     assert!(
-        !witness.registration_released(),
+        !exit.joined().registration_released(),
         "memory free is not Host ACK"
     );
     scope.acknowledge(&exit).unwrap();
