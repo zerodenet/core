@@ -19,27 +19,43 @@ impl<T: ?Sized> Retained<T> {
     }
     pub fn observe(
         &self,
-        source: Option<Arc<ChannelError>>,
+        source: Option<impl Into<crate::contract::RetainedError>>,
         original: Option<Arc<ResourceFailure>>,
     ) -> Option<Arc<ResourceFailure>> {
-        let mut fault = self
+        // Foreign sources and discarded candidates drop with no Root row lock.
+        if let Some(actual) = self
             .fault
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if fault.is_none() {
-            *fault = original.or_else(|| {
-                Some(Arc::new(ResourceFailure::new(
-                    self.instance?,
-                    ResourceFailurePhase::DeclaredResources,
-                    source?,
-                )))
-            });
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+        {
+            return Some(actual);
         }
-        fault.clone()
+        let candidate = match original {
+            Some(original) => Some(original),
+            None => Some(Arc::new(ResourceFailure::new(
+                self.instance?,
+                ResourceFailurePhase::DeclaredResources,
+                source?.into(),
+            ))),
+        };
+        let actual = {
+            let mut fault = self
+                .fault
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if fault.is_none() {
+                *fault = candidate.clone();
+            }
+            fault.clone()
+        };
+        drop(candidate);
+        actual
     }
+
     pub fn received(
         &self,
-        source: Option<Arc<ChannelError>>,
+        source: Option<impl Into<crate::contract::RetainedError>>,
         original: Option<Arc<ResourceFailure>>,
     ) -> bool {
         if source.is_some() && self.instance.is_none() {

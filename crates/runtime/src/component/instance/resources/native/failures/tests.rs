@@ -106,7 +106,7 @@ async fn two_actual_journal_faults_have_one_canonical_receiver_and_held_ack_keep
     let typed = originals.carrier.resource_failures();
     assert_eq!(typed.len(), 2);
     assert_eq!(faults.len(), 2);
-    assert!(!Arc::ptr_eq(&faults[0].source, &faults[1].source));
+    assert!(!faults[0].source.ptr_eq(&faults[1].source));
     assert!(faults.iter().all(|fault| fault.instance == Some(actual)));
     assert!(typed.iter().all(|fault| !fault.ownership_received()));
     assert_eq!(originals.carrier.snapshot().charged, 2);
@@ -159,7 +159,7 @@ async fn two_actual_journal_faults_have_one_canonical_receiver_and_held_ack_keep
     assert_eq!(originals.carrier.snapshot().charged, 0);
     let weak: Vec<_> = faults
         .iter()
-        .map(|fault| Arc::downgrade(&fault.source))
+        .map(|fault| fault.source.downgrade())
         .collect();
     drop(faults);
     drop(typed);

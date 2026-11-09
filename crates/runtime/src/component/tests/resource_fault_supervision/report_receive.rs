@@ -199,7 +199,10 @@ async fn actual_partial_report_sources_survive_next_await_cancellation_and_real_
             assert!(!joined.registration_released());
         }
         assert!(canonical.ownership_received());
-        let weak = [Arc::downgrade(&source), Arc::downgrade(&child.source)];
+        let weak = [
+            zero_platform_tokio::contract::RetainedError::from(source.clone()).downgrade(),
+            child.source.downgrade(),
+        ];
         drop(access);
         let mut final_report = resources.shutdown_io(end).await.unwrap();
         assert!(grant.native_closed());

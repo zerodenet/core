@@ -17,7 +17,7 @@ use std::{
 #[derive(Clone, Debug)]
 pub struct CarrierOriginalFailure {
     pub instance: Option<zero_core::component::ComponentInstanceId>,
-    pub source: Arc<ChannelError>,
+    pub source: crate::contract::RetainedError,
 }
 /// Counts original reservation/custody records. An adopted logical LoanOwner
 /// is a record too; this count must never be advertised as native FD count.

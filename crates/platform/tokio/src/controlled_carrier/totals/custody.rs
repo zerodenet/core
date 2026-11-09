@@ -20,7 +20,7 @@ pub(crate) trait MetadataCustody: Send + Sync {
     fn instance(&self) -> Option<zero_core::component::ComponentInstanceId>;
     fn released(&self) -> bool;
     fn poll_retirement(&self, cx: &mut Context<'_>) -> bool;
-    fn failure(&self) -> Option<Arc<ChannelError>>;
+    fn failure(&self) -> Option<crate::contract::RetainedError>;
     fn resource_failure(&self) -> Option<Arc<crate::contract::lifecycle::ResourceFailure>> {
         None
     }

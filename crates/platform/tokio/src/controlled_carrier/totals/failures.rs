@@ -53,7 +53,7 @@ impl CarrierOriginalTotals {
     }
     /// Original typed failures stay owned even if the protocol Owner is lost.
     /// This does not accept an error on behalf of its actual task/receiver.
-    pub fn failures(&self) -> Vec<Arc<ChannelError>> {
+    pub fn failures(&self) -> Vec<crate::contract::RetainedError> {
         self.failures_with_instances()
             .into_iter()
             .map(|actual| actual.source)
@@ -70,25 +70,25 @@ impl CarrierOriginalTotals {
             .filter_map(|(_, original)| {
                 original.failure().map(|source| CarrierOriginalFailure {
                     instance: original.instance(),
-                    source,
+                    source: source.into(),
                 })
             })
             .chain(metadata.into_iter().filter_map(|original| {
                 original.failure().map(|source| CarrierOriginalFailure {
                     instance: original.instance(),
-                    source,
+                    source: source.into(),
                 })
             }))
             .chain(bound.into_iter().filter_map(|original| {
                 original.failure().map(|source| CarrierOriginalFailure {
                     instance: original.instance(),
-                    source,
+                    source: source.into(),
                 })
             }))
             .chain(source.into_iter().filter_map(|original| {
                 original.failure().map(|source| CarrierOriginalFailure {
                     instance: original.instance(),
-                    source,
+                    source: source.into(),
                 })
             }))
             .collect()

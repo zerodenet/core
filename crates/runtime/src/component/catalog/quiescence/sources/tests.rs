@@ -15,16 +15,16 @@ mod fixture;
 fn end() -> tokio::time::Instant {
     tokio::time::Instant::now() + std::time::Duration::from_secs(3)
 }
-fn contains(mut source: &(dyn Error + 'static), expected: &Arc<ChannelError>) -> bool {
+fn contains(mut source: &(dyn Error + 'static), expected: &ChannelError) -> bool {
     loop {
         // A dyn Error pointer includes a potentially duplicated vtable.
         // Compare the actual typed original, not that codegen-unit metadata.
         if source
             .downcast_ref::<ChannelError>()
-            .is_some_and(|actual| std::ptr::eq(actual, expected.as_ref()))
+            .is_some_and(|actual| std::ptr::eq(actual, expected))
             || source
                 .downcast_ref::<Arc<ChannelError>>()
-                .is_some_and(|actual| Arc::ptr_eq(actual, expected))
+                .is_some_and(|actual| std::ptr::eq(actual.as_ref(), expected))
         {
             return true;
         }
@@ -170,7 +170,7 @@ async fn actual_declared_capsule_survives_tcp_journal_failure_and_original_scope
             contains(&retired, &original.source),
             "same original Scope remains observable after drain"
         );
-        let weak = Arc::downgrade(&original.source);
+        let weak = original.source.downgrade();
         drop(original);
         drop(observed);
         drop(report);

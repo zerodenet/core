@@ -123,7 +123,10 @@ async fn a_received_actor_fault_cannot_hide_a_different_actual_late_actor_receip
             .unwrap();
         assert!(completed.is_complete());
         let failure = completed.resource_failures.first().unwrap();
-        assert!(Arc::ptr_eq(&failure.source, one.retained_source().unwrap()));
+        assert!(std::ptr::eq(
+            failure.source.as_ref(),
+            one.retained_source().unwrap().as_ref()
+        ));
         assert!(has_actual_source(&failure.source, &a.result().unwrap_err()));
         // The same mutable pure payload also retains the distinct later actor.
         assert!(root.source_failures.retains_child(&child_two));

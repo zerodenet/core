@@ -95,7 +95,7 @@ async fn original_fault_blocks_reuse_without_fake_task_and_actual_close_allows_f
     let same = rejected
         .retained_source()
         .expect("exact canonical resource fault Arc");
-    assert!(Arc::ptr_eq(same, &fault.source));
+    assert!(std::ptr::eq(same.as_ref(), fault.source.as_ref()));
     assert_eq!(root.carrier.snapshot().charged, 1);
     let report = host.drive(old.shutdown(end)).await.unwrap();
     assert!(report.is_complete());
