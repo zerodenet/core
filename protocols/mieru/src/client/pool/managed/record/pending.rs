@@ -2,8 +2,8 @@
 use super::*;
 #[derive(Clone)]
 pub(crate) struct PendingCarriers {
-    record: Arc<CarrierRecord>,
-    resources: std::sync::Weak<dyn zero_platform_tokio::contract::component::ResourceAccess>,
+    pub(super) record: Arc<CarrierRecord>,
+    pub(super) resources: std::sync::Weak<dyn zero_platform_tokio::contract::component::ResourceAccess>,
 }
 impl PendingCarriers {
     pub(crate) fn prepare_protocols(
