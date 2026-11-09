@@ -56,7 +56,7 @@ async fn dropped_published_socks_service_pair_keeps_views_charged_then_closes_bo
         let opener = crate::component::stream_bridge::network::NodeOpener::new(services.upstream_observed("node"), endpoint)
             .with_plan(Some(Arc::downgrade(&plan))).with_service_call(call);
         let context = OpenContext {
-            identity:RequestIdentity::Service(Arc::new(ServiceRequestFacts { origin:ServiceOrigin::Runtime, purpose:ServicePurpose::DiagnosticProbe })),
+            identity:RequestIdentity::Service(Arc::new(ServiceRequestFacts { origin:ServiceOrigin::Runtime, purpose:ServicePurpose::DiagnosticProbe }).into()),
             deadline:Some(end), cancel:cancel.clone(), observer:None,
             upstream:UpstreamTransport::new(binding, Arc::new(opener)),
         };
