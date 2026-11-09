@@ -3,6 +3,7 @@
 use super::*;
 use std::sync::Weak;
 mod acceptance;
+mod metadata;
 
 pub(super) struct Registration {
     pub(super) id: TaskId,
