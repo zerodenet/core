@@ -2,6 +2,9 @@
 use super::*;
 impl Session {
     pub(super) fn require_closed(&self) -> io::Result<()> {
+        if !self.wake_io.try_lock().is_ok_and(|wake| wake.closed()) {
+            return Err(io::Error::from(io::ErrorKind::WouldBlock));
+        }
         for original in &self.epochs {
             let epoch = original
                 .try_lock()
@@ -28,8 +31,19 @@ impl Session {
         if !old.native.observe_exit()? {
             return Ok(());
         } // restore through this still healthy helper.
-        self.finish_epoch(0, &mut old)?;
         if !self.initial_driver_returned.load(Ordering::Acquire) {
+            // The initial actor may still poll its kqueue. Wake that same
+            // actor; never close/recycle its descriptor under the OS wait.
+            self.notify();
+            return Err(io::Error::from(io::ErrorKind::WouldBlock));
+        }
+        self.finish_epoch(0, &mut old)?;
+        if !self
+            .wake_io
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .closed()
+        {
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
         }
         old.transfer.require_closed()?;
@@ -93,31 +107,88 @@ impl MacosHelperOwner {
     /// this actor join independently of the long-lived route worker.
     pub fn wait_initial(&self) -> io::Result<()> {
         loop {
-            let mut wait = self
+            let wait = self
                 .0
                 .wait
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
-            let ready = {
+            let (ready, event) = {
                 let mut epoch = self.0.epochs[0].try_lock().ok();
-                epoch
-                    .as_mut()
-                    .is_some_and(|epoch| epoch.native.observe_exit().unwrap_or(false))
+                match epoch.as_mut() {
+                    Some(epoch) => {
+                        let ready = match epoch.native.observe_exit() {
+                            Ok(ready) => ready,
+                            Err(source) => {
+                                self.0.retain(0, Phase::HelperExit, source);
+                                false
+                            }
+                        };
+                        (ready, epoch.native.helper.event_fd())
+                    }
+                    None => (false, None),
+                }
             };
             if ready
                 || (self.0.stopped.load(Ordering::Acquire)
                     && !self.0.route_held.load(Ordering::Acquire))
             {
+                if ready && !self.0.stopped.load(Ordering::Acquire) {
+                    self.0.retain(
+                        0,
+                        Phase::Shutdown,
+                        io::Error::other("actual helper exited before Source requested stop"),
+                    );
+                }
+                drop(wait);
                 break;
             }
-            wait = self
+            let wake = self
                 .0
-                .wake
-                .wait(wait)
-                .unwrap_or_else(|error| error.into_inner());
-            drop(wait);
+                .wake_io
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .fd();
+            if let (Some(event), Some(wake)) = (event, wake) {
+                drop(wait);
+                let mut fds = [
+                    libc::pollfd {
+                        fd: event,
+                        events: libc::POLLIN,
+                        revents: 0,
+                    },
+                    libc::pollfd {
+                        fd: wake,
+                        events: libc::POLLIN,
+                        revents: 0,
+                    },
+                ];
+                let count = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as _, -1) };
+                if count < 0 {
+                    let source = io::Error::last_os_error();
+                    if source.kind() != io::ErrorKind::Interrupted {
+                        self.0.retain(0, Phase::HelperExit, source);
+                    }
+                }
+                self.0
+                    .wake_io
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .drain();
+            } else {
+                drop(
+                    self.0
+                        .wake
+                        .wait(wait)
+                        .unwrap_or_else(|error| error.into_inner()),
+                );
+            }
         }
-        self.finish_initial()
+        let result = self.finish_initial();
+        self.0.close_actor_wake();
+        match self.failure() {
+            Some(source) => Err(io::Error::other(source)),
+            None => result,
+        }
     }
     fn finish_initial(&self) -> io::Result<()> {
         let mut epoch = self.0.epochs[0]

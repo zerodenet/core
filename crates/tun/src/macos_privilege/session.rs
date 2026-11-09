@@ -22,6 +22,7 @@ mod creation;
 mod failures;
 mod native;
 mod rpc;
+mod wake;
 use failures::{Failures, Phase};
 
 #[derive(Clone)]
@@ -38,6 +39,8 @@ struct Session {
     route_held: AtomicBool,
     initial_driver_returned: AtomicBool,
     wake: Condvar,
+    wake_io: Mutex<wake::Wake>,
+    dedicated_worker: bool,
     wait: Mutex<()>,
     failures: PacketMetadataArc<Failures>,
     output_limit: usize,
@@ -123,6 +126,8 @@ impl MacosHelperOwner {
             route_held: AtomicBool::new(false),
             initial_driver_returned: AtomicBool::new(!dedicated_worker),
             wake: Condvar::new(),
+            wake_io: Mutex::new(wake::Wake::new()),
+            dedicated_worker,
             wait: Mutex::new(()),
             failures: faults,
             output_limit,
@@ -136,7 +141,7 @@ impl MacosHelperOwner {
     }
     pub fn stop(&self) {
         self.0.stopped.store(true, Ordering::Release);
-        self.0.wake.notify_all();
+        self.0.notify();
     }
     /// Invoked only by the concrete runtime provider after matching its actual
     /// helper worker TaskJoined AND released registration/failure acceptance.
@@ -145,7 +150,7 @@ impl MacosHelperOwner {
         self.0
             .initial_driver_returned
             .store(true, Ordering::Release);
-        self.0.wake.notify_all();
+        self.0.notify();
     }
     pub fn lease_routes(&self) -> io::Result<MacosHelperLease> {
         if self.0.route_held.swap(true, Ordering::AcqRel) {
@@ -173,12 +178,12 @@ impl MacosHelperOwner {
 impl Drop for MacosHelperLease {
     fn drop(&mut self) {
         self.owner.0.route_held.store(false, Ordering::Release);
-        self.owner.0.wake.notify_all();
+        self.owner.0.notify();
     }
 }
 impl Session {
     fn retain(&self, epoch: usize, phase: Phase, source: io::Error) {
         self.failures.retain(epoch, phase, source);
-        self.wake.notify_all();
+        self.notify();
     }
 }

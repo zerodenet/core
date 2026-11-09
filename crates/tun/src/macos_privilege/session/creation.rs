@@ -17,6 +17,7 @@ impl MacosHelperOwner {
                 "retiring helper cannot create another utun original",
             ));
         }
+        self.0.prepare_actor_wake()?;
         let mut epoch = self.0.epochs[0]
             .lock()
             .unwrap_or_else(|error| error.into_inner());

@@ -14,13 +14,21 @@ struct Server {
     child: ChildOriginal,
 }
 pub(super) fn serve(stream: &mut UnixStream) -> io::Result<()> {
+    serve_with_initial(stream, None)
+}
+pub(super) fn serve_with_initial(stream: &mut UnixStream, name: Option<&str>) -> io::Result<()> {
     let mut server = Server {
         utun: None,
         supervisor: None,
         transfer: None,
         child: ChildOriginal::new(),
     };
-    let result = server.run(stream);
+    let result = match name {
+        Some(name) => server
+            .create(stream, Some(name), None)
+            .and_then(|()| server.run(stream)),
+        None => server.run(stream),
+    };
     // Explicit cleanup precedes process exit; no OwnedFd/Child Drop supplies
     // the parent's physical proof. Its original kqueue observes that exit.
     let closed = server.close();

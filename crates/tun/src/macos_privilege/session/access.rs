@@ -61,6 +61,7 @@ impl MacosHelperOwner {
         arguments: &[String],
         input: Option<&str>,
     ) -> io::Result<Output> {
+        self.0.prepare_actor_wake()?;
         let index = self.0.current.load(Ordering::Acquire);
         let mut epoch = self.0.epochs[index]
             .lock()
