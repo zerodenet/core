@@ -113,29 +113,36 @@ impl ProtocolOriginalChildren {
         result
     }
     pub fn reclaim_returned(&self) {
-        loop {
+        let mut after = None;
+        while let Some(record) = self.next_record(after) {
+            after = Some(record.ordinal);
+            // A weak Phase upgrade or temporary receiver can be the final
+            // strong owner. Observe/destroy it outside this records gate.
+            if !record.original.is_returned() {
+                continue;
+            }
             let removed = {
                 let mut records = self
                     .records
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                let index = records
+                records
                     .iter()
-                    .position(|record| record.original.is_returned());
-                index.map(|index| records.remove(index))
+                    .position(|actual| actual.ordinal == record.ordinal)
+                    .map(|index| records.remove(index))
             };
-            match removed {
-                Some(record) => drop(record),
-                None => break,
-            }
+            drop(removed);
         }
     }
     pub fn returned(&self) -> bool {
-        self.records
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .iter()
-            .all(|record| record.original.is_returned())
+        let mut after = None;
+        while let Some(record) = self.next_record(after) {
+            after = Some(record.ordinal);
+            if !record.original.is_returned() {
+                return false;
+            }
+        }
+        true
     }
     pub fn metadata_view(&self) -> &PacketDriverMetadataView {
         &self.memory
@@ -144,13 +151,14 @@ impl ProtocolOriginalChildren {
         self.memory.same_root(memory)
     }
     pub fn has_caller(&self, caller: &crate::contract::scope::TaskJoinWitness) -> bool {
-        self.records
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .iter()
-            .any(|record| {
-                same_caller(record.caller.as_ref(), Some(caller)) && !record.original.is_returned()
-            })
+        let mut after = None;
+        while let Some(record) = self.next_record(after) {
+            after = Some(record.ordinal);
+            if same_caller(record.caller.as_ref(), Some(caller)) && !record.original.is_returned() {
+                return true;
+            }
+        }
+        false
     }
     pub fn request_caller_return(&self, caller: &crate::contract::scope::TaskJoinWitness) {
         let mut after = None;
