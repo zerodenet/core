@@ -74,14 +74,19 @@ impl ClientStream for MkcpStream {
 pub(super) enum Input {
     Socket(zero_platform_tokio::PacketSocket, SocketAddr),
     Packets(mpsc::Receiver<Vec<u8>>),
+    OwnedPackets(mpsc::Receiver<Bytes>),
+}
+enum Received {
+    Buffer(usize),
+    Owned(Bytes),
 }
 impl Input {
-    async fn receive(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+    async fn receive(&mut self, buffer: &mut [u8]) -> io::Result<Received> {
         match self {
             Self::Socket(socket, peer) => loop {
                 let (n, source) = socket.recv_from(buffer).await?;
                 if source == *peer {
-                    return Ok(n);
+                    return Ok(Received::Buffer(n));
                 }
             },
             Self::Packets(receiver) => {
@@ -90,7 +95,12 @@ impl Input {
                 })?;
                 let n = packet.len().min(buffer.len());
                 buffer[..n].copy_from_slice(&packet[..n]);
-                Ok(n)
+                Ok(Received::Buffer(n))
+            }
+            Self::OwnedPackets(receiver) => {
+                receiver.recv().await.map(Received::Owned).ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::BrokenPipe, "mKCP listener closed")
+                })
             }
         }
     }
@@ -141,7 +151,13 @@ async fn drive(
         let ready = state.receiver.front().unwrap_or_default();
         tokio::select! {
             _=&mut closed,if !local_closed=>{local_closed=true;state.close(started.elapsed().as_millis() as u32);}
-            incoming=input.receive(&mut packet)=>{let n=incoming?;state.input(&packet[..n],started.elapsed().as_millis() as u32);}
+            incoming=input.receive(&mut packet)=>{
+                let now=started.elapsed().as_millis() as u32;
+                match incoming? {
+                    Received::Buffer(n)=>state.input(&packet[..n],now),
+                    Received::Owned(packet)=>state.input_owned(packet,now),
+                }
+            }
             read=reader.read(&mut application),if !local_closed && state.writable()=>{
                 match read {
                     Ok(0)|Err(_)=>{local_closed=true;state.close(started.elapsed().as_millis() as u32);}

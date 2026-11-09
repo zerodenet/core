@@ -28,6 +28,7 @@ pub(crate) struct Shared {
     pub ready: Mutex<Option<CarrierBufferFrameCredit>>,
     codec: Mutex<Option<crate::finalmask::udp::Codec>>,
     masked: bool,
+    individual: std::sync::atomic::AtomicBool,
 }
 impl Memory {
     pub fn prepare(
@@ -72,6 +73,7 @@ impl Memory {
             ready: Mutex::new(None),
             codec: Mutex::new(codec),
             masked,
+            individual: std::sync::atomic::AtomicBool::new(false),
         });
         Ok(Self {
             receive: Receive {
@@ -112,7 +114,11 @@ fn peak_receive(masked: bool, bytes: usize) -> io::Result<usize> {
 }
 impl Shared {
     pub fn grow_native(&self, segments: usize) -> io::Result<()> {
-        let segments = if self.masked { 1 } else { segments.max(1) };
+        let segments = if self.individual_datagrams() {
+            1
+        } else {
+            segments.max(1)
+        };
         let bytes = MAX_DATAGRAM_BYTES
             .checked_mul(segments)
             .ok_or(io::ErrorKind::InvalidInput)?;
@@ -121,6 +127,12 @@ impl Shared {
     }
     pub fn masked(&self) -> bool {
         self.masked
+    }
+    pub fn force_individual_datagrams(&self) {
+        self.individual.store(true, Ordering::Release);
+    }
+    pub fn individual_datagrams(&self) -> bool {
+        self.masked || self.individual.load(Ordering::Acquire)
     }
     pub fn reserve_transmit(&self, bytes: usize) -> io::Result<CarrierBufferFrameCredit> {
         let bytes = peak_transmit(self.masked, bytes)?;
@@ -177,7 +189,7 @@ impl Receive {
             bytes,
             peer,
             metadata,
-            _credit: Some(credit),
+            _credit: Some(credit.into()),
         })
     }
 }

@@ -84,6 +84,17 @@ impl ResourceLifecycle for Lifecycle {
         if self.cancel.is_cancelled() || state.owner.is_some() {
             return Err(failure(Reason::Revoked));
         }
+        let book = self
+            .resources
+            .carrier_buffer_budget()
+            .ok_or_else(|| failure(Reason::InvalidConfig))?;
+        let plan = crate::finalmask::owned::PreparedMasks::new(
+            &self.masks,
+            true,
+            book,
+            self.resources.packet_driver_metadata()?,
+        )
+        .map_err(|source| failure(Reason::Capacity).with_source(source))?;
         let mut grant = self
             .resources
             .listen_metadata_datagram(self.request)
@@ -116,11 +127,15 @@ impl ResourceLifecycle for Lifecycle {
         state.completion = owner.users_completion();
         state.receiver = Some(receiver);
         state.owner = Some(owner);
+        let icmp = crate::finalmask::owned::icmp_bind(&self.masks)
+            .map_err(|source| failure(Reason::InvalidConfig).with_source(source))?
+            .map(|bind| self.resources.bind_inbound_icmp(bind))
+            .transpose()?;
         state
             .owner
             .as_mut()
             .unwrap()
-            .start_masks(&self.masks, self.resources.as_ref())?;
+            .start_prepared_masks(plan, icmp)?;
         // Persistent protocol owner is installed before any actual Quinn spawn.
         let handle =
             state

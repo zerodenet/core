@@ -82,59 +82,74 @@ impl Connection {
             if segment.conv != self.conv {
                 break;
             }
-            self.last_incoming = now;
-            if segment.option & CLOSE != 0 {
-                match self.phase {
-                    Phase::ReadyToClose => self.set_phase(Phase::Terminating, now),
-                    Phase::Active => self.set_phase(Phase::PeerClosed, now),
-                    _ => {}
+            self.input_segment(segment, now);
+        }
+    }
+    pub fn input_owned(&mut self, mut bytes: Bytes, now: u32) {
+        while !bytes.is_empty() {
+            let Ok(segment) = Segment::decode_owned(&mut bytes) else {
+                break;
+            };
+            if segment.conv != self.conv {
+                break;
+            }
+            self.input_segment(segment, now);
+        }
+    }
+    fn input_segment(&mut self, segment: Segment, now: u32) {
+        self.last_incoming = now;
+        if segment.option & CLOSE != 0 {
+            match self.phase {
+                Phase::ReadyToClose => self.set_phase(Phase::Terminating, now),
+                Phase::Active => self.set_phase(Phase::PeerClosed, now),
+                _ => {}
+            }
+        }
+        match segment.body {
+            Body::Data {
+                timestamp,
+                number,
+                sending_next,
+                payload,
+            } => self
+                .receiver
+                .input(timestamp, number, sending_next, payload),
+            Body::Ack {
+                window,
+                next,
+                timestamp,
+                numbers,
+            } => {
+                if let Some(rtt) =
+                    self.sender
+                        .ack(window, next, timestamp, &numbers, now, self.rtt.rto)
+                {
+                    self.rtt.update(rtt, now);
                 }
             }
-            match segment.body {
-                Body::Data {
-                    timestamp,
-                    number,
-                    sending_next,
-                    payload,
-                } => self
-                    .receiver
-                    .input(timestamp, number, sending_next, payload),
-                Body::Ack {
-                    window,
-                    next,
-                    timestamp,
-                    numbers,
-                } => {
-                    if let Some(rtt) =
-                        self.sender
-                            .ack(window, next, timestamp, &numbers, now, self.rtt.rto)
-                    {
-                        self.rtt.update(rtt, now);
-                    }
-                }
-                Body::Command {
-                    command,
-                    sending_next,
-                    receiving_next,
-                    rto,
-                } => {
-                    if command == TERMINATE {
-                        match self.phase {
-                            Phase::Active | Phase::PeerClosed => {
-                                self.set_phase(Phase::PeerTerminating, now)
-                            }
-                            Phase::ReadyToClose => self.set_phase(Phase::Terminating, now),
-                            Phase::Terminating => self.set_phase(Phase::Terminated, now),
-                            _ => {}
+            Body::Command {
+                command,
+                sending_next,
+                receiving_next,
+                rto,
+            } => {
+                if command == TERMINATE {
+                    match self.phase {
+                        Phase::Active | Phase::PeerClosed => {
+                            self.set_phase(Phase::PeerTerminating, now)
                         }
+                        Phase::ReadyToClose => self.set_phase(Phase::Terminating, now),
+                        Phase::Terminating => self.set_phase(Phase::Terminated, now),
+                        _ => {}
                     }
-                    self.sender.clear(receiving_next);
-                    self.receiver.clear(sending_next);
-                    self.rtt.peer(rto, now);
                 }
+                self.sender.clear(receiving_next);
+                self.receiver.clear(sending_next);
+                self.rtt.peer(rto, now);
             }
         }
     }
+
     fn command(&mut self, command: u8, now: u32) -> Body {
         self.last_ping = now;
         Body::Command {

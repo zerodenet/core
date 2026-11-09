@@ -4510,6 +4510,7 @@ dependencies = [
  "zero-error",
  "zero-platform-tokio",
  "zero-traits",
+ "zero-tun",
  "ztls",
 ]
 

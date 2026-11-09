@@ -18,6 +18,50 @@ fn settings() -> Settings {
         }],
     }
 }
+#[tokio::test]
+async fn paid_noise_history_keeps_existing_peer_live_while_foreign_root_pressure_refuses_only_new_rows(
+) {
+    use std::{num::NonZeroUsize, sync::Arc};
+    use zero_platform_tokio::controlled_carrier::CarrierOriginalTotals;
+    use zero_tun::packet_memory::{PacketMetadataLayout, PacketReturnTotals};
+    let original = CarrierOriginalTotals::new(NonZeroUsize::new(1).unwrap());
+    let book = original.buffer_budget();
+    let root = Arc::new(PacketReturnTotals::default());
+    let metadata = root.driver_metadata_view();
+    let baseline = metadata.snapshot().occupied;
+    let memory =
+        crate::finalmask::memory::Memory::prepare(book.clone(), metadata.clone(), 65536, 65536)
+            .unwrap();
+    let mut config = settings();
+    config.reset_seconds = Range::default();
+    let mut codec = Codec::new(&[Mask::Noise(config)], false).unwrap();
+    codec.install_memory(memory.clone()).unwrap();
+    let first = "127.0.0.1:8001".parse().unwrap();
+    let second = "127.0.0.1:8002".parse().unwrap();
+    codec.prepare_peer(first).unwrap();
+    assert_eq!(codec.encode_for(first, b"first").unwrap().len(), 2);
+    codec.finish_noise(first);
+    let snapshot = metadata.snapshot();
+    let foreign = metadata
+        .reserve(
+            PacketMetadataLayout::array::<u8>(snapshot.limit.bytes() - snapshot.occupied.bytes())
+                .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        codec.prepare_peer(second).unwrap_err().kind(),
+        io::ErrorKind::WouldBlock
+    );
+    assert_eq!(codec.encode_for(first, b"still live").unwrap().len(), 1);
+    drop(foreign);
+    codec.prepare_peer(second).unwrap();
+    assert_eq!(codec.encode_for(second, b"new").unwrap().len(), 2);
+    assert_eq!(codec.encode_for(first, b"same history").unwrap().len(), 1);
+    drop(codec);
+    drop(memory);
+    assert_eq!(book.used_bytes(), 0);
+    assert_eq!(metadata.snapshot().occupied, baseline);
+}
 #[tokio::test(start_paused = true)]
 async fn noise_reset_begins_after_send_and_is_scoped_to_peer_and_chain_stage() {
     let peer = "127.0.0.1:9000".parse().unwrap();

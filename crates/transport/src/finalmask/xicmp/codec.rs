@@ -1,6 +1,5 @@
 //! Echo wire messages and the bounded XICMP response sequence window.
 use std::{
-    collections::HashMap,
     io,
     net::{IpAddr, SocketAddr},
 };
@@ -73,7 +72,7 @@ pub struct Client {
     id: u16,
     ipv6: bool,
     next: u16,
-    requests: HashMap<u16, Status>,
+    requests: super::super::rows::Rows<u16, Status>,
 }
 impl Client {
     pub fn new(id: u16, ipv6: bool) -> Self {
@@ -81,13 +80,17 @@ impl Client {
             id,
             ipv6,
             next: 1,
-            requests: HashMap::new(),
+            requests: super::super::rows::Rows::new(1001),
         }
+    }
+    pub(super) fn install_memory(&mut self, memory: super::super::memory::Memory) {
+        self.requests.install(memory);
     }
     pub fn query(&mut self, payload: &[u8], peer: SocketAddr) -> io::Result<Vec<u8>> {
         let sequence = self.next;
+        self.requests.reserve(&sequence)?;
         let bytes = encode(self.ipv6, false, self.id, sequence, payload)?;
-        self.requests.insert(
+        self.requests.insert_reserved(
             sequence,
             Status {
                 first: payload.first().copied(),

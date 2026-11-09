@@ -150,12 +150,12 @@ impl HostedMetadataSocket {
         )?);
         Ok(())
     }
-    pub(crate) fn prepare_masks(
+    pub(crate) fn prepare_prepaid_masks(
         &mut self,
-        masks: &[crate::finalmask::udp::Mask],
+        plan: crate::finalmask::owned::PreparedMasks,
         icmp: Option<zero_platform_tokio::controlled_icmp::ControlledIcmpSocket>,
     ) -> io::Result<Vec<crate::finalmask::owned::Driver>> {
-        let prepared = crate::finalmask::owned::prepare(self.socket.clone(), masks, icmp)?;
+        let prepared = plan.prepare(self.socket.clone(), icmp)?;
         self.wrapped = Some(prepared.socket);
         Ok(prepared.drivers)
     }

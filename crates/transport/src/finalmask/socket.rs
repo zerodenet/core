@@ -11,12 +11,15 @@ use std::{
     sync::{Arc, Mutex},
     task::{Context, Poll},
 };
+mod receive;
 mod send;
+use super::memory::Memory;
 pub struct Socket {
     sender: Option<send::Sender>,
     inner: Arc<dyn AsyncUdpSocket>,
-    codec: Mutex<Codec>,
-    pending: Mutex<std::collections::VecDeque<(Vec<u8>, RecvMeta)>>,
+    codec: Arc<Mutex<Codec>>,
+    receive: receive::Receiver,
+    memory: Memory,
 }
 impl std::fmt::Debug for Socket {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -24,17 +27,18 @@ impl std::fmt::Debug for Socket {
     }
 }
 impl Socket {
-    pub(super) fn prepare_layer(
+    pub(super) fn prepare_codec(
         inner: Arc<dyn AsyncUdpSocket>,
-        masks: &[Mask],
+        codec: Codec,
+        first_noise: Option<usize>,
+        memory: Memory,
         drivers: &mut Vec<super::owned::Driver>,
         offset: usize,
     ) -> io::Result<Arc<dyn AsyncUdpSocket>> {
-        if masks.is_empty() {
-            return Ok(inner);
-        }
-        let sender = if let Some(index) = masks.iter().position(|m| matches!(m, Mask::Noise(_))) {
-            let (sender, work) = send::Sender::prepare(inner.clone(), Codec::new(masks, true)?);
+        let codec = Arc::new(Mutex::new(codec));
+        let sender = if let Some(index) = first_noise {
+            let (sender, work) =
+                send::Sender::prepare_owned(inner.clone(), codec.clone(), memory.clone());
             drivers.push(super::owned::Driver {
                 kind: super::owned::DriverKind::Noise,
                 ordinal: (offset + index) as u8,
@@ -44,11 +48,13 @@ impl Socket {
         } else {
             None
         };
+        let receive = receive::Receiver::new(memory.scratch()?);
         Ok(Arc::new(Self {
             sender,
             inner,
-            codec: Mutex::new(Codec::new(masks, true)?),
-            pending: Mutex::new(Default::default()),
+            codec,
+            receive,
+            memory,
         }))
     }
     pub fn wrap(
@@ -83,16 +89,17 @@ impl Socket {
         if masks.is_empty() {
             return Ok(inner);
         }
+        let codec = Arc::new(Mutex::new(Codec::new(masks, server)?));
         let sender = masks
             .iter()
             .any(|m| matches!(m, Mask::Noise(_)))
-            .then(|| Codec::new(masks, server).map(|codec| send::Sender::new(inner.clone(), codec)))
-            .transpose()?;
+            .then(|| send::Sender::new(inner.clone(), codec.clone()));
         Ok(Arc::new(Self {
             sender,
             inner,
-            codec: Mutex::new(Codec::new(masks, server)?),
-            pending: Mutex::new(Default::default()),
+            codec,
+            receive: receive::Receiver::new(Memory::default().scratch()?),
+            memory: Memory::default(),
         }))
     }
 }
@@ -100,7 +107,10 @@ impl AsyncUdpSocket for Socket {
     fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn UdpPoller>> {
         match &self.sender {
             Some(sender) => sender.poller(),
-            None => self.inner.clone().create_io_poller(),
+            None => Box::pin(send::Poller::direct(
+                self.inner.clone().create_io_poller(),
+                self.memory.clone(),
+            )),
         }
     }
     fn try_send(&self, transmit: &Transmit) -> io::Result<()> {
@@ -113,6 +123,14 @@ impl AsyncUdpSocket for Socket {
         if let Some(sender) = &self.sender {
             return sender.send(transmit);
         }
+        let _notifications = self.memory.metadata().map(|memory| memory.notifications());
+        let peak = {
+            self.codec
+                .lock()
+                .unwrap()
+                .working_peak(transmit.contents.len())?
+        };
+        let _credit = self.memory.transmit(peak)?;
         let bytes = self.codec.lock().unwrap().encode(transmit.contents)?;
         self.inner.try_send(&Transmit {
             destination: transmit.destination,
@@ -134,42 +152,7 @@ impl AsyncUdpSocket for Socket {
         if bufs.is_empty() || meta.is_empty() {
             return Poll::Ready(Ok(0));
         }
-        let mut pending = self.pending.lock().unwrap();
-        let mut packet = [0u8; 65536];
-        for _ in 0..32 {
-            while let Some((decoded, info)) = pending.pop_front() {
-                if decoded.len() > bufs[0].len() {
-                    continue;
-                }
-                bufs[0][..decoded.len()].copy_from_slice(&decoded);
-                meta[0] = RecvMeta {
-                    len: decoded.len(),
-                    stride: decoded.len(),
-                    ..info
-                };
-                return Poll::Ready(Ok(1));
-            }
-            let mut input = [IoSliceMut::new(&mut packet)];
-            let mut metadata = [RecvMeta::default()];
-            let count = std::task::ready!(self.inner.poll_recv(cx, &mut input, &mut metadata))?;
-            if count == 0 {
-                return Poll::Ready(Ok(0));
-            }
-            let info = metadata[0];
-            if info.stride == 0 || info.len > packet.len() {
-                continue;
-            }
-            // Decode each member of a GRO batch independently. At most one
-            // 64-KiB lower-socket batch is retained across upper-layer polls.
-            let mut codec = self.codec.lock().unwrap();
-            for encoded in packet[..info.len].chunks(info.stride) {
-                if let Ok(decoded) = codec.decode(encoded) {
-                    pending.push_back((decoded, info));
-                }
-            }
-        }
-        cx.waker().wake_by_ref();
-        Poll::Pending
+        self.receive.poll(self, cx, bufs, meta)
     }
     fn local_addr(&self) -> io::Result<SocketAddr> {
         self.inner.local_addr()

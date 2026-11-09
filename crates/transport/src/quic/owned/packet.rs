@@ -52,6 +52,24 @@ pub struct RejectedPacketSegment {
     pub queues: PacketQueues,
 }
 impl PacketSocket {
+    pub fn prepare_with_budget_for_masks(
+        logical: SocketAddr,
+        book: zero_platform_tokio::controlled_carrier::CarrierBufferBudget,
+        plan: &crate::finalmask::owned::PreparedMasks,
+    ) -> io::Result<(Self, PacketQueues)> {
+        if !plan.matches_book(&book) {
+            return Err(io::ErrorKind::PermissionDenied.into());
+        }
+        let (socket, queues) = Self::prepare_with_budget(logical, book, &[])?;
+        if plan.masked() {
+            socket
+                .memory
+                .as_ref()
+                .expect("original prepaid queue")
+                .force_individual_datagrams();
+        }
+        Ok((socket, queues))
+    }
     /// HY2's existing stateless Salamander masks stay protocol-selected. No
     /// additional native worker or unowned mask task can be started here.
     pub fn with_stateless_masks(

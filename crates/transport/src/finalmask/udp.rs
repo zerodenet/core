@@ -66,6 +66,7 @@ impl Item {
 }
 pub struct Codec {
     stages: Vec<Stage>,
+    peaks: Vec<peak::StagePeak>,
 }
 enum Stage {
     Noise(super::noise::State),
@@ -99,7 +100,35 @@ impl Codec {
                 _ => header::Header::new(mask, server).map(Stage::Header),
             })
             .collect::<io::Result<Vec<_>>>()?;
-        Ok(Self { stages })
+        Ok(Self {
+            stages,
+            peaks: peak::prepare(masks)?,
+        })
+    }
+    pub(super) fn install_memory(&mut self, memory: super::memory::Memory) -> io::Result<()> {
+        for stage in &mut self.stages {
+            if let Stage::Noise(noise) = stage {
+                noise.install_memory(memory.clone())?;
+            }
+        }
+        Ok(())
+    }
+    pub(super) fn prepare_peer(&mut self, peer: std::net::SocketAddr) -> io::Result<()> {
+        // Reserve every real table before committing this new peer anywhere.
+        for stage in &mut self.stages {
+            if let Stage::Noise(noise) = stage {
+                noise.reserve_peer(peer)?;
+            }
+        }
+        for stage in &mut self.stages {
+            if let Stage::Noise(noise) = stage {
+                noise.admit_peer(peer);
+            }
+        }
+        Ok(())
+    }
+    pub(super) fn working_peak(&self, bytes: usize) -> io::Result<usize> {
+        peak::bytes(&self.peaks, bytes)
     }
     pub fn encode(&mut self, packet: &[u8]) -> io::Result<Vec<u8>> {
         let mut out = packet.to_vec();
@@ -221,3 +250,5 @@ pub fn validate(masks: &[Mask]) -> io::Result<()> {
     }
     Ok(())
 }
+
+mod peak;

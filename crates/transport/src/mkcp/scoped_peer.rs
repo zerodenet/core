@@ -144,7 +144,8 @@ impl ListenerProfile {
         codec: Arc<std::sync::Mutex<Codec>>,
         opened: mpsc::Sender<MkcpStream>,
     ) -> Result<(), ChannelError> {
-        let mut conversations = HashMap::<u16, mpsc::Sender<Vec<u8>>>::new();
+        let paid = rx.is_carrier();
+        let mut conversations = HashMap::<u16, mpsc::Sender<bytes::Bytes>>::new();
         let mut jobs = FuturesUnordered::<BoxFuture<'static, (u16, io::Result<()>)>>::new();
         loop {
             tokio::select! { biased;
@@ -156,13 +157,16 @@ impl ListenerProfile {
                 }
                 packet=rx.recv()=>{
                     let Some(packet)=packet? else { return Ok(()); };
-                    let Ok(packet)=codec.lock().unwrap_or_else(|e|e.into_inner()).decode(&packet) else {continue;};
-                    let Ok(first)=Segment::decode(&mut packet.as_slice()) else {continue;};
+                    let packet = if paid { packet } else {
+                        let Ok(decoded)=codec.lock().unwrap_or_else(|e|e.into_inner()).decode(&packet) else {continue;};
+                        bytes::Bytes::from(decoded)
+                    };
+                    let Ok(first)=Segment::decode_owned(&mut packet.clone()) else {continue;};
                     if let std::collections::hash_map::Entry::Vacant(entry)=conversations.entry(first.conv) {
                         if matches!(first.body,Body::Command{command:TERMINATE,..}) {continue;}
                         let Ok(permit)=self.admission.clone().try_acquire_owned() else {continue;};
                         let (tx,rx)=mpsc::channel(128);
-                        let (stream,driver)=connection(socket.clone(),remote,first.conv,self.settings,Input::Packets(rx)).map_err(failure)?;
+                        let (stream,driver)=connection(socket.clone(),remote,first.conv,self.settings,Input::OwnedPackets(rx)).map_err(failure)?;
                         if opened.try_send(stream).is_err() {continue;}
                         let conv=first.conv;
                         jobs.push(Box::pin(async move {let _permit=permit;(conv,driver.await)}));
@@ -225,12 +229,21 @@ fn failure(source: impl std::error::Error + Send + Sync + 'static) -> ChannelErr
 enum Packets {
     Native(PeerRx),
     #[cfg(feature = "quic")]
-    Carrier(mpsc::Receiver<Vec<u8>>),
+    Carrier(mpsc::Receiver<bytes::Bytes>),
 }
 impl Packets {
-    async fn recv(&mut self) -> Result<Option<Vec<u8>>, ChannelError> {
+    fn is_carrier(&self) -> bool {
         match self {
-            Self::Native(rx) => std::future::poll_fn(|cx| rx.poll_recv(cx)).await,
+            Self::Native(_) => false,
+            #[cfg(feature = "quic")]
+            Self::Carrier(_) => true,
+        }
+    }
+    async fn recv(&mut self) -> Result<Option<bytes::Bytes>, ChannelError> {
+        match self {
+            Self::Native(rx) => std::future::poll_fn(|cx| rx.poll_recv(cx))
+                .await
+                .map(|packet| packet.map(bytes::Bytes::from)),
             #[cfg(feature = "quic")]
             Self::Carrier(rx) => Ok(tokio::time::timeout(
                 std::time::Duration::from_secs(300),

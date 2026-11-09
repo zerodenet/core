@@ -1,7 +1,7 @@
 //! Virtual packet peers over one actual masked Metadata original. The source
 //! retains receive continuation; peer drivers live in the accepted host Scope.
 use super::*;
-use std::{collections::HashMap, net::SocketAddr, num::NonZeroUsize};
+use std::{net::SocketAddr, num::NonZeroUsize};
 use tokio::{
     sync::{mpsc, Mutex},
     time::Instant,
@@ -30,8 +30,9 @@ struct State {
     rejected: Option<GrantedMetadataListener>,
     stops: Vec<(u8, CancellationToken)>,
     socket: Option<PacketSocket>,
-    peers: HashMap<SocketAddr, mpsc::Sender<Vec<u8>>>,
-    buffer: Vec<u8>,
+    peers: super::super::rows::Rows<SocketAddr, mpsc::Sender<bytes::Bytes>>,
+    buffer: Option<super::super::memory::Scratch>,
+    memory: Option<super::super::memory::Memory>,
 }
 type DriverCompletion = users::MetadataUsersCompletion<(DriverKind, u8), Option<Arc<io::Error>>>;
 
@@ -75,8 +76,9 @@ pub fn source<H: InboundHandshake, Make: Fn(Peer) -> H + Send + 'static>(
         rejected: None,
         stops: Vec::new(),
         socket: None,
-        peers: HashMap::new(),
-        buffer: vec![0; 65536],
+        peers: super::super::rows::Rows::new(peers.get()),
+        buffer: None,
+        memory: None,
     }));
     let cancel = cancel.child_token();
     (
@@ -130,11 +132,20 @@ impl<H: InboundHandshake, Make: Fn(Peer) -> H + Send + 'static> InboundSource fo
                         Err(source)=>failure(Reason::Io).with_source(source.clone()),
                     });
                 },
-                packet=socket.recv_from(buffer)=>packet.map_err(|e|failure(Reason::Io).with_source(e))?,
+                packet=socket.recv_from(&mut buffer.as_mut().unwrap().bytes)=>packet.map_err(|e|failure(Reason::Io).with_source(e))?,
             };
             let (len, remote) = received;
             state.peers.retain(|_, sender| !sender.is_closed());
-            let packet = state.buffer[..len].to_vec();
+            let packet = match state
+                .memory
+                .as_ref()
+                .unwrap()
+                .copy(&state.buffer.as_ref().unwrap().bytes[..len], remote)
+            {
+                Ok(packet) => bytes::Bytes::from_owner(packet),
+                Err(source) if source.kind() == io::ErrorKind::WouldBlock => continue,
+                Err(source) => return Err(failure(Reason::Capacity).with_source(source)),
+            };
             if let Some(sender) = state.peers.get(&remote) {
                 let _ = sender.try_send(packet);
                 continue;
@@ -142,10 +153,13 @@ impl<H: InboundHandshake, Make: Fn(Peer) -> H + Send + 'static> InboundSource fo
             if state.peers.len() >= self.peers.get() {
                 continue;
             }
+            if state.peers.reserve(&remote).is_err() {
+                continue;
+            }
             let permit = state.graph.as_ref().unwrap().users().acquire()?;
             let (sender, packets) = mpsc::channel(self.packets.get());
             sender.try_send(packet).expect("new bounded peer queue");
-            state.peers.insert(remote, sender);
+            state.peers.insert_reserved(remote, sender);
             let local = socket
                 .local_addr()
                 .map_err(|e| failure(Reason::Io).with_source(e))?;

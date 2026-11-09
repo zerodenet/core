@@ -9,6 +9,7 @@ struct Packet {
     peer: SocketAddr,
     ecn: Option<quinn::udp::EcnCodepoint>,
     src_ip: Option<std::net::IpAddr>,
+    _credit: Option<zero_platform_tokio::controlled_carrier::CarrierBufferFrameCredit>,
 }
 #[derive(Default)]
 struct Failure {
@@ -19,6 +20,8 @@ pub(super) struct Sender {
     queue: mpsc::Sender<Packet>,
     failure: Arc<Failure>,
     task: DriverStop,
+    codec: Arc<Mutex<Codec>>,
+    memory: Memory,
 }
 impl Drop for Sender {
     fn drop(&mut self) {
@@ -26,8 +29,8 @@ impl Drop for Sender {
     }
 }
 impl Sender {
-    pub(super) fn new(inner: Arc<dyn AsyncUdpSocket>, codec: Codec) -> Self {
-        let (mut sender, driver) = Self::prepare(inner, codec);
+    pub(super) fn new(inner: Arc<dyn AsyncUdpSocket>, codec: Arc<Mutex<Codec>>) -> Self {
+        let (mut sender, driver) = Self::prepare_owned(inner, codec, Memory::default());
         sender.task = DriverStop::Legacy(
             tokio::spawn(async move {
                 let _ = driver.future.await;
@@ -36,18 +39,31 @@ impl Sender {
         );
         sender
     }
-    pub(super) fn prepare(
+    pub(super) fn prepare_owned(
         inner: Arc<dyn AsyncUdpSocket>,
-        mut codec: Codec,
+        codec: Arc<Mutex<Codec>>,
+        memory: Memory,
     ) -> (Self, PreparedIoDriver) {
-        let (queue, mut receiver) = mpsc::channel::<Packet>(16);
+        let capacity = memory
+            .book()
+            .map_or(16, |book| book.limits().max_queue_packets.min(16));
+        let (queue, mut receiver) = mpsc::channel::<Packet>(capacity);
         let failure = Arc::new(Failure::default());
         let output = failure.clone();
+        let encoder = codec.clone();
+        let work_memory = memory.clone();
         let driver = PreparedIoDriver::new(async move {
             let mut poller = inner.clone().create_io_poller();
             while let Some(packet) = receiver.recv().await {
                 let result = async {
-                    for emission in codec.encode_for(packet.peer, &packet.bytes)? {
+                    let emissions = {
+                        let _notifications = work_memory.metadata().map(|m| m.notifications());
+                        encoder
+                            .lock()
+                            .unwrap()
+                            .encode_for(packet.peer, &packet.bytes)?
+                    };
+                    for emission in emissions {
                         let transmit = Transmit {
                             destination: packet.peer,
                             contents: &emission.packet,
@@ -77,7 +93,7 @@ impl Sender {
                     Ok::<_, io::Error>(())
                 }
                 .await;
-                codec.finish_noise(packet.peer);
+                encoder.lock().unwrap().finish_noise(packet.peer);
                 if let Err(error) = result {
                     *output.error.lock().unwrap() = Some((error.kind(), error.to_string()));
                     output.reader.wake();
@@ -91,6 +107,8 @@ impl Sender {
                 queue,
                 failure,
                 task: DriverStop::Hosted(driver.cancel.clone()),
+                codec,
+                memory,
             },
             driver,
         )
@@ -107,11 +125,26 @@ impl Sender {
             mpsc::error::TrySendError::Full(_) => io::ErrorKind::WouldBlock,
             mpsc::error::TrySendError::Closed(_) => io::ErrorKind::BrokenPipe,
         })?;
+        let peak = {
+            self.codec
+                .lock()
+                .unwrap()
+                .working_peak(transmit.contents.len())?
+        };
+        let credit = self.memory.transmit(peak)?;
+        {
+            let _notifications = self.memory.metadata().map(|m| m.notifications());
+            self.codec
+                .lock()
+                .unwrap()
+                .prepare_peer(transmit.destination)?;
+        }
         permit.send(Packet {
             bytes: transmit.contents.to_vec(),
             peer: transmit.destination,
             ecn: transmit.ecn,
             src_ip: transmit.src_ip,
+            _credit: credit,
         });
         Ok(())
     }
@@ -125,10 +158,27 @@ impl Sender {
         }
     }
     pub(super) fn poller(&self) -> Pin<Box<dyn UdpPoller>> {
-        Box::pin(Poller(PollSender::new(self.queue.clone())))
+        Box::pin(Poller {
+            queue: Some(PollSender::new(self.queue.clone())),
+            native: None,
+            memory: super::super::memory::Wait::new(self.memory.clone()),
+        })
     }
 }
-struct Poller(PollSender<Packet>);
+pub(super) struct Poller {
+    queue: Option<PollSender<Packet>>,
+    native: Option<Pin<Box<dyn UdpPoller>>>,
+    memory: super::super::memory::Wait,
+}
+impl Poller {
+    pub(super) fn direct(native: Pin<Box<dyn UdpPoller>>, memory: Memory) -> Self {
+        Self {
+            queue: None,
+            native: Some(native),
+            memory: super::super::memory::Wait::new(memory),
+        }
+    }
+}
 impl std::fmt::Debug for Poller {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("FinalMaskWritePoller")
@@ -136,9 +186,15 @@ impl std::fmt::Debug for Poller {
 }
 impl UdpPoller for Poller {
     fn poll_writable(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        std::task::ready!(self.0.poll_reserve(cx))
-            .map_err(|_| io::Error::from(io::ErrorKind::BrokenPipe))?;
-        self.0.abort_send();
+        std::task::ready!(self.memory.poll(cx))?;
+        if let Some(queue) = &mut self.queue {
+            std::task::ready!(queue.poll_reserve(cx))
+                .map_err(|_| io::Error::from(io::ErrorKind::BrokenPipe))?;
+            queue.abort_send();
+        }
+        if let Some(native) = &mut self.native {
+            std::task::ready!(native.as_mut().poll_writable(cx))?;
+        }
         Poll::Ready(Ok(()))
     }
 }

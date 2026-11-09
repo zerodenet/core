@@ -9,14 +9,14 @@ use zero_traits::{PacketSocketIo, SocketAddress};
 pub struct Peer {
     pub socket: PacketSocket,
     pub remote: SocketAddr,
-    pub packets: mpsc::Receiver<Vec<u8>>,
+    pub packets: mpsc::Receiver<bytes::Bytes>,
     pub facts: InboundConnectionFacts,
 }
 impl Peer {
     pub(super) fn new(
         socket: PacketSocket,
         remote: SocketAddr,
-        packets: mpsc::Receiver<Vec<u8>>,
+        packets: mpsc::Receiver<bytes::Bytes>,
         permit: Permit,
         facts: InboundConnectionFacts,
     ) -> Self {

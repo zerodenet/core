@@ -19,7 +19,30 @@ pub(crate) struct Packet {
     pub peer: SocketAddr,
     pub metadata: Option<WireMetadata>,
     // Backing fields above must be destroyed before this original frame credit.
-    pub _credit: Option<zero_platform_tokio::controlled_carrier::CarrierBufferFrameCredit>,
+    pub _credit: Option<PacketCredit>,
+}
+// Several decoded DNS payloads may share one prepaid original parsing peak.
+// This owns only that exact byte ticket, never IO/Scope/cleanup authority.
+pub(crate) enum PacketCredit {
+    Original(zero_platform_tokio::controlled_carrier::CarrierBufferFrameCredit),
+    Shared(
+        zero_traits::packet_metadata::PacketMetadataArc<
+            zero_platform_tokio::controlled_carrier::CarrierBufferFrameCredit,
+        >,
+    ),
+}
+impl From<zero_platform_tokio::controlled_carrier::CarrierBufferFrameCredit> for PacketCredit {
+    fn from(credit: zero_platform_tokio::controlled_carrier::CarrierBufferFrameCredit) -> Self {
+        Self::Original(credit)
+    }
+}
+impl PacketCredit {
+    pub(crate) fn shared(&self) -> Self {
+        match self {
+            Self::Shared(credit) => Self::Shared(credit.clone()),
+            Self::Original(_) => panic!("only the prepaid shared original can be copied"),
+        }
+    }
 }
 impl Drop for Packet {
     fn drop(&mut self) {
@@ -29,14 +52,39 @@ impl Drop for Packet {
     }
 }
 impl Packet {
-    // Existing unbudgeted server queues transfer a Vec. Budgeted native/loan
-    // packets keep this owning wrapper through send/dequeue instead.
-    pub fn into_unbudgeted_bytes(mut self) -> Vec<u8> {
-        assert!(
-            self._credit.is_none(),
-            "original frame backing must keep its ticket"
-        );
-        std::mem::take(&mut self.bytes)
+    pub(crate) fn share_credit(
+        &mut self,
+        metadata: &zero_platform_tokio::contract::component::PacketDriverMetadataView,
+    ) -> io::Result<()> {
+        if !matches!(self._credit, Some(PacketCredit::Original(_))) {
+            return Ok(());
+        }
+        // Admission precedes taking the original ticket. A rejected promotion
+        // leaves this exact backing paid until its actual Packet is destroyed.
+        let layout = zero_traits::packet_metadata::PacketMetadataArc::<
+            zero_platform_tokio::controlled_carrier::CarrierBufferFrameCredit,
+        >::layout()
+        .map_err(io::Error::other)?;
+        let header = metadata.reserve(layout).map_err(io::Error::other)?;
+        let Some(PacketCredit::Original(credit)) = self._credit.take() else {
+            unreachable!()
+        };
+        match zero_traits::packet_metadata::PacketMetadataArc::from_prepaid(credit, header) {
+            Ok(credit) => {
+                self._credit = Some(PacketCredit::Shared(credit));
+                Ok(())
+            }
+            Err((source, credit, header)) => {
+                self._credit = Some(PacketCredit::Original(credit));
+                drop(header);
+                Err(io::Error::other(source))
+            }
+        }
+    }
+}
+impl AsRef<[u8]> for Packet {
+    fn as_ref(&self) -> &[u8] {
+        &self.bytes
     }
 }
 #[derive(Clone, Copy)]
@@ -57,6 +105,7 @@ pub(crate) struct Channels {
     pub outgoing: mpsc::Receiver<Packet>,
     pub native: Option<NativeLink>,
     pub memory: Option<memory::Memory>,
+    pub mask_memory: crate::finalmask::memory::Memory,
 }
 type Prepare = Arc<dyn Fn(&Transmit<'_>) -> io::Result<Vec<u8>> + Send + Sync>;
 pub(crate) struct Socket {
@@ -67,6 +116,7 @@ pub(crate) struct Socket {
     task: DriverStop,
     native: Option<NativeLink>,
     memory: Option<Arc<memory::Shared>>,
+    mask_memory: crate::finalmask::memory::Memory,
 }
 impl Drop for Socket {
     fn drop(&mut self) {
@@ -166,6 +216,7 @@ fn prepare_channels_inner(
         task: DriverStop::Hosted(zero_platform_tokio::contract::CancellationToken::new()),
         native: Some(native.clone()),
         memory: memory.as_ref().map(|memory| memory.shared.clone()),
+        mask_memory: Default::default(),
     });
     (
         socket,
@@ -174,6 +225,7 @@ fn prepare_channels_inner(
             outgoing,
             native: Some(native),
             memory,
+            mask_memory: Default::default(),
         },
     )
 }
@@ -186,13 +238,29 @@ where
     F: FnOnce(Channels) -> Fut,
     Fut: Future<Output = io::Result<()>> + Send + 'static,
 {
-    let (tx, outgoing) = mpsc::channel(256);
-    let (incoming, rx) = mpsc::channel(256);
+    prepare_mask_with(local, prepare, Default::default(), run)
+}
+pub(crate) fn prepare_mask_with<F, Fut>(
+    local: SocketAddr,
+    prepare: Prepare,
+    mask_memory: crate::finalmask::memory::Memory,
+    run: F,
+) -> io::Result<(Arc<Socket>, PreparedIoDriver)>
+where
+    F: FnOnce(Channels) -> Fut,
+    Fut: Future<Output = io::Result<()>> + Send + 'static,
+{
+    let capacity = mask_memory
+        .book()
+        .map_or(256, |book| book.limits().max_queue_packets);
+    let (tx, outgoing) = mpsc::channel(capacity);
+    let (incoming, rx) = mpsc::channel(capacity);
     let driver = PreparedIoDriver::new(run(Channels {
         incoming,
         outgoing,
         native: None,
         memory: None,
+        mask_memory: mask_memory.clone(),
     }));
     let socket = Arc::new(Socket {
         local,
@@ -202,6 +270,7 @@ where
         task: DriverStop::Hosted(driver.cancel.clone()),
         native: None,
         memory: None,
+        mask_memory,
     });
     Ok((socket, driver))
 }
@@ -212,6 +281,7 @@ impl AsyncUdpSocket for Socket {
             memory: self.memory.clone(),
             waiting: Mutex::new(None),
             waiting_bytes: 0,
+            mask: crate::finalmask::memory::Wait::new(self.mask_memory.clone()),
         })
     }
     fn try_send(&self, transmit: &Transmit<'_>) -> io::Result<()> {
@@ -219,7 +289,11 @@ impl AsyncUdpSocket for Socket {
             .native
             .as_ref()
             .map(|link| link.lock().unwrap().maximum_transmit_segments.max(1));
-        let maximum = if self.memory.as_ref().is_some_and(|memory| memory.masked()) {
+        let maximum = if self
+            .memory
+            .as_ref()
+            .is_some_and(|memory| memory.individual_datagrams())
+        {
             Some(1)
         } else {
             maximum
@@ -247,7 +321,26 @@ impl AsyncUdpSocket for Socket {
             .as_ref()
             .map(|memory| memory.reserve_transmit(transmit.contents.len()))
             .transpose()?;
-        let bytes = (self.prepare)(transmit)?;
+        let mask_credit = self.mask_memory.transmit(
+            transmit
+                .contents
+                .len()
+                .checked_add(4096)
+                .and_then(|n| n.checked_mul(16))
+                .ok_or(io::ErrorKind::InvalidInput)?,
+        )?;
+        debug_assert!(
+            credit.is_none() || mask_credit.is_none(),
+            "one actual queue budget"
+        );
+        let credit = credit.or(mask_credit);
+        let bytes = {
+            let _notifications = self
+                .mask_memory
+                .metadata()
+                .map(|memory| memory.notifications());
+            (self.prepare)(transmit)?
+        };
         if self.memory.as_ref().is_some_and(|memory| memory.masked())
             && bytes.len() > memory::MAX_DATAGRAM_BYTES
         {
@@ -262,7 +355,7 @@ impl AsyncUdpSocket for Socket {
                 destination_ip: None,
                 segment_size: transmit.segment_size,
             }),
-            _credit: credit,
+            _credit: credit.map(Into::into),
         });
         Ok(())
     }
@@ -313,7 +406,11 @@ impl AsyncUdpSocket for Socket {
         Ok(self.local)
     }
     fn max_transmit_segments(&self) -> usize {
-        if self.memory.as_ref().is_some_and(|memory| memory.masked()) {
+        if self
+            .memory
+            .as_ref()
+            .is_some_and(|memory| memory.individual_datagrams())
+        {
             return 1;
         }
         self.native
@@ -350,6 +447,7 @@ struct Poller {
         >,
     >,
     waiting_bytes: usize,
+    mask: crate::finalmask::memory::Wait,
 }
 impl std::fmt::Debug for Poller {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -359,6 +457,7 @@ impl std::fmt::Debug for Poller {
 impl UdpPoller for Poller {
     fn poll_writable(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
+        std::task::ready!(this.mask.poll(cx))?;
         std::task::ready!(this.outgoing.poll_reserve(cx))
             .map_err(|_| io::Error::from(io::ErrorKind::BrokenPipe))?;
         this.outgoing.abort_send();

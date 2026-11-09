@@ -5,6 +5,75 @@ use std::{
     task::{Wake, Waker},
 };
 use zero_platform_tokio::controlled_carrier::{CarrierBufferLimits, CarrierOriginalTotals};
+#[test]
+fn decoded_siblings_keep_the_same_original_ticket_and_failed_promotion_never_refunds_live_bytes() {
+    use zero_traits::packet_metadata::PacketMetadataLayout;
+    let root = CarrierOriginalTotals::new(NonZeroUsize::new(1).unwrap());
+    let book = root.buffer_budget();
+    let lane = book.try_working_lane(128).unwrap();
+    let original = lane.try_reserve(128).unwrap();
+    let peer = "127.0.0.1:443".parse().unwrap();
+    let mut packet = Packet {
+        bytes: vec![1; 16],
+        peer,
+        metadata: None,
+        _credit: Some(original.into()),
+    };
+    drop(lane);
+    let metadata_root = Arc::new(zero_tun::packet_memory::PacketReturnTotals::default());
+    let metadata = metadata_root.driver_metadata_view();
+    let baseline = metadata.snapshot().occupied;
+    let capacity = metadata.snapshot();
+    let foreign = metadata
+        .reserve(
+            PacketMetadataLayout::array::<u8>(capacity.limit.bytes() - capacity.occupied.bytes())
+                .unwrap(),
+        )
+        .unwrap();
+    assert!(packet.share_credit(&metadata).is_err());
+    assert!(matches!(packet._credit, Some(PacketCredit::Original(_))));
+    assert_eq!(
+        book.used_bytes(),
+        128,
+        "failed metadata admission cannot release the live original backing"
+    );
+    drop(foreign);
+    packet.share_credit(&metadata).unwrap();
+    let a = Packet {
+        bytes: vec![2; 24],
+        peer,
+        metadata: None,
+        _credit: packet._credit.as_ref().map(PacketCredit::shared),
+    };
+    let b = Packet {
+        bytes: vec![3; 24],
+        peer,
+        metadata: None,
+        _credit: packet._credit.as_ref().map(PacketCredit::shared),
+    };
+    let PacketCredit::Shared(actual) = packet._credit.as_ref().unwrap() else {
+        panic!("same prepaid header");
+    };
+    let weak = zero_traits::packet_metadata::PacketMetadataArc::downgrade(actual);
+    let paid = metadata.snapshot().occupied;
+    drop(packet);
+    assert_eq!(book.used_bytes(), 128);
+    drop(a);
+    assert_eq!(
+        book.used_bytes(),
+        128,
+        "the other decoded sibling still holds the original"
+    );
+    drop(b);
+    assert_eq!(book.used_bytes(), 0);
+    assert_eq!(
+        metadata.snapshot().occupied,
+        paid,
+        "a pure weak header remains accounted after its payload disappears"
+    );
+    drop(weak);
+    assert_eq!(metadata.snapshot().occupied, baseline);
+}
 struct Reenter(Arc<Socket>, AtomicUsize);
 impl Wake for Reenter {
     fn wake(self: Arc<Self>) {

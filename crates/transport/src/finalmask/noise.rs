@@ -1,7 +1,8 @@
 //! Per-peer first-packet noise and timed reset, as a carrier write prelude.
 use super::tcp::Range;
+use super::{memory::Memory, rows::Rows};
 use rand::Rng;
-use std::{collections::HashMap, io, net::SocketAddr, time::Duration};
+use std::{io, net::SocketAddr, time::Duration};
 #[derive(Debug, Clone, Default)]
 pub struct Settings {
     pub reset_seconds: Range,
@@ -17,9 +18,13 @@ pub struct Item {
 }
 pub(super) struct State {
     settings: Settings,
-    peers: HashMap<SocketAddr, Option<tokio::time::Instant>>,
+    peers: Rows<SocketAddr, PeerState>,
     pending: Option<SocketAddr>,
     sweep: tokio::time::Instant,
+}
+struct PeerState {
+    started: bool,
+    deadline: Option<tokio::time::Instant>,
 }
 pub struct Emission {
     pub packet: Vec<u8>,
@@ -55,27 +60,46 @@ impl State {
         }
         Ok(Self {
             settings: settings.clone(),
-            peers: HashMap::new(),
+            peers: Rows::new(4096),
             pending: None,
             sweep: tokio::time::Instant::now(),
         })
     }
-    pub(super) fn before(&mut self, peer: SocketAddr) -> io::Result<Vec<Emission>> {
+    pub(super) fn install_memory(&mut self, memory: Memory) -> io::Result<()> {
+        self.peers.install(memory);
+        self.peers.reserve_slot()
+    }
+    pub(super) fn reserve_peer(&mut self, peer: SocketAddr) -> io::Result<()> {
         let now = tokio::time::Instant::now();
         if now >= self.sweep {
-            self.peers
-                .retain(|_, deadline| deadline.is_none_or(|deadline| now <= deadline));
+            self.peers.retain(|_, row| {
+                !row.started || row.deadline.is_none_or(|deadline| now <= deadline)
+            });
             self.sweep = now + Duration::from_secs(1);
         }
+        self.peers.reserve(&peer)
+    }
+    pub(super) fn admit_peer(&mut self, peer: SocketAddr) {
+        if self.peers.get(&peer).is_none() {
+            self.peers.insert_reserved(
+                peer,
+                PeerState {
+                    started: false,
+                    deadline: None,
+                },
+            );
+        }
+    }
+    pub(super) fn before(&mut self, peer: SocketAddr) -> io::Result<Vec<Emission>> {
+        self.reserve_peer(peer)?;
+        self.admit_peer(peer);
+        let now = tokio::time::Instant::now();
         if self
             .peers
             .get(&peer)
-            .is_some_and(|deadline| deadline.is_none_or(|deadline| now <= deadline))
+            .is_some_and(|row| row.started && row.deadline.is_none_or(|end| now <= end))
         {
             return Ok(Vec::new());
-        }
-        if self.peers.len() >= 4096 && !self.peers.contains_key(&peer) {
-            return Err(invalid("noise peer capacity reached"));
         }
         let mut emissions = Vec::new();
         for item in &self.settings.items {
@@ -94,7 +118,10 @@ impl State {
                 payload: false,
             });
         }
-        self.peers.insert(peer, None);
+        *self.peers.get_mut(&peer).expect("actual admitted peer") = PeerState {
+            started: true,
+            deadline: None,
+        };
         self.pending = Some(peer);
         Ok(emissions)
     }
@@ -102,12 +129,12 @@ impl State {
         if self.pending == Some(peer) {
             self.pending = None;
             if self.settings.reset_seconds.maximum != 0 {
-                self.peers.insert(
-                    peer,
-                    Some(
-                        tokio::time::Instant::now()
-                            + Duration::from_secs(self.settings.reset_seconds.sample()),
-                    ),
+                self.peers
+                    .get_mut(&peer)
+                    .expect("actual noise peer")
+                    .deadline = Some(
+                    tokio::time::Instant::now()
+                        + Duration::from_secs(self.settings.reset_seconds.sample()),
                 );
             }
         }

@@ -123,7 +123,19 @@ pub fn response_for(query: Message, domain: &Name) -> Option<QueryResponse> {
         }
     }
 }
-pub fn response(mut message: Message, packets: &[Vec<u8>]) -> io::Result<Vec<u8>> {
+pub fn response(message: Message, packets: &[Vec<u8>]) -> io::Result<Vec<u8>> {
+    response_payload(message, packets.iter().map(Vec::as_slice))
+}
+pub(super) fn response_frames(message: Message, packets: &[super::Packet]) -> io::Result<Vec<u8>> {
+    response_payload(
+        message,
+        packets.iter().map(|packet| packet.bytes.as_slice()),
+    )
+}
+fn response_payload<'a>(
+    mut message: Message,
+    packets: impl Iterator<Item = &'a [u8]>,
+) -> io::Result<Vec<u8>> {
     if message.flags & 15 == 0 && message.questions.len() == 1 {
         let question = &message.questions[0];
         let mut payload = Vec::new();
