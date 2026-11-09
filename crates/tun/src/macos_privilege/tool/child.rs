@@ -4,6 +4,7 @@ use std::{
     os::unix::process::CommandExt,
     process::{Child, Command, ExitStatus, Output},
 };
+mod failures;
 mod handshake;
 mod pipes;
 
@@ -57,10 +58,7 @@ impl ChildOriginal {
         let output = self.collect(&[], output_limit);
         let closed = self.close_pipes();
         let waited = self.wait();
-        drop(output?);
-        closed?;
-        waited?;
-        Ok(())
+        failures::finish(Ok(()), output, closed, waited).map(drop)
     }
     pub(in crate::macos_privilege) fn reaped(&self) -> bool {
         self.waited.is_some()
@@ -152,21 +150,14 @@ fn run_fixed(
     };
     let child_ends = slot.close_child_ends();
     if let Some(source) = spawn_failure {
-        let _ = slot.close_pipes(); // all actual failure outcomes stay in the originals
-        return Err(source);
+        let closed = slot.close_pipes();
+        return Err(failures::spawn_failed(source, closed));
     }
-    child_ends?;
     let output = slot.collect(input.unwrap_or("").as_bytes(), output_limit);
     // Even an IO failure must progress all independent close and wait duties.
     let close = slot.close_pipes();
     let waited = slot.wait();
-    let (stdout, stderr) = output?;
-    close?;
-    Ok(Output {
-        status: waited?,
-        stdout,
-        stderr,
-    })
+    failures::finish(child_ends, output, close, waited)
 }
 
 pub(in crate::macos_privilege) fn run_query(
