@@ -3,8 +3,10 @@
 Current Logger proposal base: `93b31dc37a5b59597956152518f08f26a368b278`.
 The table began at `a26d3955a46f49971b2f1e51cb7ac02eade2b8e4`;
 its historical “not yet tested” statements are superseded only by the exact
-input results below. Logger is now a complete source proposal, not compiled or
-runtime qualified. Initial/early input is already implemented and separately
+input results below. M applied the complete Logger pair as `b8d55cdac` and
+corrected actual joined-ACK/prepaid IO diagnostics in `d49b79e472bd1d5b766ef98e1193283646b32686`.
+M reports the nine actual Logger tests passed on d49; this qualifies that group,
+not the whole control domain or every ApplicationServices reload caller. Initial/early input is already implemented and separately
 qualified: M `7e521a47` plus `74d4873b9697ab9a2b5df9efadd02847d994d074`,
 lock `576b313f…`, four actual source/oracle/recovery tests PASS. This does not
 qualify the new logger backend or the whole control/DNS domain.
@@ -26,7 +28,7 @@ source/lock/ELF. Windows execution and GUI behavior remain separate.
 | Independent CLI connector/quota inspect | `application/inspect.rs`, `inspect/state.rs`, `connector/state.rs`, `outbox/replay.rs` | Same Source read/seek snapshot; actual inspection attempt keeps original resources, explicit matching close, and independent work/cleanup sources | Implemented. Streaming bounds and existing SQLite/JSONL report shapes remain. A library wrapper is not a fallback for missing production resources. |
 | Principal quota lease and background persistence | Engine quota worker plus `configuration/source/quota{,/worker}.rs` | Original std handle, actual worker join and ACK; same quota storage fault receiver; lease settlement and native close distinct | Implemented concrete pair. Worker reported flag is monotonic; delivered historical fault does not itself invalidate physical settlement. Do not reconstruct quota transactions. |
 | Early logging document and initial configuration read | `ConfigurationSource` same-inode bounded UTF8/facts/rewind reader; `main.rs::init_tracing_from_config` consumes the existing returned log recipe | Actual matching file close precedes document delivery; unknown retains the original Source. Runtime budgets and original serde duplicate/null/magic behavior are preserved | Implemented and M 74d four tests PASS, including original 20-case oracle, 8MiB+17 late-cap, close/UTF8 recovery and low-limit growth. Do not redo. |
-| Ordinary process file logging | main `ProcessLogging` plus `ScopedTracing`; same ApplicationServices logger book and one actual per-output Scope job at a time | Closed controllers before IO; real worker/witness/start gate; idle and failed predecessors join+ACK before replacement; close/rotation/recovery on actual output worker; failed chunks and pure original fault sources stay paid | Complete `a-owned-logging` source proposal, uncompiled. Per-file isolation and old stderr/filter/JSON/WarningBridge behavior retained; actual live budget candidate and main shutdown consumers are included. No claim of whole G8 qualification. |
+| Ordinary process file logging | main `ProcessLogging` plus `ScopedTracing`; same ApplicationServices logger book and one actual per-output Scope job at a time | Closed controllers before IO; real worker/witness/start gate; idle and failed predecessors join+ACK before replacement; close/rotation/recovery on actual output worker; failed chunks and pure original fault sources stay paid | Complete pair applied by M b8d/d49; M reports nine actual Logger tests PASS on d49. Per-file isolation and old stderr/filter/JSON/WarningBridge behavior retained; actual live budget candidate and main shutdown consumers included. This does not qualify all application reload paths or whole G8. |
 
 `CloseReport::is_complete` is only `unfinished.is_empty()`. Before a26 the
 server helper returned Ok for a complete report and dropped failed task/RF rows.
@@ -73,5 +75,5 @@ status-api ELF passed seventeen actual tests (IPC reports four, HTTP shutdown
 one, CLI wire nine, CLI Source document three). Those results qualify their
 recorded input and features, not this whole table, all-feature production, or
 Windows execution. Initial input subsequently passed its exact four-test 74d group. Logger
-source is now proposed as one complete pair and still awaits actual build and
-runtime qualification. The older 8/17 counts do not qualify it.
+source has its own later exact d49 nine-test result above. The older 8/17
+counts do not qualify it, nor does the Logger result qualify all frontends.
