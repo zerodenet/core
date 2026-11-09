@@ -1,6 +1,85 @@
 //! A received candidate result is distinct from an unhandled initializer fault.
 use super::*;
 impl CarrierPreparation {
+    /// Keep the actual operation result in its original receiver before its
+    /// initializer exits. Cleanup may receive that result before the waiting
+    /// caller runs; merely sending a one-shot must not be its only custody.
+    /// This is no task-result, ACK, native-close or publication receipt.
+    pub fn retain_connect_rejection_result(
+        &self,
+        caller: &TaskJoinWitness,
+        source: Arc<ChannelError>,
+    ) -> Result<(), ChannelError> {
+        let slot = self.slot.upgrade().ok_or_else(|| {
+            ChannelError::new(
+                Stage::Prepare,
+                Reason::Revoked,
+                crate::contract::Impact::Component,
+            )
+        })?;
+        let fail = || {
+            error(
+                slot.instance,
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::Unknown,
+            )
+        };
+        if crate::controlled_carrier::original_connect_error(&source).is_none()
+            || self.is_published()
+            || !self
+                .state
+                .auxiliary
+                .get()
+                .is_some_and(|actual| actual.same_registration(caller))
+        {
+            return Err(fail());
+        }
+        {
+            let state = slot.state();
+            if state.closed
+                || !state
+                    .auxiliary
+                    .as_ref()
+                    .is_some_and(|actual| actual.same_registration(caller))
+                || !state
+                    .users
+                    .as_ref()
+                    .and_then(|users| users.preparation.as_ref())
+                    .is_some_and(|actual| Arc::ptr_eq(actual, &self.state))
+            {
+                return Err(fail());
+            }
+        }
+        if let Err(proposed) = self.state.connect_rejection_source.set(source) {
+            if !self
+                .state
+                .connect_rejection_source
+                .get()
+                .is_some_and(|actual| Arc::ptr_eq(actual, &proposed))
+            {
+                return Err(fail());
+            }
+        }
+        Ok(())
+    }
+    pub(in crate::controlled_carrier) fn retained_connect_rejection_result(
+        &self,
+        joined: &crate::contract::scope::TaskJoined,
+    ) -> Option<Arc<ChannelError>> {
+        let source = self.state.connect_rejection_source.get()?;
+        let task = self.state.auxiliary.get()?;
+        if !task.matches_joined(joined)
+            || !joined
+                .result()
+                .err()?
+                .retained_source()
+                .is_some_and(|actual| Arc::ptr_eq(actual, source))
+        {
+            return None;
+        }
+        Some(source.clone())
+    }
     /// The actual result receiver already owns this exact original native
     /// connect error. Keep its real failed TaskJoined; only its later duplicate
     /// component-fatal projection is suppressed after full original settlement.

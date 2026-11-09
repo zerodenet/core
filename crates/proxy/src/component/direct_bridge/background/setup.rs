@@ -12,6 +12,12 @@ impl Candidates {
         grant: CarrierGrant,
     ) -> Result<ControlledCarrier, ChannelError> {
         let adoption = grant.adoption();
+        let result_owner = grant.preparation().ok_or_else(|| {
+            invalid(
+                Reason::InvalidConfig,
+                "Direct initializer has no actual original result receiver",
+            )
+        })?;
         let (begin, started) = tokio::sync::oneshot::channel::<TaskJoinWitness>();
         let (send, receive) = tokio::sync::oneshot::channel();
         let owner = Arc::downgrade(slot);
@@ -30,8 +36,13 @@ impl Candidates {
                 let slot = owner
                     .upgrade()
                     .ok_or_else(|| invalid(Reason::Revoked, "Direct initializer owner retired"))?;
-                let ticket = slot
-                    .issue_direct_background_carrier(caller, &endpoint, &binding, &grant, &call)?;
+                let ticket = slot.issue_direct_background_carrier(
+                    caller.clone(),
+                    &endpoint,
+                    &binding,
+                    &grant,
+                    &call,
+                )?;
                 let opener = NativeCarrierOpener::service_resolved(
                     ticket, peer, dns, generation, egress, observer,
                 )?;
@@ -43,6 +54,11 @@ impl Candidates {
             .await
             .map_err(Arc::new);
             let fault = result.as_ref().err().cloned();
+            if let Some(source) = fault.as_ref().filter(|source| {
+                zero_platform_tokio::controlled_carrier::original_connect_error(source).is_some()
+            }) {
+                result_owner.retain_connect_rejection_result(&caller, source.clone())?;
+            }
             let _ = send.send(result);
             match fault {
                 Some(source) => Err(ChannelError::retained(source)),

@@ -11,6 +11,7 @@ impl CarrierGrant {
             auxiliary: OnceLock::new(),
             published: AtomicBool::new(false),
             connect_rejection: OnceLock::new(),
+            connect_rejection_source: OnceLock::new(),
             pending: OnceLock::new(),
             job: OnceLock::new(),
         });
