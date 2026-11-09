@@ -3,6 +3,8 @@ use rand::Rng;
 use std::io;
 mod crypto;
 mod header;
+mod material;
+pub(crate) use material::validate_owned;
 #[derive(Debug, Clone)]
 pub enum Mask {
     Xicmp {
@@ -67,6 +69,7 @@ impl Item {
 pub struct Codec {
     stages: Vec<Stage>,
     peaks: Vec<peak::StagePeak>,
+    _material_credit: Option<zero_platform_tokio::controlled_carrier::CarrierBufferCredit>,
 }
 enum Stage {
     Noise(super::noise::State),
@@ -103,6 +106,7 @@ impl Codec {
         Ok(Self {
             stages,
             peaks: peak::prepare(masks)?,
+            _material_credit: None,
         })
     }
     pub(super) fn install_memory(&mut self, memory: super::memory::Memory) -> io::Result<()> {

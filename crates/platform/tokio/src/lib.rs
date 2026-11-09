@@ -706,6 +706,8 @@ pub struct TcpRelayStream {
     local_addr: Option<SocketAddr>,
     peer_addr: Option<SocketAddr>,
     transport_bypass_control: Option<TransportBypassControl>,
+    // The concrete erased IO allocation is freed before its original credit.
+    _boxing: Option<zero_traits::packet_metadata::PacketMetadataCredit>,
 }
 
 trait RelayIo: AsyncRead + AsyncWrite + Send + Sync + Unpin {}
@@ -732,7 +734,35 @@ impl TcpRelayStream {
             local_addr,
             peer_addr,
             transport_bypass_control,
+            _boxing: None,
         }
+    }
+
+    /// Same erased ClientStream allocation, prepaid by its actual Host. The
+    /// returned error preserves the exact original value and unspent credit.
+    pub fn from_client_prepaid<S: ClientStream + 'static>(
+        stream: S,
+        credit: zero_traits::packet_metadata::PacketMetadataCredit,
+    ) -> Result<
+        Self,
+        (
+            zero_traits::packet_metadata::PacketMemoryError,
+            S,
+            zero_traits::packet_metadata::PacketMetadataCredit,
+        ),
+    > {
+        let needed = zero_traits::packet_metadata::PacketMetadataLayout::boxed::<S>();
+        let paid = credit.layout();
+        if paid.allocations() < needed.allocations() || paid.bytes() < needed.bytes() {
+            return Err((
+                zero_traits::packet_metadata::PacketMemoryError::Capacity,
+                stream,
+                credit,
+            ));
+        }
+        let mut original = Self::from_client(stream);
+        original._boxing = Some(credit);
+        Ok(original)
     }
 
     pub fn new<S>(stream: S) -> Self
@@ -745,6 +775,7 @@ impl TcpRelayStream {
             local_addr: None,
             peer_addr: None,
             transport_bypass_control: None,
+            _boxing: None,
         }
     }
 
@@ -758,6 +789,7 @@ impl TcpRelayStream {
             local_addr: Some(addr),
             peer_addr: None,
             transport_bypass_control: None,
+            _boxing: None,
         }
     }
 
@@ -771,6 +803,7 @@ impl TcpRelayStream {
             local_addr: None,
             peer_addr: None,
             transport_bypass_control: Some(control),
+            _boxing: None,
         }
     }
 }
