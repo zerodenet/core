@@ -55,9 +55,7 @@ impl Entry {
                 .zip(state.tasks.as_ref().map(|tasks| tasks.scope_identity()))
         };
         if let Some((source, scope)) = actual {
-            let failure = self
-                .resources
-                .receive_protocol_failure(&scope, &source.into())?;
+            let failure = self.resources.receive_protocol_failure(&scope, &source)?;
             let mut state = self.state.lock().await;
             if let Some(previous) = &state.native_failure {
                 assert!(

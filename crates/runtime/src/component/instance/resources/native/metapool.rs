@@ -170,11 +170,12 @@ impl HostResources {
                 );
             }
         }
-        let result = actual.bind_declared_with_totals(
+        let result = actual.bind_declared_with_accounting(
             declaration,
             tasks,
             &self.metapools.cancel,
             &self.originals.carrier,
+            &self.originals.packet.driver_metadata_view(),
         );
         let result = result.and_then(|()| {
             let state = self

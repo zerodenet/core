@@ -15,6 +15,7 @@ async fn run(native_first: bool) {
     tokio::time::timeout(Duration::from_secs(3), async {
         let one = NonZeroUsize::new(1).unwrap();
         let root = CarrierOriginalTotals::new(one);
+        let memory = Arc::new(zero_tun::packet_memory::PacketReturnTotals::default());
         let mut scope = TaskScope::suspended_hosted(tokio::runtime::Handle::current(), Some(one));
         scope.enable_registration().unwrap();
         let tasks = scope.registrar();
@@ -24,7 +25,7 @@ async fn run(native_first: bool) {
         let owner = MetadataPoolOwner::new(instance(), one, limits(), &host).unwrap();
         owner
             .registration()
-            .bind_declared_with_totals(
+            .bind_declared_with_accounting(
                 &ResourceDeclaration::ControlledMetadataCarrier {
                     endpoint: zero_core::request::Destination::new(
                         zero_core::Address::Ipv4([127, 0, 0, 1]),
@@ -38,6 +39,7 @@ async fn run(native_first: bool) {
                 &tasks,
                 &host,
                 &root,
+                &memory.driver_metadata_view(),
             )
             .unwrap();
         owner.start().unwrap();
@@ -216,6 +218,10 @@ async fn run(native_first: bool) {
             .set(probe_source.clone())
             .is_ok());
         native_sources.mark_failed();
+        let paid_canonical = native_sources.canonical_error().unwrap();
+        assert!(paid_canonical.is_prepaid());
+        assert!(paid_canonical.ptr_eq(&native_sources.canonical_error().unwrap()));
+        drop(paid_canonical);
         assert!(Arc::ptr_eq(&receiver, &root.resource_failures()[0]));
         assert!(Arc::ptr_eq(
             native_sources
@@ -235,7 +241,7 @@ async fn run(native_first: bool) {
                 .unwrap(),
             &probe_source
         ));
-        let weak = Arc::downgrade(&native_sources.0);
+        let weak = native_sources.0.downgrade();
         original.released.store(true, Ordering::Release);
         original.changed.notify_waiters();
         std::future::poll_fn(|cx| {

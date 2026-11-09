@@ -24,6 +24,17 @@ impl MetadataPoolGrants {
             Option<crate::contract::lifecycle::BoxChannelControl>,
         ),
     > {
+        let metadata = self.owner.upgrade().and_then(|owner| {
+            owner
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .bound
+                .as_ref()
+                .and_then(|bound| bound.metadata.clone())
+        });
+        // Root refunds/wakes and drops occur only after all actual owner locks.
+        let _notifications = metadata.as_ref().map(|memory| memory.notifications());
         let reserved = (|| {
             let owner = self
                 .owner
@@ -86,6 +97,8 @@ impl MetadataPoolGrants {
                     ))
                 }
             }
+            let mut source_memory =
+                sources::Prepaid::reserve(owner.limits, authority.metadata.as_ref())?;
             let native = MetadataOwner::new(owner.limits).map_err(|source| {
                 error(Reason::InvalidConfig, "invalid metadata limits").with_source(source)
             })?;
@@ -145,7 +158,8 @@ impl MetadataPoolGrants {
                     slot.clone(),
                 )))?;
             }
-            let cohort = sources::MetadataCloseCohort::new(owner.instance, owner.limits);
+            let cohort =
+                sources::MetadataCloseCohort::new(owner.instance, owner.limits, &mut source_memory);
             slot.native
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)

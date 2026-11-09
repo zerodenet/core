@@ -3,6 +3,7 @@ pub(super) struct Authority {
     pub(super) declaration: ResourceDeclaration,
     pub(super) scope: TaskScopeIdentity,
     pub(super) host_cancel: Arc<CancellationToken>,
+    pub(super) metadata: Option<crate::contract::component::PacketDriverMetadataView>,
 }
 impl Authority {
     pub(super) fn check(
@@ -33,7 +34,7 @@ impl MetadataPoolRegistration {
         tasks: &TaskRegistrar,
         host_cancel: &Arc<CancellationToken>,
     ) -> Result<(), ChannelError> {
-        self.bind_declared_inner(declaration, tasks, host_cancel, None)
+        self.bind_declared_inner(declaration, tasks, host_cancel, None, None)
     }
     pub fn bind_declared_with_totals(
         &self,
@@ -42,7 +43,23 @@ impl MetadataPoolRegistration {
         host_cancel: &Arc<CancellationToken>,
         totals: &Arc<crate::controlled_carrier::CarrierOriginalTotals>,
     ) -> Result<(), ChannelError> {
-        self.bind_declared_inner(declaration, tasks, host_cancel, Some(totals))
+        self.bind_declared_inner(declaration, tasks, host_cancel, Some(totals), None)
+    }
+    pub fn bind_declared_with_accounting(
+        &self,
+        declaration: &ResourceDeclaration,
+        tasks: &TaskRegistrar,
+        host_cancel: &Arc<CancellationToken>,
+        totals: &Arc<crate::controlled_carrier::CarrierOriginalTotals>,
+        metadata: &crate::contract::component::PacketDriverMetadataView,
+    ) -> Result<(), ChannelError> {
+        self.bind_declared_inner(
+            declaration,
+            tasks,
+            host_cancel,
+            Some(totals),
+            Some(metadata),
+        )
     }
     fn bind_declared_inner(
         &self,
@@ -50,6 +67,7 @@ impl MetadataPoolRegistration {
         tasks: &TaskRegistrar,
         host_cancel: &Arc<CancellationToken>,
         totals: Option<&Arc<crate::controlled_carrier::CarrierOriginalTotals>>,
+        metadata: Option<&crate::contract::component::PacketDriverMetadataView>,
     ) -> Result<(), ChannelError> {
         let owner = self
             .owner
@@ -113,6 +131,11 @@ impl MetadataPoolRegistration {
             if &bound.declaration != declaration
                 || !bound.scope.matches(tasks)
                 || !Arc::ptr_eq(&bound.host_cancel, host_cancel)
+                || match (&bound.metadata, metadata) {
+                    (Some(actual), Some(expected)) => !actual.same_root(expected),
+                    (None, None) => false,
+                    _ => true,
+                }
             {
                 return Err(error(Reason::StalePlan, "metadata binding changed"));
             }
@@ -121,6 +144,7 @@ impl MetadataPoolRegistration {
                 declaration: declaration.clone(),
                 scope,
                 host_cancel: host_cancel.clone(),
+                metadata: metadata.cloned(),
             }));
         }
         if let Some(totals) = totals {

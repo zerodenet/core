@@ -4,33 +4,35 @@ use crate::contract::{
     lifecycle::{ResourceFailure, ResourceFailurePhase},
     CleanupFailureReceipt,
 };
-struct Payload {
+pub(super) struct Payload {
     originals: MetadataOriginalSources,
     protocol: OnceLock<Arc<ResourceFailure>>,
 }
 pub(in crate::controlled_datagram::metadata_pool) struct MetadataCloseCohort {
     instance: ComponentInstanceId,
-    payload: Arc<Payload>,
+    payload: Allocation<Payload>,
     receipt: CleanupFailureReceipt,
-    canonical: OnceLock<Arc<ChannelError>>,
+    canonical: Canonical,
     failure: OnceLock<Arc<ResourceFailure>>,
 }
 impl MetadataCloseCohort {
     pub(in crate::controlled_datagram::metadata_pool) fn new(
         instance: ComponentInstanceId,
         limits: super::super::super::metadata::MetadataLimits,
+        prepaid: &mut Prepaid,
     ) -> Self {
-        let payload = Arc::new(Payload {
-            originals: MetadataOriginalSources::new(limits),
+        let originals = MetadataOriginalSources::new(limits, prepaid);
+        let payload = prepaid.allocate(Payload {
+            originals,
             protocol: OnceLock::new(),
         });
-        let receipt = CleanupFailureReceipt::new();
-        assert!(receipt.bind_payload(payload.clone()));
+        let receipt = prepaid.receipt();
+        assert!(payload.bind(&receipt));
         Self {
             instance,
             payload,
             receipt,
-            canonical: OnceLock::new(),
+            canonical: prepaid.canonical(),
             failure: OnceLock::new(),
         }
     }
@@ -59,29 +61,20 @@ impl MetadataCloseCohort {
     }
     pub(in crate::controlled_datagram::metadata_pool) fn failure(
         &self,
-    ) -> Option<Arc<ChannelError>> {
+    ) -> Option<zero_error::channel::RetainedError> {
         if !self.payload.originals.failed() && self.payload.protocol.get().is_none() {
             return None;
         }
-        Some(
-            self.canonical
-                .get_or_init(|| {
-                    let error = self
-                        .payload
-                        .protocol
-                        .get()
-                        .map(|actual| ChannelError::retained(actual.source.clone()))
-                        .unwrap_or_else(|| {
-                            ChannelError::new(Stage::Close, Reason::Io, Impact::Component)
-                        });
-                    Arc::new(
-                        error
-                            .with_source(self.payload.clone())
-                            .with_cleanup_failure_receipt(self.receipt.clone()),
-                    )
-                })
-                .clone(),
-        )
+        Some(self.canonical.get_or_init(|| {
+            let error = self
+                .payload
+                .protocol
+                .get()
+                .map(|actual| ChannelError::retained(actual.source.clone()))
+                .unwrap_or_else(|| ChannelError::new(Stage::Close, Reason::Io, Impact::Component));
+            self.payload
+                .attach(error.with_cleanup_failure_receipt(self.receipt.clone()))
+        }))
     }
     pub(in crate::controlled_datagram::metadata_pool) fn resource_failure(
         &self,

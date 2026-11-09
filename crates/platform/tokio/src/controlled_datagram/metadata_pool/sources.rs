@@ -6,7 +6,10 @@ use std::{
     fmt, io,
     sync::atomic::{AtomicBool, Ordering},
 };
+mod memory;
 mod row;
+pub(super) use memory::Prepaid;
+use memory::{Allocation, Canonical};
 pub(super) use row::MetadataCloseCohort;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -25,15 +28,18 @@ struct Originals {
     main: Box<[Original]>,
     probes: Box<[Original]>,
     failed: AtomicBool,
+    // Both arrays are destroyed before their prepaid allocation credits.
+    _main_credit: Option<zero_traits::packet_metadata::PacketMetadataCredit>,
+    _probe_credit: Option<zero_traits::packet_metadata::PacketMetadataCredit>,
 }
 /// Getter-only native causes. Cloning retains exactly this same actual origin's
 /// finite rows; it grants neither native IO nor receiver/registration ACK.
 #[derive(Clone)]
 pub struct MetadataOriginalSources(
-    Arc<Originals>,
-    Arc<OnceLock<Arc<ChannelError>>>,
+    Allocation<Originals>,
+    Allocation<Canonical>,
     crate::contract::CleanupFailureReceipt,
-    Arc<NativePayload>,
+    Allocation<NativePayload>,
 );
 #[derive(Clone, Copy)]
 pub struct MetadataOriginalFault<'a> {
@@ -44,46 +50,40 @@ pub struct MetadataOriginalFault<'a> {
     pub unknown: Option<&'a Arc<io::Error>>,
 }
 impl MetadataOriginalSources {
-    fn new(limits: super::super::metadata::MetadataLimits) -> Self {
-        let rows = |len| {
-            (0..len)
-                .map(|_| Original::default())
-                .collect::<Vec<_>>()
-                .into_boxed_slice()
-        };
-        let originals = Arc::new(Originals {
-            main: rows(limits.main_sockets.get()),
-            probes: rows(limits.probe_attempts_per_initialization.get()),
+    fn new(limits: super::super::metadata::MetadataLimits, prepaid: &mut Prepaid) -> Self {
+        let (main, main_credit) = prepaid.rows(limits.main_sockets.get());
+        let (probes, probe_credit) = prepaid.rows(limits.probe_attempts_per_initialization.get());
+        let originals = prepaid.allocate(Originals {
+            main,
+            probes,
             failed: AtomicBool::new(false),
+            _main_credit: main_credit,
+            _probe_credit: probe_credit,
         });
-        let receipt = crate::contract::CleanupFailureReceipt::new();
-        let payload = Arc::new(NativePayload(originals.clone()));
-        assert!(receipt.bind_payload(payload.clone()));
-        Self(originals, Arc::new(OnceLock::new()), receipt, payload)
+        let receipt = prepaid.receipt();
+        let payload = prepaid.allocate(NativePayload(originals.clone()));
+        assert!(payload.bind(&receipt));
+        let canonical = prepaid.canonical();
+        Self(originals, prepaid.allocate(canonical), receipt, payload)
     }
     pub fn same_original(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
+        self.0.same(&other.0)
     }
     pub fn failed(&self) -> bool {
         self.0.failed.load(Ordering::Acquire)
     }
     /// Stable native-only diagnostic for the actual protocol receiver. The
     /// payload cannot retain this canonical cell or a MetadataPool Slot.
-    pub fn canonical_error(&self) -> Option<Arc<ChannelError>> {
+    pub fn canonical_error(&self) -> Option<zero_error::channel::RetainedError> {
         if !self.failed() {
             return None;
         }
-        Some(
-            self.1
-                .get_or_init(|| {
-                    Arc::new(
-                        ChannelError::new(Stage::Close, Reason::Io, Impact::Component)
-                            .with_source(self.3.clone())
-                            .with_cleanup_failure_receipt(self.2.clone()),
-                    )
-                })
-                .clone(),
-        )
+        Some(self.1.get_or_init(|| {
+            self.3.attach(
+                ChannelError::new(Stage::Close, Reason::Io, Impact::Component)
+                    .with_cleanup_failure_receipt(self.2.clone()),
+            )
+        }))
     }
     pub fn originals(&self) -> impl Iterator<Item = MetadataOriginalFault<'_>> {
         original_rows(MetadataOriginalNamespace::Main, &self.0.main).chain(original_rows(
@@ -264,7 +264,7 @@ fn original_rows(
     })
 }
 
-struct NativePayload(Arc<Originals>);
+struct NativePayload(Allocation<Originals>);
 impl fmt::Debug for NativePayload {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("NativeMetadataSources")

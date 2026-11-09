@@ -212,3 +212,6 @@ async fn rejected_unbound_claim_keeps_original_custody_and_does_not_poison_the_o
     assert!(a.finish().await.is_complete());
     assert!(b.finish().await.is_complete());
 }
+
+#[path = "resource_metapool/metadata.rs"]
+mod metadata;

@@ -34,7 +34,8 @@ async fn same_original_zero_id_sources_survive_poison_and_real_positive_udp_clos
         panic!("original native mutex poisoned");
     }))
     .is_err());
-    let sources = MetadataOriginalSources::new(limits());
+    let mut prepaid = Prepaid::reserve(limits(), None).unwrap();
+    let sources = MetadataOriginalSources::new(limits(), &mut prepaid);
     sources.try_capture(MetadataOriginalNamespace::Main, &owner);
     let found = sources.originals().next().unwrap();
     assert_eq!(found.namespace, MetadataOriginalNamespace::Main);

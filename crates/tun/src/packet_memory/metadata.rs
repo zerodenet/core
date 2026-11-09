@@ -17,6 +17,9 @@ pub use zero_traits::packet_metadata::{
 #[derive(Clone)]
 pub struct PacketDriverMetadataView(Arc<PacketReturnTotals>);
 impl PacketDriverMetadataView {
+    pub fn same_root(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
     pub fn reserve(
         &self,
         layout: PacketMetadataLayout,

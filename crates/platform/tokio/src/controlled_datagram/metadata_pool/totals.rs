@@ -11,7 +11,7 @@ pub(crate) struct MetadataTotalsOriginal {
     waiting: Mutex<Option<BoxFuture<'static, ()>>>,
     polling: AtomicBool,
     repoll: AtomicBool,
-    first_fault: Mutex<Option<Arc<ChannelError>>>,
+    first_fault: Mutex<Option<zero_error::channel::RetainedError>>,
     requested: Mutex<Option<BoxFuture<'static, ()>>>,
     protocol_end: OnceLock<tokio::time::Instant>,
 }
@@ -123,10 +123,25 @@ impl MetadataTotalsOriginal {
                 Ok(Some(_)) => changed = true,
                 Ok(None) => {}
                 Err(source) => {
-                    self.first_fault
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .get_or_insert_with(|| Arc::new(source));
+                    // A forwarded row diagnostic keeps its original paid
+                    // canonical allocation; do not manufacture another Arc.
+                    let candidate = source
+                        .retained_diagnostic()
+                        .cloned()
+                        .unwrap_or_else(|| Arc::new(source).into());
+                    let unused = {
+                        let mut stored = self
+                            .first_fault
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        if stored.is_none() {
+                            *stored = Some(candidate);
+                            None
+                        } else {
+                            Some(candidate)
+                        }
+                    };
+                    drop(unused);
                 }
             }
         }
@@ -187,7 +202,7 @@ impl MetadataTotalsOriginal {
         }
         Some(cohort)
     }
-    pub(crate) fn failure(&self) -> Option<Arc<ChannelError>> {
+    pub(crate) fn failure(&self) -> Option<zero_error::channel::RetainedError> {
         self.close_cohort().and_then(|cohort| cohort.failure())
     }
 }
@@ -206,7 +221,7 @@ impl crate::controlled_carrier::MetadataCustody for MetadataTotalsOriginal {
     fn poll_retirement(&self, cx: &mut Context<'_>) -> bool {
         MetadataTotalsOriginal::poll_retirement(self, cx)
     }
-    fn failure(&self) -> Option<Arc<ChannelError>> {
+    fn failure(&self) -> Option<zero_error::channel::RetainedError> {
         MetadataTotalsOriginal::failure(self)
     }
 }

@@ -82,3 +82,6 @@ mod roundtrip;
 
 #[path = "metadata_cohort/poison.rs"]
 mod poison;
+
+#[path = "metadata_cohort/memory.rs"]
+mod memory;
