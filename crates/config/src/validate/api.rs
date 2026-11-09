@@ -54,7 +54,7 @@ pub(super) fn validate_api(api: &ApiConfig) -> Result<(), ConfigError> {
         let minimum = files
             .checked_mul(2)
             .and_then(|n| n.checked_add(2 * usize::from(api.dead_letter_path.is_some())))
-            .and_then(|n| n.checked_add(4 * usize::from(api.outbox_path.is_some())))
+            .and_then(|n| n.checked_add(6 * usize::from(api.outbox_path.is_some())))
             .ok_or_else(|| ConfigError::InvalidApi("dispatcher original layout overflow".into()))?;
         if api
             .dispatcher

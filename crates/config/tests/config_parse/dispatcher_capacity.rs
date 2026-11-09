@@ -18,11 +18,14 @@ fn omitted_provider_limits_keep_the_existing_export_shape_and_configuration() {
 #[test]
 fn explicit_dispatcher_limits_validate_the_actual_layout_before_preparation() {
     let mut value = raw();
-    value["api"]["dispatcher"] = serde_json::json!({"max_worker_tasks":4,"max_open_originals":8});
+    // One JSONL pair + dead-letter pair + six actual outbox maintenance originals.
+    value["api"]["dispatcher"] = serde_json::json!({"max_worker_tasks":4,"max_open_originals":10});
     RuntimeConfig::parse(&value.to_string()).unwrap();
     for (field, limit) in [
         ("max_worker_tasks", 3),
         ("max_open_originals", 7),
+        ("max_open_originals", 8),
+        ("max_open_originals", 9),
         ("max_worker_tasks", 0),
         ("max_open_originals", 0),
     ] {
@@ -36,5 +39,5 @@ fn explicit_dispatcher_limits_validate_the_actual_layout_before_preparation() {
     let config = RuntimeConfig::parse(&value.to_string()).unwrap();
     let exported = serde_json::to_value(&config.api.dispatcher).unwrap();
     assert_eq!(exported["max_worker_tasks"], 4);
-    assert_eq!(exported["max_open_originals"], 8);
+    assert_eq!(exported["max_open_originals"], 10);
 }

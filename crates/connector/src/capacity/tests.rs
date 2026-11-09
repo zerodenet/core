@@ -35,3 +35,30 @@ fn original_omissions_fit_configured_receivers_without_unlimited_admission() {
     api.dispatcher.max_open_originals = Some(159);
     assert!(DispatcherCapacity::validate(&api).is_err());
 }
+
+#[test]
+fn outbox_compaction_floor_retains_both_indexes_and_its_live_reader() {
+    let mut api = ApiConfig::default();
+    for n in 0..30 {
+        api.event_sinks.push(
+            serde_json::from_value(serde_json::json!({
+                "type":"jsonl", "tag":format!("output-{n}"), "path":format!("output-{n}.jsonl")
+            }))
+            .unwrap(),
+        );
+    }
+    api.outbox_path = Some("outbox.jsonl".into());
+    assert_eq!(
+        DispatcherCapacity::effective_limits(&api).unwrap(),
+        (64, 66)
+    );
+    assert!(DispatcherCapacity::validate(&api).is_ok());
+    // Explicit insufficient policy is refused BEFORE its first initializer/IO;
+    // omitted old inputs adapt to the actual six-provider maintenance graph.
+    for limit in [64, 65] {
+        api.dispatcher.max_open_originals = Some(limit);
+        assert!(DispatcherCapacity::validate(&api).is_err());
+    }
+    api.dispatcher.max_open_originals = Some(66);
+    assert!(DispatcherCapacity::validate(&api).is_ok());
+}

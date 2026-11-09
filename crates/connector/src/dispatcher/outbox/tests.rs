@@ -4,6 +4,8 @@ use std::collections::VecDeque;
 use zero_api::ApiEvent;
 
 mod index_recovery;
+#[cfg(feature = "sink-jsonl")]
+mod original_capacity;
 mod large;
 mod paging;
 mod validation;

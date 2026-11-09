@@ -62,14 +62,15 @@ impl DispatcherCapacity {
         } else {
             1
         };
-        // Same concrete providers: each persistent file has its lock; the
-        // journal also owns one SQLite-with-scratch original and compaction
-        // needs one temporary file without closing the live journal first.
+        // Each persistent sink has its file + lock. Outbox compaction keeps
+        // journal + lease + old index live while opening temporary + replacement
+        // index + reader (six real providers). No old unACKed facts are evicted
+        // to make those progress positions fit.
         let original_floor = if active {
             jsonl
                 .checked_mul(2)
                 .and_then(|n| n.checked_add(2 * usize::from(api.dead_letter_path.is_some())))
-                .and_then(|n| n.checked_add(4 * usize::from(api.outbox_path.is_some())))
+                .and_then(|n| n.checked_add(6 * usize::from(api.outbox_path.is_some())))
                 .ok_or_else(|| io::Error::other("dispatcher original layout overflow"))?
         } else {
             0
