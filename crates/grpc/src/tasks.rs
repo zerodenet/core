@@ -214,3 +214,6 @@ mod tests;
 
 mod report;
 pub(crate) use report::ReportReceiver;
+
+mod panic_cleanup;
+pub(crate) use panic_cleanup::finish_caught;

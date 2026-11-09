@@ -196,16 +196,14 @@ where
     if native.as_ref().is_ok_and(|report| report.complete) {
         owner.connections.confirm_all_closed();
     }
-    let result = match work {
-        Ok(result) => result,
-        Err(payload) => std::panic::resume_unwind(payload),
-    };
-    tasks::finish([
-        result,
-        jobs,
-        native.and_then(|report| report.into_result()),
-        failure.map_or(Ok(()), Err),
-    ])
+    tasks::finish_caught(
+        work,
+        [
+            jobs,
+            native.and_then(|report| report.into_result()),
+            failure.map_or(Ok(()), Err),
+        ],
+    )
 }
 pub(super) async fn catch_work<F: Future>(
     work: F,
