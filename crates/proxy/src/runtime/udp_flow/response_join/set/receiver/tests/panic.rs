@@ -28,7 +28,9 @@ async fn actual_rx_poll_panic_keeps_the_original_box_until_its_real_critical_tas
         let mut scope =
             TaskScope::suspended_hosted(tokio::runtime::Handle::current(), NonZeroUsize::new(1));
         scope.enable_registration().unwrap();
-        let original = Arc::new(std::sync::OnceLock::new());
+        let original = Arc::new(std::sync::OnceLock::<
+            zero_platform_tokio::contract::scope::TaskJoinWitness,
+        >::new());
         let actual = original.clone();
         let (begin, begun) = oneshot::channel();
         let (ready, receiving) = oneshot::channel();

@@ -18,7 +18,7 @@ async fn actual_original_two_task_graph_polls_udp_without_a_third_task_and_keeps
             let refused=tokio::net::TcpSocket::new_v4().unwrap();
             refused.bind("127.0.0.1:0".parse().unwrap()).unwrap();
             let bad_address=refused.local_addr().unwrap();
-            let actual=Arc::new(std::sync::OnceLock::new());
+            let actual=Arc::new(std::sync::OnceLock::<zero_platform_tokio::contract::scope::TaskJoinWitness>::new());
             let original=actual.clone();
             let (begin, begun)=oneshot::channel();
             let (ready, receiving)=oneshot::channel();
