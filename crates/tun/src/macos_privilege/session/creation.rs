@@ -30,10 +30,7 @@ impl MacosHelperOwner {
         epoch.transfer.submit_create();
         let id = epoch.id;
         epoch.rpc.begin(
-            &HelperRequest::OwnedCreateUtun {
-                name: name.map(str::to_owned),
-                transfer: id,
-            },
+            &rpc::BorrowedRequest::OwnedCreateUtun { name, transfer: id },
             None,
         )?;
         epoch.drive_rpc()?;

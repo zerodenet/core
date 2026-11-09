@@ -183,10 +183,10 @@ impl MacosHelperOwner {
             .id
             .checked_add(next)
             .ok_or_else(|| io::Error::other("helper command nonce overflow"))?;
-        let request = HelperRequest::OwnedCommand {
+        let request = rpc::BorrowedRequest::OwnedCommand {
             program,
-            arguments: arguments.to_vec(),
-            input: input.map(str::to_owned),
+            arguments,
+            input,
             nonce,
             output_limit: self.0.output_limit,
         };

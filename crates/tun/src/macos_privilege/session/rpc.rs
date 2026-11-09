@@ -2,6 +2,8 @@
 use super::*;
 use std::io::Cursor;
 pub(super) const CAPACITY: usize = 65_536;
+mod borrowed;
+pub(in crate::macos_privilege::session) use borrowed::BorrowedRequest;
 mod output;
 mod request;
 pub(super) use request::Request;
@@ -62,7 +64,7 @@ impl Rpc {
     }
     pub(super) fn begin(
         &mut self,
-        request: &HelperRequest,
+        request: &impl serde::Serialize,
         command: Option<u64>,
     ) -> io::Result<()> {
         if self.started {

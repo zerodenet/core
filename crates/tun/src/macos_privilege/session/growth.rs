@@ -11,7 +11,7 @@ pub(super) struct Growth {
 impl Epoch {
     pub(super) fn ensure_request_capacity(
         &mut self,
-        request: &HelperRequest,
+        request: &impl serde::Serialize,
         memory: &PacketMemoryView,
     ) -> io::Result<()> {
         struct Count(usize);
