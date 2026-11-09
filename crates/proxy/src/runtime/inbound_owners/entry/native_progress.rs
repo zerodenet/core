@@ -20,7 +20,7 @@ impl InboundOwner {
             self.failure
                 .lock()
                 .expect("inbound failure poisoned")
-                .get_or_insert(source);
+                .get_or_insert(source.into());
         }
     }
 }
