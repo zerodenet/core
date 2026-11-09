@@ -138,10 +138,10 @@ async fn same_live_source_accepts_again_only_after_original_native_users_and_hos
             }
             impl std::task::Wake for Reentrant {
                 fn wake(self: Arc<Self>) { Self::wake_by_ref(&self); }
-                fn wake_by_ref(this: &Arc<Self>) {
-                    assert_eq!(this.root.upgrade().unwrap().snapshot().charged, 1,
+                fn wake_by_ref(self: &Arc<Self>) {
+                    assert_eq!(self.root.upgrade().unwrap().snapshot().charged, 1,
                         "global removal precedes notification, outside the Root gate");
-                    this.wakes.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                    self.wakes.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
                 }
             }
             let returned = Arc::new(Reentrant { root: Arc::downgrade(&roots), wakes: Default::default() });
