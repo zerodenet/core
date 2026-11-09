@@ -12,6 +12,16 @@ impl DohDnsResolver {
         for addr in addrs {
             match self.exchange_with(addr, query, detour, connector).await {
                 Ok(response) => return Ok(response),
+                // Only our own completed request + failed actual retirement
+                // constructs this top-level sealed payload. Another candidate
+                // cannot overtake that original owner or its retained source.
+                Err(error)
+                    if error
+                        .get_ref()
+                        .is_some_and(|source| source.is::<ExchangeCleanupFailure>()) =>
+                {
+                    return Err(error)
+                }
                 Err(error) => last_error = Some(error),
             }
         }
@@ -27,7 +37,11 @@ impl DohDnsResolver {
         detour: Option<&str>,
         connector: Option<&dyn crate::DnsOutboundConnector>,
     ) -> io::Result<Vec<u8>> {
-        let deadline = tokio::time::Instant::now() + DNS_TIMEOUT;
+        let original_ceiling = tokio::time::Instant::now() + DNS_TIMEOUT;
+        let deadline = super::super::ATTEMPT_DEADLINE
+            .try_with(|deadline| *deadline)
+            .unwrap_or(original_ceiling)
+            .min(original_ceiling);
         let result = tokio::time::timeout_at(
             deadline,
             self.exchange_with_timeout(addr, query, detour, connector),

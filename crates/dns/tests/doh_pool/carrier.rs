@@ -173,3 +173,98 @@ async fn an_adapter_without_a_binding_cannot_silently_reuse_a_detour_pool() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn actual_failed_retirement_keeps_the_first_h2_source_and_held_lease_before_any_second_endpoint_open(
+) {
+    let server = Server::start(FirstConnection::Stalled).await;
+    // Two genuine bootstrap candidates of one host/port. Keep both original
+    // listeners live; the second must never receive a connection on failure.
+    let second = TcpListener::bind((std::net::Ipv4Addr::new(127, 0, 0, 2), server.addr.port()))
+        .await
+        .unwrap();
+    let resolver = Arc::new(
+        DohDnsResolver::new_cleartext(
+            "two-originals.doh.test".into(),
+            server.addr.port(),
+            "/dns-query".into(),
+            vec![server.addr.ip(), second.local_addr().unwrap().ip()],
+            None,
+            EgressInterfaceControl::default(),
+        )
+        .unwrap(),
+    );
+    let detour = Arc::new(BoundDetour {
+        control: EgressInterfaceControl::default(),
+        opens: Arc::new(AtomicUsize::new(0)),
+    });
+    let end = tokio::time::Instant::now() + Duration::from_secs(2);
+    let first = tokio::spawn({
+        let resolver = resolver.clone();
+        let detour = detour.clone();
+        async move {
+            let query =
+                crate::message::build_query("held-candidate.doh.test", crate::message::TYPE_A)
+                    .unwrap();
+            crate::backends::ATTEMPT_DEADLINE
+                .scope(
+                    end,
+                    resolver.exchange(&query, Some("actual-bound-carrier"), Some(detour.as_ref())),
+                )
+                .await
+        }
+    });
+    tokio::time::timeout_at(end, server.first_request.notified())
+        .await
+        .unwrap();
+    // This is a real ReadyClient lease issued by the original production pool,
+    // not a synthetic counter. Its original H2 request is still pending.
+    let held = tokio::time::timeout_at(
+        end,
+        resolver.ready_client(
+            server.addr,
+            Some("actual-bound-carrier"),
+            Some(detour.as_ref()),
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    detour.control.invalidate_network();
+    let source = tokio::time::timeout(Duration::from_secs(3), first)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    let mut native: &(dyn std::error::Error + 'static) = &source;
+    while native.downcast_ref::<h2::Error>().is_none() {
+        native=native.source().expect("the FIRST actual H2 source survives the failed original retirement; no later candidate may replace it");
+    }
+    assert!(
+        !resolver.owner.drained(),
+        "the actual independent old lease is still held"
+    );
+    assert_eq!(detour.opens.load(Ordering::Acquire), 1);
+    assert_eq!(server.accepted.load(Ordering::Acquire), 1);
+    std::future::poll_fn(|cx| {
+        assert!(second.poll_accept(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    drop(held);
+    resolver
+        .owner
+        .shutdown(tokio::time::Instant::now() + Duration::from_secs(2))
+        .await
+        .unwrap();
+    assert!(
+        resolver.owner.drained(),
+        "only returning the real old lease lets its actual owner finish"
+    );
+    std::future::poll_fn(|cx| {
+        assert!(second.poll_accept(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    assert_eq!(detour.opens.load(Ordering::Acquire), 1);
+}
