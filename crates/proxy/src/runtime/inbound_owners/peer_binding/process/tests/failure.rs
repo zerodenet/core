@@ -120,5 +120,5 @@ async fn raw_metadata_helper_uses_same_paid_receiver_and_unique_ordinary_scope_a
         .unwrap()
         .result()
         .unwrap();
-    assert!(scope.is_drained());
+    assert!(scope.shutdown(Instant::now()).await.is_complete());
 }

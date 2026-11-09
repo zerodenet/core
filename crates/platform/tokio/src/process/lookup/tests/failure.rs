@@ -129,5 +129,8 @@ async fn ordinary_failed_lookup_retains_original_until_exact_receiver_and_reuses
     let event = scope.next_exit().await.unwrap();
     assert_eq!(event.id, caller_id);
     event.result.unwrap();
-    assert!(scope.is_drained());
+    assert!(scope
+        .shutdown(tokio::time::Instant::now())
+        .await
+        .is_complete());
 }
