@@ -188,7 +188,11 @@ impl EventJobs {
             self.writer_result.as_ref().unwrap(),
             self.bridge_result.as_ref().unwrap(),
         ]
-        .map(|result| result.clone().map_err(|source| io::Error::new(source.kind(), source)))
+        .map(|result| {
+            result
+                .clone()
+                .map_err(|source| io::Error::new(source.kind(), source))
+        })
     }
 }
 
