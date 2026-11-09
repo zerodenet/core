@@ -173,10 +173,10 @@ impl PreparedOwnedXhttp {
             .await?;
         let runtime = connection
             .owned_runtime()
-            .ok_or(io::ErrorKind::PermissionDenied)?;
+            .ok_or_else(|| io::Error::from(io::ErrorKind::PermissionDenied))?;
         let origin = connection
             .owned_origin()
-            .ok_or(io::ErrorKind::PermissionDenied)?;
+            .ok_or_else(|| io::Error::from(io::ErrorKind::PermissionDenied))?;
         runtime.bind_pool(&upload.sender.pool.0);
         return_initial(&upload, connection);
         if let Some(download) = &mut download {
@@ -184,7 +184,7 @@ impl PreparedOwnedXhttp {
                 let connection = claim.finish(&download.sender.factory).await?;
                 let down_runtime = connection
                     .owned_runtime()
-                    .ok_or(io::ErrorKind::PermissionDenied)?;
+                    .ok_or_else(|| io::Error::from(io::ErrorKind::PermissionDenied))?;
                 down_runtime.bind_pool(&download.sender.pool.0);
                 return_initial(download, connection);
             }

@@ -22,7 +22,7 @@ use zero_platform_tokio::{
     TcpRelayStream,
 };
 use zero_traits::packet_metadata::{
-    PacketMetadataCredit, PacketMetadataError, PacketMetadataLayout, PacketMetadataWeak,
+    PacketMetadataCredit, PacketMetadataLayout, PacketMetadataWeak,
 };
 #[derive(Clone, Copy)]
 pub enum TcpVersion {

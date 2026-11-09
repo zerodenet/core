@@ -1,6 +1,6 @@
 //! One actual UDP send pays its entire IP/fragment/codec storage before output.
 use crate::{packet, packet_output::PacketSender};
-use zero_traits::{PacketBuffer, PacketDeriveError};
+use zero_traits::PacketDeriveError;
 
 pub(crate) async fn build(
     sender: &PacketSender,

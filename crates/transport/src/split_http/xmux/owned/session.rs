@@ -103,7 +103,7 @@ impl Runtime {
             return Err(io::ErrorKind::PermissionDenied.into());
         }
         let PreparedLogical {
-            mut stream,
+            stream,
             network,
             working,
             causes,
