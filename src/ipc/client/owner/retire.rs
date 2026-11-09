@@ -1,7 +1,7 @@
 //! Each positive fact is independent; observations and errors cannot refund IO.
 use super::*;
 impl Attempt {
-    fn accept(
+    pub(super) fn accept(
         &self,
         scope: &mut HostedScope,
         receipt: zero_platform_tokio::contract::scope::HostedExitReceipt,
