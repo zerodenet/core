@@ -3,7 +3,7 @@ use super::*;
 use std::sync::OnceLock;
 use zero_platform_tokio::contract::{Impact, RetainedError, Stage};
 use zero_traits::packet_metadata::PacketMetadataArc;
-pub(in crate::component::native_dns::provider::custody) struct ProtocolUse {
+pub(in crate::component::native_dns::provider) struct ProtocolUse {
     pub original: ProtocolOriginal,
     failure: PacketMetadataArc<WaitFailure>,
     retained: RetainedError,

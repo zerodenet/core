@@ -1,7 +1,7 @@
 //! Pre-delivery protocol originals belong to this actual Query row.
 use super::*;
 mod failure;
-pub(super) use failure::ProtocolUse;
+pub(in crate::component::native_dns::provider) use failure::ProtocolUse;
 use zero_platform_tokio::{
     contract::{component::PacketDriverMetadataView, ChannelError, Reason},
     controlled_carrier::ProtocolOriginal,
