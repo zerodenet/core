@@ -54,6 +54,8 @@ async fn actual_fixed_direct_handler_keeps_source_join_and_native_close_separate
         lease.bind_tcp().unwrap();
         let (definition, listener, installed) = promote_tcp(lease.finish().unwrap());
         let owner = installed.owner();
+        let original_client_receiver = owner.client_failure_receiver().unwrap().clone();
+        assert!(original_client_receiver.is_empty());
         let address = listener.local_addr().unwrap();
         let recipe = definition;
         let limit = match recipe.spec().resources[0] {
@@ -144,6 +146,16 @@ async fn actual_fixed_direct_handler_keeps_source_join_and_native_close_separate
         let failed = terminal.client_failure().unwrap();
         assert_eq!(failed.class(), TaskClass::Auxiliary);
         let original = failed.result().unwrap_err();
+        let retained_clients = terminal.client_failure_receiver().unwrap();
+        assert!(retained_clients.same_receiver(&original_client_receiver));
+        let mut all_clients = terminal.client_failures();
+        let received = all_clients
+            .next()
+            .expect("actual paid original client fault");
+        assert_eq!(received.id(), failed.id());
+        assert!(received.matches_joined(&failed));
+        assert!(all_clients.next().is_none());
+        assert_eq!(original_client_receiver.len(), 1);
         let repeated = terminal.client_failure().unwrap().result().unwrap_err();
         assert!(Arc::ptr_eq(&original, &repeated));
         let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(original.as_ref());

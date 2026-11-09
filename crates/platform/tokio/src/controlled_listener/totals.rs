@@ -2,15 +2,15 @@
 use super::*;
 use crate::{
     contract::{
-        BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
         scope::{ScopeRetirementObservation, TaskRegistrar},
+        BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
     },
     controlled_carrier::{CarrierOriginalTotals, SourceCustody},
 };
 use std::{
     sync::{
-        Weak,
         atomic::{AtomicBool, Ordering},
+        Weak,
     },
     task::Context,
 };
@@ -144,6 +144,13 @@ impl ControlledTcpListenerOwner {
             .is_some_and(|pool| !pool.matches_original_scope(&scope.scope_identity()))
         {
             return Err(error(instance, Reason::StalePlan));
+        }
+        if let Some(pool) = &shared.accepted {
+            if !pool.has_task_failure_receiver(instance, &scope.scope_identity()) {
+                let mut error = error(instance, Reason::InvalidConfig);
+                error.delivery = DeliveryState::NotSubmitted;
+                return Err(error);
+            }
         }
         let binding = Binding {
             instance,

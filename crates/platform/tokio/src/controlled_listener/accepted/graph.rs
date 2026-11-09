@@ -17,6 +17,7 @@ mod peer;
 pub use peer::AcceptedPeerScope;
 mod carriers;
 mod inbound;
+mod received_failure;
 mod receiver;
 pub(super) mod resources;
 pub use resources::AcceptedResource;
@@ -60,6 +61,8 @@ pub(super) struct Users {
     carrier_cleanup: AsyncMutex<()>,
     local: OnceLock<std::net::SocketAddr>,
     pending_acks: Mutex<Vec<TaskJoinWitness>>,
+    task_failures: OnceLock<AcceptedTaskFailures>,
+    primary_failure: Mutex<Option<AcceptedTaskFailureReservation>>,
     lookup_totals: OnceLock<(
         zero_core::component::ComponentInstanceId,
         Weak<crate::controlled_carrier::CarrierOriginalTotals>,
@@ -82,6 +85,21 @@ struct Node {
     primary: bool,
     process: Option<Arc<crate::LocalProcessLookup>>,
     process_helper: bool,
+    received_failure: Option<crate::contract::scope::TaskJoined>,
+    fault: Option<AcceptedTaskFailureRegistration>,
+}
+impl Node {
+    fn retired_failure(&self) -> bool {
+        self.received_failure.as_ref().is_some_and(|joined| {
+            self.witness.matches_joined(joined)
+                && joined.failure_accepted()
+                && joined.registration_released()
+                && self
+                    .process
+                    .as_ref()
+                    .is_none_or(|original| original.retired())
+        })
+    }
 }
 /// A unique byte view disappearing is independent of every actual task join.
 pub(super) struct ViewUse(Arc<Users>);
@@ -104,6 +122,8 @@ impl Users {
         entry: Weak<Entry>,
         pool: Weak<Pool>,
         cancel: CancellationToken,
+        task_failures: Option<AcceptedTaskFailures>,
+        primary_failure: Option<AcceptedTaskFailureReservation>,
     ) -> Self {
         Self {
             authority,
@@ -118,6 +138,8 @@ impl Users {
             carrier_cleanup: AsyncMutex::new(()),
             local: OnceLock::new(),
             pending_acks: Mutex::default(),
+            task_failures: task_failures.map_or_else(OnceLock::new, OnceLock::from),
+            primary_failure: Mutex::new(primary_failure),
             lookup_totals: OnceLock::new(),
         }
     }
@@ -147,6 +169,7 @@ impl Users {
                 state
                     .tasks
                     .values()
+                    .filter(|node| !node.retired_failure())
                     .map(|node| node.witness.clone())
                     .collect::<Vec<_>>(),
                 state.resources.clone(),
@@ -201,7 +224,7 @@ impl Users {
             let ready = {
                 let state = self.state();
                 state.spawning == 0
-                    && state.tasks.is_empty()
+                    && state.tasks.values().all(Node::retired_failure)
                     && !self.view_live.load(Ordering::Acquire)
             };
             if ready {

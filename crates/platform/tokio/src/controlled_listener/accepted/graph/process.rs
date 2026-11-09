@@ -153,6 +153,11 @@ impl Users {
         original: Arc<LocalProcessLookup>,
     ) -> Result<(), ChannelError> {
         self.reap_process_lookups();
+        let mut fault = self
+            .task_failures
+            .get()
+            .map(AcceptedTaskFailures::reserve)
+            .transpose()?;
         let (caller_id, witness) = caller.task.get().ok_or_else(gone)?;
         {
             let mut state = self.state();
@@ -198,10 +203,16 @@ impl Users {
             accepted: false,
             registration_attempted: true,
         };
+        if let Some(fault) = &mut fault {
+            fault.begin_registration();
+        }
         let start = match original.register(&self.authority.registrar) {
             Ok(start) => start,
             Err(source) => {
                 installing.registration_attempted = false;
+                if let Some(fault) = fault.take() {
+                    fault.known_not_registered();
+                }
                 return Err(source);
             }
         };
@@ -209,6 +220,10 @@ impl Users {
             .witness()
             .expect("successful original blocking registration");
         let task = actual.task_id().expect("actual blocking TaskId");
+        let registered_fault = match fault.take() {
+            Some(fault) => Some(fault.registered(&actual)?),
+            None => None,
+        };
         {
             let mut state = self.state();
             if let Some(node) = state.tasks.get_mut(caller_id) {
@@ -227,6 +242,8 @@ impl Users {
                     primary: false,
                     process: Some(original),
                     process_helper: true,
+                    received_failure: None,
+                    fault: registered_fault,
                 },
             );
             state.spawning -= 1;
@@ -255,6 +272,7 @@ impl Users {
                 .iter()
                 .filter(|(_, node)| {
                     node.process_helper
+                        && (node.received_failure.is_none() || node.fault.is_some())
                         && node.process.as_ref().is_some_and(|original| {
                             original
                                 .witness()

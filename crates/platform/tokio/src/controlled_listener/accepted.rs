@@ -2,6 +2,11 @@
 //! transferred users or tasks completed. Explicit graph authority uses actual
 //! same-Scope joins; native-only or escaped-user paths remain Unaccounted.
 mod accept;
+mod failures;
+pub use failures::{
+    AcceptedTaskFailureCursor, AcceptedTaskFailureRegistration, AcceptedTaskFailureReservation,
+    AcceptedTaskFailureView, AcceptedTaskFailures,
+};
 mod capacity;
 mod close;
 pub(crate) mod graph;
@@ -116,6 +121,7 @@ pub(super) struct Pool {
     relay: Arc<relay::AcceptRelay>,
     graph: Option<graph::Authority>,
     originals: OnceLock<super::totals::Binding>,
+    task_failures: OnceLock<AcceptedTaskFailures>,
     logical_custody: Arc<std::sync::atomic::AtomicUsize>,
 }
 struct PoolState {

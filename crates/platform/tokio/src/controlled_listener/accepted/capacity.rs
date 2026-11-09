@@ -84,6 +84,13 @@ impl Pool {
                 .await;
             };
             if local {
+                if let Some(receiver) = self.task_failures.get() {
+                    tokio::select! { biased;
+                        _ = self.cancel.cancelled() => return Err(failure(Stage::Prepare, Reason::Revoked, "accepted TCP admission revoked")),
+                        _ = &mut changed => continue,
+                        result = receiver.wait_capacity() => result?,
+                    }
+                }
                 if let Some(root) = &root {
                     tokio::select! {biased;_=self.cancel.cancelled()=>return Err(failure(Stage::Prepare,Reason::Revoked,"accepted TCP admission revoked")),_=changed=>{},_=root.wait_capacity()=>return Ok(())}
                 } else {

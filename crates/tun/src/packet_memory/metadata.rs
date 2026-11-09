@@ -54,6 +54,22 @@ impl PacketDriverMetadataView {
             }
         }
     }
+    /// Passive same-Root policy/occupied-layout observation. Used only after
+    /// a permanent current-policy capacity result; no allocation/IO authority.
+    pub fn changed_since(
+        &self,
+        observed: PacketMetadataSnapshot,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let actual = self.clone();
+        async move {
+            let changed = actual.0.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if actual.snapshot() == observed {
+                changed.await;
+            }
+        }
+    }
     pub fn snapshot(&self) -> PacketMetadataSnapshot {
         self.0.driver_metadata()
     }

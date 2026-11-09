@@ -17,6 +17,8 @@ pub(crate) struct InboundTerminal {
     client_failure: Option<zero_platform_tokio::contract::scope::TaskJoined>,
     native_bound_failures: Box<[RetainedError]>,
     resource_failures: Box<[Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>]>,
+    // Original liability outlives every same-source diagnostic above.
+    client_task_failures: Option<zero_platform_tokio::AcceptedTaskFailures>,
 }
 impl InboundTerminal {
     pub(in crate::runtime::inbound_owners) fn publish(&self) {
@@ -41,6 +43,18 @@ impl InboundTerminal {
     }
     pub(crate) fn task_failures(&self) -> &[InboundTaskFailure] {
         &self.tasks
+    }
+    pub(crate) fn client_failures(
+        &self,
+    ) -> impl Iterator<Item = zero_platform_tokio::AcceptedTaskFailureView> + '_ {
+        self.client_failure_receiver()
+            .into_iter()
+            .flat_map(|actual| actual.iter())
+    }
+    pub(in crate::runtime::inbound_owners) fn client_failure_receiver(
+        &self,
+    ) -> Option<&zero_platform_tokio::AcceptedTaskFailures> {
+        self.client_task_failures.as_ref()
     }
     pub(crate) fn joined_tasks(&self) -> usize {
         self.joined_tasks
@@ -356,6 +370,7 @@ impl InboundOwner {
                         resource_failures,
                         native_bound_failures: native_bound_failures.into_boxed_slice(),
                         client_failure: self.client_failure.get().cloned(),
+                        client_task_failures: self.client_task_failures.get().cloned(),
                         identity: self.identity,
                         observation: self.observation.clone(),
                         joined_tasks: *self

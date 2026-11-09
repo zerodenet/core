@@ -4,6 +4,17 @@ use crate::contract::{scope::TaskJoinWitness, BoxFuture};
 use crate::controlled_carrier::SourceCustody;
 use std::{sync::atomic::AtomicBool, task::Context};
 impl Pool {
+    pub(in crate::controlled_listener) fn has_task_failure_receiver(
+        &self,
+        instance: zero_core::component::ComponentInstanceId,
+        scope: &crate::contract::scope::TaskScopeIdentity,
+    ) -> bool {
+        self.graph.is_none()
+            || self.task_failures.get().is_some_and(|receiver| {
+                receiver.instance() == instance && receiver.scope_identity().same_scope(scope)
+            })
+    }
+
     pub(in crate::controlled_listener) fn matches_original_scope(
         &self,
         scope: &crate::contract::scope::TaskScopeIdentity,

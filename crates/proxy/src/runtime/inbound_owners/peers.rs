@@ -5,6 +5,7 @@ use std::{collections::BTreeMap, future::Future};
 use tokio::sync::Notify;
 use zero_core::component::TaskId;
 pub(super) mod children;
+mod failures;
 
 // Preserve the actual Direct peer listener's existing admission bound.
 pub(crate) const MAX_DATAGRAM_PEERS: usize = 4096;
@@ -27,6 +28,7 @@ pub(crate) struct InboundPeerTasks {
     cancel: CancellationToken,
     state: Mutex<State>,
     changed: Notify,
+    client_task_failures: Option<zero_platform_tokio::AcceptedTaskFailures>,
 }
 struct Registration<'a> {
     group: &'a InboundPeerTasks,
@@ -78,8 +80,17 @@ impl InboundPeerTasks {
     pub(crate) fn diagnose_actual_retirement(&self) {
         let (preparing, children, claiming, fault, bindings) = {
             let state = self.state.lock().unwrap();
-            (state.preparing, state.children.len(), state.claiming.len(),
-             state.failure.clone(), state.active.iter().map(|(id, binding)| (*id, binding.clone())).collect::<Vec<_>>())
+            (
+                state.preparing,
+                state.children.len(),
+                state.claiming.len(),
+                state.failure.clone(),
+                state
+                    .active
+                    .iter()
+                    .map(|(id, binding)| (*id, binding.clone()))
+                    .collect::<Vec<_>>(),
+            )
         };
         eprintln!("actual H3 source peer census: preparing={preparing} children={children} claiming={claiming} fault={fault:?}");
         for (id, binding) in bindings {
@@ -141,11 +152,15 @@ impl InboundPeerTasks {
             .cloned()
             .collect::<Vec<_>>();
         let joined = bindings.into_iter().find_map(|binding| {
-            binding.observe_process_joined(task).or_else(|| {
-                binding
-                    .peer_scope()
-                    .and_then(|scope| scope.observe_joined(task))
-            })
+            let primary = binding.receive_primary_joined(task);
+            binding
+                .observe_process_joined(task)
+                .or_else(|| {
+                    binding
+                        .peer_scope()
+                        .and_then(|scope| scope.observe_joined(task))
+                })
+                .or(primary)
         });
         if joined.is_some() {
             self.notify_changed();
@@ -187,6 +202,7 @@ impl InboundPeerTasks {
             cancel,
             state: Mutex::default(),
             changed: Notify::new(),
+            client_task_failures: None,
         }
     }
     #[cfg(feature = "managed-datagram-runtime")]
@@ -244,6 +260,9 @@ impl InboundPeerTasks {
             )
             .into());
         }
+        let Some(mut task_failure) = self.reserve_task_failure(host)? else {
+            return Ok(false);
+        };
         let binding = {
             let mut state = self.state.lock().expect("peer task state poisoned");
             if state.closing || state.active.len() + state.preparing >= self.limit.get() {
@@ -270,10 +289,12 @@ impl InboundPeerTasks {
             drop(state);
             return Ok(false);
         }
+        task_failure.begin_registration();
         let id = host.spawn_critical_tracked(task);
         let (id, witness) = match id {
             Ok(registered) => registered,
             Err(source) => {
+                task_failure.known_not_registered();
                 use zero_platform_tokio::contract::{scope::SpawnError, Reason};
                 let reason = match source {
                     SpawnError::Capacity => Reason::Capacity,
@@ -304,6 +325,10 @@ impl InboundPeerTasks {
             }
         };
         // Receipt dispatch takes this same lock, including exit-before-insert.
+        let task_failure = task_failure
+            .registered(&witness)
+            .unwrap_or_else(|_| panic!("same original peer registration prepaid before spawn"));
+        binding.install_task_failure(task_failure);
         binding.bind(id, witness);
         state.active.insert(id, binding);
         state.preparing -= 1;

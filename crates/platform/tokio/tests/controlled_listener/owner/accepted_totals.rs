@@ -22,8 +22,19 @@ async fn same_live_source_accepts_again_only_after_original_native_users_and_hos
             &scope.registrar(),
         )
         .unwrap();
+        let instance = super::totals::instance(1);
+        // This explicit library fixture owns its metadata Root. It is never a
+        // fallback for missing production Host binding.
+        let packet_totals = Arc::new(zero_tun::packet_memory::PacketReturnTotals::default());
+        let failures = crate::AcceptedTaskFailures::prepare(
+            instance,
+            &scope.registrar(),
+            &packet_totals.driver_metadata_view(),
+        )
+        .unwrap();
+        original.bind_task_failure_receiver(&failures).unwrap();
         original
-            .bind_original_totals(super::totals::instance(1), &scope.registrar(), &roots)
+            .bind_original_totals(instance, &scope.registrar(), &roots)
             .unwrap();
         let mut listener = original.bind_listener(address).unwrap();
         let address = listener.local_addr().unwrap();

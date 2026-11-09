@@ -61,7 +61,7 @@ impl InboundOwner {
             loop {
                 match timeout_at(deadline, scope.next_exit()).await {
                     Ok(Some(exit)) => {
-                        self.record(exit);
+                        self.record_scoped(&scope, exit);
                     }
                     Ok(None) => {
                         self.scope_closed.store(true, Ordering::Release);

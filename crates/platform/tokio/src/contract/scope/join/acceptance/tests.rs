@@ -212,3 +212,53 @@ async fn dropping_a_real_local_record_without_explicit_acceptance_keeps_the_scop
     owner.begin_shutdown();
     assert!(owner.is_drained());
 }
+
+#[tokio::test]
+async fn only_the_original_ordinary_owner_accepts_its_exact_retained_task_exit_error() {
+    let mut owner = TaskScope::new(Handle::current(), NonZeroUsize::MIN);
+    let foreign = TaskScope::empty(Handle::current());
+    let (_, witness) = owner
+        .registrar()
+        .spawn_tracked(TaskClass::Auxiliary, async {
+            Err(
+                ChannelError::new(Stage::Receive, Reason::Io, Impact::Session)
+                    .with_source(io::Error::from_raw_os_error(104)),
+            )
+        })
+        .unwrap();
+    let event = owner.next_exit().await.unwrap();
+    let joined = witness.wait().await;
+    let original = joined.result().unwrap_err();
+    let retained = Arc::new(event.result.unwrap_err());
+    assert!(joined.registration_released());
+    assert!(!joined.failure_accepted());
+    // Preserve the old ordinary hosted-API no-op, including repeat delivery.
+    witness.acknowledge_hosted_failure(&joined).unwrap();
+    assert!(!joined.failure_accepted());
+    assert_eq!(
+        foreign.accept_retained_failure(&witness, &joined, retained.as_ref()),
+        Err(HostedReceiptError::ForeignTask)
+    );
+    let unrelated = ChannelError::new(Stage::Receive, Reason::Io, Impact::Session);
+    assert_eq!(
+        owner.accept_retained_failure(&witness, &joined, &unrelated),
+        Err(HostedReceiptError::ForeignTask)
+    );
+    assert!(!joined.failure_accepted());
+    owner
+        .accept_retained_failure(&witness, &joined, retained.as_ref())
+        .unwrap();
+    owner
+        .accept_retained_failure(&witness, &joined, retained.as_ref())
+        .unwrap();
+    assert!(joined.failure_accepted());
+    let source = std::error::Error::source(retained.as_ref())
+        .unwrap()
+        .downcast_ref::<SharedFailure>()
+        .unwrap();
+    assert!(Arc::ptr_eq(&source.0, &original));
+    assert!(owner
+        .shutdown(Instant::now() + Duration::from_secs(2))
+        .await
+        .is_complete());
+}

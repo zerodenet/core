@@ -1,6 +1,41 @@
 //! Actual owning receiver, original Scope identity and exit dispatch.
 use super::*;
 impl InboundOwner {
+    /// Retain the original raw caller's error before its ordinary local
+    /// acceptance. The original Scope remains the sole TaskExit consumer.
+    pub(super) fn record_scoped(&self, scope: &TaskScope, exit: TaskExit) -> bool {
+        #[cfg(feature = "managed-datagram-runtime")]
+        let witness = self
+            .peers
+            .lock()
+            .unwrap()
+            .iter()
+            .find_map(|group| group.original_caller_witness(exit.id));
+        let id = exit.id;
+        let failed = self.record(exit);
+        #[cfg(feature = "managed-datagram-runtime")]
+        if let Some(witness) = witness {
+            let retained = self
+                .task_failures
+                .lock()
+                .unwrap()
+                .get(&id)
+                .map(|actual| actual.source.clone());
+            if let (Some(retained), Some(joined)) = (retained, witness.try_joined()) {
+                if joined.result().is_err()
+                    && scope
+                        .accept_retained_failure(&witness, &joined, retained.as_ref())
+                        .is_err()
+                {
+                    self.stop();
+                    return true;
+                }
+            }
+        }
+        #[cfg(not(feature = "managed-datagram-runtime"))]
+        let _ = (scope, id);
+        failed
+    }
     pub(in crate::runtime::inbound_owners) fn preparation_tasks(
         &self,
     ) -> Result<TaskRegistrar, EngineError> {
@@ -23,7 +58,7 @@ impl InboundOwner {
             let exit = scope.next_exit().await.ok_or_else(|| {
                 std::io::Error::other("actual preparation task has no join receipt")
             })?;
-            if self.record(exit) {
+            if self.record_scoped(&scope, exit) {
                 self.stop();
             }
         }
@@ -58,7 +93,7 @@ impl InboundOwner {
                 let exit = scope.next_exit().await.ok_or_else(|| {
                     std::io::Error::other("listener driver exit remains unobserved")
                 })?;
-                let failed = self.record(exit); // persist the actual ID/source before any next await
+                let failed = self.record_scoped(&scope, exit); // persist the actual ID/source before any next await
                 if failed {
                     self.stop();
                 }
@@ -119,7 +154,7 @@ impl InboundOwner {
             let mut scope = self.scope.lock().await;
             scope.begin_shutdown();
             while let Some(exit) = scope.next_exit().await {
-                self.record(exit); // exact native exit persisted before the next await
+                self.record_scoped(&scope, exit); // exact native exit persisted before the next await
             }
             self.scope_closed.store(true, Ordering::Release);
         }

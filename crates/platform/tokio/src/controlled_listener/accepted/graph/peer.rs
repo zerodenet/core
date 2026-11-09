@@ -59,7 +59,7 @@ impl DatagramPeerAdmission {
             max_tasks: self.limits().max_tasks_per_peer,
             max_resources: self.limits().max_resources_per_peer,
         };
-        let mut users = Users::new(authority, Weak::new(), Weak::new(), cancel);
+        let mut users = Users::new(authority, Weak::new(), Weak::new(), cancel, None, None);
         users.peer = Some(Arc::new(Ledger {
             origin: AcceptedOrigin::Datagram,
             reports: Mutex::default(),
@@ -78,6 +78,8 @@ impl DatagramPeerAdmission {
                 primary: true,
                 process: None,
                 process_helper: false,
+                received_failure: None,
+                fault: None,
             },
         );
         let origin = Arc::new(OnceLock::new());
@@ -129,7 +131,7 @@ impl AcceptedPeerScope {
             max_tasks,
             max_resources,
         };
-        let mut users = Users::new(authority, Weak::new(), Weak::new(), cancel);
+        let mut users = Users::new(authority, Weak::new(), Weak::new(), cancel, None, None);
         users.peer = Some(Arc::new(Ledger {
             origin: AcceptedOrigin::Association,
             reports: Mutex::default(),
@@ -146,6 +148,8 @@ impl AcceptedPeerScope {
                 primary: true,
                 process: None,
                 process_helper: false,
+                received_failure: None,
+                fault: None,
             },
         );
         let origin = Arc::new(OnceLock::new());
@@ -241,6 +245,9 @@ impl ResourceLifecycle for AcceptedPeerScope {
             None => CloseReport::default(),
         };
         if report.is_complete() {
+            if self.users.task_failures.get().is_none() {
+                report.append(self.users.take_received_failures());
+            }
             report.append(
                 self.users
                     .peer

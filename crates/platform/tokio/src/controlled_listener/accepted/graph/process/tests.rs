@@ -37,11 +37,22 @@ async fn accepted_metadata_uses_real_same_entry_helper_and_keeps_original_until_
             &scope.registrar(),
         )
         .unwrap();
-        let roots = crate::controlled_carrier::CarrierOriginalTotals::new(NonZeroUsize::new(3).unwrap());
+        let roots =
+            crate::controlled_carrier::CarrierOriginalTotals::new(NonZeroUsize::new(3).unwrap());
         let instance = zero_core::component::ComponentInstanceId {
             component: zero_core::component::ComponentId(913),
             generation: zero_core::component::ResourceGeneration(1),
         };
+        // Explicit metadata policy of this independent actual-IO fixture;
+        // production must receive its existing Host Root instead.
+        let packet_totals = Arc::new(zero_tun::packet_memory::PacketReturnTotals::default());
+        let failures = crate::AcceptedTaskFailures::prepare(
+            instance,
+            &scope.registrar(),
+            &packet_totals.driver_metadata_view(),
+        )
+        .unwrap();
+        owner.bind_task_failure_receiver(&failures).unwrap();
         owner
             .bind_original_totals(instance, &scope.registrar(), &roots)
             .unwrap();

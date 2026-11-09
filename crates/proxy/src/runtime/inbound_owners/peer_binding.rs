@@ -2,6 +2,7 @@
 use super::*;
 use crate::component::instance::{retained, SharedError};
 use tokio::sync::Notify;
+mod failures;
 mod observer;
 mod packet_receiver;
 mod process;
@@ -9,11 +10,22 @@ mod responses;
 use zero_core::component::TaskId;
 use zero_platform_tokio::contract::{scope::TaskClass, ChannelError, Impact, Reason, Stage};
 
-#[derive(Debug)]
 pub(crate) struct JoinedPeer {
     task: TaskId,
     class: TaskClass,
     failure: Option<SharedError>,
+    // The original observer/result may outlive Binding. Keep the same paid
+    // task-header responsibility after its actual registration has ended.
+    _task_failure: Option<zero_platform_tokio::AcceptedTaskFailureRegistration>,
+}
+impl std::fmt::Debug for JoinedPeer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JoinedPeer")
+            .field("task", &self.task)
+            .field("class", &self.class)
+            .field("failure", &self.failure)
+            .finish()
+    }
 }
 impl JoinedPeer {
     pub(crate) fn task(&self) -> TaskId {
@@ -32,6 +44,8 @@ struct State {
     witness: Option<zero_platform_tokio::contract::scope::TaskJoinWitness>,
     joined: Option<Arc<JoinedPeer>>,
     rejected: Option<SharedError>,
+    // JoinObserver shares this exact cell, without holding Binding or Scope.
+    task_failure: Option<zero_platform_tokio::AcceptedTaskFailureRegistration>,
 }
 #[derive(Default)]
 struct JoinCell {
@@ -49,6 +63,7 @@ pub(crate) struct HostPeerBinding {
     cancel: CancellationToken,
     responses: Mutex<Option<responses::ResponseOwner>>,
     peer_scope: Mutex<Option<zero_platform_tokio::AcceptedPeerScope>>,
+    task_failure: std::sync::OnceLock<zero_platform_tokio::AcceptedTaskFailureRegistration>,
 }
 impl std::fmt::Debug for HostPeerBinding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -65,6 +80,13 @@ impl HostPeerBinding {
         &self,
         scope: zero_platform_tokio::AcceptedPeerScope,
     ) -> Result<(), ChannelError> {
+        let original = self.task_failure.get().ok_or_else(|| {
+            self.error(
+                Reason::InvalidConfig,
+                "peer has no original paid task-fault registration",
+            )
+        })?;
+        scope.bind_task_failure_registration(original)?;
         let root = self
             .lookup_root
             .upgrade()
@@ -97,6 +119,7 @@ impl HostPeerBinding {
             cancel: cancel.child_token(),
             responses: Mutex::new(None),
             peer_scope: Mutex::new(None),
+            task_failure: std::sync::OnceLock::new(),
         }
     }
     pub(super) fn bind(
@@ -134,6 +157,7 @@ impl HostPeerBinding {
             task,
             class,
             failure,
+            _task_failure: state.task_failure.clone(),
         }));
         drop(state);
         self.request_stop();

@@ -22,7 +22,9 @@ impl SharedIngressRuntimeServices {
         let mut shared = self.clone();
         shared.tcp_services = self.tcp_services.with_prepared_components()?;
         #[cfg(feature = "udp-runtime")]
-        { shared.udp_runtime = UdpIngressRuntime::new(shared.tcp_services.clone()); }
+        {
+            shared.udp_runtime = UdpIngressRuntime::new(shared.tcp_services.clone());
+        }
         Ok(shared)
     }
     pub(super) fn with_inbound_instance(
@@ -60,10 +62,19 @@ impl SharedIngressRuntimeServices {
         tag: &str,
         terminal: &crate::runtime::inbound_owners::InboundTerminal,
     ) {
-        if let Some(joined) = terminal.client_failure() {
+        let mut received_client_fault = false;
+        for joined in terminal.client_failures() {
+            received_client_fault = true;
             tracing::debug!(inbound_tag = tag, task_id = joined.id().0,
                 task_class = ?joined.class(), error = ?joined.result().err(),
                 "accepted client rejection retained after inbound closure");
+        }
+        if !received_client_fault {
+            if let Some(joined) = terminal.client_failure() {
+                tracing::debug!(inbound_tag = tag, task_id = joined.id().0,
+                    task_class = ?joined.class(), error = ?joined.result().err(),
+                    "accepted client rejection retained after inbound closure");
+            }
         }
         let Some(failure) = terminal.failure() else {
             return;

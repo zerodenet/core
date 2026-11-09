@@ -2,9 +2,11 @@
 pub(crate) mod accepted;
 mod control;
 pub use accepted::{
-    AcceptedCaller, AcceptedOrigin, AcceptedPeerScope, AcceptedResource, AcceptedTasks,
-    AcceptedTcp, AcceptedTcpClaim, AcceptedTcpClosed, AcceptedTcpEvidence, AcceptedTcpNativeClosed,
-    AcceptedTcpStream, AcceptedTcpTaskReceiver, AcceptedTcpUsers,
+    AcceptedCaller, AcceptedOrigin, AcceptedPeerScope, AcceptedResource, AcceptedTaskFailureCursor,
+    AcceptedTaskFailureRegistration, AcceptedTaskFailureReservation, AcceptedTaskFailureView,
+    AcceptedTaskFailures, AcceptedTasks, AcceptedTcp, AcceptedTcpClaim, AcceptedTcpClosed,
+    AcceptedTcpEvidence, AcceptedTcpNativeClosed, AcceptedTcpStream, AcceptedTcpTaskReceiver,
+    AcceptedTcpUsers,
 };
 mod native;
 mod owner;
@@ -13,7 +15,7 @@ use crate::TokioSocket;
 pub use control::ControlledTcpListenerControl;
 pub use owner::ControlledTcpListenerOwner;
 use std::{
-    future::{Future, poll_fn},
+    future::{poll_fn, Future},
     io,
     net::SocketAddr,
     pin::Pin,

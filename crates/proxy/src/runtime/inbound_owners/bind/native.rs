@@ -68,6 +68,13 @@ impl NativeBindGrant {
                 zero_platform_tokio::contract::Impact::Component,
             )
         })?;
+        let source = owner.upgrade().ok_or_else(|| {
+            ChannelError::new(
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::Revoked,
+                zero_platform_tokio::contract::Impact::Component,
+            )
+        })?;
         if declarations
             .iter()
             .any(|d| matches!(d, ResourceDeclaration::ListenerHandoff { .. }))
@@ -108,7 +115,7 @@ impl NativeBindGrant {
                 )?;
                 let tcp = tcp_group::prepare(identity, declarations, attempts, cancel, registrar)?;
                 for (_, grant) in &tcp {
-                    grant.bind_original_budgets(&originals, registrar)?;
+                    grant.bind_original_budgets(&originals, registrar, &source)?;
                 }
                 Ok(Self::Metadata { resources, tcp })
             }
@@ -121,7 +128,7 @@ impl NativeBindGrant {
                 registrar,
             )
             .and_then(|grant| {
-                grant.bind_original_budgets(&originals, registrar)?;
+                grant.bind_original_budgets(&originals, registrar, &source)?;
                 Ok(Arc::new(grant))
             })
             .map(Self::Tcp),

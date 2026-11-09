@@ -5,7 +5,11 @@ use crate::contract::scope::{TaskClass, TaskJoined};
 /// Weak access to the same listener's bounded entry table. No second task map,
 /// scope owner, task joiner, or permission to fabricate TaskJoined is created.
 #[derive(Clone)]
-pub struct AcceptedTcpTaskReceiver(Weak<Pool>, Arc<std::sync::atomic::AtomicUsize>);
+pub struct AcceptedTcpTaskReceiver(
+    Weak<Pool>,
+    Arc<std::sync::atomic::AtomicUsize>,
+    Option<AcceptedTaskFailures>,
+);
 impl AcceptedTcpTaskReceiver {
     /// Retire logical originals even when their waiting caller was cancelled.
     /// Only the original Scope's consumed witnesses permit this operation.
@@ -58,7 +62,14 @@ impl AcceptedTcpTaskReceiver {
         Ok(())
     }
     pub(in crate::controlled_listener::accepted) fn new(pool: &Arc<Pool>) -> Self {
-        Self(Arc::downgrade(pool), pool.logical_custody.clone())
+        Self(
+            Arc::downgrade(pool),
+            pool.logical_custody.clone(),
+            pool.task_failures.get().cloned(),
+        )
+    }
+    pub fn task_failures(&self) -> Option<&AcceptedTaskFailures> {
+        self.2.as_ref()
     }
     pub fn limit(&self) -> Option<NonZeroUsize> {
         self.0.upgrade().map(|pool| pool.limit)
@@ -139,6 +150,13 @@ impl Users {
                 }
             }
         }
+        if joined.result().is_ok() {
+            if let Some(fault) = &node.fault {
+                if !fault.matches(&node.witness) || fault.receive(&joined).is_err() {
+                    return None;
+                }
+            }
+        }
         if let Err(source) = joined.result() {
             // Persist original ID/class/Arc before accepting a local client
             // rejection. This bounded first receipt survives slot reuse.
@@ -154,7 +172,21 @@ impl Users {
             } else {
                 return None;
             }
-            if joined.class() == TaskClass::Auxiliary {
+            if !node.witness.is_hosted() {
+                // Every ordinary error stays in THIS original finite Node,
+                // including secondary errors. The first diagnostic is not its
+                // receiver. No extra history table or Source/controller edge.
+                if !self.retain_ordinary_caller_failure(id, &node.witness, &joined, &source) {
+                    return None;
+                }
+            } else if joined.class() == TaskClass::Auxiliary {
+                if let Some(fault) = &node.fault {
+                    if !fault.matches(&node.witness) || fault.receive(&joined).is_err() {
+                        return None;
+                    }
+                } else if self.task_failures.get().is_some() {
+                    return None;
+                }
                 // Hosted local delivery is distinct from the host's actual
                 // non-cloneable acknowledgement and never refunds Scope credit.
                 if node.witness.acknowledge_hosted_failure(&joined).is_err() {
@@ -198,7 +230,12 @@ impl Users {
             {
                 self.logical_dirty.store(true, Ordering::Release);
             }
-            if node.process_helper {
+            if node.process_helper
+                || state
+                    .tasks
+                    .get(&id)
+                    .is_some_and(|node| node.received_failure.is_some() && node.fault.is_none())
+            {
                 // Deliver the original fault first so the actual Scope can
                 // ACK. The helper's native controller and credit stay until
                 // that same registration is released, not just body/join.

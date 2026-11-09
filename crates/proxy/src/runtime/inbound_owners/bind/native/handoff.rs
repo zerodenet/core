@@ -100,7 +100,11 @@ impl Grant {
                 .set(roots.clone())
                 .map_err(|_| denied("handoff root already installed"))?;
         }
-        self.outer.bind_original_budgets(roots, &self.tasks)
+        let owner = self
+            .host
+            .upgrade()
+            .ok_or_else(|| denied("handoff Source retired"))?;
+        self.outer.bind_original_budgets(roots, &self.tasks, &owner)
     }
     pub(super) fn bind(self: &Arc<Self>) -> Result<NativeListenerView, EngineError> {
         let outer = self.outer.bind()?;
@@ -134,8 +138,11 @@ impl Grant {
                 .map_err(std::io::Error::other)?,
             );
             if let Some(roots) = self.originals.get() {
+                let owner = self.host.upgrade().ok_or_else(|| {
+                    std::io::Error::other("handoff Source retired before native creation")
+                })?;
                 grant
-                    .bind_original_budgets(roots, &self.tasks)
+                    .bind_original_budgets(roots, &self.tasks, &owner)
                     .map_err(std::io::Error::other)?;
             }
             // Persist the actual owner and receiver before native creation.

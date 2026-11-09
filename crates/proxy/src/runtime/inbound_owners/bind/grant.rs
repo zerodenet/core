@@ -107,12 +107,18 @@ impl NativeTcpGrant {
         &self,
         roots: &Arc<zero_runtime::HostOriginalBudgets>,
         tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
+        owner: &InboundOwner,
     ) -> Result<(), ChannelError> {
         let mut native = self
             .native
             .try_lock()
             .map_err(|_| ChannelError::new(Stage::Prepare, Reason::Capacity, Impact::Component))?;
-        native.bind_original_totals(self.identity, tasks, &roots.carrier)
+        if self.accepted.is_some() {
+            let failures = owner.prepare_client_failures(roots)?;
+            native.bind_task_failure_receiver(&failures)?;
+        }
+        native.bind_original_totals(self.identity, tasks, &roots.carrier)?;
+        Ok(())
     }
     pub(super) fn accepted_task_receiver(
         &self,

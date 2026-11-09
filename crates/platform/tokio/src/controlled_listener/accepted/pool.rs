@@ -9,6 +9,7 @@ impl Pool {
             relay: Arc::new(relay::AcceptRelay::new()),
             graph: None,
             originals: OnceLock::new(),
+            task_failures: OnceLock::new(),
             logical_custody: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             state: Mutex::new(PoolState {
                 next: 0,
@@ -29,6 +30,20 @@ impl Pool {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
     pub(super) fn reserve(self: &Arc<Self>) -> Result<Reservation, ChannelError> {
+        if self.cancel.is_cancelled() {
+            return Err(failure(
+                Stage::Prepare,
+                Reason::Revoked,
+                "accepted TCP admission revoked",
+            ));
+        }
+        // Pay this actual primary liability before polling native accept.
+        // The same Source receiver already owns every future filled cell.
+        let primary = self
+            .task_failures
+            .get()
+            .map(AcceptedTaskFailures::reserve)
+            .transpose()?;
         let mut state = self.state();
         if self.cancel.is_cancelled() {
             return Err(failure(
@@ -87,6 +102,8 @@ impl Pool {
                     entry.clone(),
                     Arc::downgrade(self),
                     cancel.clone(),
+                    self.task_failures.get().cloned(),
+                    primary,
                 ))
             }),
             cancel,
@@ -180,6 +197,30 @@ impl Pool {
         }
     }
     pub(super) fn take_report(&self) -> CloseReport {
+        let mut received = CloseReport::default();
+        let mut after = 0;
+        // Explicit library delivery: one actual entry at a time, no snapshot
+        // table. Pure fault metadata stays charged to the original entry N
+        // until this owning caller really takes its terminal report.
+        loop {
+            let next = self
+                .state()
+                .entries
+                .range((std::ops::Bound::Excluded(after), std::ops::Bound::Unbounded))
+                .next()
+                .map(|(id, entry)| (*id, entry.clone()));
+            let Some((id, entry)) = next else { break };
+            after = id;
+            if entry.state().phase != Phase::Closed {
+                continue;
+            }
+            if let Some(users) = &entry.users {
+                if users.task_failures.get().is_none() && users.complete() {
+                    received.append(users.take_received_failures());
+                    self.confirm(&entry);
+                }
+            }
+        }
         let mut state = self.state();
         let count = state.closed - state.reported;
         state.reported = state.closed;
@@ -189,13 +230,21 @@ impl Pool {
                 "{count} accepted TCP originals explicitly closed (native only)"
             ));
         }
+        report.append(received);
         report
     }
     pub(super) fn confirm(&self, entry: &Arc<Entry>) {
+        if let Some(users) = &entry.users {
+            users.prune_original_acks();
+        }
         let reclaim = entry
             .users
             .as_ref()
             .is_none_or(|users| users.complete() && users.original_acks().iter().all(acked));
+        let reclaim = reclaim
+            && entry.users.as_ref().is_none_or(|users| {
+                users.task_failures.get().is_some() || !users.has_received_failures()
+            });
         let mut new_closed = false;
         let removed = {
             let mut state = self.state();

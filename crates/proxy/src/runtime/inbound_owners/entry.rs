@@ -32,6 +32,7 @@ pub(super) use readiness::readiness_stopped;
 pub(crate) use readiness::InboundReady;
 mod accepted;
 mod acquisition;
+mod client_failures;
 pub(in crate::runtime) use acquisition::AcquisitionPause;
 mod cleanup_fault;
 #[cfg(feature = "managed-datagram-runtime")]
@@ -119,6 +120,9 @@ pub(crate) struct InboundOwner {
     pending_native_cause: Mutex<Option<SharedError>>,
     #[cfg(feature = "managed-datagram-runtime")]
     peers: Arc<Mutex<Vec<Arc<super::InboundPeerTasks>>>>,
+    // Keep prepaid originals until the diagnostics and reports above have
+    // dropped their references to these same actual task headers.
+    client_task_failures: OnceLock<zero_platform_tokio::AcceptedTaskFailures>,
 }
 #[cfg(feature = "raw-ip-runtime")]
 #[derive(Default)]
@@ -337,6 +341,7 @@ impl InboundOwner {
             report: Mutex::new(CloseReport::default()),
             failure: Mutex::new(None),
             accepted_receiver: Mutex::new(Vec::new()),
+            client_task_failures: OnceLock::new(),
             acquisition: Arc::default(),
             client_failure: OnceLock::new(),
             driver: OnceLock::new(),
@@ -455,11 +460,14 @@ impl InboundOwner {
         &self,
         protocols: ProtocolInventory,
     ) -> Arc<super::InboundPeerTasks> {
-        let group = Arc::new(super::InboundPeerTasks::new(
-            self.identity,
-            self.cancel.clone(),
-            protocols,
-        ));
+        let failures = self
+            .prepare_client_failures(&protocols.runtime_host().original_budgets())
+            .expect("actual test peer Source fault metadata");
+        let mut group = super::InboundPeerTasks::new(self.identity, self.cancel.clone(), protocols);
+        group
+            .bind_task_failures(failures)
+            .expect("same actual test Source");
+        let group = Arc::new(group);
         let mut peers = self.peers.lock().expect("peer owners poisoned");
         assert!(
             !self.cancel.is_cancelled(),
@@ -474,6 +482,9 @@ impl InboundOwner {
         protocols: ProtocolInventory,
         limit: NonZeroUsize,
     ) -> Result<Arc<super::InboundPeerTasks>, EngineError> {
+        let failures = self
+            .prepare_client_failures(&protocols.runtime_host().original_budgets())
+            .map_err(std::io::Error::other)?;
         let mut groups = self.peers.lock().expect("peer owners poisoned");
         if self.cancel.is_cancelled() || self.driver.get().is_some() {
             return Err(std::io::Error::other(
@@ -498,12 +509,16 @@ impl InboundOwner {
             )
             .into());
         }
-        let group = Arc::new(super::InboundPeerTasks::with_limit(
+        let mut group = super::InboundPeerTasks::with_limit(
             self.identity,
             self.cancel.clone(),
             protocols,
             limit,
-        ));
+        );
+        group
+            .bind_task_failures(failures)
+            .map_err(std::io::Error::other)?;
+        let group = Arc::new(group);
         groups.push(group.clone());
         Ok(group)
     }

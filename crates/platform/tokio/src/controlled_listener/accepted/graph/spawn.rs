@@ -41,6 +41,22 @@ impl Users {
                 "accepted scope admission is closed",
             ));
         }
+        let mut fault = if primary {
+            let original = self.primary_failure.lock().unwrap().take();
+            if original.is_none() && self.task_failures.get().is_some() {
+                return Err(failure(
+                    Stage::Prepare,
+                    Reason::InvalidConfig,
+                    "actual primary fault liability is missing",
+                ));
+            }
+            original
+        } else {
+            self.task_failures
+                .get()
+                .map(AcceptedTaskFailures::reserve)
+                .transpose()?
+        };
         {
             let mut state = self.state();
             if state.sealed || state.unaccounted || (primary && state.primary) {
@@ -82,6 +98,9 @@ impl Users {
         // A registrar unwind may have installed a real task before returning
         // its opaque identity. Preserve that gap instead of claiming no task.
         starting.registration_attempted = true;
+        if let Some(fault) = &mut fault {
+            fault.begin_registration();
+        }
         let registration = self.authority.registrar.spawn_tracked(class, async move {
             if admitted.await.is_err() {
                 return Ok(());
@@ -95,6 +114,9 @@ impl Users {
             Ok(registration) => registration,
             Err(source) => {
                 starting.registration_attempted = false;
+                if let Some(fault) = fault.take() {
+                    fault.known_not_registered();
+                }
                 let reason = match source {
                     crate::contract::scope::SpawnError::Capacity => Reason::Capacity,
                     crate::contract::scope::SpawnError::IdentityExhausted => Reason::Internal,
@@ -113,6 +135,19 @@ impl Users {
                 return Err(retained(source));
             }
         };
+        let registered_fault = match fault.take() {
+            Some(fault) => match fault.registered(&witness) {
+                Ok(fault) => Some(fault),
+                Err(error) => {
+                    let mut state = self.state();
+                    state.unaccounted = true;
+                    state.spawning -= 1;
+                    starting.accepted = true;
+                    return Err(error);
+                }
+            },
+            None => None,
+        };
         assert!(
             task.set((id, witness.clone())).is_ok(),
             "one original accepted task registration"
@@ -126,6 +161,8 @@ impl Users {
                     primary,
                     process: None,
                     process_helper: false,
+                    received_failure: None,
+                    fault: registered_fault,
                 },
             );
             state.spawning -= 1;

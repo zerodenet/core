@@ -4,6 +4,58 @@ use crate::contract::{
     lifecycle::{ChannelControl, Unfinished},
 };
 impl ControlledTcpListenerOwner {
+    /// Same actual Source receiver, before any native accept or handler.
+    /// This binds paid pure fault custody, never task/IO/close authority.
+    pub fn bind_task_failure_receiver(
+        &mut self,
+        receiver: &AcceptedTaskFailures,
+    ) -> Result<(), ChannelError> {
+        let Some(pool) = &self.control.shared.accepted else {
+            return Ok(());
+        };
+        if !pool.state().entries.is_empty() || self.acquired_view() {
+            return Err(failure(
+                Stage::Prepare,
+                Reason::Revoked,
+                "accepted receiver installed after acquisition",
+            ));
+        }
+        if !pool.matches_original_scope(&receiver.scope_identity()) {
+            return Err(failure(
+                Stage::Prepare,
+                Reason::StalePlan,
+                "accepted receiver differs from actual Scope",
+            ));
+        }
+        if let Some(binding) = pool.originals.get() {
+            if binding.instance != receiver.instance() {
+                return Err(failure(
+                    Stage::Prepare,
+                    Reason::StalePlan,
+                    "accepted receiver differs from actual instance",
+                ));
+            }
+        }
+        if let Some(actual) = pool.task_failures.get() {
+            return if actual.same_receiver(receiver) {
+                Ok(())
+            } else {
+                Err(failure(
+                    Stage::Prepare,
+                    Reason::StalePlan,
+                    "accepted receiver changed",
+                ))
+            };
+        }
+        pool.task_failures.set(receiver.clone()).map_err(|_| {
+            failure(
+                Stage::Prepare,
+                Reason::StalePlan,
+                "accepted receiver already installed",
+            )
+        })
+    }
+
     /// Same original listener/pool/Scope as literal binding. The host must
     /// freeze real DNS results before any native creation is authorized.
     pub fn new_resolving_with_accepted_graph(
