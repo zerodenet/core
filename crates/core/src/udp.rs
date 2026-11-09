@@ -105,6 +105,8 @@ pub struct InboundUdpDispatch {
     transparent_target: bool,
     transparent_original_target: Option<Address>,
     transparent_host_source: Option<TargetHostSource>,
+    // All owned address Strings above are destroyed before their actual credit.
+    domain_memory: domain::DomainMemory,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -387,6 +389,7 @@ impl InboundUdpDispatch {
             transparent_target: false,
             transparent_original_target: None,
             transparent_host_source: None,
+            domain_memory: Default::default(),
         }
     }
 
@@ -488,9 +491,17 @@ impl InboundUdpDispatch {
     }
 
     pub fn into_parts(self) -> (ProtocolType, Address, u16, Vec<u8>, Option<u64>) {
+        // Explicit independent-library conversion, like payload.into_vec().
+        // Never move the Source's paid String into an untracked owned result.
+        // Kernel Source callers borrow this dispatch through the actual pipe.
+        let target = if self.domain_metadata().is_some() {
+            self.target.clone()
+        } else {
+            self.target
+        };
         (
             self.protocol,
-            self.target,
+            target,
             self.port,
             self.payload.into_vec(),
             self.client_session_id,
@@ -537,4 +548,5 @@ impl UdpFlowPacket {
 #[cfg(test)]
 mod tests;
 
+mod domain;
 mod payload;
