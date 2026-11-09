@@ -1,8 +1,8 @@
 use super::*;
 use crate::application::services::network::stream::EventStream;
-use zero_core::{Address, component::NetworkGeneration, request::Destination};
+use zero_core::{component::NetworkGeneration, request::Destination, Address};
 use zero_platform_tokio::contract::network::{CarrierContext, UpstreamBinding, UpstreamOpener};
-use zero_platform_tokio::{EgressInterfaceControl, controlled_carrier::NativeCarrierOpener};
+use zero_platform_tokio::{controlled_carrier::NativeCarrierOpener, EgressInterfaceControl};
 
 /// A cancelled waiting connect stops only its exact original. Cleanup remains
 /// in the same Epoch/CarrierOwner and is driven after the actual helper joins.

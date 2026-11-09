@@ -1,7 +1,7 @@
 use super::*;
-use zero_platform_tokio::contract::{lifecycle::ResourceLifecycle, CloseReason};
 use std::sync::{mpsc, Barrier};
 use zero_core::{request::Destination, Address};
+use zero_platform_tokio::contract::{lifecycle::ResourceLifecycle, CloseReason};
 
 #[tokio::test]
 async fn concurrent_revoke_after_original_bind_fences_escaped_views_without_dropping_the_fd() {

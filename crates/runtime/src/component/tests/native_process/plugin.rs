@@ -1,16 +1,16 @@
 #![cfg(unix)]
 use crate::component::catalog::supervision::testing::TestContext;
-use crate::component::{ComponentRecipe, catalog::ComponentCatalog, instance::ComponentSlot};
+use crate::component::{catalog::ComponentCatalog, instance::ComponentSlot, ComponentRecipe};
 use shadowsocks::{
     component::PluginFactory,
-    transport::{ShadowsocksTransportState, plugin::PluginTermination},
+    transport::{plugin::PluginTermination, ShadowsocksTransportState},
     validation::{PluginConfig, PluginMode},
 };
 use std::{
     path::PathBuf,
     sync::{
-        Arc,
         atomic::{AtomicU64, Ordering},
+        Arc,
     },
 };
 use tokio::time::{Duration, Instant};
@@ -91,8 +91,8 @@ fn slot(state: &ShadowsocksTransportState, config: PluginConfig) -> Arc<Componen
 }
 
 #[tokio::test]
-async fn actual_host_slot_grants_one_real_plugin_child_and_joins_its_actual_monitor_before_reporting_exit()
- {
+async fn actual_host_slot_grants_one_real_plugin_child_and_joins_its_actual_monitor_before_reporting_exit(
+) {
     let marker = Marker::new();
     let config = marker.config("time.sleep(60)");
     let state = ShadowsocksTransportState::default();
@@ -153,15 +153,15 @@ async fn rejected_native_adoption_and_its_discarded_owner_never_revoke_the_legac
 }
 
 #[tokio::test]
-async fn actual_registered_plugin_monitor_reports_the_actual_child_exit_with_its_real_component_identity()
- {
+async fn actual_registered_plugin_monitor_reports_the_actual_child_exit_with_its_real_component_identity(
+) {
     use crate::component::instance::HostResources;
     use zero_core::component::ComponentRoleIds;
     use zero_platform_tokio::contract::{
-        CancellationToken,
         component::{BuildContext, ComponentFactory},
         lifecycle::TaskClass,
         scope::TaskScope,
+        CancellationToken,
     };
     let marker = Marker::new();
     let exit_gate = marker.0.with_extension("exit");
@@ -241,13 +241,11 @@ async fn actual_registered_plugin_monitor_reports_the_actual_child_exit_with_its
         "actual typed exit missing: {error:?}"
     );
     assert_eq!(marker.starts(), 1);
-    assert!(
-        instance
-            .lifecycle
-            .shutdown(deadline())
-            .await
-            .unwrap()
-            .is_complete()
-    );
+    assert!(instance
+        .lifecycle
+        .shutdown(deadline())
+        .await
+        .unwrap()
+        .is_complete());
     assert!(scope.shutdown(deadline()).await.is_complete());
 }

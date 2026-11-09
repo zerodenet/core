@@ -2,11 +2,11 @@ use super::*;
 use std::os::windows::io::AsRawHandle;
 use windows_sys::Win32::{
     Foundation::{
-        CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_BROKEN_PIPE, ERROR_HANDLE_EOF,
+        CloseHandle, DuplicateHandle, DUPLICATE_SAME_ACCESS, ERROR_BROKEN_PIPE, ERROR_HANDLE_EOF,
         ERROR_NOT_FOUND, ERROR_OPERATION_ABORTED, HANDLE,
     },
     Storage::FileSystem::ReadFile,
-    System::{IO::CancelSynchronousIo, Threading::GetCurrentProcess},
+    System::{Threading::GetCurrentProcess, IO::CancelSynchronousIo},
 };
 #[derive(Default)]
 pub(crate) struct Input {

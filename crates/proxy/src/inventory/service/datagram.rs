@@ -5,6 +5,7 @@ use zero_platform_tokio::contract::component::RoleKind;
 pub(crate) struct ServiceDatagram {
     pub(crate) slot: Arc<ComponentSlot>,
     pub(crate) tag: Option<String>,
+    pub(crate) native: Option<(usize, zero_core::request::Destination)>,
 }
 impl ProtocolInventory {
     pub(crate) fn prepare_service_datagram(
@@ -53,12 +54,51 @@ impl ProtocolInventory {
             && slot.recipe.spec().resources.is_empty()
             && components.has_background_carrier_pool(slot.role_id())
             && components.stream_dependencies_supported(slot.role_id());
-        if !roles.contains(&RoleKind::Datagram) || !(device || metadata || shared) {
+        let mut native = None;
+        if slot.dial == Default::default()
+            && components.stream_dependencies_supported(slot.role_id())
+        {
+            for (ordinal, resource) in slot.recipe.spec().resources.iter().enumerate() {
+                use zero_platform_tokio::contract::component::ResourceDeclaration as R;
+                let (endpoint, dial, capacity) = match resource {
+                    R::ControlledCarrierPool {
+                        endpoint,
+                        dial,
+                        datagram: true,
+                        max_sockets,
+                    }
+                    | R::ControlledAssociationPool {
+                        endpoint,
+                        dial,
+                        max_sockets,
+                    } => (endpoint, dial, max_sockets),
+                    _ => continue,
+                };
+                let installed = dial == &slot.dial
+                    && slot.original_carrier_owner(ordinal).is_some_and(|owner| {
+                        owner.instance() == slot.instance_id()
+                            && owner.limit() == *capacity
+                            && owner.bound().is_some_and(|bound| {
+                                slot.matches_live_scope(&bound.scope_identity())
+                            })
+                    });
+                if installed {
+                    if native.is_some() {
+                        return Ok(None);
+                    }
+                    native = Some((ordinal, endpoint.clone()));
+                }
+            }
+        }
+        if !roles.contains(&RoleKind::Datagram)
+            || !(device || metadata || shared || native.is_some())
+        {
             return Ok(None);
         }
         Ok(Some(ServiceDatagram {
             slot,
             tag: Some(outbound.tag.clone()),
+            native,
         }))
     }
 }

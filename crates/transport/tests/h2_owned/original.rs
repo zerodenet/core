@@ -2,20 +2,20 @@ use super::*;
 use std::{num::NonZeroUsize, sync::Arc};
 use tokio::time::Instant;
 use zero_core::{
-    Address,
     component::{ComponentId, ComponentInstanceId, NetworkGeneration, ResourceGeneration},
     request::Destination,
+    Address,
 };
 use zero_platform_tokio::{
-    EgressInterfaceControl,
     contract::{
-        CancellationToken, CloseReason, Reason,
         component::ResourceDeclaration,
         lifecycle::ResourceLifecycle,
         network::{CarrierContext, UpstreamBinding, UpstreamTransport},
         scope::{TaskClass, TaskScope},
+        CancellationToken, CloseReason, Reason,
     },
     controlled_carrier::{CarrierOwner, NativeCarrierOpener},
+    EgressInterfaceControl,
 };
 fn end() -> Instant {
     Instant::now() + Duration::from_secs(4)

@@ -2,11 +2,11 @@
 use crate::runtime::route_runtime::InboundListenerRuntime;
 #[cfg(feature = "managed-datagram-runtime")]
 mod peer;
-use futures_util::{StreamExt, stream::FuturesUnordered};
+use futures_util::{stream::FuturesUnordered, StreamExt};
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::{
-    CancellationToken, ChannelError, Impact, Reason, Stage, context::AcceptContext,
-    inbound::DynInboundSource, lifecycle::TaskClass,
+    context::AcceptContext, inbound::DynInboundSource, lifecycle::TaskClass, CancellationToken,
+    ChannelError, Impact, Reason, Stage,
 };
 
 pub(in crate::runtime) async fn run(
@@ -27,8 +27,11 @@ pub(in crate::runtime) async fn run(
             if *shutdown.borrow() {
                 return Ok(());
             }
-            let idle=closing.is_empty() && source_host.is_none_or(|host| host.peer_groups_quiescent());
-            if let Some(acquisition)=&acquisition { acquisition.observe_idle(idle); }
+            let idle =
+                closing.is_empty() && source_host.is_none_or(|host| host.peer_groups_quiescent());
+            if let Some(acquisition) = &acquisition {
+                acquisition.observe_idle(idle);
+            }
             tokio::select! { biased;
                 changed = shutdown.changed() => {
                     if changed.is_err() || *shutdown.borrow() { return Ok(()); }

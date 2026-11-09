@@ -119,7 +119,11 @@ fn revoked() -> ChannelError {
     )
 }
 impl CarrierPreparationJob {
-    pub(in crate::controlled_carrier) fn matches_slot(&self, slot: &Arc<Slot>, tasks: &TaskRegistrar) -> bool {
+    pub(in crate::controlled_carrier) fn matches_slot(
+        &self,
+        slot: &Arc<Slot>,
+        tasks: &TaskRegistrar,
+    ) -> bool {
         self.slot
             .upgrade()
             .is_some_and(|actual| Arc::ptr_eq(&actual, slot))

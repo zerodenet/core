@@ -1,12 +1,12 @@
 //! One inline probe at a time; its native receipt never joins its own actor.
 use super::*;
 use crate::{
-    ControlledTcpControl, ControlledTcpStream, PendingTcpConnect,
-    contract::lifecycle::ChannelControl,
+    contract::lifecycle::ChannelControl, ControlledTcpControl, ControlledTcpStream,
+    PendingTcpConnect,
 };
 use std::sync::{
-    OnceLock,
     atomic::{AtomicBool, Ordering},
+    OnceLock,
 };
 pub struct ProcessProbe {
     io: Option<ControlledTcpStream>,

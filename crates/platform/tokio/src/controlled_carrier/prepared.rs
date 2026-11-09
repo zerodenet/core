@@ -1,7 +1,7 @@
 use super::{adoption::CarrierAdoption, connect_error, error, slot::Slot, view::CarrierIo};
 use crate::{
-    EgressInterfaceControl, PendingTcpConnect,
     contract::{CancellationToken, ChannelError, DeliveryState, Reason, Stage},
+    EgressInterfaceControl, PendingTcpConnect,
 };
 use std::sync::Arc;
 use tokio::time::Instant;

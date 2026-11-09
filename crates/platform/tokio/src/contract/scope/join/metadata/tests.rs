@@ -16,8 +16,7 @@ async fn success() -> (HostedScope, TaskJoinWitness, HostedExitReceipt, TaskJoin
 }
 
 #[tokio::test]
-async fn successful_headers_wait_for_real_release_and_every_original_strong_and_weak_observer()
-{
+async fn successful_headers_wait_for_real_release_and_every_original_strong_and_weak_observer() {
     tokio::time::timeout(Duration::from_secs(3), async {
         let (mut scope, witness, receipt, joined) = success().await;
         let (witness, joined) =
@@ -80,10 +79,8 @@ async fn failed_or_foreign_original_receipts_return_unchanged_completed_witnesse
         other.begin_shutdown();
         assert!(scope.is_drained() && other.is_drained());
 
-        let mut scope = TaskScope::suspended_hosted(
-            tokio::runtime::Handle::current(),
-            Some(NonZeroUsize::MIN),
-        );
+        let mut scope =
+            TaskScope::suspended_hosted(tokio::runtime::Handle::current(), Some(NonZeroUsize::MIN));
         scope.enable_registration().unwrap();
         let (_, witness) = scope
             .registrar()

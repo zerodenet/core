@@ -48,7 +48,9 @@ impl<'a> From<&'a PacketProviderRegistration> for CarrierOriginOwner<'a> {
     }
 }
 impl<'a> From<&'a LogicalPacketProviderRegistration> for CarrierOriginOwner<'a> {
-    fn from(owner: &'a LogicalPacketProviderRegistration) -> Self { Self::LogicalPacket(owner) }
+    fn from(owner: &'a LogicalPacketProviderRegistration) -> Self {
+        Self::LogicalPacket(owner)
+    }
 }
 impl<'a> CarrierOriginOwner<'a> {
     pub fn instance(self) -> ComponentInstanceId {
@@ -99,7 +101,9 @@ impl<'a> CarrierOriginOwner<'a> {
     pub fn users_closed(self) -> Option<CarrierOriginUsersClosed> {
         match self {
             Self::Carrier(owner) => owner.users_closed().map(CarrierOriginUsersClosed),
-            Self::Packet(_) | Self::LogicalPacket(_) | Self::Listener(_) | Self::Metadata(_) => None,
+            Self::Packet(_) | Self::LogicalPacket(_) | Self::Listener(_) | Self::Metadata(_) => {
+                None
+            }
         }
     }
 }

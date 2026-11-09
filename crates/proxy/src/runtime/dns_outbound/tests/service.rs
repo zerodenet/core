@@ -248,3 +248,6 @@ mod binding;
 
 #[path = "service/health.rs"]
 mod health;
+
+#[path = "service/udp.rs"]
+mod udp;

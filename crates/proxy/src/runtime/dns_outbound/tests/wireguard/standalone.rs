@@ -6,12 +6,10 @@ pub(super) async fn close(
     root: &CarrierOrigin,
     children: &[CarrierOrigin],
 ) {
-    assert!(
-        proxy
-            .system_tun_source_registry()
-            .owner("wg-source")
-            .is_none()
-    );
+    assert!(proxy
+        .system_tun_source_registry()
+        .owner("wg-source")
+        .is_none());
     assert!(
         proxy.engine().active_sessions().is_empty()
             && proxy.engine().completed_sessions().is_empty()
@@ -44,8 +42,8 @@ pub(super) async fn close(
     );
 }
 #[tokio::test]
-async fn ordinary_standalone_wireguard_dns_udp_cancel_returns_query_socket_and_preserves_same_native_bound_wire()
- {
+async fn ordinary_standalone_wireguard_dns_udp_cancel_returns_query_socket_and_preserves_same_native_bound_wire(
+) {
     tokio::time::timeout(Duration::from_secs(25), async {
         let mut dns = crate::dns_fixture::Dns::new().await;
         let peer = peer::Peer::new(dns.address).await;

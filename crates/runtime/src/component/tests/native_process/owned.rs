@@ -8,8 +8,8 @@ fn end() -> Instant {
 }
 
 #[tokio::test]
-async fn actual_host_process_budget_retains_pending_original_and_requires_tree_actor_and_native_closes()
- {
+async fn actual_host_process_budget_retains_pending_original_and_requires_tree_actor_and_native_closes(
+) {
     let mut scope = TaskScope::new(
         tokio::runtime::Handle::current(),
         NonZeroUsize::new(1).unwrap(),
@@ -33,11 +33,9 @@ async fn actual_host_process_budget_retains_pending_original_and_requires_tree_a
         tokio::runtime::Handle::current(),
         NonZeroUsize::new(1).unwrap(),
     );
-    assert!(
-        resources
-            .prepare_owned_process(ProcessRequest::new("python3"), &foreign.registrar())
-            .is_err()
-    );
+    assert!(resources
+        .prepare_owned_process(ProcessRequest::new("python3"), &foreign.registrar())
+        .is_err());
     let mut request = ProcessRequest::new("python3");
     request.arguments = vec!["-c".into(), "import time;time.sleep(60)".into()];
     let original = resources

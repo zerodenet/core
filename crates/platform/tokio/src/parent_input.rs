@@ -1,15 +1,15 @@
 //! One original managed-parent input, worker and Scope. EOF is not closure.
 use crate::contract::{
-    ChannelError, Impact, Reason, Stage,
     lifecycle::{CloseReport, Unfinished},
     scope::{TaskClass, TaskJoinWitness, TaskScope},
+    ChannelError, Impact, Reason, Stage,
 };
 use std::{
     io,
     num::NonZeroUsize,
     sync::{
-        Arc, Condvar, Mutex, OnceLock, Weak,
         atomic::{AtomicBool, Ordering},
+        Arc, Condvar, Mutex, OnceLock, Weak,
     },
 };
 use tokio::{

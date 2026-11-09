@@ -43,10 +43,14 @@ impl Drop for RetainUnknownOnUnwind {
 #[derive(Debug)]
 struct RetainedQuotaSource(Arc<io::Error>);
 impl std::fmt::Display for RetainedQuotaSource {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { self.0.fmt(f) }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
 }
 impl std::error::Error for RetainedQuotaSource {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> { Some(self.0.as_ref()) }
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.0.as_ref())
+    }
 }
 fn retained(source: &Arc<io::Error>) -> io::Error {
     io::Error::new(source.kind(), RetainedQuotaSource(source.clone()))
@@ -91,7 +95,7 @@ impl ConfigurationSource {
         path: &Path,
         decode: impl FnOnce(&mut dyn std::io::Read) -> io::Result<T>,
     ) -> io::Result<(u64, io::Result<T>)> {
-        self.inspect_file_snapshot(path,decode)
+        self.inspect_file_snapshot(path, decode)
     }
 
     /// Streaming inspection by the actual quota inspector and CLI binary hash.

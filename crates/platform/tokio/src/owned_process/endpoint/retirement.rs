@@ -1,5 +1,5 @@
 //! Observation of the actual Host declaration, including failed pre-child IO.
-use crate::contract::{BoxFuture, ChannelError, scope::TaskScopeIdentity};
+use crate::contract::{scope::TaskScopeIdentity, BoxFuture, ChannelError};
 use zero_core::component::ComponentInstanceId;
 /// Read-only view issued by that exact existing ResourceAccess provider before
 /// any reservation attempt. It issues no native/start/cleanup authority and is

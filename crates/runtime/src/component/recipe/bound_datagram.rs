@@ -4,12 +4,12 @@ use super::*;
 use crate::component::instance::HostResources;
 use zero_core::component::{ComponentInstanceId, NetworkGeneration};
 use zero_platform_tokio::{
-    EgressInterfaceControl, EgressSelection,
     contract::{
-        CancellationToken, ChannelError, Reason,
         component::{DatagramBindingAuthorization, ResourceDeclaration},
         scope::{TaskRegistrar, TaskScopeIdentity},
+        CancellationToken, ChannelError, Reason,
     },
+    EgressInterfaceControl, EgressSelection,
 };
 use zero_traits::DialPolicy;
 

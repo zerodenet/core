@@ -2,14 +2,14 @@
 use super::*;
 use std::net::{IpAddr, SocketAddr};
 use zero_core::{
-    Address,
     request::{Destination, ServicePurpose},
+    Address,
 };
 use zero_platform_tokio::contract::{
-    DeliveryState, Impact, Stage,
     context::RequestIdentity,
     dns::{DnsQueryContext, DnsService},
     network::CarrierContext,
+    DeliveryState, Impact, Stage,
 };
 
 pub(crate) async fn resolve_with(

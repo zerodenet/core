@@ -4,7 +4,7 @@ use std::{sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
-    time::{Instant, timeout},
+    time::{timeout, Instant},
 };
 use zero_config::RuntimeConfig;
 use zero_platform_tokio::contract::component::ResourceDeclaration;

@@ -190,8 +190,8 @@ async fn default_controlled_denial_never_calls_old_opener_or_fabricates_a_native
     assert!(tasks.exited_tasks.is_empty());
 }
 #[tokio::test]
-async fn actual_task_registration_capacity_failure_keeps_original_source_and_closes_socket_without_task_id()
- {
+async fn actual_task_registration_capacity_failure_keeps_original_source_and_closes_socket_without_task_id(
+) {
     timeout(Duration::from_secs(6), async {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let peer = listener.local_addr().unwrap();

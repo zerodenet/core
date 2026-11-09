@@ -50,10 +50,10 @@ async fn actual_delivered_registration_wait_survives_cancel_foreign_receiver_and
                 future::{poll_fn, Future},
                 task::Poll,
             };
-            let mut wait = Box::pin(
-                receiver
-                    .wait_delivery_registration_released(&retained, Instant::now() + Duration::from_secs(1)),
-            );
+            let mut wait = Box::pin(receiver.wait_delivery_registration_released(
+                &retained,
+                Instant::now() + Duration::from_secs(1),
+            ));
             poll_fn(|cx| {
                 assert!(wait.as_mut().poll(cx).is_pending());
                 Poll::Ready(())

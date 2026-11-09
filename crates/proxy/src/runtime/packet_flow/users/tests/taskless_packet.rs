@@ -7,17 +7,26 @@ async fn taskless_packet_views_need_both_control_closed_and_return_without_claim
     let mut scope = hosted();
     let (mut original, peer) = tokio::io::duplex(1);
     let (ready, pending_read) = tokio::sync::oneshot::channel();
-    let (_, main) = scope.registrar().spawn_tracked(TaskClass::Critical, async move {
-        let mut byte = [0];
-        let mut buffer = tokio::io::ReadBuf::new(&mut byte);
-        std::future::poll_fn(|cx| {
-            assert!(tokio::io::AsyncRead::poll_read(std::pin::Pin::new(&mut original), cx, &mut buffer).is_pending());
-            Poll::Ready(())
-        }).await;
-        ready.send(()).unwrap();
-        assert_eq!(original.read(&mut byte).await.unwrap(), 0);
-        Ok(())
-    }).unwrap();
+    let (_, main) = scope
+        .registrar()
+        .spawn_tracked(TaskClass::Critical, async move {
+            let mut byte = [0];
+            let mut buffer = tokio::io::ReadBuf::new(&mut byte);
+            std::future::poll_fn(|cx| {
+                assert!(tokio::io::AsyncRead::poll_read(
+                    std::pin::Pin::new(&mut original),
+                    cx,
+                    &mut buffer
+                )
+                .is_pending());
+                Poll::Ready(())
+            })
+            .await;
+            ready.send(()).unwrap();
+            assert_eq!(original.read(&mut byte).await.unwrap(), 0);
+            Ok(())
+        })
+        .unwrap();
     pending_read.await.unwrap();
     let first = FlowUsers::new(limit());
     let (views, control) = first.acquire_packet_source(main.clone()).unwrap();
@@ -34,7 +43,10 @@ async fn taskless_packet_views_need_both_control_closed_and_return_without_claim
     assert!(report.exited_tasks.is_empty());
     assert!(report.closed_io.is_empty());
     assert_eq!(first.slots.active(), 0);
-    assert!(!main.is_joined(), "no source join was manufactured for this logical view");
+    assert!(
+        !main.is_joined(),
+        "no source join was manufactured for this logical view"
+    );
 
     let second = FlowUsers::new(limit());
     let (held, control) = second.acquire_packet_source(main.clone()).unwrap();

@@ -19,12 +19,10 @@ async fn process_endpoint_tcp_original_has_real_peer_and_cancel_retains_user_unt
 {
     let running = Running::start().await;
     let mut scope = TaskScope::empty(tokio::runtime::Handle::current());
-    assert!(
-        !scope
-            .registrar()
-            .scope_identity()
-            .same_scope(&running.witness.scope_identity())
-    );
+    assert!(!scope
+        .registrar()
+        .scope_identity()
+        .same_scope(&running.witness.scope_identity()));
     let mut owner = CarrierOwner::new(
         instance(720),
         NonZeroUsize::new(1).unwrap(),
@@ -75,7 +73,10 @@ async fn process_endpoint_tcp_original_has_real_peer_and_cancel_retains_user_unt
         .open(end())
         .await
         .unwrap();
-    assert_eq!(carrier.endpoints().peer(), running.handoff.address().unwrap());
+    assert_eq!(
+        carrier.endpoints().peer(),
+        running.handoff.address().unwrap()
+    );
     let (io, actual) = carrier.into_parts();
     let mut loan = io.into_stream_loan(view).unwrap();
     assert!(
@@ -147,12 +148,10 @@ async fn process_endpoint_udp_uses_sameport_real_original_and_foreign_grant_is_r
     assert!(!foreign.registration().same_owner(&owner.registration()));
     foreign.start(end()).await.unwrap();
     let foreign_grant = foreign.grants().reserve().unwrap();
-    assert!(
-        running
-            .handoff
-            .authorize_consumer(&fence, bound.clone(), &foreign_grant)
-            .is_err()
-    );
+    assert!(running
+        .handoff
+        .authorize_consumer(&fence, bound.clone(), &foreign_grant)
+        .is_err());
     drop(foreign_grant);
     let mut grant = owner.grants().reserve().unwrap();
     let actual = grant.adoption();

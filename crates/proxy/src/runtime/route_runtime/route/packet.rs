@@ -4,13 +4,13 @@ use crate::{component::instance::invalid, runtime::inbound_owners::InboundTaskAc
 use std::{net::SocketAddr, sync::Arc};
 use zero_core::{component::RoleInstanceId, packet::PacketFacts, request::Destination};
 use zero_platform_tokio::contract::{
-    BoxFuture, CancellationToken, ChannelError, Reason,
     context::{ConnectObserver, OpenContext, RequestIdentity},
     datagram::{BoxDatagramSession, DatagramRequest},
     network::{CarrierContext, UpstreamBinding, UpstreamOpener, UpstreamTransport},
     packet::{BoxPacketSession, PacketRequest},
     scope::TaskJoinWitness,
     stream::BoxStream,
+    BoxFuture, CancellationToken, ChannelError, Reason,
 };
 struct SourceOpener {
     network: crate::protocol_registry::UpstreamConnectServices,
@@ -139,7 +139,12 @@ impl InboundRouteRuntimeFactory {
         let tag = match plan.role_tag(selected) {
             Some(tag) => tag,
             None if plan.direct(None)?.role_id() == selected => "direct",
-            None => return Err(invalid(Reason::StalePlan, "selected Packet owner has no actual tag")),
+            None => {
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "selected Packet owner has no actual tag",
+                ))
+            }
         };
         let network = execution.upstream_observed(tag);
         let binding = UpstreamBinding {

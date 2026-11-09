@@ -7,6 +7,7 @@ use zero_platform_tokio::{
 };
 mod controlled;
 mod direct;
+mod native_datagram;
 mod pending;
 #[cfg(any(target_os = "linux", windows))]
 mod process;
@@ -15,6 +16,7 @@ pub(super) struct Root {
     receiver: super::super::failure::Receiver,
     query_entry: std::sync::OnceLock<std::sync::Weak<custody::NativeUse>>,
     native: Option<ResolvingCarrierOpener>,
+    native_datagram: Option<(zero_core::component::ComponentInstanceId, usize)>,
     binding: UpstreamBinding,
     endpoint: Destination,
     node_dns: Arc<dyn zero_platform_tokio::contract::dns::DnsService>,
@@ -62,6 +64,7 @@ impl Root {
                 Arc::new(services.egress_control()),
                 services.observer(),
             )?),
+            native_datagram: None,
             binding,
             endpoint,
             node_dns: services.native_node_dns(),
@@ -388,6 +391,29 @@ impl UpstreamOpener for Root {
             self.observer.clone(),
         )?
         .prepare_controlled_stream(binding, endpoint, call, grant)
+    }
+    fn resolve_controlled_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        endpoint: Destination,
+        call: CarrierContext,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::controlled_carrier::CarrierCandidates, ChannelError>,
+    > {
+        self.resolve_native_datagram(binding.clone(), endpoint, call)
+    }
+    fn resolve_related_datagram(
+        &self,
+        binding: &UpstreamBinding,
+        parent: zero_platform_tokio::controlled_carrier::CarrierAdoption,
+        endpoint: Destination,
+        call: CarrierContext,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::controlled_carrier::CarrierCandidates, ChannelError>,
+    > {
+        self.resolve_related_native_datagram(binding.clone(), parent, endpoint, call)
     }
     fn acquire_controlled_stream(
         &self,

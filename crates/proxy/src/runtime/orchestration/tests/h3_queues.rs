@@ -56,7 +56,10 @@ async fn web(address: std::net::SocketAddr) {
     endpoint.set_default_client_config(
         zero_transport::quic::client_config(true, None, &[b"h3".to_vec()], None).unwrap(),
     );
-    eprintln!("actual H3 web client original local={:?}",endpoint.local_addr().unwrap());
+    eprintln!(
+        "actual H3 web client original local={:?}",
+        endpoint.local_addr().unwrap()
+    );
     let connection = endpoint
         .connect(address, "localhost")
         .unwrap()

@@ -46,12 +46,10 @@ async fn real_join_does_not_release_hosted_registration_credit_before_its_actual
     let joined = witness.wait().await;
     assert!(!joined.registration_released());
     let mut released = Box::pin(witness.wait_registration_released());
-    assert!(
-        released
-            .as_mut()
-            .poll(&mut Context::from_waker(Waker::noop()))
-            .is_pending()
-    );
+    assert!(released
+        .as_mut()
+        .poll(&mut Context::from_waker(Waker::noop()))
+        .is_pending());
     assert_eq!(
         owner
             .registrar()
@@ -69,12 +67,10 @@ async fn real_join_does_not_release_hosted_registration_credit_before_its_actual
     let receipt = next(&mut owner).await;
     assert_eq!(receipt.id(), next_id);
     owner.acknowledge(&receipt).unwrap();
-    assert!(
-        next_witness
-            .wait_registration_released()
-            .await
-            .registration_released()
-    );
+    assert!(next_witness
+        .wait_registration_released()
+        .await
+        .registration_released());
     owner.begin_shutdown();
     assert!(owner.is_drained());
 }

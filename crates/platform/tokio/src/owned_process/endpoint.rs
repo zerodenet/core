@@ -14,8 +14,8 @@ mod users;
 use super::{OwnedProcess, ProcessEndpointSpec};
 use crate::{
     contract::{
-        CancellationToken, ChannelError,
         scope::{TaskJoinWitness, TaskRegistrar, TaskScopeIdentity},
+        CancellationToken, ChannelError,
     },
     controlled_carrier::CarrierAdoption,
 };

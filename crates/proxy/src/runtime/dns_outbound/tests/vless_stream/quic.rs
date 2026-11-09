@@ -3,8 +3,8 @@ use super::*;
 use zero_platform_tokio::controlled_carrier::CarrierOriginOwner;
 mod fixture;
 use fixture::*;
-mod pending;
 mod datagram;
+mod pending;
 #[tokio::test]
 async fn ordinary_quic_native_and_borrowed_doh_use_the_same_real_query_and_endpoint_owners() {
     tokio::time::timeout(Duration::from_secs(30), async {

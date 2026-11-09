@@ -9,7 +9,7 @@ use windows_sys::Win32::{
     Foundation::WAIT_OBJECT_0,
     Security::SECURITY_ATTRIBUTES,
     System::Threading::{
-        CreateEventW, OpenProcess, PROCESS_SYNCHRONIZE, SetEvent, WaitForSingleObject,
+        CreateEventW, OpenProcess, SetEvent, WaitForSingleObject, PROCESS_SYNCHRONIZE,
     },
 };
 fn end() -> Instant {
@@ -204,12 +204,10 @@ async fn missing_program_retains_original_failure_and_cold_actor_join_until_clea
     begin.send(witness).unwrap();
     scope.next_exit().await.unwrap();
     assert!(original.first_failure().is_some());
-    assert!(
-        !original
-            .try_finish()
-            .unwrap()
-            .unwrap()
-            .had_native_acquisition()
-    );
+    assert!(!original
+        .try_finish()
+        .unwrap()
+        .unwrap()
+        .had_native_acquisition());
     assert!(scope.shutdown(end()).await.is_complete());
 }

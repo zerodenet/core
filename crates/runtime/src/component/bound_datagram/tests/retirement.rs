@@ -1,7 +1,7 @@
 //! Real native originals, unique view return and actual scoped wire consumption.
 use super::*;
 use std::{
-    future::{Future, poll_fn},
+    future::{poll_fn, Future},
     net::SocketAddr,
     task::Poll,
 };

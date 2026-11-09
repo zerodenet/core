@@ -1,4 +1,4 @@
-use super::{RawLaunch, isolation};
+use super::{isolation, RawLaunch};
 
 pub(super) unsafe fn root(gate: i32, errors: i32, launch: RawLaunch) -> ! {
     unsafe {

@@ -15,6 +15,7 @@ pub(super) struct ReadSlot {
 pub(super) struct SlotState {
     pub(super) ready: Option<credit::Credit>,
     pub(super) revoked: bool,
+    envelope: Option<super::transmit::PacketTransmitEnvelope>,
 }
 impl ReadSlot {
     pub(super) fn return_credit(&self, credit: credit::Credit) {
@@ -32,7 +33,12 @@ impl ReadSlot {
             "same unique read workspace returned once"
         );
         state.ready = Some(credit);
+        let unused = state
+            .envelope
+            .as_ref()
+            .and_then(|envelope| envelope.anchor_returned_credit());
         drop(state);
+        drop(unused);
         self.notify();
     }
     pub(super) fn notify(&self) {
@@ -47,6 +53,12 @@ impl ReadSlot {
 }
 impl NativeReadGrant {
     pub(super) fn from_credit(credit: credit::Credit) -> Self {
+        Self::from_credit_with_envelope(credit, None)
+    }
+    pub(super) fn from_credit_with_envelope(
+        credit: credit::Credit,
+        envelope: Option<super::transmit::PacketTransmitEnvelope>,
+    ) -> Self {
         assert_eq!(credit.frames, 1, "one original IO workspace");
         Self(Arc::new(ReadSlot {
             root: credit.root.clone(),
@@ -54,6 +66,7 @@ impl NativeReadGrant {
             state: Mutex::new(SlotState {
                 ready: Some(credit),
                 revoked: false,
+                envelope,
             }),
             changed: Notify::new(),
             blocking: Condvar::new(),
@@ -91,10 +104,12 @@ impl NativeReadGrant {
             return Err(PacketMemoryError::Stopped);
         }
         let credit = state.ready.take().ok_or(PacketMemoryError::Busy)?;
-        Ok(NativePacketCredit::new(
-            credit,
-            Some(Arc::downgrade(&self.0)),
-        ))
+        let mut packet = NativePacketCredit::new(credit, Some(Arc::downgrade(&self.0)));
+        packet.reserved_envelope = state.envelope.clone();
+        if let Some(envelope) = &packet.reserved_envelope {
+            envelope.anchor_borrowed();
+        }
+        Ok(packet)
     }
     pub async fn buffer(&self) -> Result<NativeReadBuffer, PacketMemoryError> {
         self.workspace().await.map(NativeReadBuffer::from_credit)
@@ -144,8 +159,10 @@ impl NativeReadGrant {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.revoked = true;
         let unused = state.ready.take();
+        let envelope = state.envelope.take();
         drop(state);
         drop(unused);
+        drop(envelope);
         self.wake();
         self.0.root.wake();
     }
@@ -184,11 +201,14 @@ impl NativeReadGrant {
                 return Err(PacketMemoryError::Paused);
             }
             if let Some(credit) = state.ready.take() {
+                let envelope = state.envelope.clone();
+                if let Some(envelope) = &envelope {
+                    envelope.anchor_borrowed();
+                }
                 drop(state);
-                return Ok(NativeReadBuffer::from_credit(NativePacketCredit::new(
-                    credit,
-                    Some(Arc::downgrade(&self.0)),
-                )));
+                let mut packet = NativePacketCredit::new(credit, Some(Arc::downgrade(&self.0)));
+                packet.reserved_envelope = envelope;
+                return Ok(NativeReadBuffer::from_credit(packet));
             }
             state = self
                 .0

@@ -4,8 +4,8 @@ use std::sync::Arc;
 use zero_core::request::Destination;
 use zero_platform_tokio::{
     contract::{
-        DeliveryState,
         network::{CarrierContext, PendingCarrierObserver, UpstreamTransport},
+        DeliveryState,
     },
     controlled_carrier::{CarrierCandidates, CarrierGrant, PreparedCarrier},
 };

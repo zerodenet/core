@@ -78,16 +78,14 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(missing.kind(), io::ErrorKind::NotFound);
-        assert!(
-            missing
-                .get_ref()
-                .unwrap()
-                .downcast_ref::<MaterialRead>()
-                .unwrap()
-                .source
-                .raw_os_error()
-                .is_some()
-        );
+        assert!(missing
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<MaterialRead>()
+            .unwrap()
+            .source
+            .raw_os_error()
+            .is_some());
         source.confirm_original_io_closed().unwrap();
     }
 }

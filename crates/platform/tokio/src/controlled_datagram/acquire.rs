@@ -1,5 +1,5 @@
 use super::*;
-use crate::{EgressSelection, dial};
+use crate::{dial, EgressSelection};
 use std::net::SocketAddr;
 use zero_traits::{AddressFamily, DialPolicy};
 

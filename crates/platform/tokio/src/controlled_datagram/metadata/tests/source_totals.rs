@@ -174,21 +174,18 @@ async fn source_root_native_retirement_invokes_original_io_wakers_outside_metada
             let mut buffers = [IoSliceMut::new(&mut bytes)];
             let mut metadata = [MetadataReceive::default()];
             let waker = Waker::from(reenter);
-            assert!(
-                rx.poll_recv(
+            assert!(rx
+                .poll_recv(
                     &mut Context::from_waker(&waker),
                     &mut buffers,
                     &mut metadata
                 )
-                .is_pending()
-            );
+                .is_pending());
             notice.send(()).unwrap();
             released.await.unwrap();
-            assert!(
-                poll_fn(|cx| rx.poll_recv(cx, &mut buffers, &mut metadata))
-                    .await
-                    .is_err()
-            );
+            assert!(poll_fn(|cx| rx.poll_recv(cx, &mut buffers, &mut metadata))
+                .await
+                .is_err());
             drop((rx, tx));
             Ok(())
         })
@@ -209,12 +206,10 @@ async fn source_root_native_retirement_invokes_original_io_wakers_outside_metada
     let native = control.close().unwrap();
     assert_eq!(native.reservation(), control.reservation());
     release.send(()).unwrap();
-    assert!(
-        scope
-            .shutdown(tokio::time::Instant::now() + std::time::Duration::from_secs(3))
-            .await
-            .is_complete()
-    );
+    assert!(scope
+        .shutdown(tokio::time::Instant::now() + std::time::Duration::from_secs(3))
+        .await
+        .is_complete());
     assert_eq!(root.snapshot().charged, 0);
     let report = owner.lock().unwrap().take_report();
     assert_eq!(

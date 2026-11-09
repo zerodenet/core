@@ -30,39 +30,76 @@ impl PreparedComponentStart<'_> {
         ) -> Result<std::collections::BTreeSet<ComponentId>, ChannelError>,
     ) -> Result<Arc<ComponentPlan>, ChannelError> {
         let pending = {
-            let state = self.catalog.state.lock().expect("component catalog poisoned");
-            state.replacement.as_ref().filter(|pending| {
-                !state.maintenance && Arc::ptr_eq(&pending.candidate, &self.plan)
-                    && pending.released()
-                    && pending.matches_current(state.current.as_ref().map(Current::ready))
-                    && state.staged.as_ref().is_none_or(|entry| !Arc::ptr_eq(entry.ready(), &self.plan))
-            }).cloned().ok_or_else(|| invalid(Reason::StalePlan,
-                "network refresh no longer owns its confirmed cold replacement"))?
+            let state = self
+                .catalog
+                .state
+                .lock()
+                .expect("component catalog poisoned");
+            state
+                .replacement
+                .as_ref()
+                .filter(|pending| {
+                    !state.maintenance
+                        && Arc::ptr_eq(&pending.candidate, &self.plan)
+                        && pending.released()
+                        && pending.matches_current(state.current.as_ref().map(Current::ready))
+                        && state
+                            .staged
+                            .as_ref()
+                            .is_none_or(|entry| !Arc::ptr_eq(entry.ready(), &self.plan))
+                })
+                .cloned()
+                .ok_or_else(|| {
+                    invalid(
+                        Reason::StalePlan,
+                        "network refresh no longer owns its confirmed cold replacement",
+                    )
+                })?
         };
         for slot in &self.plan.order {
             slot.seal_unbuilt_refresh()?;
         }
         let (plan, replacement) = {
-            let mut state = self.catalog.state.lock().expect("component catalog poisoned");
-            if !state.replacement.as_ref().is_some_and(|actual| Arc::ptr_eq(actual, &pending)) {
-                return Err(invalid(Reason::StalePlan, "network refresh replacement changed"));
+            let mut state = self
+                .catalog
+                .state
+                .lock()
+                .expect("component catalog poisoned");
+            if !state
+                .replacement
+                .as_ref()
+                .is_some_and(|actual| Arc::ptr_eq(actual, &pending))
+            {
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "network refresh replacement changed",
+                ));
             }
             let plan = Arc::new(self.catalog.prepare_restart_plan_with_devices(
-                &self.config, Some((&self.config, &self.plan)), &state.issued, prepare,
+                &self.config,
+                Some((&self.config, &self.plan)),
+                &state.issued,
+                prepare,
             )?);
             let replacement = Arc::new(replacement::Replacement::new(
-                plan.clone(), state.current.as_ref().map(Current::ready),
+                plan.clone(),
+                state.current.as_ref().map(Current::ready),
                 pending.owned_plans().cloned(),
             )?);
             if let Some(pause) = pending.budget_pause() {
                 replacement.retain_budget_pause(pause);
             }
             for slot in &plan.order {
-                state.issued.entry(slot.id)
+                state
+                    .issued
+                    .entry(slot.id)
                     .and_modify(|floor| *floor = (*floor).max(slot.generation))
                     .or_insert(slot.generation);
             }
-            state.cold = Some(Current { config: self.config.clone(), plan: Ok(plan.clone()) });
+            state.cold = Some(Current {
+                config: self.config.clone(),
+                plan: Ok(plan.clone()),
+            });
             state.replacement = Some(replacement.clone());
             state.prune_issued();
             (plan, replacement)
@@ -72,8 +109,11 @@ impl PreparedComponentStart<'_> {
         // faults stay reported; never-built first-pass slots prove NoAcquisition
         // through their normal cleanup instead of a manufactured close token.
         ComponentCatalog::finish_replacement(&replacement, deadline, |terminal| {
-            terminal.failure().map_or(Ok(()), |failure| Err(failure.retained()))
-        }).await?;
+            terminal
+                .failure()
+                .map_or(Ok(()), |failure| Err(failure.retained()))
+        })
+        .await?;
         Ok(plan)
     }
     /// Start only this same confirmed candidate. Source preparation may have

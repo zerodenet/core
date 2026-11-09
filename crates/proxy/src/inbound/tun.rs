@@ -384,15 +384,19 @@ impl Proxy {
         desired: Option<&zero_config::TunConfig>,
         network_mtu: u16,
     ) -> Result<(), EngineError> {
-        self.reconcile_configured_tun_candidate(desired, network_mtu, None).await
+        self.reconcile_configured_tun_candidate(desired, network_mtu, None)
+            .await
     }
     pub(crate) async fn reconcile_configured_tun_for_config(
         &self,
         config: Arc<zero_config::RuntimeConfig>,
     ) -> Result<(), EngineError> {
         self.reconcile_configured_tun_candidate(
-            config.runtime.tun.as_ref(), config.runtime.network.mtu, Some(config.clone()),
-        ).await
+            config.runtime.tun.as_ref(),
+            config.runtime.network.mtu,
+            Some(config.clone()),
+        )
+        .await
     }
     async fn reconcile_configured_tun_candidate(
         &self,
@@ -483,29 +487,32 @@ impl Proxy {
         }
 
         let desired = desired.expect("configured TUN desired state checked above");
-        self.start_tun_prepared(TunStartSpec {
-            name: desired.name.as_deref(),
-            addr: &desired.addr,
-            mask: &desired.mask,
-            secondary_addr: desired.secondary_addr.as_deref(),
-            mtu: desired.effective_mtu(network_mtu),
-            tag: &desired.tag,
-            options: TunRuntimeOptions {
-                auto_route: desired.auto_route,
-                include_cidrs: desired.include_cidrs.clone(),
-                exclude_cidrs: desired.exclude_cidrs.clone(),
-                dual_stack: desired.dual_stack,
-                strict_route: desired.strict_route,
-                dns_hijack: desired.dns_hijack,
+        self.start_tun_prepared(
+            TunStartSpec {
+                name: desired.name.as_deref(),
+                addr: &desired.addr,
+                mask: &desired.mask,
+                secondary_addr: desired.secondary_addr.as_deref(),
+                mtu: desired.effective_mtu(network_mtu),
+                tag: &desired.tag,
+                options: TunRuntimeOptions {
+                    auto_route: desired.auto_route,
+                    include_cidrs: desired.include_cidrs.clone(),
+                    exclude_cidrs: desired.exclude_cidrs.clone(),
+                    dual_stack: desired.dual_stack,
+                    strict_route: desired.strict_route,
+                    dns_hijack: desired.dns_hijack,
+                },
+                managed_config: Some(desired.clone()),
+                prepared_network,
             },
-            managed_config: Some(desired.clone()),
-            prepared_network,
-        }, TunStartPreparation {
-            #[cfg(feature = "raw-ip-runtime")]
-            config: candidate,
-            #[cfg(feature = "raw-ip-runtime")]
-            recovery: None,
-        })
+            TunStartPreparation {
+                #[cfg(feature = "raw-ip-runtime")]
+                config: candidate,
+                #[cfg(feature = "raw-ip-runtime")]
+                recovery: None,
+            },
+        )
         .await
     }
 

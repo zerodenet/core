@@ -74,8 +74,13 @@ fn layout(
         .checked_add(zero_error::channel::RetainedError::metadata_layout()?)
 }
 impl Prepaid {
-    pub(in crate::controlled_datagram::metadata_pool) fn egress_credit(&mut self)->Option<PacketMetadataCredit>{
-        self.take(PacketMetadataArc::<crate::EgressSelection>::layout().expect("actual original egress allocation"))
+    pub(in crate::controlled_datagram::metadata_pool) fn egress_credit(
+        &mut self,
+    ) -> Option<PacketMetadataCredit> {
+        self.take(
+            PacketMetadataArc::<crate::EgressSelection>::layout()
+                .expect("actual original egress allocation"),
+        )
     }
     pub(in crate::controlled_datagram::metadata_pool) fn completion(
         &mut self,

@@ -6,8 +6,8 @@ async fn ordinary_linked_wireguard_dot_and_doh_keep_native_and_query_retirement_
     exercise(true).await;
 }
 #[tokio::test]
-async fn ordinary_standalone_wireguard_dot_and_doh_share_the_actual_bound_wire_and_persistent_dns_pool()
- {
+async fn ordinary_standalone_wireguard_dot_and_doh_share_the_actual_bound_wire_and_persistent_dns_pool(
+) {
     exercise(false).await;
 }
 async fn exercise(linked: bool) {

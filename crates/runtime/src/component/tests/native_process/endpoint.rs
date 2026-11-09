@@ -7,8 +7,8 @@ fn end() -> Instant {
     Instant::now() + std::time::Duration::from_secs(5)
 }
 #[tokio::test]
-async fn host_process_endpoint_charges_same_job_before_native_reservation_and_keeps_failed_prechild_original()
- {
+async fn host_process_endpoint_charges_same_job_before_native_reservation_and_keeps_failed_prechild_original(
+) {
     let mut scope = TaskScope::new(
         tokio::runtime::Handle::current(),
         NonZeroUsize::new(1).unwrap(),
@@ -57,11 +57,9 @@ async fn host_process_endpoint_charges_same_job_before_native_reservation_and_ke
     assert!(observation.scope_identity().matches(&scope.registrar()));
     assert!(!observation.originals_closed());
     assert!(resources.process_endpoint_retirement(0).is_none());
-    assert!(
-        resources
-            .reserve_process_endpoint(1, &foreign.registrar(), &actor)
-            .is_err()
-    );
+    assert!(resources
+        .reserve_process_endpoint(1, &foreign.registrar(), &actor)
+        .is_err());
     assert_eq!(resources.originals.process.snapshot().charged_jobs, 0);
     let endpoint = resources
         .reserve_process_endpoint(1, &scope.registrar(), &actor)
@@ -71,26 +69,22 @@ async fn host_process_endpoint_charges_same_job_before_native_reservation_and_ke
         1,
         "reservation belongs to same already-charged original job"
     );
-    assert!(
-        resources
-            .reserve_process_endpoint(1, &scope.registrar(), &actor)
-            .is_err()
-    );
+    assert!(resources
+        .reserve_process_endpoint(1, &scope.registrar(), &actor)
+        .is_err());
     assert!(
         resources
             .prepare_owned_process(ProcessRequest::new("python3"), &scope.registrar())
             .is_err(),
         "bare prepare cannot bypass the declared handoff"
     );
-    assert!(
-        resources
-            .prepare_owned_process_with_endpoint(
-                ProcessRequest::new("not-the-declared-program"),
-                &scope.registrar(),
-                &endpoint
-            )
-            .is_err()
-    );
+    assert!(resources
+        .prepare_owned_process_with_endpoint(
+            ProcessRequest::new("not-the-declared-program"),
+            &scope.registrar(),
+            &endpoint
+        )
+        .is_err());
     let prepared = resources
         .prepare_owned_process_with_endpoint(
             ProcessRequest::new("python3"),
@@ -143,8 +137,8 @@ async fn host_process_endpoint_charges_same_job_before_native_reservation_and_ke
 }
 
 #[tokio::test]
-async fn failed_endpoint_reservation_keeps_a_durable_original_observer_without_fabricating_actor_ack()
- {
+async fn failed_endpoint_reservation_keeps_a_durable_original_observer_without_fabricating_actor_ack(
+) {
     let mut scope = TaskScope::new(
         tokio::runtime::Handle::current(),
         NonZeroUsize::new(1).unwrap(),
@@ -238,13 +232,11 @@ async fn failed_endpoint_reservation_keeps_a_durable_original_observer_without_f
     assert!(scope.shutdown(end()).await.is_complete());
     assert!(actor.try_joined().unwrap().registration_released());
     other.request_stop();
-    assert!(
-        !other
-            .try_finish()
-            .unwrap()
-            .unwrap()
-            .had_native_acquisition()
-    );
+    assert!(!other
+        .try_finish()
+        .unwrap()
+        .unwrap()
+        .had_native_acquisition());
     assert_eq!(resources.originals.process.snapshot().charged_jobs, 0);
     drop(resources);
     assert!(observation.originals_closed());

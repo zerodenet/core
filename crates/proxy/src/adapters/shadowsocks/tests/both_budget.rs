@@ -28,12 +28,18 @@ async fn fresh_source_control(endpoint: std::net::SocketAddr) {
     let mut reply = [0; 10];
     io.read_exact(&mut reply).await.unwrap();
     assert_eq!(&reply[..4], &[5, 0, 0, 1]);
-    assert_ne!(u16::from_be_bytes([reply[8], reply[9]]), 0,
-        "actual accepted UDP original supplies the BND port");
+    assert_ne!(
+        u16::from_be_bytes([reply[8], reply[9]]),
+        0,
+        "actual accepted UDP original supplies the BND port"
+    );
     io.shutdown().await.unwrap();
     let mut byte = [0];
-    assert_eq!(io.read(&mut byte).await.unwrap(), 0,
-        "same actual control connection closed after its EOF");
+    assert_eq!(
+        io.read(&mut byte).await.unwrap(),
+        0,
+        "same actual control connection closed after its EOF"
+    );
 }
 
 #[tokio::test]
@@ -41,8 +47,8 @@ async fn source_and_outbound_budget_change_rejects_before_revoking_any_admitted_
     actual_budget_change(false).await;
 }
 #[tokio::test]
-async fn whole_kernel_custody_shrink_pauses_all_sources_keeps_live_business_and_original_security_history()
- {
+async fn whole_kernel_custody_shrink_pauses_all_sources_keeps_live_business_and_original_security_history(
+) {
     actual_budget_change(true).await;
 }
 async fn actual_budget_change(global: bool) {

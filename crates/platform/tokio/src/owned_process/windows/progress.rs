@@ -3,8 +3,8 @@ use windows_sys::Win32::{
     Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT},
     System::{
         JobObjects::{
-            JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JobObjectBasicAccountingInformation,
-            QueryInformationJobObject, TerminateJobObject,
+            JobObjectBasicAccountingInformation, QueryInformationJobObject, TerminateJobObject,
+            JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
         },
         Threading::{GetExitCodeProcess, TerminateProcess, WaitForSingleObject},
     },

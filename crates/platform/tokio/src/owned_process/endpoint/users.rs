@@ -1,9 +1,9 @@
 //! Exact original consumer dependency; distinct from native encapsulation.
 use super::*;
 use crate::{
-    EgressInterfaceControl,
     contract::network::UpstreamBinding,
     controlled_carrier::{CarrierGrant, CarrierOwnerBinding, CarrierOwnerRegistration},
+    EgressInterfaceControl,
 };
 /// A single grant's sealed derived peer. It grants neither Business/Service
 /// admission nor native capacity. Its weak back-reference cannot pin the job.

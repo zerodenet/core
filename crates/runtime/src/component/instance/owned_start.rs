@@ -2,8 +2,8 @@
 //! The existing inline host pump drives the same future; this creates no task.
 use super::*;
 use futures_util::{
-    FutureExt,
     future::{BoxFuture, Shared},
+    FutureExt,
 };
 use std::{
     any::Any,

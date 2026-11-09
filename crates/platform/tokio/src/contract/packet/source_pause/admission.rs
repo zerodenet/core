@@ -26,9 +26,13 @@ impl PacketSourcePause {
                     return Err(pause_error(Reason::Revoked));
                 }
                 if state.request.is_none() {
-                    state.acquiring = state.acquiring.checked_add(1)
+                    state.acquiring = state
+                        .acquiring
+                        .checked_add(1)
                         .ok_or_else(|| pause_error(Reason::Capacity))?;
-                    return Ok(PacketSourceAcquisition { original: self.clone() });
+                    return Ok(PacketSourceAcquisition {
+                        original: self.clone(),
+                    });
                 }
             }
             tokio::select! { biased;

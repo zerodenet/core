@@ -7,8 +7,8 @@ use std::{
     io,
     process::ExitStatus,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
     },
 };
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
@@ -127,7 +127,10 @@ impl OwnedProcess {
     pub(super) fn actor(&self) -> Option<TaskJoinWitness> {
         self.lock().actor.clone()
     }
-    pub(super) fn budget_scope_matches(&self, tasks: &crate::contract::scope::TaskRegistrar) -> bool {
+    pub(super) fn budget_scope_matches(
+        &self,
+        tasks: &crate::contract::scope::TaskRegistrar,
+    ) -> bool {
         self.scope.matches(tasks)
     }
     pub(super) fn bind_budget(&self, budget: Arc<super::ProcessBudget>) -> io::Result<()> {

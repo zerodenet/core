@@ -15,9 +15,9 @@ use tokio::{
     sync::oneshot,
 };
 use zero_core::{
-    Address,
     component::{ComponentId, NetworkGeneration, ResourceGeneration},
     request::Destination,
+    Address,
 };
 fn end() -> Instant {
     Instant::now() + Duration::from_secs(5)

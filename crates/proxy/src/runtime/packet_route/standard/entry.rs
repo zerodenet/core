@@ -3,9 +3,7 @@ use std::{
     pin::Pin,
     sync::atomic::{AtomicBool, Ordering},
 };
-use zero_platform_tokio::contract::packet::{
-    self, BoxPacketSession, PacketRx, PacketTx,
-};
+use zero_platform_tokio::contract::packet::{self, BoxPacketSession, PacketRx, PacketTx};
 pub(super) struct Entry {
     pub(super) key: Key,
     sender: tokio::sync::Mutex<Sender>,

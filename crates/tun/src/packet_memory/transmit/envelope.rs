@@ -2,32 +2,43 @@
 //! frame/byte debit; unused responsibility survives until the last actual user.
 use super::*;
 #[derive(Clone)]
-pub struct PacketTransmitEnvelope(Arc<Mutex<Reservation>>);
+pub struct PacketTransmitEnvelope(PacketMetadataArc<Mutex<Reservation>>);
 struct Reservation {
     remaining: credit::Credit,
     total: PacketMemoryLimit,
     anchor: PacketMemoryLimit,
+    reusable: bool,
+    anchor_returned: bool,
 }
 impl PacketTransmitEnvelope {
-    pub(super) fn new(credit: credit::Credit) -> Self {
-        Self::with_anchor(
-            credit,
-            PacketMemoryLimit {
-                frames: 0,
-                bytes: 0,
-            },
-        )
+    pub(super) fn layout() -> Result<PacketMetadataLayout, PacketMemoryError> {
+        PacketMetadataArc::<Mutex<Reservation>>::layout()
     }
-    pub(super) fn with_anchor(credit: credit::Credit, anchor: PacketMemoryLimit) -> Self {
+    pub(super) fn with_anchor(
+        credit: credit::Credit,
+        anchor: PacketMemoryLimit,
+        metadata: PacketMetadataCredit,
+        reusable: bool,
+    ) -> Self {
         let total = PacketMemoryLimit {
             frames: credit.frames,
             bytes: credit.bytes,
         };
-        Self(Arc::new(Mutex::new(Reservation {
-            remaining: credit,
-            total,
-            anchor,
-        })))
+        Self(
+            PacketMetadataArc::from_prepaid(
+                Mutex::new(Reservation {
+                    remaining: credit,
+                    total,
+                    anchor,
+                    reusable,
+                    anchor_returned: true,
+                }),
+                metadata,
+            )
+            .unwrap_or_else(|_| {
+                unreachable!("same concrete Envelope allocation/layout was prepaid")
+            }),
+        )
     }
     /// Called only at a concrete producer's pre-FIFO boundary. Received data
     /// may become an actual forward only after authentication/routing; extend
@@ -82,6 +93,27 @@ impl PacketTransmitEnvelope {
         reserved.total.bytes += add_bytes;
         Ok(())
     }
+    pub(in crate::packet_memory) fn anchor_borrowed(&self) {
+        let mut reserved = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if reserved.reusable {
+            reserved.anchor_returned = false;
+        }
+    }
+    pub(in crate::packet_memory) fn anchor_returned_credit(&self) -> Option<credit::Credit> {
+        // The original read-slot mutex serializes this flag with checkout.
+        // Return the exact unused credit for refund AFTER that mutex unlocks.
+        let mut reserved = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if reserved.reusable {
+            reserved.anchor_returned = true;
+        }
+        reserved.take_unused_reusable()
+    }
     pub(in crate::packet_memory) fn return_credit(&self, mut credit: credit::Credit) {
         let mut reserved = self
             .0
@@ -89,16 +121,15 @@ impl PacketTransmitEnvelope {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         debug_assert!(Arc::ptr_eq(&reserved.remaining.root, &credit.root));
         debug_assert!(matches!(credit.lane, Lane::Transmit));
-        // The original packet may retransmit or discover a smaller PMTU. Its
-        // reservation survives actual child deallocation until all custody of
-        // this packet ends. Moving counters never releases root capacity here.
         reserved.remaining.frames += credit.frames;
         reserved.remaining.bytes += credit.bytes;
         credit.frames = 0;
         credit.bytes = 0;
         let root = reserved.remaining.root.clone();
+        let unused = reserved.take_unused_reusable();
         drop(reserved);
         drop(credit);
+        drop(unused);
         root.wake();
     }
     pub fn allocate(&self, lengths: &[usize]) -> Result<Vec<PacketBuffer>, PacketMemoryError> {
@@ -144,3 +175,31 @@ impl PacketTransmitEnvelope {
             .collect())
     }
 }
+
+impl Reservation {
+    fn take_unused_reusable(&mut self) -> Option<credit::Credit> {
+        if !self.reusable
+            || !self.anchor_returned
+            || self.remaining.frames != self.total.frames
+            || self.remaining.bytes != self.total.bytes
+        {
+            return None;
+        }
+        let credit = credit::Credit {
+            root: self.remaining.root.clone(),
+            lane: Lane::Transmit,
+            frames: self.remaining.frames,
+            bytes: self.remaining.bytes,
+        };
+        self.remaining.frames = 0;
+        self.remaining.bytes = 0;
+        self.total = PacketMemoryLimit {
+            frames: 0,
+            bytes: 0,
+        };
+        Some(credit)
+    }
+}
+
+#[cfg(test)]
+mod tests;

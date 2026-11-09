@@ -200,10 +200,13 @@ impl Assembly {
     }
     pub(super) fn context(&self) -> OpenContext {
         OpenContext {
-            identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-                origin: ServiceOrigin::Runtime,
-                purpose: ServicePurpose::DiagnosticProbe,
-            }).into()),
+            identity: RequestIdentity::Service(
+                Arc::new(ServiceRequestFacts {
+                    origin: ServiceOrigin::Runtime,
+                    purpose: ServicePurpose::DiagnosticProbe,
+                })
+                .into(),
+            ),
             deadline: Some(deadline()),
             cancel: CancellationToken::new(),
             upstream: self.upstream.clone(),
