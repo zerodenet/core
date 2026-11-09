@@ -6,10 +6,22 @@ use std::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use zero_platform_tokio::contract::{
-    lifecycle::{ChannelControl, CloseReport},
+    lifecycle::{ChannelControl, CloseReport, DynChannelControl},
+    BoxFuture,
     CloseReason,
 };
-pub(super) struct ProtocolControl(pub PacketMetadataArc<Owners>);
+pub(in crate::component::quic) struct ProtocolControl(pub PacketMetadataArc<Owners>);
+impl DynChannelControl for ProtocolControl {
+    fn cancel(&self, reason: CloseReason) {
+        ChannelControl::cancel(self, reason);
+    }
+    fn wait_closed(
+        &mut self,
+        deadline: tokio::time::Instant,
+    ) -> BoxFuture<'_, Result<CloseReport, ChannelError>> {
+        Box::pin(ChannelControl::wait_closed(self, deadline))
+    }
+}
 impl ChannelControl for ProtocolControl {
     fn cancel(&self, _: CloseReason) {
         self.0.stop.cancel();
@@ -41,7 +53,18 @@ impl ChannelControl for ProtocolControl {
         Ok(physical)
     }
 }
-pub(super) struct LogicalControl(pub PacketMetadataArc<Entry>);
+pub(in crate::component::quic) struct LogicalControl(pub PacketMetadataArc<Entry>);
+impl DynChannelControl for LogicalControl {
+    fn cancel(&self, reason: CloseReason) {
+        ChannelControl::cancel(self, reason);
+    }
+    fn wait_closed(
+        &mut self,
+        deadline: tokio::time::Instant,
+    ) -> BoxFuture<'_, Result<CloseReport, ChannelError>> {
+        Box::pin(ChannelControl::wait_closed(self, deadline))
+    }
+}
 impl ChannelControl for LogicalControl {
     fn cancel(&self, _: CloseReason) {
         self.0.retirement.request_retirement();
@@ -68,7 +91,7 @@ impl ChannelControl for LogicalControl {
 }
 /// This exact logical stream keeps its original entry while either split half
 /// exists. FIN and stream Drop only request cleanup; neither refunds original N.
-pub(super) struct View {
+pub(in crate::component::quic) struct View {
     pub io: Option<zero_platform_tokio::TcpRelayStream>,
     pub original: PacketMetadataArc<Entry>,
 }

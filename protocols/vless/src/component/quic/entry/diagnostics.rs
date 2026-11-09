@@ -3,7 +3,6 @@
 use super::*;
 use std::sync::OnceLock;
 use zero_platform_tokio::contract::CleanupFailureReceipt;
-use zero_traits::packet_metadata::PacketMetadataLayout;
 pub(super) struct Sources {
     operation: OnceLock<RetainedError>,
     terminal: OnceLock<Arc<ChannelError>>,
