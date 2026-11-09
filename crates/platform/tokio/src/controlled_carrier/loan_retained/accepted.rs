@@ -6,7 +6,10 @@ use crate::controlled_listener::accepted::AcceptedTcpCarrierOrigin;
 #[derive(Clone)]
 pub(crate) struct AcceptedLoanReceiver {
     receiver: Weak<Slot>,
-    loan: Weak<tokio::sync::Mutex<super::super::loan::LoanOwner>>,
+    // Same original weak allocation, erased only at this passive storage
+    // boundary to stop the Source/loan/packet-record auto-trait expansion.
+    // No upgrade, clone of the controller, new allocation or executable SPI.
+    loan: Weak<dyn std::any::Any + Send + Sync>,
     keeper: CarrierDriverRetained,
 }
 impl CarrierLoanRetained {
@@ -39,7 +42,8 @@ impl AcceptedLoanReceiver {
             return None;
         }
         let loan = parent.retained_loan()?;
-        if !loan.loan.ptr_eq(&self.loan)
+        let actual: Weak<dyn std::any::Any + Send + Sync> = loan.loan.clone();
+        if !actual.ptr_eq(&self.loan)
             || !loan.retains_origin(&CarrierOrigin::from_accepted(original.clone()))
         {
             return None;
