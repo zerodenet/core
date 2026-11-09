@@ -156,6 +156,18 @@ impl Fixture {
             .unwrap();
         (registration.1, release)
     }
+    pub async fn complete_query(
+        &self,
+        query: &TaskJoinWitness,
+        release: tokio::sync::oneshot::Sender<()>,
+    ) {
+        assert!(query.try_joined().is_none());
+        release.send(()).unwrap();
+        let joined = self.drive(query.wait_registration_released()).await;
+        assert!(query.matches_joined(&joined));
+        assert!(joined.result().is_ok());
+        assert!(joined.registration_released());
+    }
     pub async fn finish(&self) -> CloseReport {
         self.drive(self.slot.shutdown(end())).await.unwrap()
     }

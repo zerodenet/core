@@ -75,17 +75,19 @@ async fn actual_metadata_pool_requires_its_scope_and_returns_the_same_unused_ori
     drop(retained);
     let closed = permit.close(None, &a.tasks).unwrap();
     assert!(closed.matches(&original) && closed.had_native_acquisition());
+    assert_eq!(a.grants.retained(), Some(1));
+    assert!(a.grants.reserve(&query).is_err());
+    a.complete_query(&query, release).await;
+    assert!(permit.close(None, &a.tasks).unwrap().matches(&original));
     assert_eq!(a.grants.retained(), Some(0));
-    let next = a.grants.reserve(&query).unwrap();
+    let (next_query, next_release) = a.query();
+    let next = a.grants.reserve(&next_query).unwrap();
     assert!(!original.same_original(&next.origin()));
     assert!(!closed.matches(&next.origin()));
     assert!(!next.close(None, &a.tasks).unwrap().had_native_acquisition());
-    release.send(()).unwrap();
-    foreign_release.send(()).unwrap();
-    other_release.send(()).unwrap();
-    a.drive(query.wait()).await;
-    a.drive(other.wait()).await;
-    b.drive(foreign.wait()).await;
+    a.complete_query(&next_query, next_release).await;
+    a.complete_query(&other, other_release).await;
+    b.complete_query(&foreign, foreign_release).await;
     assert!(a.finish().await.is_complete());
     assert!(b.finish().await.is_complete());
 }
@@ -127,9 +129,9 @@ async fn actual_metadata_pool_reuses_confirmed_capacity_without_a_lifetime_bind_
 ) {
     let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
     let fixture = Fixture::new(peer.local_addr().unwrap(), 1).await;
-    let (query, release) = fixture.query();
     let mut previous = None;
     for _ in 0..32 {
+        let (query, release) = fixture.query();
         let permit = fixture.grants.reserve(&query).unwrap();
         let origin = permit.origin();
         let mut grant = open(&permit, &query);
@@ -146,12 +148,14 @@ async fn actual_metadata_pool_reuses_confirmed_capacity_without_a_lifetime_bind_
             assert!(prior.closed().unwrap().matches(&prior));
             assert!(prior.endpoints().is_none());
         }
+        assert_eq!(fixture.grants.retained(), Some(1));
+        assert!(fixture.grants.reserve(&query).is_err());
+        fixture.complete_query(&query, release).await;
+        assert!(permit.close(None, &fixture.tasks).unwrap().matches(&origin));
         previous = Some(origin);
         drop(permit);
         assert_eq!(fixture.grants.retained(), Some(0));
     }
-    release.send(()).unwrap();
-    fixture.drive(query.wait()).await;
     assert!(fixture.finish().await.is_complete());
 }
 
@@ -193,9 +197,18 @@ async fn rejected_unbound_claim_keeps_original_custody_and_does_not_poison_the_o
     assert!(first_closed.matches(&first.origin()));
     assert!(second_closed.matches(&second.origin()));
     assert!(!first_closed.matches(&second.origin()));
+    assert_eq!(a.grants.retained(), Some(2));
+    assert!(a.grants.reserve(&query).is_err());
+    a.complete_query(&query, release).await;
+    assert!(first
+        .close(None, &a.tasks)
+        .unwrap()
+        .matches(&first.origin()));
+    assert!(second
+        .close(None, &a.tasks)
+        .unwrap()
+        .matches(&second.origin()));
     assert_eq!(a.grants.retained(), Some(0));
-    release.send(()).unwrap();
-    a.drive(query.wait()).await;
     assert!(a.finish().await.is_complete());
     assert!(b.finish().await.is_complete());
 }

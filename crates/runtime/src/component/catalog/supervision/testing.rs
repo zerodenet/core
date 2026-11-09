@@ -5,6 +5,7 @@ pub struct TestContext<'a> {
     slots: Vec<&'a ComponentSlot>,
     admission: Arc<crate::component::admission::HostAdmission>,
     driver: InlineSupervisor,
+    originals: Arc<crate::original_budgets::HostOriginalBudgets>,
 }
 impl<'a> TestContext<'a> {
     pub fn new(slots: impl IntoIterator<Item = &'a ComponentSlot>) -> Self {
@@ -30,6 +31,7 @@ impl<'a> TestContext<'a> {
         Self {
             slots,
             admission,
+            originals,
             driver: Default::default(),
         }
     }
@@ -49,6 +51,9 @@ impl<'a> TestContext<'a> {
                     for slot in &self.slots {
                         slot.poll_tasks(target);
                     }
+                    // Same bound Host Root as production's elected inline scan.
+                    // A real final work poll may publish the original Host ACK.
+                    self.originals.poll_carrier_originals(target);
                 },
                 work,
             )

@@ -1,53 +1,8 @@
 use super::*;
-use zero_core::{request::Destination, Address};
-use zero_platform_tokio::{
-    contract::{
-        network::{CarrierContext, UpstreamBinding, UpstreamOpener},
-        scope::TaskClass,
-    },
-    controlled_carrier::{CarrierCandidates, NativeCarrierOpener},
-};
-
-fn destination(peer: SocketAddr) -> Destination {
-    Destination::new(
-        match peer.ip() {
-            std::net::IpAddr::V4(ip) => Address::Ipv4(ip.octets()),
-            std::net::IpAddr::V6(ip) => Address::Ipv6(ip.octets()),
-        },
-        peer.port(),
-    )
-}
-async fn candidates(
-    fixture: &Fixture,
-    peer: SocketAddr,
-    egress: Arc<zero_platform_tokio::EgressInterfaceControl>,
-    cancel: zero_platform_tokio::contract::CancellationToken,
-) -> CarrierCandidates {
-    let binding = UpstreamBinding {
-        prefix: vec![],
-        dial: Default::default(),
-        network_generation: NetworkGeneration(egress.generation()),
-    };
-    NativeCarrierOpener::new(
-        fixture.slot.instance_id(),
-        binding.clone(),
-        peer,
-        egress,
-        None,
-    )
-    .unwrap()
-    .resolve_controlled_carrier(
-        &binding,
-        destination(peer),
-        CarrierContext {
-            session: None,
-            deadline: Some(end()),
-            cancel,
-        },
-    )
-    .await
-    .unwrap()
-}
+use zero_platform_tokio::contract::scope::TaskClass;
+#[path = "candidates/setup.rs"]
+mod setup;
+use setup::*;
 
 #[tokio::test]
 async fn selected_metadata_original_requires_pending_io_join_view_return_and_native_receipt_separately(
@@ -150,6 +105,10 @@ async fn selected_metadata_original_requires_pending_io_join_view_return_and_nat
     assert!(lineage.is_retired());
     let native_closed = lineage.closed().unwrap();
     assert!(native_closed.matches(&lineage) && native_closed.had_native_acquisition());
+    assert_eq!(fixture.grants.retained(), Some(1));
+    assert!(fixture.grants.reserve(&query).is_err());
+    fixture.complete_query(&query, release).await;
+    let (query, release) = fixture.query();
     let next = fixture.grants.reserve(&query).unwrap();
     assert!(!closed.matches(&next.origin()));
     assert!(!native_closed.matches(
@@ -194,6 +153,10 @@ async fn selected_metadata_original_requires_pending_io_join_view_return_and_nat
     let old_binding = stable.selected_binding().unwrap();
     egress.invalidate_network();
     let fresh_candidates = candidates(&fixture, peer, egress, Default::default()).await;
+    assert_eq!(fixture.grants.retained(), Some(1));
+    assert!(fixture.grants.reserve(&query).is_err());
+    fixture.complete_query(&query, release).await;
+    let (query, release) = fixture.query();
     let fresh = fixture.grants.reserve(&query).unwrap();
     let (_, grant) = fresh_candidates
         .open_metadata(0, None, &fresh, &query, end())
@@ -265,6 +228,10 @@ async fn metadata_candidates_preserve_original_owner_port_and_network_authority_
     let users = returned.try_closed().unwrap();
     let closed = permit.close(Some(&users), &fixture.tasks).unwrap();
     assert!(closed.had_native_acquisition());
+    assert_eq!(fixture.grants.retained(), Some(1));
+    assert!(fixture.grants.reserve(&query).is_err());
+    fixture.complete_query(&query, release).await;
+    let (query, release) = fixture.query();
     let next = fixture.grants.reserve(&query).unwrap();
     egress.invalidate_network();
     assert!(selected
