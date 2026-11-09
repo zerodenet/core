@@ -48,10 +48,16 @@ fn parse_owned_command(
     method: String,
     params: serde_json::Value,
 ) -> Result<CommandRequest, CommandParseError> {
-    let mut wrapper = serde_json::Map::new();
-    wrapper.insert("method".into(), serde_json::Value::String(method));
-    wrapper.insert("params".into(), params);
-    serde_json::from_value(serde_json::Value::Object(wrapper)).map_err(|error| {
+    // The two fixed envelope fields need no second allocated JSON map or
+    // owned key Strings. Move the same actual params/strings into the existing
+    // API decoder; method precedes params exactly as the old sorted map did.
+    let fields = [
+        ("method", serde_json::Value::String(method)),
+        ("params", params),
+    ];
+    let decoded =
+        serde::de::value::MapDeserializer::<_, serde_json::Error>::new(fields.into_iter());
+    serde::Deserialize::deserialize(decoded).map_err(|error: serde_json::Error| {
         Box::new(ApiResponse::error_msg(
             "invalid_argument",
             error.to_string(),

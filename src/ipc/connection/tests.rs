@@ -147,3 +147,5 @@ async fn concurrent_command_queue_is_bounded_and_cancellable() {
 }
 
 mod probe_stop;
+
+mod owned_command;
