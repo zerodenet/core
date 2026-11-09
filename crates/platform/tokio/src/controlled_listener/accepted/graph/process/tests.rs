@@ -145,7 +145,21 @@ async fn accepted_metadata_uses_real_same_entry_helper_and_keeps_original_until_
         let actual = receiver.observe_joined(receipt.id()).unwrap();
         assert!(actual.result().is_err());
         assert!(actual.failure_accepted());
+        assert_eq!(
+            roots.snapshot().charged,
+            3,
+            "local acceptance is not Host ACK"
+        );
+        assert!(
+            roots.failures().is_empty(),
+            "task error is not a second physical fault"
+        );
         scope.acknowledge(&receipt).unwrap();
+        assert_eq!(
+            roots.snapshot().charged,
+            2,
+            "same closed helper returned its original unit"
+        );
         assert!(caller.check_open().is_ok());
         let info = caller
             .lookup_local_process(

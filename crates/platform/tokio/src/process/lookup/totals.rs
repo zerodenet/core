@@ -179,11 +179,9 @@ impl SourceCustody for LocalProcessLookup {
         }
     }
     fn failure(&self) -> Option<Arc<ChannelError>> {
-        self.native.failure().or_else(|| {
-            self.witness
-                .get()
-                .and_then(TaskJoinWitness::try_joined)
-                .and_then(|joined| joined.result().err())
-        })
+        // Task errors belong to the original Scope/Users failure receiver.
+        // Rewrapping one here creates a second, unrelated ResourceFailure ACK
+        // gate. `retired` independently requires exact local task reception.
+        self.native.failure()
     }
 }

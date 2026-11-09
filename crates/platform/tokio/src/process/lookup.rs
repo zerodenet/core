@@ -217,7 +217,11 @@ impl LocalProcessLookup {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         self.native.confirmed()
-            && (state.rejected || joined.is_some_and(|joined| joined.registration_released()))
+            && (state.rejected
+                || joined.is_some_and(|joined| {
+                    joined.registration_released()
+                        && (joined.result().is_ok() || joined.failure_accepted())
+                }))
     }
     pub async fn wait_retired(&self, deadline: tokio::time::Instant) -> Result<(), ChannelError> {
         if self.retired() {
@@ -233,6 +237,13 @@ impl LocalProcessLookup {
         self.collect_native_after_join()?;
         if let Some(source) = self.native.failure() {
             return Err(retained(source));
+        }
+        // The caller's actual failure receiver, not a body result or Host ACK,
+        // must retain this exact task error before its original can be released.
+        if let Err(source) = joined.result() {
+            if !joined.failure_accepted() {
+                return Err(retained(source));
+            }
         }
         if !self.native.confirmed() {
             return Err(joined

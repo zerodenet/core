@@ -153,14 +153,13 @@ impl InboundPeerTasks {
             .collect::<Vec<_>>();
         let joined = bindings.into_iter().find_map(|binding| {
             let primary = binding.receive_primary_joined(task);
-            binding
-                .observe_process_joined(task)
-                .or_else(|| {
-                    binding
-                        .peer_scope()
-                        .and_then(|scope| scope.observe_joined(task))
-                })
-                .or(primary)
+            let process = binding.observe_process_joined(task);
+            // Both owning receivers may hold this same helper. Never skip the
+            // Users registration/book because the binding received it first.
+            let peer = binding
+                .peer_scope()
+                .and_then(|scope| scope.observe_joined(task));
+            process.or(peer).or(primary)
         });
         if joined.is_some() {
             self.notify_changed();

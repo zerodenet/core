@@ -39,6 +39,32 @@ impl InboundPeerTasks {
             Err(error) => Err(std::io::Error::other(error).into()),
         }
     }
+    pub(in crate::runtime::inbound_owners) fn receive_process_exit(
+        &self,
+        scope: &zero_platform_tokio::contract::scope::TaskScope,
+        exit: &zero_platform_tokio::contract::scope::TaskExit,
+    ) -> Option<Result<(), zero_platform_tokio::contract::scope::HostedReceiptError>> {
+        let mut previous = None;
+        loop {
+            // One existing row at a time; no temporary unbudgeted binding Vec.
+            // Invoke book/Scope notifications outside the peer-table lock.
+            let next = {
+                use std::ops::Bound::{Excluded, Unbounded};
+                let state = self.state.lock().unwrap();
+                let lower = previous.map_or(Unbounded, Excluded);
+                state
+                    .active
+                    .range((lower, Unbounded))
+                    .next()
+                    .map(|(id, binding)| (*id, binding.clone()))
+            };
+            let (id, binding) = next?;
+            if let Some(received) = binding.receive_process_exit(scope, exit) {
+                return Some(received);
+            }
+            previous = Some(id);
+        }
+    }
     pub(in crate::runtime::inbound_owners) fn original_caller_witness(
         &self,
         task: TaskId,

@@ -121,3 +121,7 @@ async fn pre_admission_native_quota_retains_actual_primary_until_host_ack_then_s
 fn io_error(source: std::io::Error) -> ChannelError {
     ChannelError::new(Stage::Receive, Reason::Io, Impact::Component).with_source(source)
 }
+
+#[cfg(target_os = "linux")]
+#[path = "tests/failure.rs"]
+mod failure;

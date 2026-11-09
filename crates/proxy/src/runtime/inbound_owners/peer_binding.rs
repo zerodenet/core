@@ -64,6 +64,9 @@ pub(crate) struct HostPeerBinding {
     responses: Mutex<Option<responses::ResponseOwner>>,
     peer_scope: Mutex<Option<zero_platform_tokio::AcceptedPeerScope>>,
     task_failure: std::sync::OnceLock<zero_platform_tokio::AcceptedTaskFailureRegistration>,
+    // Last: the original lookup/error witnesses above drop before their paid
+    // Scope-header responsibility. This is the same Source book, not a pool.
+    process_task_failure: Mutex<Option<zero_platform_tokio::AcceptedTaskFailureRegistration>>,
 }
 impl std::fmt::Debug for HostPeerBinding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -120,6 +123,7 @@ impl HostPeerBinding {
             responses: Mutex::new(None),
             peer_scope: Mutex::new(None),
             task_failure: std::sync::OnceLock::new(),
+            process_task_failure: Mutex::new(None),
         }
     }
     pub(super) fn bind(

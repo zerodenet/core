@@ -11,8 +11,29 @@ impl InboundOwner {
             .unwrap()
             .iter()
             .find_map(|group| group.original_caller_witness(exit.id));
+        #[cfg(feature = "managed-datagram-runtime")]
+        let helper_rejected = {
+            let mut index = 0;
+            loop {
+                // One existing group at a time, with no allocated snapshot or
+                // Source lock held through the receiver's notifications.
+                let group = self.peers.lock().unwrap().get(index).cloned();
+                let Some(group) = group else {
+                    break false;
+                };
+                if let Some(received) = group.receive_process_exit(scope, &exit) {
+                    break received.is_err();
+                }
+                index += 1;
+            }
+        };
         let id = exit.id;
         let failed = self.record(exit);
+        #[cfg(feature = "managed-datagram-runtime")]
+        if helper_rejected {
+            self.stop();
+            return true;
+        }
         #[cfg(feature = "managed-datagram-runtime")]
         if let Some(witness) = witness {
             let retained = self

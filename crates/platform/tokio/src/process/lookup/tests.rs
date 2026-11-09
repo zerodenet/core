@@ -193,5 +193,9 @@ fn instance() -> zero_core::component::ComponentInstanceId {
     }
 }
 
+#[cfg(target_os = "linux")]
+#[path = "tests/failure.rs"]
+mod failure;
+
 #[path = "tests/global.rs"]
 mod global;

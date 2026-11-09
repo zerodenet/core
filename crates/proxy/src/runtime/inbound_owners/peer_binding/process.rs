@@ -15,6 +15,16 @@ impl HostPeerBinding {
         if caller.is_joined() || self.cancel.is_cancelled() {
             return Err(self.error(Reason::Revoked, "actual lookup caller is stopped"));
         }
+        let receiver = self
+            .task_failure
+            .get()
+            .ok_or_else(|| {
+                self.error(
+                    Reason::Revoked,
+                    "metadata caller has no paid task-fault receiver",
+                )
+            })?
+            .receiver();
         // Retired originals can be reclaimed only after native, join and ACK.
         // No temporary absence can release a previous Unknown controller.
         let previous = self.process.lock().unwrap().clone();
@@ -51,7 +61,42 @@ impl HostPeerBinding {
             slot.replace(original.clone())
         };
         drop(removed);
-        let start = original.register(&self.registrar)?;
+        drop(previous);
+        let old_fault = self.process_task_failure.lock().unwrap().take();
+        drop(old_fault);
+        let _ = root.snapshot(); // Reconcile only already-proven original settlement.
+        let mut fault = match receiver.reserve() {
+            Ok(fault) => fault,
+            Err(source) => {
+                // No Root/task/native acquisition has run for this preparation.
+                let removed = {
+                    let mut slot = self.process.lock().unwrap();
+                    if slot
+                        .as_ref()
+                        .is_some_and(|actual| Arc::ptr_eq(actual, &original))
+                    {
+                        slot.take()
+                    } else {
+                        None
+                    }
+                };
+                drop(removed);
+                return Err(source);
+            }
+        };
+        fault.begin_registration();
+        let start = match original.register(&self.registrar) {
+            Ok(start) => start,
+            Err(source) => {
+                fault.known_not_registered();
+                return Err(source);
+            }
+        };
+        let witness = original
+            .witness()
+            .expect("registered metadata worker witness");
+        let registration = fault.registered(&witness)?;
+        *self.process_task_failure.lock().unwrap() = Some(registration);
         if self.cancel.is_cancelled() || self.observed_join().is_some() {
             return Err(self.error(
                 Reason::Revoked,
@@ -73,6 +118,10 @@ impl HostPeerBinding {
             return None;
         }
         let joined = witness.try_joined()?;
+        let fault = self.process_task_failure.lock().unwrap().clone()?;
+        if !fault.matches(&witness) || fault.receive(&joined).is_err() {
+            return None;
+        }
         // Unknown close remains in the same original/binding. Cleanup faults
         // are returned by close_process_lookup; no debug/drop handoff.
         if let Err(source) = original.collect_native_after_join() {
@@ -94,11 +143,32 @@ impl HostPeerBinding {
         }
         Some(joined)
     }
+    pub(in crate::runtime::inbound_owners) fn receive_process_exit(
+        &self,
+        scope: &zero_platform_tokio::contract::scope::TaskScope,
+        exit: &zero_platform_tokio::contract::scope::TaskExit,
+    ) -> Option<Result<(), zero_platform_tokio::contract::scope::HostedReceiptError>> {
+        let original = self.process.lock().unwrap().clone()?;
+        let witness = original.witness()?;
+        if witness.task_id() != Some(exit.id) {
+            return None;
+        }
+        // observe_process_joined persists the same actual receipt in the paid
+        // Source book before this unique Scope owner accepts its TaskExit.
+        let joined = self.observe_process_joined(exit.id)?;
+        Some(match &exit.result {
+            Err(source) => scope.accept_retained_failure(&witness, &joined, source),
+            Ok(()) => Ok(()),
+        })
+    }
     pub(crate) fn process_retired(&self) -> bool {
         let original = self.process.lock().unwrap().clone();
         original.as_ref().is_none_or(|original| original.retired())
     }
-    pub(in crate::runtime::inbound_owners) async fn close_process_lookup(&self, deadline: Instant) -> Result<(), ChannelError> {
+    pub(in crate::runtime::inbound_owners) async fn close_process_lookup(
+        &self,
+        deadline: Instant,
+    ) -> Result<(), ChannelError> {
         let original = self.process.lock().unwrap().clone();
         if let Some(original) = original {
             original.cancel();
