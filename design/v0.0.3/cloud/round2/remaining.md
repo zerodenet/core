@@ -1,6 +1,6 @@
-最新接续见[2026-11-09 05:52 检查点](checkpoints/20261109-0552.md)。五域仍继续，未交付最终资格；以下旧日期段落均是历史，旧环境遗失的原始证据没有恢复，也不追认新候选资格。
+最新接续见[2026-11-09 08:30 检查点](checkpoints/20261109-0830.md)。五域仍继续，未交付最终资格；以下旧日期段落均是历史，旧环境遗失的原始证据没有恢复，也不追认新候选资格。
 
-当前完整实际调用者集合按职责域冻结：[B 出站13个执行族](evidence/b-callers-20261109.md)、[C Packet/设备10个入口](evidence/c-callers-20261109.md)、[控制/G8](evidence/a-control-caller-20261109.md)。A DNS 实际 Query/pool/provider 清单正在随 B→A 真实原件消费配对；不能据一个协议分支完成或保留 gate 关闭该域。
+当前完整实际调用者集合按职责域冻结：[A DNS Query/pool/provider](evidence/a-dns-callers-20261109.md)、[B 出站13个执行族](evidence/b-callers-20261109.md)、[C Packet/设备10个入口](evidence/c-callers-20261109.md)、[控制/G8](evidence/a-control-caller-20261109.md)。B→A 真实原件消费继续配对；不能据一个协议分支完成或保留 gate 关闭该域。
 
 每个调用者必须依次满足普通生产装配、实际原件/任务完整、停旧屏障、旧链删除和必要新输入回归。当前新增的 Mac File/helper 关闭、普通 QUIC Factory、控制故障收件不使整域自动完成。实际生产 scratch、工具输出、DNS 交付前原件和其余合法出站/共享池的实现仍继续。
 
