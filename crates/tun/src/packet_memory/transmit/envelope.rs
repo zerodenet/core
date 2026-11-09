@@ -13,12 +13,14 @@ struct Reservation {
     headers: Option<PacketMetadataHeaderPromise>,
 }
 impl PacketTransmitEnvelope {
-    pub(super) fn layout(frames: usize) -> Result<PacketMetadataLayout, PacketMemoryError> {
+    pub(in crate::packet_memory) fn layout(
+        frames: usize,
+    ) -> Result<PacketMetadataLayout, PacketMemoryError> {
         PacketMetadataArc::<Mutex<Reservation>>::layout()?.checked_add(
             PacketMetadataHeaderPromise::layout(NativePacketCredit::header_layout(), frames)?,
         )
     }
-    pub(super) fn with_anchor(
+    pub(in crate::packet_memory) fn with_anchor(
         credit: credit::Credit,
         anchor: PacketMemoryLimit,
         mut metadata: PacketMetadataCredit,
