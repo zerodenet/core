@@ -13,10 +13,10 @@ use zero_platform_tokio::{
     controlled_carrier::{CarrierGrants, CarrierOwner},
 };
 #[derive(Clone)]
-pub(super) struct Control {
-    pub(super) grants: CarrierGrants,
-    pub(super) tasks: WeakTaskRegistrar,
-    pub(super) retirement: Duration,
+pub(in crate::adapters::direct) struct Control {
+    pub(in crate::adapters::direct) grants: CarrierGrants,
+    pub(in crate::adapters::direct) tasks: WeakTaskRegistrar,
+    pub(in crate::adapters::direct) retirement: Duration,
 }
 pub(super) struct DirectOwner {
     sessions: SessionOwner,

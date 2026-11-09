@@ -112,7 +112,7 @@ pub fn decode(
 pub(super) struct Outbound {
     pub(super) options: Arc<DirectOptions>,
     pub(super) state: Arc<SessionAdmission>,
-    control: Option<Control>,
+    pub(super) control: Option<Control>,
 }
 pub(super) fn during_open(
     state: &SessionAdmission,

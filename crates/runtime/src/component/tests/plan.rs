@@ -19,6 +19,8 @@ async fn cancelled_plan_shutdown_retains_actual_join_failure_after_report_consum
         builtin: blocking.clone(),
         borrowing: Default::default(),
         borrowing_revision: 0,
+        // Private task/native or process fixture; no DNS-wire Apply candidate.
+        dns_wire: Default::default(),
         outbounds: BTreeMap::new(),
         order: vec![blocking, panicking],
         started: AtomicBool::new(false),

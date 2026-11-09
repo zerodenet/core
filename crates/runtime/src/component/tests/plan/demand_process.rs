@@ -51,6 +51,8 @@ async fn actual_plan_ready_scans_unselected_process_cold_then_supervises_its_sam
         builtin: direct.clone(),
         borrowing: Default::default(),
         borrowing_revision: 0,
+        // Private task/native or process fixture; no DNS-wire Apply candidate.
+        dns_wire: Default::default(),
         outbounds: BTreeMap::new(),
         order: vec![process.clone(), direct.clone()],
         started: AtomicBool::new(false),
