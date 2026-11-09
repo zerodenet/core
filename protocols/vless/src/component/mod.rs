@@ -11,6 +11,7 @@ pub(crate) mod navigation;
 mod options;
 mod ordinary_datagram;
 mod owner;
+pub mod quic;
 mod transport;
 pub use options::Options;
 use std::sync::Arc;

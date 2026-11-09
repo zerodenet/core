@@ -188,7 +188,7 @@ async fn typed_sessions_keep_one_response_reader_and_rearm_only_after_actual_joi
             (
                 Address::Domain("return.test".into()),
                 5353,
-                payload.to_vec(),
+                payload.to_vec().into(),
                 Some(7)
             )
         );

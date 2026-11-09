@@ -102,6 +102,8 @@ fn journal(path: std::path::PathBuf) -> RouteJournal {
         scoped_bypass: false,
         path,
         _lease: None,
+        #[cfg(target_os = "macos")]
+        source: None,
     }
 }
 

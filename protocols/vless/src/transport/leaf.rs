@@ -1,6 +1,7 @@
 #[cfg(feature = "reality")]
 mod grpc;
 mod native;
+mod owned_quic;
 mod relay;
 mod reverse;
 pub use reverse::VlessReverseBridge;
@@ -32,6 +33,7 @@ pub struct VlessOutboundLeaf {
     mux_pool: crate::mux_pool::MuxConnectionPool,
     preconnect: Option<super::runtime::preconnect::Access>,
     navigation_reality: Option<crate::reality::PreparedRealityClient>,
+    owned_identity: [u8; 32],
 }
 
 impl VlessOutboundLeaf {
@@ -117,6 +119,7 @@ impl VlessOutboundLeaf {
         let preconnect_identity = leaf
             .transport
             .preconnect_identity(protocol.encryption, protocol.testpre);
+        leaf.owned_identity = preconnect_identity;
         leaf.preconnect = runtime.preconnect_pool(tag, preconnect_identity, protocol.testpre);
         if !leaf.transport.final_mask.udp().is_empty()
             || !leaf.transport.final_mask.tcp().is_empty()
@@ -222,7 +225,9 @@ impl VlessOutboundLeaf {
         protocol: crate::outbound::PreparedVlessOutboundRequestBundle,
         mux_pool: crate::mux_pool::MuxConnectionPool,
     ) -> Self {
+        let owned_identity = transport.preconnect_identity(None, 0);
         Self {
+            owned_identity,
             tag: tag.to_owned(),
             server: server.to_owned(),
             port,

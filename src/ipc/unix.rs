@@ -210,6 +210,7 @@ struct UnixOriginals {
     terminal_faults: std::sync::Mutex<Vec<Arc<io::Error>>>,
 }
 struct UnixOriginal {
+    report_failures: Arc<super::owner::ReportReceiver>,
     control: tokio::sync::Mutex<ControlledTcpControl>,
     charge: std::sync::Mutex<Option<zero_runtime::configuration::ControlBudgetPermit>>,
 }

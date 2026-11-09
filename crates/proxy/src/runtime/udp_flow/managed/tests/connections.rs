@@ -130,7 +130,7 @@ async fn registered_actual_connection_forwards_without_recipe_and_release_revoke
     );
     replies.send((target, 53, b"reply".to_vec())).unwrap();
     assert_eq!(
-        tasks.join_next().await.unwrap().unwrap().unwrap().2,
+        tasks.join_next().await.unwrap().unwrap().unwrap().2.as_ref(),
         b"reply"
     );
     state.release_session(91);

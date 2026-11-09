@@ -22,7 +22,10 @@ mod launch;
 mod process;
 mod server;
 pub(crate) mod session;
-pub(crate) use session::{route_query, route_table};
+pub(crate) use session::{
+    journal_lock, journal_read, journal_write, route_query, route_table, MacosRouteFileAccess,
+    MacosRouteLock,
+};
 mod tool;
 mod transfer;
 use launch::launch_authorized_helper;

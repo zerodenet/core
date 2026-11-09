@@ -286,6 +286,16 @@ pub struct PreparedVlessOutboundRequestBundle {
 }
 
 impl PreparedVlessOutboundRequestBundle {
+    #[cfg(feature = "runtime")]
+    pub(crate) fn has_mux(&self) -> bool {
+        self.requests.mux_concurrency.is_some()
+    }
+    #[cfg(feature = "runtime")]
+    pub(crate) fn ordinary_parts(&self) -> ([u8; 16], Option<&'static str>, [u32; 4]) {
+        let config = self.requests.tcp_connect.config();
+        (config.id, config.flow, config.testseed)
+    }
+
     #[cfg(feature = "reality")]
     pub(crate) fn native_mux_plan(
         &self,

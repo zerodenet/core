@@ -29,7 +29,7 @@ pub(super) async fn run_ipc_server(
                 // charge before activation can suspend or fail.
                 let charge = originals.admission.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take().expect("IPC original charged before native accept");
                 let local_budget=charge.connection_budget().expect("actual Unix connection admission");
-                *originals.activating.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::new(UnixOriginal { control: tokio::sync::Mutex::new(control), charge: std::sync::Mutex::new(Some(charge)) }));
+                *originals.activating.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::new(UnixOriginal { report_failures: Arc::default(), control: tokio::sync::Mutex::new(control), charge: std::sync::Mutex::new(Some(charge)) }));
                 let stream = match pending.activate(super::super::owner::close_deadline()).await {
                     Ok(stream) => stream,
                     Err(error) => { failures.push(error); break; }
@@ -134,12 +134,17 @@ async fn settle_connection(
         .cloned();
     if let Some(original) = original {
         match UnixOriginals::close(&original).await {
-            Ok(()) => {
-                originals
-                    .active
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .remove(&id);
+            Ok(report) => {
+                if report.complete {
+                    originals
+                        .active
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .remove(&id);
+                }
+                if let Err(error) = report.into_result() {
+                    failures.push(error);
+                }
             }
             Err(error) => {
                 failures.push(error);

@@ -53,7 +53,7 @@ async fn caller_join_and_cancelled_close_retain_the_original_response_set_and_pe
                 Ok((
                     zero_core::Address::Ipv4([127, 0, 0, 1]),
                     0,
-                    Vec::new(),
+                    Vec::new().into(),
                     None,
                 ))
             });

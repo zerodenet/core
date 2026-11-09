@@ -47,6 +47,7 @@ pub struct HttpServerHandle {
     bound: std::sync::Mutex<Option<std::net::SocketAddr>>,
     budget: Arc<zero_runtime::configuration::ControlBudget>,
     connections: Arc<connections::Connections>,
+    report_failures: Arc<crate::ipc::owner::ReportReceiver>,
 }
 
 /// A single token entry parsed from configuration.

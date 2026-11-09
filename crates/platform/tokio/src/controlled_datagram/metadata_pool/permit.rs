@@ -205,6 +205,41 @@ impl MetadataPoolPermit {
     }
 }
 impl MetadataPoolOrigin {
+    /// Read only the actual establishing registration already installed in this
+    /// original. No registrar, new task, native grant or ACK is reconstructed.
+    pub fn initializer_registration(&self) -> Option<TaskJoinWitness> {
+        self.slot.upgrade()?.caller.get().cloned()
+    }
+
+    pub fn return_unbound(
+        &self,
+        claim: &mut Option<super::super::metadata::MetadataViewClaim>,
+        tasks: &TaskRegistrar,
+    ) -> Result<(), ChannelError> {
+        let slot = self.slot.upgrade().ok_or_else(|| {
+            error(
+                Reason::Revoked,
+                "metadata original disappeared before claim return",
+            )
+        })?;
+        MetadataPoolPermit(slot).return_unbound(claim, tasks)
+    }
+    /// Same original issuer/scope checks, without retaining its Slot from an
+    /// installed protocol controller. This cannot open IO or mint a receipt.
+    pub fn retain_users_receipt(
+        &self,
+        receipt: &MetadataUsersClosedReceipt,
+        tasks: &TaskRegistrar,
+    ) -> Result<(), ChannelError> {
+        let slot = self.slot.upgrade().ok_or_else(|| {
+            error(
+                Reason::Revoked,
+                "metadata original disappeared before actual receipt",
+            )
+        })?;
+        MetadataPoolPermit(slot).retain_users_receipt(receipt, tasks)
+    }
+
     pub fn registration_observation(&self) -> MetadataPoolRegistrationObservation {
         self.closed.observation(self.instance, self.ordinal)
     }

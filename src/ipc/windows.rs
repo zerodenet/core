@@ -28,7 +28,7 @@ pub struct IpcServerHandle {
     originals: Arc<Originals>,
     scope: Arc<tokio::sync::Mutex<TaskScope>>,
     opening: std::sync::Mutex<Option<(ControlledPipe, Arc<owner::Entry>)>>,
-    scope_fault: std::sync::Mutex<Option<Arc<io::Error>>>,
+    scope_fault: Arc<super::owner::ReportReceiver>,
 }
 impl IpcServerHandle {
     pub(crate) fn retirement_complete(&self) -> bool {
@@ -73,19 +73,12 @@ impl IpcServerHandle {
         if let Err(error) = server {
             failures.push(error);
         }
-        if !tasks.is_complete() || !tasks.failed_tasks.is_empty() {
-            self.scope_fault
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .get_or_insert_with(|| Arc::new(io::Error::other(owner::ScopeFault(tasks))));
-        }
-        if let Some(error) = self
+        if let Err(error) = self
             .scope_fault
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_ref()
+            .receive("IPC pipe Scope", tasks)
+            .into_result()
         {
-            failures.push(io::Error::new(error.kind(), error.clone()));
+            failures.push(error);
         }
         if let Err(error) = native {
             failures.push(error);
@@ -168,7 +161,7 @@ pub fn prepare_ipc_server_with_budget(
         originals: Arc::new(Originals::default()),
         scope: Arc::new(tokio::sync::Mutex::new(scope)),
         opening: std::sync::Mutex::new(None),
-        scope_fault: std::sync::Mutex::new(None),
+        scope_fault: Arc::default(),
     })
 }
 async fn run_server(

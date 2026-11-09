@@ -172,19 +172,6 @@ pub(super) fn finish(mut errors: Vec<io::Error>) -> io::Result<()> {
     }
 }
 
-#[derive(Debug)]
-pub(super) struct ScopeFault(pub(super) zero_platform_tokio::contract::lifecycle::CloseReport);
-impl std::fmt::Display for ScopeFault {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "actual pipe Scope cleanup: {:?}", self.0)
-    }
-}
-impl std::error::Error for ScopeFault {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.0.failed_tasks.first().map(|failed| &failed.error as _)
-    }
-}
-
 #[cfg(test)]
 #[path = "owner/stop.rs"]
 mod stop;

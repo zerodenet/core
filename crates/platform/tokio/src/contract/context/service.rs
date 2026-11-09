@@ -13,10 +13,10 @@ enum Storage {
     Paid(PacketMetadataArc<ServiceRequestFacts>),
 }
 impl ServiceFactsOwner {
-    pub(crate) fn paid_layout() -> Result<PacketMetadataLayout, PacketMemoryError> {
+    pub fn paid_layout() -> Result<PacketMetadataLayout, PacketMemoryError> {
         PacketMetadataArc::<ServiceRequestFacts>::layout()
     }
-    pub(crate) fn from_prepaid(
+    pub fn from_prepaid(
         facts: ServiceRequestFacts,
         credit: PacketMetadataCredit,
     ) -> Result<Self, (PacketMemoryError, ServiceRequestFacts, PacketMetadataCredit)> {

@@ -14,7 +14,8 @@ use tokio::io::unix::AsyncFd;
 use crate::TunDevice;
 mod address;
 mod creation;
-use address::ipv4_peer;
+pub(crate) use address::ipv4_peer;
+use io_driver::run_ifconfig;
 mod io_driver;
 pub(crate) mod memory;
 

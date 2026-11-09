@@ -467,7 +467,7 @@ impl OwnedVlessOutboundTransportPlan {
                 .map_err(|_| zero_core::Error::Config("invalid VLESS encryption key"))?;
         Ok(())
     }
-    pub(in crate::transport) async fn encrypt(
+    pub(crate) async fn encrypt(
         &self,
         stream: TcpRelayStream,
     ) -> Result<TcpRelayStream, RuntimeError> {
@@ -498,6 +498,22 @@ impl OwnedVlessOutboundTransportPlan {
 
     pub(in crate::transport) fn uses_datagrams(&self) -> bool {
         self.mkcp.is_some() || self.uses_quic()
+    }
+    pub(in crate::transport) fn plain_owned_quic_profile(&self) -> Option<VlessQuicClientProfile> {
+        if self.browser_ws
+            || self.browser_xhttp
+            || self.grpc_pool.is_some()
+            || self.xhttp_pool.is_some()
+            || self.hysteria.is_some()
+            || self.mkcp.is_some()
+            || self.download.is_some()
+        {
+            return None;
+        }
+        self.transport.quic.clone()
+    }
+    pub(crate) fn owned_quic_masks(&self) -> &[zero_transport::finalmask::udp::Mask] {
+        self.final_mask.udp()
     }
     pub(in crate::transport) fn uses_quic(&self) -> bool {
         self.transport().quic.is_some()

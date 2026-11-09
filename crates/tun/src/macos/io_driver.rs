@@ -134,14 +134,13 @@ impl AsyncWrite for Utun {
     }
 }
 
-fn run_ifconfig(arguments: &[String]) -> io::Result<()> {
+pub(super) fn run_ifconfig(arguments: &[String]) -> io::Result<()> {
     let program = if std::path::Path::new("/sbin/ifconfig").exists() {
         "/sbin/ifconfig"
     } else {
         "ifconfig"
     };
-    let output = crate::macos_privilege::output(program, arguments)
-        .map_err(|error| io::Error::new(error.kind(), format!("execute `{program}`: {error}")))?;
+    let output = crate::macos_privilege::output(program, arguments)?;
     if output.status.success() {
         return Ok(());
     }

@@ -1,5 +1,6 @@
 //! Check borrowed lineage against actual installed roles and original providers.
 use super::*;
+mod metadata;
 mod preparation;
 mod process;
 impl ComponentPlan {
@@ -120,6 +121,13 @@ impl ComponentPlan {
         })
     }
 
+    /// Exact installed native-metadata/borrowed-datagram pair. This only
+    /// selects an executable provider; grants still verify every original.
+    pub fn has_metadata_stream_provider(&self, role: zero_core::component::RoleInstanceId) -> bool {
+        self.role_slot(role)
+            .is_some_and(|slot| metadata::installed(slot))
+    }
+
     /// Planning prerequisite only; actual borrowing still validates the original
     /// registration and executable role before using its transferred stream.
     pub fn has_carrier_provider(&self, role: zero_core::component::RoleInstanceId) -> bool {
@@ -162,7 +170,7 @@ impl ComponentPlan {
             // This is only the exact declared same-job pair. Actual endpoint
             // demand still checks the direct dependency, original grant and
             // both started slots through ensure_process_endpoint_use.
-            if process::paired_endpoint(slot.recipe.spec()) {
+            if process::paired_endpoint(slot.recipe.spec()) || metadata::installed(slot) {
                 pending.extend(slot.dependency_instances());
                 continue;
             }
