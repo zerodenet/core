@@ -37,6 +37,19 @@ async fn actual_rejected_client_retains_original_join_source_and_same_listener_a
             .unwrap()
             .matches(&claim));
         assert_eq!(rejected.read(&mut [0]).await.unwrap(), 0);
+        // The original native close does not deliver this independent
+        // library owner's fault report. Receive that exact retained source
+        // before reusing its finite slot; no fault or old assertion is dropped.
+        assert_eq!(owner.accepted_evidence().unwrap().retained, 1);
+        let received = owner.take_accepted_report();
+        assert_eq!(received.failed_tasks.len(), 1);
+        let fault = &received.failed_tasks[0];
+        assert_eq!(fault.id, id);
+        assert_eq!(fault.class, TaskClass::Auxiliary);
+        assert!(Arc::ptr_eq(
+            fault.error.retained_source().unwrap(),
+            &original
+        ));
         // A rejected session is not the listener's native acquisition/close fault.
         assert!(owner.accepted_evidence().unwrap().first_failure.is_none());
         let (mut peer, accepted) = graph_pair(&mut listener, address).await;
