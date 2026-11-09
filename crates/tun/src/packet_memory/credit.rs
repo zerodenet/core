@@ -34,6 +34,7 @@ pub struct NativePacketCredit {
     pub(super) credit: Option<Credit>,
     pub(super) recycle: Option<std::sync::Weak<read::ReadSlot>>,
     pub(super) envelope: Option<super::transmit::PacketTransmitEnvelope>,
+    pub(super) reserved_envelope: Option<super::transmit::PacketTransmitEnvelope>,
     pub(super) return_to_envelope: bool,
 }
 impl NativePacketCredit {
@@ -42,6 +43,7 @@ impl NativePacketCredit {
             credit: Some(credit),
             recycle,
             envelope: None,
+            reserved_envelope: None,
             return_to_envelope: false,
         }
     }

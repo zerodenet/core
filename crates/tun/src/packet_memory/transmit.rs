@@ -23,11 +23,21 @@ impl PacketReturnTotals {
         if bytes == 0 {
             return Err(PacketMemoryError::Capacity);
         }
-        let credit = self
-            .reserve(Lane::Transmit, &[bytes])?
-            .pop()
-            .expect("one codec workspace");
-        Ok(NativeReadGrant::from_credit(credit))
+        // The original control's reusable envelope is paid before native IO.
+        // Reusing its already admitted workspace can never need a new header
+        // allocation during a full-root handshake/ACK operation.
+        let anchor = PacketMemoryLimit { frames: 1, bytes };
+        let envelope = self.reserve_envelope_with_anchor(0, 0, anchor)?;
+        let credit = credit::Credit {
+            root: self.clone(),
+            lane: Lane::Transmit,
+            frames: 1,
+            bytes,
+        };
+        Ok(NativeReadGrant::from_credit_with_envelope(
+            credit,
+            Some(envelope),
+        ))
     }
     pub fn reserve_transmit(
         self: &Arc<Self>,
@@ -48,20 +58,42 @@ impl PacketReturnTotals {
         frames: usize,
         bytes: usize,
     ) -> Result<PacketTransmitEnvelope, PacketMemoryError> {
+        self.reserve_envelope_with_anchor(
+            frames,
+            bytes,
+            PacketMemoryLimit {
+                frames: 0,
+                bytes: 0,
+            },
+        )
+    }
+    fn reserve_envelope_with_anchor(
+        self: &Arc<Self>,
+        frames: usize,
+        bytes: usize,
+        anchor: PacketMemoryLimit,
+    ) -> Result<PacketTransmitEnvelope, PacketMemoryError> {
+        let total_frames = frames
+            .checked_add(anchor.frames)
+            .ok_or(PacketMemoryError::Overflow)?;
+        let total_bytes = bytes
+            .checked_add(anchor.bytes)
+            .ok_or(PacketMemoryError::Overflow)?;
+        let layout = PacketTransmitEnvelope::layout()?;
         let mut state = self.state();
-        if frames > state.transmit.limit.frames || bytes > state.transmit.limit.bytes {
+        if total_frames > state.transmit.limit.frames || total_bytes > state.transmit.limit.bytes {
             return Err(PacketMemoryError::Capacity);
         }
-        if state.paused {
+        if state.paused || state.metadata_pauses != 0 {
             return Err(PacketMemoryError::Paused);
         }
-        if frames
+        if total_frames
             > state
                 .transmit
                 .limit
                 .frames
                 .saturating_sub(state.transmit.occupied.frames)
-            || bytes
+            || total_bytes
                 > state
                     .transmit
                     .limit
@@ -70,15 +102,25 @@ impl PacketReturnTotals {
         {
             return Err(PacketMemoryError::Busy);
         }
-        state.transmit.occupied.frames += frames;
-        state.transmit.occupied.bytes += bytes;
+        // Actual Arc<Mutex<Reservation>> and its private credit-attachment Arc
+        // are reserved before any TX counter/security state or allocation.
+        let metadata = self
+            .metadata
+            .reserve(layout, std::task::Waker::from(self.clone()))?;
+        state.transmit.occupied.frames += total_frames;
+        state.transmit.occupied.bytes += total_bytes;
         drop(state);
-        Ok(PacketTransmitEnvelope::new(credit::Credit {
-            root: self.clone(),
-            lane: Lane::Transmit,
-            frames,
-            bytes,
-        }))
+        Ok(PacketTransmitEnvelope::with_anchor(
+            credit::Credit {
+                root: self.clone(),
+                lane: Lane::Transmit,
+                frames,
+                bytes,
+            },
+            anchor,
+            metadata,
+            anchor.frames != 0,
+        ))
     }
     /// Actual Host producer: reserve original+all derived responsibility before
     /// building the original's payload. All child claims use the same envelope.
@@ -119,6 +161,11 @@ impl NativePacketCredit {
     pub fn begin_transmit(&mut self, frames: usize, bytes: usize) -> Result<(), PacketMemoryError> {
         if let Some(envelope) = &self.envelope {
             return envelope.prepare(frames, bytes);
+        }
+        if let Some(envelope) = &self.reserved_envelope {
+            envelope.prepare(frames, bytes)?;
+            self.envelope = self.reserved_envelope.take();
+            return Ok(());
         }
         let credit = self.credit.as_mut().expect("same owned packet credit");
         let was_native = matches!(credit.lane, Lane::Native);
@@ -171,6 +218,13 @@ impl NativePacketCredit {
         {
             return Err(PacketMemoryError::Busy);
         }
+        if state.metadata_pauses != 0 {
+            return Err(PacketMemoryError::Paused);
+        }
+        let metadata = credit.root.metadata.reserve(
+            PacketTransmitEnvelope::layout()?,
+            std::task::Waker::from(credit.root.clone()),
+        )?;
         state.transmit.occupied.frames += add_frames;
         state.transmit.occupied.bytes += add_bytes;
         if was_native {
@@ -199,6 +253,8 @@ impl NativePacketCredit {
                 frames: credit.frames,
                 bytes: credit.bytes,
             },
+            metadata,
+            false,
         ));
         drop(state);
         drop(slot);
