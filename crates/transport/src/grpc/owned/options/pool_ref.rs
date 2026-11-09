@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Weak},
 };
 #[derive(Clone)]
-pub(super) struct PoolRef(Weak<dyn Any + Send + Sync>);
+pub(in crate::grpc::owned) struct PoolRef(Weak<dyn Any + Send + Sync>);
 impl PoolRef {
     pub(super) fn new(actual: &Arc<State>) -> Self {
         // Unsizing and downgrading preserve this exact allocation/header.
@@ -14,7 +14,7 @@ impl PoolRef {
         let erased: Arc<dyn Any + Send + Sync> = actual.clone();
         Self(Arc::downgrade(&erased))
     }
-    pub(super) fn upgrade(&self) -> Option<Arc<State>> {
+    pub(in crate::grpc::owned) fn upgrade(&self) -> Option<Arc<State>> {
         // Only new() constructs this private reference. Downcast consumes the
         // same upgraded Arc; it neither allocates nor chooses another pool.
         self.0.upgrade()?.downcast::<State>().ok()

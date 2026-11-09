@@ -15,7 +15,7 @@ impl Sender {
     ) -> io::Result<()> {
         match self {
             Self::Xmux(sender) => {
-                sender.logical = Some(original);
+                sender.bind_logical(original);
                 Ok(())
             }
             Self::OwnedHttp3(sender) => {
