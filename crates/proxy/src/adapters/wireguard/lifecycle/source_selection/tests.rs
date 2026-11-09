@@ -41,7 +41,7 @@ fn flat_relay_requires_each_actual_member_and_never_reuses_a_previous_acceptance
         &config.outbounds[1],
         &config,
         |member| {
-            visited.push(member.tag.as_str());
+            visited.push(member.tag.clone());
             member.tag == "outer"
         }
     ));
