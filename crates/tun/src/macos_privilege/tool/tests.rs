@@ -47,3 +47,21 @@ fn actual_fixed_tool_reports_its_own_pid_before_exec_and_waits_for_original_even
     supervisor.close().unwrap();
     assert!(supervisor.closed());
 }
+
+#[test]
+fn fixed_local_query_reaps_its_actual_child_and_explicitly_closes_all_preinstalled_pipe_ends() {
+    let mut child = ChildOriginal::new();
+    let output = run_query(
+        &mut child,
+        Query::Route(vec!["-n".into(), "get".into(), "127.0.0.1".into()]),
+        65_536,
+    )
+    .unwrap();
+    assert!(child.reaped());
+    assert!(child.reusable());
+    assert!(!output.stdout.is_empty() || !output.stderr.is_empty());
+    let second = run_query(&mut child, Query::SystemDns, 65_536).unwrap();
+    assert!(child.reaped());
+    assert!(child.reusable());
+    drop(second);
+}
