@@ -54,7 +54,9 @@ impl RouteLease {
         let owned = crate::macos_privilege::journal_lock(&lock_path, ipv6);
         #[cfg(target_os = "macos")]
         if let Some(lock) = owned {
-            let lock = lock.map_err(|source| conflict(source, &owner_path, &lock_path, owner))?;
+            let lock = lock.map_err(|source| {
+                conflict(source, &owner_path, &lock_path, owner, metadata.as_ref())
+            })?;
             let _context = lock.context()?;
             persist_lock_owner(&owner_path, owner)?;
             return Ok(Self {
@@ -72,8 +74,9 @@ impl RouteLease {
             .read(true)
             .write(true)
             .open(&lock_path)?;
-        fs2::FileExt::try_lock_exclusive(&lock)
-            .map_err(|source| conflict(source, &owner_path, &lock_path, owner))?;
+        fs2::FileExt::try_lock_exclusive(&lock).map_err(|source| {
+            conflict(source, &owner_path, &lock_path, owner, metadata.as_ref())
+        })?;
         persist_lock_owner(&owner_path, owner)?;
         Ok(Self {
             journal_path,
@@ -146,13 +149,19 @@ impl Lock {
         }
     }
 }
-fn conflict(source: io::Error, owner_path: &Path, lock_path: &Path, owner: &str) -> io::Error {
+fn conflict(
+    source: io::Error,
+    owner_path: &Path,
+    lock_path: &Path,
+    owner: &str,
+    metadata: Option<&crate::packet_memory::PacketDriverMetadataView>,
+) -> io::Error {
     // Preserve non-contention IO/native causes. Reading metadata must never
     // overwrite a close-unknown source or turn it into a successful fallback.
     if source.kind() != io::ErrorKind::WouldBlock {
         return source;
     }
-    let active_owner = match material::read(owner_path) {
+    let active_owner = match material::read(owner_path, metadata) {
         Ok(value) => std::str::from_utf8(&value)
             .ok()
             .map(|owner| owner.trim().to_owned())

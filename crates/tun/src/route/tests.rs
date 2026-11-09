@@ -104,6 +104,9 @@ fn journal(path: std::path::PathBuf) -> RouteJournal {
         _lease: None,
         #[cfg(target_os = "macos")]
         source: None,
+        _metadata: Default::default(),
+        _removed_routes: 0,
+        _removed_exclusions: 0,
     }
 }
 

@@ -211,3 +211,6 @@ mod credit_transfer;
 
 #[path = "tests/policy.rs"]
 mod policy;
+
+#[path = "tests/credit_units.rs"]
+mod credit_units;

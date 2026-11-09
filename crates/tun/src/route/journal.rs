@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::RouteInterface;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub(super) struct RouteJournal {
     pub(super) tun_name: String,
     pub(super) ipv6: bool,
@@ -25,9 +25,22 @@ pub(super) struct RouteJournal {
     #[cfg(target_os = "macos")]
     #[serde(skip)]
     pub(super) source: Option<crate::macos_privilege::MacosRouteFileAccess>,
+    #[serde(skip)]
+    pub(super) _metadata: metadata::Owner,
+    #[serde(skip)]
+    pub(super) _removed_routes: usize,
+    #[serde(skip)]
+    pub(super) _removed_exclusions: usize,
 }
 
+mod gateway;
+pub(in crate::route) use gateway::Gateway;
+mod cleanup;
+mod decode;
 mod lease;
+pub(super) mod metadata;
+mod object;
+mod serialize;
 pub(super) use lease::RouteLease;
 mod material;
 #[cfg(test)]
@@ -37,13 +50,22 @@ impl RouteJournal {
     pub(super) fn load(lease: &RouteLease, ipv6: bool) -> io::Result<Option<Self>> {
         #[cfg(target_os = "macos")]
         let _context = lease.context()?;
-        let path = lease.journal_path.clone();
-        let raw = match material::read(&path) {
+        let path = &lease.journal_path;
+        let memory = lease.metadata();
+        let raw = match material::read(path, memory.as_ref()) {
             Ok(raw) => raw,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error),
         };
-        let mut journal: Self = serde_json::from_slice(&raw).map_err(|error| {
+        let decoded = match memory {
+            Some(memory) => match decode::decode(&raw, memory) {
+                Ok(journal) => Ok(journal),
+                Err(decode::Failure::Memory(source)) => return Err(io::Error::other(source)),
+                Err(decode::Failure::Json(source)) => Err(source),
+            },
+            None => serde_json::from_slice(&raw),
+        };
+        let mut journal: Self = decoded.map_err(|error| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!(
@@ -61,64 +83,13 @@ impl RouteJournal {
                 ),
             ));
         }
-        journal.path = path;
+        journal.path = journal._metadata.path(path).map_err(io::Error::other)?;
         journal._lease = None;
         #[cfg(target_os = "macos")]
         {
             journal.source = lease.source();
         }
         Ok(Some(journal))
-    }
-
-    pub(super) fn new(
-        lease: RouteLease,
-        tun_name: &str,
-        ipv6: bool,
-        tun_index: u32,
-        egress: RouteInterface,
-        gateway: Option<String>,
-    ) -> io::Result<Self> {
-        Ok(Self {
-            tun_name: tun_name.to_owned(),
-            ipv6,
-            tun_index,
-            egress,
-            gateway,
-            excluded: Vec::new(),
-            installed: Vec::new(),
-            scoped_bypass: false,
-            path: lease.journal_path.clone(),
-            #[cfg(target_os = "macos")]
-            source: lease.source(),
-            _lease: Some(lease),
-        })
-    }
-
-    pub(super) fn record_exclusion(&mut self, address: IpAddr) -> io::Result<()> {
-        if !self.excluded.contains(&address) {
-            self.excluded.push(address);
-        }
-        self.persist()
-    }
-
-    pub(super) fn forget_exclusion(&mut self, address: IpAddr) -> io::Result<()> {
-        self.excluded.retain(|item| *item != address);
-        self.persist_or_clear()
-    }
-
-    pub(super) fn replace_egress(
-        &mut self,
-        egress: RouteInterface,
-        gateway: Option<String>,
-    ) -> io::Result<()> {
-        self.egress = egress;
-        self.gateway = gateway;
-        self.persist()
-    }
-
-    pub(super) fn record_route(&mut self, prefix: &str) -> io::Result<()> {
-        self.installed.push(prefix.to_owned());
-        self.persist()
     }
 
     #[cfg(any(target_os = "macos", test))]
@@ -133,50 +104,11 @@ impl RouteJournal {
         self.persist_or_clear()
     }
 
-    pub(super) fn cleanup(
-        &mut self,
-        mut remove_route: impl FnMut(&str) -> io::Result<()>,
-        mut remove_exclusion: impl FnMut(IpAddr) -> io::Result<()>,
-    ) -> io::Result<()> {
-        let mut first_error = None;
-        for prefix in self.installed.clone().into_iter().rev() {
-            match remove_route(&prefix) {
-                Ok(()) => {
-                    self.installed.retain(|item| item != &prefix);
-                    if let Err(error) = self.persist_or_clear() {
-                        first_error.get_or_insert(error);
-                    }
-                }
-                Err(error) => {
-                    first_error.get_or_insert(error);
-                }
-            }
-        }
-        for address in self.excluded.clone().into_iter().rev() {
-            match remove_exclusion(address) {
-                Ok(()) => {
-                    self.excluded.retain(|item| *item != address);
-                    if let Err(error) = self.persist_or_clear() {
-                        first_error.get_or_insert(error);
-                    }
-                }
-                Err(error) => {
-                    first_error.get_or_insert(error);
-                }
-            }
-        }
-        if self.installed.is_empty() && self.excluded.is_empty() && !self.scoped_bypass {
-            if let Err(error) = self.clear() {
-                first_error.get_or_insert(error);
-            }
-        } else if let Err(error) = self.persist() {
-            first_error.get_or_insert(error);
-        }
-        first_error.map_or(Ok(()), Err)
-    }
-
     fn persist_or_clear(&self) -> io::Result<()> {
-        if self.installed.is_empty() && self.excluded.is_empty() && !self.scoped_bypass {
+        if !serialize::visible(&self.installed, self._removed_routes)
+            && !serialize::visible(&self.excluded, self._removed_exclusions)
+            && !self.scoped_bypass
+        {
             self.clear()
         } else {
             self.persist()
@@ -186,7 +118,7 @@ impl RouteJournal {
     fn persist(&self) -> io::Result<()> {
         #[cfg(target_os = "macos")]
         let _context = self.cleanup_context()?;
-        let encoded = material::encode(self)?;
+        let encoded = material::encode(self, self._metadata.view())?;
         let temporary = self.path.with_extension("json.tmp");
         material::write(&temporary, &encoded)?;
         #[cfg(windows)]

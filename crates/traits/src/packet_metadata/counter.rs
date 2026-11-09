@@ -2,6 +2,7 @@
 //! The tiny gate protects only scalar loads/stores; never a user wake/drop.
 use super::*;
 pub(super) mod policy;
+mod units;
 pub struct PacketMetadataCounter {
     gate: AtomicBool,
     allocations: AtomicUsize,
@@ -129,65 +130,8 @@ impl PacketMetadataCounter {
         wake: Waker,
         candidate: Option<&policy::State>,
     ) -> Result<PacketMetadataCredit, PacketMemoryError> {
-        let gate = self.lock();
-        let candidate = candidate
-            .map(policy::State::reservation)
-            .transpose()?
-            .flatten();
-        let pending = self.policy_pending.load(Ordering::Relaxed);
-        let current = self.current();
-        if candidate.is_some_and(|token| token != pending) {
-            return Err(PacketMemoryError::Stopped);
-        }
-        let limit = if pending != 0 {
-            let target = PacketMetadataLayout::new(
-                self.policy_allocations.load(Ordering::Relaxed),
-                self.policy_bytes.load(Ordering::Relaxed),
-            );
-            if self.policy_rolled_back.load(Ordering::Relaxed) {
-                PacketMetadataLayout::new(
-                    self.policy_previous_allocations.load(Ordering::Relaxed),
-                    self.policy_previous_bytes.load(Ordering::Relaxed),
-                )
-            } else if candidate == Some(pending) {
-                target
-            } else {
-                // Candidate backing belongs to the same total. Old callers
-                // never gain the target's growth before actual publication.
-                PacketMetadataLayout::new(
-                    self.policy_previous_allocations
-                        .load(Ordering::Relaxed)
-                        .min(target.allocations),
-                    self.policy_previous_bytes
-                        .load(Ordering::Relaxed)
-                        .min(target.bytes),
-                )
-            }
-        } else {
-            if candidate.is_some() {
-                return Err(PacketMemoryError::Stopped);
-            }
-            current.limit
-        };
-        if layout.allocations > limit.allocations || layout.bytes > limit.bytes {
-            return Err(PacketMemoryError::Capacity);
-        }
-        if layout.allocations
-            > limit
-                .allocations
-                .saturating_sub(current.occupied.allocations)
-            || layout.bytes > limit.bytes.saturating_sub(current.occupied.bytes)
-        {
-            return Err(PacketMemoryError::Busy);
-        }
-        self.allocations.store(
-            current.occupied.allocations + layout.allocations,
-            Ordering::Relaxed,
-        );
-        self.bytes
-            .store(current.occupied.bytes + layout.bytes, Ordering::Relaxed);
+        self.admit_for(layout, candidate)?;
         let counter = self.clone();
-        drop(gate);
         Ok(PacketMetadataCredit {
             counter,
             layout,

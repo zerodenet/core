@@ -252,8 +252,10 @@ impl RouteReconcileState for SystemRouteGuard {
     }
 
     fn replace_egress(&mut self, egress: RouteInterface, gateway: Self::Gateway) -> io::Result<()> {
-        self.journal
-            .replace_egress(egress.clone(), gateway.clone())?;
+        self.journal.replace_egress_borrowed(
+            &egress,
+            gateway.as_deref().map(crate::route::journal::Gateway::Text),
+        )?;
         self.egress = egress;
         self.gateway = gateway;
         Ok(())

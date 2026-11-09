@@ -5,6 +5,7 @@ mod attachment;
 mod policy;
 pub use policy::PacketDriverMetadataPause;
 mod custody;
+mod units;
 mod vector;
 pub use attachment::PacketMetadataAttachment;
 pub use custody::{PacketMetadataArc, PacketMetadataWeak};

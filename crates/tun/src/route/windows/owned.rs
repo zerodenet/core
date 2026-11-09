@@ -30,13 +30,13 @@ impl SystemRouteGuard {
         let egress = selected.carrier;
         let gateway = selected.gateway;
         let desired_exclusions = family_exclusions_for_egress(excluded, ipv6, &selected.family);
-        let journal = RouteJournal::new(
+        let journal = RouteJournal::new_borrowed(
             lease,
             tun_name,
             address.is_ipv6(),
             tun_index,
-            egress.clone(),
-            Some(gateway.to_string()),
+            &egress,
+            Some(crate::route::journal::Gateway::Address(gateway)),
         )?;
         *original = Some(Self {
             egress,

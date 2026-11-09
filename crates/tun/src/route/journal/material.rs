@@ -1,10 +1,9 @@
 //! Kernel material uses the same original Source's finite transient File slot.
 use super::*;
+mod paid;
 pub(super) enum Bytes {
-    // Existing standalone and non-macOS callers still use their original Vec.
-    // This includes Kernel callers; their Source budget is separate work.
+    // Only callers without an owning Source metadata input use existing bytes.
     Existing(Vec<u8>),
-    #[cfg(target_os = "macos")]
     Owned(crate::packet_memory::PacketMetadataVec<u8>),
 }
 impl std::ops::Deref for Bytes {
@@ -12,22 +11,33 @@ impl std::ops::Deref for Bytes {
     fn deref(&self) -> &[u8] {
         match self {
             Self::Existing(bytes) => bytes,
-            #[cfg(target_os = "macos")]
             Self::Owned(bytes) => bytes,
         }
     }
 }
-pub(super) fn read(path: &Path) -> io::Result<Bytes> {
+pub(super) fn read(
+    path: &Path,
+    memory: Option<&crate::packet_memory::PacketDriverMetadataView>,
+) -> io::Result<Bytes> {
     #[cfg(target_os = "macos")]
     if let Some(result) = crate::macos_privilege::journal_read(path) {
         return result.map(Bytes::Owned);
     }
+    if let Some(memory) = memory {
+        return paid::read(path, memory).map(Bytes::Owned);
+    }
     std::fs::read(path).map(Bytes::Existing)
 }
-pub(super) fn encode(value: &impl Serialize) -> io::Result<Bytes> {
+pub(super) fn encode(
+    value: &impl Serialize,
+    memory: Option<&crate::packet_memory::PacketDriverMetadataView>,
+) -> io::Result<Bytes> {
     #[cfg(target_os = "macos")]
     if let Some(result) = crate::macos_privilege::journal_encode(value) {
         return result.map(Bytes::Owned);
+    }
+    if let Some(memory) = memory {
+        return paid::encode(value, memory).map(Bytes::Owned);
     }
     serde_json::to_vec(value)
         .map(Bytes::Existing)
@@ -60,3 +70,6 @@ impl RouteJournal {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

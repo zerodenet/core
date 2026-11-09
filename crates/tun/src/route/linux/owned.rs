@@ -28,7 +28,14 @@ impl SystemRouteGuard {
         let selected = select_physical_egress(ipv6, tun_name)?;
         let egress = selected.carrier;
         let gateway = selected.gateway;
-        let journal = RouteJournal::new(lease, tun_name, ipv6, 0, egress.clone(), gateway.clone())?;
+        let journal = RouteJournal::new_borrowed(
+            lease,
+            tun_name,
+            ipv6,
+            0,
+            &egress,
+            gateway.as_deref().map(crate::route::journal::Gateway::Text),
+        )?;
         let desired_exclusions = family_exclusions_for_egress(excluded, ipv6, &selected.family);
         *original = Some(Self {
             egress,

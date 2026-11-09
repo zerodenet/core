@@ -290,7 +290,10 @@ impl RouteReconcileState for SystemRouteGuard {
         let old_egress = self.egress.clone();
         let old_gateway = self.gateway.clone();
         self.remove_owned_scoped_bypass()?;
-        if let Err(error) = self.journal.replace_egress(egress.clone(), gateway.clone()) {
+        if let Err(error) = self.journal.replace_egress_borrowed(
+            &egress,
+            gateway.as_deref().map(crate::route::journal::Gateway::Text),
+        ) {
             let rollback = self.install_scoped_bypass();
             return Err(with_rollback_error(error, rollback));
         }
@@ -298,8 +301,12 @@ impl RouteReconcileState for SystemRouteGuard {
         self.gateway = gateway;
         if let Err(error) = self.install_scoped_bypass() {
             let rollback = (|| {
-                self.journal
-                    .replace_egress(old_egress.clone(), old_gateway.clone())?;
+                self.journal.replace_egress_borrowed(
+                    &old_egress,
+                    old_gateway
+                        .as_deref()
+                        .map(crate::route::journal::Gateway::Text),
+                )?;
                 self.egress = old_egress;
                 self.gateway = old_gateway;
                 self.install_scoped_bypass()

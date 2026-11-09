@@ -32,7 +32,14 @@ impl SystemRouteGuard {
             IpAddr::V4(address) => Some(crate::macos::ipv4_peer(address, netmask)?.to_string()),
             IpAddr::V6(_) => None,
         };
-        let journal = RouteJournal::new(lease, tun_name, ipv6, 0, egress.clone(), gateway.clone())?;
+        let journal = RouteJournal::new_borrowed(
+            lease,
+            tun_name,
+            ipv6,
+            0,
+            &egress,
+            gateway.as_deref().map(crate::route::journal::Gateway::Text),
+        )?;
         let connected = exclusions::connected_networks(tun_name)?;
         let desired_exclusions = family_exclusions_for_egress(excluded, ipv6, &selected.family)
             .into_iter()
