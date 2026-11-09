@@ -1,6 +1,5 @@
 //! Only candidate memory custody, issued by the actual Host Node source.
 //! This context creates no task, IO grant, resolver, native or ACK authority.
-use super::*;
 use crate::contract::scope::TaskScopeIdentity;
 use zero_core::component::ComponentInstanceId;
 use zero_traits::packet_metadata::PacketMetadataCandidateSource;
