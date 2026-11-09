@@ -3,6 +3,7 @@ use super::*;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::{sync::Arc, time::Duration};
 use zero_platform_tokio::controlled_carrier::CarrierOrigin;
+mod outer;
 mod peer;
 fn end() -> tokio::time::Instant {
     tokio::time::Instant::now() + Duration::from_secs(3)
