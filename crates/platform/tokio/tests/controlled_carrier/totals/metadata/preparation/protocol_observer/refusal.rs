@@ -1,6 +1,6 @@
 use super::*;
 pub(super) async fn known_unregistered_original_returns_while_same_scope_real_task_remains_pending(
-    scope: &mut TaskScope,
+    scope: &mut crate::contract::scope::HostedScope,
     tasks: &crate::contract::scope::TaskRegistrar,
     owner: &MetadataPoolOwner,
     totals: &Arc<CarrierOriginalTotals>,
