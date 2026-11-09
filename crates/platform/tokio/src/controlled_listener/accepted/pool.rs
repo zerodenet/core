@@ -95,6 +95,7 @@ impl Pool {
                 unknown: None,
             }),
             control: OnceLock::new(),
+            original_return: Mutex::default(),
             uncertain: Arc::new(uncertain),
             users: self.graph.as_ref().map(|authority| {
                 Arc::new(graph::Users::new(
@@ -274,6 +275,17 @@ impl Pool {
         // Newly positive native/user closure lets the original waiter bind a
         // passive ACK observation. It is not yet capacity if ACK is pending.
         if changed || new_closed {
+            // Return this exact global liability after all provider/graph locks
+            // and removed records have been released. A recursive confirmation
+            // observes no transition, so it cannot recurse or refund twice.
+            let returner = entry
+                .original_return
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone();
+            if let Some(returner) = returner {
+                returner.release_settled();
+            }
             self.changed.notify_waiters();
         }
     }

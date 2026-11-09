@@ -1,6 +1,5 @@
 use super::IdleConnection;
 use std::{
-    future::Future,
     io,
     pin::Pin,
     task::{Context, Poll},
@@ -13,9 +12,12 @@ use zero_traits::AsyncSocket;
 /// local control WebSocket, so replies cannot be confused across requests.
 /// Its resource permit remains held for the full task lifetime.
 pub struct BrowserStream {
-    inner: crate::ws::WebSocketSocket<zero_platform_tokio::PrefixedSocket>,
-    _permit: tokio::sync::OwnedSemaphorePermit,
-    cancelled: Pin<Box<tokio_util::sync::WaitForCancellationFutureOwned>>,
+    inner: crate::ws::WebSocketSocket<super::wire::Socket>,
+    _permit: Option<tokio::sync::OwnedSemaphorePermit>,
+    cancelled: tokio_util::sync::CancellationToken,
+    original: Option<super::original::BrowserUse>,
+    admission: std::sync::Mutex<Option<super::memory::Wait>>,
+    memory: super::memory::Memory,
 }
 
 impl BrowserStream {
@@ -25,12 +27,19 @@ impl BrowserStream {
         Self {
             inner,
             _permit: connection._permit,
-            cancelled: Box::pin(connection.cancellation.cancelled_owned()),
+            original: connection.original,
+            admission: std::sync::Mutex::new(None),
+            memory: connection.memory,
+            cancelled: connection.cancellation,
         }
     }
 
-    fn poll_cancelled(&mut self, cx: &mut Context<'_>) -> io::Result<()> {
-        if self.cancelled.as_mut().poll(cx).is_ready() {
+    pub fn original(&self) -> Option<&super::BrowserOriginal> {
+        self.original.as_ref().map(|value| &value.0)
+    }
+
+    fn poll_cancelled(&mut self, _cx: &mut Context<'_>) -> io::Result<()> {
+        if self.cancelled.is_cancelled() {
             Err(io::Error::new(
                 // Retirement is permanent. I/O helpers retry Interrupted;
                 // repeating it can spin inside one poll and starve deadlines.
@@ -61,6 +70,39 @@ impl AsyncWrite for BrowserStream {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         self.poll_cancelled(cx)?;
+        let peak = buf
+            .len()
+            .checked_mul(4)
+            .and_then(|bytes| bytes.checked_add(512 * 1024))
+            .ok_or(io::ErrorKind::InvalidInput)?;
+        loop {
+            let pending = self
+                .admission
+                .get_mut()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take();
+            if let Some(mut wait) = pending {
+                match wait.future.as_mut().poll(cx) {
+                    Poll::Pending => {
+                        *self
+                            .admission
+                            .get_mut()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(wait);
+                        return Poll::Pending;
+                    }
+                    Poll::Ready(result) => result?,
+                }
+            }
+            match self.memory.transmit_growth(peak)? {
+                Some(wait) => {
+                    *self
+                        .admission
+                        .get_mut()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(wait);
+                }
+                None => break,
+            }
+        }
         Pin::new(&mut self.inner).poll_write(cx, buf)
     }
 
