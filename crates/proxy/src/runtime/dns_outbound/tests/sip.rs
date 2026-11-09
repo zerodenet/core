@@ -99,7 +99,10 @@ async fn ordinary_sip_dns_pending_cancel_and_warm_doh_retire_the_actual_process_
         let endpoint = *source.original_listener_address.get().unwrap();
         let directory = tempfile::tempdir().unwrap();
         let helper = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../protocols/shadowsocks/tests/support/sip003.py");
-        let mut dns = crate::dns_fixture::Dns::new().await;
+        // The configured plugin is TCP-only. Exercise its original TCP/Aux
+        // responsibility with DoT; ordinary UDP now correctly bypasses that
+        // plugin and consumes the separate actual SS Datagram grant.
+        let mut dns = crate::dns_fixture::TlsDns::new(false).await;
         let mut tls = crate::dns_fixture::TlsDns::new(true).await;
         let config = |backend: zero_config::DnsServerConfig| {
             let mut backend = serde_json::to_value(backend).unwrap(); backend["detour"] = "sip".into();
@@ -109,22 +112,24 @@ async fn ordinary_sip_dns_pending_cancel_and_warm_doh_retire_the_actual_process_
                 "route":{"final":{"type":"direct"}}
             }).to_string()).unwrap()
         };
-        let (proxy, running) = start(config(dns.server())).await;
+        let (proxy, running) = start(config(dns.server(false))).await;
+        zero_dns::test_support::install_dot_ca(&proxy.resolver, "query", dns.certificate.clone()).unwrap();
         let process = proxy.protocols.runtime_host().original_budgets().process.clone();
         assert_eq!(process.snapshot().charged_jobs, 0, "cold DNS does not eagerly spawn a plugin");
         let mut previous = Vec::new();
         for (index, cancel) in [false, true, false].into_iter().enumerate() {
             let mut work = query(&proxy, &format!("{index}.actual.sip.dns.test"));
-            let request = tokio::select! {
-                request = dns.request() => request,
-                result = &mut work => panic!("actual SIP DNS failed before real framed query: {result:?}"),
+            let (bytes, answer) = tokio::select! {
+                request = tokio::time::timeout_at(deadline(),dns.requests.recv()) => request.unwrap().unwrap(),
+                result = &mut work => panic!("actual SIP DoT failed before the real TLS query: {result:?}"),
             };
-            assert!(request.tcp); let caller = pending(&proxy).await; let child = caller.original.as_ref().unwrap();
+            assert_eq!(dns.connections.load(std::sync::atomic::Ordering::SeqCst),index+1);
+            let caller = pending(&proxy).await; let child = caller.original.as_ref().unwrap();
             let native = original(&proxy, child);
             assert_ne!(native.endpoints().unwrap().peer(), endpoint, "actual derived loopback is not the configured remote SS endpoint");
             assert_eq!(process.snapshot().charged_jobs, 1);
-            if cancel { work.abort(); assert!(work.await.unwrap_err().is_cancelled()); drop(request); }
-            else { request.answer(false, false); assert_eq!(work.await.unwrap().unwrap(), vec![IpAddress::V4([127,0,0,1])]); }
+            if cancel { work.abort(); assert!(work.await.unwrap_err().is_cancelled()); drop(answer); }
+            else { answer.send(zero_dns::udp::build_dns_response(&bytes,&[IpAddress::V4([127,0,0,1])])).unwrap(); assert_eq!(work.await.unwrap().unwrap(), vec![IpAddress::V4([127,0,0,1])]); }
             tokio::time::timeout_at(deadline(), caller.task.wait()).await.unwrap().result().unwrap(); closed(child, &native);
             for old in &previous { assert!(!native.same_original(old)); } previous.push(native);
             assert_eq!(process.snapshot().charged_jobs, 1, "query return does not claim cached process/actor/native retirement");

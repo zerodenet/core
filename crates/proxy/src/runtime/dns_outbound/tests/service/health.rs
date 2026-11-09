@@ -3,8 +3,8 @@ use super::*;
 
 #[tokio::test]
 async fn actual_dns_detour_bypasses_traffic_quarantine_without_clearing_it() {
-    let dns = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let endpoint = dns.local_addr().unwrap();
+    let mut dns = crate::dns_fixture::Dns::new().await;
+    let endpoint = dns.address;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let proxy = Proxy::new(config(endpoint, &[listener.local_addr().unwrap().port()])).unwrap();
     start(&proxy).await;
@@ -21,17 +21,16 @@ async fn actual_dns_detour_bypasses_traffic_quarantine_without_clearing_it() {
     );
     let relay = tokio::spawn(async move {
         let (io, _) = listener.accept().await.unwrap();
-        socks(io, endpoint, false).await;
+        udp::socks(io, endpoint).await;
     });
     let answer = tokio::spawn(async move {
-        let (mut io, _) = dns.accept().await.unwrap();
-        let size = io.read_u16().await.unwrap();
-        let mut query = vec![0; usize::from(size)];
-        io.read_exact(&mut query).await.unwrap();
-        let response =
-            zero_dns::udp::build_dns_response(&query, &[IpAddress::V4([198, 51, 100, 61])]);
-        io.write_u16(response.len() as u16).await.unwrap();
-        io.write_all(&response).await.unwrap();
+        let request = dns.request().await;
+        assert!(
+            !request.tcp,
+            "the quarantined selection still uses its actual Datagram role"
+        );
+        request.answer_ips(false, false, &[IpAddress::V4([198, 51, 100, 61])]);
+        dns
     });
     let result = proxy
         .protocols
@@ -52,8 +51,9 @@ async fn actual_dns_detour_bypasses_traffic_quarantine_without_clearing_it() {
     assert!(
         proxy.engine.active_sessions().is_empty() && proxy.engine.completed_sessions().is_empty()
     );
-    answer.await.unwrap();
+    let dns = answer.await.unwrap();
     relay.await.unwrap();
+    dns.close().await;
     proxy
         .protocols
         .drive_component_supervision(Box::pin(proxy.resolver.shutdown_queries(deadline())))

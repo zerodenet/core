@@ -1,4 +1,4 @@
-//! The selected installed provider lends its datagram; DNS retains its logical owner.
+//! The selected device lends its actual socket; DNS retains its logical owner.
 use super::*;
 use crate::{inventory::service::ServiceDatagram, protocol_registry::TcpExecutionServices};
 use zero_core::component::{AssociationId, NetworkGeneration};
@@ -52,25 +52,32 @@ impl Provider {
             || execution.upstream(),
             |tag| execution.upstream_observed(tag),
         );
-        let root = Arc::new(
-            root::Root::new(
-                network,
-                destination(peer),
-                root_binding.clone(),
-                grants.clone(),
-                self.budget.clone(),
-                self.users.clone(),
-                self.pending.clone(),
-                caller.clone(),
-                cancel.clone(),
-                call.clone(),
-                execution.current_source.clone(),
-                binding.prefix.clone(),
-                self.cleanup_receiver(),
-            )
-            .map_err(std::io::Error::other)?
-            .observer_only(),
-        );
+        let native = node
+            .native
+            .as_ref()
+            .map(|(ordinal, endpoint)| (*ordinal, endpoint.clone()));
+        let root = root::Root::new(
+            network,
+            native
+                .as_ref()
+                .map_or_else(|| destination(peer), |(_, endpoint)| endpoint.clone()),
+            root_binding.clone(),
+            grants.clone(),
+            self.budget.clone(),
+            self.users.clone(),
+            self.pending.clone(),
+            caller.clone(),
+            cancel.clone(),
+            call.clone(),
+            execution.current_source.clone(),
+            binding.prefix.clone(),
+            self.cleanup_receiver(),
+        )
+        .map_err(std::io::Error::other)?;
+        let root = Arc::new(match native {
+            Some((ordinal, _)) => root.with_native_datagram(node.slot.instance_id(), ordinal),
+            None => root.observer_only(),
+        });
         root.track();
         plan.authorize_carrier_prefix(self.instance, &binding.prefix)
             .map_err(std::io::Error::other)?;

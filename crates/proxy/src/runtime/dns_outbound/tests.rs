@@ -123,3 +123,6 @@ mod vless_stream;
 
 #[cfg(all(feature = "shadowsocks", target_os = "linux"))]
 mod sip;
+
+#[cfg(any(feature = "socks5", feature = "shadowsocks"))]
+mod native_datagram;
