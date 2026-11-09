@@ -189,7 +189,6 @@ async fn actual_failed_retirement_keeps_the_first_h2_source_and_held_lease_befor
             server.addr.port(),
             "/dns-query".into(),
             vec![server.addr.ip(), second.local_addr().unwrap().ip()],
-            None,
             EgressInterfaceControl::default(),
         )
         .unwrap(),
