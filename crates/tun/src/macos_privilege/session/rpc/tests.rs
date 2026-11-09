@@ -64,7 +64,7 @@ fn actual_owned_rpc_receives_a_large_reply_on_same_root_paid_storage_and_returns
                 break;
             }
         }
-        write_helper_response(
+        crate::macos_privilege::write_helper_response(
             &mut helper,
             &HelperResponse {
                 success: true,
