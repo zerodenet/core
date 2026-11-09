@@ -197,6 +197,50 @@ impl MacosHelperOwner {
         let mut epoch = self.0.epochs[0]
             .lock()
             .unwrap_or_else(|error| error.into_inner());
+        if epoch.native.child.is_some() && epoch.native.control.is_none() && !epoch.native.cancelled
+        {
+            // The failed observer did not destroy its authorization/accept
+            // continuation. A late connection belongs to this same launch,
+            // not another helper attempt. Unknown without a late peer stays
+            // genuinely owned and keeps this actual blocking duty registered.
+            loop {
+                match epoch.connect() {
+                    Ok(()) => break,
+                    Err(source) => {
+                        self.0.retain(0, Phase::Shutdown, source);
+                        if epoch.native.cancelled {
+                            break;
+                        }
+                        let Some(listener) = epoch
+                            .native
+                            .listener
+                            .as_ref()
+                            .filter(|original| original.usable())
+                            .map(Original::fd)
+                        else {
+                            return Err(io::Error::other(
+                                "failed launch has no observable original continuation",
+                            ));
+                        };
+                        let mut fd = libc::pollfd {
+                            fd: listener,
+                            events: libc::POLLIN,
+                            revents: 0,
+                        };
+                        loop {
+                            let count = unsafe { libc::poll(&mut fd, 1, -1) };
+                            if count >= 0 {
+                                break;
+                            }
+                            let source = io::Error::last_os_error();
+                            if source.kind() != io::ErrorKind::Interrupted {
+                                return Err(source);
+                            }
+                        }
+                    }
+                }
+            }
+        }
         if epoch.native.child.is_some()
             && !epoch.native.cancelled
             && !epoch.native.observe_exit()?
