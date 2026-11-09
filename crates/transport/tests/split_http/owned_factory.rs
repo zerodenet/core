@@ -111,7 +111,7 @@ async fn actual_root_refusal_drops_unpolled_factory_work_without_allocating_its_
     let actual = polled.clone();
     let work = async move {
         actual.fetch_add(1, Ordering::AcqRel);
-        Err(io::ErrorKind::Unsupported.into())
+        Err(io::Error::from(io::ErrorKind::Unsupported).into())
     };
     let call = OwnedXhttpFactoryCall::prepare(&memory, work);
     assert_eq!(memory.snapshot().occupied, full);

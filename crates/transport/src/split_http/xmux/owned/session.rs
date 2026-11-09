@@ -46,7 +46,7 @@ impl PreparedLogical {
         } else {
             16 * 1024
         };
-        let transmit = upload::transmit_peak(&profile, scratch)?;
+        let transmit = upload::transmit_peak(profile, scratch)?;
         let working = Working {
             scratch: Some(book.try_reserve(scratch)?),
             transmit: book.try_working_lane(transmit)?,

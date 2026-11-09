@@ -2,9 +2,11 @@
 use super::*;
 use std::task::{Context, Poll};
 use zero_platform_tokio::contract::component::PacketDriverMetadataView;
+type FactoryFuture =
+    Pin<Box<dyn Future<Output = Result<XhttpCarrier, crate::RuntimeError>> + Send>>;
 pub struct OwnedXhttpFactoryCall {
     // This exact field order also holds through cancellation and unwinding.
-    inner: Option<Pin<Box<dyn Future<Output = Result<XhttpCarrier, crate::RuntimeError>> + Send>>>,
+    inner: Option<FactoryFuture>,
     refused: Option<io::ErrorKind>,
     _memory: Option<PacketMetadataCredit>,
 }

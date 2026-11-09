@@ -37,7 +37,7 @@ impl IdleConnections {
                 self.memory = Some(memory.clone());
             }
             if self.values.len() == self.values.capacity() {
-                let capacity = self.values.capacity().saturating_mul(2).max(1).min(128);
+                let capacity = self.values.capacity().saturating_mul(2).clamp(1, 128);
                 if self.reallocate(capacity, memory).is_err() {
                     return Some(connection);
                 }
