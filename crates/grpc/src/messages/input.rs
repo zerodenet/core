@@ -12,9 +12,14 @@ pub(crate) struct Input {
     header: [u8; 5],
     used: usize,
     remaining: usize,
+    repeated_strings: bool,
 }
 impl Input {
-    pub(crate) fn new(inner: Incoming, original: Arc<Record>) -> Result<Self, tonic::Status> {
+    pub(crate) fn new(
+        inner: Incoming,
+        original: Arc<Record>,
+        path: &str,
+    ) -> Result<Self, tonic::Status> {
         original.start_input()?;
         Ok(Self {
             inner,
@@ -22,6 +27,7 @@ impl Input {
             header: [0; 5],
             used: 0,
             remaining: 0,
+            repeated_strings: path == "/zero.api.v1.Control/Subscribe",
         })
     }
     fn observe(&mut self, mut bytes: &[u8]) -> Result<(), tonic::Status> {
@@ -41,7 +47,7 @@ impl Input {
                 // decoder's responsibility. This observer only accounts for
                 // the original length prefix, without changing the wire.
                 let count = u32::from_be_bytes(self.header[1..].try_into().unwrap()) as usize;
-                self.original.input_message(count)?;
+                self.original.input_message(count, self.repeated_strings)?;
                 self.remaining = count;
                 self.used = 0;
             }

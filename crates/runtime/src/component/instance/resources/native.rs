@@ -119,6 +119,8 @@ pub(in crate::component) use failures::DeclaredReceiver;
 mod files;
 mod journal;
 mod listener;
+#[cfg(all(feature = "raw-ip-runtime", target_os = "macos"))]
+mod macos_packet_helper;
 mod metadata;
 mod metapool;
 mod node_dns;
@@ -207,6 +209,32 @@ impl HostResources {
     }
 }
 impl ResourceAccess for HostResources {
+    #[cfg(all(feature = "raw-ip-runtime", target_os = "macos"))]
+    fn receive_packet_device_helper_failure(
+        &self,
+        identity: &zero_platform_tokio::contract::component::PacketDeviceIdentity,
+        witness: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+        source: Arc<ChannelError>,
+    ) -> Result<bool, ChannelError> {
+        let owner = self
+            .packets
+            .iter()
+            .find(|owner| owner.helper_matches(identity))
+            .ok_or_else(|| self.denied())?;
+        Ok(owner.accept_helper_failure(witness, source))
+    }
+    #[cfg(all(feature = "raw-ip-runtime", target_os = "macos"))]
+    fn packet_device_helper_retired(
+        &self,
+        identity: &zero_platform_tokio::contract::component::PacketDeviceIdentity,
+        witness: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> bool {
+        self.packets
+            .iter()
+            .find(|owner| owner.helper_matches(identity))
+            .is_some_and(|owner| owner.helper_returned(witness))
+    }
+
     fn receive_packet_driver_failure(
         &self,
         grant: &zero_platform_tokio::contract::component::GrantedPacketServiceCaller,

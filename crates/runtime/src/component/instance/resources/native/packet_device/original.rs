@@ -8,7 +8,11 @@ pub(super) struct NativeView {
     pub io: PacketDeviceIo,
     pub interface: Arc<str>,
 }
+#[cfg(target_os = "macos")]
+mod macos_helper;
 pub(super) struct Original {
+    #[cfg(target_os = "macos")]
+    macos: Mutex<macos_helper::MacosState>,
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     owner: Arc<zero_tun::AdoptedTunOwner>,
     #[cfg(target_os = "windows")]
@@ -63,6 +67,8 @@ impl Original {
             return Err("invalid or unavailable concrete Packet device binding");
         }
         Ok(Self {
+            #[cfg(target_os = "macos")]
+            macos: Mutex::default(),
             #[cfg(any(target_os = "linux", target_os = "macos"))]
             owner: zero_tun::AdoptedTunOwner::new(),
             #[cfg(target_os = "windows")]
@@ -114,7 +120,10 @@ impl Original {
     }
     pub(super) fn stop_reader(&self) {
         #[cfg(target_os = "macos")]
-        self.owner.return_unacquired_macos_workspaces();
+        {
+            self.stop_macos();
+            self.owner.return_unacquired_macos_workspaces();
+        }
         #[cfg(target_os = "windows")]
         self.owner.stop();
     }
@@ -123,7 +132,11 @@ impl Original {
         binding: &PacketDeviceBinding,
         component: ComponentId,
     ) -> Result<NativeView, ChannelError> {
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        #[cfg(target_os = "macos")]
+        {
+            return self.acquire_macos(binding, component).await;
+        }
+        #[cfg(target_os = "linux")]
         {
             let acquired = match binding {
                 PacketDeviceBinding::Descriptor { fd, interface } => {
@@ -251,6 +264,10 @@ impl Original {
     pub(super) fn physical_confirmed(&self, issued: Option<&OwnedTunIdentity>) -> bool {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
+            #[cfg(target_os = "macos")]
+            if !self.helper_closed() {
+                return false;
+            }
             match self.owner.outcome() {
                 zero_tun::TunAcquisitionOutcome::KnownNoNative => issued.is_none(),
                 zero_tun::TunAcquisitionOutcome::Closed(receipt) => {

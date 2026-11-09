@@ -2,13 +2,15 @@
 use super::*;
 use zero_platform_tokio::contract::scope::{HostedCallbacks, WeakTaskRegistrar};
 use zero_tun::packet_memory::NativeReadGrant;
+#[cfg(target_os = "macos")]
+mod macos_helper;
 #[cfg(windows)]
 mod ring;
 pub(super) struct Memory {
     roots: Arc<crate::HostOriginalBudgets>,
     tasks: Option<WeakTaskRegistrar>,
     reads: Mutex<Option<Vec<NativeReadGrant>>>,
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     reader: Mutex<Option<TaskJoinWitness>>,
     #[cfg(windows)]
     ring: Mutex<Option<zero_tun::packet_memory::RequestedRingCapacityCredit>>,
@@ -24,7 +26,7 @@ impl Memory {
             roots,
             tasks,
             reads: Mutex::new(None),
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             reader: Mutex::new(None),
             #[cfg(windows)]
             ring: Mutex::new(None),
@@ -42,6 +44,17 @@ impl Memory {
         original: &original::Original,
         component: zero_core::component::ComponentId,
     ) -> Result<NativeReadGrant, ChannelError> {
+        #[cfg(target_os = "macos")]
+        if let Some(read) = self
+            .reads
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .and_then(|reads| reads.first())
+            .cloned()
+        {
+            return Ok(read);
+        }
         #[cfg(windows)]
         self.prepare_ring(component)?;
         #[cfg(target_os = "macos")]
@@ -179,7 +192,7 @@ impl Memory {
         original.stop_reader();
     }
     pub(super) fn joined(&self) -> bool {
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
             self.reader
                 .lock()
@@ -187,11 +200,11 @@ impl Memory {
                 .as_ref()
                 .is_none_or(TaskJoinWitness::is_joined)
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         true
     }
     pub(super) async fn join(&self, deadline: Instant) -> bool {
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
             let reader = self
                 .reader
@@ -204,7 +217,7 @@ impl Memory {
                     .is_ok();
             }
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         let _ = deadline;
         true
     }

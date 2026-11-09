@@ -39,7 +39,7 @@ mod retirement;
 pub use hosted::{HostedCallbacks, HostedExitReceipt, HostedReceiptError, HostedScope};
 pub use identity::TaskScopeIdentity;
 pub use registrar::WeakTaskRegistrar;
-pub use retirement::ScopeRetirementObservation;
+pub use retirement::{ScopeRetirementCompletion, ScopeRetirementObservation};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnError {
     NotStarted,
@@ -77,6 +77,8 @@ struct State {
     records: HashMap<Id, join::Registration>,
     completed: VecDeque<CompletedExit>,
     closing_report: Option<Box<CloseReport>>,
+    retirement:
+        Option<zero_traits::packet_metadata::PacketMetadataWeak<retirement::CompletionFlag>>,
 }
 
 enum CompletedExit {
@@ -242,6 +244,7 @@ impl TaskScope {
                 records: HashMap::new(),
                 completed: VecDeque::new(),
                 closing_report: None,
+                retirement: None,
             }),
             relay: Arc::new(relay::JoinRelay::new(
                 &changed,

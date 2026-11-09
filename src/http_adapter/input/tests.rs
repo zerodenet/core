@@ -103,3 +103,28 @@ async fn actual_http_header_metadata_refuses_before_copying_and_failed_admission
     drop(request);
     assert_eq!(book.usage().request_bytes, 0);
 }
+
+#[tokio::test]
+async fn actual_json_body_tree_capacity_is_held_by_the_original_http_request() {
+    let limits = ControlBudgetLimits::from_runtime(&Default::default());
+    let book = ControlBudget::new(limits);
+    let body = br#"{"health":{},"ignored":[{},{},{},{},{},{},{},{}]}"#;
+    let wire = format!(
+        "POST /api/v1/query HTTP/1.1\r\nContent-Length: {}\r\n\r\n",
+        body.len()
+    );
+    let (mut tx, mut rx) = tokio::io::duplex(1024);
+    tx.write_all(wire.as_bytes()).await.unwrap();
+    tx.write_all(body).await.unwrap();
+    let held = Arc::new(read_request(&mut rx, &book).await.unwrap());
+    assert_eq!(held.body, body);
+    assert!(book.usage().request_bytes > body.len() * 8);
+    let actual_work = held.clone();
+    drop(held);
+    let mut shrink = limits;
+    shrink.messages.request_bytes_total = 1;
+    assert!(book.prepare(shrink).is_err());
+    drop(actual_work);
+    assert_eq!(book.usage().request_bytes, 0);
+    book.prepare(shrink).unwrap().commit().unwrap();
+}

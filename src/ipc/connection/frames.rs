@@ -12,6 +12,7 @@ impl RequestFrame {
     }
     /// The decoded envelope may coexist with its original wire bytes. Its
     /// independent reservation follows that envelope through command join.
+    #[cfg(test)]
     pub(super) fn reserve_decoded(
         &self,
         budget: &Arc<ControlBudget>,

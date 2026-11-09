@@ -139,7 +139,7 @@ where
                                 let original = crate::messages::current().ok_or_else(||
                                     io::Error::other("original gRPC stream registration absent"))?;
                                 let (mut parts, incoming) = request.into_parts();
-                                let body = match crate::messages::Input::new(incoming, original.clone()) {
+                                let body = match crate::messages::Input::new(incoming, original.clone(),parts.uri.path()) {
                                     Ok(body) => body,
                                     Err(status) => return Ok(status.into_http()),
                                 };

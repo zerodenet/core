@@ -417,18 +417,28 @@ fn validate_config_command(
     command: ConfigValidateCommand,
 ) -> zero_api::ApiResult<CommandResponse> {
     let raw = serde_json::to_string(&command.config).map_err(to_internal_error)?;
-    let config = RuntimeConfig::parse_with_source_dir(&raw, engine.config().source_dir.clone())
+    engine.validate_configuration_document(&raw)
+}
+impl Engine {
+    /// Validate one actual caller-owned document with this Engine's existing
+    /// ConfigurationSource and the same original routing-material checks.
+    /// The caller retains its raw storage; no second snapshot or source is made.
+    pub fn validate_configuration_document(
+        &self,
+        raw: &str,
+    ) -> zero_api::ApiResult<CommandResponse> {
+        let config = RuntimeConfig::parse_with_source_dir(raw, self.config().source_dir.clone())
+            .map_err(config_error_to_api)?;
+        zero_runtime::configuration::PreparedRouting::prepare_owned(
+            &config,
+            self.configuration_source(),
+        )
         .map_err(config_error_to_api)?;
-    zero_runtime::configuration::PreparedRouting::prepare_owned(
-        &config,
-        engine.configuration_source(),
-    )
-    .map_err(config_error_to_api)?;
-
-    Ok(CommandResponse {
-        accepted: true,
-        result: Some(json!({ "valid": true })),
-    })
+        Ok(CommandResponse {
+            accepted: true,
+            result: Some(json!({"valid":true})),
+        })
+    }
 }
 
 pub const CONTROL_CAPABILITY_FEATURES: &[&str] = &[

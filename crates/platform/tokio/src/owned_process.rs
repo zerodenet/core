@@ -13,6 +13,12 @@ mod budget;
 #[cfg(any(target_os = "linux", windows))]
 pub use budget::{PrepaidProcessJob, ProcessBudget, ProcessBudgetLimits, ProcessBudgetSnapshot};
 
+#[cfg(target_os = "macos")]
+#[path = "owned_process/macos_budget.rs"]
+mod macos_budget;
+#[cfg(target_os = "macos")]
+pub use macos_budget::{ProcessBudget, ProcessBudgetLimits, ProcessBudgetSnapshot};
+
 mod endpoint_spec;
 pub use endpoint_spec::ProcessEndpointSpec;
 #[cfg(any(target_os = "linux", windows))]

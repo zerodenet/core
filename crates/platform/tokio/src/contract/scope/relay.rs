@@ -308,7 +308,22 @@ impl Drop for LockedState<'_> {
         }
         // Both native JoinSet wake/drop and actual witness notifications can
         // synchronously re-enter this very scope. Unlock before either callback.
+        let retired = self.state.as_ref().and_then(|state| {
+            (state.closing
+                && state.records.is_empty()
+                && state.tasks.is_empty()
+                && state.completed.is_empty()
+                && state.pending_launches == 0)
+                .then(|| state.retirement.clone())
+                .flatten()
+        });
         drop(self.state.take());
+        // This is an actual empty, sealed census, after join/ACK consumption.
+        // Drop/expiry alone never seals it. Upgrade and possible paid refund
+        // happen after State unlock, before invoking any external waker.
+        if let Some(retired) = retired.and_then(|retired| retired.upgrade()) {
+            retired.seal();
+        }
         // Transfer before dropping a guard that may call an arbitrary waker.
         // Ordinary scopes flush immediately after their own State unlock;
         // a Hosted parent guard defers this exact bounded batch until its lock

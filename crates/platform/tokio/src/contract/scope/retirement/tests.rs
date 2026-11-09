@@ -62,3 +62,60 @@ async fn dropping_host_does_not_turn_an_unconsumed_original_registration_into_re
         "Drop is no join or publication ACK"
     );
 }
+
+#[tokio::test]
+async fn paid_completion_survives_scope_retirement_without_retaining_its_tasks_or_faking_drop_ack()
+{
+    let root = std::sync::Arc::new(zero_tun::packet_memory::PacketReturnTotals::default());
+    let memory = root.driver_metadata_view();
+    let mut scope = TaskScope::suspended_hosted(Handle::current(), NonZeroUsize::new(1));
+    let registrar = scope.registrar();
+    let weak = registrar.downgrade();
+    let completion = weak.retirement_completion(&memory).unwrap();
+    assert!(!completion.is_drained());
+    scope.enable_registration().unwrap();
+    let (finish, finished) = oneshot::channel();
+    let (_, witness) = registrar
+        .spawn_tracked(TaskClass::Critical, async move {
+            finished.await.unwrap();
+            Ok(())
+        })
+        .unwrap();
+    scope.begin_shutdown();
+    finish.send(()).unwrap();
+    let receipt = scope.next_receipt().await.unwrap();
+    assert!(witness.matches_joined(receipt.joined()));
+    assert!(!completion.is_drained());
+    let callbacks = scope.defer_callbacks();
+    scope.acknowledge(&receipt).unwrap();
+    assert!(!completion.is_drained());
+    drop(callbacks);
+    assert!(witness.try_joined().unwrap().registration_released());
+    assert!(completion.is_drained());
+    drop(registrar);
+    drop(receipt);
+    drop(scope);
+    assert!(weak.retirement_observation().is_none());
+    assert!(completion.is_drained());
+    let other = TaskScope::suspended_hosted(Handle::current(), NonZeroUsize::new(1));
+    let abandoned = other
+        .registrar()
+        .downgrade()
+        .retirement_completion(&memory)
+        .unwrap();
+    let mut other = other;
+    other.enable_registration().unwrap();
+    let (_, pending) = oneshot::channel::<()>();
+    other
+        .registrar()
+        .spawn_tracked(TaskClass::Critical, async move {
+            let _ = pending.await;
+            Ok(())
+        })
+        .unwrap();
+    drop(other);
+    assert!(
+        !abandoned.is_drained(),
+        "abort/Drop is not a native task join or ACK"
+    );
+}

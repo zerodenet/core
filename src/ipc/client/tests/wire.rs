@@ -97,3 +97,23 @@ async fn command_error_holds_the_original_frame_and_message_until_its_actual_rec
     drop(error);
     assert_eq!(book.usage().response_bytes, 0);
 }
+
+#[tokio::test]
+async fn unterminated_escape_scratch_stays_paid_with_its_actual_decode_error() {
+    let raw = br#"{"ok":true,"result":"\nunterminated"#;
+    let book = new_book(65536);
+    let frame = frames::Frame::read(&mut &raw[..], &book)
+        .await
+        .unwrap()
+        .unwrap();
+    let frame_bytes = book.usage().response_bytes;
+    let error = match Reply::new(frame, book.clone()) {
+        Ok(_) => panic!("the real incomplete JSON must fail"),
+        Err(error) => error,
+    };
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    assert!(book.usage().response_bytes >= frame_bytes + 2 * b"\\nunterminated".len());
+    assert!(error.get_ref().unwrap().source().is_some());
+    drop(error);
+    assert_eq!(book.usage().response_bytes, 0);
+}

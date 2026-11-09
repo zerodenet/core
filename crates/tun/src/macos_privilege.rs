@@ -19,6 +19,12 @@ use std::sync::{Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
 
 mod launch;
+mod process;
+mod server;
+pub(crate) mod session;
+pub(crate) use session::{route_query, route_table};
+mod tool;
+mod transfer;
 use launch::launch_authorized_helper;
 #[cfg(test)]
 use launch::PRIVILEGED_COMMAND_SCRIPT;
@@ -29,6 +35,27 @@ static PRIVILEGED_HELPER: OnceLock<Mutex<Option<UnixStream>>> = OnceLock::new();
 #[derive(Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum HelperRequest {
+    Hello {
+        nonce: u64,
+    },
+    InstallSupervisor {
+        transfer: u64,
+        request_capacity: usize,
+    },
+    ResizeWorkspace {
+        capacity: usize,
+    },
+    OwnedCreateUtun {
+        name: Option<String>,
+        transfer: u64,
+    },
+    OwnedCommand {
+        program: HelperProgram,
+        arguments: Vec<String>,
+        input: Option<String>,
+        nonce: u64,
+        output_limit: usize,
+    },
     CreateUtun {
         name: Option<String>,
     },
@@ -69,6 +96,11 @@ impl Drop for HelperSocketGuard {
 }
 
 pub(crate) fn request_utun(name: Option<&str>) -> io::Result<RawFd> {
+    if session::current().is_some() {
+        return Err(io::Error::other(
+            "Kernel utun creation requires its retained parent owner",
+        ));
+    }
     let mut slot = helper_slot().lock().map_err(|_| helper_lock_error())?;
     if let Some(stream) = slot.as_mut() {
         match request_helper_utun(stream, name) {
@@ -126,6 +158,13 @@ fn peer_effective_uid(stream: &UnixStream) -> io::Result<libc::uid_t> {
     Ok(uid)
 }
 
+pub fn run_owned_utun_create_helper(socket_path: &Path) -> io::Result<()> {
+    if unsafe { libc::geteuid() } != 0 {
+        return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+    }
+    let mut stream = UnixStream::connect(socket_path)?;
+    server::serve_owned(&mut stream)
+}
 /// Entry point used only by Zero's private macOS helper CLI command.
 pub fn run_utun_create_helper(socket_path: &Path, name: Option<&str>) -> io::Result<()> {
     if unsafe { libc::geteuid() } != 0 {
@@ -135,81 +174,14 @@ pub fn run_utun_create_helper(socket_path: &Path, name: Option<&str>) -> io::Res
         ));
     }
     match UnixStream::connect(socket_path) {
-        Ok(mut stream) => {
-            // The optional name is retained for compatibility with older
-            // private invocations. New parents send every create request over
-            // the persistent channel so one authorization helper can serve
-            // repeated TUN starts for the lifetime of the Zero process.
-            if name.is_some() {
-                create_utun_for_parent(&mut stream, name)?;
-            }
-            serve_helper(&mut stream)
-        }
+        Ok(mut stream) => server::serve_with_initial(&mut stream, name),
         Err(error) => Err(error),
     }
 }
 
+#[cfg(test)]
 fn serve_helper(stream: &mut UnixStream) -> io::Result<()> {
-    let mut reader = BufReader::new(stream.try_clone()?);
-    loop {
-        let mut line = String::new();
-        if reader.read_line(&mut line)? == 0 {
-            return Ok(());
-        }
-        let request: HelperRequest = serde_json::from_str(&line).map_err(io::Error::other)?;
-        match request {
-            HelperRequest::CreateUtun { name } => {
-                create_utun_for_parent(stream, name.as_deref())?;
-            }
-            HelperRequest::Command {
-                program,
-                arguments,
-                input,
-            } => {
-                let output = run_as_root(program, &arguments, input.as_deref())?;
-                write_helper_response(
-                    stream,
-                    &HelperResponse {
-                        success: output.status.success(),
-                        code: output.status.code().unwrap_or(1),
-                        stdout: output.stdout,
-                        stderr: output.stderr,
-                    },
-                )?;
-            }
-            HelperRequest::Shutdown => return Ok(()),
-        }
-    }
-}
-
-fn create_utun_for_parent(stream: &mut UnixStream, name: Option<&str>) -> io::Result<()> {
-    match crate::macos::create_raw_utun(name) {
-        Ok(fd) => {
-            write_helper_response(
-                stream,
-                &HelperResponse {
-                    success: true,
-                    code: 0,
-                    stdout: Vec::new(),
-                    stderr: Vec::new(),
-                },
-            )?;
-            let transfer = send_fd(stream.as_raw_fd(), fd);
-            // SCM_RIGHTS duplicated the descriptor into the unprivileged
-            // process. The helper never retains a TUN descriptor.
-            unsafe { libc::close(fd) };
-            transfer
-        }
-        Err(error) => write_helper_response(
-            stream,
-            &HelperResponse {
-                success: false,
-                code: error.raw_os_error().unwrap_or(1),
-                stdout: Vec::new(),
-                stderr: error.to_string().into_bytes(),
-            },
-        ),
-    }
+    server::serve(stream)
 }
 
 fn write_helper_response(stream: &mut UnixStream, response: &HelperResponse) -> io::Result<()> {
@@ -303,31 +275,41 @@ fn bind_helper_socket() -> io::Result<(UnixListener, HelperSocketGuard)> {
 
 fn send_fd(socket: RawFd, fd: RawFd) -> io::Result<()> {
     let mut marker = [1_u8];
-    let mut iovec = libc::iovec {
+    let mut iov = libc::iovec {
         iov_base: marker.as_mut_ptr().cast(),
-        iov_len: marker.len(),
+        iov_len: 1,
     };
-    let control_len = unsafe { libc::CMSG_SPACE(mem::size_of::<RawFd>() as u32) } as usize;
-    let mut control = vec![0_u8; control_len];
+    let space = unsafe { libc::CMSG_SPACE(mem::size_of::<RawFd>() as u32) } as usize;
+    let mut aligned = [0_usize; 4];
     let mut message: libc::msghdr = unsafe { mem::zeroed() };
-    message.msg_iov = &mut iovec;
+    message.msg_iov = &mut iov;
     message.msg_iovlen = 1;
-    message.msg_control = control.as_mut_ptr().cast();
-    message.msg_controllen = control.len() as _;
+    message.msg_control = aligned.as_mut_ptr().cast();
+    message.msg_controllen = space as _;
     unsafe {
         let header = libc::CMSG_FIRSTHDR(&message);
-        if header.is_null() {
-            return Err(io::Error::other("allocate utun descriptor control message"));
-        }
         (*header).cmsg_level = libc::SOL_SOCKET;
         (*header).cmsg_type = libc::SCM_RIGHTS;
         (*header).cmsg_len = libc::CMSG_LEN(mem::size_of::<RawFd>() as u32) as _;
         std::ptr::write(libc::CMSG_DATA(header).cast::<RawFd>(), fd);
-        if libc::sendmsg(socket, &message, 0) < 0 {
-            return Err(io::Error::last_os_error());
-        }
     }
-    Ok(())
+    loop {
+        let sent = unsafe { libc::sendmsg(socket, &message, 0) };
+        if sent == 1 {
+            return Ok(());
+        }
+        if sent < 0 {
+            let source = io::Error::last_os_error();
+            if source.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(source);
+        }
+        return Err(io::Error::new(
+            io::ErrorKind::WriteZero,
+            "ancillary original was not sent",
+        ));
+    }
 }
 
 fn receive_fd(socket: RawFd) -> io::Result<RawFd> {
@@ -385,6 +367,9 @@ fn receive_fd(socket: RawFd) -> io::Result<RawFd> {
 }
 
 pub(crate) fn output(program: &str, arguments: &[String]) -> io::Result<Output> {
+    if let Some(owner) = session::current() {
+        return owner.output(helper_program(program)?, arguments, None);
+    }
     if unsafe { libc::geteuid() } == 0 {
         return Command::new(program).args(arguments).output();
     }
@@ -396,6 +381,9 @@ pub(crate) fn output_with_input(
     arguments: &[String],
     input: &str,
 ) -> io::Result<Output> {
+    if let Some(owner) = session::current() {
+        return owner.output(helper_program(program)?, arguments, Some(input));
+    }
     if unsafe { libc::geteuid() } == 0 {
         return run_as_root(helper_program(program)?, arguments, Some(input));
     }

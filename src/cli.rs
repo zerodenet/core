@@ -158,6 +158,7 @@ pub enum Command {
     MacosTunCreateHelper {
         socket_path: String,
         name: Option<String>,
+        owned: bool,
     },
     BuildInfo,
     Help,
@@ -272,6 +273,7 @@ fn parse_original_args(args: impl IntoIterator<Item = String>) -> Result<Command
 fn parse_macos_tun_create_helper(args: Vec<String>) -> Result<Command, CliError> {
     let mut socket_path = None;
     let mut name = None;
+    let mut owned = false;
     let mut iter = args.into_iter();
     while let Some(argument) = iter.next() {
         match argument.as_str() {
@@ -280,6 +282,7 @@ fn parse_macos_tun_create_helper(args: Vec<String>) -> Result<Command, CliError>
                     CliError::new("`__macos-tun-create-helper --socket` requires a path")
                 })?);
             }
+            "--owned" => owned = true,
             "--name" => {
                 name = Some(iter.next().ok_or_else(|| {
                     CliError::new("`__macos-tun-create-helper --name` requires a value")
@@ -292,10 +295,16 @@ fn parse_macos_tun_create_helper(args: Vec<String>) -> Result<Command, CliError>
             }
         }
     }
+    if owned && name.is_some() {
+        return Err(CliError::new(
+            "owned helper takes its unique create request from the actual Source",
+        ));
+    }
     Ok(Command::MacosTunCreateHelper {
         socket_path: socket_path
             .ok_or_else(|| CliError::new("`__macos-tun-create-helper` requires `--socket PATH`"))?,
         name,
+        owned,
     })
 }
 

@@ -928,6 +928,23 @@ pub trait ResourceAccess: Send + Sync {
             Err(error)
         })
     }
+    #[cfg(all(feature = "native-packet-origin", target_os = "macos"))]
+    fn receive_packet_device_helper_failure(
+        &self,
+        _identity: &PacketDeviceIdentity,
+        _witness: &super::scope::TaskJoinWitness,
+        _source: Arc<BuildError>,
+    ) -> Result<bool, BuildError> {
+        Ok(false)
+    }
+    #[cfg(all(feature = "native-packet-origin", target_os = "macos"))]
+    fn packet_device_helper_retired(
+        &self,
+        _identity: &PacketDeviceIdentity,
+        _witness: &super::scope::TaskJoinWitness,
+    ) -> bool {
+        false
+    }
     fn open_device(&self, name: Arc<str>) -> BoxFuture<'_, Result<BoxPacketSession, BuildError>>;
 }
 

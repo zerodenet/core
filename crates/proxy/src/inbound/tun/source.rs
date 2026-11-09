@@ -4,6 +4,8 @@
 mod budget;
 mod channel;
 mod driver;
+#[cfg(target_os = "macos")]
+mod macos_helper;
 mod owner;
 mod protocol;
 use std::{
@@ -37,6 +39,8 @@ pub(crate) struct SystemTunSourceOptions {
 #[derive(Default)]
 pub(crate) struct SystemTunSourceState {
     acquired: OnceLock<Acquired>,
+    #[cfg(target_os = "macos")]
+    helper: OnceLock<macos_helper::Helper>,
     driver: OnceLock<TaskJoinWitness>,
     scope: OnceLock<TaskScopeIdentity>,
     changed: Notify,
@@ -108,6 +112,23 @@ impl SystemTunSourceOptions {
         use sha2::{Digest, Sha256};
         let mut identity = Sha256::new();
         identity.update(b"zero.system-tun.source.v1");
+        #[cfg(target_os = "macos")]
+        {
+            identity.update(
+                runtime
+                    .runtime
+                    .effective_file_read_max_bytes()
+                    .to_le_bytes(),
+            );
+            identity.update([u8::from(zero_tun::macos_utun_create_needs_helper_worker())]);
+            identity.update(runtime.runtime.effective_process_max_jobs().to_le_bytes());
+            identity.update(
+                runtime
+                    .runtime
+                    .effective_process_max_jobs_per_instance()
+                    .to_le_bytes(),
+            );
+        }
         for value in work_limits.values() {
             identity.update((value as u64).to_le_bytes());
         }
@@ -224,6 +245,10 @@ impl ComponentFactory for SystemTunSourceFactory {
             .inbound
             .ok_or_else(|| error(Stage::Prepare, Reason::InvalidConfig))?;
         let scope = context.tasks.scope_identity();
+        #[cfg(target_os = "macos")]
+        options
+            .state
+            .validate_macos_helper(instance, &scope, &context.resources)?;
         if options.state.scope.set(scope.clone()).is_err() {
             return Err(error(Stage::Prepare, Reason::StalePlan));
         }

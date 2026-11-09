@@ -124,14 +124,14 @@ pub(super) async fn read_request(
     let body_charge = budget
         .reserve(ControlCharge::RequestBytes(length))
         .map_err(capacity)?;
-    // The typed JSON request is admitted before the route decodes a second envelope.
-    let body_decoded = budget
-        .reserve(ControlCharge::RequestBytes(length))
-        .map_err(capacity)?;
+    // Declared before the actual body, so all failure exits free it first.
+    let body_decoded;
     let mut body = Vec::new();
     body.try_reserve_exact(length).map_err(io::Error::other)?;
     body.resize(length, 0);
     stream.read_exact(&mut body).await?;
+    body_decoded = crate::ipc::owner::request_json::http_storage(&method, &path, &body, budget)
+        .map_err(capacity)?;
     drop(head);
     drop(raw);
     Ok(HeldRequest {

@@ -53,7 +53,7 @@ impl EmbeddedCommandOwner {
         let proof = credit
             .command_custody()
             .ok_or_else(|| std::io::Error::other("not an actual command permission"))?;
-        self.adopt(Credit::Root { _original: credit }, proof, Vec::new())
+        self.adopt(Credit::Root { _original: credit }, proof, &mut Vec::new())
     }
     pub fn adopt_connection_command(
         self: &Arc<Self>,
@@ -62,7 +62,7 @@ impl EmbeddedCommandOwner {
         let proof = credit
             .command_custody()
             .ok_or_else(|| std::io::Error::other("not an actual local command permission"))?;
-        self.adopt(Credit::Connection(credit), proof, Vec::new())
+        self.adopt(Credit::Connection(credit), proof, &mut Vec::new())
     }
     /// Transfer the original IPC request envelope's existing byte permissions.
     /// Caller loss cannot refund bytes still held by its actual blocking job.
@@ -74,13 +74,26 @@ impl EmbeddedCommandOwner {
         let proof = credit
             .command_custody()
             .ok_or_else(|| std::io::Error::other("not an actual local command permission"))?;
+        let mut request_bytes = request_bytes;
+        self.adopt(Credit::Connection(credit), proof, &mut request_bytes)
+    }
+    /// Leave original input permissions with the caller on synchronous rejection.
+    /// That owner frees its unstarted DTO/future before returning this credit.
+    pub fn try_adopt_connection_command_with_input(
+        self: &Arc<Self>,
+        credit: ControlConnectionPermit,
+        request_bytes: &mut Vec<ControlBudgetPermit>,
+    ) -> Result<FrontendCommand, std::io::Error> {
+        let proof = credit
+            .command_custody()
+            .ok_or_else(|| std::io::Error::other("not an actual local command permission"))?;
         self.adopt(Credit::Connection(credit), proof, request_bytes)
     }
     fn adopt(
         self: &Arc<Self>,
         credit: Credit,
         custody: ControlCommandCustody,
-        request_bytes: Vec<ControlBudgetPermit>,
+        request_bytes: &mut Vec<ControlBudgetPermit>,
     ) -> Result<FrontendCommand, std::io::Error> {
         let root = self
             .book
@@ -115,7 +128,7 @@ impl EmbeddedCommandOwner {
             failure: OnceLock::new(),
             raw_failure: OnceLock::new(),
             credit: Mutex::new(Some(credit)),
-            request_bytes: Mutex::new(request_bytes),
+            request_bytes: Mutex::new(Vec::new()),
             raw_no_work: AtomicBool::new(false),
             async_work: AtomicBool::new(false),
         });
@@ -134,6 +147,9 @@ impl EmbeddedCommandOwner {
                 "original command admission closed",
             ));
         }
+        // This exact row has passed every fallible admission check. Transfer
+        // its bytes once, before publishing the already-strong original.
+        *lock(&original.request_bytes) = std::mem::take(request_bytes);
         state.frontends.push(original.clone());
         drop(state);
         Ok(FrontendCommand(original))
