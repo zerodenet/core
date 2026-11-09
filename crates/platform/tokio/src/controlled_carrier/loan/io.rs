@@ -11,6 +11,8 @@ pub struct LoanIo {
     io: Option<BoxStream>,
     state: Arc<State>,
     cancelled: Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
+    // The actual erased IO Box is destroyed before its exact original credit.
+    boxing: Option<zero_traits::packet_metadata::PacketMetadataCredit>,
 }
 impl LoanIo {
     /// Retain a host's existing custody/revocation wrapper around the same view.
@@ -24,7 +26,15 @@ impl LoanIo {
             io: Some(io),
             state,
             cancelled,
+            boxing: None,
         }
+    }
+    pub(super) fn retain_boxing(
+        &mut self,
+        credit: zero_traits::packet_metadata::PacketMetadataCredit,
+    ) {
+        assert!(self.boxing.is_none(), "one original erased IO allocation");
+        self.boxing = Some(credit);
     }
     fn check(&mut self, cx: &mut Context<'_>) -> io::Result<()> {
         if self.cancelled.as_mut().poll(cx).is_ready() {

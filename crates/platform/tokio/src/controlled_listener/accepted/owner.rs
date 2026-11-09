@@ -126,6 +126,39 @@ impl ControlledTcpListenerOwner {
         pool.graph = Some(authority);
         Ok(owner)
     }
+    /// Same actual Host-issued registration authority; no Scope identity can
+    /// manufacture this value or upgrade it into a new registrar.
+    pub fn new_with_accepted_graph_weak(
+        declaration: &ResourceDeclaration,
+        attempts: NonZeroUsize,
+        parent: CancellationToken,
+        accepted_limit: NonZeroUsize,
+        per_entry_tasks: NonZeroUsize,
+        registrar: &crate::contract::scope::WeakTaskRegistrar,
+    ) -> Result<Self, ChannelError> {
+        if registrar.retirement_observation().is_none() {
+            return Err(failure(
+                Stage::Prepare,
+                Reason::Revoked,
+                "actual listener registrar disappeared",
+            ));
+        }
+        let mut owner =
+            Self::new_with_accepted_limit(declaration, attempts, parent, accepted_limit)?;
+        let shared = Arc::get_mut(&mut owner.control.shared).expect("cold unique listener owner");
+        let pool = Arc::get_mut(shared.accepted.as_mut().expect("accepted pool"))
+            .expect("cold unique accepted pool");
+        let mut authority = graph::Authority::from_weak(registrar, per_entry_tasks);
+        if let ResourceDeclaration::TcpListener {
+            accepted: Some(limits),
+            ..
+        } = declaration
+        {
+            authority.max_resources = limits.max_resources_per_socket;
+        }
+        pool.graph = Some(authority);
+        Ok(owner)
+    }
     /// A weak receiver for this original entry table, not another task map.
     pub fn accepted_task_receiver(&self) -> Option<AcceptedTcpTaskReceiver> {
         let pool = self.control.shared.accepted.as_ref()?;

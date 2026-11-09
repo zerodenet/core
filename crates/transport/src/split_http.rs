@@ -29,6 +29,7 @@ mod wire;
 
 pub use client::{
     connect_split_http, connect_split_http_carriers, connect_split_http_with_browser,
+    BrowserXhttpDriver, BrowserXhttpGetReady, PreparedBrowserXhttp,
 };
 pub use io::XhttpStream;
 pub use registry::SplitHttpRegistry;

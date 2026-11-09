@@ -8,7 +8,24 @@ use zero_core::component::ComponentInstanceId;
 /// Erasure here also keeps recursive Slot/LoanOwner internals out of upstream
 /// Send/Sync inference and makes per-session clones one reference-count change.
 #[derive(Clone)]
-pub struct CarrierOrigin(Arc<dyn OriginalObservation>);
+pub struct CarrierOrigin(OriginStorage);
+#[derive(Clone)]
+enum OriginStorage {
+    Shared(Arc<dyn OriginalObservation>),
+    Accepted(crate::controlled_listener::accepted::AcceptedTcpCarrierOrigin),
+}
+enum OriginalRef<'a> {
+    Carrier(&'a ActualOriginal),
+    Packet(&'a PacketProviderRegistration),
+    LogicalPacket(&'a LogicalPacketProviderRegistration),
+    Listener(&'a crate::controlled_datagram::listener::origin::ListenerCarrierOrigin),
+    Metadata(&'a crate::controlled_datagram::metadata_pool::MetadataPoolOrigin),
+    MetadataPool {
+        owner: &'a crate::controlled_datagram::metadata_pool::MetadataPoolRegistration,
+        binding: &'a Option<crate::controlled_datagram::metadata_pool::MetadataPoolBinding>,
+    },
+    Accepted(&'a crate::controlled_listener::accepted::AcceptedTcpCarrierOrigin),
+}
 // This sealed read-only boundary does not expose or reconstruct a controller.
 // Keep the exact finite variant value; only recursive auto-trait inference is erased.
 trait OriginalObservation: Send + Sync {
@@ -67,13 +84,15 @@ impl CarrierAdoption {
         if !valid {
             return Err(self.origin_error());
         }
-        Ok(CarrierOrigin(Arc::new(Original::Carrier(ActualOriginal {
-            completion: self.slot.completion.clone(),
-            slot: Arc::downgrade(&self.slot),
-            owner: CarrierOwnerRegistration::new(&owner),
-            driver: Some(driver.clone()),
-            parent: self.slot.state().loan_origin.clone(),
-        }))))
+        Ok(CarrierOrigin::shared(Arc::new(Original::Carrier(
+            ActualOriginal {
+                completion: self.slot.completion.clone(),
+                slot: Arc::downgrade(&self.slot),
+                owner: CarrierOwnerRegistration::new(&owner),
+                driver: Some(driver.clone()),
+                parent: self.slot.state().loan_origin.clone(),
+            },
+        ))))
     }
     pub(super) fn transferred_origin(&self) -> Result<CarrierOrigin, ChannelError> {
         self.transferred_origin_inner(true)
@@ -102,13 +121,15 @@ impl CarrierAdoption {
         if publish {
             state.transferred_origin = true;
         }
-        Ok(CarrierOrigin(Arc::new(Original::Carrier(ActualOriginal {
-            slot: Arc::downgrade(&self.slot),
-            owner: CarrierOwnerRegistration::new(&owner),
-            driver: None,
-            parent: state.loan_origin.clone(),
-            completion: self.slot.completion.clone(),
-        }))))
+        Ok(CarrierOrigin::shared(Arc::new(Original::Carrier(
+            ActualOriginal {
+                slot: Arc::downgrade(&self.slot),
+                owner: CarrierOwnerRegistration::new(&owner),
+                driver: None,
+                parent: state.loan_origin.clone(),
+                completion: self.slot.completion.clone(),
+            },
+        ))))
     }
     fn origin_error(&self) -> ChannelError {
         error(
@@ -120,8 +141,39 @@ impl CarrierAdoption {
     }
 }
 impl CarrierOrigin {
-    fn observation(&self) -> &Original {
-        self.0.as_ref().original()
+    fn shared(original: Arc<dyn OriginalObservation>) -> Self {
+        Self(OriginStorage::Shared(original))
+    }
+    /// The sealed actual accepted entry, stored inline with its original Arc.
+    /// No carrier Slot, native driver or additional allocation is synthesized.
+    pub fn from_accepted(
+        original: crate::controlled_listener::accepted::AcceptedTcpCarrierOrigin,
+    ) -> Self {
+        Self(OriginStorage::Accepted(original))
+    }
+    pub fn accepted(
+        &self,
+    ) -> Option<&crate::controlled_listener::accepted::AcceptedTcpCarrierOrigin> {
+        match &self.0 {
+            OriginStorage::Accepted(original) => Some(original),
+            _ => None,
+        }
+    }
+    fn observation(&self) -> OriginalRef<'_> {
+        let original = match &self.0 {
+            OriginStorage::Accepted(original) => return OriginalRef::Accepted(original),
+            OriginStorage::Shared(original) => original.original(),
+        };
+        match original {
+            Original::Carrier(value) => OriginalRef::Carrier(value),
+            Original::Packet(value) => OriginalRef::Packet(value),
+            Original::LogicalPacket(value) => OriginalRef::LogicalPacket(value),
+            Original::Listener(value) => OriginalRef::Listener(value),
+            Original::Metadata(value) => OriginalRef::Metadata(value),
+            Original::MetadataPool { owner, binding } => {
+                OriginalRef::MetadataPool { owner, binding }
+            }
+        }
     }
     /// The actual Source admission fence only. It is not the opaque outer
     /// Packet wire ancestor and never authorizes native-close accounting.
@@ -129,8 +181,8 @@ impl CarrierOrigin {
         &self,
     ) -> Option<&crate::controlled_datagram::provider::NativeDatagramOrigin> {
         match self.observation() {
-            Original::Listener(original) => Some(original),
-            Original::LogicalPacket(original) => original.source_admission(),
+            OriginalRef::Listener(original) => Some(original),
+            OriginalRef::LogicalPacket(original) => original.source_admission(),
             _ => None,
         }
     }
@@ -140,8 +192,8 @@ impl CarrierOrigin {
         &self,
     ) -> Result<crate::contract::packet::PacketSourceAcquisition, ChannelError> {
         match self.native_origin().observation() {
-            Original::Listener(original) => original.try_enter_packet_source(),
-            Original::LogicalPacket(original) => original
+            OriginalRef::Listener(original) => original.try_enter_packet_source(),
+            OriginalRef::LogicalPacket(original) => original
                 .source_admission()
                 .ok_or_else(|| {
                     error(
@@ -161,21 +213,21 @@ impl CarrierOrigin {
     }
 
     pub fn from_logical_packet(original: LogicalPacketProviderRegistration) -> Self {
-        Self(Arc::new(Original::LogicalPacket(original)))
+        Self::shared(Arc::new(Original::LogicalPacket(original)))
     }
     pub fn logical_packet(&self) -> Option<&LogicalPacketProviderRegistration> {
         match self.observation() {
-            Original::LogicalPacket(actual) => Some(actual),
+            OriginalRef::LogicalPacket(actual) => Some(actual),
             _ => None,
         }
     }
 
     pub fn from_packet(original: PacketProviderRegistration) -> Self {
-        Self(Arc::new(Original::Packet(original)))
+        Self::shared(Arc::new(Original::Packet(original)))
     }
     pub fn packet(&self) -> Option<&PacketProviderRegistration> {
         match self.observation() {
-            Original::Packet(actual) => Some(actual),
+            OriginalRef::Packet(actual) => Some(actual),
             _ => None,
         }
     }
@@ -184,18 +236,18 @@ impl CarrierOrigin {
     pub fn from_listener(
         original: crate::controlled_datagram::listener::origin::ListenerCarrierOrigin,
     ) -> Self {
-        Self(Arc::new(Original::Listener(original)))
+        Self::shared(Arc::new(Original::Listener(original)))
     }
     pub fn listener(
         &self,
     ) -> Option<&crate::controlled_datagram::listener::origin::ListenerCarrierOrigin> {
         match self.observation() {
-            Original::Listener(actual) => Some(actual),
+            OriginalRef::Listener(actual) => Some(actual),
             _ => None,
         }
     }
     pub(super) fn names_adoption(&self, adoption: &CarrierAdoption) -> bool {
-        matches!(self.observation(), Original::Carrier(origin)
+        matches!(self.observation(), OriginalRef::Carrier(origin)
             if Weak::ptr_eq(&origin.slot, &Arc::downgrade(&adoption.slot)))
     }
 
@@ -204,7 +256,7 @@ impl CarrierOrigin {
     pub fn from_metadata(
         original: crate::controlled_datagram::metadata_pool::MetadataPoolOrigin,
     ) -> Self {
-        Self(Arc::new(Original::Metadata(original)))
+        Self::shared(Arc::new(Original::Metadata(original)))
     }
     pub fn from_metadata_pool(
         actual: crate::controlled_datagram::metadata_pool::MetadataPoolOrigin,
@@ -214,7 +266,7 @@ impl CarrierOrigin {
         } else {
             None
         };
-        Self(Arc::new(Original::MetadataPool {
+        Self::shared(Arc::new(Original::MetadataPool {
             owner: actual.owner().clone(),
             binding,
         }))
@@ -223,48 +275,52 @@ impl CarrierOrigin {
         &self,
     ) -> Option<&crate::controlled_datagram::metadata_pool::MetadataPoolOrigin> {
         match self.observation() {
-            Original::Metadata(origin) => Some(origin),
+            OriginalRef::Metadata(origin) => Some(origin),
             _ => None,
         }
     }
     pub fn closed(&self) -> Option<CarrierOriginClosed> {
         match self.observation() {
             // Scope/driver retirement never certifies the retained outer native.
-            Original::LogicalPacket(_) => None,
-            Original::Packet(origin) => origin
+            OriginalRef::LogicalPacket(_) => None,
+            OriginalRef::Accepted(origin) => origin
+                .closed()
+                .map(|closed| CarrierOriginClosed(ClosedOriginal::Accepted(closed))),
+            OriginalRef::Packet(origin) => origin
                 .closed()
                 .map(|closed| CarrierOriginClosed(ClosedOriginal::Packet(closed))),
-            Original::Listener(origin) => origin
+            OriginalRef::Listener(origin) => origin
                 .closed()
                 .map(|closed| CarrierOriginClosed(ClosedOriginal::Listener(closed))),
-            Original::Carrier(origin) => origin
+            OriginalRef::Carrier(origin) => origin
                 .completion
                 .get()
                 .map(|_| CarrierOriginClosed(ClosedOriginal::Carrier(origin.completion.clone()))),
-            Original::Metadata(origin) => origin
+            OriginalRef::Metadata(origin) => origin
                 .closed()
                 .map(|closed| CarrierOriginClosed(ClosedOriginal::Metadata(closed))),
-            Original::MetadataPool {
+            OriginalRef::MetadataPool {
                 owner,
                 binding: Some(_),
             } => owner
                 .closed()
                 .map(|closed| CarrierOriginClosed(ClosedOriginal::MetadataPool(closed))),
-            Original::MetadataPool { binding: None, .. } => None,
+            OriginalRef::MetadataPool { binding: None, .. } => None,
         }
     }
     pub fn parent(&self) -> Option<&Self> {
         match self.observation() {
-            Original::Carrier(origin) => origin.parent.as_ref(),
-            Original::Packet(_)
-            | Original::LogicalPacket(_)
-            | Original::Listener(_)
-            | Original::Metadata(_)
-            | Original::MetadataPool { .. } => None,
+            OriginalRef::Carrier(origin) => origin.parent.as_ref(),
+            OriginalRef::Accepted(_)
+            | OriginalRef::Packet(_)
+            | OriginalRef::LogicalPacket(_)
+            | OriginalRef::Listener(_)
+            | OriginalRef::Metadata(_)
+            | OriginalRef::MetadataPool { .. } => None,
         }
     }
     pub(super) fn related_adoption(&self) -> Option<CarrierAdoption> {
-        let Original::Carrier(origin) = self.observation() else {
+        let OriginalRef::Carrier(origin) = self.observation() else {
             return None;
         };
         let slot = origin.slot.upgrade()?;
@@ -277,7 +333,7 @@ impl CarrierOrigin {
     /// A physical receiver in this lineage must still store its actual loan
     /// owner and that owner's sealed, strongly retained control cleanup token.
     pub(super) fn retains_related_control(&self, pending: &CarrierAdoption) -> bool {
-        let Original::Carrier(origin) = self.observation() else {
+        let OriginalRef::Carrier(origin) = self.observation() else {
             return false;
         };
         let Some(slot) = origin.slot.upgrade() else {
@@ -300,7 +356,7 @@ impl CarrierOrigin {
     /// Actual negotiated-control dependency, separate from physical
     /// encapsulation ancestry. This observation grants no cleanup or native I/O.
     pub fn related_control(&self) -> Option<Self> {
-        let Original::Carrier(origin) = self.observation() else {
+        let OriginalRef::Carrier(origin) = self.observation() else {
             return None;
         };
         let slot = origin.slot.upgrade()?;
@@ -313,7 +369,7 @@ impl CarrierOrigin {
         {
             return None;
         }
-        Some(Self(Arc::new(Original::Carrier(ActualOriginal {
+        Some(Self::shared(Arc::new(Original::Carrier(ActualOriginal {
             slot: Arc::downgrade(&parent),
             owner: CarrierOwnerRegistration::new(&owner),
             driver: state.driver.as_ref().map(|(_, witness)| witness.clone()),
@@ -331,9 +387,12 @@ impl CarrierOrigin {
     pub fn endpoints(&self) -> Option<super::CarrierEndpoints> {
         match self.native_origin().observation() {
             // An unconnected listener has no fixed native peer.
-            Original::Packet(_) | Original::LogicalPacket(_) | Original::Listener(_) => None,
-            Original::Carrier(origin) => origin.slot.upgrade()?.state().endpoints.clone(),
-            Original::MetadataPool {
+            OriginalRef::Accepted(_)
+            | OriginalRef::Packet(_)
+            | OriginalRef::LogicalPacket(_)
+            | OriginalRef::Listener(_) => None,
+            OriginalRef::Carrier(origin) => origin.slot.upgrade()?.state().endpoints.clone(),
+            OriginalRef::MetadataPool {
                 owner,
                 binding: Some(binding),
             } => {
@@ -341,8 +400,8 @@ impl CarrierOrigin {
                 let (local, peer) = origin.endpoints()?;
                 Some(super::CarrierEndpoints::metadata(origin, local, peer))
             }
-            Original::MetadataPool { binding: None, .. } => None,
-            Original::Metadata(origin) => {
+            OriginalRef::MetadataPool { binding: None, .. } => None,
+            OriginalRef::Metadata(origin) => {
                 let (local, peer) = origin.endpoints()?;
                 Some(super::CarrierEndpoints::metadata(
                     origin.clone(),
@@ -359,18 +418,21 @@ impl CarrierOrigin {
         crate::contract::network::UpstreamBinding,
     )> {
         match self.observation() {
-            Original::Packet(_) | Original::LogicalPacket(_) | Original::Listener(_) => None,
-            Original::Carrier(origin) => {
+            OriginalRef::Accepted(_)
+            | OriginalRef::Packet(_)
+            | OriginalRef::LogicalPacket(_)
+            | OriginalRef::Listener(_) => None,
+            OriginalRef::Carrier(origin) => {
                 let slot = origin.slot.upgrade()?;
                 let state = slot.state();
                 Some((state.endpoint.clone()?, state.binding.clone()?))
             }
-            Original::Metadata(origin) => origin.selected_binding(),
-            Original::MetadataPool {
+            OriginalRef::Metadata(origin) => origin.selected_binding(),
+            OriginalRef::MetadataPool {
                 binding: Some(binding),
                 ..
             } => Some((binding.0.clone(), binding.1.clone())),
-            Original::MetadataPool { binding: None, .. } => None,
+            OriginalRef::MetadataPool { binding: None, .. } => None,
         }
     }
     pub fn instance(&self) -> ComponentInstanceId {
@@ -378,30 +440,34 @@ impl CarrierOrigin {
     }
     pub fn owner(&self) -> CarrierOriginOwner<'_> {
         match self.observation() {
-            Original::Packet(origin) => CarrierOriginOwner::Packet(origin),
-            Original::LogicalPacket(origin) => CarrierOriginOwner::LogicalPacket(origin),
-            Original::Listener(origin) => CarrierOriginOwner::Listener(origin.owner()),
-            Original::Carrier(origin) => CarrierOriginOwner::Carrier(&origin.owner),
-            Original::Metadata(origin) => CarrierOriginOwner::Metadata(origin.owner()),
-            Original::MetadataPool { owner, .. } => CarrierOriginOwner::Metadata(owner),
+            OriginalRef::Accepted(origin) => CarrierOriginOwner::Accepted(origin),
+            OriginalRef::Packet(origin) => CarrierOriginOwner::Packet(origin),
+            OriginalRef::LogicalPacket(origin) => CarrierOriginOwner::LogicalPacket(origin),
+            OriginalRef::Listener(origin) => CarrierOriginOwner::Listener(origin.owner()),
+            OriginalRef::Carrier(origin) => CarrierOriginOwner::Carrier(&origin.owner),
+            OriginalRef::Metadata(origin) => CarrierOriginOwner::Metadata(origin.owner()),
+            OriginalRef::MetadataPool { owner, .. } => CarrierOriginOwner::Metadata(owner),
         }
     }
     /// None is unavailable/taskless observation, never a fabricated join.
     pub fn driver(&self) -> Option<&TaskJoinWitness> {
         match self.observation() {
-            Original::Packet(origin) => Some(origin.driver()),
-            Original::LogicalPacket(origin) => Some(origin.driver()),
-            Original::Listener(origin) => Some(origin.driver()),
-            Original::Carrier(origin) => origin.driver.as_ref(),
-            Original::Metadata(_) | Original::MetadataPool { .. } => None,
+            OriginalRef::Packet(origin) => Some(origin.driver()),
+            OriginalRef::LogicalPacket(origin) => Some(origin.driver()),
+            OriginalRef::Listener(origin) => Some(origin.driver()),
+            OriginalRef::Carrier(origin) => origin.driver.as_ref(),
+            OriginalRef::Accepted(_)
+            | OriginalRef::Metadata(_)
+            | OriginalRef::MetadataPool { .. } => None,
         }
     }
     pub fn same_original(&self, other: &Self) -> bool {
         match (self.observation(), other.observation()) {
-            (Original::Packet(a), Original::Packet(b)) => a.same_owner(b),
-            (Original::LogicalPacket(a), Original::LogicalPacket(b)) => a.same_owner(b),
-            (Original::Listener(a), Original::Listener(b)) => a.same_original(b),
-            (Original::Carrier(a), Original::Carrier(b)) => {
+            (OriginalRef::Accepted(a), OriginalRef::Accepted(b)) => a.same_original(b),
+            (OriginalRef::Packet(a), OriginalRef::Packet(b)) => a.same_owner(b),
+            (OriginalRef::LogicalPacket(a), OriginalRef::LogicalPacket(b)) => a.same_owner(b),
+            (OriginalRef::Listener(a), OriginalRef::Listener(b)) => a.same_original(b),
+            (OriginalRef::Carrier(a), OriginalRef::Carrier(b)) => {
                 Weak::ptr_eq(&a.slot, &b.slot)
                     && match (&a.driver, &b.driver) {
                         (Some(a), Some(b)) => a.same_registration(b),
@@ -410,13 +476,13 @@ impl CarrierOrigin {
                     }
                     && a.owner.same_owner(&b.owner)
             }
-            (Original::Metadata(a), Original::Metadata(b)) => a.same_original(b),
+            (OriginalRef::Metadata(a), OriginalRef::Metadata(b)) => a.same_original(b),
             (
-                Original::MetadataPool {
+                OriginalRef::MetadataPool {
                     owner: a,
                     binding: aa,
                 },
-                Original::MetadataPool {
+                OriginalRef::MetadataPool {
                     owner: b,
                     binding: ba,
                 },
@@ -428,17 +494,18 @@ impl CarrierOrigin {
         let mut current = Some(self);
         while let Some(origin) = current {
             let retired = match origin.observation() {
-                Original::Packet(origin) => origin.is_retired(),
-                Original::LogicalPacket(origin) => origin.is_retired(),
-                Original::Listener(origin) => origin.is_retired(),
-                Original::Carrier(origin) => origin.slot.upgrade().is_none_or(|slot| {
+                OriginalRef::Accepted(origin) => origin.is_retired(),
+                OriginalRef::Packet(origin) => origin.is_retired(),
+                OriginalRef::LogicalPacket(origin) => origin.is_retired(),
+                OriginalRef::Listener(origin) => origin.is_retired(),
+                OriginalRef::Carrier(origin) => origin.slot.upgrade().is_none_or(|slot| {
                     slot.cancel.is_cancelled()
                         || slot
                             .related_cancellation()
                             .is_some_and(|parent| parent.is_cancelled())
                 }),
-                Original::Metadata(origin) => origin.is_retired(),
-                Original::MetadataPool { owner, binding } => binding
+                OriginalRef::Metadata(origin) => origin.is_retired(),
+                OriginalRef::MetadataPool { owner, binding } => binding
                     .as_ref()
                     .is_none_or(|binding| owner.binding_retired(binding)),
             };
@@ -455,10 +522,11 @@ impl CarrierOrigin {
         let mut waits: Vec<Pin<Box<dyn Future<Output = ()> + Send + '_>>> = Vec::new();
         while let Some(original) = current {
             match original.observation() {
-                Original::Packet(origin) => waits.push(Box::pin(origin.retired())),
-                Original::LogicalPacket(origin) => waits.push(Box::pin(origin.retired())),
-                Original::Listener(origin) => waits.push(Box::pin(origin.retired())),
-                Original::Carrier(origin) => {
+                OriginalRef::Accepted(origin) => waits.push(Box::pin(origin.retired())),
+                OriginalRef::Packet(origin) => waits.push(Box::pin(origin.retired())),
+                OriginalRef::LogicalPacket(origin) => waits.push(Box::pin(origin.retired())),
+                OriginalRef::Listener(origin) => waits.push(Box::pin(origin.retired())),
+                OriginalRef::Carrier(origin) => {
                     let Some(slot) = origin.slot.upgrade() else {
                         return;
                     };
@@ -467,12 +535,12 @@ impl CarrierOrigin {
                         waits.push(Box::pin(parent.cancelled_owned()));
                     }
                 }
-                Original::Metadata(origin) => waits.push(Box::pin(origin.retired())),
-                Original::MetadataPool {
+                OriginalRef::Metadata(origin) => waits.push(Box::pin(origin.retired())),
+                OriginalRef::MetadataPool {
                     owner,
                     binding: Some(binding),
                 } => waits.push(Box::pin(owner.binding_retired_wait(binding))),
-                Original::MetadataPool { binding: None, .. } => return,
+                OriginalRef::MetadataPool { binding: None, .. } => return,
             }
             current = original.parent();
         }

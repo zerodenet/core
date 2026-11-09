@@ -12,7 +12,7 @@ mod close;
 pub(crate) mod graph;
 pub use graph::{
     AcceptedCaller, AcceptedOrigin, AcceptedPeerScope, AcceptedResource, AcceptedTasks,
-    AcceptedTcpTaskReceiver,
+    AcceptedTcpCarrierOrigin, AcceptedTcpTaskReceiver,
 };
 mod owner;
 mod pool;
@@ -141,6 +141,10 @@ struct Entry {
     state: Mutex<EntryState>,
     control: OnceLock<AsyncMutex<ControlledTcpControl>>,
     original_return: Mutex<Option<super::totals::SettledSourceReturn>>,
+    // Empty, exact cached receiver, or the actual retirement fence. The
+    // fence is installed under this gate; cancellation/Drop/notify is outside.
+    protocol_receiver: Mutex<Option<Result<crate::controlled_carrier::AcceptedLoanReceiver, ()>>>,
+    protocol_changed: tokio::sync::Notify,
     uncertain: Arc<ChannelError>,
     users: Option<Arc<graph::Users>>,
     cancel: CancellationToken,

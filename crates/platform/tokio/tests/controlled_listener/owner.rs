@@ -266,3 +266,6 @@ fn actual_missing_io_driver_panic_keeps_preinstalled_unknown_despite_poison_and_
 mod accepted_totals;
 #[path = "owner/totals.rs"]
 mod totals;
+
+#[path = "owner/accepted_source_lost.rs"]
+mod accepted_source_lost;

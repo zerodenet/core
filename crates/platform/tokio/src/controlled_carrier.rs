@@ -22,6 +22,7 @@ mod grant;
 pub mod loan;
 mod loan_retained;
 mod native;
+pub(crate) use loan_retained::AcceptedLoanReceiver;
 pub use loan_retained::CarrierLoanRetained;
 mod native_settlement;
 mod origin;

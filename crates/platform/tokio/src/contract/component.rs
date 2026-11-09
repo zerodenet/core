@@ -508,6 +508,24 @@ pub trait ResourceAccess: Send + Sync {
         ))
     }
 
+    /// Seal the exact registered Accepted Source dependency for an existing
+    /// stream reservation. This returns metadata only; no IO, Scope, task or
+    /// close permission follows from a caller-provided Source ID.
+    fn accepted_dependency_stream_loan_issuer(
+        &self,
+        _dependency: zero_core::component::ComponentInstanceId,
+        _source: &crate::AcceptedTcpCarrierOrigin,
+        _endpoint: &zero_core::request::Destination,
+        _binding: &super::network::UpstreamBinding,
+        _grant: &crate::controlled_carrier::CarrierGrant,
+    ) -> Result<crate::controlled_carrier::loan::CarrierDependencyLoanIssuer, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
+
     /// Metadata of this same original Packet source only; no grant or task API.
     fn packet_source_pause(&self) -> Option<Arc<super::packet::PacketSourcePause>> {
         None

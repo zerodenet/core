@@ -73,6 +73,8 @@ impl Pool {
                 waiting: Mutex::default(),
                 polling: AtomicBool::new(false),
                 repoll: AtomicBool::new(false),
+                returned: AtomicBool::new(false),
+                returned_changed: tokio::sync::Notify::new(),
             }),
         )
         .map(|reservation| {
@@ -90,6 +92,8 @@ struct Original {
     waiting: Mutex<Option<BoxFuture<'static, ()>>>,
     polling: AtomicBool,
     repoll: AtomicBool,
+    returned: AtomicBool,
+    returned_changed: tokio::sync::Notify,
 }
 fn acked(witness: &TaskJoinWitness) -> bool {
     witness
@@ -97,6 +101,17 @@ fn acked(witness: &TaskJoinWitness) -> bool {
         .is_some_and(|joined| witness.matches_joined(&joined) && joined.registration_released())
 }
 impl SourceCustody for Original {
+    fn root_returned(&self) {
+        self.returned
+            .store(true, std::sync::atomic::Ordering::Release);
+        self.returned_changed.notify_waiters();
+    }
+    fn was_root_returned(&self) -> bool {
+        self.returned.load(std::sync::atomic::Ordering::Acquire)
+    }
+    fn root_return_notifications(&self) -> Option<&tokio::sync::Notify> {
+        Some(&self.returned_changed)
+    }
     fn instance(&self) -> Option<zero_core::component::ComponentInstanceId> {
         self.pool.originals.get().map(|binding| binding.instance)
     }

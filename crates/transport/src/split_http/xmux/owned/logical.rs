@@ -17,9 +17,9 @@ struct Count {
     sealed: bool,
     active: usize,
 }
-pub(super) struct WorkReturn(PacketMetadataArc<State>);
+pub(in crate::split_http) struct WorkReturn(PacketMetadataArc<State>);
 impl OwnedLogicalReturn {
-    pub(super) fn prepare(
+    pub(in crate::split_http) fn prepare(
         memory: &PacketDriverMetadataView,
         life: crate::split_http::io::LifetimeRef,
         duplex: zero_platform_tokio::controlled_carrier::CarrierBufferCredit,
@@ -41,7 +41,7 @@ impl OwnedLogicalReturn {
         .map_err(|(source, _, _)| io::Error::other(source))?;
         Ok(Self { original, life })
     }
-    pub(super) fn enter(&self) -> io::Result<WorkReturn> {
+    pub(in crate::split_http) fn enter(&self) -> io::Result<WorkReturn> {
         let mut state = self
             .original
             .gate

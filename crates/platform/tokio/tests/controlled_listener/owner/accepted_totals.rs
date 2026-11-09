@@ -39,6 +39,7 @@ async fn same_live_source_accepts_again_only_after_original_native_users_and_hos
         let mut listener = original.bind_listener(address).unwrap();
         let address = listener.local_addr().unwrap();
         let receiver = original.accepted_task_receiver().unwrap();
+        let mut retained_origin = None;
         for index in 0..4_u8 {
             {
                 let mut waiting = Box::pin(listener.accept_owned());
@@ -58,6 +59,13 @@ async fn same_live_source_accepts_again_only_after_original_native_users_and_hos
             let mut client = client.unwrap();
             let (accepted, _) = accepted.unwrap();
             let claim = accepted.claim();
+            let lineage = receiver.carrier_origin(&claim).unwrap();
+            assert_eq!(lineage.instance(), instance);
+            assert!(lineage.scope_identity().same_scope(&scope.registrar().scope_identity()));
+            assert!(!lineage.is_settled());
+            let origin = crate::controlled_carrier::CarrierOrigin::from_accepted(lineage.clone());
+            assert!(origin.accepted().unwrap().same_original(&lineage));
+            assert!(origin.closed().is_none());
             assert_eq!(
                 roots.snapshot().charged,
                 2,
@@ -120,7 +128,33 @@ async fn same_live_source_accepts_again_only_after_original_native_users_and_hos
             }
             assert_eq!(original.accepted_evidence().unwrap().retained,1,"cancelling the waiter cannot release the original row");
             assert_eq!(roots.snapshot().charged,2);
+            assert!(lineage.native_closed().unwrap().matches(&claim));
+            assert!(lineage.closed().is_none(), "native positive does not acknowledge the original registration");
+            assert!(!lineage.is_settled());
+            let mut global_return = Box::pin(lineage.wait_settled_original());
+            struct Reentrant {
+                root: std::sync::Weak<crate::controlled_carrier::CarrierOriginalTotals>,
+                wakes: std::sync::atomic::AtomicUsize,
+            }
+            impl std::task::Wake for Reentrant {
+                fn wake(self: Arc<Self>) { Self::wake_by_ref(&self); }
+                fn wake_by_ref(this: &Arc<Self>) {
+                    assert_eq!(this.root.upgrade().unwrap().snapshot().charged, 1,
+                        "global removal precedes notification, outside the Root gate");
+                    this.wakes.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                }
+            }
+            let returned = Arc::new(Reentrant { root: Arc::downgrade(&roots), wakes: Default::default() });
+            let waker = std::task::Waker::from(returned.clone());
+            assert!(global_return.as_mut().poll(&mut std::task::Context::from_waker(&waker)).is_pending());
+            assert_eq!(returned.wakes.load(std::sync::atomic::Ordering::Acquire), 0);
             scope.acknowledge(&receipt).unwrap();
+            assert!(returned.wakes.load(std::sync::atomic::Ordering::Acquire) > 0);
+            global_return.await.unwrap();
+            assert!(lineage.is_settled());
+            assert!(lineage.closed().unwrap().matches(&claim));
+            assert!(origin.closed().unwrap().matches(&origin));
+            retained_origin = Some(origin);
             assert_eq!(
                 roots.snapshot().charged,
                 1,
@@ -150,6 +184,10 @@ async fn same_live_source_accepts_again_only_after_original_native_users_and_hos
         assert_eq!(roots.snapshot().charged, 1);
         drop(listener);
         assert_eq!(roots.snapshot().charged, 0);
+        let root_weak = Arc::downgrade(&roots);
+        drop(roots);
+        assert!(root_weak.upgrade().is_none(), "strong Accepted token cannot retain the Host Root through a parent ledger");
+        assert!(retained_origin.unwrap().accepted().unwrap().is_settled(), "only the earlier actual Root removal remains positive");
     })
     .await
     .unwrap();

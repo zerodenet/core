@@ -96,6 +96,8 @@ impl Pool {
             }),
             control: OnceLock::new(),
             original_return: Mutex::default(),
+            protocol_receiver: Mutex::default(),
+            protocol_changed: tokio::sync::Notify::new(),
             uncertain: Arc::new(uncertain),
             users: self.graph.as_ref().map(|authority| {
                 Arc::new(graph::Users::new(

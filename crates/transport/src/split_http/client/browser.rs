@@ -4,6 +4,8 @@ use http_body_util::BodyExt;
 use std::{io, time::Duration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zero_traits::SplitHttpTransportProfile;
+mod owned;
+pub use owned::{BrowserXhttpDriver, BrowserXhttpGetReady, PreparedBrowserXhttp};
 
 /// Open the Xray Browser Dialer subset: one streaming GET for downlink and
 /// ordered packet requests for uplink. The browser does not implement
@@ -142,7 +144,7 @@ async fn request_body(mut body: Body) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn absolute_url(scheme: &str, authority: &str, uri: &http::Uri) -> io::Result<String> {
+pub(super) fn absolute_url(scheme: &str, authority: &str, uri: &http::Uri) -> io::Result<String> {
     let url = format!(
         "{scheme}://{authority}{}",
         uri.path_and_query()
@@ -153,7 +155,7 @@ fn absolute_url(scheme: &str, authority: &str, uri: &http::Uri) -> io::Result<St
     Ok(url)
 }
 
-fn normalize_authority(authority: &str) -> io::Result<String> {
+pub(super) fn normalize_authority(authority: &str) -> io::Result<String> {
     let url = url::Url::parse(&format!("http://{authority}/")).map_err(io::Error::other)?;
     if url.host().is_none()
         || !url.username().is_empty()

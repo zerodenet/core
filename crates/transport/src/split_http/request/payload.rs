@@ -5,6 +5,36 @@ use super::{
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use bytes::Bytes;
 impl Profile {
+    pub(in crate::split_http) fn transmit_peak(&self, length: usize) -> io::Result<usize> {
+        if !matches!(self.mode, XhttpMode::PacketUp | XhttpMode::Auto)
+            || !matches!(
+                self.options.uplink_data_placement.as_str(),
+                "header" | "cookie"
+            )
+        {
+            return Ok(length);
+        }
+        // Base64 String and retained headers/cookies coexist with old/new cookie
+        // concatenation. All derived business-byte copies precede actual send.
+        let encoded = length
+            .checked_add(2)
+            .and_then(|v| v.checked_div(3))
+            .and_then(|v| v.checked_mul(4))
+            .ok_or(io::ErrorKind::InvalidInput)?;
+        let chunks = encoded.div_ceil(self.options.uplink_chunk_size.from.max(64) as usize);
+        let keys = self
+            .options
+            .uplink_data_key
+            .len()
+            .checked_add(24)
+            .and_then(|v| v.checked_mul(chunks))
+            .ok_or(io::ErrorKind::InvalidInput)?;
+        encoded
+            .checked_mul(4)
+            .and_then(|v| keys.checked_mul(3).and_then(|keys| v.checked_add(keys)))
+            .and_then(|v| v.checked_add(length))
+            .ok_or(io::ErrorKind::InvalidInput.into())
+    }
     pub(in crate::split_http) fn packet_request(
         &self,
         session: &str,

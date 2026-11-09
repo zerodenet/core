@@ -6,6 +6,7 @@ use zero_platform_tokio::contract::component::PacketMetadataVec;
 use zero_traits::packet_metadata::PacketMetadataWeak;
 pub(in crate::browser_dialer) struct Peer {
     pub(in crate::browser_dialer) original: AcceptedTcpClaim,
+    pub(in crate::browser_dialer) lineage: zero_platform_tokio::AcceptedTcpCarrierOrigin,
     pub(in crate::browser_dialer) task: OnceLock<(TaskId, TaskJoinWitness)>,
     pub(in crate::browser_dialer) closed: OnceLock<AcceptedTcpClosed>,
     pub(in crate::browser_dialer) cancel: CancellationToken,
@@ -125,8 +126,18 @@ impl Peers {
         ),
         ChannelError,
     > {
+        let lineage = this
+            .receiver
+            .get()
+            .ok_or_else(|| failure(Stage::Prepare, Reason::Revoked))?
+            .carrier_origin(&original)?;
         let peer = PacketMetadataArc::from_prepaid(
-            Peer::new(original, PacketMetadataArc::downgrade(this), cancel),
+            Peer::new(
+                original,
+                lineage,
+                PacketMetadataArc::downgrade(this),
+                cancel,
+            ),
             prepared.header,
         )
         .map_err(|(source, _, _)| failure(Stage::Prepare, Reason::Capacity).with_source(source))?;

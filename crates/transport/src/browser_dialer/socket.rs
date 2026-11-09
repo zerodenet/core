@@ -18,6 +18,11 @@ pub struct BrowserStream {
     original: Option<super::original::BrowserUse>,
     admission: std::sync::Mutex<Option<super::memory::Wait>>,
     memory: super::memory::Memory,
+    borrowed: Option<Borrowed>,
+}
+struct Borrowed {
+    future: Pin<Box<tokio_util::sync::WaitForCancellationFutureOwned>>,
+    _header: zero_traits::packet_metadata::PacketMetadataCredit,
 }
 
 impl BrowserStream {
@@ -31,6 +36,7 @@ impl BrowserStream {
             admission: std::sync::Mutex::new(None),
             memory: connection.memory,
             cancelled: connection.cancellation,
+            borrowed: None,
         }
     }
 
@@ -38,7 +44,36 @@ impl BrowserStream {
         self.original.as_ref().map(|value| &value.0)
     }
 
-    fn poll_cancelled(&mut self, _cx: &mut Context<'_>) -> io::Result<()> {
+    pub(super) fn bind_borrowed(
+        mut self,
+        cancel: tokio_util::sync::CancellationToken,
+        header: zero_traits::packet_metadata::PacketMetadataCredit,
+    ) -> io::Result<Self> {
+        let needed = zero_traits::packet_metadata::PacketMetadataLayout::boxed::<
+            tokio_util::sync::WaitForCancellationFutureOwned,
+        >();
+        if header.layout().bytes() < needed.bytes()
+            || header.layout().allocations() < needed.allocations()
+        {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        if self.borrowed.is_some() {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        self.borrowed = Some(Borrowed {
+            future: Box::pin(cancel.cancelled_owned()),
+            _header: header,
+        });
+        Ok(self)
+    }
+    fn poll_cancelled(&mut self, cx: &mut Context<'_>) -> io::Result<()> {
+        if self
+            .borrowed
+            .as_mut()
+            .is_some_and(|borrowed| borrowed.future.as_mut().poll(cx).is_ready())
+        {
+            return Err(io::ErrorKind::ConnectionAborted.into());
+        }
         if self.cancelled.is_cancelled() {
             Err(io::Error::new(
                 // Retirement is permanent. I/O helpers retry Interrupted;

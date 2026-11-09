@@ -12,6 +12,15 @@ pub(crate) trait SourceCustody: Send + Sync {
     fn resource_failure(&self) -> Option<Arc<crate::contract::lifecycle::ResourceFailure>> {
         None
     }
+    // Concrete internal Source return observation only. It grants no IO,
+    // execution, close, user receipt, task join or host acknowledgement.
+    fn root_returned(&self) {}
+    fn was_root_returned(&self) -> bool {
+        false
+    }
+    fn root_return_notifications(&self) -> Option<&tokio::sync::Notify> {
+        None
+    }
 }
 impl CarrierOriginalTotals {
     pub(crate) fn reserve_source(
@@ -57,9 +66,40 @@ impl CarrierOriginalTotals {
                 .map(|index| state.source.swap_remove(index))
         };
         let changed = removed.is_some();
+        if let Some(actual) = &removed {
+            // The exact real row has left THIS global book. Publishing this
+            // single original's observation cannot run under the root lock.
+            actual.original.root_returned();
+        }
         drop(removed);
         if changed {
             self.changed.notify_waiters();
+        }
+    }
+}
+
+impl CarrierOriginalTotals {
+    pub(crate) fn has_source_original(&self, original: &Arc<dyn SourceCustody>) -> bool {
+        self.lock()
+            .source
+            .iter()
+            .any(|row| Arc::ptr_eq(&row.original, original))
+    }
+}
+
+impl Drop for CarrierOriginalTotals {
+    fn drop(&mut self) {
+        // Last Root strong owner: no Root mutex is acquired, and no close or
+        // positive return is published. Existing weak observers merely wake to
+        // observe that their actual Root vanished without a return receipt.
+        let state = self
+            .state
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for row in &state.source {
+            if let Some(changed) = row.original.root_return_notifications() {
+                changed.notify_waiters();
+            }
         }
     }
 }

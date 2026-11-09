@@ -4,9 +4,9 @@ mod control;
 pub use accepted::{
     AcceptedCaller, AcceptedOrigin, AcceptedPeerScope, AcceptedResource, AcceptedTaskFailureCursor,
     AcceptedTaskFailureRegistration, AcceptedTaskFailureReservation, AcceptedTaskFailureView,
-    AcceptedTaskFailures, AcceptedTasks, AcceptedTcp, AcceptedTcpClaim, AcceptedTcpClosed,
-    AcceptedTcpEvidence, AcceptedTcpNativeClosed, AcceptedTcpStream, AcceptedTcpTaskReceiver,
-    AcceptedTcpUsers,
+    AcceptedTaskFailures, AcceptedTasks, AcceptedTcp, AcceptedTcpCarrierOrigin, AcceptedTcpClaim,
+    AcceptedTcpClosed, AcceptedTcpEvidence, AcceptedTcpNativeClosed, AcceptedTcpStream,
+    AcceptedTcpTaskReceiver, AcceptedTcpUsers,
 };
 mod native;
 mod owner;
