@@ -51,10 +51,12 @@ impl InboundOwner {
             .clone();
         let mut failure = self.failure.lock().expect("inbound failure poisoned");
         if !stopped {
-            failure.get_or_insert(error);
+            failure.get_or_insert(error.into());
         }
+        let retained_failure = failure.clone();
+        drop(failure);
         self.ready.wake();
-        if let Some(failure) = failure.as_ref() {
+        if let Some(failure) = retained_failure.as_ref() {
             std::io::Error::other(retained(failure.clone())).into()
         } else {
             // Only the original request reports an expected phase stop. A

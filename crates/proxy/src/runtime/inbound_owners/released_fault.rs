@@ -1,10 +1,10 @@
 //! A private marker is issued only after real physical proof and publication.
 use super::*;
-use crate::component::instance::SharedError;
+use zero_platform_tokio::contract::RetainedError;
 #[derive(Debug)]
 struct ReleasedInboundFault {
     identity: ComponentInstanceId,
-    source: SharedError,
+    source: RetainedError,
 }
 impl std::fmt::Display for ReleasedInboundFault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
