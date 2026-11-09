@@ -70,11 +70,24 @@ impl LinuxTun {
         name: String,
         owned: crate::OwnedTunIdentity,
     ) -> io::Result<Self> {
-        Ok(Self {
-            name,
-            owned,
-            fd: unsafe { AsyncFd::register(File::from(fd)) }?,
-        })
+        Self::register_adopted_retained(fd, name, owned).map_err(|(_, source)| source)
+    }
+
+    /// The actual host owner must retain the exact descriptor on failure;
+    /// converting AsyncFdRegisterError into io::Error discards that original.
+    pub(crate) fn register_adopted_retained(
+        fd: std::os::fd::OwnedFd,
+        name: String,
+        owned: crate::OwnedTunIdentity,
+    ) -> Result<Self, (std::os::fd::OwnedFd, io::Error)> {
+        let fd = match unsafe { AsyncFd::register(File::from(fd)) } {
+            Ok(fd) => fd,
+            Err(source) => {
+                let (file, source) = source.into_parts();
+                return Err((file.into(), source));
+            }
+        };
+        Ok(Self { name, owned, fd })
     }
 
     /// Create a new TUN device.  `name` is the desired interface name

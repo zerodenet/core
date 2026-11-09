@@ -75,9 +75,21 @@ impl Utun {
         owned: crate::OwnedTunIdentity,
         memory: Option<memory::Buffers>,
     ) -> io::Result<Self> {
+        Self::register_with_memory_retained(fd, name, owned, memory).map_err(|(_, source)| source)
+    }
+
+    pub(crate) fn register_with_memory_retained(
+        fd: OwnedFd,
+        name: String,
+        owned: crate::OwnedTunIdentity,
+        memory: Option<memory::Buffers>,
+    ) -> Result<Self, (OwnedFd, io::Error)> {
         let memory = memory.unwrap_or_else(memory::Buffers::library);
         // SAFETY: the owned original is stable for this async registration.
-        let fd = unsafe { AsyncFd::register(fd) }?;
+        let fd = match unsafe { AsyncFd::register(fd) } {
+            Ok(fd) => fd,
+            Err(source) => return Err(source.into_parts()),
+        };
         Ok(Self {
             name,
             owned,

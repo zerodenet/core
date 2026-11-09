@@ -159,3 +159,7 @@ fn uncertain_helper_acquisition_keeps_the_original_unknown_without_native_replay
         TunAcquisitionOutcome::Unknown(None)
     ));
 }
+
+#[cfg(target_os = "linux")]
+#[path = "tests/registration.rs"]
+mod registration;

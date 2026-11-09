@@ -107,13 +107,11 @@ impl AdoptedTunOwner {
                     name: interface,
                 })
             }
-            Err(source) => {
-                let source = Arc::new(source);
+            Err((fd, error)) => {
+                let source = Arc::new(error);
                 self.remember_failure(source.clone());
-                *state = State::Unknown {
-                    identity: Some(identity),
-                    source: source.clone(),
-                };
+                *state = State::Raw { fd, identity };
+                let _ = close_state(&mut state, &interface);
                 Err(TunAcquisitionError {
                     outcome: state.outcome(),
                     source,

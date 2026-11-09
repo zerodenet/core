@@ -169,15 +169,15 @@ impl AdoptedTunOwner {
                     name,
                 })
             }
-            Err(error) => {
+            Err((fd, error)) => {
                 let source = Arc::new(error);
                 self.remember_failure(source.clone());
-                *state = State::Unknown {
-                    identity: Some(identity.clone()),
-                    source: source.clone(),
-                };
+                *state = State::Raw { fd, identity };
+                // Restore original custody before any close attempt. A failed
+                // close remains Unknown with its own stable actual OS source.
+                let _ = close_state(&mut state, &name);
                 Err(TunAcquisitionError {
-                    outcome: TunAcquisitionOutcome::Unknown(Some(identity)),
+                    outcome: state.outcome(),
                     source,
                 })
             }
@@ -213,22 +213,23 @@ impl AdoptedTunOwner {
         fd: OwnedFd,
         name: String,
         identity: OwnedTunIdentity,
-    ) -> io::Result<Backend> {
+    ) -> Result<Backend, (OwnedFd, io::Error)> {
         #[cfg(target_os = "linux")]
         {
-            Backend::register_adopted(fd, name, identity)
+            Backend::register_adopted_retained(fd, name, identity)
         }
         #[cfg(target_os = "macos")]
         {
-            Backend::register_with_memory(
-                fd,
-                name,
-                identity,
-                self.macos_memory
-                    .get()
-                    .map(|memory| memory.take())
-                    .transpose()?,
-            )
+            let memory = match self
+                .macos_memory
+                .get()
+                .map(|memory| memory.take())
+                .transpose()
+            {
+                Ok(memory) => memory,
+                Err(source) => return Err((fd, source)),
+            };
+            Backend::register_with_memory_retained(fd, name, identity, memory)
         }
     }
 }
