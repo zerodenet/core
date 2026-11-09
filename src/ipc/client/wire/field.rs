@@ -10,18 +10,18 @@ fn member<'a>(raw: &'a RawValue, key: &str) -> Result<Option<&'a RawValue>, serd
         }
         fn visit_map<A: MapAccess<'de>>(self, mut a: A) -> Result<Self::Value, A::Error> {
             struct Key<'a>(&'a str);
+            impl<'de> Visitor<'de> for Key<'_> {
+                type Value = bool;
+                fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    f.write_str("key")
+                }
+                fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<bool, E> {
+                    Ok(s == self.0)
+                }
+            }
             impl<'de> serde::de::DeserializeSeed<'de> for Key<'_> {
                 type Value = bool;
                 fn deserialize<D: serde::Deserializer<'de>>(self, d: D) -> Result<bool, D::Error> {
-                    impl<'de> Visitor<'de> for Key<'_> {
-                        type Value = bool;
-                        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                            f.write_str("key")
-                        }
-                        fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<bool, E> {
-                            Ok(s == self.0)
-                        }
-                    }
                     d.deserialize_str(self)
                 }
             }
