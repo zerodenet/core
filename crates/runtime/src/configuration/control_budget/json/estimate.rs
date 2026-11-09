@@ -141,21 +141,21 @@ struct Key<'a, 'b>(&'a mut Measure<'b>);
 impl<'de> DeserializeSeed<'de> for Key<'_, '_> {
     type Value = bool;
     fn deserialize<D: serde::Deserializer<'de>>(self, d: D) -> Result<bool, D::Error> {
-        impl<'de> Visitor<'de> for Key<'_, '_> {
-            type Value = bool;
-            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.write_str("object key")
-            }
-            fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<bool, E> {
-                if matches!(self.0.mode, ControlJsonStorage::TypedRows { .. }) {
-                    Ok(())
-                } else {
-                    self.0.grow(s.len())
-                }?;
-                Ok(s == RAW)
-            }
-        }
         d.deserialize_str(self)
+    }
+}
+impl<'de> Visitor<'de> for Key<'_, '_> {
+    type Value = bool;
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("object key")
+    }
+    fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<bool, E> {
+        if matches!(self.0.mode, ControlJsonStorage::TypedRows { .. }) {
+            Ok(())
+        } else {
+            self.0.grow(s.len())
+        }?;
+        Ok(s == RAW)
     }
 }
 struct Magic<'a, 'b>(&'a mut Measure<'b>);
