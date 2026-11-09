@@ -62,6 +62,17 @@ where
         }
         let original = messages::request(&request)?;
         let req = request.into_inner();
+        if let Some(original) = &original {
+            if let Err(error) = original.prepay_json(&req.payload, true) {
+                return Err(original
+                    .error_status(
+                        tonic::Code::ResourceExhausted,
+                        "JSON input capacity: ",
+                        &error,
+                    )
+                    .await);
+            }
+        }
         let query: zero_api::QueryRequest = match serde_json::from_slice(&req.payload) {
             Ok(query) => query,
             Err(error) => {
@@ -125,6 +136,17 @@ where
         }
         let original = messages::request(&request)?;
         let req = request.into_inner();
+        if let Some(original) = &original {
+            if let Err(error) = original.prepay_json(&req.payload, false) {
+                return Err(original
+                    .error_status(
+                        tonic::Code::ResourceExhausted,
+                        "JSON input capacity: ",
+                        &error,
+                    )
+                    .await);
+            }
+        }
         let cmd: zero_api::CommandRequest = match serde_json::from_slice(&req.payload) {
             Ok(command) => command,
             Err(error) => {

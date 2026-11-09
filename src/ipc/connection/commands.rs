@@ -20,10 +20,10 @@ pub(super) struct CommandCredits {
 impl CommandCredits {
     pub(super) fn new(
         command: zero_runtime::configuration::ControlConnectionPermit,
-        bytes: Vec<ControlBudgetPermit>,
+        bytes: &mut Vec<ControlBudgetPermit>,
     ) -> io::Result<Self> {
         let owner = command.command_owner();
-        let command = owner.adopt_connection_command_with_input(command, bytes)?;
+        let command = owner.try_adopt_connection_command_with_input(command, bytes)?;
         let observation = command.observation();
         Ok(Self {
             _command: command,
@@ -130,25 +130,29 @@ impl ConcurrentCommandTasks {
     pub(super) fn try_spawn_owned(
         &mut self,
         future: impl Future<Output = io::Result<()>> + Send + 'static,
-        retained: Vec<ControlBudgetPermit>,
+        mut retained: Vec<ControlBudgetPermit>,
     ) -> bool {
         self.reap_finished();
         if self.stop.is_cancelled()
             || !self.failures.is_empty()
             || self.tasks.len() >= self.budget.limits().messages.ipc_pending_commands
         {
+            drop(future); // original DTO/future before its input permits
             return false;
         }
         let Ok(command) = self
             .local
             .reserve(zero_runtime::configuration::ControlConnectionCharge::PendingCommand)
         else {
+            drop(future);
             return false;
         };
         let stop = self.stop.clone();
-        let Ok(credits) = CommandCredits::new(command, retained) else {
+        let Ok(credits) = CommandCredits::new(command, &mut retained) else {
+            drop(future);
             return false;
         };
+        debug_assert!(retained.is_empty());
         let observation = credits.observation.clone();
         let completion = credits._command.clone();
         let (start, started) = tokio::sync::oneshot::channel();

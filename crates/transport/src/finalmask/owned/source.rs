@@ -106,12 +106,12 @@ impl<H: InboundHandshake, Make: Fn(Peer) -> H + Send + 'static> InboundSource fo
         &mut self,
         context: AcceptContext,
     ) -> Result<Option<PendingInbound>, ChannelError> {
-        let mut state = self.state.lock().await;
-        let socket = state
-            .socket
-            .clone()
-            .ok_or_else(|| failure(Reason::Revoked))?;
         loop {
+            let mut state = self.state.lock().await;
+            let socket = state
+                .socket
+                .clone()
+                .ok_or_else(|| failure(Reason::Revoked))?;
             let State {
                 receiver,
                 last_delivery,
@@ -135,18 +135,35 @@ impl<H: InboundHandshake, Make: Fn(Peer) -> H + Send + 'static> InboundSource fo
                 packet=socket.recv_from(&mut buffer.as_mut().unwrap().bytes)=>packet.map_err(|e|failure(Reason::Io).with_source(e))?,
             };
             let (len, remote) = received;
-            state.peers.retain(|_, sender| !sender.is_closed());
-            let packet = match state
+            let notifications = state
                 .memory
                 .as_ref()
                 .unwrap()
-                .copy(&state.buffer.as_ref().unwrap().bytes[..len], remote)
-            {
-                Ok(packet) => bytes::Bytes::from_owner(packet),
-                Err(source) if source.kind() == io::ErrorKind::WouldBlock => continue,
-                Err(source) => return Err(failure(Reason::Capacity).with_source(source)),
+                .metadata()
+                .map(|view| view.notifications());
+            // This non-suspending step releases its actual owner lock before
+            // dropping an unsent frame or invoking deferred Root callbacks.
+            let mut state = ReadyStep {
+                state,
+                pending: None,
+                _notifications: notifications,
             };
-            if let Some(sender) = state.peers.get(&remote) {
+            state.peers.retain(|_, sender| !sender.is_closed());
+            state.pending = Some(
+                match state
+                    .memory
+                    .as_ref()
+                    .unwrap()
+                    .copy(&state.buffer.as_ref().unwrap().bytes[..len], remote)
+                {
+                    Ok(packet) => bytes::Bytes::from_owner(packet),
+                    Err(source) if source.kind() == io::ErrorKind::WouldBlock => continue,
+                    Err(source) => return Err(failure(Reason::Capacity).with_source(source)),
+                },
+            );
+            if let Some(sender) = state.peers.get(&remote).cloned() {
+                let packet = state.pending.take().unwrap();
+                drop(state);
                 let _ = sender.try_send(packet);
                 continue;
             }
@@ -157,12 +174,25 @@ impl<H: InboundHandshake, Make: Fn(Peer) -> H + Send + 'static> InboundSource fo
                 continue;
             }
             let permit = state.graph.as_ref().unwrap().users().acquire()?;
-            let (sender, packets) = mpsc::channel(self.packets.get());
-            sender.try_send(packet).expect("new bounded peer queue");
-            state.peers.insert_reserved(remote, sender);
             let local = socket
                 .local_addr()
                 .map_err(|e| failure(Reason::Io).with_source(e))?;
+            let capacity = self.packets.get().min(
+                state
+                    .memory
+                    .as_ref()
+                    .unwrap()
+                    .book()
+                    .unwrap()
+                    .limits()
+                    .max_queue_packets,
+            );
+            let (sender, packets) = mpsc::channel(capacity);
+            sender
+                .try_send(state.pending.take().unwrap())
+                .expect("new bounded peer queue");
+            state.peers.insert_reserved(remote, sender);
+            drop(state);
             let facts = InboundConnectionFacts {
                 original_source: Some(remote),
                 effective_source: Some(remote),
@@ -174,6 +204,23 @@ impl<H: InboundHandshake, Make: Fn(Peer) -> H + Send + 'static> InboundSource fo
                 PendingInbound::new((self.make)(peer)).with_carrier_facts(facts),
             ));
         }
+    }
+}
+// Fields drop in declaration order. Never cross an await with this guard.
+struct ReadyStep<'a, N> {
+    state: tokio::sync::MutexGuard<'a, State>,
+    pending: Option<bytes::Bytes>,
+    _notifications: N,
+}
+impl<N> std::ops::Deref for ReadyStep<'_, N> {
+    type Target = State;
+    fn deref(&self) -> &State {
+        &self.state
+    }
+}
+impl<N> std::ops::DerefMut for ReadyStep<'_, N> {
+    fn deref_mut(&mut self) -> &mut State {
+        &mut self.state
     }
 }
 fn failure(reason: Reason) -> ChannelError {

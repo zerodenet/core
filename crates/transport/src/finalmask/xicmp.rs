@@ -141,7 +141,11 @@ async fn client(
             }
             received=raw.recv_from(&mut scratch.bytes)=>{
                 let (n,source)=received?;
-                let working = memory.receive(3*65536)?;
+                let working = match memory.receive(3*65536) {
+                    Ok(credit)=>credit,
+                    Err(error) if error.kind()==io::ErrorKind::WouldBlock=>continue,
+                    Err(error)=>return Err(error),
+                };
                 let decoded=state.lock().unwrap().response(&scratch.bytes[..n],source);
                 if let Ok(Some((bytes,peer)))=decoded {
                     let _=channels.incoming.try_send(Packet { bytes, peer, metadata: None, _credit: working.map(Into::into) });

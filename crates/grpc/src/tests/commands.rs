@@ -230,3 +230,9 @@ async fn actual_wire_query_keeps_the_existing_json_protobuf_and_native_retiremen
     .await
     .unwrap();
 }
+
+#[path = "commands/json_input.rs"]
+mod json_input;
+
+#[path = "commands/subscription_input.rs"]
+mod subscription_input;

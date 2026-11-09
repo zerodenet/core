@@ -107,3 +107,29 @@ async fn bare_current_metadata_and_live_counter_do_not_create_a_registered_work_
     assert_eq!(book.usage().pending_commands, 0);
     assert!(book.command_owner().retirement_complete());
 }
+
+#[tokio::test]
+async fn rejected_original_transfer_keeps_input_with_its_actual_caller() {
+    let book = book();
+    let owner = book.command_owner();
+    let connection = book.reserve(ControlCharge::Connection).unwrap();
+    let local = connection.connection_budget().unwrap();
+    let command = local
+        .reserve(crate::configuration::ControlConnectionCharge::PendingCommand)
+        .unwrap();
+    let mut input = vec![book.reserve(ControlCharge::RequestBytes(37)).unwrap()];
+    owner.begin_shutdown();
+    assert!(owner
+        .try_adopt_connection_command_with_input(command, &mut input)
+        .is_err());
+    assert_eq!(input.len(), 1);
+    assert_eq!(book.usage().request_bytes, 37);
+    assert_eq!(book.usage().pending_commands, 0);
+    drop(input);
+    assert_eq!(book.usage().request_bytes, 0);
+    owner
+        .shutdown(Instant::now() + Duration::from_secs(1))
+        .await
+        .unwrap();
+    assert!(owner.retirement_complete());
+}

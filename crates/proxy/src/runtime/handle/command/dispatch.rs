@@ -24,6 +24,12 @@ impl zero_api::CommandService for ProxyHandle {
                 zero_api::ApiErrorCode::Internal,
                 "proxy configuration replacement requires execute_acknowledged",
             )),
+            zero_api::CommandRequest::ConfigValidate(cmd) => {
+                let raw = super::input::serialize(&cmd.config, &self.proxy.host.control_budget())?;
+                self.proxy
+                    .engine
+                    .validate_configuration_document(raw.as_ref())
+            }
             zero_api::CommandRequest::TunStart(cmd) => execute_tun_start(self, cmd),
             zero_api::CommandRequest::TunStop(_) => execute_tun_stop(self),
             zero_api::CommandRequest::TunRecover(_) => execute_tun_recover(self),
@@ -91,11 +97,10 @@ impl zero_api::CommandService for ProxyHandle {
             | zero_api::CommandRequest::ConfigApplyRuntime(request) = &command
             {
                 let persist = matches!(&command, zero_api::CommandRequest::ConfigApply(_));
-                let raw = serde_json::to_string(&request.config).map_err(|error| {
-                    zero_api::ApiError::new(zero_api::ApiErrorCode::Internal, error.to_string())
-                })?;
+                let raw =
+                    super::input::serialize(&request.config, &self.proxy.host.control_budget())?;
                 let config = zero_config::RuntimeConfig::parse_with_source_dir(
-                    &raw,
+                    raw.as_ref(),
                     self.proxy.engine.config().source_dir.clone(),
                 )
                 .map_err(|error| {
@@ -104,6 +109,9 @@ impl zero_api::CommandService for ProxyHandle {
                         error.to_string(),
                     )
                 })?;
+                // The actual parsed candidate owns its fields. This temporary
+                // canonical document is no longer borrowed by any parser.
+                drop(raw);
                 if let Some(reconciler) = &self.config_reconciler {
                     reconciler
                         .validate(self.proxy.engine.config().as_ref(), &config)
