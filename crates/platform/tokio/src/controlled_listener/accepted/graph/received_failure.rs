@@ -142,7 +142,7 @@ impl AcceptedPeerScope {
                 "actual peer primary row was removed",
             )
         })?;
-        if !node.witness.same_registration(witness) || node.received_failure.is_some() {
+        if !node.witness.same_registration(&witness) || node.received_failure.is_some() {
             return Err(failure(
                 Stage::Prepare,
                 Reason::StalePlan,
@@ -150,7 +150,7 @@ impl AcceptedPeerScope {
             ));
         }
         if let Some(actual) = &node.fault {
-            return if actual.matches(witness)
+            return if actual.matches(&witness)
                 && actual.receiver().same_receiver(original.receiver())
             {
                 Ok(())
