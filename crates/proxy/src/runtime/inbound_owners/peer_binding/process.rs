@@ -165,6 +165,30 @@ impl HostPeerBinding {
         let original = self.process.lock().unwrap().clone();
         original.as_ref().is_none_or(|original| original.retired())
     }
+    #[cfg(test)]
+    pub(in crate::runtime::inbound_owners) fn original_process_retired_for_test(&self) -> bool {
+        let original = self.process.lock().unwrap().clone();
+        let Some(original) = original else {
+            return false;
+        };
+        let Some(witness) = original.witness() else {
+            return false;
+        };
+        let Some(joined) = witness.try_joined() else {
+            return false;
+        };
+        assert!(witness.matches_joined(&joined));
+        assert!(witness
+            .scope_identity()
+            .same_scope(&self.registrar.scope_identity()));
+        assert_eq!(
+            joined.class(),
+            zero_platform_tokio::contract::scope::TaskClass::Auxiliary
+        );
+        assert_ne!(Some(joined.id()), self.join_witness().unwrap().task_id());
+        joined.result().unwrap();
+        joined.registration_released() && original.retired()
+    }
     pub(in crate::runtime::inbound_owners) async fn close_process_lookup(
         &self,
         deadline: Instant,

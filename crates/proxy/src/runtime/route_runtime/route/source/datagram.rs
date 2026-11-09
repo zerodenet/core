@@ -50,7 +50,10 @@ pub(super) async fn run(
     }
     #[cfg(feature = "managed-datagram-runtime")]
     if let Some(peer) = runtime.peer_datagram.clone() {
-        let udp = runtime.udp_runtime().with_datagram_returns(peer.returns);
+        let udp = runtime
+            .udp_runtime()
+            .with_datagram_returns(peer.returns)
+            .with_peer_resources(peer.resources);
         let result = drive(runtime, request, auth, peer.cancel, peer.state.clone(), udp).await;
         if result.is_err() {
             peer.state.lock().await.dropped = true;
@@ -173,6 +176,7 @@ async fn drive(
 #[cfg(feature = "managed-datagram-runtime")]
 #[derive(Clone)]
 pub(in crate::runtime) struct PeerExecution {
+    resources: crate::runtime::inbound_owners::PeerResourceContext,
     state: Arc<AsyncMutex<owner::State>>,
     returns: Arc<crate::component::datagram_retirement::DatagramReturns>,
     cancel: CancellationToken,
@@ -206,6 +210,7 @@ impl InboundRouteRuntime {
             .await
             .map_err(std::io::Error::other)?;
         self.peer_datagram = Some(PeerExecution {
+            resources: context,
             state,
             returns,
             cancel,

@@ -62,6 +62,21 @@ impl Remote {
                 .snapshot()
         );
     }
+    pub async fn assert_original_process_lookup(&self, expected: usize) {
+        if self.kind != "shadowsocks" {
+            return;
+        }
+        let peers = self.original.peer_tasks_for_test();
+        tokio::time::timeout_at(deadline(), async {
+            while peers.retired_process_lookup_count_for_test() < expected {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(self.original.is_running());
+        assert!(self.original.terminal_for_test().is_none());
+    }
     pub async fn close(self) {
         self.running.shutdown().await.unwrap();
         let terminal = self.original.terminal_for_test().unwrap();

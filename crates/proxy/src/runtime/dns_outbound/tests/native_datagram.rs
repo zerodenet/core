@@ -41,6 +41,7 @@ async fn independent_dns_datagrams_return_selected_native_and_related_control_be
                     result = &mut query => panic!("{kind} Datagram DNS failed before actual UDP: {result:?}"),
                 };
                 assert!(!request.tcp, "the actual standard Datagram role must reach UDP DNS");
+                remote.assert_original_process_lookup(index + 1).await;
                 let actual = pending(&proxy).await;
                 let child = actual.original.as_ref().unwrap();
                 let native = child.parent().expect("actual native Datagram donor").clone();

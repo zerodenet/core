@@ -2,6 +2,22 @@
 use super::*;
 use zero_platform_tokio::contract::{ChannelError, Impact, Reason, Stage};
 impl InboundPeerTasks {
+    #[cfg(test)]
+    pub(crate) fn retired_process_lookup_count_for_test(&self) -> usize {
+        // Original Scope/native observers run outside the Source table lock.
+        let bindings = self
+            .state
+            .lock()
+            .unwrap()
+            .active
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        bindings
+            .into_iter()
+            .filter(|binding| binding.original_process_retired_for_test())
+            .count()
+    }
     pub(in crate::runtime::inbound_owners) fn bind_task_failures(
         &mut self,
         receiver: zero_platform_tokio::AcceptedTaskFailures,
