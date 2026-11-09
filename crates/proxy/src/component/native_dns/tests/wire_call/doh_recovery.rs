@@ -40,6 +40,8 @@ async fn physically_closed_doh_panic_keeps_original_faults_and_recovers_the_actu
         assert!(received.is_complete(), "original physical cleanup: {received:?}");
         assert!(received.failed_tasks.iter().any(|fault| fault.id == joined.id() && fault.class == joined.class()
             && super::recovery::contains_source(&fault.error, &panic)), "same actual driver TaskId/class/error Arc must have a lifecycle receiver: {received:?}");
+        assert!(received.resource_failures.is_empty(),
+            "waiting for that actual worker's Host ACK must not mint a second protocol cleanup fault: {received:?}");
         assert!(joined.registration_released());
         assert!(native.closed().unwrap().matches(native));
         assert!(native.owner().closed().unwrap().matches(native.owner()));
