@@ -73,12 +73,47 @@ impl<'de> Visitor<'de> for Index {
         Ok(rows)
     }
 }
-pub(super) struct Wire<'a>(pub(super) &'a RawValue);
+pub(super) struct Wire<'a> {
+    raw: &'a RawValue,
+    _magic: ControlBudgetPermit,
+}
+impl<'a> Wire<'a> {
+    pub(super) fn new(raw: &'a RawValue, book: &Arc<ControlBudget>) -> io::Result<Self> {
+        Self::for_memory(raw, book, semantic::Memory::Response)
+    }
+    pub(super) fn new_request(raw: &'a RawValue, book: &Arc<ControlBudget>) -> io::Result<Self> {
+        Self::for_memory(raw, book, semantic::Memory::Request)
+    }
+    fn for_memory(
+        raw: &'a RawValue,
+        book: &Arc<ControlBudget>,
+        memory: semantic::Memory,
+    ) -> io::Result<Self> {
+        let bytes = semantic::working_bytes(raw, book, memory)?;
+        Ok(Self {
+            raw,
+            _magic: memory.reserve(book, bytes)?,
+        })
+    }
+}
 impl Serialize for Wire<'_> {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        Node(self.raw).serialize(s)
+    }
+}
+struct Node<'a>(&'a RawValue);
+impl Serialize for Node<'_> {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         use serde::ser::Error;
         match self.0.get().as_bytes().first() {
             Some(b'{') => {
+                if semantic::is_magic(self.0).map_err(S::Error::custom)? {
+                    // Wire::new validated and paid this exact immutable
+                    // subtree before any prefix was written. No second lease.
+                    let original: serde_json::Value =
+                        serde_json::from_str(self.0.get()).map_err(S::Error::custom)?;
+                    return original.serialize(s);
+                }
                 let rows = serde::Deserializer::deserialize_map(
                     &mut serde_json::Deserializer::from_str(self.0.get()),
                     Index,
@@ -86,7 +121,7 @@ impl Serialize for Wire<'_> {
                 .map_err(S::Error::custom)?;
                 let mut map = s.serialize_map(Some(rows.len()))?;
                 for row in &rows {
-                    map.serialize_entry(row.key.as_ref(), &Wire(row.value))?;
+                    map.serialize_entry(row.key.as_ref(), &Node(row.value))?;
                 }
                 map.end()
             }
@@ -109,7 +144,7 @@ impl Serialize for Wire<'_> {
                             }
                         };
                         while let Some(raw) = a.next_element::<&RawValue>()? {
-                            if let Err(error) = sequence.serialize_element(&Wire(raw)) {
+                            if let Err(error) = sequence.serialize_element(&Node(raw)) {
                                 while a.next_element::<serde::de::IgnoredAny>()?.is_some() {}
                                 return Ok(Err(error));
                             }
@@ -132,11 +167,11 @@ impl Serialize for Wire<'_> {
         }
     }
 }
-pub(super) fn write(writer: &mut impl io::Write, raw: &RawValue, pretty: bool) -> io::Result<()> {
+pub(super) fn write(writer: &mut impl io::Write, wire: &Wire<'_>, pretty: bool) -> io::Result<()> {
     if pretty {
-        serde_json::to_writer_pretty(writer, &Wire(raw))
+        serde_json::to_writer_pretty(writer, wire)
     } else {
-        serde_json::to_writer(writer, &Wire(raw))
+        serde_json::to_writer(writer, wire)
     }
     .map_err(io::Error::other)
 }

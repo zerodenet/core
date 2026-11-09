@@ -71,13 +71,22 @@ impl Reply {
             self.layout.workspace(self.frame.bytes.len())?,
         ))?;
         let header = self.header()?;
+        if let Some(raw) = header.result {
+            if semantic::has_marker(raw).map_err(io::Error::other)? {
+                let original = semantic::value(raw, &self.book)?;
+                return print_original_status(&original.value, socket, json);
+            }
+        }
         if json {
             let raw = header.result;
             // None is encoded explicitly below without retaining a second DTO.
+            let wire = raw
+                .map(|raw| format::Wire::new(raw, &self.book))
+                .transpose()?;
             let stdout = io::stdout();
             let mut output = stdout.lock();
-            if let Some(raw) = raw {
-                format::write(&mut output, raw, true)?;
+            if let Some(wire) = &wire {
+                format::write(&mut output, wire, true)?;
             } else {
                 io::Write::write_all(&mut output, b"null")?;
             }
@@ -143,4 +152,39 @@ pub(super) fn tun_array_rows(raw: &RawValue) -> Result<usize, serde_json::Error>
         }
     }
     Ok(total)
+}
+
+fn print_original_status(value: &serde_json::Value, socket: &str, json: bool) -> io::Result<()> {
+    if json {
+        let stdout = io::stdout();
+        let mut out = stdout.lock();
+        serde_json::to_writer_pretty(&mut out, value).map_err(io::Error::other)?;
+        io::Write::write_all(&mut out, b"\n")?;
+        return Ok(());
+    }
+    println!("Engine Status (via {socket})");
+    if let Some(stats) = value.get("stats") {
+        let scalar = |key| {
+            stats
+                .get(key)
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0)
+        };
+        println!(
+            "  sessions: active={} total={} completed={} failed={}",
+            scalar("active_sessions"),
+            scalar("total_started"),
+            scalar("completed_sessions"),
+            scalar("failed_sessions")
+        );
+    }
+    let len = |key| {
+        value
+            .get(key)
+            .and_then(serde_json::Value::as_array)
+            .map_or(0, Vec::len)
+    };
+    println!("  active_flows: {}", len("active_sessions"));
+    println!("  recent_completed: {}", len("recent_completed_sessions"));
+    Ok(())
 }

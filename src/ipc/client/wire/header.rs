@@ -12,7 +12,7 @@ pub(super) struct Header<'a> {
     _api_id: Option<&'a RawValue>,
     #[serde(borrow, default)]
     #[serde(rename = "id")]
-    _id: Option<&'a RawValue>,
+    pub(super) id: Option<&'a RawValue>,
 }
 #[derive(Clone, Copy, serde::Deserialize)]
 pub(super) struct Error<'a> {

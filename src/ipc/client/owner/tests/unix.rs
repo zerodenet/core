@@ -231,3 +231,50 @@ async fn actual_pending_io_panic_retains_original_task_error_but_positive_cleanu
     drop(error);
     drop(same);
 }
+
+#[tokio::test]
+async fn actual_unix_magic_result_keeps_old_value_output_and_original_native_scope_retirement() {
+    let _serial = SERIAL.lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("magic.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    let wire =
+        r#"{"ok":true,"result":{"$serde_json::private::RawValue":"{\"z\":[1,2],\"a\":\"雪\"}"}}
+"#
+        .as_bytes()
+        .to_vec();
+    let expected: serde_json::Value = serde_json::from_slice(&wire).unwrap();
+    let peer = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut peer = BufReader::new(stream);
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        peer.get_mut().write_all(&wire).await.unwrap();
+        peer.get_mut().flush().await.unwrap();
+    });
+    let caller = Caller::begin(Limits::default()).await.unwrap();
+    let original = caller.original.clone();
+    let reply = caller
+        .request(
+            path.to_str().unwrap(),
+            &crate::ipc::protocol::IpcRequest::Ping { id: None },
+        )
+        .await
+        .unwrap()
+        .ensure_ok("failure")
+        .unwrap();
+    caller.finish().await.unwrap();
+    peer.await.unwrap();
+    assert!(original.retired.load(Ordering::Acquire));
+    assert!(original.scope.lock().await.as_ref().unwrap().is_drained());
+    assert!(lock(&original.faults.joined)
+        .iter()
+        .all(TaskJoined::registration_released));
+    assert_eq!(original.book.usage().connections, 0);
+    let mut actual = Vec::new();
+    reply.test_write(&mut actual, true).unwrap();
+    assert_eq!(actual, serde_json::to_vec_pretty(&expected).unwrap());
+    assert!(original.book.usage().response_bytes > 0);
+    drop(reply);
+    assert_eq!(original.book.usage().response_bytes, 0);
+}

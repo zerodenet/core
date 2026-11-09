@@ -6,6 +6,7 @@ mod count;
 mod field;
 pub(super) mod format;
 mod header;
+mod semantic;
 mod typed;
 pub(super) use count::Layout;
 pub(crate) struct Reply {
@@ -35,6 +36,9 @@ impl Reply {
         let credit = book.reserve(ControlCharge::ResponseBytes(scratch))?;
         match count::layout(&frame.bytes, 0) {
             Ok(layout) => {
+                let raw =
+                    serde_json::from_slice::<&RawValue>(&frame.bytes).map_err(io::Error::other)?;
+                semantic::validate(raw, &book)?;
                 drop(credit);
                 Ok(Self {
                     frame,
@@ -46,6 +50,47 @@ impl Reply {
                 io::ErrorKind::InvalidData,
                 DecodeFailure {
                     error,
+                    _frame: frame,
+                    _credit: credit,
+                },
+            )),
+        }
+    }
+    /// send_request has a typed RawResponse root; unknown root fields are
+    /// ignored by that original API, and only id/result use Value semantics.
+    pub(super) fn new_response(frame: frames::Frame, book: Arc<ControlBudget>) -> io::Result<Self> {
+        let bytes = count::scan(&frame.bytes)?
+            .scratch()?
+            .checked_add(frame.bytes.len())
+            .and_then(|n| n.checked_add(4096))
+            .ok_or_else(capacity)?;
+        let credit = book.reserve(ControlCharge::ResponseBytes(bytes))?;
+        let result = (|| -> io::Result<Layout> {
+            let header: header::Header<'_> =
+                serde_json::from_slice(&frame.bytes).map_err(io::Error::other)?;
+            let mut layout = Layout::default();
+            for raw in [header.id, header.result].into_iter().flatten() {
+                let child = count::layout(raw.get().as_bytes(), 1).map_err(io::Error::other)?;
+                semantic::validate(raw, &book)?;
+                layout.maps = layout.maps.max(child.maps);
+                layout.depth = layout.depth.max(child.depth);
+                layout.escaped = layout.escaped.max(child.escaped);
+            }
+            Ok(layout)
+        })();
+        match result {
+            Ok(layout) => {
+                drop(credit);
+                Ok(Self {
+                    frame,
+                    book,
+                    layout,
+                })
+            }
+            Err(source) => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                ResponseFailure {
+                    source,
                     _frame: frame,
                     _credit: credit,
                 },
@@ -103,9 +148,10 @@ impl Reply {
             Some(self.raw()?)
         };
         if let Some(raw) = raw {
+            let wire = format::Wire::new(raw, &self.book)?;
             let output = std::io::stdout();
             let mut output = output.lock();
-            format::write(&mut output, raw, pretty)?;
+            format::write(&mut output, &wire, pretty)?;
             std::io::Write::write_all(&mut output, b"\n")?;
             std::io::Write::flush(&mut output)?;
         }
@@ -155,24 +201,25 @@ impl std::fmt::Display for CommandFailure {
 impl std::error::Error for CommandFailure {}
 
 pub(crate) struct RawInput<'a> {
-    raw: &'a RawValue,
+    wire: format::Wire<'a>,
     _credit: ControlBudgetPermit,
 }
-impl std::ops::Deref for RawInput<'_> {
-    type Target = RawValue;
-    fn deref(&self) -> &RawValue {
-        self.raw
+impl serde::Serialize for RawInput<'_> {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(&self.wire, s)
     }
 }
 impl<'a> RawInput<'a> {
     pub(super) fn new(text: &'a str, book: &Arc<ControlBudget>) -> io::Result<Self> {
-        let credit = book.reserve(ControlCharge::RequestBytes(
+        let mut credit = book.reserve(ControlCharge::RequestBytes(
             count::scan(text.as_bytes())?.scratch()?,
         ))?;
-        count::layout(text.as_bytes(), 0).map_err(io::Error::other)?;
+        let layout = count::layout(text.as_bytes(), 0).map_err(io::Error::other)?;
+        credit.grow(layout.workspace(text.len())?)?;
         let raw = serde_json::from_str(text).map_err(io::Error::other)?;
+        let wire = format::Wire::new_request(raw, book)?;
         Ok(Self {
-            raw,
+            wire,
             _credit: credit,
         })
     }
@@ -184,7 +231,8 @@ impl Reply {
         let credit = self.book.reserve(ControlCharge::ResponseBytes(
             self.layout.workspace(self.frame.bytes.len())?,
         ))?;
-        format::write(writer, self.raw()?, pretty)?;
+        let wire = format::Wire::new(self.raw()?, &self.book)?;
+        format::write(writer, &wire, pretty)?;
         drop(credit);
         Ok(())
     }
@@ -218,5 +266,28 @@ impl std::fmt::Display for WorkspaceFailure {
 impl std::error::Error for WorkspaceFailure {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(&self.error)
+    }
+}
+
+struct ResponseFailure {
+    source: io::Error,
+    _frame: frames::Frame,
+    _credit: ControlBudgetPermit,
+}
+impl std::fmt::Debug for ResponseFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("ClientTypedResponseFailure")
+            .field(&self.source)
+            .finish()
+    }
+}
+impl std::fmt::Display for ResponseFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.source, f)
+    }
+}
+impl std::error::Error for ResponseFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
     }
 }

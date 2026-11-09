@@ -74,7 +74,7 @@ pub async fn execute(command: Command, client: &Caller) -> Result<(), Box<dyn Er
             let config = client.raw_json(&raw)?;
             #[derive(serde::Serialize)]
             struct Params<'a> {
-                config: &'a serde_json::value::RawValue,
+                config: &'a crate::ipc::client::RawInput<'a>,
             }
             send_command(
                 client,

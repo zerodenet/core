@@ -6,7 +6,7 @@ mod native;
 mod owner;
 mod wire;
 pub(crate) use owner::Caller;
-pub(crate) use wire::Reply;
+pub(crate) use wire::{RawInput, Reply};
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Limits {
     pub frame: usize,

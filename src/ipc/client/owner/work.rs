@@ -114,7 +114,11 @@ impl Attempt {
             if matches!(frame.bytes.as_slice(), b"\n" | b"\r\n") {
                 continue;
             }
-            let reply = wire::Reply::new(frame, self.book.clone())?;
+            let reply = if events {
+                wire::Reply::new(frame, self.book.clone())?
+            } else {
+                wire::Reply::new_response(frame, self.book.clone())?
+            };
             if events {
                 reply.print(false, false)?;
             } else {

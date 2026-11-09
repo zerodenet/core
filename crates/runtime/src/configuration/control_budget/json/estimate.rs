@@ -14,6 +14,7 @@ struct Measure<'a> {
     bytes: usize,
     failure: Option<io::Error>,
     mode: ControlJsonStorage,
+    response: bool,
 }
 impl Measure<'_> {
     fn grow<E: serde::de::Error>(&mut self, n: usize) -> Result<(), E> {
@@ -41,7 +42,13 @@ impl Measure<'_> {
         let work = scratch(bytes)
             .and_then(|n| add(n, bytes.len()))
             .and_then(|n| add(n, 4096))
-            .and_then(|n| self.book.reserve(ControlCharge::RequestBytes(n)));
+            .and_then(|n| {
+                self.book.reserve(if self.response {
+                    ControlCharge::ResponseBytes(n)
+                } else {
+                    ControlCharge::RequestBytes(n)
+                })
+            });
         let _workspace = match work {
             Ok(value) => value,
             Err(error) => {
@@ -205,12 +212,14 @@ pub fn measure(
     raw: &[u8],
     book: &Arc<ControlBudget>,
     mode: ControlJsonStorage,
+    response: bool,
 ) -> io::Result<usize> {
     let mut m = Measure {
         book,
         bytes: 0,
         failure: None,
         mode,
+        response,
     };
     m.text(raw);
     if let Some(error) = m.failure {
