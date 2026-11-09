@@ -26,27 +26,41 @@ pub(in crate::macos_privilege) fn run_owned(
 }
 pub(in crate::macos_privilege) fn run_query_owned(
     slot: &mut ChildOriginal,
-    query: super::super::Query,
+    query: super::super::Query<'_>,
     output: OutputStorage<'_>,
 ) -> io::Result<CommandOutput> {
-    let (executable, arguments) = match query {
-        super::super::Query::Route(arguments) => ("/sbin/route", arguments),
-        super::super::Query::RouteTable(ipv6) => (
+    match query {
+        super::super::Query::Route(arguments) => run(slot, "/sbin/route", arguments, None, output),
+        super::super::Query::RouteTable(ipv6) => run_arguments(
+            slot,
             "/usr/sbin/netstat",
-            vec![
-                "-rnW".into(),
-                "-f".into(),
-                if ipv6 { "inet6" } else { "inet" }.into(),
-            ],
+            Arguments::Slices(&["-rnW", "-f", if ipv6 { "inet6" } else { "inet" }]),
+            None,
+            output,
         ),
-        super::super::Query::SystemDns => ("/usr/sbin/scutil", vec!["--dns".into()]),
-    };
-    run(slot, executable, &arguments, None, output)
+        super::super::Query::SystemDns => run_arguments(
+            slot,
+            "/usr/sbin/scutil",
+            Arguments::Slices(&["--dns"]),
+            None,
+            output,
+        ),
+    }
 }
+
 fn run(
     slot: &mut ChildOriginal,
     executable: &'static str,
     arguments: &[String],
+    input: Option<&str>,
+    output: OutputStorage<'_>,
+) -> io::Result<CommandOutput> {
+    run_arguments(slot, executable, arguments.into(), input, output)
+}
+fn run_arguments(
+    slot: &mut ChildOriginal,
+    executable: &'static str,
+    arguments: Arguments<'_>,
     input: Option<&str>,
     output: OutputStorage<'_>,
 ) -> io::Result<CommandOutput> {

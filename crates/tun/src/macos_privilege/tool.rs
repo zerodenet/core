@@ -12,8 +12,8 @@ pub(super) use child::run_query;
 pub(super) use child::{
     run, run_owned, run_query_owned, run_streamed, ChildOriginal, OutputStorage,
 };
-pub(in crate::macos_privilege) enum Query {
-    Route(Vec<String>),
+pub(in crate::macos_privilege) enum Query<'a> {
+    Route(&'a [String]),
     RouteTable(bool),
     SystemDns,
 }

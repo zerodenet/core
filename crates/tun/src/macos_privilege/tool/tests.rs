@@ -53,7 +53,7 @@ fn fixed_local_query_reaps_its_actual_child_and_explicitly_closes_all_preinstall
     let mut child = ChildOriginal::new();
     let output = run_query(
         &mut child,
-        Query::Route(vec!["-n".into(), "get".into(), "127.0.0.1".into()]),
+        Query::Route(&["-n".into(), "get".into(), "127.0.0.1".into()]),
         65_536,
     )
     .unwrap();

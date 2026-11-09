@@ -4,6 +4,8 @@ use std::{
     os::unix::process::CommandExt,
     process::{Child, Command, ExitStatus, Output},
 };
+mod arguments;
+use arguments::Arguments;
 mod drain;
 mod failures;
 mod owned;
@@ -14,6 +16,10 @@ mod handshake;
 #[cfg(test)]
 mod pending;
 mod pipes;
+#[cfg(test)]
+mod query;
+#[cfg(test)]
+pub(in crate::macos_privilege) use query::run_query;
 
 pub(in crate::macos_privilege) struct ChildOriginal {
     child: Option<Child>,
@@ -170,7 +176,7 @@ fn run_fixed(
     supervisor: Option<(RawFd, u64)>,
     output_limit: usize,
 ) -> io::Result<Output> {
-    let child_ends = start_fixed(slot, executable, arguments, input, supervisor, None)?;
+    let child_ends = start_fixed(slot, executable, arguments.into(), input, supervisor, None)?;
     let output = slot.collect(input.unwrap_or("").as_bytes(), output_limit);
     // Even an IO failure must progress all independent close and wait duties.
     let close = slot.close_pipes();
@@ -178,31 +184,10 @@ fn run_fixed(
     failures::finish(child_ends, output, close, waited)
 }
 
-#[cfg(test)]
-pub(in crate::macos_privilege) fn run_query(
-    slot: &mut ChildOriginal,
-    query: super::Query,
-    output_limit: usize,
-) -> io::Result<Output> {
-    let (executable, arguments) = match query {
-        super::Query::Route(arguments) => ("/sbin/route", arguments),
-        super::Query::RouteTable(ipv6) => (
-            "/usr/sbin/netstat",
-            vec![
-                "-rnW".into(),
-                "-f".into(),
-                if ipv6 { "inet6" } else { "inet" }.into(),
-            ],
-        ),
-        super::Query::SystemDns => ("/usr/sbin/scutil", vec!["--dns".into()]),
-    };
-    run_fixed(slot, executable, &arguments, None, None, output_limit)
-}
-
 fn start_fixed(
     slot: &mut ChildOriginal,
     executable: &'static str,
-    arguments: &[String],
+    arguments: Arguments<'_>,
     input: Option<&str>,
     supervisor: Option<(RawFd, u64)>,
     mode: Option<&crate::macos_privilege::session::CommandMode>,
@@ -225,7 +210,8 @@ fn start_fixed(
         slot.local_control = Some(mode.control().clone());
     }
     let mut command = Command::new(executable);
-    command.args(arguments).env("LC_ALL", "C");
+    arguments.append_to(&mut command);
+    command.env("LC_ALL", "C");
     // Parent and child ends enter this exact slot BEFORE flags or spawning.
     // Command owns no implicit Stdio::piped originals in the Kernel path.
     if let Err(source) = slot.prepare_pipes(input.is_some()) {

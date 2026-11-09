@@ -29,7 +29,14 @@ fn run_fixed_streamed(
     stream: &mut UnixStream,
     limit: usize,
 ) -> io::Result<()> {
-    let started = start_fixed(slot, executable, arguments, input, Some(supervisor), None);
+    let started = start_fixed(
+        slot,
+        executable,
+        arguments.into(),
+        input,
+        Some(supervisor),
+        None,
+    );
     let mut operation = None;
     let mut ends = Ok(());
     match started {

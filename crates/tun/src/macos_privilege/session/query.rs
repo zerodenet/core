@@ -38,7 +38,7 @@ impl MacosHelperAccess {
     }
 }
 impl MacosHelperOwner {
-    fn query(&self, query: tool::Query) -> Result<CommandOutput, QueryFailure> {
+    fn query(&self, query: tool::Query<'_>) -> Result<CommandOutput, QueryFailure> {
         if !self.0.io_allowed() {
             return Err(QueryFailure::Original(io::Error::from(
                 io::ErrorKind::Interrupted,
@@ -181,7 +181,7 @@ mod tests;
 pub(crate) fn route_query(arguments: &[String]) -> Option<io::Result<CommandOutput>> {
     current().map(|owner| {
         owner
-            .query(tool::Query::Route(arguments.to_vec()))
+            .query(tool::Query::Route(arguments))
             .map_err(QueryFailure::into_io)
     })
 }
