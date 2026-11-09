@@ -65,14 +65,36 @@ pub(crate) trait PacketPathCarrier: Send + Sync {
     fn has_driver_handoff(&self) -> bool {
         false
     }
+    fn codec_transmit_count(&self, _: &Address, _: u16, _: usize) -> Result<usize, EngineError> {
+        Ok(0)
+    }
+    fn prepare_codec_lengths(
+        &self,
+        _: usize,
+    ) -> Result<zero_platform_tokio::contract::component::PacketMetadataVec<usize>, EngineError>
+    {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "same packet path has no Source dimension storage",
+        )
+        .into())
+    }
     fn codec_transmit_lengths(
         &self,
         _: &Address,
         _: u16,
         _: usize,
-        _: &mut Vec<usize>,
+        lengths: &mut [usize],
     ) -> Result<(), EngineError> {
-        Ok(())
+        if lengths.is_empty() {
+            Ok(())
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "unused codec dimension storage",
+            )
+            .into())
+        }
     }
     fn prepare_codec_send(
         &self,

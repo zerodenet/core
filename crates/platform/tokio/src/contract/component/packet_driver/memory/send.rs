@@ -13,6 +13,8 @@ pub struct PacketDriverSendCopy {
     buffer: Option<zero_tun::packet_memory::NativeReadBuffer>,
     #[cfg(feature = "native-packet-origin")]
     target: Option<zero_tun::packet_memory::NativeReadBuffer>,
+    #[cfg(feature = "native-packet-origin")]
+    header: Option<zero_traits::packet_metadata::PacketMetadataCredit>,
 }
 impl PacketDriverSendBuffers {
     pub fn into_batch_parts(self) -> (zero_traits::PacketBatch, PacketDriverSendCopy) {
@@ -37,6 +39,9 @@ impl PacketDriverSendCopy {
         }
         #[cfg(feature = "native-packet-origin")]
         {
+            if self.header.is_none() {
+                return Err(failure(Reason::Protocol));
+            }
             let mut metadata = None;
             let address = match target {
                 zero_core::Address::Domain(name) => {
@@ -65,8 +70,19 @@ impl PacketDriverSendCopy {
                 _ => target.clone(),
             };
             let payload = self.copy_packet(bytes)?;
-            let payload =
-                zero_traits::PacketBuffer::from_owner(DatagramCopyStorage { payload, metadata });
+            let header = self.header.take().expect("same unconsumed copy header");
+            let payload = match zero_traits::PacketBuffer::from_prepaid_owner(
+                DatagramCopyStorage { payload, metadata },
+                header,
+            ) {
+                Ok(payload) => payload,
+                Err((source, owner, header)) => {
+                    drop(address); // moved Domain storage remains paid until this drop
+                    drop(owner);
+                    drop(header);
+                    return Err(memory_error(source));
+                }
+            };
             // Datagram declares address before payload. The owned String is
             // dropped before its same backing-credit custody in payload.
             Ok(zero_core::packet::Datagram {
@@ -101,6 +117,46 @@ impl PacketDriverSendCopy {
     }
 }
 impl PacketDriverDatagramHandoff {
+    /// Pure dimensions for the actual installed sender, paid on its same
+    /// Source metadata Root. This grants no additional send/IO permission.
+    pub fn prepare_codec_lengths(
+        &self,
+        count: usize,
+    ) -> Result<crate::contract::component::PacketMetadataVec<usize>, ChannelError> {
+        #[cfg(not(feature = "native-packet-origin"))]
+        {
+            let _ = count;
+            Err(failure(Reason::Unsupported))
+        }
+        #[cfg(feature = "native-packet-origin")]
+        {
+            let original = self.send_original()?;
+            let memory = original
+                .grant
+                .memory_view()
+                .map_err(memory_error)?
+                .driver_metadata_view()
+                .map_err(memory_error)?;
+            prepare_lengths(&memory, count)
+        }
+    }
+    #[cfg(feature = "native-packet-origin")]
+    fn send_original(&self) -> Result<&WireCopy, ChannelError> {
+        if self.record.call.cancel.is_cancelled()
+            || self.record.original.is_retired()
+            || self
+                .installed
+                .receiver
+                .get()
+                .is_none_or(TaskJoinWitness::is_joined)
+        {
+            return Err(failure(Reason::Revoked));
+        }
+        self.installed
+            .memory
+            .get()
+            .ok_or_else(|| failure(Reason::InvalidConfig))
+    }
     /// Acquire the actual final copy slot AND every codec-layer allocation
     /// before the first codec can advance nonce/RNG/replay state. A slot still
     /// held by a previous queued send is NotSubmitted, never a late failure
@@ -113,31 +169,18 @@ impl PacketDriverDatagramHandoff {
         }
         #[cfg(feature = "native-packet-origin")]
         {
-            if self.record.call.cancel.is_cancelled()
-                || self.record.original.is_retired()
-                || self
-                    .installed
-                    .receiver
-                    .get()
-                    .is_none_or(TaskJoinWitness::is_joined)
-            {
-                return Err(failure(Reason::Revoked));
-            }
-            let grant = self
-                .installed
-                .memory
-                .get()
-                .map(|memory| &memory.grant)
-                .ok_or_else(|| failure(Reason::InvalidConfig))?;
-            let buffer = grant.try_buffer().map_err(memory_error)?;
-            let target = self
-                .installed
-                .memory
-                .get()
-                .map(|memory| &memory.target)
-                .ok_or_else(|| failure(Reason::InvalidConfig))?
-                .try_buffer()
+            let copy = self.send_original()?;
+            let grant = &copy.grant;
+            let memory = grant.memory_view().map_err(memory_error)?;
+            let header = memory
+                .driver_metadata_view()
+                .map_err(memory_error)?
+                .reserve(zero_traits::packet_metadata::PacketMetadataLayout::boxed::<
+                    DatagramCopyStorage,
+                >())
                 .map_err(memory_error)?;
+            let buffer = grant.try_buffer().map_err(memory_error)?;
+            let target = copy.target.try_buffer().map_err(memory_error)?;
             let buffers = grant
                 .memory_view()
                 .map_err(memory_error)?
@@ -149,6 +192,7 @@ impl PacketDriverDatagramHandoff {
                     record: self.record.clone(),
                     buffer: Some(buffer),
                     target: Some(target),
+                    header: Some(header),
                 },
             })
         }
@@ -204,3 +248,22 @@ impl zero_traits::PacketStorage for DatagramCopyStorage {
         self.payload.try_derive_zeroed(lengths)
     }
 }
+
+#[cfg(feature = "native-packet-origin")]
+fn prepare_lengths(
+    memory: &zero_tun::packet_memory::PacketDriverMetadataView,
+    count: usize,
+) -> Result<zero_tun::packet_memory::PacketMetadataVec<usize>, ChannelError> {
+    let mut lengths = zero_tun::packet_memory::PacketMetadataVec::default();
+    for _ in 0..count {
+        // The full actual chain count is already checked. Geometric growth
+        // uses the existing vector's old+new admission and deallocation order.
+        lengths
+            .try_push_with_metadata(0, memory, count)
+            .map_err(|(source, _)| memory_error(source))?;
+    }
+    Ok(lengths)
+}
+#[cfg(all(test, feature = "native-packet-origin"))]
+#[path = "send/tests.rs"]
+mod tests;

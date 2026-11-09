@@ -55,6 +55,21 @@ impl DatagramCodec<Address> for Codec {
         wire.extend_from_slice(payload);
         Ok(wire)
     }
+    fn encode_buffer_layout(
+        &self,
+        _: &Address,
+        _: u16,
+        size: usize,
+    ) -> Result<
+        zero_traits::DatagramCodecBufferLayout,
+        zero_traits::DatagramCodecBufferError<Self::Error>,
+    > {
+        size.checked_add(7)
+            .map(|size| zero_traits::DatagramCodecBufferLayout::One([size]))
+            .ok_or(zero_traits::DatagramCodecBufferError::Storage(
+                zero_traits::PacketDeriveError::Overflow,
+            ))
+    }
     fn decode(&self, wire: &[u8]) -> Option<(Address, u16, Vec<u8>)> {
         if wire.len() < 7 || wire[0] != self.0 {
             return None;
@@ -113,4 +128,23 @@ async fn nested_codecs_preserve_hop_order_and_receive_small_plaintext() {
     assert!(
         matches!(single.recv_from(&mut output).await, Err(EngineError::Io(error)) if error.kind() == std::io::ErrorKind::InvalidData)
     );
+}
+
+#[test]
+fn nested_source_shape_dimensions_fill_only_exact_prepared_slice_in_wire_order() {
+    let carrier = Arc::new(Carrier::default());
+    let path = wrap(wrap(carrier, source(1, 1001)), source(2, 1002));
+    let target = Address::Ipv4([192, 0, 2, 3]);
+    assert_eq!(path.codec_transmit_count(&target, 53, 1).unwrap(), 2);
+    let mut dimensions = [0; 2];
+    path.codec_transmit_lengths(&target, 53, 1, &mut dimensions)
+        .unwrap();
+    assert_eq!(dimensions, [8, 15]);
+    assert!(path
+        .codec_transmit_lengths(&target, 53, 1, &mut [0])
+        .is_err());
+    assert!(path
+        .codec_transmit_lengths(&target, 53, 1, &mut [0; 3])
+        .is_err());
+    assert!(path.codec_transmit_count(&target, 53, usize::MAX).is_err());
 }

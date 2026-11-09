@@ -41,12 +41,27 @@ impl PacketPathCarrier for Observed {
     > {
         self.path.prepare_codec_send(lengths)
     }
+    fn codec_transmit_count(
+        &self,
+        target: &Address,
+        port: u16,
+        len: usize,
+    ) -> Result<usize, EngineError> {
+        self.path.codec_transmit_count(target, port, len)
+    }
+    fn prepare_codec_lengths(
+        &self,
+        count: usize,
+    ) -> Result<zero_platform_tokio::contract::component::PacketMetadataVec<usize>, EngineError>
+    {
+        self.path.prepare_codec_lengths(count)
+    }
     fn codec_transmit_lengths(
         &self,
         target: &Address,
         port: u16,
         len: usize,
-        lengths: &mut Vec<usize>,
+        lengths: &mut [usize],
     ) -> Result<(), EngineError> {
         self.path.codec_transmit_lengths(target, port, len, lengths)
     }

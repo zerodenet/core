@@ -41,69 +41,7 @@ struct Encoded {
     memory: Option<crate::protocol_registry::packet_memory::PacketCodecReceiveMemory>,
     business: Option<crate::protocol_registry::packet_memory::business::BusinessMemory>,
 }
-impl Encoded {
-    async fn recv_decoded(
-        &self,
-        output: &mut [u8],
-    ) -> Result<(usize, Option<SocketAddr>), EngineError> {
-        if self.has_driver_handoff() {
-            let memory = self.memory.as_ref().ok_or_else(layout_error)?;
-            return memory
-                .receive(self.path.as_ref(), self.source.codec.as_ref(), output)
-                .await;
-        }
-        if let Some(memory) = &self.business {
-            let mut wire = memory.buffer(65536)?;
-            loop {
-                let length = self.path.recv_from(&mut wire).await?;
-                let decoded = match memory.decode(self.source.codec.as_ref(), &wire[..length]) {
-                    Err(source)
-                        if crate::protocol_registry::packet_memory::business::is_pressure(
-                            &source,
-                        ) =>
-                    {
-                        tracing::warn!(%source,"original Host cannot admit this new codec response");
-                        tokio::task::consume_budget().await;
-                        continue;
-                    }
-                    result => result?,
-                };
-                let Some((target, port, payload)) = decoded else {
-                    tokio::task::consume_budget().await;
-                    continue;
-                };
-                if payload.len() > output.len() {
-                    drop(target);
-                    drop(payload);
-                    return Err(layout_error());
-                }
-                output[..payload.len()].copy_from_slice(&payload);
-                let result = (payload.len(), packet_path_source(&target, port));
-                drop(target);
-                drop(payload);
-                return Ok(result);
-            }
-        }
-        // Remaining compatibility consumers retain their previous ownership;
-        // absence of a Source grant does not identify a library caller.
-        let mut wire = vec![0; 65536];
-        loop {
-            let length = self.path.recv_from(&mut wire).await?;
-            let Some((source, port, payload)) = self.source.codec.decode(&wire[..length]) else {
-                tokio::task::consume_budget().await;
-                continue;
-            };
-            if payload.len() > output.len() {
-                return Err(EngineError::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "decoded relay datagram exceeds receive buffer",
-                )));
-            }
-            output[..payload.len()].copy_from_slice(&payload);
-            return Ok((payload.len(), packet_path_source(&source, port)));
-        }
-    }
-}
+mod receive;
 #[async_trait::async_trait]
 impl PacketPathCarrier for Encoded {
     fn logical_registration(
@@ -124,12 +62,38 @@ impl PacketPathCarrier for Encoded {
     > {
         self.path.prepare_codec_send(lengths)
     }
+    fn codec_transmit_count(
+        &self,
+        target: &Address,
+        port: u16,
+        payload_len: usize,
+    ) -> Result<usize, EngineError> {
+        let own = self
+            .source
+            .codec
+            .encode_buffer_layout(target, port, payload_len)
+            .map_err(codec_error)?;
+        let upper = *own.iter().max().expect("concrete nonempty inline layout");
+        own.len()
+            .checked_add(
+                self.path
+                    .codec_transmit_count(&self.target, self.port, upper)?,
+            )
+            .ok_or_else(layout_error)
+    }
+    fn prepare_codec_lengths(
+        &self,
+        count: usize,
+    ) -> Result<zero_platform_tokio::contract::component::PacketMetadataVec<usize>, EngineError>
+    {
+        self.path.prepare_codec_lengths(count)
+    }
     fn codec_transmit_lengths(
         &self,
         target: &Address,
         port: u16,
         payload_len: usize,
-        lengths: &mut Vec<usize>,
+        lengths: &mut [usize],
     ) -> Result<(), EngineError> {
         let own = self
             .source
@@ -142,9 +106,13 @@ impl PacketPathCarrier for Encoded {
             return Err(layout_error());
         }
         let upper = *own.iter().max().expect("one concrete output");
-        lengths.extend_from_slice(&own);
+        if own.len() > lengths.len() {
+            return Err(layout_error());
+        }
+        let (local, remaining) = lengths.split_at_mut(own.len());
+        local.copy_from_slice(&own);
         self.path
-            .codec_transmit_lengths(&self.target, self.port, upper, lengths)
+            .codec_transmit_lengths(&self.target, self.port, upper, remaining)
     }
     async fn send_codec_buffered(
         &self,
@@ -222,11 +190,13 @@ impl PacketPathCarrier for Encoded {
         payload: &[u8],
     ) -> Result<(), EngineError> {
         if self.has_driver_handoff() {
-            let mut lengths = Vec::new();
+            let count = self.codec_transmit_count(target, port, payload.len())?;
+            let mut lengths = self.prepare_codec_lengths(count)?;
             self.codec_transmit_lengths(target, port, payload.len(), &mut lengths)?;
             let buffers = self
                 .prepare_codec_send(&lengths)
                 .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
+            drop(lengths); // actual temporary array is free before any codec advances state
             let (mut buffers, mut copy) = buffers.into_batch_parts();
             return self
                 .send_codec_buffered(target, port, payload, &mut buffers, &mut copy)

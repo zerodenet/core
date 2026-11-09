@@ -53,6 +53,22 @@ impl PacketPathCarrier for Path {
     fn has_driver_handoff(&self) -> bool {
         self.handoff.is_some()
     }
+    fn prepare_codec_lengths(
+        &self,
+        count: usize,
+    ) -> Result<zero_platform_tokio::contract::component::PacketMetadataVec<usize>, EngineError>
+    {
+        self.handoff
+            .as_ref()
+            .ok_or_else(|| {
+                failure(invalid(
+                    Reason::Unsupported,
+                    "same packet path has no Source dimension storage",
+                ))
+            })?
+            .prepare_codec_lengths(count)
+            .map_err(failure)
+    }
     fn prepare_codec_send(
         &self,
         lengths: &[usize],
