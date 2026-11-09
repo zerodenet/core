@@ -52,6 +52,11 @@ impl NativeUse {
                 "DNS original or transferred view is not closed",
             ));
         }
+        // A borrowed physical LoanOwner lives in this adoption's original
+        // control, not necessarily in `logical`. Drive it above first. Only
+        // then can that donor's real local/global Root finish its native,
+        // users and registration ACKs. The Query's capacity remains held.
+        self.settle_protocol_originals(end).await?;
         let capacity = self
             .capacity
             .lock()

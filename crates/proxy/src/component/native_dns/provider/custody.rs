@@ -2,6 +2,7 @@
 use super::*;
 use zero_platform_tokio::controlled_carrier::CarrierAdoption;
 mod failure;
+mod protocol;
 mod report;
 mod settle;
 pub(super) use failure::OpenCleanupFailure;
@@ -10,6 +11,10 @@ pub(super) struct NativeUse {
     // The same original's partial report survives cancellation between its
     // logical and native close awaits. This is not a completed-query history.
     pub(super) pending_report: Mutex<CloseReport>,
+    // Exact pre-delivery originals, in this same Query row. Capacity/old+new
+    // growth is prepaid from the actual Host metadata view, not another book.
+    pub(super) protocol_originals:
+        Mutex<zero_platform_tokio::contract::component::PacketMetadataVec<protocol::ProtocolUse>>,
     pub(super) task: TaskJoinWitness,
     pub(super) cancel: CancellationToken,
     pub(super) original: CarrierAdoption,

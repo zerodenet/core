@@ -12,6 +12,21 @@ pub(in crate::component::native_dns::provider) struct Receiver {
     related_sources: Option<Arc<BuildError>>,
 }
 impl Receiver {
+    pub(super) fn metadata_memory(
+        &self,
+    ) -> Result<zero_platform_tokio::contract::component::PacketDriverMetadataView, BuildError>
+    {
+        self.resources
+            .upgrade()
+            .ok_or_else(|| {
+                error(std::io::Error::new(
+                    std::io::ErrorKind::NotConnected,
+                    "actual DNS metadata owner retired",
+                ))
+            })?
+            .packet_driver_metadata()
+    }
+
     pub(super) fn with_declared_sources(
         mut self,
         sources: zero_platform_tokio::contract::lifecycle::DeclaredResourceSources,
@@ -54,12 +69,17 @@ impl Receiver {
         }
         Ok(())
     }
-    pub(super) fn retain_error(&self, source: std::io::Error) -> std::io::Result<std::io::Error> {
-        if retirement::pending_observation(&source) {
-            return Ok(source);
-        }
-        let kind = source.kind();
-        let original = Arc::new(error(source));
+    pub(super) fn accept_retained_error(
+        &self,
+        original: zero_platform_tokio::contract::RetainedError,
+    ) -> std::io::Result<std::io::Error> {
+        self.accept_original(std::io::ErrorKind::Other, original)
+    }
+    fn accept_original(
+        &self,
+        kind: std::io::ErrorKind,
+        original: zero_platform_tokio::contract::RetainedError,
+    ) -> std::io::Result<std::io::Error> {
         let result = self
             .resources
             .upgrade()
@@ -70,7 +90,7 @@ impl Receiver {
                 )
             })
             .and_then(|resources| {
-                resources.receive_protocol_failure(&self.scope, &original.clone().into())?;
+                resources.receive_protocol_failure(&self.scope, &original)?;
                 self.receive_related(resources.as_ref()).map_err(error)
             });
         result.map_err(|receiver| {
@@ -81,12 +101,50 @@ impl Receiver {
                 }),
             )
         })?;
-        Ok(std::io::Error::new(kind, original))
+        Ok(match original.library_arc() {
+            Some(actual) => std::io::Error::new(kind, actual.clone()),
+            None => std::io::Error::new(kind, BuildError::retained(original)),
+        })
+    }
+    pub(super) fn retain_error(&self, source: std::io::Error) -> std::io::Result<std::io::Error> {
+        if retirement::pending_observation(&source) {
+            return Ok(source);
+        }
+        let kind = source.kind();
+        let same = source
+            .get_ref()
+            .and_then(|source| source.downcast_ref::<Arc<BuildError>>())
+            .cloned()
+            .map(Into::into)
+            .or_else(|| {
+                source
+                    .get_ref()
+                    .and_then(|source| source.downcast_ref::<BuildError>())
+                    .and_then(|source| {
+                        let original = source.retained_diagnostic()?;
+                        (source.component == original.component
+                            && source.session == original.session
+                            && source.stage == original.stage
+                            && source.reason == original.reason
+                            && source.impact == original.impact
+                            && source.delivery == original.delivery
+                            && source.retry == original.retry)
+                            .then(|| original.clone())
+                    })
+            });
+        let original = match same {
+            Some(actual) => {
+                drop(source);
+                actual
+            }
+            None => Arc::new(error(source)).into(),
+        };
+        self.accept_original(kind, original)
     }
 }
 
 struct Unreceived {
-    original: Arc<BuildError>,
+    original: zero_platform_tokio::contract::RetainedError,
     _receiver: Arc<BuildError>,
 }
 impl std::fmt::Debug for Unreceived {
@@ -115,7 +173,7 @@ impl Provider {
             .receive_protocol_failure(&self.registrar.scope_identity(), &original.clone().into())
             .map_err(|receiver| {
                 BuildError::retained(original.clone()).with_source(Unreceived {
-                    original,
+                    original: original.into(),
                     _receiver: Arc::new(receiver),
                 })
             })

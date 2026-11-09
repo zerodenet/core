@@ -275,7 +275,7 @@ impl Provider {
                             &binding,
                             &call,
                             caller.clone(),
-                            UpstreamTransport::new(root_binding, root),
+                            root.clone(),
                         )
                         .await
                         .inspect_err(|source| {
