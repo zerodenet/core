@@ -6,6 +6,28 @@ M `420cbcc8900cf7d7a2993682bf5a3154a05f9971` and ordinary QUIC donor
 pair is source-only and has no runtime qualification. This is a caller census,
 not a per-transport test matrix or a declaration that the DNS domain is closed.
 
+Current implementation followup (d49 source): ordinary QUIC's exact pre-delivery
+pair is installed (`ad5222ca`), and d68's two low-level Root/initializer tests
+passed. The ff143 ordinary query tests exposed a fresh-backend fixture CA and a
+real borrowed full-binding Node-source issue; A b707 and B's borrowed-node-source
+pair correct those specific causes and await their new ordinary wire input.
+The old DoH panic recovery passed on ff143. None of those results qualifies all
+DNS callers. A's new `a-dns-metadata-datagram-v2` and
+`a-dns-owned-pool-datagram-v1` are complete source-only proposals, not applied or
+runtime qualified here: they route the actual single-leaf Metadata/shared-pool
+Datagram roles through the existing NativeUse rather than TCP DNS framing.
+
+The standard WG carrier is already common to linked aliases and standalone:
+`open_standard_datagram` plus the same FlowReceiverBinding/LoanOwner, and
+`open_standard_stream` plus the same actual Carrier Scope. The exact ff143
+standalone six tests passed; other Source/TEMP callers need their own actual
+wire evidence. C's raw/client UDP buffer work remains separate. Independent
+SS/SOCKS Datagram service still needs its actual selected native-grant Root
+mode (SS native UDP, SOCKS TCP control plus negotiated BND); this is an A
+software consumer gap, not an H3/TEMP dependency. DNS internal wire/query/result
+Vec backing also needs original Root accounting through actual output lifetime;
+Query completion cannot refund a response retained by its sender or cache.
+
 | Actual entry/caller | Actual responsibility and standard landing | Remaining prerequisite / deletion gate / required regression |
 | --- | --- | --- |
 | Proxy default DNS, Node/bootstrap and native System queries | `runtime.rs` always installs `query_dns` and `native_dns`; `owned_root::exchange_backend_attempt` returns directly through the native source when present. Each actual query uses its original coordinator and registered Query caller; System blocking uses the configured real owner, original blocking job, registration release and native-complete evidence. | Already implemented native/System ownership is retained. An inert standalone resolver object is not another admitted blocking executor. Recheck real cancellation/network generation/exit; no new resolver or fallback. |
