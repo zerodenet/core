@@ -90,6 +90,10 @@ impl<T: Send + 'static> TasksGuard<'_, T> {
     pub(crate) fn is_empty(&self) -> bool {
         self.tasks.is_empty()
     }
+    #[cfg(test)]
+    pub(crate) async fn join_next(&mut self) -> Option<Result<T, JoinError>> {
+        self.tasks.join_next().await
+    }
 }
 impl<T: Send + 'static> Clone for RetainedTasks<T> {
     fn clone(&self) -> Self {

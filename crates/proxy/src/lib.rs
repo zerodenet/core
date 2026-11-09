@@ -27,6 +27,7 @@ pub fn compiled_protocol_features() -> Vec<String> {
 #[cfg(all(
     test,
     any(
+        feature = "dns",
         feature = "vless",
         feature = "vmess",
         feature = "mieru",
