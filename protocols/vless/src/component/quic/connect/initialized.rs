@@ -1,9 +1,9 @@
 use super::*;
-pub(super) enum Ready {
+pub(in crate::component::quic) enum Ready {
     Stream(zero_platform_tokio::TcpRelayStream),
     H3(zero_transport::split_http::OwnedXhttp3),
 }
-pub(super) struct Pending(pub Option<PacketMetadataArc<Entry>>);
+pub(in crate::component::quic) struct Pending(pub Option<PacketMetadataArc<Entry>>);
 impl Drop for Pending {
     fn drop(&mut self) {
         if let Some(entry) = &self.0 {
@@ -11,7 +11,7 @@ impl Drop for Pending {
         }
     }
 }
-pub(super) struct Initialized {
+pub(in crate::component::quic) struct Initialized {
     pub entry: PacketMetadataArc<Entry>,
     pub io: Option<Ready>,
     pub(super) pending: Pending,

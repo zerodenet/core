@@ -20,7 +20,7 @@ use zero_platform_tokio::{
     controlled_carrier::CarrierBufferBudget,
 };
 use zero_traits::packet_metadata::PacketMetadataArc;
-pub(super) enum Work {
+enum Work {
     Session(PaidFuture),
     Request(PaidFuture),
 }

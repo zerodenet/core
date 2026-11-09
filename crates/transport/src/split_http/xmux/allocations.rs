@@ -54,7 +54,7 @@ impl Deref for UsageRef {
     }
 }
 impl UsageRef {
-    pub fn new(usage: Usage, owner: Option<&OwnerKey>) -> io::Result<Self> {
+    pub(super) fn new(usage: Usage, owner: Option<&OwnerKey>) -> io::Result<Self> {
         match owner {
             Some(owner) => {
                 let credit = owner
