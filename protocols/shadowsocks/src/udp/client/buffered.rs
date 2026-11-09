@@ -7,6 +7,8 @@ use zero_traits::{
     DatagramCodecOutput as Output, PacketBuffer, PacketDeriveError,
 };
 mod address;
+#[cfg(feature = "blake3")]
+mod keys;
 mod ordinary;
 #[cfg(feature = "blake3")]
 mod request;
@@ -34,8 +36,7 @@ impl ShadowsocksDatagramCodec {
         let data = add(target, payload)?;
         #[cfg(feature = "blake3")]
         if self.cipher.is_blake3() {
-            let keys =
-                shared::parse_2022_key_chain(self.cipher, &self.password).map_err(protocol)?;
+            let keys = keys::Chain::new(self.cipher, &self.password).map_err(protocol)?;
             let padding = if payload == 0 { 899 } else { 0 };
             let header = if self.cipher.is_2022_chacha() { 27 } else { 11 };
             let plain = add(add(header, padding)?, data)?;
@@ -44,10 +45,7 @@ impl ShadowsocksDatagramCodec {
             } else {
                 add(
                     16,
-                    keys.identity_keys
-                        .len()
-                        .checked_mul(16)
-                        .ok_or_else(overflow)?,
+                    keys.identity_count().checked_mul(16).ok_or_else(overflow)?,
                 )?
             };
             return Ok(Layout::Two([
@@ -81,6 +79,8 @@ impl ShadowsocksDatagramCodec {
         let (plain, wire) = buffers.split_at_mut(1);
         #[cfg(feature = "blake3")]
         if self.cipher.is_blake3() {
+            // Validate every PSK into fixed storage before sender/replay/RNG changes.
+            let keys = keys::Chain::new(self.cipher, &self.password).map_err(protocol)?;
             let mut state = self
                 .state
                 .lock()
@@ -94,7 +94,7 @@ impl ShadowsocksDatagramCodec {
                 .map_err(protocol)?;
             let session = state.sender.next().map_err(protocol)?;
             let length = request::encode(
-                self,
+                &keys,
                 target,
                 port,
                 payload,

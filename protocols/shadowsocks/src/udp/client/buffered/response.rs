@@ -14,9 +14,9 @@ pub(super) fn decode(
     domain: &mut PacketBuffer,
 ) -> Result<Decoded> {
     let cipher = codec.cipher;
-    let key = shared::parse_2022_key_chain(cipher, &codec.password)
+    let key = keys::Chain::new(cipher, &codec.password)
         .map_err(protocol)?
-        .user_key;
+        .user;
     let invalid = || protocol(Error::Protocol("ss: udp 2022 packet too short"));
     let length = if cipher.is_2022_chacha() {
         let nonce = wire.get(..24).ok_or_else(invalid)?;
@@ -27,14 +27,14 @@ pub(super) fn decode(
             .ok_or_else(invalid)?;
         plain[..body.len()].copy_from_slice(body);
         let (body, tag) = plain[..body.len()].split_at_mut(length);
-        shared::aead_udp_buffered(cipher, &key, nonce, body, tag, false).map_err(protocol)?;
+        shared::aead_udp_buffered(cipher, key.as_ref(), nonce, body, tag, false)
+            .map_err(protocol)?;
         length
     } else {
         let mut header = [0; 16];
         header.copy_from_slice(wire.get(..16).ok_or_else(invalid)?);
-        shared::decrypt_aes_2022_header(cipher, &key, &mut header).map_err(protocol)?;
-        let session_key =
-            shared::derive_key_blake3(&key, &header[..8], cipher.key_len()).map_err(protocol)?;
+        shared::decrypt_aes_2022_header(cipher, key.as_ref(), &mut header).map_err(protocol)?;
+        let session_key = keys::session_key(&key, &header[..8]);
         let length = wire
             .len()
             .checked_sub(cipher.tag_len())
@@ -43,8 +43,15 @@ pub(super) fn decode(
         plain[..16].copy_from_slice(&header);
         plain[16..wire.len()].copy_from_slice(&wire[16..]);
         let (body, tag) = plain[16..wire.len()].split_at_mut(length - 16);
-        shared::aead_udp_buffered(cipher, &session_key, &header[4..16], body, tag, false)
-            .map_err(protocol)?;
+        shared::aead_udp_buffered(
+            cipher,
+            session_key.as_ref(),
+            &header[4..16],
+            body,
+            tag,
+            false,
+        )
+        .map_err(protocol)?;
         length
     };
     let data = &plain[..length];

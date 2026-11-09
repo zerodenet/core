@@ -1,6 +1,6 @@
 use super::*;
 pub(super) fn encode(
-    codec: &ShadowsocksDatagramCodec,
+    keys: &keys::Chain<'_>,
     target: &Address,
     port: u16,
     payload: &[u8],
@@ -8,8 +8,7 @@ pub(super) fn encode(
     plain: &mut [u8],
     wire: &mut [u8],
 ) -> core::result::Result<usize, Error> {
-    let cipher = codec.cipher;
-    let keys = shared::parse_2022_key_chain(cipher, &codec.password)?;
+    let cipher = keys.cipher();
     let padding = if payload.is_empty() {
         let mut seed = [0; 8];
         shared::fill_random(&mut seed)?;
@@ -41,29 +40,29 @@ pub(super) fn encode(
         prefix = 24;
         shared::fill_random(&mut nonce)?;
         wire[..24].copy_from_slice(&nonce);
-        key = keys.user_key;
+        key = keys.user;
     } else {
-        prefix = 16 + keys.identity_keys.len() * 16;
-        for (index, identity) in keys.identity_keys.iter().enumerate() {
-            let next = keys
-                .identity_keys
-                .get(index + 1)
-                .map_or(keys.user_key.as_slice(), Vec::as_slice);
+        prefix = 16 + keys.identity_count() * 16;
+        let mut identities = keys.identities();
+        let mut current = identities.next().transpose()?;
+        let first = current.unwrap_or(keys.user);
+        let mut index = 0;
+        while let Some(identity) = current {
+            let next = identities.next().transpose()?;
+            let next_key = next.as_ref().unwrap_or(&keys.user);
             let mut identity_header = [0; 16];
-            identity_header.copy_from_slice(&blake3::hash(next).as_bytes()[..16]);
+            identity_header.copy_from_slice(&blake3::hash(next_key.as_ref()).as_bytes()[..16]);
             for (byte, separate) in identity_header.iter_mut().zip(header) {
                 *byte ^= separate;
             }
-            shared::encrypt_aes_2022_header(cipher, identity, &mut identity_header)?;
+            shared::encrypt_aes_2022_header(cipher, identity.as_ref(), &mut identity_header)?;
             wire[16 + 16 * index..32 + 16 * index].copy_from_slice(&identity_header);
+            current = next;
+            index += 1;
         }
-        key = shared::derive_key_blake3(&keys.user_key, &header[..8], cipher.key_len())?;
+        key = keys::session_key(&keys.user, &header[..8]);
         nonce[..12].copy_from_slice(&header[4..16]);
-        let first = keys
-            .identity_keys
-            .first()
-            .map_or(keys.user_key.as_slice(), Vec::as_slice);
-        shared::encrypt_aes_2022_header(cipher, first, &mut header)?;
+        shared::encrypt_aes_2022_header(cipher, first.as_ref(), &mut header)?;
         wire[..16].copy_from_slice(&header);
     }
     wire[prefix..prefix + length].copy_from_slice(&plain[..length]);
@@ -73,6 +72,6 @@ pub(super) fn encode(
     } else {
         &nonce[..12]
     };
-    shared::aead_udp_buffered(cipher, &key, nonce, body, tag, true)?;
+    shared::aead_udp_buffered(cipher, key.as_ref(), nonce, body, tag, true)?;
     Ok(prefix + length + cipher.tag_len())
 }
