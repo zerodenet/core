@@ -11,15 +11,15 @@ impl MacosHelperAccess {
         );
         let output = owner.query(tool::Query::SystemDns)?;
         if output.status.success() {
-            let servers = parse_dns(&output.stdout);
-            if !servers.is_empty() {
-                return Ok(servers);
+            let (observed, servers) = parse_dns(&output.stdout);
+            if observed {
+                return require_servers(servers);
             }
         }
         // A successfully retired query with no usable result preserves the old
         // resolv.conf fallback. Native close/Child errors are never None.
         let bytes = owner.resolv_conf()?;
-        Ok(parse_dns(&bytes))
+        require_servers(parse_dns(&bytes).1)
     }
 }
 impl MacosHelperOwner {
@@ -104,28 +104,82 @@ impl MacosHelperOwner {
         result
     }
 }
-fn parse_dns(bytes: &[u8]) -> Vec<IpAddr> {
-    String::from_utf8_lossy(bytes)
-        .lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            let value = if let Some(value) = line.strip_prefix("nameserver ") {
-                value.trim()
-            } else if line.starts_with("nameserver[") {
-                line.split_once(':')?.1.trim()
-            } else {
-                return None;
+fn require_servers(servers: Vec<IpAddr>) -> io::Result<Vec<IpAddr>> {
+    if servers.is_empty() {
+        Err(io::Error::new(io::ErrorKind::NotFound,"system DNS auto-discovery found no non-local upstream endpoints; configure an explicit UDP, DoH, DoT, or DoQ backend"))
+    } else {
+        Ok(servers)
+    }
+}
+fn parse_dns(bytes: &[u8]) -> (bool, Vec<IpAddr>) {
+    // Same production policy as platform::system_dns: sort/dedup the usable
+    // endpoints, keep the first 32, and reject local-only upstream discovery.
+    // A fixed stack set avoids building an unbounded intermediate address Vec.
+    let mut selected = [None; 32];
+    let mut count = 0;
+    let mut observed = false;
+    for line in String::from_utf8_lossy(bytes).lines() {
+        let line = line.split('#').next().unwrap().trim();
+        let Some(rest) = line.strip_prefix("nameserver") else {
+            continue;
+        };
+        let value = if rest.starts_with('[') {
+            let Some((_, value)) = rest.split_once(':') else {
+                continue;
+            };
+            value.trim()
+        } else {
+            let Some(value) = rest.split_whitespace().next() else {
+                continue;
             };
             value
-                .split_whitespace()
-                .next()?
-                .split('%')
-                .next()?
-                .parse()
-                .ok()
-        })
-        .collect()
+        };
+        let value = value.split('%').next().unwrap().trim();
+        let Ok(address) = value.parse::<IpAddr>() else {
+            continue;
+        };
+        observed = true;
+        let usable = match address {
+            IpAddr::V4(address) => {
+                !address.is_unspecified()
+                    && !address.is_loopback()
+                    && !address.is_link_local()
+                    && !address.is_multicast()
+                    && !address.is_broadcast()
+            }
+            IpAddr::V6(address) => {
+                !address.is_unspecified()
+                    && !address.is_loopback()
+                    && !address.is_unicast_link_local()
+                    && !address.is_multicast()
+            }
+        };
+        if !usable || selected[..count].contains(&Some(address)) {
+            continue;
+        }
+        let index = selected[..count]
+            .iter()
+            .position(|old| old.is_some_and(|old| old > address))
+            .unwrap_or(count);
+        if index == selected.len() {
+            continue;
+        }
+        let next = (count + 1).min(selected.len());
+        selected.copy_within(index..next - 1, index + 1);
+        selected[index] = Some(address);
+        count = next;
+    }
+    (
+        observed,
+        selected[..count]
+            .iter()
+            .map(|address| address.unwrap())
+            .collect(),
+    )
 }
+#[cfg(test)]
+#[path = "query/tests.rs"]
+mod tests;
 /// None is the explicit independent-library path, not a Kernel fallback after
 /// failure. A present actual Source context always returns Some, including Err.
 pub(crate) fn route_query(arguments: &[String]) -> Option<io::Result<Output>> {
