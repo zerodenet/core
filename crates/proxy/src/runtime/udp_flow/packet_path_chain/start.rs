@@ -22,7 +22,7 @@ impl PacketPathManager {
         } = request;
         let upstream = carrier.upstream();
         let entry = self
-            .ensure_entry(services, carrier, datagram)
+            .ensure_entry(services, carrier, datagram, &mut *ctx.chain_tasks)
             .await
             .map_err(|error| FlowFailure {
                 stage: "packet_path_establish",

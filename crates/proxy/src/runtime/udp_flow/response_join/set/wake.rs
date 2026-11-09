@@ -152,6 +152,7 @@ pub(super) async fn next(
     tasks: &mut JoinSet<ChainTask>,
     relay: &Arc<Relay>,
     packets: Option<&super::packets::PacketReplies>,
+    receiver: Option<&super::receiver::PacketReceiver>,
 ) -> Option<Next> {
     let target = Arc::new(Target::default());
     std::future::poll_fn(|cx| {
@@ -162,6 +163,9 @@ pub(super) async fn next(
         let mut native = Context::from_waker(&waker);
         // Consume real joins first so a ready data queue cannot starve cleanup.
         let joined = tasks.poll_join_next_with_id(&mut native);
+        if let Some(receiver) = receiver {
+            receiver.poll(&mut native);
+        }
         drop(deferred);
         if let Poll::Ready(Some(result)) = joined {
             return Poll::Ready(Some(Next::Native(result)));
@@ -173,6 +177,9 @@ pub(super) async fn next(
             if !packets.is_closed() {
                 return Poll::Pending;
             }
+        }
+        if receiver.is_some_and(|receiver| !receiver.is_complete()) {
+            return Poll::Pending;
         }
         match joined {
             Poll::Ready(None) => Poll::Ready(None),

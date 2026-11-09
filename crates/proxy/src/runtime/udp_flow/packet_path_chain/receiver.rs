@@ -1,6 +1,5 @@
 //! One original response task per association, not one detached task per path.
 use crate::protocol_registry::TcpExecutionServices;
-use futures_util::{stream::FuturesUnordered, StreamExt};
 use std::{future::Future, pin::Pin, sync::Mutex};
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::component::{PacketDriverMetadataView, PacketMetadataVec};
@@ -12,9 +11,10 @@ use zero_traits::packet_metadata::{PacketMetadataArc, PacketMetadataCredit};
 mod driver;
 mod faults;
 mod preparation;
+mod start;
 use driver::run;
 pub(super) use faults::PathStatus;
-use faults::{Failures, OriginalFailures, PathFailure};
+use faults::{Failures, PathFailure};
 type Receive = Pin<Box<dyn Future<Output = Result<(), ChannelError>> + Send>>;
 struct PaidReceive {
     work: Receive,
@@ -30,8 +30,10 @@ impl Future for PaidReceive {
     }
 }
 struct Shared {
-    pending: Mutex<PacketMetadataVec<PaidReceive>>,
+    pending: Mutex<PacketMetadataVec<driver::ReceiveRow>>,
+    next: std::sync::atomic::AtomicU64,
     changed: tokio::sync::Notify,
+    inline: std::sync::OnceLock<super::super::response_join::WeakPacketReceiver>,
     stop: CancellationToken,
     failures: PacketMetadataArc<Failures>,
 }
@@ -54,75 +56,6 @@ pub(super) struct ReceiveScratch {
     _credit: zero_platform_tokio::controlled_carrier::CarrierBufferCredit,
 }
 impl Receiver {
-    pub(super) fn start(services: &TcpExecutionServices) -> Result<Self, EngineError> {
-        let invocation = services
-            .invocation
-            .as_ref()
-            .ok_or_else(|| failure(rejected(Reason::InvalidConfig)))?;
-        let caller = caller(services)?;
-        let host = services
-            .current_source
-            .upgrade()
-            .ok_or_else(|| failure(rejected(Reason::Revoked)))?;
-        let (buffers, memory) = host.packet_path_memory().map_err(EngineError::from)?;
-        let layout = PacketMetadataArc::<Failures>::layout().map_err(memory_failure)?;
-        let credit = memory.reserve(layout).map_err(memory_failure)?;
-        let failures = PacketMetadataArc::from_prepaid(Failures::default(), credit)
-            .unwrap_or_else(|_| panic!("same exact prepaid response-source layout"));
-        let shared_credit = memory
-            .reserve(PacketMetadataArc::<Shared>::layout().map_err(memory_failure)?)
-            .map_err(memory_failure)?;
-        let shared = PacketMetadataArc::from_prepaid(
-            Shared {
-                pending: Mutex::new(PacketMetadataVec::default()),
-                changed: Default::default(),
-                // Cleanup only. The owning manager is the actual association,
-                // not the first Business session. Original grant/Scope fences keep
-                // governing IO; manager Drop requests this one actor to return RX.
-                stop: CancellationToken::new(),
-                failures,
-            },
-            shared_credit,
-        )
-        .unwrap_or_else(|_| panic!("exact original response actor prepaid"));
-        let actual = shared.clone();
-        #[cfg(feature = "raw-ip-runtime")]
-        let registered = if let Some(native) = &invocation.caller_native {
-            native.spawn_datagram_receiver(move |_| run(actual))
-        } else if let Some(accepted) = &invocation.caller_accepted {
-            accepted.spawn(
-                zero_platform_tokio::contract::scope::TaskClass::Auxiliary,
-                move |_| run(actual),
-            )
-        } else {
-            Err(rejected(Reason::Unsupported))
-        };
-        #[cfg(not(feature = "raw-ip-runtime"))]
-        let registered = if let Some(accepted) = &invocation.caller_accepted {
-            accepted.spawn(
-                zero_platform_tokio::contract::scope::TaskClass::Auxiliary,
-                move |_| run(actual),
-            )
-        } else {
-            Err(rejected(Reason::Unsupported))
-        };
-        let (_, receiver) = registered.map_err(failure)?;
-        if !caller
-            .scope_identity()
-            .same_scope(&receiver.scope_identity())
-        {
-            shared.stop.cancel();
-            return Err(failure(rejected(Reason::StalePlan)));
-        }
-        Ok(Self {
-            original: caller,
-            witness: receiver,
-            shared,
-            memory,
-            max_paths: services.retired_datagrams().capacity(),
-            buffers,
-        })
-    }
     pub(super) fn check_caller(&self, services: &TcpExecutionServices) -> Result<(), EngineError> {
         if !self.original.same_registration(&caller(services)?)
             || self.witness.is_joined()
@@ -196,6 +129,7 @@ impl Receiver {
         };
         let source = prepared.source.clone();
         let failures = self.shared.failures.clone();
+        let inline = self.shared.inline.get().cloned();
         let work = async move {
             if let Err(actual) = future.await {
                 let credit = source
@@ -209,6 +143,9 @@ impl Receiver {
                 });
                 let _ = source.original.set(actual.clone());
                 let _ = failures.first.set(actual);
+                if let Some(inline) = &inline {
+                    inline.receive_failure();
+                }
             }
             Ok(())
         };
@@ -234,7 +171,17 @@ impl Receiver {
             .try_reserve_one_with_metadata(&self.memory, self.max_paths)
             .map_err(memory_failure)?;
         pending
-            .push_reserved(work)
+            .push_reserved(driver::ReceiveRow::new(
+                self.shared
+                    .next
+                    .fetch_update(
+                        std::sync::atomic::Ordering::AcqRel,
+                        std::sync::atomic::Ordering::Acquire,
+                        |value| value.checked_add(1),
+                    )
+                    .map_err(|_| failure(rejected(Reason::Capacity)))?,
+                work,
+            ))
             .unwrap_or_else(|_| panic!("prepaid original response work slot"));
         drop(pending);
         prepared.submitted = true;

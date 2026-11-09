@@ -79,6 +79,7 @@ impl AcceptedCaller {
             complete: AtomicBool::new(false),
             logical_owner: Some(self.task.clone()),
             driver,
+            cleanup_delivery: OnceLock::new(),
         });
         state.resources.push(original.clone());
         users.logical_charge(true);

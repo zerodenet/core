@@ -6,6 +6,7 @@ pub(super) struct ResponseOwner {
     owner: Arc<ResponseSetOwner>,
     closed: Option<ResponseSetClosed>,
     failure: Option<SharedError>,
+    packet_failure: Option<zero_platform_tokio::contract::RetainedError>,
 }
 impl HostPeerBinding {
     /// Install the actual dispatcher's original Set before its first response
@@ -35,6 +36,7 @@ impl HostPeerBinding {
             owner: owner.clone(),
             closed: None,
             failure: None,
+            packet_failure: None,
         });
         Ok(())
     }
@@ -43,7 +45,14 @@ impl HostPeerBinding {
             .lock()
             .expect("peer responses poisoned")
             .as_ref()
-            .is_some_and(|actual| actual.closed.is_none())
+            .is_some_and(|actual| {
+                actual.closed.is_none()
+                    || actual.packet_failure.as_ref().is_some_and(|source| {
+                        source
+                            .cleanup_failure_receipt()
+                            .is_none_or(|receipt| !receipt.is_acknowledged())
+                    })
+            })
     }
     /// Only called after the containing peer's actual Scope receipt. Its sole
     /// dispatcher lease must return before the original Set can really join.
@@ -57,6 +66,14 @@ impl HostPeerBinding {
                 return Ok(None);
             };
             if actual.closed.is_some() {
+                if let Some(source) = &actual.packet_failure {
+                    if source
+                        .cleanup_failure_receipt()
+                        .is_none_or(|receipt| !receipt.is_acknowledged())
+                    {
+                        return Err(ChannelError::retained(source.clone()));
+                    }
+                }
                 return Ok(actual.failure.clone());
             }
             actual.owner.clone()
@@ -84,10 +101,25 @@ impl HostPeerBinding {
         let mut responses = self.responses.lock().expect("peer responses poisoned");
         let actual = responses.as_mut().expect("installed original response Set");
         assert!(Arc::ptr_eq(&actual.owner, &owner));
+        let packet_failure = closed.packet_failure().cloned();
         actual.closed.get_or_insert(closed);
+        if actual.packet_failure.is_none() {
+            actual.packet_failure = packet_failure;
+        }
         if actual.failure.is_none() {
             actual.failure = fatal;
         }
-        Ok(actual.failure.clone())
+        let packet_failure = actual.packet_failure.clone();
+        let failure = actual.failure.clone();
+        drop(responses);
+        if let Some(source) = packet_failure {
+            if source
+                .cleanup_failure_receipt()
+                .is_none_or(|receipt| !receipt.is_acknowledged())
+            {
+                return Err(ChannelError::retained(source));
+            }
+        }
+        Ok(failure)
     }
 }

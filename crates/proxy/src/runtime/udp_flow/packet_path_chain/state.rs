@@ -24,6 +24,7 @@ impl PacketPathManager {
         ctx: UdpAdapterContext<'_>,
         carrier: PacketPathCarrierRequest,
         datagram: UdpDatagramSource,
+        responses: &mut crate::runtime::udp_flow::response_join::ResponseSetLease,
     ) -> Result<&Entry, EngineError> {
         let candidate = EntryCandidate {
             carrier_desc: carrier.descriptor,
@@ -84,7 +85,10 @@ impl PacketPathManager {
         {
             let services = ctx.packet_path_execution_services();
             if self.receiver.is_none() {
-                self.receiver = Some(super::receiver::Receiver::start(&services.tcp())?);
+                self.receiver = Some(super::receiver::Receiver::start(
+                    &services.tcp(),
+                    responses,
+                )?);
             }
             let receiver = self
                 .receiver

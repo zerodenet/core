@@ -15,6 +15,7 @@ pub(super) struct State {
     responses: Option<Arc<ResponseSetOwner>>,
     pub(super) receipts: CloseReport,
     fatal: Option<Arc<ChannelError>>,
+    packet_failure: Option<zero_platform_tokio::contract::RetainedError>,
 }
 pub(super) struct Owner {
     #[cfg(feature = "managed-datagram-runtime")]
@@ -83,6 +84,9 @@ impl ResourceLifecycle for Owner {
                     )
                 });
             }
+            if let Some(source) = receipt.packet_failure() {
+                state.packet_failure.get_or_insert_with(|| source.clone());
+            }
             state.responses = None;
         }
         if let Some(direct) = state.direct.as_mut() {
@@ -97,8 +101,8 @@ impl ResourceLifecycle for Owner {
         let mut report = self.retired.wait_returns(&self.returns, deadline).await?;
         unfinished.append(&mut report.unfinished);
         state.receipts.append(report);
-        if let Some(source) = &state.fatal {
-            return Err(crate::component::instance::retained(source.clone()));
+        if let Some(source) = state.pending_failure() {
+            return Err(source);
         }
         let mut report = std::mem::take(&mut state.receipts);
         report.unfinished = unfinished;
@@ -109,5 +113,86 @@ impl ResourceLifecycle for Owner {
             }
         }
         Ok(report)
+    }
+}
+
+impl State {
+    fn pending_failure(&self) -> Option<ChannelError> {
+        // A native response panic cannot mask the independent stable child
+        // packet source. Each remains strong until its actual receiver takes it.
+        if let Some(source) = &self.packet_failure {
+            if source
+                .cleanup_failure_receipt()
+                .is_none_or(|receipt| !receipt.is_acknowledged())
+            {
+                return Some(ChannelError::retained(source.clone()));
+            }
+        }
+        self.fatal
+            .as_ref()
+            .map(|source| crate::component::instance::retained(source.clone()))
+    }
+}
+#[cfg(test)]
+mod tests {
+    //! Two real independent sources retain their original identities and delivery.
+    use super::*;
+    use zero_platform_tokio::contract::{CleanupFailureReceipt, RetainedError};
+    #[tokio::test]
+    async fn actual_native_response_panic_cannot_mask_receiving_the_independent_packet_source() {
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            let bad = tokio::net::TcpSocket::new_v4().unwrap();
+            bad.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+            let io = Arc::new(
+                tokio::net::TcpStream::connect(bad.local_addr().unwrap())
+                    .await
+                    .unwrap_err(),
+            );
+            let receipt = CleanupFailureReceipt::new();
+            assert!(receipt.bind_payload(io.clone()));
+            // Explicit foreign diagnostic fixture; no paid Host header claim.
+            let packet = Arc::new(
+                ChannelError::new(Stage::Receive, Reason::Io, Impact::Session)
+                    .with_source(io.clone())
+                    .with_cleanup_failure_receipt(receipt.clone()),
+            );
+            let mut native = tokio::task::JoinSet::<()>::new();
+            native.spawn(async { panic!("independent actual native response task panic") });
+            let panic = Arc::new(native.join_next().await.unwrap().unwrap_err());
+            let fatal = Arc::new(
+                ChannelError::new(Stage::Close, Reason::Io, Impact::Component)
+                    .with_source(panic.clone()),
+            );
+            let state = State {
+                packet_failure: Some(RetainedError::from_library(packet.clone())),
+                fatal: Some(fatal.clone()),
+                ..Default::default()
+            };
+            let delivered = state.pending_failure().unwrap();
+            assert!(Arc::ptr_eq(delivered.retained_source().unwrap(), &packet));
+            assert!(!receipt.is_acknowledged());
+            let received = RetainedError::from_library(packet.clone());
+            assert!(receipt.acknowledge_retained(&received));
+            assert!(Arc::ptr_eq(
+                state.pending_failure().unwrap().retained_source().unwrap(),
+                &fatal
+            ));
+            assert!(Arc::ptr_eq(
+                std::error::Error::source(packet.as_ref())
+                    .unwrap()
+                    .downcast_ref::<Arc<std::io::Error>>()
+                    .unwrap(),
+                &io
+            ));
+            assert!(Arc::ptr_eq(
+                std::error::Error::source(fatal.as_ref())
+                    .unwrap()
+                    .downcast_ref::<Arc<tokio::task::JoinError>>()
+                    .unwrap(),
+                &panic
+            ));
+        })
+        .await
+        .unwrap();
     }
 }

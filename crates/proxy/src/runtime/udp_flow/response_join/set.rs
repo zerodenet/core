@@ -1,5 +1,6 @@
 //! A single lease of the existing response Set; its owner survives caller Drop.
 mod packets;
+pub(super) mod receiver;
 mod wake;
 use super::*;
 pub(crate) use packets::PacketReplySender;
@@ -20,6 +21,9 @@ pub(crate) struct ResponseSetOwner {
     packets: std::sync::OnceLock<
         zero_traits::packet_metadata::PacketMetadataArc<packets::PacketReplies>,
     >,
+    receiver: std::sync::OnceLock<
+        zero_traits::packet_metadata::PacketMetadataArc<receiver::PacketReceiver>,
+    >,
     revoked: AtomicBool,
     closed: AtomicBool,
 }
@@ -32,10 +36,14 @@ pub(crate) struct ResponseSetLease {
 pub(crate) struct ResponseSetClosed {
     owner: Weak<ResponseSetOwner>,
     joined: usize,
+    packet_failure: Option<zero_platform_tokio::contract::RetainedError>,
 }
 impl ResponseSetClosed {
     pub(crate) fn matches(&self, owner: &Arc<ResponseSetOwner>) -> bool {
         self.owner.ptr_eq(&Arc::downgrade(owner)) && owner.is_closed()
+    }
+    pub(crate) fn packet_failure(&self) -> Option<&zero_platform_tokio::contract::RetainedError> {
+        self.packet_failure.as_ref()
     }
     pub(crate) fn joined_tasks(&self) -> usize {
         self.joined
@@ -53,6 +61,7 @@ impl ResponseSetOwner {
             evidence: ResponseTasks::default(),
             wake: Arc::default(),
             packets: Default::default(),
+            receiver: Default::default(),
             revoked: AtomicBool::new(false),
             closed: AtomicBool::new(false),
         });
@@ -69,6 +78,9 @@ impl ResponseSetOwner {
         self.revoked.store(true, Ordering::Release);
         if let Some(packets) = self.packets.get() {
             packets.close();
+        }
+        if let Some(receiver) = self.receiver.get() {
+            receiver.stop();
         }
     }
     pub(crate) fn is_closed(&self) -> bool {
@@ -121,6 +133,10 @@ impl ResponseSetOwner {
             drop(self.evidence.observe(result));
         }
         assert!(tasks.is_empty(), "only actual joins empty the original Set");
+        drop(tasks); // no native Set lock spans original future poll/drop/wake
+        if let Some(receiver) = self.receiver.get() {
+            receiver.close(deadline).await?;
+        }
         self.closed.store(true, Ordering::Release);
         let joined = self
             .evidence
@@ -131,6 +147,7 @@ impl ResponseSetOwner {
         Ok(ResponseSetClosed {
             owner: Arc::downgrade(self),
             joined,
+            packet_failure: self.receiver.get().and_then(|receiver| receiver.failure()),
         })
     }
 }
@@ -146,6 +163,7 @@ impl ResponseSetLease {
             &mut self.tasks,
             &self.owner.wake,
             self.owner.packets.get().map(|value| &**value),
+            self.owner.receiver.get().map(|value| &**value),
         )
         .await?
         {

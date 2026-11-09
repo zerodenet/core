@@ -56,6 +56,7 @@ pub(super) struct Retained {
     pub(super) complete: AtomicBool,
     pub(super) logical_owner: Option<TaskOrigin>,
     pub(super) driver: OnceLock<TaskOrigin>,
+    cleanup_delivery: OnceLock<crate::contract::RetainedError>,
 }
 impl Retained {
     pub(super) fn complete(&self) -> bool {
@@ -92,6 +93,7 @@ impl AcceptedCaller {
             complete: AtomicBool::new(false),
             logical_owner: None,
             driver: OnceLock::new(),
+            cleanup_delivery: OnceLock::new(),
         }));
         Ok(())
     }
@@ -140,7 +142,24 @@ impl Users {
         let mut report = match owner.shutdown(deadline).await {
             Ok(report) => report,
             Err(error) => {
+                // The actual stable child source remains in this same finite
+                // resource row before local receipt acceptance. This is not
+                // native closure or either task/Host acknowledgement.
+                let delivery = error.retained_diagnostic().cloned();
+                let received = delivery.as_ref().is_some_and(|source| {
+                    source.cleanup_failure_receipt().is_some() && {
+                        let actual = resource.cleanup_delivery.get_or_init(|| source.clone());
+                        actual.ptr_eq(source)
+                    }
+                });
                 self.remember(Arc::new(error));
+                if received {
+                    let source = delivery.as_ref().unwrap();
+                    let _ = source
+                        .cleanup_failure_receipt()
+                        .unwrap()
+                        .acknowledge_retained(source);
+                }
                 return false;
             }
         };
@@ -183,3 +202,6 @@ impl Users {
         true
     }
 }
+
+#[cfg(test)]
+mod tests;

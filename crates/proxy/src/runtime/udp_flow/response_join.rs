@@ -1,6 +1,7 @@
 //! Evidence comes only from consumption of the original response JoinSet.
 mod set;
 use super::packet_path::ChainTask;
+pub(in crate::runtime::udp_flow) use set::receiver::WeakPacketReceiver;
 pub(crate) use set::{PacketReplySender, ResponseSetClosed, ResponseSetLease, ResponseSetOwner};
 use std::{
     collections::HashMap,
