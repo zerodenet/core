@@ -65,7 +65,7 @@ impl Session {
                 false
             }
         };
-        if epoch.native.child.is_some() && !exited {
+        if epoch.native.child.is_some() && !exited && !epoch.native.cancelled {
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
         }
         if exited {
@@ -91,6 +91,9 @@ impl Session {
         }
         if let Err(source) = epoch.native.helper.close_event() {
             self.retain(index, Phase::Event, source);
+        }
+        if let Err(source) = epoch.native.close_authorization_output() {
+            self.retain(index, Phase::AuthorizationOutput, source);
         }
         if let Err(source) = epoch.native.wait_authorization() {
             self.retain(index, Phase::Authorization, source);
@@ -194,7 +197,10 @@ impl MacosHelperOwner {
         let mut epoch = self.0.epochs[0]
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        if epoch.native.child.is_some() && !epoch.native.observe_exit()? {
+        if epoch.native.child.is_some()
+            && !epoch.native.cancelled
+            && !epoch.native.observe_exit()?
+        {
             if epoch.rpc.pending() {
                 epoch.drive_rpc()?;
                 drop(epoch.rpc.take_response()?);
