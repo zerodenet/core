@@ -1,12 +1,13 @@
 //! Concrete private mask tables; one sorted original array, no shadow census.
+use super::memory::Memory;
 use std::{
     io,
     ops::{Deref, DerefMut},
 };
-use zero_platform_tokio::contract::component::{PacketDriverMetadataView, PacketMetadataVec};
+use zero_platform_tokio::contract::component::PacketMetadataVec;
 pub(super) struct Rows<K, V> {
     values: Storage<K, V>,
-    memory: Option<PacketDriverMetadataView>,
+    memory: Memory,
     max: usize,
 }
 enum Storage<K, V> {
@@ -17,13 +18,13 @@ impl<K: Ord, V> Rows<K, V> {
     pub fn new(max: usize) -> Self {
         Self {
             values: Storage::Library(Vec::new()),
-            memory: None,
+            memory: Memory::default(),
             max,
         }
     }
-    pub fn install(&mut self, memory: Option<PacketDriverMetadataView>) {
+    pub fn install(&mut self, memory: Memory) {
         assert!(self.is_empty(), "mask tables bind before original IO");
-        self.values = if memory.is_some() {
+        self.values = if memory.metadata().is_some() {
             Storage::Hosted(PacketMetadataVec::default())
         } else {
             Storage::Library(Vec::new())
@@ -43,17 +44,15 @@ impl<K: Ord, V> Rows<K, V> {
         if self.locate(key).is_ok() {
             return Ok(());
         }
+        self.reserve_slot()
+    }
+    pub fn reserve_slot(&mut self) -> io::Result<()> {
         if self.len() >= self.max {
             return Err(io::ErrorKind::OutOfMemory.into());
         }
         match &mut self.values {
             Storage::Library(rows) => rows.try_reserve(1).map_err(io::Error::other),
-            Storage::Hosted(rows) => rows
-                .try_reserve_one_with_metadata(
-                    self.memory.as_ref().expect("original table Root"),
-                    self.max,
-                )
-                .map_err(io::Error::other),
+            Storage::Hosted(rows) => self.memory.reserve_table(rows, self.max),
         }
     }
     pub fn insert_reserved(&mut self, key: K, value: V) -> Option<V> {

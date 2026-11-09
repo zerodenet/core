@@ -79,6 +79,7 @@ zero-traits = { path = "../traits" }
 winreg = "0.55"
 
 [dev-dependencies]
+zero-tun = { path = "../tun", default-features = false, features = ["packet-memory"] }
 hyper = { version = "=1.9.0", features = ["server", "http1"] }
 rcgen = "0.14"
 tempfile.workspace = true

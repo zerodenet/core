@@ -70,25 +70,48 @@ pub(super) fn wrap(
         },
     )
 }
-pub(super) fn prepare_server(
+pub(super) fn prepare_owned(
     inner: Arc<dyn AsyncUdpSocket>,
     raw: zero_platform_tokio::controlled_icmp::ControlledIcmpSocket,
     id: u16,
+    server: bool,
+    memory: super::memory::Memory,
 ) -> io::Result<(
     Arc<dyn AsyncUdpSocket>,
     crate::datagram_driver::PreparedIoDriver,
 )> {
     let ip = raw.local_addr()?;
     let ipv6 = ip.is_ipv6();
+    if !server {
+        let id = if id == 0 { rand::random() } else { id };
+        let mut codec = codec::Client::new(id, ipv6);
+        codec.install_memory(memory.clone());
+        let state = Arc::new(Mutex::new(codec));
+        let encoder = state.clone();
+        let prepare = Arc::new(move |t: &quinn::udp::Transmit<'_>| {
+            encoder.lock().unwrap().query(t.contents, t.destination)
+        });
+        let (socket, driver) = queue::prepare_mask_with(
+            SocketAddr::new(ip, id),
+            prepare,
+            memory,
+            move |channels| async move {
+                let _keepalive = inner;
+                client(native::Socket::Hosted(raw), channels, state).await
+            },
+        )?;
+        return Ok((socket, driver));
+    }
     let prepare = Arc::new(|t: &quinn::udp::Transmit<'_>| {
         if t.contents.len() + 9 > 65535 {
             return Err(io::Error::other("XICMP packet too large"));
         }
         Ok(t.contents.to_vec())
     });
-    let (socket, driver) = queue::prepare_with(
+    let (socket, driver) = queue::prepare_mask_with(
         SocketAddr::new(ip, 0),
         prepare,
+        memory,
         move |channels| async move {
             let _keepalive = inner;
             server::run(native::Socket::Hosted(raw), channels, id, ipv6).await
@@ -105,7 +128,8 @@ async fn client(
     let mut delay = Duration::from_millis(500);
     let timer = tokio::time::sleep(delay);
     tokio::pin!(timer);
-    let mut wire = vec![0u8; 65536];
+    let memory = channels.mask_memory.clone();
+    let mut scratch = memory.scratch()?;
     loop {
         tokio::select! {
             biased;
@@ -115,21 +139,55 @@ async fn client(
                 destination=Some(packet.peer);raw.send_to(&packet.bytes,packet.peer.ip()).await?;
                 delay=Duration::from_millis(500);timer.as_mut().reset(tokio::time::Instant::now()+delay);
             }
-            received=raw.recv_from(&mut wire)=>{
+            received=raw.recv_from(&mut scratch.bytes)=>{
                 let (n,source)=received?;
-                let decoded=state.lock().unwrap().response(&wire[..n],source);
+                let working = match memory.receive(3*65536) {
+                    Ok(credit)=>credit,
+                    Err(error) if error.kind()==io::ErrorKind::WouldBlock=>continue,
+                    Err(error)=>return Err(error),
+                };
+                let decoded=state.lock().unwrap().response(&scratch.bytes[..n],source);
                 if let Ok(Some((bytes,peer)))=decoded {
-                    let _=channels.incoming.try_send(Packet { _credit: None,bytes,peer,metadata:None});
-                    if let Some(peer)=destination {let bytes=state.lock().unwrap().query(&[],peer)?;raw.send_to(&bytes,peer.ip()).await?;}
+                    let _=channels.incoming.try_send(Packet { bytes, peer, metadata: None, _credit: working.map(Into::into) });
+                    if let Some(peer)=destination {
+                        match poll_query(&state,&memory,peer) {
+                            Ok(packet)=>{raw.send_to(&packet.bytes,peer.ip()).await?;}
+                            Err(error) if error.kind()==io::ErrorKind::WouldBlock=>{},
+                            Err(error)=>return Err(error),
+                        }
+                    }
                     delay=Duration::from_millis(500);timer.as_mut().reset(tokio::time::Instant::now()+delay);
                 }
             }
             _=&mut timer=>{
-                if let Some(peer)=destination {let bytes=state.lock().unwrap().query(&[],peer)?;raw.send_to(&bytes,peer.ip()).await?;}
+                if let Some(peer)=destination {
+                        match poll_query(&state,&memory,peer) {
+                            Ok(packet)=>{raw.send_to(&packet.bytes,peer.ip()).await?;}
+                            Err(error) if error.kind()==io::ErrorKind::WouldBlock=>{},
+                            Err(error)=>return Err(error),
+                        }
+                    }
                 delay=(delay*2).min(Duration::from_secs(10));timer.as_mut().reset(tokio::time::Instant::now()+delay);
             }
         }
     }
+}
+fn poll_query(
+    state: &Mutex<codec::Client>,
+    memory: &super::memory::Memory,
+    peer: SocketAddr,
+) -> io::Result<Packet> {
+    let credit = memory.control(4 * 65536 + 64)?;
+    let bytes = {
+        let _notifications = memory.metadata().map(|metadata| metadata.notifications());
+        state.lock().unwrap().query(&[], peer)?
+    };
+    Ok(Packet {
+        bytes,
+        peer,
+        metadata: None,
+        _credit: credit.map(Into::into),
+    })
 }
 #[cfg(test)]
 #[path = "../../tests/finalmask/xicmp.rs"]

@@ -84,6 +84,22 @@ impl Segment {
         bytes
     }
     pub(super) fn decode(bytes: &mut &[u8]) -> io::Result<Self> {
+        Self::decode_with(bytes, Bytes::copy_from_slice)
+    }
+    /// DATA slices retain the actual incoming owner, including its paid frame,
+    /// until the last reordering/application consumer releases that slice.
+    pub(super) fn decode_owned(bytes: &mut Bytes) -> io::Result<Self> {
+        let original = bytes.clone();
+        let mut view = bytes.as_ref();
+        let result = Self::decode_with(&mut view, |payload| {
+            let start = payload.as_ptr() as usize - original.as_ptr() as usize;
+            original.slice(start..start + payload.len())
+        })?;
+        let used = bytes.len() - view.len();
+        *bytes = bytes.slice(used..);
+        Ok(result)
+    }
+    fn decode_with(bytes: &mut &[u8], mut retain: impl FnMut(&[u8]) -> Bytes) -> io::Result<Self> {
         let header = take(bytes, 4)?;
         let conv = u16::from_be_bytes([header[0], header[1]]);
         let option = header[3];
@@ -101,7 +117,7 @@ impl Segment {
                     timestamp,
                     number,
                     sending_next,
-                    payload: Bytes::copy_from_slice(take(bytes, length)?),
+                    payload: retain(take(bytes, length)?),
                 }
             }
             ACK => {

@@ -2,23 +2,23 @@
 use super::*;
 use crate::quic::owned::OwnedDriverOrigin;
 impl OwnedEndpointOwner {
-    /// The real owner/claim is already installed before native mask acquisition
-    /// or the first actual driver registration. Failed preparation stays owned.
-    pub fn start_masks(
+    pub fn start_prepared_masks(
         &mut self,
-        masks: &[crate::finalmask::udp::Mask],
-        resources: &dyn zero_platform_tokio::contract::component::ResourceAccess,
+        plan: crate::finalmask::owned::PreparedMasks,
+        icmp: Option<zero_platform_tokio::controlled_icmp::ControlledIcmpSocket>,
     ) -> Result<(), ChannelError> {
-        let Native::Hosted(native) = &mut self.native else {
-            return Err(error(Stage::Prepare, Reason::Unsupported));
-        };
-        let icmp = crate::finalmask::owned::icmp_bind(masks)
-            .map_err(|source| error(Stage::Prepare, Reason::InvalidConfig).with_source(source))?
-            .map(|bind| resources.bind_inbound_icmp(bind))
-            .transpose()?;
-        let drivers = native
-            .prepare_masks(masks, icmp)
-            .map_err(|source| error(Stage::Prepare, Reason::Io).with_source(source))?;
+        if self.shared.phase.load(Ordering::Acquire) != 0 {
+            return Err(error(Stage::Prepare, Reason::StalePlan));
+        }
+        let drivers = match &mut self.native {
+            Native::Hosted(native) => native.prepare_prepaid_masks(plan, icmp),
+            Native::Packet(native) => plan.prepare(native.socket.clone(), icmp).map(|prepared| {
+                native.socket = prepared.socket;
+                prepared.drivers
+            }),
+            Native::Owned(_) => return Err(error(Stage::Prepare, Reason::Unsupported)),
+        }
+        .map_err(|source| error(Stage::Prepare, Reason::Io).with_source(source))?;
         self.masks.extend(
             drivers
                 .iter()

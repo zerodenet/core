@@ -2,20 +2,20 @@
 use super::*;
 use serde::de::{DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
 #[derive(Clone, Copy, Default)]
-pub(super) struct Layout {
-    pub(super) maps: usize,
-    pub(super) depth: usize,
-    pub(super) escaped: usize,
+pub(in crate::ipc::client) struct Layout {
+    pub(in crate::ipc::client) maps: usize,
+    pub(in crate::ipc::client) depth: usize,
+    pub(in crate::ipc::client) escaped: usize,
 }
 impl Layout {
-    pub(super) fn scratch(self) -> io::Result<usize> {
+    pub(in crate::ipc::client) fn scratch(self) -> io::Result<usize> {
         self.escaped
             .max(self.depth)
             .checked_mul(2)
             .map(|n| if n == 0 { 0 } else { n.max(8) })
             .ok_or_else(capacity)
     }
-    pub(super) fn workspace(self, bytes: usize) -> io::Result<usize> {
+    pub(in crate::ipc::client) fn workspace(self, bytes: usize) -> io::Result<usize> {
         let rows = self
             .maps
             .checked_mul(std::mem::size_of::<super::format::Entry<'_>>())
@@ -29,7 +29,7 @@ impl Layout {
             .ok_or_else(capacity)
     }
 }
-pub(super) fn scan(bytes: &[u8]) -> io::Result<Layout> {
+pub(in crate::ipc::client) fn scan(bytes: &[u8]) -> io::Result<Layout> {
     let (
         mut quote,
         mut escape,
@@ -82,7 +82,7 @@ pub(super) fn scan(bytes: &[u8]) -> io::Result<Layout> {
         escaped,
     })
 }
-pub(super) fn layout(bytes: &[u8], outer: usize) -> Result<Layout, serde_json::Error> {
+pub(in crate::ipc::client) fn layout(bytes: &[u8], outer: usize) -> Result<Layout, serde_json::Error> {
     let mut parser = serde_json::Deserializer::from_slice(bytes);
     let maps = Count(outer).deserialize(&mut parser)?;
     parser.end()?;

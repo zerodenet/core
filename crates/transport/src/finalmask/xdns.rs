@@ -3,6 +3,7 @@ use super::queue::{self, Channels, Packet};
 use quinn::AsyncUdpSocket;
 use std::{io, sync::Arc, time::Duration};
 mod codec;
+mod receive;
 mod server;
 mod wire;
 pub(super) fn validate(domain: &str) -> io::Result<()> {
@@ -34,22 +35,35 @@ pub(super) fn wrap(
         client(inner, channels, domain, id)
     })
 }
-pub(super) fn prepare_server(
+pub(super) fn prepare_owned(
     inner: Arc<dyn AsyncUdpSocket>,
     domain: &str,
+    server: bool,
+    memory: super::memory::Memory,
 ) -> io::Result<(
     Arc<dyn AsyncUdpSocket>,
     crate::datagram_driver::PreparedIoDriver,
 )> {
     let domain = wire::domain(domain)?;
     let local = inner.local_addr()?;
+    if !server {
+        let id = rand::random::<[u8; 8]>();
+        let encoded_domain = domain.clone();
+        let prepare = Arc::new(move |transmit: &quinn::udp::Transmit<'_>| {
+            codec::query(&encoded_domain, &id, transmit.contents)
+        });
+        let (socket, driver) = queue::prepare_mask_with(local, prepare, memory, move |channels| {
+            client(inner, channels, domain, id)
+        })?;
+        return Ok((socket, driver));
+    }
     let prepare = Arc::new(|transmit: &quinn::udp::Transmit<'_>| {
         if transmit.contents.len() + 2 > codec::MAX_PAYLOAD {
             return Err(wire::invalid());
         }
         Ok(transmit.contents.to_vec())
     });
-    let (socket, driver) = queue::prepare_with(local, prepare, move |channels| {
+    let (socket, driver) = queue::prepare_mask_with(local, prepare, memory, move |channels| {
         server::run(inner, channels, domain)
     })?;
     Ok((socket, driver))
@@ -60,6 +74,8 @@ async fn client(
     domain: wire::Name,
     id: [u8; 8],
 ) -> io::Result<()> {
+    let memory = channels.mask_memory.clone();
+    let mut scratch = memory.scratch()?;
     let mut peer = None;
     let mut delay = Duration::from_millis(500);
     let timer = tokio::time::sleep(delay);
@@ -73,18 +89,21 @@ async fn client(
                 peer=Some(packet.peer);queue::send(&inner,packet).await?;
                 delay=Duration::from_millis(500);timer.as_mut().reset(tokio::time::Instant::now()+delay);
             }
-            incoming=queue::receive(inner.as_ref())=>{
+            incoming=receive::receive(inner.as_ref(), &mut scratch, &memory)=>{
                 let mut poll=false;
-                for packet in incoming? {
+                for mut packet in incoming? {
+                    if let Some(metadata) = memory.metadata() {
+                        if packet.share_credit(metadata).is_err() { continue; }
+                    }
                     let Ok(message)=wire::parse(&packet.bytes) else {continue;};
                     let Ok(packets)=codec::response_packets(message,&domain) else {continue;};
                     poll|=!packets.is_empty();
-                    for bytes in packets {let _=channels.incoming.try_send(Packet { _credit: None,bytes,peer:packet.peer,metadata:None});}
+                    for bytes in packets {let _=channels.incoming.try_send(Packet { bytes, peer: packet.peer, metadata: None, _credit: packet._credit.as_ref().map(|credit|credit.shared()) });}
                 }
-                if poll { if let Some(peer)=peer {queue::send(&inner,Packet { _credit: None,bytes:codec::query(&domain,&id,&[])?,peer,metadata:None}).await?;} delay=Duration::from_millis(500);timer.as_mut().reset(tokio::time::Instant::now()+delay); }
+                if poll { if let Some(peer)=peer {let credit=memory.control(4*65536+64)?;queue::send(&inner,Packet { _credit: credit.map(Into::into),bytes:codec::query(&domain,&id,&[])?,peer,metadata:None}).await?;} delay=Duration::from_millis(500);timer.as_mut().reset(tokio::time::Instant::now()+delay); }
             }
             _=&mut timer=>{
-                if let Some(peer)=peer {queue::send(&inner,Packet { _credit: None,bytes:codec::query(&domain,&id,&[])?,peer,metadata:None}).await?;}
+                if let Some(peer)=peer {let credit=memory.control(4*65536+64)?;queue::send(&inner,Packet { _credit: credit.map(Into::into),bytes:codec::query(&domain,&id,&[])?,peer,metadata:None}).await?;}
                 delay=(delay*2).min(Duration::from_secs(10));timer.as_mut().reset(tokio::time::Instant::now()+delay);
             }
         }

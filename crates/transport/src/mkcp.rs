@@ -16,5 +16,8 @@ pub use peer::{ListenerProfile, PeerStreams};
 pub use scoped_peer::ScopedPeerStreams;
 pub use stream::MkcpStream;
 #[cfg(test)]
+#[path = "../tests/mkcp/paid_receive.rs"]
+mod paid_receive_tests;
+#[cfg(test)]
 #[path = "../tests/mkcp/state.rs"]
 mod tests;

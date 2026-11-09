@@ -1,5 +1,5 @@
 //! Bounded DNS message encoding, including compression and opaque TXT RDATA.
-use std::{collections::HashMap, io};
+use std::io;
 pub type Name = Vec<Vec<u8>>;
 #[derive(Clone, Default)]
 pub struct Message {
@@ -146,7 +146,7 @@ impl<'a> Parser<'a> {
 pub fn encode(message: &Message) -> io::Result<Vec<u8>> {
     let mut output = Builder {
         bytes: Vec::new(),
-        names: HashMap::new(),
+        names: Vec::new(),
     };
     output.number(message.id);
     output.number(message.flags);
@@ -173,24 +173,23 @@ pub fn encode(message: &Message) -> io::Result<Vec<u8>> {
     }
     Ok(output.bytes)
 }
-struct Builder {
+struct Builder<'a> {
     bytes: Vec<u8>,
-    names: HashMap<Name, u16>,
+    names: Vec<(&'a [Vec<u8>], u16)>,
 }
-impl Builder {
+impl<'a> Builder<'a> {
     fn number(&mut self, n: u16) {
         self.bytes.extend(n.to_be_bytes());
     }
-    fn name(&mut self, name: &Name) -> io::Result<()> {
+    fn name(&mut self, name: &'a Name) -> io::Result<()> {
         validate_name(name)?;
         for (i, label) in name.iter().enumerate() {
-            if let Some(offset) = self.names.get(&name[i..]) {
+            if let Some((_, offset)) = self.names.iter().find(|(known, _)| *known == &name[i..]) {
                 self.number(0xc000 | *offset);
                 return Ok(());
             }
             if self.bytes.len() < 16384 {
-                self.names
-                    .insert(name[i..].to_vec(), self.bytes.len() as u16);
+                self.names.push((&name[i..], self.bytes.len() as u16));
             }
             self.bytes.push(label.len() as u8);
             self.bytes.extend(label);
@@ -225,3 +224,5 @@ pub fn txt_decode(mut bytes: &[u8]) -> io::Result<Vec<u8>> {
 pub fn invalid() -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, "invalid XDNS message")
 }
+mod memory;
+pub(super) use memory::storage_peak;

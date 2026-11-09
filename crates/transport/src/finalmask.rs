@@ -67,5 +67,6 @@ impl Default for Profile {
 
 pub mod owned;
 
-mod memory;
+mod fifo;
+pub(crate) mod memory;
 mod rows;

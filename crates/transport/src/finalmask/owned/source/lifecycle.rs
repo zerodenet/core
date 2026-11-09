@@ -6,6 +6,24 @@ impl ResourceLifecycle for Lifecycle {
         if self.cancel.is_cancelled() || state.native.is_some() {
             return Err(failure(Reason::Revoked));
         }
+        let book = self
+            .resources
+            .carrier_buffer_budget()
+            .ok_or_else(|| failure(Reason::InvalidConfig))?;
+        let metadata = self.resources.packet_driver_metadata()?;
+        let plan = PreparedMasks::new(&self.masks, true, book.clone(), metadata.clone())
+            .map_err(|e| failure(Reason::Capacity).with_source(e))?;
+        if state.memory.is_none() {
+            let memory = super::super::super::memory::Memory::prepare(book, metadata, 65536, 65536)
+                .map_err(|e| failure(Reason::Capacity).with_source(e))?;
+            state.buffer = Some(
+                memory
+                    .extra_scratch()
+                    .map_err(|e| failure(Reason::Capacity).with_source(e))?,
+            );
+            state.peers.install(memory.clone());
+            state.memory = Some(memory);
+        }
         let mut grant = self
             .resources
             .listen_metadata_datagram(self.request)
@@ -51,7 +69,7 @@ impl ResourceLifecycle for Lifecycle {
             .native
             .as_mut()
             .unwrap()
-            .prepare_masks(&self.masks, icmp)
+            .prepare_prepaid_masks(plan, icmp)
             .map_err(|e| failure(Reason::Io).with_source(e))?;
         state.stops.extend(
             drivers
@@ -80,8 +98,15 @@ impl ResourceLifecycle for Lifecycle {
                 )
                 .map_err(|e| failure(Reason::Capacity).with_source(e))?;
         }
-        state.socket = Some(crate::finalmask::packet_socket::from_socket(
+        let scratch = state
+            .memory
+            .as_ref()
+            .unwrap()
+            .scratch()
+            .map_err(|e| failure(Reason::Capacity).with_source(e))?;
+        state.socket = Some(crate::finalmask::packet_socket::from_socket_with_scratch(
             state.native.as_ref().unwrap().socket(),
+            scratch,
         ));
         Ok(())
     }
@@ -94,7 +119,7 @@ impl ResourceLifecycle for Lifecycle {
             .await
             .map_err(|e| failure(Reason::Timeout).with_source(e))?;
         state.socket = None;
-        state.peers.clear();
+        state.peers.retain(|_, _| false);
         if let Some(graph) = &state.graph {
             graph.users().cancellation().cancel();
             graph.drivers().revoke_registration();
@@ -164,6 +189,16 @@ impl ResourceLifecycle for Lifecycle {
                 .confirm_metadata_users(self.request.ordinal, &receipt, &self.tasks)?;
             state.unstarted = None;
         }
+        let retired = (
+            std::mem::replace(
+                &mut state.peers,
+                super::super::super::rows::Rows::new(self.peers.get()),
+            ),
+            state.buffer.take(),
+            state.memory.take(),
+        );
+        drop(state);
+        drop(retired);
         Ok(CloseReport::default())
     }
 }

@@ -1,9 +1,9 @@
 //! Async-packet adapter over the same carrier socket used by QUIC.
 use quinn::{AsyncUdpSocket, Runtime};
 use std::{
-    io::{self, IoSliceMut},
+    io,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::Arc,
     task::{Context, Poll},
 };
 use zero_platform_tokio::{
@@ -33,14 +33,26 @@ pub fn wrap_with_egress(
     Ok(from_socket(socket))
 }
 pub fn from_socket(socket: Arc<dyn AsyncUdpSocket>) -> PacketSocket {
+    from_socket_with_scratch(
+        socket,
+        super::memory::Memory::default()
+            .scratch()
+            .expect("one library packet scratch"),
+    )
+}
+pub(crate) fn from_socket_with_scratch(
+    socket: Arc<dyn AsyncUdpSocket>,
+    scratch: super::memory::Scratch,
+) -> PacketSocket {
     PacketSocket::Carrier(Arc::new(PacketIo {
         socket,
-        pending: Mutex::new(Default::default()),
+        receiver: receive::Receiver::new(scratch),
     }))
 }
+mod receive;
 struct PacketIo {
     socket: Arc<dyn AsyncUdpSocket>,
-    pending: Mutex<std::collections::VecDeque<(Vec<u8>, SocketAddress)>>,
+    receiver: receive::Receiver,
 }
 impl PacketSocketIo for PacketIo {
     type Error = io::Error;
@@ -52,31 +64,9 @@ impl PacketSocketIo for PacketIo {
         cx: &mut Context<'_>,
         bytes: &mut [u8],
     ) -> Poll<io::Result<(usize, SocketAddress)>> {
-        let mut pending = self.pending.lock().unwrap();
-        let mut wire = [0u8; 65536];
-        for _ in 0..32 {
-            while let Some((packet, peer)) = pending.pop_front() {
-                if packet.len() > bytes.len() {
-                    continue;
-                }
-                bytes[..packet.len()].copy_from_slice(&packet);
-                return Poll::Ready(Ok((packet.len(), peer)));
-            }
-            let mut buffers = [IoSliceMut::new(&mut wire)];
-            let mut meta = [quinn::udp::RecvMeta::default()];
-            let count = std::task::ready!(self.socket.poll_recv(cx, &mut buffers, &mut meta))?;
-            if count == 0 || meta[0].stride == 0 || meta[0].len > wire.len() {
-                continue;
-            }
-            pending.extend(
-                wire[..meta[0].len]
-                    .chunks(meta[0].stride)
-                    .map(|p| (p.to_vec(), socket_addr_to_socket_address(meta[0].addr))),
-            );
-        }
-        cx.waker().wake_by_ref();
-        Poll::Pending
+        self.receiver.poll(self.socket.as_ref(), cx, bytes)
     }
+
     fn send_to<'a>(
         &'a self,
         bytes: &'a [u8],
