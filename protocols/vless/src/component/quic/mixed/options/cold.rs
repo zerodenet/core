@@ -78,7 +78,7 @@ impl Options {
     }
 }
 impl Half {
-    pub(super) fn protocol(&self) -> &crate::component::Options {
+    pub(in crate::component::quic::mixed) fn protocol(&self) -> &crate::component::Options {
         match self {
             Self::Quic(options) => &options.protocol,
             Self::Tcp(options) => &options.protocol,
@@ -98,7 +98,9 @@ impl Half {
             }
         }
     }
-    pub(super) fn pool(&self) -> (&XhttpClientPool, &OwnedSplitHttpProfile) {
+    pub(in crate::component::quic::mixed) fn pool(
+        &self,
+    ) -> (&XhttpClientPool, &OwnedSplitHttpProfile) {
         match self {
             Self::Quic(options) => {
                 let (pool, profile) = options.h3.as_ref().expect("actual H3 half");
@@ -107,7 +109,9 @@ impl Half {
             Self::Tcp(options) => (&options.pool, &options.http),
         }
     }
-    pub(super) fn kind(&self) -> zero_transport::split_http::OwnedConnectionKind {
+    pub(in crate::component::quic::mixed) fn kind(
+        &self,
+    ) -> zero_transport::split_http::OwnedConnectionKind {
         match self {
             Self::Tcp(options)
                 if matches!(

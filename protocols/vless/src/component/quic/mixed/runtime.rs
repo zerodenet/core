@@ -207,22 +207,28 @@ impl Runtime {
                     generation.metadata.registration(),
                     &generation.tasks,
                 )?;
-                generation.resources.register_controlled_carrier(
-                    *carrier_ordinal,
-                    carrier.registration(),
-                    &generation.tasks,
-                )
+                generation
+                    .resources
+                    .register_controlled_carrier(
+                        *carrier_ordinal,
+                        carrier.registration(),
+                        &generation.tasks,
+                    )
+                    .map(|_| ())
             }
             Self::Tcp {
                 generation,
                 carrier,
                 carrier_ordinal,
                 ..
-            } => generation.resources.register_controlled_carrier(
-                *carrier_ordinal,
-                carrier.registration(),
-                &generation.tasks,
-            ),
+            } => generation
+                .resources
+                .register_controlled_carrier(
+                    *carrier_ordinal,
+                    carrier.registration(),
+                    &generation.tasks,
+                )
+                .map(|_| ()),
         }
     }
     pub async fn start_originals(

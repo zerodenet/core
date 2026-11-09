@@ -9,7 +9,10 @@ pub(super) async fn authenticate(
 ) -> Result<TcpRelayStream, Failure> {
     let options = &generation.options;
     let io = masks
-        .wrap(TcpRelayStream::new(io), false)
+        .wrap(
+            TcpRelayStream::new(zero_transport::pooled_driver::ExclusiveIo::new(io)),
+            false,
+        )
         .await
         .map_err(failure)?;
     if let Some(reality) = &options.protocol.reality {

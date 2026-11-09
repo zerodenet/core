@@ -81,13 +81,11 @@ impl Half {
     ) -> Result<XhttpCarrier, ChannelError> {
         let context = self.current(&context).await?;
         match (self, prepared) {
-            (Self::Quic(generation), Some(Prepared::Quic(prepared))) => {
-                Ok(XhttpCarrier::OwnedHttp3(
-                    entry::Generation::acquire_prepared(prepared, &context)
-                        .await?
-                        .into_h3(),
-                ))
-            }
+            (Self::Quic(_), Some(Prepared::Quic(prepared))) => Ok(XhttpCarrier::OwnedHttp3(
+                entry::Generation::acquire_prepared(prepared, &context)
+                    .await?
+                    .into_h3(),
+            )),
             (Self::Quic(generation), None) => Ok(XhttpCarrier::OwnedHttp3(
                 entry::Generation::acquire(generation, &context)
                     .await?

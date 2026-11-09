@@ -6,9 +6,10 @@ impl PendingTcpOriginal {
         mut self,
     ) -> Result<zero_transport::split_http::OwnedXhttpTcp, ChannelError> {
         let context = self.context.clone();
+        let cancelled = self.generation.cancel.clone();
         tokio::select! { biased;
             _=context.cancel.cancelled()=>Err(error(Stage::Prepare, Reason::Cancelled)),
-            _=self.generation.cancel.cancelled()=>Err(error(Stage::Prepare, Reason::Revoked)),
+            _=cancelled.cancelled()=>Err(error(Stage::Prepare, Reason::Revoked)),
             result=with_deadline(context.deadline, self.receive())=>result
                 .map_err(|source| error(Stage::Prepare, Reason::Timeout).with_source(source))?,
         }
