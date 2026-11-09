@@ -47,7 +47,7 @@ pub struct ResourceFailure {
     pub source: super::RetainedError,
     original_sources: std::sync::OnceLock<Arc<OriginalProtocolFailures>>,
     reported: AtomicBool,
-    ownership: std::sync::OnceLock<Arc<ChannelError>>,
+    ownership: AtomicBool,
 }
 impl ResourceFailure {
     pub fn new(
@@ -61,7 +61,7 @@ impl ResourceFailure {
             source: source.into(),
             original_sources: std::sync::OnceLock::new(),
             reported: false.into(),
-            ownership: std::sync::OnceLock::new(),
+            ownership: AtomicBool::new(false),
         }
     }
     pub(crate) fn with_original_sources(self, sources: Arc<OriginalProtocolFailures>) -> Self {
@@ -86,14 +86,10 @@ impl ResourceFailure {
     /// Exact local ownership delivery, independent of publication, physical
     /// close, actual task join and Host registration ACK.
     pub fn ownership_received(&self) -> bool {
-        self.ownership.get().is_some_and(|notice| {
-            notice
-                .cleanup_failure_receipt()
-                .is_some_and(|receipt| receipt.is_acknowledged())
-        })
+        self.ownership.load(Ordering::Acquire)
     }
     /// Called only after the actual receiver durably retains this same Arc.
-    /// The receipt payload retains the source, never this ResourceFailure or IO.
+    /// The original source receipt and protocol ledger remain owned by this RF.
     pub fn acknowledge_retained(&self, retained: &Arc<Self>) -> bool {
         if !std::ptr::eq(self, retained.as_ref()) {
             return false;
@@ -105,29 +101,15 @@ impl ResourceFailure {
         {
             return false;
         }
-        let notice = self.ownership.get_or_init(|| {
-            let receipt = zero_error::channel::CleanupFailureReceipt::new();
-            assert!(
-                receipt.bind_payload(Arc::new(original_failures::SourcePayload {
-                    first: self.source.clone(),
-                    _original: self.original_sources.get().cloned(),
-                }))
-            );
-            Arc::new(
-                ChannelError::retained(self.source.clone()).with_cleanup_failure_receipt(receipt),
-            )
-        });
-        let accepted = notice
-            .cleanup_failure_receipt()
-            .unwrap()
-            .acknowledge_retained(notice);
-        if accepted {
-            if let Some(sources) = self.original_sources.get() {
-                sources.accept();
-            }
+        // This exact retained RF already owns its original source and ledger.
+        // Local acceptance needs no second diagnostic/receipt allocation.
+        self.ownership.store(true, Ordering::Release);
+        if let Some(sources) = self.original_sources.get() {
+            sources.accept();
         }
-        accepted
+        true
     }
+
     pub fn reported(&self) -> bool {
         self.reported.load(Ordering::Acquire)
     }

@@ -73,31 +73,15 @@ impl std::error::Error for OriginalProtocolFailures {
             .map(|source| source.as_ref() as _)
     }
 }
-#[derive(Debug)]
-pub(super) struct SourcePayload {
-    pub(super) first: crate::contract::RetainedError,
-    pub(super) _original: Option<Arc<OriginalProtocolFailures>>,
-}
-impl std::fmt::Display for SourcePayload {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.first.fmt(f)
-    }
-}
-impl std::error::Error for SourcePayload {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(self.first.as_ref())
-    }
-}
 
-fn same_original<'a>(
-    mut stored: &'a Arc<ChannelError>,
-    mut observed: &'a Arc<ChannelError>,
-) -> bool {
-    while let Some(source) = stored.retained_source() {
+fn same_original(stored: &Arc<ChannelError>, observed: &Arc<ChannelError>) -> bool {
+    let mut stored: &ChannelError = stored.as_ref();
+    let mut observed: &ChannelError = observed.as_ref();
+    while let Some(source) = stored.retained_diagnostic() {
         stored = source;
     }
-    while let Some(source) = observed.retained_source() {
+    while let Some(source) = observed.retained_diagnostic() {
         observed = source;
     }
-    Arc::ptr_eq(stored, observed)
+    std::ptr::eq(stored, observed)
 }
