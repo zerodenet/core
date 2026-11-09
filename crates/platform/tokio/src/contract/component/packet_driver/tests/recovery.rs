@@ -169,9 +169,9 @@ async fn actual_actor_failure_keeps_new_receipt_and_requires_source_supervision_
         assert!(completed.is_complete());
         let failure = completed.resource_failures.first().unwrap();
         assert_eq!(failure.instance, instance);
-        assert!(Arc::ptr_eq(
-            &failure.source,
-            report.retained_source().unwrap(),
+        assert!(std::ptr::eq(
+            failure.source.as_ref(),
+            report.retained_source().unwrap().as_ref(),
         ));
         assert!(failure
             .source

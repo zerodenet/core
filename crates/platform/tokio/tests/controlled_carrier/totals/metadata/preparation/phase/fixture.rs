@@ -227,7 +227,7 @@ pub(super) async fn run(panic_first: bool, late_io: bool) {
             let receiver = totals
                 .resource_failures()
                 .into_iter()
-                .find(|actual| Arc::ptr_eq(&actual.source, original_fault.as_ref().unwrap()))
+                .find(|actual| actual.source.ptr_eq(original_fault.as_ref().unwrap()))
                 .unwrap();
             let sources = receiver
                 .original_sources()
@@ -254,7 +254,7 @@ pub(super) async fn run(panic_first: bool, late_io: bool) {
             assert!(totals
                 .failures()
                 .iter()
-                .any(|actual| Arc::ptr_eq(actual, original)));
+                .any(|actual| actual.ptr_eq(original)));
         }
         let native = origin.closed().unwrap();
         assert!(native.matches(&origin) && native.had_native_acquisition());
@@ -267,7 +267,7 @@ pub(super) async fn run(panic_first: bool, late_io: bool) {
             let receiver = totals
                 .resource_failures()
                 .into_iter()
-                .find(|fault| Arc::ptr_eq(&fault.source, source))
+                .find(|fault| fault.source.ptr_eq(source))
                 .expect("same actual original resource fault");
             assert!(!receiver.ownership_received());
             assert!(receiver.acknowledge_retained(&receiver));
@@ -292,10 +292,7 @@ pub(super) async fn run(panic_first: bool, late_io: bool) {
         assert!(native.matches(&origin));
         assert!(phase.is_settled());
         if let Some(receiver) = fault_receiver {
-            assert!(Arc::ptr_eq(
-                &receiver.source,
-                original_fault.as_ref().unwrap()
-            ));
+            assert!(receiver.source.ptr_eq(original_fault.as_ref().unwrap()));
         }
         scope.begin_shutdown();
         assert!(scope.is_drained());
