@@ -18,6 +18,9 @@ impl Clone for InboundUdpDispatch {
             transparent_target: self.transparent_target,
             transparent_original_target: self.transparent_original_target.clone(),
             transparent_host_source: self.transparent_host_source,
+            // This existing independent-library API copies every allocation;
+            // it does not claim custody of the Source's original backing.
+            domain_memory: Default::default(),
         }
     }
 }
