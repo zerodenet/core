@@ -14,6 +14,11 @@ pub(super) struct Rpc {
     started: bool,
     command: Option<u64>,
     parsed: Option<HelperResponse>,
+    owned_response: Option<(
+        crate::packet_memory::PacketMemoryView,
+        crate::packet_memory::PacketMetadataVec<u8>,
+        usize,
+    )>,
 }
 impl Rpc {
     #[cfg(test)]
@@ -37,6 +42,7 @@ impl Rpc {
             started: false,
             command: None,
             parsed: None,
+            owned_response: None,
         }
     }
     pub(super) fn begin(
@@ -56,6 +62,9 @@ impl Rpc {
             return Err(io::Error::other("helper request leaves no framing byte"));
         }
         self.request[length] = b'\n';
+        if let Some((_, bytes, _)) = &mut self.owned_response {
+            bytes.retain(|_| false);
+        }
         self.length = length + 1;
         self.written = 0;
         self.read = 0;
@@ -63,6 +72,29 @@ impl Rpc {
         self.parsed = None;
         self.command = command;
         self.started = true;
+        Ok(())
+    }
+    pub(super) fn bind_metadata(
+        &mut self,
+        memory: crate::packet_memory::PacketMemoryView,
+        output_limit: usize,
+    ) -> io::Result<()> {
+        let max = output_limit
+            .checked_mul(8)
+            .and_then(|max| max.checked_add(1024))
+            .ok_or_else(|| io::Error::other("helper response layout overflow"))?;
+        self.owned_response = Some((memory, Default::default(), max));
+        Ok(())
+    }
+    pub(super) fn replace_request(
+        &mut self,
+        bytes: usize,
+        credit: crate::packet_memory::PacketMetadataCredit,
+    ) -> io::Result<()> {
+        if self.pending() {
+            return Err(io::Error::other("cannot replace a submitted request"));
+        }
+        self.request = Request::from_prepaid(bytes, credit)?;
         Ok(())
     }
     pub(super) fn request_capacity(&self) -> usize {
@@ -93,6 +125,13 @@ impl Rpc {
             return Ok(false);
         }
         while !self.newline {
+            // Admit actual response capacity BEFORE dequeueing its next byte.
+            // A failure keeps every submitted prefix and current original.
+            if let Some((memory, bytes, max)) = &mut self.owned_response {
+                bytes
+                    .try_reserve_one(memory, *max)
+                    .map_err(io::Error::other)?;
+            }
             let mut byte = 0_u8;
             let count = unsafe { libc::read(control, (&mut byte as *mut u8).cast(), 1) };
             if count < 0 {
@@ -112,18 +151,27 @@ impl Rpc {
                 self.newline = true;
                 break;
             }
-            if self.read == self.response.len() {
-                return Err(io::Error::other(
-                    "helper response exceeds its retained RPC workspace",
-                ));
+            if let Some((_, bytes, _)) = &mut self.owned_response {
+                bytes
+                    .push_reserved(byte)
+                    .map_err(|_| io::Error::other("prepaid helper response slot missing"))?;
+            } else {
+                if self.read == self.response.len() {
+                    return Err(io::Error::other(
+                        "library helper response exceeds retained fixture workspace",
+                    ));
+                }
+                self.response[self.read] = byte;
             }
-            self.response[self.read] = byte;
             self.read += 1;
         }
         if self.parsed.is_none() {
-            self.parsed = Some(
-                serde_json::from_slice(&self.response[..self.read]).map_err(io::Error::other)?,
-            );
+            let bytes = if let Some((_, bytes, _)) = &self.owned_response {
+                &bytes[..]
+            } else {
+                &self.response[..self.read]
+            };
+            self.parsed = Some(serde_json::from_slice(bytes).map_err(io::Error::other)?);
         }
         // Parsing a reply is independent of observing the exact child exit.
         // In particular, a helper exit never sets this condition for its tool.

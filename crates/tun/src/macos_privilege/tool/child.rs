@@ -46,7 +46,10 @@ impl ChildOriginal {
         &mut self,
         output_limit: usize,
     ) -> io::Result<()> {
-        if self.child.is_none() || self.reusable() {
+        if self.child.is_none() {
+            return self.close_pipes();
+        }
+        if self.reusable() {
             return Ok(());
         }
         // Same Child/pipes, no new command or guessed process-tree receipt.

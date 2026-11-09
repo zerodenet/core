@@ -102,7 +102,7 @@ impl Native {
         command
             .args(["-e", OWNED_SCRIPT, "--"])
             .arg(executable)
-            .args(["__macos-tun-create-helper", "--socket"])
+            .args(["__macos-tun-create-helper", "--owned", "--socket"])
             .arg(&self.socket.as_ref().unwrap().socket)
             .arg(id.to_string())
             .stdin(Stdio::inherit())

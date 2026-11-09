@@ -12,6 +12,7 @@ impl MacosHelperOwner {
         parent: &std::sync::Arc<crate::AdoptedTunOwner>,
         name: Option<&str>,
     ) -> io::Result<()> {
+        let _notifications = self.0.memory.defer_notifications();
         if self.0.stopped.load(Ordering::Acquire) || self.0.current.load(Ordering::Acquire) != 0 {
             return Err(io::Error::other(
                 "retiring helper cannot create another utun original",

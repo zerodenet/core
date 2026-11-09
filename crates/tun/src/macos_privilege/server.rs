@@ -13,17 +13,25 @@ struct Server {
     transfer: Option<Transfer>,
     child: ChildOriginal,
     request: Option<Box<[u8]>>,
+    owned: bool,
 }
 pub(super) fn serve(stream: &mut UnixStream) -> io::Result<()> {
     serve_with_initial(stream, None)
 }
 pub(super) fn serve_with_initial(stream: &mut UnixStream, name: Option<&str>) -> io::Result<()> {
+    serve_mode(stream, name, false)
+}
+pub(super) fn serve_owned(stream: &mut UnixStream) -> io::Result<()> {
+    serve_mode(stream, None, true)
+}
+fn serve_mode(stream: &mut UnixStream, name: Option<&str>, owned: bool) -> io::Result<()> {
     let mut server = Server {
         utun: None,
         supervisor: None,
         transfer: None,
         child: ChildOriginal::new(),
         request: None,
+        owned,
     };
     let result = match name {
         Some(name) => server
@@ -39,35 +47,53 @@ pub(super) fn serve_with_initial(stream: &mut UnixStream, name: Option<&str>) ->
 impl Server {
     fn run(&mut self, stream: &mut UnixStream) -> io::Result<()> {
         loop {
-            // Never clone the control FD into a BufReader. Plain byte reads
-            // must leave the next ancillary marker in its original channel.
-            let mut bootstrap = [0_u8; 65_536];
-            let bytes = self.request.as_deref_mut().unwrap_or(&mut bootstrap);
-            let mut length = 0;
-            loop {
-                let mut byte = [0];
-                let count = loop {
-                    match stream.read(&mut byte) {
-                        Err(source) if source.kind() == io::ErrorKind::Interrupted => continue,
-                        result => break result?,
+            let request = if !self.owned && self.request.is_none() {
+                // Explicit independent library helper retains its original
+                // variable request grammar. Kernel starts --owned and cannot
+                // use this path when its paid workspace admission is absent.
+                let mut bytes = Vec::new();
+                loop {
+                    let mut byte = [0u8];
+                    if stream.read(&mut byte)? == 0 {
+                        return Ok(());
                     }
-                };
-                if count == 0 {
-                    return Ok(());
+                    if byte[0] == b'\n' {
+                        break;
+                    }
+                    bytes.push(byte[0]);
                 }
-                if byte[0] == b'\n' {
-                    break;
+                serde_json::from_slice::<HelperRequest>(&bytes).map_err(io::Error::other)?
+            } else {
+                // Never clone the control FD into a BufReader. Plain byte reads
+                // must leave the next ancillary marker in its original channel.
+                let mut bootstrap = [0_u8; 65_536];
+                let bytes = self.request.as_deref_mut().unwrap_or(&mut bootstrap);
+                let mut length = 0;
+                loop {
+                    let mut byte = [0];
+                    let count = loop {
+                        match stream.read(&mut byte) {
+                            Err(source) if source.kind() == io::ErrorKind::Interrupted => continue,
+                            result => break result?,
+                        }
+                    };
+                    if count == 0 {
+                        return Ok(());
+                    }
+                    if byte[0] == b'\n' {
+                        break;
+                    }
+                    if length == bytes.len() {
+                        return Err(io::Error::other(
+                            "helper request exceeds fixed control workspace",
+                        ));
+                    }
+                    bytes[length] = byte[0];
+                    length += 1;
                 }
-                if length == bytes.len() {
-                    return Err(io::Error::other(
-                        "helper request exceeds fixed control workspace",
-                    ));
-                }
-                bytes[length] = byte[0];
-                length += 1;
-            }
-            let request: HelperRequest =
-                serde_json::from_slice(&bytes[..length]).map_err(io::Error::other)?;
+                serde_json::from_slice::<HelperRequest>(&bytes[..length])
+                    .map_err(io::Error::other)?
+            };
             match request {
                 HelperRequest::Hello { nonce } => write_helper_response(
                     stream,
@@ -78,8 +104,28 @@ impl Server {
                         stderr: Vec::new(),
                     },
                 )?,
-                HelperRequest::InstallSupervisor { transfer, request_capacity } => {
-                    self.install_supervisor(stream, transfer, request_capacity)?
+                HelperRequest::InstallSupervisor {
+                    transfer,
+                    request_capacity,
+                } => self.install_supervisor(stream, transfer, request_capacity)?,
+                HelperRequest::ResizeWorkspace { capacity } => {
+                    if self.request.is_none() || capacity < 65_536 {
+                        return Err(io::Error::other("no installed original request workspace"));
+                    }
+                    let mut request = Box::<[u8]>::new_uninit_slice(capacity);
+                    for byte in &mut request {
+                        byte.write(0);
+                    }
+                    self.request = Some(unsafe { request.assume_init() });
+                    write_helper_response(
+                        stream,
+                        &HelperResponse {
+                            success: true,
+                            code: 0,
+                            stdout: Vec::new(),
+                            stderr: Vec::new(),
+                        },
+                    )?;
                 }
                 HelperRequest::OwnedCreateUtun { name, transfer } => {
                     self.create(stream, name.as_deref(), Some(transfer))?

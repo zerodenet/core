@@ -21,8 +21,11 @@ mod cleanup;
 mod connection;
 mod creation;
 mod failures;
+mod growth;
 mod native;
+mod progress;
 mod query;
+mod retire;
 pub(super) use query::{route_query, route_table};
 mod rpc;
 mod wake;
@@ -47,6 +50,7 @@ struct Session {
     wait: Mutex<()>,
     failures: PacketMetadataArc<Failures>,
     output_limit: usize,
+    memory: PacketMemoryView,
 }
 struct Epoch {
     id: u64,
@@ -61,6 +65,7 @@ struct Epoch {
     local_tool: tool::ChildOriginal,
     local_file: Option<Original>,
     _peer_request: crate::packet_memory::PacketMetadataCredit,
+    growth: Option<growth::Growth>,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Stage {
@@ -121,15 +126,17 @@ impl MacosHelperOwner {
                 id,
                 credit.split(transfer_layout).map_err(io::Error::other)?,
             )?;
+            let mut rpc = rpc::Rpc::from_prepaid(
+                request_capacity,
+                credit.split(request_layout).map_err(io::Error::other)?,
+            )?;
+            rpc.bind_metadata(memory.clone(), output_limit)?;
             *slot = Some(Mutex::new(Epoch {
                 id,
                 native: native::Native::new(),
                 transfer,
                 tools: tool::Supervisor::new(),
-                rpc: rpc::Rpc::from_prepaid(
-                    request_capacity,
-                    credit.split(request_layout).map_err(io::Error::other)?,
-                )?,
+                rpc,
                 stage: Stage::Cold,
                 command: 0,
                 create_attempted: false,
@@ -137,6 +144,7 @@ impl MacosHelperOwner {
                 local_tool: tool::ChildOriginal::new(),
                 local_file: None,
                 _peer_request: credit.split(request_layout).map_err(io::Error::other)?,
+                growth: None,
             }));
         }
         let [first, second] = epochs;
@@ -152,6 +160,7 @@ impl MacosHelperOwner {
             wait: Mutex::new(()),
             failures: faults,
             output_limit,
+            memory: memory.clone(),
         };
         PacketMetadataArc::from_prepaid(session, credit)
             .map(Self)

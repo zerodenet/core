@@ -24,6 +24,7 @@ impl MacosHelperAccess {
 }
 impl MacosHelperOwner {
     pub(in crate::macos_privilege) fn query(&self, query: tool::Query) -> io::Result<Output> {
+        let _notifications = self.0.memory.defer_notifications();
         let index = self.0.current.load(Ordering::Acquire);
         let mut epoch = self.0.epochs[index]
             .lock()
@@ -43,6 +44,7 @@ impl MacosHelperOwner {
         result
     }
     fn resolv_conf(&self) -> io::Result<Vec<u8>> {
+        let _notifications = self.0.memory.defer_notifications();
         let index = self.0.current.load(Ordering::Acquire);
         let mut epoch = self.0.epochs[index]
             .lock()
