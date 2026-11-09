@@ -79,13 +79,15 @@ async fn real_start_failure_retains_original_os_source_and_closes_native_after_i
         let faults = owner.task_failures.lock().unwrap();
         let task = &faults[owner.driver.get().unwrap()];
         assert_eq!(task.class, TaskClass::Critical);
-        assert!(Arc::ptr_eq(
-            task.source
+        assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
+            (task
+                .source
                 .source()
                 .unwrap()
                 .downcast_ref::<SharedError>()
-                .unwrap(),
-            &first
+                .unwrap())
+            .as_ref(),
+            (&first).as_ref()
         ));
     }
     let receipt = proxy
@@ -96,11 +98,17 @@ async fn real_start_failure_retains_original_os_source_and_closes_native_after_i
         .unwrap();
     assert_eq!(receipt.terminal().closed_io_receipts(), 1);
     assert_eq!(receipt.terminal().joined_tasks(), 1);
-    assert!(Arc::ptr_eq(&receipt.terminal().failure().unwrap(), &first));
+    assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
+        (&receipt.terminal().failure().unwrap()).as_ref(),
+        (&first).as_ref()
+    ));
     let released = proxy
         .inbound_owners
         .release_closed_reported(receipt, |terminal| {
-            assert!(Arc::ptr_eq(&terminal.failure().unwrap(), &first));
+            assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
+                (&terminal.failure().unwrap()).as_ref(),
+                (&first).as_ref()
+            ));
             Ok(())
         })
         .unwrap_err();

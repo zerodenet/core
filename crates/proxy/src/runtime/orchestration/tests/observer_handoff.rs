@@ -193,9 +193,9 @@ async fn interrupted_state_keeps_original_observer_joining_active_peer_and_separ
         .unwrap();
     assert_eq!(receipt.terminal().joined_tasks(), 2);
     assert_eq!(receipt.terminal().closed_io_receipts(), 1);
-    assert!(Arc::ptr_eq(
-        &receipt.terminal().failure().unwrap(),
-        &original_failure
+    assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
+        (&receipt.terminal().failure().unwrap()).as_ref(),
+        (&original_failure).as_ref()
     ));
     let fault = &receipt.terminal().task_failures()[0];
     assert_eq!(fault.id, task);

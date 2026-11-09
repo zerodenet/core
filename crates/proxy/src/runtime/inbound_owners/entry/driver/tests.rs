@@ -147,7 +147,10 @@ async fn work_panic_closes_same_original_then_resumes_in_the_same_registered_tas
     let released = proxy
         .inbound_owners
         .release_closed_reported(receipt, |terminal| {
-            assert!(Arc::ptr_eq(&terminal.failure().unwrap(), &first));
+            assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
+                (&terminal.failure().unwrap()).as_ref(),
+                (&first).as_ref()
+            ));
             Ok(())
         })
         .unwrap_err();
