@@ -65,6 +65,9 @@ async fn actual_cleanup_deadline_is_archived_before_ack_and_same_original_late_j
         let batch = Replacement::new(next.clone(), None, [old.clone()]).unwrap();
         let host = TestContext::new(old.order.iter().chain(next.order.iter()).map(AsRef::as_ref));
         assert_eq!(Arc::strong_count(&state.failure), 1);
+        assert!(!state.failure.cleanup_failure_receipt().unwrap().is_acknowledged());
+        assert!(old.order[0].resource_fault().is_none(),
+            "no acknowledgement before an actual receiver retains the original");
         {
             let first = host.drive(batch.confirm(deadline()));
             tokio::pin!(first);
@@ -73,14 +76,22 @@ async fn actual_cleanup_deadline_is_archived_before_ack_and_same_original_late_j
                 _ = &mut first => panic!("the real driver cleanup is still pending"),
             }
         }
-        assert!(
-            !state
-                .failure
-                .cleanup_failure_receipt()
-                .unwrap()
-                .is_acknowledged(),
-            "a cancelled observer cannot acknowledge an unarchived phase"
-        );
+        // The protocol branch has already returned its exact fault to the
+        // Slot's persistent receiver before the sibling native/Scope wait.
+        // Cancelling that later wait must retain this real local handoff;
+        // neither a global archive row nor physical closure exists yet.
+        let local = old.order[0].resource_fault().expect("actual Slot fault receiver");
+        assert_eq!(local.instance, old.order[0].instance_id());
+        assert!(Arc::ptr_eq(
+            crate::component::tests::source::<Arc<ChannelError>>(local.source.as_ref()),
+            &state.failure,
+        ));
+        assert!(state.failure.cleanup_failure_receipt().unwrap().is_acknowledged(),
+            "only this durably retained original permits local cleanup progress");
+        assert!(old.failures.lock().unwrap().is_empty(),
+            "the still-pending report has not reached the plan archive");
+        assert!(!local.reported() && !local.ownership_received());
+        assert!(!state.witness.lock().unwrap().as_ref().unwrap().is_joined());
         assert_eq!(
             Arc::strong_count(&state.failure),
             2,
