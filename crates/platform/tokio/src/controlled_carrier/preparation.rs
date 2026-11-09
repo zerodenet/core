@@ -1,6 +1,7 @@
 //! One-way delivery of the original Business view after its real setup task.
 //! Native authorization remains bound to the admitted Business caller.
 mod closed;
+mod connect_rejection;
 mod job;
 mod publication;
 mod source;
@@ -20,6 +21,7 @@ pub(super) struct Preparation {
     pub(super) expected_caller: Option<TaskJoinWitness>,
     pub(super) auxiliary: OnceLock<TaskJoinWitness>,
     pub(super) published: AtomicBool,
+    pub(super) connect_rejection: OnceLock<crate::contract::scope::TaskJoined>,
     pub(super) job: OnceLock<Arc<job::Job>>,
     pending: OnceLock<crate::contract::network::PendingCarrierObserver>,
 }
@@ -62,6 +64,7 @@ impl CarrierGrant {
             expected_caller: None,
             auxiliary: OnceLock::new(),
             published: AtomicBool::new(false),
+            connect_rejection: OnceLock::new(),
             job: OnceLock::new(),
             pending: OnceLock::new(),
         });
@@ -106,6 +109,7 @@ impl CarrierGrant {
             expected_caller: Some(caller.clone()),
             auxiliary: OnceLock::new(),
             published: AtomicBool::new(false),
+            connect_rejection: OnceLock::new(),
             job: OnceLock::new(),
             pending: OnceLock::new(),
         });

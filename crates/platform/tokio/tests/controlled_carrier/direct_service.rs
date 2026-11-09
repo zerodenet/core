@@ -2,8 +2,8 @@ use super::*;
 use crate::contract::network::UpstreamOpener;
 
 #[tokio::test]
-async fn actual_direct_service_uses_one_original_owner_and_retains_credit_until_its_real_caller_join()
- {
+async fn actual_direct_service_uses_one_original_owner_and_retains_credit_until_its_real_caller_join(
+) {
     timeout(Duration::from_secs(5), async {
         let mut fixture = Fixture::cold(1).await;
         let mut scope = TaskScope::new(
@@ -114,14 +114,12 @@ async fn actual_direct_service_uses_one_original_owner_and_retains_credit_until_
         assert_eq!(actual.id, id);
         assert_eq!(witness.try_joined().unwrap().id(), id);
         assert!(adoption.users_closed().unwrap().matches_caller(&witness));
-        assert!(
-            fixture
-                .owner
-                .shutdown(deadline())
-                .await
-                .unwrap()
-                .is_complete()
-        );
+        assert!(fixture
+            .owner
+            .shutdown(deadline())
+            .await
+            .unwrap()
+            .is_complete());
         assert!(scope.shutdown(deadline()).await.is_complete());
     })
     .await
@@ -162,16 +160,14 @@ async fn direct_service_still_requires_original_fence_scope_literal_and_an_expli
         None,
     )
     .unwrap();
-    assert!(
-        native
-            .prepare_controlled_stream(
-                fixture.transport.binding(),
-                fixture.destination.clone(),
-                context(),
-                grant
-            )
-            .is_err()
-    );
+    assert!(native
+        .prepare_controlled_stream(
+            fixture.transport.binding(),
+            fixture.destination.clone(),
+            context(),
+            grant
+        )
+        .is_err());
     assert!(!adoption.closed().unwrap().had_native_acquisition());
     let (done, waiting) = tokio::sync::oneshot::channel();
     let (_, witness) = scope
@@ -191,89 +187,80 @@ async fn direct_service_still_requires_original_fence_scope_literal_and_an_expli
         .unwrap();
     let mut grant = fixture.grants.reserve().unwrap();
     let user = grant.claim_user_view().unwrap();
-    assert!(
-        bound
-            .direct_service_issuer(
-                &Arc::new(original.as_ref().clone()),
-                &grant,
-                witness.clone(),
-                &fixture.destination,
-                fixture.transport.binding()
-            )
-            .is_err()
-    );
-    assert!(
-        bound
-            .direct_service_issuer(
-                &original,
-                &grant,
-                other,
-                &fixture.destination,
-                fixture.transport.binding()
-            )
-            .is_err()
-    );
+    assert!(bound
+        .direct_service_issuer(
+            &Arc::new(original.as_ref().clone()),
+            &grant,
+            witness.clone(),
+            &fixture.destination,
+            fixture.transport.binding()
+        )
+        .is_err());
+    assert!(bound
+        .direct_service_issuer(
+            &original,
+            &grant,
+            other,
+            &fixture.destination,
+            fixture.transport.binding()
+        )
+        .is_err());
     let mut prefix = fixture.transport.binding().clone();
     prefix.prefix.push(zero_core::component::RoleInstanceId {
         component: ComponentId(999),
         generation: ResourceGeneration(1),
         role: zero_core::component::RoleId::Outbound(zero_core::component::OutboundId(999)),
     });
-    assert!(
-        bound
-            .direct_service_issuer(
-                &original,
-                &grant,
-                witness.clone(),
-                &fixture.destination,
-                &prefix
-            )
-            .is_err()
-    );
+    assert!(bound
+        .direct_service_issuer(
+            &original,
+            &grant,
+            witness.clone(),
+            &fixture.destination,
+            &prefix
+        )
+        .is_err());
     let domain = Destination::new(
         Address::Domain("foreign.invalid".into()),
         fixture.destination.port,
     );
-    assert!(
-        bound
-            .direct_service_issuer(
-                &original,
-                &grant,
-                witness.clone(),
-                &domain,
-                fixture.transport.binding()
-            )
-            .is_err()
-    );
+    assert!(bound
+        .direct_service_issuer(
+            &original,
+            &grant,
+            witness.clone(),
+            &domain,
+            fixture.transport.binding()
+        )
+        .is_err());
     assert!(grant.slot.state().control.is_none());
     assert!(grant.slot.state().unknown.is_none());
     done.send(()).unwrap();
     scope.next_exit().await.unwrap();
-    assert!(
-        bound
-            .direct_service_issuer(
-                &original,
-                &grant,
-                witness,
-                &fixture.destination,
-                fixture.transport.binding()
-            )
-            .is_err()
-    );
+    assert!(bound
+        .direct_service_issuer(
+            &original,
+            &grant,
+            witness,
+            &fixture.destination,
+            fixture.transport.binding()
+        )
+        .is_err());
     other_done.send(()).unwrap();
     foreign.next_exit().await.unwrap();
     drop((grant, user));
-    assert!(
-        fixture
-            .owner
-            .shutdown(deadline())
-            .await
-            .unwrap()
-            .is_complete()
-    );
+    assert!(fixture
+        .owner
+        .shutdown(deadline())
+        .await
+        .unwrap()
+        .is_complete());
     assert!(scope.shutdown(deadline()).await.is_complete());
     assert!(foreign.shutdown(deadline()).await.is_complete());
 }
 
 #[path = "direct_service/preparing.rs"]
 mod preparing;
+
+#[path = "direct_service/connect_rejection.rs"]
+mod connect_rejection;

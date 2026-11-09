@@ -100,3 +100,6 @@ mod node;
 
 #[path = "resource_carrier/direct.rs"]
 mod direct;
+
+#[path = "resource_carrier/service_datagram.rs"]
+mod service_datagram;

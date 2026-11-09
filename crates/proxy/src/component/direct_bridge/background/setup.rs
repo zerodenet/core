@@ -106,6 +106,16 @@ impl Candidates {
                 ChannelError::retained,
             ));
         }
+        if let Err(source) = &outcome {
+            if zero_platform_tokio::controlled_carrier::original_connect_error(source).is_some() {
+                adoption
+                    .preparation()
+                    .ok_or_else(|| {
+                        invalid(Reason::StalePlan, "Direct original lost its preparation")
+                    })?
+                    .receive_connect_rejection(source)?;
+            }
+        }
         outcome.map_err(ChannelError::retained)
     }
 }

@@ -1,6 +1,7 @@
 //! Original granted resources and protocol lifecycle over the same host provider.
 use super::*;
 pub(super) struct BoundResources {
+    pub(super) carrier_buffers: zero_platform_tokio::controlled_carrier::CarrierBufferBudget,
     pub(super) packet_metadata: zero_platform_tokio::contract::component::PacketDriverMetadataView,
     #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
     pub(super) source_entry: std::sync::Weak<super::super::InboundOwner>,
@@ -30,6 +31,12 @@ pub(super) struct BoundResources {
         Option<zero_platform_tokio::contract::component::AcceptedDatagramAuthority>,
 }
 impl ResourceAccess for BoundResources {
+    fn carrier_buffer_budget(
+        &self,
+    ) -> Option<zero_platform_tokio::controlled_carrier::CarrierBufferBudget> {
+        Some(self.carrier_buffers.clone())
+    }
+
     fn packet_driver_metadata(
         &self,
     ) -> Result<zero_platform_tokio::contract::component::PacketDriverMetadataView, BuildError>

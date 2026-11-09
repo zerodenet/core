@@ -289,6 +289,12 @@ impl InboundInstallContext {
             )
         };
         let resources = Arc::new(BoundResources {
+            carrier_buffers: self
+                .protocols
+                .runtime_host()
+                .original_budgets()
+                .carrier
+                .buffer_budget(),
             packet_metadata: self
                 .protocols
                 .runtime_host()

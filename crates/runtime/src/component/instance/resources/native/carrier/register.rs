@@ -44,6 +44,7 @@ impl HostResources {
             ResourceDeclaration::ControlledOutboundStream { max_sockets, .. }
             | ResourceDeclaration::ControlledCarrierPool { max_sockets, .. }
             | ResourceDeclaration::ControlledServiceStream { max_sockets, .. }
+            | ResourceDeclaration::ControlledServiceDatagram { max_sockets, .. }
             | ResourceDeclaration::ControlledAssociationPool { max_sockets, .. }
             | ResourceDeclaration::ControlledDatagramCarrier { max_sockets, .. }
             | ResourceDeclaration::ControlledNodeCarrier { max_sockets, .. }
