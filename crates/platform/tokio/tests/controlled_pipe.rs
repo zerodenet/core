@@ -167,5 +167,8 @@ async fn failed_native_pipe_creation_keeps_the_actual_worker_and_partial_event_o
     assert!(witness.is_joined() && owner.std_worker_joined());
     assert!(witness.try_joined().unwrap().result().is_err());
     let closed = owner.close(end()).await.unwrap();
-    assert!(owner.matches_closed(&closed) && !closed.had_native_acquisition());
+    assert!(owner.matches_closed(&closed) && closed.had_native_acquisition());
 }
+
+#[path = "controlled_pipe/client.rs"]
+mod client;

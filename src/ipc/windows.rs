@@ -15,9 +15,7 @@ use zero_platform_tokio::{
     ControlledPipe, ControlledPipeOwner,
 };
 use zero_proxy::ProxyHandle;
-mod client;
 mod owner;
-pub use client::{send_request, stream_events};
 use owner::Originals;
 pub const PIPE_NAME: &str = r"\\.\pipe\zero-control";
 pub struct IpcServerHandle {

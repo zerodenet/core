@@ -6,13 +6,28 @@ use std::fmt;
 /// commands that don't need a config file.
 pub fn config_path_from_args(args: &[String]) -> Option<&str> {
     let mut iter = args.iter().skip(1);
+    // These explicit global client options do not select a config source.
+    while iter.clone().next().is_some_and(|arg| {
+        matches!(
+            arg.as_str(),
+            "--control-client-max-frame-bytes" | "--control-client-total-max-bytes"
+        )
+    }) {
+        iter.next();
+        iter.next();
+    }
     let first = iter.next()?;
     match first.as_str() {
         "run" | "validate" | "reload" => {
             while let Some(arg) = iter.next() {
                 if matches!(
                     arg.as_str(),
-                    "--status-listen" | "--control-socket" | "--ipc-hook-socket" | "--socket"
+                    "--status-listen"
+                        | "--control-socket"
+                        | "--ipc-hook-socket"
+                        | "--socket"
+                        | "--control-client-max-frame-bytes"
+                        | "--control-client-total-max-bytes"
                 ) {
                     iter.next();
                     continue;
@@ -26,7 +41,12 @@ pub fn config_path_from_args(args: &[String]) -> Option<&str> {
         }
         "status" => {
             while let Some(arg) = iter.next() {
-                if arg == "--socket" {
+                if matches!(
+                    arg.as_str(),
+                    "--socket"
+                        | "--control-client-max-frame-bytes"
+                        | "--control-client-total-max-bytes"
+                ) {
                     iter.next();
                     continue;
                 }
@@ -63,6 +83,12 @@ pub fn config_path_from_args(args: &[String]) -> Option<&str> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
+    /// Explicit application-client budgets; omitted flags preserve old variants.
+    ControlClient {
+        max_frame_bytes: usize,
+        total_max_bytes: usize,
+        command: Box<Command>,
+    },
     Run {
         config_path: String,
         status_listen: Option<String>,
@@ -158,7 +184,32 @@ impl fmt::Display for CliError {
 
 impl Error for CliError {}
 
+mod client_limits;
 pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, CliError> {
+    client_limits::parse(args)
+}
+impl Command {
+    pub(crate) fn uses_control_client(&self) -> bool {
+        matches!(
+            self,
+            Self::Status {
+                config_path: None,
+                ..
+            } | Self::Select { .. }
+                | Self::Flows { .. }
+                | Self::Policies { .. }
+                | Self::Events { .. }
+                | Self::Reload { .. }
+                | Self::Mode { .. }
+                | Self::TunStart { .. }
+                | Self::TunRecover { .. }
+                | Self::TunStop { .. }
+                | Self::TunStatus { .. }
+        )
+    }
+}
+
+fn parse_original_args(args: impl IntoIterator<Item = String>) -> Result<Command, CliError> {
     let mut args = args.into_iter();
     let _ = args.next(); // skip program name
 
@@ -268,6 +319,10 @@ pub fn usage() -> &'static str {
   zero version
   zero -V, --version
   zero help
+
+IPC client budgets (optional global flags; bytes, allocated on demand):
+  --control-client-max-frame-bytes BYTES
+  --control-client-total-max-bytes BYTES
 
 Examples:
   zero run config.json

@@ -5,13 +5,16 @@ use zero_api::QueryRequest;
 use super::resolve_socket;
 use crate::cli::Command;
 
-pub fn execute(command: Command) -> Result<(), Box<dyn Error>> {
+pub async fn execute(
+    command: Command,
+    client: Option<&crate::ipc::client::Caller>,
+) -> Result<(), Box<dyn Error>> {
     match command {
         Command::Status {
             config_path,
             json,
             socket_path,
-        } => status(config_path.as_deref(), json, socket_path.as_deref()),
+        } => status(config_path.as_deref(), json, socket_path.as_deref(), client).await,
         Command::Validate { config_path } => {
             let source =
                 std::sync::Arc::new(zero_runtime::configuration::ConfigurationSource::default());
@@ -169,49 +172,25 @@ fn connector_state(_config_path: &str, _json: bool) -> Result<(), Box<dyn Error>
     .into())
 }
 
-fn status(
+async fn status(
     config_path: Option<&str>,
     json: bool,
     socket_path: Option<&str>,
+    client: Option<&crate::ipc::client::Caller>,
 ) -> Result<(), Box<dyn Error>> {
     if config_path.is_none() {
         if let Ok(socket) = resolve_socket(socket_path) {
-            let response = crate::ipc::client::send_request(
-                &socket,
-                &crate::ipc::protocol::IpcRequest::Query {
-                    id: None,
-                    request: QueryRequest::Runtime(Default::default()),
-                },
-            )?;
-            let result = response.result.unwrap_or_default();
-            if json {
-                println!("{}", serde_json::to_string_pretty(&result)?);
-            } else {
-                println!("Engine Status (via {socket})");
-                if let Some(stats) = result.get("stats") {
-                    println!(
-                        "  sessions: active={} total={} completed={} failed={}",
-                        stats["active_sessions"].as_u64().unwrap_or(0),
-                        stats["total_started"].as_u64().unwrap_or(0),
-                        stats["completed_sessions"].as_u64().unwrap_or(0),
-                        stats["failed_sessions"].as_u64().unwrap_or(0),
-                    );
-                }
-                println!(
-                    "  active_flows: {}",
-                    result
-                        .get("active_sessions")
-                        .and_then(|value| value.as_array())
-                        .map_or(0, Vec::len)
-                );
-                println!(
-                    "  recent_completed: {}",
-                    result
-                        .get("recent_completed_sessions")
-                        .and_then(|value| value.as_array())
-                        .map_or(0, Vec::len)
-                );
-            }
+            let response = client
+                .expect("actual status client installed")
+                .request(
+                    &socket,
+                    &crate::ipc::protocol::IpcRequest::Query {
+                        id: None,
+                        request: QueryRequest::Runtime(Default::default()),
+                    },
+                )
+                .await?;
+            response.print_status(&socket, json)?;
             return Ok(());
         }
     }

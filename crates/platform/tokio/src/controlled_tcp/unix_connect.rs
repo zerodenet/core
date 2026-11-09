@@ -206,19 +206,38 @@ impl PendingUnixConnect {
         ))
     }
     pub async fn connect(&mut self, deadline: Instant) -> io::Result<ControlledTcpStream> {
+        self.connect_until(Some(deadline)).await
+    }
+    /// Same original connect with cancellation and no observer deadline.
+    /// Its concrete caller still retains the original control through close.
+    pub async fn connect_original(&mut self) -> io::Result<ControlledTcpStream> {
+        self.connect_until(None).await
+    }
+    async fn connect_until(
+        &mut self,
+        deadline: Option<Instant>,
+    ) -> io::Result<ControlledTcpStream> {
         if self.attempted {
             return Err(io::Error::other("Unix connect already attempted"));
         }
         self.attempted = true;
         let guard = self.shared.cancel.clone().drop_guard();
-        let result = tokio::select! { biased;
+        let operation = poll_fn(|cx| {
+            self.waiter.publish(cx.waker());
+            let waker = std::task::Waker::from(self.shared.wakes.write.clone());
+            let mut cx = Context::from_waker(&waker);
+            self.shared.poll_io(|socket| match socket {
+                socket::Socket::Unix(socket) => socket.poll_connect(&mut cx),
+                _ => Poll::Ready(Err(closed())),
+            })
+        });
+        tokio::pin!(operation);
+        let result = tokio::select! {biased;
             _=self.shared.cancel.cancelled()=>Err(io::Error::new(io::ErrorKind::Interrupted,"Unix connect cancelled")),
-            result=tokio::time::timeout_at(deadline,poll_fn(|cx| {
-                self.waiter.publish(cx.waker());
-                let waker=std::task::Waker::from(self.shared.wakes.write.clone());
-                let mut cx=Context::from_waker(&waker);
-                self.shared.poll_io(|socket| match socket { socket::Socket::Unix(socket)=>socket.poll_connect(&mut cx), _=>Poll::Ready(Err(closed())) })
-            }))=>result.map_err(io::Error::other)?,
+            result=async {match deadline {
+                Some(deadline)=>tokio::time::timeout_at(deadline,operation).await.map_err(io::Error::other)?,
+                None=>operation.await,
+            }}=>result,
         };
         result?;
         guard.disarm();

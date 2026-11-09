@@ -1,16 +1,16 @@
 //! One actual Windows pipe, its original worker and unique byte-stream view.
 //! A notification is readiness only; CloseHandle follows actual std/Scope joins.
 use crate::contract::{
-    ChannelError, Impact, Reason, Stage,
     scope::{TaskClass, TaskJoinWitness, TaskRegistrar, WeakTaskRegistrar},
+    ChannelError, Impact, Reason, Stage,
 };
 use std::{
     collections::VecDeque,
     io,
     path::PathBuf,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, AtomicU8, Ordering},
+        Arc, Mutex,
     },
     task::{Context, Poll, Waker},
 };
@@ -59,6 +59,7 @@ impl std::error::Error for PipeNativeFailures {
 }
 struct Shared {
     path: PathBuf,
+    client: bool,
     tasks: WeakTaskRegistrar,
     scope_stop: crate::contract::CancellationToken,
     stop: AtomicBool,
@@ -111,9 +112,18 @@ impl ControlledPipeOwner {
     /// The caller installs this cold owner and its connection/worker charge
     /// before invoking open. No OS handle/thread is created by construction.
     pub fn new(path: PathBuf, tasks: TaskRegistrar) -> Self {
+        Self::with_side(path, tasks, false)
+    }
+    /// An explicit client of this exact named pipe. Construction is cold and
+    /// retains the same original std worker, Scope and matching close duties.
+    pub fn new_client(path: PathBuf, tasks: TaskRegistrar) -> Self {
+        Self::with_side(path, tasks, true)
+    }
+    fn with_side(path: PathBuf, tasks: TaskRegistrar, client: bool) -> Self {
         let scope_stop = tasks.cancellation();
         Self(Arc::new(Shared {
             path,
+            client,
             tasks: tasks.downgrade(),
             scope_stop,
             stop: AtomicBool::new(false),

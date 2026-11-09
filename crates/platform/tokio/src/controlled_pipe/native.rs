@@ -1,22 +1,18 @@
 //! Only this actual worker submits/cancels these original OVERLAPPED objects.
 use super::*;
+mod create;
 mod operations;
 mod panic;
 pub(super) use panic::split as split_panic;
-use std::{os::windows::ffi::OsStrExt, ptr};
 use windows_sys::Win32::{
     Foundation::{
         CloseHandle, ERROR_BROKEN_PIPE, ERROR_HANDLE_EOF, ERROR_IO_INCOMPLETE, ERROR_IO_PENDING,
-        ERROR_NOT_FOUND, ERROR_NO_DATA, ERROR_OPERATION_ABORTED, ERROR_PIPE_CONNECTED, HANDLE,
-        INVALID_HANDLE_VALUE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
+        ERROR_NOT_FOUND, ERROR_OPERATION_ABORTED, HANDLE, INVALID_HANDLE_VALUE, WAIT_FAILED,
+        WAIT_OBJECT_0, WAIT_TIMEOUT,
     },
-    Storage::FileSystem::{ReadFile, WriteFile, FILE_FLAG_OVERLAPPED, PIPE_ACCESS_DUPLEX},
+    Storage::FileSystem::{ReadFile, WriteFile},
     System::{
-        Pipes::{
-            ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS,
-            PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES,
-        },
-        Threading::{CreateEventW, ResetEvent, SetEvent, WaitForMultipleObjects},
+        Threading::{ResetEvent, SetEvent, WaitForMultipleObjects},
         IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED},
     },
 };
@@ -71,45 +67,6 @@ impl Native {
     }
     pub(super) fn acquired(&self) -> bool {
         self.ever_acquired
-    }
-    fn create(&mut self, shared: &Shared) -> io::Result<()> {
-        for index in 0..4 {
-            let event = unsafe { CreateEventW(ptr::null(), 1, 0, ptr::null()) };
-            if event.is_null() {
-                return Err(io::Error::last_os_error());
-            }
-            self.events[index] = event as usize;
-        }
-        self.connect.overlapped.hEvent = handle(self.events[0]);
-        self.read.overlapped.hEvent = handle(self.events[1]);
-        self.write.overlapped.hEvent = handle(self.events[2]);
-        *lock(&shared.wake) = Some(self.events[3]);
-        let mut path = shared.path.as_os_str().encode_wide().collect::<Vec<_>>();
-        if path.contains(&0) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "pipe path contains NUL",
-            ));
-        }
-        path.push(0);
-        let pipe = unsafe {
-            CreateNamedPipeW(
-                path.as_ptr(),
-                PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-                PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_REJECT_REMOTE_CLIENTS,
-                PIPE_UNLIMITED_INSTANCES,
-                65536,
-                65536,
-                0,
-                ptr::null(),
-            )
-        };
-        if pipe == INVALID_HANDLE_VALUE {
-            return Err(io::Error::last_os_error());
-        }
-        self.pipe = pipe as usize;
-        self.ever_acquired = true;
-        Ok(())
     }
     pub(super) fn run(&mut self, shared: &Shared) -> io::Result<()> {
         let work = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.drive(shared)))
@@ -171,28 +128,7 @@ impl Native {
         }
         lock(&shared.state).startup = Some(Ok(()));
         shared.notify_io();
-        self.connect.pending = true;
-        let connected =
-            unsafe { ConnectNamedPipe(handle(self.pipe), &mut *self.connect.overlapped) };
-        if connected != 0 {
-            self.connect.pending = false;
-            lock(&shared.state).connected = true;
-        } else {
-            let error = io::Error::last_os_error();
-            match error.raw_os_error().map(|code| code as u32) {
-                Some(ERROR_PIPE_CONNECTED | ERROR_NO_DATA) => {
-                    self.connect.pending = false;
-                    lock(&shared.state).connected = true;
-                }
-                Some(ERROR_IO_PENDING) => {
-                    shared.pending.fetch_or(1, Ordering::AcqRel);
-                }
-                _ => {
-                    self.connect.pending = false;
-                    return Err(error);
-                }
-            }
-        }
+        self.start_connect(shared)?;
         shared.notify_io();
         loop {
             #[cfg(test)]

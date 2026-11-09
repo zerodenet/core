@@ -6,7 +6,10 @@ use crate::ipc::protocol::IpcRequest;
 #[cfg(test)]
 mod tests;
 
-pub fn execute(command: Command) -> Result<(), Box<dyn Error>> {
+pub async fn execute(
+    command: Command,
+    client: Option<&crate::ipc::client::Caller>,
+) -> Result<(), Box<dyn Error>> {
     match command {
         Command::TunStart {
             name,
@@ -23,61 +26,77 @@ pub fn execute(command: Command) -> Result<(), Box<dyn Error>> {
             dns_hijack,
             socket_path,
         } => {
-            let request = IpcRequest::Command {
-                id: None,
-                method: "tun.start".to_owned(),
-                params: serde_json::json!({
-                    "name": name,
-                    "addr": addr,
-                    "mask": mask.unwrap_or_else(|| "255.255.255.0".to_owned()),
-                    "secondary_addr": secondary_addr,
-                    "mtu": mtu,
-                    "tag": tag,
-                    "auto_route": auto_route,
-                    "include_cidrs": include_cidrs,
-                    "exclude_cidrs": exclude_cidrs,
-                    "dual_stack": dual_stack,
-                    "strict_route": strict_route,
-                    "dns_hijack": dns_hijack,
-                }),
-            };
-            send_command(socket_path.as_deref(), request, "tun started")
+            #[derive(serde::Serialize)]
+            struct Params<'a> {
+                name: Option<&'a str>,
+                addr: &'a str,
+                mask: &'a str,
+                secondary_addr: Option<&'a str>,
+                mtu: Option<u16>,
+                tag: &'a str,
+                auto_route: bool,
+                include_cidrs: &'a [String],
+                exclude_cidrs: &'a [String],
+                dual_stack: bool,
+                strict_route: bool,
+                dns_hijack: bool,
+            }
+            send_command(
+                client.expect("actual TUN client installed"),
+                socket_path.as_deref(),
+                "tun.start",
+                Params {
+                    name: name.as_deref(),
+                    addr: &addr,
+                    mask: mask.as_deref().unwrap_or("255.255.255.0"),
+                    secondary_addr: secondary_addr.as_deref(),
+                    mtu,
+                    tag: &tag,
+                    auto_route,
+                    include_cidrs: &include_cidrs,
+                    exclude_cidrs: &exclude_cidrs,
+                    dual_stack,
+                    strict_route,
+                    dns_hijack,
+                },
+                "tun started",
+            )
+            .await
         }
-        Command::TunRecover { socket_path } => send_command(
-            socket_path.as_deref(),
-            IpcRequest::Command {
-                id: None,
-                method: "tun.recover".to_owned(),
-                params: serde_json::json!({}),
-            },
-            "tun network recovered",
-        ),
-        Command::TunStop { socket_path } => send_command(
-            socket_path.as_deref(),
-            IpcRequest::Command {
-                id: None,
-                method: "tun.stop".to_owned(),
-                params: serde_json::json!({}),
-            },
-            "tun stopped",
-        ),
+        Command::TunRecover { socket_path } => {
+            send_command(
+                client.expect("actual TUN client installed"),
+                socket_path.as_deref(),
+                "tun.recover",
+                Empty {},
+                "tun network recovered",
+            )
+            .await
+        }
+        Command::TunStop { socket_path } => {
+            send_command(
+                client.expect("actual TUN client installed"),
+                socket_path.as_deref(),
+                "tun.stop",
+                Empty {},
+                "tun stopped",
+            )
+            .await
+        }
         Command::TunStatus { socket_path } => {
             let socket = super::resolve_socket(socket_path.as_deref())?;
-            let response = crate::ipc::client::send_request(
-                &socket,
-                &IpcRequest::Query {
-                    id: None,
-                    request: zero_api::QueryRequest::TunStatus(zero_api::TunStatusQuery),
-                },
-            )?;
-            if !response.ok {
-                return Err(response
-                    .error
-                    .map(|error| error.message)
-                    .unwrap_or_default()
-                    .into());
-            }
-            let status = decode_tun_status(response.result.unwrap_or_default())?;
+            let response = client
+                .expect("actual TUN client installed")
+                .request(
+                    &socket,
+                    &IpcRequest::Query {
+                        id: None,
+                        request: zero_api::QueryRequest::TunStatus(zero_api::TunStatusQuery),
+                    },
+                )
+                .await?
+                .ensure_ok("")?;
+            let status = response.tun_status()?;
             if status.running {
                 println!(
                     "tun: running, healthy={}, managed_by_config={}, name={}, addr={}, addresses={}, mtu={}, tag={}, auto_route={}, include_cidrs={}, exclude_cidrs={}, dual_stack={}, strict_route={}, dns_hijack={}, egress={}, egress_v4={}, egress_v6={}, ipv4_state={}, ipv4_reason={}, ipv6_state={}, ipv6_reason={}, address_family_policy={}, generation={}, ipv6_to_ipv4_fallbacks={}, last_error={}",
@@ -122,7 +141,7 @@ pub fn execute(command: Command) -> Result<(), Box<dyn Error>> {
                     status.ipv6_to_ipv4_fallbacks,
                     status.last_error.as_deref().unwrap_or("-")
                 );
-            } else if let Some(error) = status.last_error {
+            } else if let Some(error) = status.last_error.as_ref() {
                 println!("tun: not running, last_error={error}");
             } else {
                 println!("tun: not running");
@@ -148,6 +167,7 @@ pub fn execute(command: Command) -> Result<(), Box<dyn Error>> {
     }
 }
 
+#[cfg(test)]
 fn decode_tun_status(
     value: serde_json::Value,
 ) -> Result<zero_api::TunStatusSnapshot, Box<dyn Error>> {
@@ -158,21 +178,20 @@ fn decode_tun_status(
     Ok(status)
 }
 
-fn send_command(
+#[derive(serde::Serialize)]
+struct Empty {}
+async fn send_command(
+    client: &crate::ipc::client::Caller,
     socket_path: Option<&str>,
-    request: IpcRequest,
+    method: &str,
+    params: impl serde::Serialize,
     success: &str,
 ) -> Result<(), Box<dyn Error>> {
     let socket = super::resolve_socket(socket_path)?;
-    let response = crate::ipc::client::send_request(&socket, &request)?;
-    if response.ok {
-        println!("{success}");
-        Ok(())
-    } else {
-        Err(response
-            .error
-            .map(|error| error.message)
-            .unwrap_or_default()
-            .into())
-    }
+    client
+        .request(&socket, &crate::ipc::client::Command::new(method, params))
+        .await?
+        .ensure_ok("")?;
+    println!("{success}");
+    Ok(())
 }

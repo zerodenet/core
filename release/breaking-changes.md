@@ -1013,3 +1013,31 @@ until deallocation. All five lanes validate/install atomically, so a failed
 shrink changes none. Omitted fields remain omitted on export. The SDK/root
 consumers are installed; remaining Source/actor/helper consumers still require
 complete implementation and qualification, not merely these configuration keys.
+
+
+The existing application control/tun/live-status CLI now owns its actual IPC
+client attempt and a local ControlBudget; it never borrows the daemon's book or
+creates a second RuntimeHost. Optional global
+`--control-client-max-frame-bytes` / `--control-client-total-max-bytes` use the
+existing IPC-frame/response-total defaults (64MiB each) when omitted and require
+`1 <= frame <= total <= 256MiB`. They bound complete frames and retained payload
+capacity/workspace, allocated on demand, rather than OS buffers or RSS. A later
+operation reuses that same application's book; held replies/errors remain
+charged, and a held shrink rejects without evicting data. Old command variants
+are preserved when flags are absent. V1 JSON values, CLI output and the daemon's
+15-second accepted-Apply reply remain unchanged. Client connect/read keeps its
+previous unbounded observation; only original cleanup uses the existing 5-second
+observer deadline. Timeout/Drop never confirms original closure.
+
+The Unix client uses the same retained `PendingUnixConnect` original through the
+additive `connect_original()` method. Windows uses the additive explicit
+`ControlledPipeOwner::new_client` provider and its original CreateFileW handle,
+worker and Scope; no regular-file client remains. The native provider still
+separates unique-view return, matching CloseHandle/close disposition, actual
+std/IO task joins and real Hosted ACK. Its partial-acquisition fact now includes
+each successfully created event handle. These are additive public Rust methods;
+the new server/client discriminator is private. The `serde_json` workspace
+version is unchanged; only its `raw_value` feature is enabled. Client replies
+borrow their prepaid wire bytes; arrays stream, object formatting uses a paid
+index, and concrete TUN DTO Vec/String capacities are prepaid before decoding.
+This does not close the separate server-side dynamic decoded-request DTO audit.
