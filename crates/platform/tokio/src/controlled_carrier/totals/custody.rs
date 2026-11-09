@@ -3,6 +3,7 @@
 use super::*;
 use std::time::Duration;
 pub(super) trait CarrierCustody: Send + Sync {
+    fn root_released(&self);
     /// Same concrete original/binding copy; no generation from error metadata.
     fn instance(&self) -> Option<zero_core::component::ComponentInstanceId>;
     fn released(&self) -> bool;
@@ -16,6 +17,7 @@ pub(super) trait CarrierCustody: Send + Sync {
     }
 }
 pub(crate) trait MetadataCustody: Send + Sync {
+    fn root_released(&self);
     /// Same concrete original/binding copy; no generation from error metadata.
     fn instance(&self) -> Option<zero_core::component::ComponentInstanceId>;
     fn released(&self) -> bool;
@@ -36,6 +38,13 @@ pub(crate) trait BoundCustody: Send + Sync {
     }
 }
 impl CarrierCustody for Original {
+    fn root_released(&self) {
+        let phase = { self.slot.state().protocol.clone() };
+        if let Some(phase) = phase {
+            assert!(phase.root_bound());
+            phase.settle();
+        }
+    }
     fn resource_failure(&self) -> Option<Arc<crate::contract::lifecycle::ResourceFailure>> {
         self.slot
             .state()

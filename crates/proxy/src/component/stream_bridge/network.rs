@@ -343,6 +343,13 @@ impl UpstreamOpener for NodeOpener {
             .as_ref()
             .is_some_and(|request| request.has_tracked_caller())
     }
+    fn protocol_original_observer(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::network::PendingCarrierObserver> {
+        self.pending
+            .as_ref()
+            .and_then(|(_, waiting)| waiting.protocol_original_observer())
+    }
     fn has_pending_carrier_observer(&self) -> bool {
         self.pending.is_some()
     }

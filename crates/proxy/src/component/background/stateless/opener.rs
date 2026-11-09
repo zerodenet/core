@@ -23,6 +23,11 @@ impl UpstreamOpener for Opener {
     ) -> Result<zero_platform_tokio::controlled_carrier::CarrierPreparationJob, ChannelError> {
         self.reserve_job(binding, call)
     }
+    fn protocol_original_observer(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::network::PendingCarrierObserver> {
+        self.upstream.protocol_original_observer()
+    }
     fn has_pending_carrier_observer(&self) -> bool {
         self.transfer.preparing.lock().unwrap().is_some()
             || self.upstream.observed_pending_carrier().is_some()

@@ -208,6 +208,20 @@ impl MetadataTotalsOriginal {
 }
 
 impl crate::controlled_carrier::MetadataCustody for MetadataTotalsOriginal {
+    fn root_released(&self) {
+        assert!(self.slot.root_bound);
+        self.slot.closed.publish_root_return();
+        let phase = self
+            .slot
+            .protocol
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        if let Some(phase) = phase {
+            assert!(phase.root_bound());
+            phase.settle();
+        }
+    }
     fn resource_failure(&self) -> Option<Arc<crate::contract::lifecycle::ResourceFailure>> {
         self.close_cohort()
             .and_then(|cohort| cohort.resource_failure())

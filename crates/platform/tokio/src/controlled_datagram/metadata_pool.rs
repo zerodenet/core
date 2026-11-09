@@ -68,6 +68,7 @@ struct State {
     last_binding: Option<MetadataPoolBinding>,
 }
 struct Slot {
+    root_bound: bool,
     owner: Weak<Shared>,
     instance: ComponentInstanceId,
     ordinal: u64,

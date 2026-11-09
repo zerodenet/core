@@ -5,6 +5,8 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex, Weak,
 };
+#[path = "original_protocol/handle.rs"]
+mod handle;
 #[path = "original_protocol/operation.rs"]
 mod operation;
 #[path = "original_protocol/polling.rs"]
@@ -25,6 +27,7 @@ pub struct RejectedOriginalProtocolControl {
     pub control: crate::contract::lifecycle::BoxChannelControl,
 }
 pub(crate) struct Phase {
+    root_bound: bool,
     instance: zero_core::component::ComponentInstanceId,
     requested: CancellationToken,
     waker: Mutex<Option<std::task::Waker>>,
@@ -43,77 +46,16 @@ struct State {
     first_fault: Option<Arc<ChannelError>>,
     resource_fault: Option<Arc<crate::contract::lifecycle::ResourceFailure>>,
 }
-impl CarrierProtocolRetirement {
-    pub async fn wait_settled_original(&self) -> Result<(), ChannelError> {
-        if self.is_settled() {
-            return Ok(());
-        }
-        let phase = self.phase.upgrade().ok_or_else(|| {
-            ChannelError::new(
-                crate::contract::Stage::Close,
-                crate::contract::Reason::Revoked,
-                crate::contract::Impact::Component,
-            )
-        })?;
-        phase.request();
-        loop {
-            let changed = phase.changed.notified();
-            tokio::pin!(changed);
-            changed.as_mut().enable();
-            if self.is_settled() {
-                return Ok(());
-            }
-            changed.await;
-        }
-    }
-    pub async fn wait_protocol_original(&self) -> Result<(), ChannelError> {
-        if self.is_settled() {
-            return Ok(());
-        }
-        let phase = self.phase.upgrade().ok_or_else(|| {
-            ChannelError::new(
-                crate::contract::Stage::Close,
-                crate::contract::Reason::Revoked,
-                crate::contract::Impact::Component,
-            )
-        })?;
-        phase.request();
-        loop {
-            let changed = phase.changed.notified();
-            tokio::pin!(changed);
-            changed.as_mut().enable();
-            if phase.complete() {
-                return Ok(());
-            }
-            changed.await;
-        }
-    }
 
-    /// Same original Root removed its charged reservation only after the real
-    /// native/users receipts and every actual registration ACK.
-    pub fn is_settled(&self) -> bool {
-        self.settled.load(Ordering::Acquire)
-    }
-    pub fn request_retirement(&self) {
-        if let Some(phase) = self.phase.upgrade() {
-            phase.request();
-        }
-    }
-    /// Wake only the existing Root continuation after an actual view/cleanup
-    /// state change. This carries neither progress nor closure evidence.
-    pub fn notify_progress(&self) {
-        if let Some(phase) = self.phase.upgrade() {
-            phase.wake();
-        }
-    }
-}
 impl Phase {
     pub(crate) fn new(
         control: crate::contract::lifecycle::BoxChannelControl,
         instance: zero_core::component::ComponentInstanceId,
+        root_bound: bool,
     ) -> Arc<Self> {
         Arc::new_cyclic(|weak| Self {
             instance,
+            root_bound,
             requested: CancellationToken::new(),
             waker: Mutex::default(),
             control: Arc::new(AsyncMutex::new(Some(control))),
@@ -126,6 +68,9 @@ impl Phase {
             state: Mutex::default(),
             fault_sources: Arc::default(),
         })
+    }
+    pub(crate) fn root_bound(&self) -> bool {
+        self.root_bound
     }
     pub(crate) fn handle(self: &Arc<Self>) -> CarrierProtocolRetirement {
         CarrierProtocolRetirement {

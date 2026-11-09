@@ -63,6 +63,77 @@ impl MetadataPoolGrants {
     }
 }
 impl MetadataPoolPreparation {
+    /// Seal only this actual Root-held reservation and canonical waiting caller.
+    /// The original binding Arc is shared; no config/prefix bytes are cloned.
+    pub fn protocol_original(
+        &self,
+        upstream: &crate::contract::network::UpstreamTransport,
+        observer: crate::contract::network::PendingCarrierObserver,
+        endpoint: &zero_core::request::Destination,
+        retirement: &crate::controlled_carrier::CarrierProtocolRetirement,
+    ) -> Result<crate::controlled_carrier::ProtocolOriginal, ChannelError> {
+        let permit = self.permit.as_ref().expect("unique prepared original");
+        let owner = permit
+            .0
+            .owner
+            .upgrade()
+            .ok_or_else(|| error(Reason::Revoked, "protocol original owner disappeared"))?;
+        let authority = owner
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .bound
+            .clone()
+            .ok_or_else(|| error(Reason::InvalidConfig, "protocol original is not Host-bound"))?;
+        let actual = {
+            permit
+                .0
+                .protocol
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone()
+        }
+        .ok_or_else(|| {
+            error(
+                Reason::InvalidConfig,
+                "original lacks installed protocol cleanup",
+            )
+        })?;
+        let binding = upstream.binding();
+        let declared = matches!(&authority.declaration,crate::contract::component::ResourceDeclaration::ControlledMetadataCarrier {endpoint:actual,dial,..}
+            if actual==endpoint && dial==&binding.dial);
+        let actual_observer = upstream.protocol_original_observer();
+        if !actual_observer
+            .as_ref()
+            .is_some_and(|actual| observer.same_observer(actual))
+            || !permit.0.root_bound
+            || !retirement.matches_phase(&actual)
+            || !binding.prefix.is_empty()
+            || !declared
+            || owner.cancel.is_cancelled()
+            || authority.host_cancel.is_cancelled()
+            || !authority.scope.resource_open()
+            || !permit
+                .0
+                .registration_scope
+                .as_ref()
+                .is_some_and(|scope| scope.scope_identity().same_scope(&authority.scope))
+        {
+            return Err(error(
+                Reason::StalePlan,
+                "protocol original differs from exact Host/scope/declaration",
+            ));
+        }
+        Ok(
+            crate::controlled_carrier::ProtocolOriginal::metadata_original(
+                permit.origin(),
+                authority.scope.clone(),
+                upstream.original_binding(),
+                observer,
+                retirement.clone(),
+            ),
+        )
+    }
     /// Durable exact original observation, never native or task permission.
     pub fn origin(&self) -> MetadataPoolOrigin {
         self.permit
@@ -166,6 +237,17 @@ impl Drop for MetadataPoolPreparation {
         if let Some(permit) = self.permit.take() {
             permit.0.preparing.store(false, Ordering::Release);
             permit.0.retired.cancel();
+            let protocol = permit
+                .0
+                .protocol
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone();
+            // Publish the final preparing=false fact before waking its same
+            // persistent Root operation; no foreign wake occurs under a gate.
+            if let Some(protocol) = protocol {
+                protocol.request();
+            }
         }
     }
 }

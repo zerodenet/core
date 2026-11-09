@@ -28,6 +28,8 @@ mod origin;
 mod owner;
 mod packet;
 mod preparation;
+mod protocol_original;
+pub use protocol_original::ProtocolOriginal;
 mod prepared;
 mod registration;
 mod resolution;

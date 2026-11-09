@@ -166,6 +166,22 @@ pub trait UpstreamOpener: Send + Sync {
     /// Older library/service callers retain their existing pool ownership and
     /// are not qualified for immediate pre-delivery cancellation by this hint.
     /// A declared observer must still validate every actual retain operation.
+    /// The canonical weak receiver; transparent wrappers preserve its identity.
+    /// None retains the original explicit NoObserver Root-controller duty.
+    fn protocol_original_observer(&self) -> Option<super::PendingCarrierObserver> {
+        None
+    }
+    fn retain_protocol_original(
+        &self,
+        _binding: &UpstreamBinding,
+        _original: crate::controlled_carrier::ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        Err(ChannelError::new(
+            Stage::Prepare,
+            Reason::Unsupported,
+            Impact::Component,
+        ))
+    }
     fn has_pending_carrier_observer(&self) -> bool {
         false
     }

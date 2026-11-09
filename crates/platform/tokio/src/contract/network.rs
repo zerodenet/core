@@ -151,6 +151,33 @@ impl PendingCarrierObserver {
             .pending_carrier_capacity(&self.binding)
     }
 
+    pub fn protocol_original_observer(&self) -> Option<Self> {
+        self.opener.upgrade()?.protocol_original_observer()
+    }
+    /// Canonical actual receiver identity, not equal-valued caller facts.
+    pub fn same_observer(&self, other: &Self) -> bool {
+        self.binding == other.binding && std::sync::Weak::ptr_eq(&self.opener, &other.opener)
+    }
+    pub fn retain_protocol_original(
+        &self,
+        original: crate::controlled_carrier::ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        if !original.matches_observer(self) {
+            return Err(ChannelError::new(
+                super::Stage::Prepare,
+                super::Reason::StalePlan,
+                super::Impact::Component,
+            ));
+        }
+        let opener = self.opener.upgrade().ok_or_else(|| {
+            ChannelError::new(
+                super::Stage::Prepare,
+                super::Reason::Revoked,
+                super::Impact::Component,
+            )
+        })?;
+        opener.retain_protocol_original(&self.binding, original)
+    }
     pub fn retain(
         &self,
         adoption: crate::controlled_carrier::CarrierAdoption,
@@ -193,6 +220,12 @@ impl UpstreamTransport {
             .acquire_process_endpoint_stream(&self.binding, request)
     }
 
+    pub fn protocol_original_observer(&self) -> Option<PendingCarrierObserver> {
+        self.opener.protocol_original_observer()
+    }
+    pub(crate) fn original_binding(&self) -> Arc<UpstreamBinding> {
+        Arc::clone(&self.binding)
+    }
     pub fn pending_carrier_capacity(&self) -> Option<usize> {
         self.opener.pending_carrier_capacity(&self.binding)
     }

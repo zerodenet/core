@@ -11,6 +11,7 @@ use zero_platform_tokio::{
     controlled_carrier::{CarrierOrigin, CarrierProtocolRetirement},
 };
 use zero_traits::packet_metadata::{PacketMetadataArc, PacketMetadataLayout};
+mod before;
 mod borrowed;
 mod demand;
 mod native;
@@ -115,6 +116,23 @@ impl Generation {
                         source
                     })?;
                 let entry = position.publish(entry);
+                let mut unstarted = before::BeforeActor(Some(entry.clone()));
+                if let Some(observer) = context.upstream.protocol_original_observer() {
+                    let retained = preparation
+                        .protocol_original(
+                            &context.upstream,
+                            observer.clone(),
+                            &generation.options.protocol.endpoint,
+                            &retirement,
+                        )
+                        .and_then(|original| observer.retain_protocol_original(original));
+                    if let Err(source) = retained {
+                        owners.set_actor(None);
+                        retirement.request_retirement();
+                        return Err(source);
+                    }
+                }
+                unstarted.disarm();
                 native::spawn(
                     generation.clone(),
                     entry.clone(),
@@ -142,6 +160,25 @@ impl Generation {
                         source
                     })?;
                 let entry = position.publish(entry);
+                let mut unstarted = before::BeforeActor(Some(entry.clone()));
+                if let Some(observer) = context.upstream.protocol_original_observer() {
+                    let retained = grant
+                        .protocol_original(
+                            &context.upstream,
+                            observer.clone(),
+                            &generation.options.protocol.endpoint,
+                            &call,
+                            &generation.tasks,
+                            &retirement,
+                        )
+                        .and_then(|original| observer.retain_protocol_original(original));
+                    if let Err(source) = retained {
+                        owners.set_actor(None);
+                        retirement.request_retirement();
+                        return Err(source);
+                    }
+                }
+                unstarted.disarm();
                 borrowed::spawn(
                     generation.clone(),
                     entry.clone(),

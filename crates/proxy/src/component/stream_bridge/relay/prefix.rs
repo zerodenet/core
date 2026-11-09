@@ -113,6 +113,11 @@ impl UpstreamOpener for PrefixOpener {
             .is_some_and(|request| request.has_tracked_caller())
             || self.context.upstream.has_tracked_business_caller()
     }
+    fn protocol_original_observer(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::network::PendingCarrierObserver> {
+        self.context.upstream.protocol_original_observer()
+    }
     fn has_pending_carrier_observer(&self) -> bool {
         self.context.upstream.observed_pending_carrier().is_some()
     }

@@ -420,6 +420,13 @@ impl UpstreamOpener for ServicePacketOpener {
                 .await
         })
     }
+    fn protocol_original_observer(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::network::PendingCarrierObserver> {
+        self.pending
+            .as_ref()
+            .and_then(|waiting| waiting.protocol_original_observer())
+    }
     fn has_pending_carrier_observer(&self) -> bool {
         self.pending.is_some()
     }

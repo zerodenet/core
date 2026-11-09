@@ -72,6 +72,11 @@ impl UpstreamOpener for Opener {
         self.control.pending_carrier_capacity(binding)
     }
 
+    fn protocol_original_observer(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::network::PendingCarrierObserver> {
+        self.control.protocol_original_observer()
+    }
     fn has_pending_carrier_observer(&self) -> bool {
         self.control.has_pending_carrier_observer()
     }

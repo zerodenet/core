@@ -118,6 +118,7 @@ impl MetadataPoolGrants {
                 .ok_or_else(|| error(Reason::Capacity, "metadata identity exhausted"))?;
             state.next = ordinal;
             let slot = Arc::new(Slot {
+                root_bound: owner.totals.get().is_some(),
                 owner: Arc::downgrade(&owner),
                 instance: owner.instance,
                 ordinal,
@@ -173,7 +174,8 @@ impl MetadataPoolGrants {
             // Both existing original books paid before phase heap is created.
             // No query/actor/native capability has escaped this owner gate.
             if let Some(control) = protocol.take() {
-                let phase = crate::original_protocol::Phase::new(control, slot.instance);
+                let phase =
+                    crate::original_protocol::Phase::new(control, slot.instance, slot.root_bound);
                 assert!(slot.protocol_stop.set(phase.cancellation()).is_ok());
                 *slot
                     .protocol

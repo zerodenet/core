@@ -84,10 +84,13 @@ impl MetadataPoolPermit {
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .clone();
                 if let Some(phase) = phase {
-                    phase.settle();
+                    if !self.0.root_bound {
+                        phase.settle();
+                    }
                 }
-                // Same original removed and phase settled. Publish outside all
-                // original/owner locks; native closure alone was not this ACK.
+                // Publish this exact local original's return outside all
+                // owner locks. Root-bound public settlement is later published
+                // only by actual global row removal, never this local ACK.
                 self.0.closed.publish_registration_return();
             }
         }
