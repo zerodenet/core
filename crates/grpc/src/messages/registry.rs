@@ -40,18 +40,36 @@ impl Record {
     pub(crate) fn prepay_json(&self, raw: &[u8], query: bool) -> std::io::Result<()> {
         super::json_input::prepay(self, raw, query)
     }
-    pub(super) fn input_message(&self, bytes: usize) -> Result<(), tonic::Status> {
+    pub(super) fn input_message(
+        &self,
+        bytes: usize,
+        repeated_strings: bool,
+    ) -> Result<(), tonic::Status> {
         if bytes > self.policy.grpc_request_bytes {
             return Err(tonic::Status::out_of_range(
                 "gRPC request exceeds its configured decoder limit",
             ));
         }
+        // One actual Subscribe repeated string needs >=tag+length (2 bytes).
+        // Pay its original Vec growth before Prost can decode any fields.
+        let rows = if repeated_strings && bytes >= 2 {
+            (bytes / 2)
+                .checked_next_power_of_two()
+                .and_then(|n| n.max(4).checked_mul(2))
+                .and_then(|n| n.checked_mul(std::mem::size_of::<String>()))
+                .ok_or_else(|| {
+                    tonic::Status::resource_exhausted("gRPC repeated String rows overflow")
+                })?
+        } else {
+            0
+        };
         // Decoder growth (at most twice the frame), protobuf payload and JSON
         // payload are separate storage bounds. Reserve before Tonic receives the
         // complete length header and can grow its original decoder buffer.
         let bytes = bytes
             .checked_mul(4)
             .and_then(|bytes| bytes.checked_add(5))
+            .and_then(|bytes| bytes.checked_add(rows))
             .ok_or_else(|| tonic::Status::resource_exhausted("gRPC input length overflow"))?;
         self.input
             .lock()

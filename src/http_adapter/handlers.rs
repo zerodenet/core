@@ -13,6 +13,7 @@ type HttpApiError = (&'static str, HttpBody);
 type EventStream = (super::sse::Subscription, zero_engine::RetainedReplay);
 
 mod endpoint;
+mod filter;
 
 /// Handle POST /api/v1/commands.
 pub async fn commands(
@@ -67,10 +68,7 @@ pub fn events_stream(
     budget: &std::sync::Arc<zero_runtime::configuration::ControlBudget>,
     local: &zero_runtime::configuration::ControlConnectionBudget,
 ) -> Result<EventStream, HttpApiError> {
-    let mut filter = EventFilter::default();
-    if let Some(types) = parse_query_param(query, "types") {
-        filter.event_types = types.split(',').map(|t| t.trim().to_owned()).collect();
-    }
+    let (_filter_storage, filter) = filter::input(query, budget).map_err(replay_capacity)?;
 
     // Resolve `since` from query param or Last-Event-ID header.
     let since = parse_query_param(query, "since")
