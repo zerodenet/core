@@ -187,23 +187,6 @@ impl Generation {
         let [position, _] = Table::reserve_needed(&generation.entries, [true, false])?;
         Ok(position.expect("one actual requested position"))
     }
-    /// Two actual QUIC halves share this same table, not two independent N.
-    pub fn reserve_joint(
-        generations: [&PacketMetadataArc<Self>; 2],
-    ) -> Result<[Position; 2], ChannelError> {
-        if !PacketMetadataArc::ptr_eq(&generations[0].entries, &generations[1].entries) {
-            return Err(error(Stage::Prepare, Reason::StalePlan));
-        }
-        generations[0].reap();
-        if generations
-            .iter()
-            .any(|generation| generation.cancel.is_cancelled())
-        {
-            return Err(error(Stage::Prepare, Reason::Revoked));
-        }
-        let [first, second] = Table::reserve_needed(&generations[0].entries, [true, true])?;
-        Ok([first.unwrap(), second.unwrap()])
-    }
     pub fn next_entry(&self, previous: u64) -> Option<(u64, PacketMetadataArc<Entry>)> {
         Table::next_entry(&self.entries, previous)
     }

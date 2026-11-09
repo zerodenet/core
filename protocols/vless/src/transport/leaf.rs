@@ -4,7 +4,6 @@ mod native;
 mod owned_quic;
 mod owned_xhttp;
 pub(crate) use owned_quic::OwnedQuicParts;
-pub(crate) use owned_xhttp::OwnedXhttpRecipe;
 mod relay;
 mod reverse;
 pub use reverse::VlessReverseBridge;

@@ -1,6 +1,5 @@
 //! Exact installed registrations and actual consumed joins; no native guessing.
 use super::*;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zero_platform_tokio::{
     contract::{component::ResourceDeclaration as R, scope::TaskJoinWitness},
     controlled_carrier::{CarrierOriginObservation, CarrierOwnerRegistration},
