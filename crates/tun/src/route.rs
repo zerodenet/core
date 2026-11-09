@@ -28,6 +28,10 @@ pub struct RouteInstallRequest<'a> {
     pub netmask: IpAddr,
     pub captured: &'a [IpNet],
     pub excluded: &'a [IpAddr],
+    /// The standard Kernel Source supplies its existing metadata Root.
+    /// Independent callers can explicitly supply None. Remaining legacy Kernel
+    /// convenience callers still need migration; None does not qualify them.
+    pub metadata: Option<&'a crate::packet_memory::PacketDriverMetadataView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -52,11 +52,24 @@ impl OwnedRoutes {
             error(Reason::Internal, "route owner was not prepaid").with_source(source)
         })?;
         let (jobs, received) = mpsc::channel(1);
+        // The credit above was reserved by this same Proxy's real Host before
+        // its route inputs were copied. Carry that Root through the native SDK.
+        let native_memory = proxy
+            .protocols
+            .runtime_host()
+            .original_budgets()
+            .packet
+            .driver_metadata_view();
         PacketMetadataArc::from_prepaid(
             Shared {
                 proxy,
                 metadata,
-                native: Mutex::new(native::Native::from_prepaid(spec, family_credit, credit)?),
+                native: Mutex::new(native::Native::from_prepaid(
+                    spec,
+                    family_credit,
+                    credit,
+                    native_memory,
+                )?),
                 observed: Mutex::default(),
                 changed: Notify::new(),
                 cancel,

@@ -5,6 +5,7 @@ pub(super) struct Native {
     pub spec: RouteRuntimeSpec,
     families: Families,
     leak: Option<SystemLeakGuard>,
+    memory: zero_tun::packet_memory::PacketDriverMetadataView,
     _inputs: zero_tun::packet_memory::PacketMetadataCredit,
 }
 struct Family {
@@ -33,6 +34,7 @@ impl Native {
         spec: RouteRuntimeSpec,
         credit: zero_tun::packet_memory::PacketMetadataCredit,
         inputs: zero_tun::packet_memory::PacketMetadataCredit,
+        memory: zero_tun::packet_memory::PacketDriverMetadataView,
     ) -> Result<Self, ChannelError> {
         let expected = Self::families_layout(spec.addresses.len()).map_err(|source| {
             error(Reason::Capacity, "route family layout overflow").with_source(source)
@@ -81,6 +83,7 @@ impl Native {
                 _credit: credit,
             },
             leak: None,
+            memory,
             _inputs: inputs,
         })
     }
@@ -131,6 +134,7 @@ impl Native {
                         netmask: *netmask,
                         captured: &captured,
                         excluded: exclusions,
+                        metadata: Some(&self.memory),
                     },
                     |state| publish_family_egress(egress, address.is_ipv6(), state, mark),
                 )

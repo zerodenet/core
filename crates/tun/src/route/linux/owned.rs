@@ -21,9 +21,10 @@ impl SystemRouteGuard {
             netmask: _,
             captured,
             excluded,
+            metadata,
         } = request;
         let ipv6 = address.is_ipv6();
-        let lease = RouteLease::acquire(recovery_key, ipv6)?;
+        let lease = RouteLease::acquire(recovery_key, ipv6, metadata)?;
         let selected = select_physical_egress(ipv6, tun_name)?;
         let egress = selected.carrier;
         let gateway = selected.gateway;

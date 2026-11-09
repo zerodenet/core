@@ -1,24 +1,30 @@
-//! Existing library file responsibility and the actual Source's owned lock.
+//! Existing file responsibility and the actual Source's owned lock.
 use super::*;
 #[derive(Debug)]
 pub(in crate::route) struct RouteLease {
     pub(super) journal_path: PathBuf,
     owner_path: PathBuf,
     pub(super) _lock: Lock,
+    metadata: Option<crate::packet_memory::PacketDriverMetadataView>,
 }
 #[derive(Debug)]
 pub(super) enum Lock {
-    Library(std::fs::File),
+    Existing(std::fs::File),
     #[cfg(target_os = "macos")]
     Owned(crate::macos_privilege::MacosRouteLock),
 }
 impl RouteLease {
-    pub(in crate::route) fn acquire(recovery_key: &str, ipv6: bool) -> io::Result<Self> {
+    pub(in crate::route) fn acquire(
+        recovery_key: &str,
+        ipv6: bool,
+        metadata: Option<&crate::packet_memory::PacketDriverMetadataView>,
+    ) -> io::Result<Self> {
         Self::acquire_family(
             route_journal_path(recovery_key, ipv6)?,
             route_family_lock_path(ipv6)?,
             recovery_key,
             ipv6,
+            metadata,
         )
     }
     #[cfg(test)]
@@ -32,14 +38,16 @@ impl RouteLease {
         lock_path: PathBuf,
         owner: &str,
     ) -> io::Result<Self> {
-        Self::acquire_family(journal_path, lock_path, owner, false)
+        Self::acquire_family(journal_path, lock_path, owner, false, None)
     }
     fn acquire_family(
         journal_path: PathBuf,
         lock_path: PathBuf,
         owner: &str,
         ipv6: bool,
+        metadata: Option<&crate::packet_memory::PacketDriverMetadataView>,
     ) -> io::Result<Self> {
+        let metadata = metadata.cloned();
         let owner_path = lock_owner_path(&lock_path);
         let _ = ipv6;
         #[cfg(target_os = "macos")]
@@ -53,9 +61,11 @@ impl RouteLease {
                 journal_path,
                 owner_path,
                 _lock: Lock::Owned(lock),
+                metadata,
             });
         }
-        // No actual Kernel context: this remains the explicit library caller.
+        // The existing non-Mac and independent file path. A metadata view
+        // accounts storage only; it does not qualify this FD's native cleanup.
         let lock = std::fs::OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -68,14 +78,21 @@ impl RouteLease {
         Ok(Self {
             journal_path,
             owner_path,
-            _lock: Lock::Library(lock),
+            _lock: Lock::Existing(lock),
+            metadata,
         })
+    }
+    /// Only a view of this same actual Source Root, without policy/IO rights.
+    pub(in crate::route) fn metadata(
+        &self,
+    ) -> Option<crate::packet_memory::PacketDriverMetadataView> {
+        self.metadata.clone()
     }
     #[cfg(target_os = "macos")]
     pub(super) fn source(&self) -> Option<crate::macos_privilege::MacosRouteFileAccess> {
         match &self._lock {
             Lock::Owned(lock) => Some(lock.access()),
-            Lock::Library(_) => None,
+            Lock::Existing(_) => None,
         }
     }
     #[cfg(target_os = "macos")]
@@ -102,7 +119,7 @@ impl RouteLease {
 impl Drop for RouteLease {
     fn drop(&mut self) {
         match &self._lock {
-            Lock::Library(lock) => {
+            Lock::Existing(lock) => {
                 if let Err(error) = remove_owner(&self.owner_path) {
                     tracing::warn!(%error,"failed to remove TUN route lease owner metadata");
                 }
@@ -121,7 +138,7 @@ impl Drop for RouteLease {
 impl Lock {
     pub(super) fn try_clone(&self) -> io::Result<std::fs::File> {
         match self {
-            Self::Library(lock) => lock.try_clone(),
+            Self::Existing(lock) => lock.try_clone(),
             #[cfg(target_os = "macos")]
             Self::Owned(_) => Err(io::Error::other(
                 "Kernel route lock cannot duplicate its original",
@@ -136,7 +153,7 @@ fn conflict(source: io::Error, owner_path: &Path, lock_path: &Path, owner: &str)
         return source;
     }
     let active_owner = match material::read(owner_path) {
-        Ok(value) => String::from_utf8(value)
+        Ok(value) => std::str::from_utf8(&value)
             .ok()
             .map(|owner| owner.trim().to_owned())
             .filter(|owner| !owner.is_empty())

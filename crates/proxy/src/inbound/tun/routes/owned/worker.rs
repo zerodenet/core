@@ -12,6 +12,13 @@ pub(super) fn run(original: PacketMetadataArc<Shared>) -> Result<(), ChannelErro
                 "same route worker input was already consumed",
             )
         })?;
+    let route_memory = original
+        .proxy
+        .protocols
+        .runtime_host()
+        .original_budgets()
+        .packet
+        .driver_metadata_view();
     #[cfg(target_os = "macos")]
     let helper = original.metadata.macos_helper_lease()?;
     // The actual blocking route duty owns this lease for discovery, route/PF
@@ -61,16 +68,21 @@ pub(super) fn run(original: PacketMetadataArc<Shared>) -> Result<(), ChannelErro
                     .prepared
                     .clone();
                 let result = match prepared {
-                    Some(Ok(prepared)) => original
-                        .native
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner())
-                        .install(
-                            name,
-                            &prepared.route_exclusions,
-                            &original.proxy.egress_interface,
-                        )
-                        .map_err(Arc::new),
+                    Some(Ok(prepared)) => {
+                        let notifications = route_memory.notifications();
+                        let result = original
+                            .native
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner())
+                            .install(
+                                name,
+                                &prepared.route_exclusions,
+                                &original.proxy.egress_interface,
+                            )
+                            .map_err(Arc::new);
+                        drop(notifications);
+                        result
+                    }
                     Some(Err(source)) => Err(source),
                     None => Err(Arc::new(io::Error::other(
                         "native route install preceded actual DNS preparation",
@@ -89,12 +101,15 @@ pub(super) fn run(original: PacketMetadataArc<Shared>) -> Result<(), ChannelErro
                     .spec
                     .dns_hijack;
                 let result = prepare(&config, hijack, &original).and_then(|prepared| {
-                    original
+                    let notifications = route_memory.notifications();
+                    let result = original
                         .native
                         .lock()
                         .unwrap_or_else(|error| error.into_inner())
                         .reconcile(&prepared.route_exclusions, &original.proxy.egress_interface)
-                        .map_err(Arc::new)
+                        .map_err(Arc::new);
+                    drop(notifications);
+                    result
                 });
                 // Transient maintenance errors remain visible to this actual
                 // recovery request. The worker keeps the same native originals.
@@ -137,11 +152,16 @@ pub(super) fn run(original: PacketMetadataArc<Shared>) -> Result<(), ChannelErro
             }
         }
         let monitor = original.monitor_io.blocking_lock().close();
-        let routes = original
-            .native
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .close();
+        let routes = {
+            let notifications = route_memory.notifications();
+            let result = original
+                .native
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .close();
+            drop(notifications);
+            result
+        };
         let failures = monitor
             .err()
             .into_iter()

@@ -80,6 +80,7 @@ impl SystemRouteGuard {
                 netmask,
                 captured,
                 excluded,
+                metadata: None,
             },
             publish_egress,
         )?;

@@ -16,6 +16,11 @@ pub use zero_traits::packet_metadata::{
 /// setter, native provider, task authority or independent accounting book.
 #[derive(Clone)]
 pub struct PacketDriverMetadataView(Arc<PacketReturnTotals>);
+impl std::fmt::Debug for PacketDriverMetadataView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PacketDriverMetadataView")
+    }
+}
 impl PacketDriverMetadataView {
     pub fn same_root(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
