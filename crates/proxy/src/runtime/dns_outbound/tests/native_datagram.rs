@@ -33,7 +33,9 @@ async fn independent_dns_datagrams_return_selected_native_and_related_control_be
                         Err(original)=>{
                             eprintln!("native Datagram DNS original request deadline failed: kind={kind}, tcp_only_plugin={tcp_only_plugin}, attempt={index}");
                             remote.diagnose();
-                            eprintln!("actual Query observations: {:?}",proxy.resolver.native_query_observations());
+                            for actual in proxy.resolver.native_query_observations() {
+                                eprintln!("actual Query: task={:?}, io_pending={}, original={}", actual.task.task_id(), actual.io_pending, actual.original.is_some());
+                            }
                             eprintln!("actual Query Root: {:?}",proxy.protocols.runtime_host().original_budgets().carrier.snapshot());
                             std::panic::resume_unwind(original)
                         }

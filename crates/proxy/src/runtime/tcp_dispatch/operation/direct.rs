@@ -23,7 +23,7 @@ impl PreparedTcpConnectOperation for DirectTcpConnectOperation {
         services.components.as_ref().ok()
             .and_then(|plan| plan.direct(self.configured_tag.as_deref()).ok())
             .is_some_and(|slot| slot.recipe.spec().resources.iter().any(|resource| matches!(resource,
-                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. })))
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier { .. })))
             && !matches!(session.target, zero_core::Address::Domain(_))
             && !matches!(
                 session.effective_direct_target(),

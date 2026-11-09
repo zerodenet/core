@@ -60,7 +60,7 @@ pub use owner::CarrierOwner;
 pub use packet::CarrierDatagram;
 pub use prepared::{CarrierStreamPreparation, ControlledCarrier, PreparedCarrier};
 pub use registration::{
-    CarrierNativeCloseObservation, CarrierOriginObservation, CarrierOwnerClosed,
+    CarrierNativeCloseObservation, CarrierNativeKind, CarrierOriginObservation, CarrierOwnerClosed,
     CarrierOwnerObservation, CarrierOwnerRegistration, CarrierSlotObservation,
 };
 pub use resolution::{CarrierCandidates, ResolvingCarrierOpener};

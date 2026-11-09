@@ -41,8 +41,14 @@ impl Wire {
             for layout in layouts.iter() {
                 let wire = resources.take_packet_datagram_receive_workspace(0, ordinal)?;
                 ordinal += 1;
-                let mut buffers = Vec::new();
-                for length in layout.iter() {
+                if layout.is_empty() || layout.len() > 2 {
+                    return Err(zero_platform_tokio::contract::ChannelError::new(
+                        zero_platform_tokio::contract::Stage::Prepare,
+                        zero_platform_tokio::contract::Reason::InvalidConfig,
+                        zero_platform_tokio::contract::Impact::Component,
+                    ));
+                }
+                let mut take = |length: &std::num::NonZeroUsize| {
                     let actual = resources.take_packet_datagram_receive_workspace(0, ordinal)?;
                     ordinal += 1;
                     if actual.bytes() != length.get() {
@@ -52,9 +58,11 @@ impl Wire {
                             zero_platform_tokio::contract::Impact::Component,
                         ));
                     }
-                    buffers.push(actual);
-                }
-                codecs.push(crate::protocol_registry::packet_memory::PacketCodecReceiveMemory::from_declared(wire,buffers).map_err(|source|zero_platform_tokio::contract::ChannelError::new(zero_platform_tokio::contract::Stage::Prepare,zero_platform_tokio::contract::Reason::InvalidConfig,zero_platform_tokio::contract::Impact::Component).with_source(source))?);
+                    Ok(actual)
+                };
+                let first = take(&layout[0])?;
+                let second = layout.get(1).map(take).transpose()?;
+                codecs.push(crate::protocol_registry::packet_memory::PacketCodecReceiveMemory::from_declared(wire,first,second).map_err(|source|zero_platform_tokio::contract::ChannelError::new(zero_platform_tokio::contract::Stage::Prepare,zero_platform_tokio::contract::Reason::InvalidConfig,zero_platform_tokio::contract::Impact::Component).with_source(source))?);
             }
             self.proxy_codecs.push(codecs);
         }

@@ -20,6 +20,7 @@ pub(in crate::component) fn owns_carrier_custody(spec: &ComponentSpec) -> bool {
                 | R::ControlledDatagramCarrier { .. }
                 | R::ControlledOutboundStream { .. }
                 | R::ControlledDirectStream { .. }
+                | R::ControlledDirectCarrier { .. }
                 | R::ControlledNodeStream { .. }
                 | R::ControlledNodeCarrier { .. }
                 | R::ControlledMetadataDatagram { .. }

@@ -190,6 +190,27 @@ impl UpstreamOpener for Root {
         self.retain_query_protocol(binding, original)
     }
 
+    fn open_controlled_datagram_loan(
+        &self,
+        binding: &UpstreamBinding,
+        request: zero_platform_tokio::contract::network::ControlledDatagramRequest,
+    ) -> BoxFuture<'_, Result<DatagramLoan, ChannelError>> {
+        let binding = binding.clone();
+        Box::pin(async move {
+            if self.direct_endpoint.is_none()
+                || self.native.is_none()
+                || !zero_dns::OwnedDnsQueryTasks::matches_current_caller(&self.caller)
+            {
+                return Err(crate::component::instance::invalid(
+                    zero_platform_tokio::contract::Reason::StalePlan,
+                    "Direct Datagram does not belong to its actual original Query",
+                ));
+            }
+            self.direct_transport(&binding)?
+                .open_controlled_datagram_loan(request)
+                .await
+        })
+    }
     fn open_controlled_stream_loan(
         &self,
         binding: &UpstreamBinding,

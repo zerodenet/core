@@ -1,10 +1,12 @@
-use super::{BrowserDialer, BrowserDialerOptions, IdleConnection, Inner};
+use super::{
+    idle::IdleQueue, BrowserDialer, BrowserDialerOptions, IdleConnection, Inner, InnerRef,
+};
 use base64::Engine;
 use std::{io, net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
-    sync::{mpsc, Semaphore},
+    net::TcpListener,
+    sync::Semaphore,
     task::{JoinHandle, JoinSet},
 };
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
@@ -28,49 +30,23 @@ impl BrowserDialerServer {
                 "Browser Dialer listener must use a loopback address",
             ));
         }
-        if options.idle_capacity == 0
-            || options.idle_capacity > 4096
-            || options.task_timeout.is_zero()
-            || options.max_task_bytes == 0
-            || options.max_payload_bytes == 0
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Browser Dialer resource limits must be non-zero",
-            ));
-        }
+        validate_options(&options)?;
         let listener = TcpListener::bind(address).await?;
         let local_addr = listener.local_addr()?;
-        let authority = match local_addr {
-            SocketAddr::V4(value) => value.to_string(),
-            SocketAddr::V6(value) => format!("[{}]:{}", value.ip(), value.port()),
-        };
-        let origin = format!("http://{authority}");
-        let token =
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(rand::random::<[u8; 32]>());
-        let page_url = format!("{origin}/");
-        let page = include_str!("page.html")
-            .replace("__TOKEN__", &token)
-            .replace("__IDLE_TARGET__", &options.idle_capacity.min(8).to_string());
-        let (sender, receiver) = mpsc::channel(options.idle_capacity);
+        let registration = registration(local_addr, &options);
+        let page_url = registration.page_url.clone();
+        let idle = IdleQueue::library(options.idle_capacity)?;
         let cancellation = tokio_util::sync::CancellationToken::new();
-        let inner = Arc::new(Inner {
-            idle: tokio::sync::Mutex::new(receiver),
+        let inner = InnerRef::Library(Arc::new(Inner {
+            idle: idle.clone(),
             cancellation: cancellation.clone(),
             task_timeout: options.task_timeout,
             max_task_bytes: options.max_task_bytes,
             max_payload_bytes: options.max_payload_bytes,
-        });
+            factory: None,
+        }));
         let permits = Arc::new(Semaphore::new(options.idle_capacity.saturating_add(8)));
-        let task = tokio::spawn(run(
-            listener,
-            sender,
-            permits,
-            token,
-            origin,
-            Arc::<str>::from(page),
-            cancellation,
-        ));
+        let task = tokio::spawn(run(listener, idle, permits, registration, cancellation));
         Ok(Self {
             dialer: BrowserDialer { inner },
             local_addr,
@@ -110,11 +86,9 @@ impl Drop for BrowserDialerServer {
 
 async fn run(
     listener: TcpListener,
-    sender: mpsc::Sender<IdleConnection>,
+    idle: IdleQueue,
     permits: Arc<Semaphore>,
-    token: String,
-    origin: String,
-    page: Arc<str>,
+    registration: RegistrationRef,
     cancellation: tokio_util::sync::CancellationToken,
 ) {
     let mut connections = JoinSet::new();
@@ -128,13 +102,13 @@ async fn run(
                         continue;
                     };
                     connections.spawn(serve(
-                        stream,
-                        sender.clone(),
-                        token.clone(),
-                        origin.clone(),
-                        page.clone(),
+                        TokioSocket::new(stream),
+                        idle.clone(),
+                        registration.clone(),
                         cancellation.clone(),
-                        permit,
+                        Some(permit),
+                        None,
+                        super::memory::Memory::Library,
                     ));
                 }
                 Ok(_) => {}
@@ -150,15 +124,36 @@ async fn run(
     while connections.join_next().await.is_some() {}
 }
 
-async fn serve(
-    mut stream: TcpStream,
-    sender: mpsc::Sender<IdleConnection>,
-    token: String,
-    origin: String,
-    page: Arc<str>,
+pub(super) async fn serve(
+    stream: TokioSocket,
+    idle_queue: IdleQueue,
+    registration: RegistrationRef,
     cancellation: tokio_util::sync::CancellationToken,
-    permit: tokio::sync::OwnedSemaphorePermit,
+    permit: Option<tokio::sync::OwnedSemaphorePermit>,
+    original: Option<super::original::BrowserUse>,
+    memory: super::memory::Memory,
 ) {
+    let stopped = cancellation.clone();
+    tokio::select! { biased;
+        _ = stopped.cancelled() => {},
+        _ = serve_inner(stream, idle_queue, registration, cancellation, permit, original, memory) => {},
+    }
+}
+async fn serve_inner(
+    mut stream: TokioSocket,
+    idle_queue: IdleQueue,
+    registration: RegistrationRef,
+    cancellation: tokio_util::sync::CancellationToken,
+    permit: Option<tokio::sync::OwnedSemaphorePermit>,
+    original: Option<super::original::BrowserUse>,
+    memory: super::memory::Memory,
+) {
+    let Registration {
+        token,
+        origin,
+        page,
+        ..
+    } = &*registration;
     let mut prefix = Vec::with_capacity(1024);
     let read = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
         loop {
@@ -170,7 +165,29 @@ async fn serve(
             }
             let mut chunk = [0u8; 1024];
             let capacity = chunk.len().min(MAX_REQUEST_HEADER - prefix.len());
+            #[cfg(not(test))]
             let size = stream.read(&mut chunk[..capacity]).await?;
+            #[cfg(test)]
+            let size = {
+                use std::future::Future;
+                let reading = stream.read(&mut chunk[..capacity]);
+                tokio::pin!(reading);
+                std::future::poll_fn(|cx| {
+                    let outcome = reading.as_mut().poll(cx);
+                    if outcome.is_pending() {
+                        if let Some(original) = &original {
+                            original
+                                .0
+                                 .0
+                                .read_pending
+                                .store(true, std::sync::atomic::Ordering::Release);
+                            original.0 .0.notify();
+                        }
+                    }
+                    outcome
+                })
+                .await?
+            };
             if size == 0 {
                 return Err(io::ErrorKind::UnexpectedEof.into());
             }
@@ -206,7 +223,20 @@ async fn serve(
         let _ = write_response(&mut stream, 403, "text/plain", "forbidden").await;
         return;
     }
-    let socket = PrefixedSocket::from_prefix(TokioSocket::new(stream), prefix);
+    let http_length = prefix
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .expect("validated same header")
+        + 4;
+    let socket = match super::wire::Socket::new(
+        PrefixedSocket::from_prefix(stream, prefix),
+        http_length,
+        memory.clone(),
+        cancellation.clone(),
+    ) {
+        Ok(socket) => socket,
+        Err(_) => return,
+    };
     let expected_origin = origin.clone();
     let upgraded = tokio::time::timeout(
         HANDSHAKE_TIMEOUT,
@@ -237,9 +267,11 @@ async fn serve(
         socket,
         _permit: permit,
         cancellation: cancellation.clone(),
+        original,
+        memory,
     };
     tokio::select! {
-        result = sender.send(idle) => {
+        result = idle_queue.send(idle) => {
             if result.is_err() {
                 tracing::debug!("Browser Dialer stopped before browser registration");
             }
@@ -249,7 +281,7 @@ async fn serve(
 }
 
 async fn write_response(
-    stream: &mut TcpStream,
+    stream: &mut TokioSocket,
     status: u16,
     content_type: &str,
     body: &str,
@@ -304,4 +336,86 @@ impl<'a> ParsedRequest<'a> {
             websocket,
         })
     }
+}
+
+pub(super) fn validate_options(options: &BrowserDialerOptions) -> io::Result<()> {
+    if options.idle_capacity == 0
+        || options.idle_capacity > 4096
+        || options.task_timeout.is_zero()
+        || options.max_task_bytes == 0
+        || options.max_payload_bytes == 0
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Browser Dialer resource limits must be non-zero",
+        ));
+    }
+    Ok(())
+}
+pub(super) struct Registration {
+    token: String,
+    origin: String,
+    page: String,
+    pub(super) page_url: String,
+    _storage: Option<zero_platform_tokio::controlled_carrier::CarrierBufferCredit>,
+}
+pub(super) fn registration(
+    local_addr: SocketAddr,
+    options: &BrowserDialerOptions,
+) -> RegistrationRef {
+    RegistrationRef::Library(Arc::new(registration_value(local_addr, options, None)))
+}
+fn registration_value(
+    local_addr: SocketAddr,
+    options: &BrowserDialerOptions,
+    storage: Option<zero_platform_tokio::controlled_carrier::CarrierBufferCredit>,
+) -> Registration {
+    let authority = local_addr.to_string();
+    let origin = format!("http://{authority}");
+    let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(rand::random::<[u8; 32]>());
+    let page_url = format!("{origin}/");
+    let page = include_str!("page.html")
+        .replace("__TOKEN__", &token)
+        .replace("__IDLE_TARGET__", &options.idle_capacity.min(8).to_string());
+    Registration {
+        token,
+        origin,
+        page,
+        page_url,
+        _storage: storage,
+    }
+}
+
+#[derive(Clone)]
+pub(super) enum RegistrationRef {
+    Library(Arc<Registration>),
+    Hosted(zero_traits::packet_metadata::PacketMetadataArc<Registration>),
+}
+impl std::ops::Deref for RegistrationRef {
+    type Target = Registration;
+    fn deref(&self) -> &Registration {
+        match self {
+            Self::Library(value) => value,
+            Self::Hosted(value) => value,
+        }
+    }
+}
+pub(super) fn registration_hosted(
+    local: SocketAddr,
+    options: &BrowserDialerOptions,
+    factory: &super::memory::Factory,
+) -> io::Result<RegistrationRef> {
+    let bytes = include_str!("page.html")
+        .len()
+        .checked_mul(4)
+        .and_then(|n| n.checked_add(4096))
+        .ok_or(io::ErrorKind::InvalidInput)?;
+    let layout = zero_traits::packet_metadata::PacketMetadataArc::<Registration>::layout()
+        .map_err(io::Error::other)?;
+    let header = factory.metadata.reserve(layout).map_err(io::Error::other)?;
+    let storage = factory.book.try_reserve(bytes)?;
+    let value = registration_value(local, options, Some(storage));
+    zero_traits::packet_metadata::PacketMetadataArc::from_prepaid(value, header)
+        .map(RegistrationRef::Hosted)
+        .map_err(|(source, _, _)| io::Error::other(source))
 }

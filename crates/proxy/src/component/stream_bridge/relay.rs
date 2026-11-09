@@ -142,7 +142,7 @@ pub(crate) async fn connect(
                 )
             })?;
             if first.slot.recipe.spec().resources.iter().any(|resource|matches!(resource,
-                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. })) {
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier { .. })) {
                 let target=prepared.nodes.get(1).and_then(|node|node.endpoint.as_ref()).ok_or_else(||normalize(invalid(Reason::StalePlan,"Direct root has no next-hop endpoint")))?;
                 let (root,upstream)=crate::component::direct_bridge::background::Root::transport(
                     &first.slot,Arc::downgrade(plan),services.upstream_observed(&first.tag),destination(target),binding,
@@ -174,7 +174,7 @@ pub(crate) async fn connect(
             identity: invocation.identity.clone(),
             deadline: invocation.deadline,
             cancel: cancel.clone(),
-            observer: if index == 0 && node.endpoint.is_none() && !node.slot.recipe.spec().resources.iter().any(|resource|matches!(resource,zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..})) {
+            observer: if index == 0 && node.endpoint.is_none() && !node.slot.recipe.spec().resources.iter().any(|resource|matches!(resource,zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier {..})) {
                 Some(Arc::new(super::packet_network::PacketObserver {
                     engine: services.engine().clone(),
                     tag: node.tag.clone(),

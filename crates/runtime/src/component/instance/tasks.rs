@@ -329,7 +329,7 @@ impl ComponentSlot {
     pub(crate) fn probe_registrar(
         &self,
     ) -> Result<zero_platform_tokio::contract::scope::TaskRegistrar, ChannelError> {
-        if !self.has_started() || !self.recipe.spec().resources.iter().any(|resource|matches!(resource,zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..})) {
+        if !self.has_started() || !self.recipe.spec().resources.iter().any(|resource|matches!(resource,zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier {..})) {
             return Err(self.failure(Reason::Revoked,"probe needs its actual started Direct task owner"));
         }
         let live = self

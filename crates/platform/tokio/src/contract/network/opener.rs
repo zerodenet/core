@@ -302,6 +302,21 @@ pub trait UpstreamOpener: Send + Sync {
         false
     }
 
+    /// Dynamic Datagram on the actual selected owner, distinct from Stream
+    /// permission. Default rejection acquires no native original.
+    fn open_controlled_datagram_loan(
+        &self,
+        _: &UpstreamBinding,
+        _: ControlledDatagramRequest,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::loan::DatagramLoan, ChannelError>> {
+        Box::pin(async {
+            let mut error =
+                ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+            error.delivery = DeliveryState::NotSubmitted;
+            Err(error)
+        })
+    }
+
     /// The same controlled dynamic request with the actual original logical
     /// custody returned, for an existing selected prefix. No grants are minted.
     fn open_controlled_stream_loan(

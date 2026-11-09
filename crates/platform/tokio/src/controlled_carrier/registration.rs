@@ -88,13 +88,23 @@ impl CarrierOriginObservation {
         self.slot.ptr_eq(&other.slot) && Arc::ptr_eq(&self.completion, &other.completion)
     }
 }
+/// Original native control kind. Diagnostic only; not a close receipt.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CarrierNativeKind {
+    Stream,
+    Datagram,
+}
 pub struct CarrierNativeCloseObservation {
+    kind: CarrierNativeKind,
     closed: bool,
     first_fault: Option<Arc<std::io::Error>>,
     disposition_unknown: Option<Arc<std::io::Error>>,
     operation_pending: bool,
 }
 impl CarrierNativeCloseObservation {
+    pub fn kind(&self) -> CarrierNativeKind {
+        self.kind
+    }
     pub fn disposition_unknown(&self) -> Option<&Arc<std::io::Error>> {
         self.disposition_unknown.as_ref()
     }
@@ -223,6 +233,7 @@ impl CarrierOwnerRegistration {
                 // No carrier/scope/control lock surrounds the original TCP getter.
                 observation.native = native.and_then(|native| native.observe()).map(|native| {
                     CarrierNativeCloseObservation {
+                        kind: CarrierNativeKind::Stream,
                         closed: native.closed,
                         first_fault: native.first_fault,
                         disposition_unknown: native.disposition_unknown,
@@ -232,6 +243,7 @@ impl CarrierOwnerRegistration {
                 if let Some(packet) = packet {
                     let native = packet.observe();
                     observation.native = Some(CarrierNativeCloseObservation {
+                        kind: CarrierNativeKind::Datagram,
                         closed: native.native_closed,
                         first_fault: native.unknown.clone(),
                         disposition_unknown: native.unknown,

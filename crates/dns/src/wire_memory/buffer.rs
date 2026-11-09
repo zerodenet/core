@@ -88,9 +88,6 @@ impl WireBuffer {
             "premeasured DNS output capacity"
         );
     }
-    pub(crate) fn truncate(&mut self, size: usize) {
-        self.bytes.truncate(size);
-    }
     pub(crate) fn as_mut(&mut self) -> &mut [u8] {
         &mut self.bytes
     }

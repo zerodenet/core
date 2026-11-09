@@ -123,6 +123,19 @@ async fn real_pending_handler_body_exit_is_not_scope_join_or_original_native_clo
             owner.accepted_evidence().unwrap().users,
             AcceptedTcpUsers::Confirmed
         );
+        // The original native close does not deliver this independent
+        // library owner's fault report. Receive that exact retained source
+        // before reusing its finite slot; no fault or old assertion is dropped.
+        assert_eq!(owner.accepted_evidence().unwrap().retained, 1);
+        let received = owner.take_accepted_report();
+        assert_eq!(received.failed_tasks.len(), 1);
+        let fault = &received.failed_tasks[0];
+        assert_eq!(fault.id, id);
+        assert_eq!(fault.class, TaskClass::Auxiliary);
+        assert!(Arc::ptr_eq(
+            fault.error.retained_source().unwrap(),
+            &original
+        ));
         assert_eq!(owner.accepted_evidence().unwrap().retained, 0);
         assert!(tasks
             .spawn(TaskClass::Auxiliary, |_| async { Ok(()) })

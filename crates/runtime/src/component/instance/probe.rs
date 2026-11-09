@@ -155,4 +155,42 @@ impl ComponentSlot {
         self.service_admission().unwrap().check_current()?;
         issuer.authorize(call.cancel.clone(), call.deadline)
     }
+    pub fn issue_direct_background_datagram(
+        &self,
+        caller: TaskJoinWitness,
+        endpoint: &Destination,
+        binding: &UpstreamBinding,
+        grant: &CarrierGrant,
+        call: &zero_platform_tokio::contract::network::CarrierContext,
+    ) -> Result<CarrierServiceGrant, ChannelError> {
+        self.service_admission()
+            .ok_or_else(|| self.failure(Reason::StalePlan, "Direct Service owner has no host"))?
+            .check_current()?;
+        if !self.has_started()
+            || call.session.is_some()
+            || call.cancel.is_cancelled()
+            || !grant.adoption().matches_auxiliary(&caller)
+        {
+            return Err(self.failure(
+                Reason::StalePlan,
+                "Direct Service caller is not this original initializer",
+            ));
+        }
+        let live = self
+            .live
+            .get()
+            .and_then(|live| live.as_ref().ok())
+            .ok_or_else(|| self.failure(Reason::Revoked, "Direct Service original was released"))?;
+        let issuer = live
+            .resources
+            .registered_direct_background_datagram_issuer(
+                self.instance_id(),
+                endpoint,
+                binding,
+                grant,
+                caller,
+            )?;
+        self.service_admission().unwrap().check_current()?;
+        issuer.authorize(call.cancel.clone(), call.deadline)
+    }
 }

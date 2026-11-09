@@ -18,7 +18,9 @@ impl ComponentPlan {
         if !spec.roles.contains(&RoleKind::Stream) {
             return false;
         }
-        if let [R::ControlledDirectStream { dial, max_sockets }] = spec.resources.as_slice() {
+        if let [R::ControlledDirectStream { dial, max_sockets }
+        | R::ControlledDirectCarrier { dial, max_sockets }] = spec.resources.as_slice()
+        {
             return dial == &slot.dial
                 && slot.original_carrier_owner(0).is_some_and(|owner| {
                     owner.instance() == slot.instance_id()

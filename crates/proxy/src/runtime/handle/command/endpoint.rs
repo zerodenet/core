@@ -293,6 +293,9 @@ impl ProxyHandle {
             TIMEOUT,
             Some(snapshot.clone()),
             compensating,
+            // Endpoint intent/direction/restart projection retains the same
+            // runtime wire limit. Only config.apply owns a new wire candidate.
+            None,
         )
         .await
         .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;

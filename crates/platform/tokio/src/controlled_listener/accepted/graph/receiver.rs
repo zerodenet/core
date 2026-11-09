@@ -127,6 +127,36 @@ impl AcceptedTcpTaskReceiver {
         }
         pool.close_graph(claim, deadline).await
     }
+    /// Real one-step close authority over the SAME returned accepted original.
+    /// Active users, unconsumed joins/ACK and contended native operations stay
+    /// pending. Only the original controller can provide a positive receipt.
+    pub fn try_close_if_joined(
+        &self,
+        claim: &AcceptedTcpClaim,
+    ) -> Result<Option<AcceptedTcpClosed>, ChannelError> {
+        let pool = self.0.upgrade().ok_or_else(|| {
+            failure(
+                Stage::Close,
+                Reason::Revoked,
+                "accepted owner disappeared without closure proof",
+            )
+        })?;
+        pool.try_close_returned_graph(claim)
+    }
+    /// The caller already retains this exact accepted entry. Inspect that
+    /// same original directly instead of allocating a snapshot of every peer.
+    /// Only the original Scope's consumed witness can supply TaskJoined.
+    pub fn observe_joined_for_claim(
+        &self,
+        claim: &AcceptedTcpClaim,
+        id: TaskId,
+    ) -> Option<TaskJoined> {
+        let pool = self.0.upgrade()?;
+        if !Arc::ptr_eq(&pool.identity, &claim.entry.identity) {
+            return None;
+        }
+        claim.entry.users.as_ref()?.consume_joined(id)
+    }
     pub fn observe_joined(&self, id: TaskId) -> Option<TaskJoined> {
         let pool = self.0.upgrade()?;
         let users: Vec<_> = pool
@@ -253,6 +283,17 @@ impl Users {
 }
 
 impl Users {
+    pub(in crate::controlled_listener::accepted) fn original_acks_returned(&self) -> bool {
+        self.pending_acks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .all(|witness| {
+                witness.try_joined().is_some_and(|joined| {
+                    witness.matches_joined(&joined) && joined.registration_released()
+                })
+            })
+    }
     pub(in crate::controlled_listener::accepted) fn original_acks(&self) -> Vec<TaskJoinWitness> {
         self.pending_acks
             .lock()

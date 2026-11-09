@@ -29,8 +29,12 @@ struct Source {
 }
 /// No Source, registrar or IO is retained by a wire payload's backing credit.
 enum Credit {
-    Current(PacketMetadataCredit),
-    Provisional(PacketMetadataCandidateCredit),
+    Current {
+        _credit: PacketMetadataCredit,
+    },
+    Provisional {
+        _credit: PacketMetadataCandidateCredit,
+    },
 }
 impl std::fmt::Debug for DnsWireMemory {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -160,8 +164,13 @@ impl DnsWireMemory {
             .as_ref()
             .and_then(|source| source.provisional.as_ref())
         {
-            Some(provisional) => provisional.reserve(layout, wake).map(Credit::Provisional),
-            None => self.counter.reserve(layout, wake).map(Credit::Current),
+            Some(provisional) => provisional
+                .reserve(layout, wake)
+                .map(|credit| Credit::Provisional { _credit: credit }),
+            None => self
+                .counter
+                .reserve(layout, wake)
+                .map(|credit| Credit::Current { _credit: credit }),
         }
         .map_err(memory_error)
     }

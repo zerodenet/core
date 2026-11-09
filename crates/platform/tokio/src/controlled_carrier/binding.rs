@@ -129,7 +129,8 @@ impl CarrierOwnerRegistration {
                     .map_err(|_| failure(Reason::InvalidConfig))?;
                 *max_sockets
             }
-            ResourceDeclaration::ControlledDirectStream { dial, max_sockets } => {
+            ResourceDeclaration::ControlledDirectStream { dial, max_sockets }
+            | ResourceDeclaration::ControlledDirectCarrier { dial, max_sockets } => {
                 dial.validate()
                     .map_err(|_| failure(Reason::InvalidConfig))?;
                 *max_sockets
@@ -206,6 +207,7 @@ impl BoundAuthority {
                     ..
                 }
                 | ResourceDeclaration::ControlledDirectStream { .. }
+                | ResourceDeclaration::ControlledDirectCarrier { .. }
                 | ResourceDeclaration::ControlledNodeCarrier { .. }
                 | ResourceDeclaration::ControlledNodeStream { .. }
                 | ResourceDeclaration::ControlledServiceStream { .. }
@@ -230,6 +232,7 @@ impl BoundAuthority {
             && matches!(
                 self.declaration,
                 ResourceDeclaration::ControlledDirectStream { .. }
+                    | ResourceDeclaration::ControlledDirectCarrier { .. }
                     | ResourceDeclaration::ControlledNodeCarrier { .. }
                     | ResourceDeclaration::ControlledNodeStream { .. }
                     | ResourceDeclaration::ControlledServiceStream { .. }
@@ -250,6 +253,7 @@ impl BoundAuthority {
                 && matches!(
                     self.declaration,
                     ResourceDeclaration::ControlledDirectStream { .. }
+                        | ResourceDeclaration::ControlledDirectCarrier { .. }
                         | ResourceDeclaration::ControlledNodeStream { .. }
                         | ResourceDeclaration::ControlledNodeCarrier { .. }
                 ))
@@ -267,7 +271,8 @@ impl BoundAuthority {
                 | ResourceDeclaration::ControlledServiceDatagram { max_sockets, .. }
                 | ResourceDeclaration::ControlledAssociationPool { max_sockets, .. }
                 | ResourceDeclaration::ControlledDatagramCarrier { max_sockets, .. }
-                | ResourceDeclaration::ControlledDirectStream { max_sockets, .. } => {
+                | ResourceDeclaration::ControlledDirectStream { max_sockets, .. }
+                | ResourceDeclaration::ControlledDirectCarrier { max_sockets, .. } => {
                     *max_sockets == limit
                 }
                 ResourceDeclaration::ControlledNodeStream { max_sockets, .. }
@@ -277,8 +282,14 @@ impl BoundAuthority {
                 _ => false,
             }
     }
+    pub(super) fn is_direct_datagram(&self) -> bool {
+        matches!(
+            self.declaration,
+            ResourceDeclaration::ControlledDirectCarrier { .. }
+        )
+    }
     fn matches_direct(&self, destination: &Destination, binding: &UpstreamBinding) -> bool {
-        matches!(&self.declaration, ResourceDeclaration::ControlledDirectStream { dial, .. }
+        matches!(&self.declaration, ResourceDeclaration::ControlledDirectStream { dial, .. } | ResourceDeclaration::ControlledDirectCarrier { dial, .. }
             if dial == &binding.dial && binding.prefix.is_empty() && destination.port != 0
             && !matches!(destination.address, Address::Domain(_)))
     }
@@ -330,7 +341,8 @@ impl BoundAuthority {
                         }
                     }
             }
-            ResourceDeclaration::ControlledDirectStream { .. } => {
+            ResourceDeclaration::ControlledDirectStream { .. }
+            | ResourceDeclaration::ControlledDirectCarrier { .. } => {
                 self.matches_direct(destination, binding)
                     && context.session.is_some_and(|id| id.0 != 0)
             }
@@ -530,12 +542,15 @@ impl CarrierOwnerBinding {
             _ => None,
         }
     }
+    pub(super) fn supports_direct_datagram(&self) -> bool {
+        self.authority.is_direct_datagram()
+    }
     pub(super) fn matches_direct_service(
         &self,
         destination: &Destination,
         binding: &UpstreamBinding,
     ) -> bool {
-        matches!(&self.authority.declaration, ResourceDeclaration::ControlledDirectStream {dial,..}
+        matches!(&self.authority.declaration, ResourceDeclaration::ControlledDirectStream {dial,..} | ResourceDeclaration::ControlledDirectCarrier {dial,..}
             if dial == &binding.dial && binding.prefix.is_empty() && destination.port != 0)
     }
     pub fn matches_direct(&self, destination: &Destination, binding: &UpstreamBinding) -> bool {
@@ -567,6 +582,7 @@ impl CarrierOwnerBinding {
         match &self.authority.declaration {
             ResourceDeclaration::ControlledOutboundStream { demand, .. } => *demand,
             ResourceDeclaration::ControlledDirectStream { .. }
+            | ResourceDeclaration::ControlledDirectCarrier { .. }
             | ResourceDeclaration::ControlledNodeStream { .. }
             | ResourceDeclaration::ControlledNodeCarrier { .. } => {
                 ControlledStreamDemandClass::Business

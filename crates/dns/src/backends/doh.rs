@@ -24,6 +24,7 @@ pub(crate) struct DohDnsResolver {
 
 mod client;
 mod native;
+mod standalone;
 pub(crate) use native::NativeCompletion;
 pub(super) mod owner;
 use client::DohClient;
@@ -134,78 +135,12 @@ impl DohDnsResolver {
         Ok(())
     }
 
-    pub(crate) async fn exchange(
-        &self,
-        query: &[u8],
-        detour: Option<&str>,
-        connector: Option<&dyn crate::DnsOutboundConnector>,
-    ) -> io::Result<Vec<u8>> {
-        let addrs = self.endpoint_addresses();
-        let mut last_error = None;
-        for addr in addrs {
-            match self.exchange_with(addr, query, detour, connector).await {
-                Ok(response) => return Ok(response),
-                Err(error) => last_error = Some(error),
-            }
-        }
-        Err(last_error.unwrap_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "DoH backend has no endpoint")
-        }))
-    }
-
     fn endpoint_addresses(&self) -> Vec<SocketAddr> {
         self.addrs.clone()
     }
 
     pub(crate) fn endpoint_labels(&self) -> Vec<String> {
         self.addrs.iter().map(ToString::to_string).collect()
-    }
-
-    async fn exchange_with(
-        &self,
-        addr: SocketAddr,
-        query: &[u8],
-        detour: Option<&str>,
-        connector: Option<&dyn crate::DnsOutboundConnector>,
-    ) -> io::Result<Vec<u8>> {
-        tokio::time::timeout(
-            DNS_TIMEOUT,
-            self.exchange_with_timeout(addr, query, detour, connector),
-        )
-        .await
-        .map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::TimedOut,
-                format!(
-                    "DoH request to {addr} timed out after {}ms",
-                    DNS_TIMEOUT.as_millis()
-                ),
-            )
-        })?
-    }
-
-    async fn exchange_with_timeout(
-        &self,
-        addr: SocketAddr,
-        query: &[u8],
-        detour: Option<&str>,
-        connector: Option<&dyn crate::DnsOutboundConnector>,
-    ) -> io::Result<Vec<u8>> {
-        let mut client = self.ready_client(addr, detour, connector).await?;
-        let request = self.request(query.len())?;
-        let (response, mut body) = client
-            .sender
-            .send_request(request, false)
-            .map_err(|error| context_error("DoH send request failed", error))?;
-        body.send_data(Bytes::copy_from_slice(query), true)
-            .map_err(|error| context_error("DoH send body failed", error))?;
-
-        let response = response
-            .await
-            .map_err(|error| context_error("DoH response failed", error))?;
-        let response = read_response(response).await?;
-        client.complete()?;
-        Ok(response)
     }
 
     pub(crate) fn request(&self, length: usize) -> io::Result<Request<()>> {

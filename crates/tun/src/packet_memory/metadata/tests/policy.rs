@@ -208,9 +208,12 @@ fn rejection_drop_and_actual_credit_release_reenter_the_same_counter_outside_its
             observed: observed.clone(),
         }))
     };
+    // Counter Self bytes are also held on this lane. Choose a layout above
+    // the actual whole ceiling, not merely above its remaining free bytes.
+    let impossible = counter.snapshot().limit.bytes().checked_add(1).unwrap();
     assert_eq!(
         counter
-            .reserve(PacketMetadataLayout::new(1, 64), wake())
+            .reserve(PacketMetadataLayout::new(1, impossible), wake())
             .err(),
         Some(PacketMemoryError::Capacity)
     );

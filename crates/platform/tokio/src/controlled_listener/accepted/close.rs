@@ -42,8 +42,58 @@ impl Pool {
         match control.wait_closed(deadline).await {
             Ok(report) if report.is_complete() => {
                 entry.state().phase = Phase::Closed;
+                drop(control);
                 self.confirm(entry);
                 Ok(Some(AcceptedTcpNativeClosed {
+                    entry: entry.clone(),
+                }))
+            }
+            Ok(_) => Ok(None),
+            Err(source) => Err(self.remember(entry, source, true)),
+        }
+    }
+    /// One concrete native-close attempt after THIS original's users/joins/ACK
+    /// are already complete. Never waits for or cancels an active user.
+    pub(super) fn try_close_returned_graph(
+        &self,
+        claim: &AcceptedTcpClaim,
+    ) -> Result<Option<AcceptedTcpClosed>, ChannelError> {
+        let entry = &claim.entry;
+        if !Arc::ptr_eq(&self.identity, &entry.identity) {
+            return Err(failure(
+                Stage::Close,
+                Reason::StalePlan,
+                "accepted graph belongs to another listener",
+            ));
+        }
+        let users = entry.users.as_ref().ok_or_else(|| {
+            failure(
+                Stage::Close,
+                Reason::Unsupported,
+                "accepted task graph was not declared",
+            )
+        })?;
+        if !users.complete() || !users.original_acks_returned() {
+            return Ok(None);
+        }
+        if entry.state().phase == Phase::Closed {
+            self.confirm(entry);
+            return Ok(Some(AcceptedTcpClosed {
+                entry: entry.clone(),
+            }));
+        }
+        let Some(holder) = entry.control.get() else {
+            return Ok(None);
+        };
+        let Ok(mut control) = holder.try_lock() else {
+            return Ok(None);
+        };
+        match control.try_close_once() {
+            Ok(report) if report.is_complete() => {
+                entry.state().phase = Phase::Closed;
+                drop(control);
+                self.confirm(entry);
+                Ok(Some(AcceptedTcpClosed {
                     entry: entry.clone(),
                 }))
             }

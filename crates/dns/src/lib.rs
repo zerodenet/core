@@ -340,7 +340,7 @@ impl DnsSystem {
         }
         let tasks = owned_root.as_ref().map(|root| root.tasks.clone());
         let query_coordinator = QueryCoordinator::with_graph_and_tasks(
-            Arc::new(std::sync::Mutex::new(Default::default())),
+            Arc::new(wire_memory::MetadataMutex::new(Default::default())),
             tasks.clone(),
         );
         let wire_query_coordinator =

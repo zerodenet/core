@@ -1,23 +1,42 @@
 //! Actual Source-declared codec buffers, not another allocator or IO provider.
-use std::sync::Arc;
 use zero_engine::EngineError;
 use zero_tun::packet_memory::NativeReadGrant;
 pub(crate) mod business;
 #[derive(Clone)]
 pub(crate) struct PacketCodecReceiveMemory {
     wire: NativeReadGrant,
-    buffers: Arc<[NativeReadGrant]>,
+    buffers: ReceiveWorkspaces,
+}
+// Both real protocol layouts are finite and inline. Cloning moves only their
+// original grant handles; it never allocates a second array or read provider.
+#[derive(Clone)]
+enum ReceiveWorkspaces {
+    One(NativeReadGrant),
+    Two([NativeReadGrant; 2]),
+}
+impl ReceiveWorkspaces {
+    fn as_slice(&self) -> &[NativeReadGrant] {
+        match self {
+            Self::One(original) => std::slice::from_ref(original),
+            Self::Two(originals) => originals,
+        }
+    }
 }
 impl PacketCodecReceiveMemory {
     pub(crate) fn from_declared(
         wire: NativeReadGrant,
-        buffers: Vec<NativeReadGrant>,
+        first: NativeReadGrant,
+        second: Option<NativeReadGrant>,
     ) -> Result<Self, EngineError> {
-        if wire.bytes() != 65536 || buffers.is_empty() || buffers.len() > 2 {
+        let buffers = match second {
+            Some(second) => ReceiveWorkspaces::Two([first, second]),
+            None => ReceiveWorkspaces::One(first),
+        };
+        if wire.bytes() != 65536 {
             return Err(invalid());
         }
         let original = wire.memory_view().map_err(std::io::Error::other)?;
-        for buffer in &buffers {
+        for buffer in buffers.as_slice() {
             if !buffer
                 .memory_view()
                 .map_err(std::io::Error::other)?
@@ -26,10 +45,7 @@ impl PacketCodecReceiveMemory {
                 return Err(invalid());
             }
         }
-        Ok(Self {
-            wire,
-            buffers: buffers.into(),
-        })
+        Ok(Self { wire, buffers })
     }
     pub(crate) fn matches_caller(
         &self,
@@ -57,21 +73,27 @@ impl PacketCodecReceiveMemory {
             let lengths = codec
                 .decode_buffer_lengths(length)
                 .map_err(std::io::Error::other)?;
-            if lengths.len() != self.buffers.len()
+            let grants = self.buffers.as_slice();
+            if lengths.len() != grants.len()
                 || lengths
                     .iter()
-                    .zip(self.buffers.iter())
+                    .zip(grants.iter())
                     .any(|(needed, grant)| *needed > grant.bytes())
             {
                 return Err(invalid());
             }
-            let mut buffers = Vec::with_capacity(self.buffers.len());
-            for grant in self.buffers.iter() {
+            // Empty packet values allocate nothing. Each filled element owns
+            // the SAME actual prepaid native read and erased-storage header.
+            let mut buffers = [
+                zero_traits::PacketBuffer::from(Vec::new()),
+                zero_traits::PacketBuffer::from(Vec::new()),
+            ];
+            for (grant, target) in grants.iter().zip(&mut buffers) {
                 let actual = grant.buffer().await.map_err(std::io::Error::other)?;
-                buffers.push(actual.into_packet(grant.bytes()).map_err(|_| invalid())?);
+                *target = actual.into_packet(grant.bytes()).map_err(|_| invalid())?;
             }
             let decoded = codec
-                .decode_buffered(&wire.as_bytes()[..length], &mut buffers)
+                .decode_buffered(&wire.as_bytes()[..length], &mut buffers[..grants.len()])
                 .map_err(std::io::Error::other)?;
             let Some((target, port, range)) = decoded else {
                 // Every allocated workspace, including extracted Domain backing,
@@ -80,7 +102,7 @@ impl PacketCodecReceiveMemory {
                 tokio::task::consume_budget().await;
                 continue;
             };
-            let payload = buffers
+            let payload = buffers[..grants.len()]
                 .get(range.buffer)
                 .and_then(|buffer| buffer.get(range.range))
                 .ok_or_else(invalid)?;

@@ -23,6 +23,10 @@ impl NativeCarrierOpener {
                 DeliveryState::NotSubmitted,
             )
         };
+        if let Some(service) = &self.service {
+            service.check(&grant, binding, &destination, &context)?;
+            service.bind_caller(&grant.slot)?;
+        }
         let registration = grant
             .slot
             .owner
@@ -42,6 +46,12 @@ impl NativeCarrierOpener {
         let permitted = if let Some(parent) = related {
             super::super::related::check_parent(parent, instance, binding)?;
             bound.permits_related()
+        } else if bound.is_direct_datagram() {
+            // Dynamic endpoints require the exact sealed Datagram ticket.
+            // Neither a bare opener nor a Stream ticket can authorize UDP.
+            self.service
+                .as_ref()
+                .is_some_and(|service| service.permits_direct_datagram_authority(&bound))
         } else {
             bound.permits_native(binding, &destination, &context)
                 && (bound.matches(&declaration, registration.limit)

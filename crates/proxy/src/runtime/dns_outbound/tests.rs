@@ -23,21 +23,30 @@ async fn proxy_executes_dns_detour_in_its_actual_host_without_recursive_resoluti
         .await
         .expect("bind DNS TCP server");
     let endpoint = listener.local_addr().expect("DNS TCP endpoint");
+    let socket = tokio::net::UdpSocket::bind(endpoint)
+        .await
+        .expect("same configured DNS UDP endpoint");
     let server = tokio::spawn(async move {
-        let (mut stream, _) = listener.accept().await.expect("accept DNS TCP");
-        let size = stream.read_u16().await.expect("read DNS query size") as usize;
-        let mut query = vec![0_u8; size];
-        stream.read_exact(&mut query).await.expect("read DNS query");
+        let mut query = vec![0_u8; 65536];
+        let (size, peer) = tokio::select! { biased;
+            tcp = listener.accept() => panic!("UDP DNS detour must not steal the retained TCP peer: {tcp:?}"),
+            query = socket.recv_from(&mut query) => query.expect("receive actual UDP DNS"),
+        };
+        query.truncate(size);
         let response =
             zero_dns::udp::build_dns_response(&query, &[IpAddress::V4([198, 51, 100, 53])]);
-        stream
-            .write_u16(response.len() as u16)
-            .await
-            .expect("write DNS response size");
-        stream
-            .write_all(&response)
-            .await
-            .expect("write DNS response");
+        assert_eq!(
+            socket
+                .send_to(&response, peer)
+                .await
+                .expect("write DNS UDP response"),
+            response.len()
+        );
+        std::future::poll_fn(|cx| {
+            assert!(listener.poll_accept(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
     });
     let config = zero_config::RuntimeConfig::parse(&format!(
         r#"{{

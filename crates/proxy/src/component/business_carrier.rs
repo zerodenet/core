@@ -43,7 +43,7 @@ impl BusinessCarrierRequest {
             zero_platform_tokio::contract::component::ResourceDeclaration::ControlledOutboundStream {
                 demand: zero_platform_tokio::contract::component::ControlledStreamDemandClass::Business, ..
             } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeCarrier { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeStream { .. }
-              | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. })) { return Ok(None); }
+              | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier { .. })) { return Ok(None); }
         let Some(admitted) = &invocation.admitted else {
             return Ok(None);
         };
@@ -71,7 +71,7 @@ impl BusinessCarrierRequest {
             identity: invocation.identity.clone(),
             session: facts.session,
             deadline: invocation.deadline,
-            direct: slot.recipe.spec().resources.iter().any(|resource| matches!(resource, zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. })),
+            direct: slot.recipe.spec().resources.iter().any(|resource| matches!(resource, zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier { .. })),
             caller_accepted: invocation.caller_accepted.clone(),
             #[cfg(feature = "raw-ip-runtime")]
             caller_native: invocation.caller_native.clone(),

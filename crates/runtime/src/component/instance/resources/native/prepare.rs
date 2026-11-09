@@ -298,6 +298,7 @@ impl HostResources {
                 | ResourceDeclaration::ControlledNodeCarrier { .. }
                 | ResourceDeclaration::ControlledNodeStream { .. }
                 | ResourceDeclaration::ControlledDirectStream { .. }
+                | ResourceDeclaration::ControlledDirectCarrier { .. }
                 | ResourceDeclaration::MetadataDatagram { .. } => {}
                 ResourceDeclaration::OutboundDatagram { .. } => {
                     return Err(error(

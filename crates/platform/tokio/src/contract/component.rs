@@ -135,6 +135,15 @@ pub enum ResourceDeclaration {
         dial: zero_traits::DialPolicy,
         max_sockets: NonZeroUsize,
     },
+    /// One actual dynamic Direct owner shared by Stream and Datagram roles.
+    /// A descriptor alone grants no arbitrary endpoint. Stream retains its
+    /// existing Business/Service issuers; Datagram requires its distinct sealed
+    /// transferred Service ticket and same-Scope setup witness. All live,
+    /// failed and retiring records share this single original owner/N.
+    ControlledDirectCarrier {
+        dial: zero_traits::DialPolicy,
+        max_sockets: NonZeroUsize,
+    },
     /// Fixed proxy endpoint with a live host-selected network generation.
     /// Every acquisition still requires its original admitted business demand,
     /// registered owner and matching native reservation. Its unique Datagram
