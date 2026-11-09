@@ -13,6 +13,23 @@ fn original(available: PacketMetadataLayout) -> Arc<PacketReturnTotals> {
     Arc::new(PacketReturnTotals::new_with_metadata(one, one, one, charged(available)).unwrap())
 }
 #[test]
+fn a_live_counter_header_is_permanent_capacity_but_returnable_storage_is_busy() {
+    let only_header = original(PacketMetadataLayout::new(0, 0));
+    let data = PacketMetadataLayout::array::<u8>(1).unwrap();
+    assert!(matches!(
+        only_header.reserve_driver_metadata(data),
+        Err(PacketMemoryError::Capacity)
+    ));
+    let with_room = original(data);
+    let held = with_room.reserve_driver_metadata(data).unwrap();
+    assert!(matches!(
+        with_room.reserve_driver_metadata(data),
+        Err(PacketMemoryError::Busy)
+    ));
+    drop(held);
+    assert!(with_room.reserve_driver_metadata(data).is_ok());
+}
+#[test]
 fn a_surviving_weak_header_keeps_both_real_metadata_allocations_charged() {
     let layout = PacketMetadataArc::<usize>::layout().unwrap();
     let root = original(layout);

@@ -108,7 +108,23 @@ impl PacketReturnTotals {
         if state.paused || state.metadata_pauses != 0 {
             return Err(PacketMemoryError::Paused);
         }
-        self.metadata.reserve(layout, wake)
+        match self.metadata.reserve(layout, wake) {
+            Err(PacketMemoryError::Busy) => {
+                // The counter's own header cannot return while this Root is
+                // alive. Match reserve_owned's permanent minimum, preserving
+                // the existing Paused/Stopped/Overflow error precedence.
+                let minimum = layout.checked_add(
+                    zero_traits::packet_metadata::PacketMetadataCounter::owned_layout(),
+                )?;
+                let limit = self.metadata.snapshot().limit;
+                if minimum.allocations() > limit.allocations() || minimum.bytes() > limit.bytes() {
+                    Err(PacketMemoryError::Capacity)
+                } else {
+                    Err(PacketMemoryError::Busy)
+                }
+            }
+            result => result,
+        }
     }
 }
 #[cfg(test)]
