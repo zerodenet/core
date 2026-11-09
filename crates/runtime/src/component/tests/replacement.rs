@@ -28,7 +28,7 @@ fn plan(slots: Vec<Arc<ComponentSlot>>) -> Arc<ComponentPlan> {
         borrowing: Default::default(),
         borrowing_revision: 0,
         // Private task/native or process fixture; no DNS-wire Apply candidate.
-        dns_wire: None,
+        dns_wire: Default::default(),
         outbounds: BTreeMap::new(),
         order: slots,
         started: AtomicBool::new(false),
