@@ -125,7 +125,7 @@ impl ComponentPlan {
     /// selects an executable provider; grants still verify every original.
     pub fn has_metadata_stream_provider(&self, role: zero_core::component::RoleInstanceId) -> bool {
         self.role_slot(role)
-            .is_some_and(|slot| metadata::installed(slot))
+            .is_some_and(|slot| metadata::installed(&slot))
     }
 
     /// Planning prerequisite only; actual borrowing still validates the original
