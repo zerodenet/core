@@ -215,7 +215,7 @@ impl Pool {
                 continue;
             }
             if let Some(users) = &entry.users {
-                if users.task_failures.get().is_none() && users.complete() {
+                if !users.has_task_failure_receiver() && users.complete() {
                     received.append(users.take_received_failures());
                     self.confirm(&entry);
                 }
@@ -243,7 +243,7 @@ impl Pool {
             .is_none_or(|users| users.complete() && users.original_acks().iter().all(acked));
         let reclaim = reclaim
             && entry.users.as_ref().is_none_or(|users| {
-                users.task_failures.get().is_some() || !users.has_received_failures()
+                users.has_task_failure_receiver() || !users.has_received_failures()
             });
         let mut new_closed = false;
         let removed = {

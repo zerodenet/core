@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     contract::{
         component::{AcceptedTcpLimits, ResourceDeclaration},
-        lifecycle::{ChannelControl, TaskClass},
+        lifecycle::TaskClass,
         scope::TaskScope,
         CancellationToken,
     },
@@ -25,7 +25,7 @@ use zero_core::{
     request::Destination,
     Address,
 };
-use zero_tun::packet_memory::PacketReturnTotals;
+use zero_tun::packet_memory::{PacketMemoryLimit, PacketReturnTotals};
 mod library;
 mod pressure;
 fn deadline() -> Instant {
@@ -64,7 +64,10 @@ fn metadata_limit(rows: &[usize]) -> PacketMetadataLayout {
     total
 }
 fn packet_root(limit: PacketMetadataLayout) -> Arc<PacketReturnTotals> {
-    let one = NonZeroUsize::MIN;
+    let one = PacketMemoryLimit {
+        frames: 1,
+        bytes: 1,
+    };
     Arc::new(PacketReturnTotals::new_with_metadata(one, one, one, limit).unwrap())
 }
 fn listener(scope: &TaskScope) -> ControlledTcpListenerOwner {

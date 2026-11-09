@@ -5,6 +5,9 @@ use crate::contract::{
     scope::TaskJoined,
 };
 impl Users {
+    pub(in crate::controlled_listener::accepted) fn has_task_failure_receiver(&self) -> bool {
+        self.task_failures.get().is_some()
+    }
     pub(super) fn retain_ordinary_caller_failure(
         &self,
         id: TaskId,
@@ -49,13 +52,13 @@ impl Users {
             .is_ok()
     }
 
-    pub(super) fn has_received_failures(&self) -> bool {
+    pub(in crate::controlled_listener::accepted) fn has_received_failures(&self) -> bool {
         self.state()
             .tasks
             .values()
             .any(|node| node.received_failure.is_some())
     }
-    pub(super) fn take_received_failures(&self) -> CloseReport {
+    pub(in crate::controlled_listener::accepted) fn take_received_failures(&self) -> CloseReport {
         let mut report = CloseReport::default();
         loop {
             let node = {
@@ -91,14 +94,14 @@ impl AcceptedPeerScope {
         &self,
         original: &AcceptedTaskFailureRegistration,
     ) -> Result<(), ChannelError> {
-        let (id, witness) = self.task.get().ok_or_else(|| {
+        let (id, witness) = self.tasks().current_task().ok_or_else(|| {
             failure(
                 Stage::Prepare,
                 Reason::Revoked,
                 "actual peer primary was not registered",
             )
         })?;
-        if !original.matches(witness)
+        if !original.matches(&witness)
             || !original
                 .receiver()
                 .scope_identity()
@@ -132,7 +135,7 @@ impl AcceptedPeerScope {
             ));
         }
         let mut state = self.users.state();
-        let node = state.tasks.get_mut(id).ok_or_else(|| {
+        let node = state.tasks.get_mut(&id).ok_or_else(|| {
             failure(
                 Stage::Prepare,
                 Reason::Revoked,

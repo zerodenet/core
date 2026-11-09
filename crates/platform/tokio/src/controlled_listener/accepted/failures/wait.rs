@@ -1,6 +1,8 @@
 use super::*;
 impl AcceptedTaskFailures {
-    pub(super) async fn wait_capacity(&self) -> Result<(), ChannelError> {
+    pub(in crate::controlled_listener::accepted) async fn wait_capacity(
+        &self,
+    ) -> Result<(), ChannelError> {
         loop {
             let changed = self.0.changed.notified();
             tokio::pin!(changed);
