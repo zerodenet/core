@@ -49,10 +49,17 @@ where
                 continue;
             }
 
-            let mut request_storage = Some(raw_line.reserve_decoded(&budget)?);
-            let request: IpcRequest = match serde_json::from_str(line.trim()) {
-                Ok(req) => req,
-                Err(_) => {
+            let mut request_storage = None;
+            let request = match super::super::owner::decode_ipc(line.trim(), &budget) {
+                Ok(decoded) => {
+                    let (request, storage) = decoded.into_parts();
+                    request_storage = Some(storage);
+                    request
+                }
+                Err(error) => {
+                    if let Some(error) = error.into_capacity() {
+                        return Err(input::budget(error));
+                    }
                     let resp = ipc_error(None, "invalid_argument", "invalid request frame");
                     frames::write_response_until(&writer, &resp, &budget, &stop).await?;
                     continue;
@@ -92,6 +99,13 @@ where
                     }
                 }
                 IpcRequest::Command { id, method, params } => {
+                    super::super::owner::request_json::grow_command(
+                        &method,
+                        &params,
+                        request_storage.as_mut().unwrap(),
+                        &budget,
+                    )
+                    .map_err(input::budget)?;
                     let command = parse_owned_command(method, params);
                     match command {
                         Ok(ref cmd) if !auth_ctx.allows(cmd.required_permission()) => {
@@ -109,7 +123,7 @@ where
                                 let response_writer = writer.clone();
                                 let rejected_charge =
                                     budget.reserve(ControlCharge::RequestBytes(
-                                        super::super::owner::serialized_len(&id)?,
+                                        super::super::owner::request_json::clone_id(&id)?,
                                     ))?;
                                 let rejected_id = id.clone();
                                 let response_budget = budget.clone();
@@ -162,10 +176,18 @@ where
                                     }
                                     Err(error)=>return Err(error),
                                 };
-                                let credits = commands::CommandCredits::new(
+                                let mut original_input = vec![request_storage.take().unwrap()];
+                                let credits = match commands::CommandCredits::new(
                                     command,
-                                    vec![request_storage.take().unwrap()],
-                                )?;
+                                    &mut original_input,
+                                ) {
+                                    Ok(credits) => credits,
+                                    Err(error) => {
+                                        drop((cmd, id));
+                                        drop(original_input);
+                                        return Err(error);
+                                    }
+                                };
                                 let _ = credits._command.register_original_connection();
                                 let observation = credits.observation.clone();
                                 inline_command = Some(credits);

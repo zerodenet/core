@@ -3,9 +3,11 @@ mod compile;
 mod control_budget;
 mod ss_security_budget;
 pub use control_budget::{
-    ControlBudget, ControlBudgetCandidate, ControlBudgetLimits, ControlBudgetPermit,
-    ControlBudgetUsage, ControlCharge, ControlCommandCustody, ControlConnectionBudget,
-    ControlConnectionCharge, ControlConnectionPermit, ControlMessageLimits,
+    control_json_decoder_workspace, control_json_map_bound, control_json_storage_bound,
+    control_json_typed_array_bound, ControlBudget, ControlBudgetCandidate, ControlBudgetLimits,
+    ControlBudgetPermit, ControlBudgetUsage, ControlCharge, ControlCommandCustody,
+    ControlConnectionBudget, ControlConnectionCharge, ControlConnectionPermit, ControlJsonStorage,
+    ControlMessageLimits,
 };
 pub use ss_security_budget::SsSecurityBudgetLimits;
 mod io;

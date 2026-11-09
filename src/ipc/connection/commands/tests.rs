@@ -208,3 +208,51 @@ async fn caller_timeout_response_keeps_input_and_command_until_the_same_apply_re
         .await
         .unwrap();
 }
+
+struct UnstartedPayload {
+    data: Vec<u8>,
+    book: Arc<ControlBudget>,
+    seen: Arc<std::sync::atomic::AtomicBool>,
+}
+impl Future for UnstartedPayload {
+    type Output = io::Result<()>;
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        panic!("rejected original must never execute")
+    }
+}
+impl Drop for UnstartedPayload {
+    fn drop(&mut self) {
+        assert!(
+            self.book.usage().request_bytes >= self.data.capacity(),
+            "actual unstarted payload must still be paid during Drop"
+        );
+        self.seen.store(true, std::sync::atomic::Ordering::Release);
+    }
+}
+#[tokio::test]
+async fn both_actual_early_rejection_and_closed_owner_free_dto_before_its_input_credit() {
+    for stopped in [false, true] {
+        let stop = CancellationToken::new();
+        let mut tasks = ConcurrentCommandTasks::new(stop.clone());
+        let book = tasks.budget.clone();
+        if stopped {
+            stop.cancel();
+        } else {
+            book.command_owner().begin_shutdown();
+        }
+        let credit = book.reserve(ControlCharge::RequestBytes(64)).unwrap();
+        let seen = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let payload = UnstartedPayload {
+            data: vec![0; 64],
+            book: book.clone(),
+            seen: seen.clone(),
+        };
+        assert!(!tasks.try_spawn_owned(payload, vec![credit]));
+        assert!(seen.load(std::sync::atomic::Ordering::Acquire));
+        assert_eq!(book.usage().request_bytes, 0);
+        tasks.cancel_all().await.unwrap();
+    }
+}

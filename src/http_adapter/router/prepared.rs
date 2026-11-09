@@ -86,6 +86,7 @@ fn prepare(
         Selected::Typed(body) => Some(budget.reserve(ControlCharge::RequestBytes(body.len()))?),
         _ => None,
     };
+    let mut _typed_storage = None;
     let request = match selected {
         Selected::Events => return history::prepare(handle, budget),
         Selected::Config => QueryRequest::Config(Default::default()),
@@ -118,12 +119,28 @@ fn prepare(
         Selected::Policy(tag) => QueryRequest::Policy(zero_api::PolicyGetQuery {
             policy_tag: tag.to_owned(),
         }),
-        Selected::Typed(body) => match serde_json::from_slice::<QueryRequest>(body) {
-            Ok(query) => query,
-            Err(error) => {
-                return encode_failure(&error, zero_api::ApiErrorCode::InvalidArgument, budget);
+        Selected::Typed(body) => {
+            match crate::ipc::owner::request_json::decode_query(body, budget) {
+                Ok(decoded) => {
+                    let (query, storage) = decoded.into_parts();
+                    _typed_storage = Some(storage);
+                    query
+                }
+                Err(crate::ipc::owner::request_json::DecodeError::Capacity(error)) => {
+                    return Err(error)
+                }
+                Err(crate::ipc::owner::request_json::DecodeError::Invalid {
+                    source,
+                    _workspace,
+                }) => {
+                    return encode_failure(
+                        &source,
+                        zero_api::ApiErrorCode::InvalidArgument,
+                        budget,
+                    );
+                }
             }
-        },
+        }
     };
     if endpoint::handles(&request) {
         return endpoint::prepare(handle, &request, budget);

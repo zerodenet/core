@@ -220,3 +220,6 @@ impl std::error::Error for PanicCleanup {
 #[cfg(test)]
 #[path = "owner/tests/invocation.rs"]
 mod invocation_tests;
+
+pub(crate) mod request_json;
+pub(crate) use request_json::decode_ipc;

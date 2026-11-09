@@ -10,7 +10,7 @@ pub(crate) struct Record {
     pub(super) lifetime: Arc<Lifetime>,
     pub(super) budget: Arc<ControlBudget>,
     pub(super) policy: ControlMessageLimits,
-    input: Mutex<Option<ControlBudgetPermit>>,
+    pub(super) input: Mutex<Option<ControlBudgetPermit>>,
     pub(super) output: super::output::Outbox,
     pub(super) command: super::command::Command,
     pub(super) status: Mutex<Option<ControlBudgetPermit>>,
@@ -36,6 +36,9 @@ impl Record {
                 .map_err(|error| tonic::Status::resource_exhausted(error.to_string()))?,
         );
         Ok(())
+    }
+    pub(crate) fn prepay_json(&self, raw: &[u8], query: bool) -> std::io::Result<()> {
+        super::json_input::prepay(self, raw, query)
     }
     pub(super) fn input_message(&self, bytes: usize) -> Result<(), tonic::Status> {
         if bytes > self.policy.grpc_request_bytes {

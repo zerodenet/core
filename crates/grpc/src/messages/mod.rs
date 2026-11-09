@@ -3,6 +3,8 @@ mod command;
 mod config_query;
 mod executor;
 mod input;
+mod json_input;
+mod json_shape;
 pub(super) mod output;
 mod registry;
 mod runtime_query;
