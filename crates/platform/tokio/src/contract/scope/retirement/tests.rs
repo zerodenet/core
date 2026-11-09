@@ -119,3 +119,65 @@ async fn paid_completion_survives_scope_retirement_without_retaining_its_tasks_o
         "abort/Drop is not a native task join or ACK"
     );
 }
+
+#[tokio::test]
+async fn hosted_final_ack_publishes_paid_completion_before_the_existing_reentrant_final_wake() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::task::{Context, Wake, Waker};
+    struct ReadOnWake {
+        completion: ScopeRetirementCompletion,
+        tasks: WeakTaskRegistrar,
+        completed: AtomicUsize,
+    }
+    impl Wake for ReadOnWake {
+        fn wake(self: Arc<Self>) {
+            self.wake_by_ref();
+        }
+        fn wake_by_ref(self: &Arc<Self>) {
+            if self.completion.is_drained() {
+                self.completed.fetch_add(1, Ordering::SeqCst);
+            } else if let Some(observation) = self.tasks.retirement_observation() {
+                // Real host pollers restore this same original wake while the
+                // joined/accepted census is still awaiting deferred delivery.
+                let waker = Waker::from(self.clone());
+                observation
+                    .0
+                    .register_hosted_waker(&Context::from_waker(&waker));
+            }
+        }
+    }
+    let root = Arc::new(zero_tun::packet_memory::PacketReturnTotals::default());
+    let mut scope = TaskScope::suspended_hosted(Handle::current(), NonZeroUsize::new(1));
+    let tasks = scope.registrar();
+    let completion = tasks
+        .downgrade()
+        .retirement_completion(&root.driver_metadata_view())
+        .unwrap();
+    scope.enable_registration().unwrap();
+    let (finish, finished) = oneshot::channel();
+    let (_, witness) = tasks
+        .spawn_tracked(TaskClass::Critical, async move {
+            finished.await.unwrap();
+            Ok(())
+        })
+        .unwrap();
+    scope.begin_shutdown();
+    finish.send(()).unwrap();
+    let receipt = scope.next_receipt().await.unwrap();
+    let callbacks = scope.defer_callbacks();
+    scope.acknowledge(&receipt).unwrap();
+    assert!(!completion.is_drained());
+    assert!(!witness.try_joined().unwrap().registration_released());
+    let observer = Arc::new(ReadOnWake {
+        completion: completion.clone(),
+        tasks: tasks.downgrade(),
+        completed: AtomicUsize::new(0),
+    });
+    let waker = Waker::from(observer.clone());
+    let mut cx = Context::from_waker(&waker);
+    assert!(scope.poll_exit(&mut cx).is_pending());
+    drop(callbacks);
+    assert!(witness.try_joined().unwrap().registration_released());
+    assert!(completion.is_drained());
+    assert!(observer.completed.load(Ordering::SeqCst)>0,"a reentrant receiver must observe completion on an existing final wake, without a second worker/timer/registry");
+}

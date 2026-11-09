@@ -362,11 +362,15 @@ impl Shared {
             })
             .collect();
         self.relay.queue_notifications(notifications);
+        // Every actual registrationReleased flag was set while constructing
+        // the notifications above. Publish the final empty census BEFORE
+        // source-drop callbacks or the existing final host wake can re-enter
+        // a ProcessBudget/barrier and consume that notification.
+        self.seal_retirement_completion();
         drop(retired);
         if released {
             self.notify_hosted();
             self.relay.deliver_notifications();
         }
-        self.seal_retirement_completion();
     }
 }
