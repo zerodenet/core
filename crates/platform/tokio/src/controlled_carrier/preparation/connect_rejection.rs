@@ -9,6 +9,19 @@ impl CarrierPreparation {
         &self,
         source: &Arc<ChannelError>,
     ) -> Result<(), ChannelError> {
+        self.retain_connect_rejection(source, true)
+    }
+    pub(in crate::controlled_carrier) fn retain_connect_rejection_before_ack(
+        &self,
+        source: &Arc<ChannelError>,
+    ) -> Result<(), ChannelError> {
+        self.retain_connect_rejection(source, false)
+    }
+    fn retain_connect_rejection(
+        &self,
+        source: &Arc<ChannelError>,
+        settled: bool,
+    ) -> Result<(), ChannelError> {
         let slot = self.slot.upgrade().ok_or_else(|| {
             ChannelError::new(
                 Stage::Prepare,
@@ -33,8 +46,7 @@ impl CarrierPreparation {
         let joined = auxiliary.try_joined().ok_or_else(fail)?;
         let original = joined.result().err().ok_or_else(fail)?;
         if !auxiliary.matches_joined(&joined)
-            || !joined.registration_released()
-            || !joined.failure_accepted()
+            || (settled && (!joined.registration_released() || !joined.failure_accepted()))
             || !original
                 .retained_source()
                 .is_some_and(|actual| Arc::ptr_eq(actual, source))
@@ -43,7 +55,7 @@ impl CarrierPreparation {
         }
         let state = slot.state();
         if state.closed
-            || !state.auxiliary_accepted
+            || (settled && !state.auxiliary_accepted)
             || !state
                 .auxiliary
                 .as_ref()

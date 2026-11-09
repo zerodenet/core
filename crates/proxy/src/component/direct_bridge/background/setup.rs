@@ -57,19 +57,27 @@ impl Candidates {
             }
         }).await.map_err(|source|invalid(Reason::Timeout,"Direct Service setup absolute deadline").with_source(source))??;
         let original_error = outcome.as_ref().err().cloned();
-        let joined = with_deadline(self.request.context.deadline, adoption.accept_auxiliary())
-            .await
-            .map_err(|source| {
-                original_error.clone().map_or_else(
-                    || invalid(Reason::Timeout, "Direct setup join deadline").with_source(source),
-                    ChannelError::retained,
-                )
-            })?
-            .map_err(|source| {
-                original_error
-                    .clone()
-                    .map_or(source, ChannelError::retained)
-            })?;
+        let received_rejection = original_error.as_ref().filter(|source| {
+            zero_platform_tokio::controlled_carrier::original_connect_error(source).is_some()
+        });
+        let joined = with_deadline(self.request.context.deadline, async {
+            match received_rejection {
+                Some(source) => adoption.accept_auxiliary_connect_rejection(source).await,
+                None => adoption.accept_auxiliary().await,
+            }
+        })
+        .await
+        .map_err(|source| {
+            original_error.clone().map_or_else(
+                || invalid(Reason::Timeout, "Direct setup join deadline").with_source(source),
+                ChannelError::retained,
+            )
+        })?
+        .map_err(|source| {
+            original_error
+                .clone()
+                .map_or(source, ChannelError::retained)
+        })?;
         if !joined
             .as_ref()
             .is_some_and(|joined| witness.matches_joined(joined))
@@ -105,16 +113,6 @@ impl Candidates {
                 },
                 ChannelError::retained,
             ));
-        }
-        if let Err(source) = &outcome {
-            if zero_platform_tokio::controlled_carrier::original_connect_error(source).is_some() {
-                adoption
-                    .preparation()
-                    .ok_or_else(|| {
-                        invalid(Reason::StalePlan, "Direct original lost its preparation")
-                    })?
-                    .receive_connect_rejection(source)?;
-            }
         }
         outcome.map_err(ChannelError::retained)
     }

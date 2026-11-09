@@ -140,6 +140,21 @@ impl CarrierAdoption {
     /// Store the exact Scope-issued receipt before acknowledging local failure.
     /// Waiting/reading the witness alone never acknowledges an Auxiliary error.
     pub async fn accept_auxiliary(&self) -> Result<Option<TaskJoined>, ChannelError> {
+        self.accept_auxiliary_received(None).await
+    }
+    /// The actual Direct result receiver retains its exact native rejection
+    /// before local acceptance can let the original retirement driver proceed.
+    /// Actual join, Host ACK and native close remain separate obligations.
+    pub async fn accept_auxiliary_connect_rejection(
+        &self,
+        source: &std::sync::Arc<ChannelError>,
+    ) -> Result<Option<TaskJoined>, ChannelError> {
+        self.accept_auxiliary_received(Some(source)).await
+    }
+    async fn accept_auxiliary_received(
+        &self,
+        rejection: Option<&std::sync::Arc<ChannelError>>,
+    ) -> Result<Option<TaskJoined>, ChannelError> {
         let witness = { self.slot.state().auxiliary.clone() };
         let Some(witness) = witness else {
             return Ok(None);
@@ -148,6 +163,18 @@ impl CarrierAdoption {
         {
             let mut state = self.slot.state();
             state.auxiliary_exit.get_or_insert_with(|| joined.clone());
+        }
+        if let Some(source) = rejection {
+            self.preparation()
+                .ok_or_else(|| {
+                    error(
+                        self.instance(),
+                        Stage::Prepare,
+                        Reason::StalePlan,
+                        DeliveryState::Unknown,
+                    )
+                })?
+                .retain_connect_rejection_before_ack(source)?;
         }
         if joined.result().is_err() {
             witness

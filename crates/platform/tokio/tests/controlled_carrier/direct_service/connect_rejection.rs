@@ -4,7 +4,7 @@ use super::*;
 async fn only_received_native_connect_rejection_avoids_duplicate_component_fault_after_original_ack(
 ) {
     timeout(Duration::from_secs(5), async {
-        for mode in ["received", "undelivered", "panic"] {
+        for mode in ["received", "received_before_ack", "undelivered", "panic"] {
             let mut fixture=Fixture::cold(1).await;
             let bad=tokio::net::TcpSocket::new_v4().unwrap();
             bad.bind("127.0.0.1:0".parse().unwrap()).unwrap();
@@ -20,7 +20,7 @@ async fn only_received_native_connect_rejection_avoids_duplicate_component_fault
             ).unwrap();
             fixture.owner.start(deadline()).await.unwrap();
             let mut grant=fixture.grants.reserve().unwrap();let original=grant.adoption();
-            let(view,preparation)=grant.claim_preparing_transferred_view().unwrap();
+            let(view,preparation)=grant.claim_preparing_transferred_view().unwrap();let mut view=Some(view);
             let(begin,started)=tokio::sync::oneshot::channel::<crate::contract::scope::TaskJoinWitness>();
             let(send,mut receive)=tokio::sync::oneshot::channel::<Arc<ChannelError>>();
             let selection=fixture.egress.clone();
@@ -40,13 +40,20 @@ async fn only_received_native_connect_rejection_avoids_duplicate_component_fault
             begin.send(actual.clone()).unwrap();
             let delivered=if mode=="undelivered" {receive.close();None}else{Some(receive.await.unwrap())};
             let receipt=scope.next_receipt().await.unwrap();
-            let joined=original.accept_auxiliary().await.unwrap().unwrap();
+            let joined=if mode=="received_before_ack" {
+                // Remove the logical view before allowing the actual Source's
+                // receiver to accept, exposing its automatic retirement gate.
+                drop(view.take());
+                original.accept_auxiliary_connect_rejection(delivered.as_ref().unwrap()).await.unwrap().unwrap()
+            } else {
+                original.accept_auxiliary().await.unwrap().unwrap()
+            };
             assert!(actual.matches_joined(&joined)&&actual.matches_joined(receipt.joined()));
             assert!(joined.result().is_err()&&!joined.registration_released());
             if let Some(source)=&delivered {assert!(preparation.receive_connect_rejection(source).is_err(),"actual Host ACK is still held");}
             assert_eq!(fixture.grants.reserve().err().unwrap().reason,Reason::Capacity);
             scope.acknowledge(&receipt).unwrap();
-            if mode=="received" {
+            if mode=="received" || mode=="received_before_ack" {
                 let source=delivered.as_ref().unwrap();
                 let foreign=Arc::new(ChannelError::new(Stage::Dial,Reason::Io,Impact::Component));
                 assert!(preparation.receive_connect_rejection(&foreign).is_err());
@@ -58,7 +65,7 @@ async fn only_received_native_connect_rejection_avoids_duplicate_component_fault
             drop(view);
             let report=original.retire(deadline()).await.unwrap();
             assert!(report.is_complete()&&report.exited_tasks.contains(&joined.id()));
-            if mode=="received" {assert!(report.failed_tasks.is_empty());}
+            if mode=="received" || mode=="received_before_ack" {assert!(report.failed_tasks.is_empty());}
             else {
                 let failed=report.failed_tasks.iter().find(|failed|failed.id==joined.id()).unwrap();
                 assert!(Arc::ptr_eq(failed.error.retained_source().unwrap(),&joined.result().unwrap_err()));
