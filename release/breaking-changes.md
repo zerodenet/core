@@ -130,6 +130,10 @@ Linux 进程原件续作增加内核 Rust 的 cold owned-process grant，保留�
 
 ## Unreleased
 
+配置持久化的输出、旧文件及恢复记录现由原 Host 控制预算持有，原件 FD/补偿与
+revision/ACK语义保持。进程内 Rust 持久化装配使用实际 book/candidate；真实 Engine-only
+入口仍独立，不作为 Kernel 后备。V1、CLI/FFI和客户端面板无需变更，当前仍为开发续作。
+
 ### 控制 Health 与 Capabilities 的原件投影
 
 HTTP、IPC 和 gRPC 从同一 Proxy/Engine/设备/协议登记读取 Health 与 Capabilities，

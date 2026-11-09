@@ -1,5 +1,11 @@
 # 外部与嵌入兼容边界
 
+ConfigurationSource 的 Kernel 持久化现在绑定实际 Host ControlBudget，两个生产写入者
+使用同 book/candidate 的 persist_ready_with_budget；旧文件和输出各自计额到 backing 销毁。
+真实 Engine-only 调用使用 commit_embedded_from 传旧/新 runtime 限额，不作为 Kernel
+缺原件后备。Host 关闭后候选不再允许新分配。原文件补偿、revision、V1、CLI/FFI保持；
+对应新输入运行资格尚在验证，详见[当前接续](cloud/round2/checkpoints/20261109-2228.md)。
+
 必要的公开 Rust 接口迁移不放宽 GUI、面板的 V1 行为和现有 FFI ABI。历史消费者观察未包含未提交工作区内容，真实组合验证尚待 PR01/PR10。
 
 [方案入口](README.md) · [架构](architecture.md) · [契约](contracts.md) · [迁移与任务卡](migration.md) · [兼容](compatibility.md) · [验证](validation.md) · [来源](references.md)
