@@ -110,7 +110,19 @@ async fn actual_host_metadata_icmp_native_closes_before_its_exact_metadata_host_
             mut icmp,
             observed,
             registration,
-        } = fixture.drive(opened).await.unwrap();
+        } = fixture.drive(opened).await.unwrap_or_else(|error| {
+            let joined = query.try_joined();
+            let actual = joined.as_ref().map(|joined| joined.result());
+            let mut causes = Vec::new();
+            if let Some(Err(source)) = actual {
+                let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(source.as_ref());
+                while let Some(original) = cause {
+                    causes.push(original.to_string());
+                    cause = original.source();
+                }
+            }
+            panic!("actual ICMP initializer failed before original handoff: {error}; original Scope result={actual:?}; original source chain={causes:?}");
+        });
         assert!(matches!(
             observed.disposition(),
             IcmpAttemptDisposition::Pending
