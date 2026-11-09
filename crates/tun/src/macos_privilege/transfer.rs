@@ -167,6 +167,14 @@ impl std::ops::Deref for TransferOwner {
     }
 }
 impl TransferOwner {
+    pub(super) fn from_prepaid(
+        id: u64,
+        credit: crate::packet_memory::PacketMetadataCredit,
+    ) -> io::Result<Self> {
+        crate::packet_memory::PacketMetadataArc::from_prepaid(Transfer::new(id), credit)
+            .map(Self::Kernel)
+            .map_err(|(source, _, _)| io::Error::other(source))
+    }
     pub(super) fn prepare(
         id: u64,
         memory: Option<&crate::packet_memory::PacketMemoryView>,

@@ -1,7 +1,7 @@
 //! Short nonblocking progression; no Session outcome lock spans IPC waits.
 use super::*;
 impl Supervisor {
-    pub(super) fn advance(&mut self) -> io::Result<()> {
+    pub(in crate::macos_privilege) fn advance(&mut self) -> io::Result<()> {
         let Some(nonce) = self.nonce else {
             return Ok(());
         };

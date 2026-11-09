@@ -7,20 +7,20 @@ use std::{
 mod handshake;
 mod pipes;
 
-pub(super) struct ChildOriginal {
+pub(in crate::macos_privilege) struct ChildOriginal {
     child: Option<Child>,
     pipes: [Option<Original>; 3],
     waited: Option<ExitStatus>,
 }
 impl ChildOriginal {
-    pub(super) fn new() -> Self {
+    pub(in crate::macos_privilege) fn new() -> Self {
         Self {
             child: None,
             pipes: [None, None, None],
             waited: None,
         }
     }
-    pub(super) fn close_pipes(&mut self) -> io::Result<()> {
+    pub(in crate::macos_privilege) fn close_pipes(&mut self) -> io::Result<()> {
         let mut failure = None;
         for original in self.pipes.iter_mut().flatten() {
             if let Err(source) = original.close_once() {
@@ -29,10 +29,10 @@ impl ChildOriginal {
         }
         failure.map_or(Ok(()), Err)
     }
-    pub(super) fn reaped(&self) -> bool {
+    pub(in crate::macos_privilege) fn reaped(&self) -> bool {
         self.waited.is_some()
     }
-    pub(super) fn wait(&mut self) -> io::Result<ExitStatus> {
+    pub(in crate::macos_privilege) fn wait(&mut self) -> io::Result<ExitStatus> {
         if let Some(status) = self.waited {
             return Ok(status);
         }
@@ -44,11 +44,11 @@ impl ChildOriginal {
         self.waited = Some(status);
         Ok(status)
     }
-    pub(super) fn reusable(&self) -> bool {
+    pub(in crate::macos_privilege) fn reusable(&self) -> bool {
         self.child.is_none() || (self.reaped() && self.pipes.iter().flatten().all(Original::closed))
     }
 }
-pub(super) fn run(
+pub(in crate::macos_privilege) fn run(
     slot: &mut ChildOriginal,
     program: HelperProgram,
     arguments: &[String],

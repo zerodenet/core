@@ -52,6 +52,21 @@ impl Supervisor {
                 return Err(io::Error::last_os_error());
             }
         }
+        let enabled = 1_i32;
+        for original in [&self.local, &self.remote].into_iter().flatten() {
+            if unsafe {
+                libc::setsockopt(
+                    original.fd(),
+                    libc::SOL_SOCKET,
+                    libc::SO_NOSIGPIPE,
+                    (&enabled as *const i32).cast(),
+                    std::mem::size_of_val(&enabled) as _,
+                )
+            } < 0
+            {
+                return Err(io::Error::last_os_error());
+            }
+        }
         let fd = self.local.as_ref().unwrap().fd();
         let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
         if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
