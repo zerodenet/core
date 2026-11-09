@@ -1,6 +1,13 @@
 # A control callers: concrete retirement and remaining work
 
-Source checkpoint: `a26d3955a46f49971b2f1e51cb7ac02eade2b8e4`.
+Current Logger proposal base: `93b31dc37a5b59597956152518f08f26a368b278`.
+The table began at `a26d3955a46f49971b2f1e51cb7ac02eade2b8e4`;
+its historical “not yet tested” statements are superseded only by the exact
+input results below. Logger is now a complete source proposal, not compiled or
+runtime qualified. Initial/early input is already implemented and separately
+qualified: M `7e521a47` plus `74d4873b9697ab9a2b5df9efadd02847d994d074`,
+lock `576b313f…`, four actual source/oracle/recovery tests PASS. This does not
+qualify the new logger backend or the whole control/DNS domain.
 This is a source/caller audit, not a whole-domain qualification. A did not run
 Cargo, rustc or runtime tests. Coordinator results apply only to their recorded
 source/lock/ELF. Windows execution and GUI behavior remain separate.
@@ -18,7 +25,8 @@ source/lock/ELF. Windows execution and GUI behavior remain separate.
 | Initial control TLS cert/key/CA | `application/run/control_material.rs` calls the existing actual ConfigurationSource with loaded `file_read_max_bytes` | Same OriginalFile close must match before bytes return; startup slot retains unknown Source | Implemented. Do not replace or rebuild this hot/initial material path. |
 | Independent CLI connector/quota inspect | `application/inspect.rs`, `inspect/state.rs`, `connector/state.rs`, `outbox/replay.rs` | Same Source read/seek snapshot; actual inspection attempt keeps original resources, explicit matching close, and independent work/cleanup sources | Implemented. Streaming bounds and existing SQLite/JSONL report shapes remain. A library wrapper is not a fallback for missing production resources. |
 | Principal quota lease and background persistence | Engine quota worker plus `configuration/source/quota{,/worker}.rs` | Original std handle, actual worker join and ACK; same quota storage fault receiver; lease settlement and native close distinct | Implemented concrete pair. Worker reported flag is monotonic; delivered historical fault does not itself invalidate physical settlement. Do not reconstruct quota transactions. |
-| Early logging document and initial configuration read | `main.rs::init_tracing_from_config`, `ConfigurationSource::{load_initial_configuration,read_initial_document}` | Original file ownership/explicit close already exists, but `io.read_text` still reads into unbounded String; early logging constructs whole Value and clones log subtree | Actual remaining implementation. Outside neutral fact probe is UNFROZEN and not accepted as completion: fixed-memory root/runtime budget facts must pair with same-inode bounded read and actual earlylog consumer/original serde oracle. Unknown facts may neither silently select 8MiB nor activate an unbounded fallback. CLI reload source pair is already separate and must not be redone. |
+| Early logging document and initial configuration read | `ConfigurationSource` same-inode bounded UTF8/facts/rewind reader; `main.rs::init_tracing_from_config` consumes the existing returned log recipe | Actual matching file close precedes document delivery; unknown retains the original Source. Runtime budgets and original serde duplicate/null/magic behavior are preserved | Implemented and M 74d four tests PASS, including original 20-case oracle, 8MiB+17 late-cap, close/UTF8 recovery and low-limit growth. Do not redo. |
+| Ordinary process file logging | main `ProcessLogging` plus `ScopedTracing`; same ApplicationServices logger book and one actual per-output Scope job at a time | Closed controllers before IO; real worker/witness/start gate; idle and failed predecessors join+ACK before replacement; close/rotation/recovery on actual output worker; failed chunks and pure original fault sources stay paid | Complete `a-owned-logging` source proposal, uncompiled. Per-file isolation and old stderr/filter/JSON/WarningBridge behavior retained; actual live budget candidate and main shutdown consumers are included. No claim of whole G8 qualification. |
 
 `CloseReport::is_complete` is only `unfinished.is_empty()`. Before a26 the
 server helper returned Ok for a complete report and dropped failed task/RF rows.
@@ -30,19 +38,19 @@ keep an immutable projection of the actual task/RF sources, rather than a
 mutable receiver. Returning that error through the same Scope cannot create a
 receiver-to-itself strong cycle; exact source identity and local receipts remain.
 
-The bootstrap `zero_logging::init_tracing` backend is a distinct ordinary production
-caller in `main.rs`: it creates RotatingWriter fs files and tracing-appender workers
-and retains WorkerGuard for process lifetime. This document does not claim
-those handles are controlled Source/Scope originals, or reclassify the
-early input fix as a logger-provider migration. No logging backend ownership
-rewrite is included in the bounded-document proposal.
+The original tracing-appender backend was a real production gap, not a library
+exception. The new proposal selects `ScopedTracing` in actual main; the old
+`init_tracing` remains only a genuine library entry. It is never used when the
+production Scope/controller is absent. No logger test/build qualification is
+inferred from the separately passed initial-input or control-server results.
 
 ## DNS deletion gate remains active
 
-B/C have not supplied new complete advanced/TEMP donor qualification. B's
-ordinary QUIC Factory is being split from H3 and still needs actual
-ControlledMetadataCarrier + ControlledServiceDatagram classification/transfer
-and ordinary native/borrowed wire. The real two Kernel PacketPath(None)
+B/C have not supplied new complete advanced/TEMP donor qualification. B's ordinary QUIC Factory/dual-provider and the B39/M3/A19 pre-delivery
+observer consumer are installed (`ad5222ca…`). The exact d68 low-level UDP /
+global settlement / initializer panic pair passed; ordinary Proxy QUIC and
+persistent DoH query results belong to their later actual ELF. H3/advanced
+complete donors are still separate unfinished implementation. The real two Kernel PacketPath(None)
 callers are in the B/M concrete datagram/payload-custody pair, not standalone
 libraries. C's complete TEMP/source code and Mac helper are not evidence for an
 arbitrary SIP whole job or for full ordinary TEMP qualification.
@@ -64,5 +72,6 @@ Scope/Unix reports and feedback-cycle tests. Input
 status-api ELF passed seventeen actual tests (IPC reports four, HTTP shutdown
 one, CLI wire nine, CLI Source document three). Those results qualify their
 recorded input and features, not this whole table, all-feature production, or
-Windows execution. Early logging/initial input and logger ownership above
-remain open implementation duties.
+Windows execution. Initial input subsequently passed its exact four-test 74d group. Logger
+source is now proposed as one complete pair and still awaits actual build and
+runtime qualification. The older 8/17 counts do not qualify it.

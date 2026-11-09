@@ -10,6 +10,7 @@ mod hooks;
 #[cfg(feature = "status-api")]
 mod http_adapter;
 mod ipc;
+mod logging_owner;
 mod output;
 mod rule_set_fetch;
 
@@ -19,15 +20,47 @@ async fn main() {
     // from `runtime.log` before any other work so all logs are captured.
     let args: Vec<String> = env::args().collect();
     let config_path = cli::config_path_from_args(&args);
-    let tracing_guard = init_tracing_from_config(config_path.unwrap_or(""));
+    let mut logging = init_tracing_from_config(config_path.unwrap_or(""))
+        .expect("failed to prepare original logging owner");
     install_panic_hook();
-
-    if let Err(error) = try_main().await {
-        tracing::error!(error = %error, "zero process terminating with fatal error");
-        error_report::print_error(error.as_ref());
-        drop(tracing_guard);
-        process::exit(1);
+    let initialization = logging.initialize().await;
+    let result = match initialization {
+        Ok(()) => {
+            let handle = logging.handle();
+            use futures_util::FutureExt;
+            logging
+                .run(std::panic::AssertUnwindSafe(try_main(handle)).catch_unwind())
+                .await
+        }
+        Err(source) => {
+            eprintln!("failed to initialize tracing: {source}");
+            // The actual logger source remains in its original paid receiver.
+            let _ = logging.shutdown().await;
+            process::exit(101);
+        }
+    };
+    let code = match &result {
+        Ok(Ok(())) => 0,
+        Ok(Err(error)) => {
+            tracing::error!(error = %error, "zero process terminating with fatal error");
+            error_report::print_error(error.as_ref());
+            1
+        }
+        Err(_) => 101, // the original panic hook already emitted its message
+    };
+    let complete = logging.shutdown().await;
+    if complete {
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+        if code == 0 {
+            return;
+        }
     }
+    // Keep the original application outcome/panic AND unknown logging owner
+    // alive through exit; Runtime Drop must not wait forever for a stuck write.
+    // This is process termination, never a native/Scope closure assertion.
+    process::exit(code);
 }
 
 fn install_panic_hook() {
@@ -39,7 +72,7 @@ fn install_panic_hook() {
     }));
 }
 
-async fn try_main() -> Result<(), Box<dyn Error>> {
+async fn try_main(logging: zero_logging::LoggingHandle) -> Result<(), Box<dyn Error>> {
     // Install rustls crypto provider before any TLS operation.
     // Must be called once at process start (rustls 0.23 requirement).
     rustls::crypto::ring::default_provider()
@@ -49,22 +82,18 @@ async fn try_main() -> Result<(), Box<dyn Error>> {
     // Register compiled feature flags so they're visible in capabilities queries.
     zero_engine::register_build_features(collect_build_features());
 
-    application::execute(cli::parse_args(env::args())?).await
+    application::execute_with_logging(cli::parse_args(env::args())?, Some(logging)).await
 }
 
 /// Early-parse the configuration file to extract `runtime.log` and
 /// initialise the tracing subscriber before any meaningful work.
-fn init_tracing_from_config(config_path: &str) -> zero_logging::TracingGuard {
+fn init_tracing_from_config(config_path: &str) -> std::io::Result<logging_owner::ProcessLogging> {
     let log_config =
         zero_runtime::configuration::ConfigurationSource::read_initial_log_config(config_path)
             .ok()
             .flatten()
-            .unwrap_or_else(|| {
-                // Fallback: stderr only, respect RUST_LOG or default to info.
-                zero_config::LogConfig::default()
-            });
-
-    zero_logging::init_tracing(&log_config)
+            .unwrap_or_default();
+    logging_owner::ProcessLogging::prepare(&log_config)
 }
 
 /// Collect compiled feature flags for the capabilities endpoint.

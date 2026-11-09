@@ -8,7 +8,14 @@ mod run;
 pub(crate) mod services;
 mod tun;
 
+#[cfg(test)]
 pub async fn execute(command: Command) -> Result<(), Box<dyn Error>> {
+    execute_with_logging(command, None).await
+}
+pub async fn execute_with_logging(
+    command: Command,
+    logging: Option<zero_logging::LoggingHandle>,
+) -> Result<(), Box<dyn Error>> {
     let (command, limits) = match command {
         Command::ControlClient {
             max_frame_bytes,
@@ -28,7 +35,7 @@ pub async fn execute(command: Command) -> Result<(), Box<dyn Error>> {
     } else {
         None
     };
-    let result = dispatch(command, client.as_ref()).await;
+    let result = dispatch(command, client.as_ref(), logging).await;
     let cleanup = match client {
         Some(client) => client.finish().await,
         None => Ok(()),
@@ -58,6 +65,7 @@ impl Error for ClientExecutionFailure {
 async fn dispatch(
     command: Command,
     client: Option<&crate::ipc::client::Caller>,
+    logging: Option<zero_logging::LoggingHandle>,
 ) -> Result<(), Box<dyn Error>> {
     match command {
         command @ (Command::Mode { .. }
@@ -73,7 +81,9 @@ async fn dispatch(
         | Command::TunStop { .. }
         | Command::TunStatus { .. }) => tun::execute(command, client).await,
         command @ Command::MacosTunCreateHelper { .. } => tun::execute(command, client).await,
-        command @ Command::Run { .. } => Box::pin(run::execute(command)).await,
+        command @ Command::Run { .. } => {
+            Box::pin(run::execute_with_logging(command, logging)).await
+        }
         command => inspect::execute(command, client).await,
     }
 }

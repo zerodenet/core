@@ -1045,3 +1045,54 @@ version is unchanged; only its `raw_value` feature is enabled. Client replies
 borrow their prepaid wire bytes; arrays stream, object formatting uses a paid
 index, and concrete TUN DTO Vec/String capacities are prepaid before decoding.
 This does not close the separate server-side dynamic decoded-request DTO audit.
+
+
+The process logger now uses its existing Tokio runtime and one actual HostedScope
+with one concurrent registered blocking drain per configured output. Each file
+still has an independent queue/controller; one blocked output does not serialize
+other outputs. A finite idle job returns its real join and registration ACK
+before the next job starts. File open/write/rotation/close all run on that
+output's actual worker after its controller and witness are strongly installed.
+The same OriginalFile must close positively before rotation/recovery opens a
+successor. A failed write is retained as failed data and is never replayed.
+Unknown native disposition keeps that output sealed. Physical close and error
+receipt are separate; real task panic IDs/classes/sources remain original.
+
+Optional `runtime.log.max_pending_chunks` keeps the former per-output default
+128000 Write chunks (not log records). `max_pending_bytes` defaults to 16MiB
+across all preparing/queued/working/failed retained chunks. `max_storage_bytes`
+defaults to 16MiB for requested queue capacity, output/path/receiver storage and
+concrete prepaid provider/task headers. `max_outputs` defaults to 128 original
+output graphs. All four omitted fields stay omitted on export. Positive values
+are checked against their actual representable layouts; no arbitrary upper
+policy ceiling is added. These are independent resource envelopes, not RSS, OS
+buffers, opaque formatter/error allocations or a guarantee that every dimension
+can simultaneously reach its ceiling. Queues allocate on demand and pay both
+old and new capacity during growth. The local minimum four physical slots is
+fully charged even under a logical one-chunk policy.
+
+Main supplies the SAME logger handle to ApplicationServices. Accepted config
+Apply holds a pending intersection and commits its budget metadata before
+notifying the real main driver outside publication/application locks. A held
+shrink is Busy; admitted data and valid fault history are not evicted. Budget
+growth can resume a full receiver without a new file/dial. Output paths, filters
+and formatting remain startup-selected as before; budgets are truly live.
+The existing genuine library `init_tracing` API remains, with no Kernel fallback
+to it. New LogConfig fields are wire-optional, but external Rust struct literals
+must add them or use `..Default::default()`.
+
+Main explicitly drains, joins, acknowledges and observes matching file close.
+It retains application panic/work failure independently of logger cleanup. The
+old nonblocking backend's 100ms shutdown-send plus 1000ms acknowledgement grace
+is preserved as a 1100ms best-effort observation of independently driven outputs.
+An unresolved blocking call stays strongly owned until process exit; it is not
+converted to successful close or detached to another cleanup task. Original
+application exit codes and best-effort logging behavior are preserved. No new
+Host, runtime, worker pool, watcher or task scheduler is introduced.
+
+Additive `OriginalFile::retained_header_layout` and the existing Scope
+`TaskJoinWitness::task_failure_header_layout` (now public) expose concrete layout
+metadata only. They grant no IO, task, receipt or ACK authority. New logger
+fault views borrow/retain their paid source; they do not export a bare new
+TaskJoined/Arc observer. Standard-library opaque allocations and arbitrary
+original panic payloads are not redefined as fully measured process memory.

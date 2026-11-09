@@ -14,6 +14,9 @@ tracing.workspace = true
 tracing-appender.workspace = true
 tracing-subscriber.workspace = true
 zero-config = { path = "../config" }
+zero-platform-tokio = { path = "../platform/tokio" }
+zero-traits = { path = "../traits" }
 
 [dev-dependencies]
+tokio.workspace = true
 tempfile.workspace = true

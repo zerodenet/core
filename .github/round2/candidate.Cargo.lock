@@ -4293,10 +4293,13 @@ version = "0.0.3-dev.202610162206"
 dependencies = [
  "serde_json",
  "tempfile",
+ "tokio",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
  "zero-config",
+ "zero-platform-tokio",
+ "zero-traits",
 ]
 
 [[package]]

@@ -17,6 +17,10 @@ use zero_config::LogConfig;
 #[path = "../tests/rotation/mod.rs"]
 mod rotation_tests;
 
+mod owned;
+mod scoped;
+pub use owned::{IoFailure, IoPhase, LoggingBudgetCandidate, LoggingFailure, LoggingHandle, LoggingUsage, ScopedTracing};
+
 // ── public API ────────────────────────────────────────────────────────
 
 /// Keeps non-blocking file writers alive and flushes them when dropped.

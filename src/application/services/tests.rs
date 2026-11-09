@@ -1,4 +1,5 @@
 mod control_budget;
+mod logging_budget;
 #[cfg(unix)]
 mod control_retirement;
 #[cfg(unix)]

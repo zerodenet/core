@@ -25,6 +25,20 @@ impl std::fmt::Debug for OriginalFile {
     }
 }
 impl OriginalFile {
+    /// Pure peak liability for this provider's identity, sentinel/actual-error
+    /// Arc headers and its retained error wrapper. No file/close authority.
+    /// This excludes opaque std::io formatting/OS bookkeeping and process RSS.
+    /// The actual caller must keep its promise through any retained source.
+    pub fn retained_header_layout() -> Result<
+        zero_traits::packet_metadata::PacketMetadataLayout,
+        zero_traits::packet_metadata::PacketMemoryError,
+    > {
+        use zero_traits::packet_metadata::PacketMetadataLayout as L;
+        L::arc::<()>()?
+            .checked_add(L::arc::<io::Error>()?)?
+            .checked_add(L::arc::<io::Error>()?)?
+            .checked_add(L::new(1, std::mem::size_of::<RetainedIo>()))
+    }
     pub fn adopt(file: File) -> Self {
         Self {
             file: Some(file),

@@ -77,4 +77,3 @@ impl std::error::Error for CommandControl {
         self.first_fault().map(|source| source as _)
     }
 }
-

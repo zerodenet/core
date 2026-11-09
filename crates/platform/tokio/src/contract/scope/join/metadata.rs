@@ -12,7 +12,7 @@ impl TaskJoinWitness {
     /// Weak custody. Releasing/reusing a delivery cell alone proves none of that.
     /// Foreign source payloads, notification/queue allocations and arbitrary
     /// existing public raw Arc/Weak escape are outside these three layouts.
-    pub(crate) fn task_failure_header_layout() -> Result<PacketMetadataLayout, PacketMemoryError> {
+    pub fn task_failure_header_layout() -> Result<PacketMetadataLayout, PacketMemoryError> {
         PacketMetadataLayout::arc::<JoinedState>()?
             .checked_add(PacketMetadataLayout::arc::<Joined>()?)?
             .checked_add(PacketMetadataLayout::arc::<ComponentError>()?)

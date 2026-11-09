@@ -28,6 +28,7 @@ impl RuntimeConfig {
                 supported: zero_api::CONFIG_SCHEMA_VERSION,
             });
         }
+        self.runtime.log.validate_owner_limits()?;
         let mut inbound_tags = HashSet::new();
         let mut inbound_listens = HashSet::new();
         for (i, inbound) in self.inbounds.iter().enumerate() {

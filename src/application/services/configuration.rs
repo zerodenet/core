@@ -42,6 +42,11 @@ impl ConfigApplyReconciler for ApplicationServices {
             return Err("application candidate still requires confirmed retirement".to_owned());
         }
         drop(state);
+        if let Some(logging) = &self.logging {
+            logging
+                .validate_limits(&candidate.runtime.log)
+                .map_err(|error| error.to_string())?;
+        }
         let limits =
             zero_runtime::configuration::ControlBudgetLimits::from_runtime(&candidate.runtime);
         if self.control_budget.limits() != limits {
@@ -108,7 +113,19 @@ impl ConfigApplyReconciler for ApplicationServices {
                     {
                         candidate.commit().map_err(|error| error.to_string())?;
                     }
-                    state.attempt = None;
+                    let mut previous = state
+                        .attempt
+                        .take()
+                        .expect("same accepted application attempt");
+                    if let Some(candidate) = &mut previous.logging_budget {
+                        candidate.commit_deferred();
+                    }
+                    drop(state);
+                    if let Some(candidate) = &previous.logging_budget {
+                        candidate.publish_committed();
+                    }
+                    drop(previous);
+                    state = self.state.lock().await;
                 } else {
                     return Err(
                         "another application attempt still requires confirmed retirement"
@@ -121,6 +138,7 @@ impl ConfigApplyReconciler for ApplicationServices {
             target: target.clone(),
             dispatcher_touched: false,
             hooks_touched: false,
+            logging_budget: None,
             control_budget: None,
             #[cfg(feature = "event-dispatcher")]
             reported_dispatcher_preparation: None,
@@ -128,6 +146,11 @@ impl ConfigApplyReconciler for ApplicationServices {
         let limits =
             zero_runtime::configuration::ControlBudgetLimits::from_runtime(&target.runtime);
         let attempt = state.attempt.as_mut().unwrap();
+        if attempt.logging_budget.is_none() {
+            attempt.logging_budget = self
+                .prepare_logging(&target.runtime.log)
+                .map_err(|error| error.to_string())?;
+        }
         if self.proxy_control_budget {
             // The same Proxy accepted operation owns this exact candidate;
             // the application neither prepares nor commits a second one.
@@ -192,7 +215,9 @@ impl ConfigApplyReconciler for ApplicationServices {
         {
             candidate.retire().map_err(|error| error.to_string())?;
         }
-        state.attempt = None;
+        let retired = state.attempt.take();
+        drop(state);
+        drop(retired);
         Ok(())
     }
 
@@ -221,7 +246,21 @@ impl ConfigApplyReconciler for ApplicationServices {
         {
             candidate.commit().map_err(|error| error.to_string())?;
         }
-        state.attempt = None;
+        let mut committed = state.attempt.take();
+        if let Some(candidate) = committed
+            .as_mut()
+            .and_then(|attempt| attempt.logging_budget.as_mut())
+        {
+            candidate.commit_deferred();
+        }
+        drop(state);
+        if let Some(candidate) = committed
+            .as_ref()
+            .and_then(|attempt| attempt.logging_budget.as_ref())
+        {
+            candidate.publish_committed();
+        }
+        drop(committed);
         Ok(())
     }
 }

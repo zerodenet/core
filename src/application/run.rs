@@ -20,7 +20,10 @@ use control_failure::RunFailures;
 #[cfg(test)]
 mod tests;
 
-pub async fn execute(command: Command) -> Result<(), Box<dyn Error>> {
+pub async fn execute_with_logging(
+    command: Command,
+    logging: Option<zero_logging::LoggingHandle>,
+) -> Result<(), Box<dyn Error>> {
     let Command::Run {
         config_path,
         status_listen,
@@ -31,22 +34,42 @@ pub async fn execute(command: Command) -> Result<(), Box<dyn Error>> {
     else {
         unreachable!("application routes only run commands here")
     };
-    Box::pin(run(
+    Box::pin(run_with_logging(
         &config_path,
         status_listen.as_deref(),
         control_socket.as_deref(),
         ipc_hook_socket.as_deref(),
         parent_lifetime_stdin,
+        logging,
     ))
     .await
 }
 
+#[cfg(all(test, feature = "grpc-api"))]
 async fn run(
     config_path: &str,
     status_listen: Option<&str>,
     control_socket: Option<&str>,
     ipc_hook_socket: Option<&str>,
     parent_lifetime_stdin: bool,
+) -> Result<(), Box<dyn Error>> {
+    run_with_logging(
+        config_path,
+        status_listen,
+        control_socket,
+        ipc_hook_socket,
+        parent_lifetime_stdin,
+        None,
+    )
+    .await
+}
+async fn run_with_logging(
+    config_path: &str,
+    status_listen: Option<&str>,
+    control_socket: Option<&str>,
+    ipc_hook_socket: Option<&str>,
+    parent_lifetime_stdin: bool,
+    logging: Option<zero_logging::LoggingHandle>,
 ) -> Result<(), Box<dyn Error>> {
     let source = std::sync::Arc::new(zero_runtime::configuration::ConfigurationSource::new(
         config_path,
@@ -64,7 +87,8 @@ async fn run(
 
     let engine_handle = EngineHandle::new(engine.clone());
     let base_handle = ProxyHandle::new(engine_handle.clone(), proxy.clone());
-    let services = ApplicationServices::start_with_proxy(&proxy, ipc_hook_socket).await?;
+    let services =
+        ApplicationServices::start_with_proxy_and_logging(&proxy, ipc_hook_socket, logging).await?;
     let ipc_handle = base_handle.with_config_apply_reconciler(services.clone());
 
     // Bridge tracing warn/error ->?engine.warning events.

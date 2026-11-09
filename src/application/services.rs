@@ -9,6 +9,7 @@ use zero_proxy::{ConfigApplyReconciler, ConfigReconcileResult};
 use crate::hooks;
 
 mod cleanup_fault;
+mod logging;
 use cleanup_fault::{CleanupOwner, CleanupReceivers};
 mod control;
 mod startup;
@@ -36,12 +37,14 @@ pub(super) struct ApplicationServices {
     control_budget: Arc<zero_runtime::configuration::ControlBudget>,
     embedded_commands: Arc<zero_runtime::EmbeddedCommandOwner>,
     proxy_control_budget: bool,
+    logging: Option<zero_logging::LoggingHandle>,
 }
 
 struct ApplicationAttempt {
     target: Arc<RuntimeConfig>,
     dispatcher_touched: bool,
     hooks_touched: bool,
+    logging_budget: Option<zero_logging::LoggingBudgetCandidate>,
     control_budget: Option<zero_runtime::configuration::ControlBudgetCandidate>,
     #[cfg(feature = "event-dispatcher")]
     reported_dispatcher_preparation: Option<Arc<zero_connector::ConnectorError>>,
@@ -103,9 +106,10 @@ impl ApplicationServices {
         .await
     }
 
-    pub(super) async fn start_with_proxy(
+    pub(super) async fn start_with_proxy_and_logging(
         proxy: &zero_proxy::Proxy,
         ipc_hook_socket: Option<&str>,
+        logging: Option<zero_logging::LoggingHandle>,
     ) -> Result<Arc<Self>, Box<dyn Error>> {
         let engine = proxy.engine().clone();
         #[cfg(feature = "event-dispatcher")]
@@ -130,6 +134,7 @@ impl ApplicationServices {
                 proxy.application_control_budget(),
                 proxy.embedded_command_owner(),
             )),
+            logging,
         )
         .await
     }
@@ -148,6 +153,7 @@ impl ApplicationServices {
             event_network,
             startup,
             None,
+            None,
         )
         .await
     }
@@ -160,6 +166,7 @@ impl ApplicationServices {
             Arc<zero_runtime::configuration::ControlBudget>,
             Arc<zero_runtime::EmbeddedCommandOwner>,
         )>,
+        logging: Option<zero_logging::LoggingHandle>,
     ) -> Result<Arc<Self>, Box<dyn Error>> {
         let config = engine.config();
         let proxy_control_budget = owned.is_some();
@@ -191,6 +198,7 @@ impl ApplicationServices {
             control_budget,
             embedded_commands,
             proxy_control_budget,
+            logging,
             state: Mutex::new(ApplicationServiceState {
                 config: config.clone(),
                 installed: false,
@@ -237,6 +245,15 @@ impl ApplicationServices {
             startup.clear(&services);
             return Err(std::io::Error::other(error).into());
         }
+        let mut logging_candidate = match services.prepare_logging(&config.runtime.log) {
+            Ok(candidate) => candidate,
+            Err(error) => {
+                // Pure candidate rejection precedes every service IO. The
+                // separately installed main logger still owns its originals.
+                startup.clear(&services);
+                return Err(error.into());
+            }
+        };
         {
             let mut state = services.state.lock().await;
             if let Err(error) = services.install_target(&mut state, config).await {
@@ -260,6 +277,12 @@ impl ApplicationServices {
             if let Some(dispatcher) = state.dispatcher.as_mut() {
                 dispatcher.activate().map_err(std::io::Error::other)?;
             }
+        }
+        if let Some(candidate) = &mut logging_candidate {
+            candidate.commit_deferred();
+        }
+        if let Some(candidate) = &logging_candidate {
+            candidate.publish_committed();
         }
         // No await between the real Arc handoff and clearing the startup slot.
         startup.clear(&services);
