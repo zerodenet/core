@@ -31,7 +31,16 @@ pub(super) async fn receive(
         // state and accepted output retain their original custody.
         let credit = match memory.receive(peak) {
             Ok(credit) => credit,
-            Err(source) if source.kind() == io::ErrorKind::WouldBlock => continue,
+            Err(source)
+                if matches!(
+                    source.kind(),
+                    io::ErrorKind::WouldBlock
+                        | io::ErrorKind::InvalidInput
+                        | io::ErrorKind::OutOfMemory
+                ) =>
+            {
+                continue
+            }
             Err(source) => return Err(source),
         };
         packets.push(Packet {
