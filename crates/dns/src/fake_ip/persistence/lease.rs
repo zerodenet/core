@@ -207,7 +207,7 @@ pub(crate) struct JournalPause(Arc<FakeIpStateLease>);
 impl FakeIpStateLease {
     pub(in crate::fake_ip) fn pause(self: &Arc<Self>) -> io::Result<JournalPause> {
         self.pauses
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
                 count.checked_add(1)
             })
             .map_err(|_| {
