@@ -86,8 +86,15 @@ impl MetadataPoolPermit {
                 if let Some(phase) = phase {
                     phase.settle();
                 }
+                // Same original removed and phase settled. Publish outside all
+                // original/owner locks; native closure alone was not this ACK.
+                self.0.closed.publish_registration_return();
             }
         }
-        true
+        self.0
+            .closed
+            .observation(self.0.instance, self.0.ordinal)
+            .released()
+            .is_some()
     }
 }

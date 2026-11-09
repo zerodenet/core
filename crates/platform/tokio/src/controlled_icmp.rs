@@ -1,5 +1,11 @@
 //! Explicit ownership of actual ICMP originals, not ordinary UDP authority.
 mod acquire;
+mod notifications;
+mod observation;
+mod reserve;
+pub use notifications::IcmpNotifications;
+use notifications::Identity;
+pub use observation::{IcmpAttemptDisposition, IcmpAttemptObservation};
 mod totals;
 pub use totals::IcmpTotalsBinding;
 mod close;
@@ -98,7 +104,7 @@ impl IcmpOwnerReport {
 /// entries, not lifetime probes. No task, extra probe socket or FD clone exists.
 pub struct ControlledIcmpOwner {
     first_raw_permission_source: Option<Arc<std_io::Error>>,
-    identity: Arc<()>,
+    identity: Identity,
     first_acquisition_failure: Option<Arc<std_io::Error>>,
     first_close_failure: Option<Arc<std_io::Error>>,
     limit: NonZeroUsize,
@@ -111,14 +117,16 @@ pub struct ControlledIcmpOwner {
 }
 struct Entry {
     wakes: relay::IoRelays,
-    owner: Arc<()>,
+    owner: Identity,
     id: IcmpReservationId,
     cancel: CancellationToken,
     native: Mutex<Native>,
     uncertain: Arc<std_io::Error>,
     creation_running: std::sync::atomic::AtomicBool,
     view_live: std::sync::atomic::AtomicBool,
-    changed: tokio::sync::Notify,
+    changed: Identity,
+    metadata_receiver:
+        Option<crate::controlled_datagram::metadata_pool::MetadataPoolRegistrationObservation>,
     ipv6: bool,
     metadata: Mutex<Metadata>,
 }
@@ -162,9 +170,26 @@ impl Drop for ControlledIcmpSocket {
 }
 impl ControlledIcmpOwner {
     pub fn new(limit: NonZeroUsize, parent: CancellationToken) -> Self {
+        Self::with_identity(limit, parent, Identity::library())
+    }
+    pub fn new_with_metadata(
+        limit: NonZeroUsize,
+        parent: CancellationToken,
+        memory: &crate::contract::component::PacketDriverMetadataView,
+    ) -> Result<Self, zero_traits::packet_metadata::PacketMemoryError> {
+        Ok(Self::with_identity(
+            limit,
+            parent,
+            Identity::hosted(memory)?,
+        ))
+    }
+    pub fn defer_notifications(&self) -> IcmpNotifications {
+        self.identity.defer()
+    }
+    fn with_identity(limit: NonZeroUsize, parent: CancellationToken, identity: Identity) -> Self {
         Self {
             first_raw_permission_source: None,
-            identity: Arc::new(()),
+            identity,
             first_acquisition_failure: None,
             first_close_failure: None,
             limit,
@@ -196,82 +221,12 @@ impl ControlledIcmpOwner {
     pub fn revoke(&self) {
         self.cancel.cancel();
     }
-    fn reserve(&mut self, ipv6: bool) -> Result<Arc<Entry>, IcmpAcquisitionError> {
-        self.reserve_for(ipv6, None)
-    }
-    fn reserve_for(
-        &mut self,
-        ipv6: bool,
-        caller: Option<crate::contract::scope::TaskJoinWitness>,
-    ) -> Result<Arc<Entry>, IcmpAcquisitionError> {
-        self.reap();
-        let denied = |message| IcmpAcquisitionError {
-            raw_permission_source: None,
-            reservation: None,
-            outcome: IcmpAcquisitionOutcome::KnownNoNative,
-            source: Arc::new(std_io::Error::other(message)),
-        };
-        if self.cancel.is_cancelled() {
-            return Err(denied("ICMP owner is revoked"));
-        }
-        if let Some(entry) = self
-            .entries
-            .values()
-            .find(|entry| matches!(&*entry.native(), Native::Unknown(_)))
-        {
-            let native = entry.native();
-            let Native::Unknown(source) = &*native else {
-                unreachable!()
-            };
-            return Err(IcmpAcquisitionError {
-                raw_permission_source: entry.metadata().raw_permission_source.clone(),
-                reservation: Some(entry.id),
-                outcome: IcmpAcquisitionOutcome::Unknown(entry.id),
-                source: source.clone(),
-            });
-        }
-        if self.entries.len() >= self.limit.get() {
-            return Err(denied("ICMP original capacity exhausted"));
-        }
-        let next = self
-            .next
-            .checked_add(1)
-            .ok_or_else(|| denied("ICMP identity exhausted"))?;
-        let entry = Arc::new(Entry {
-            wakes: relay::IoRelays::new(),
-            owner: self.identity.clone(),
-            id: IcmpReservationId(self.next),
-            cancel: self.cancel.child_token(),
-            native: Mutex::new(Native::Reserved),
-            uncertain: Arc::new(std_io::Error::other(
-                "ICMP original native outcome is unconfirmed",
-            )),
-            creation_running: std::sync::atomic::AtomicBool::new(true),
-            view_live: std::sync::atomic::AtomicBool::new(false),
-            changed: tokio::sync::Notify::new(),
-            ipv6,
-            metadata: Mutex::new(Metadata::default()),
-        });
-        if let Some(binding) = &self.totals {
-            binding
-                .reserve(&entry, caller)
-                .map_err(|source| IcmpAcquisitionError {
-                    raw_permission_source: None,
-                    reservation: None,
-                    outcome: IcmpAcquisitionOutcome::KnownNoNative,
-                    source: Arc::new(std_io::Error::new(std_io::ErrorKind::WouldBlock, source)),
-                })?;
-        }
-        self.entries.insert(self.next, entry.clone());
-        self.next = next;
-        Ok(entry)
-    }
     /// Retire exactly this view's entry, never another pool's equal numeric id.
     pub fn close(
         &mut self,
         view: &ControlledIcmpSocket,
     ) -> Result<IcmpCloseReceipt, Arc<std_io::Error>> {
-        if !Arc::ptr_eq(&self.identity, &view.entry.owner) {
+        if !self.identity.same(&view.entry.owner) {
             return Err(Arc::new(std_io::Error::other(
                 "ICMP view belongs to another owner",
             )));

@@ -6,7 +6,7 @@ use std::{
     fmt, io,
     sync::atomic::{AtomicBool, Ordering},
 };
-mod memory;
+pub(super) mod memory;
 mod row;
 pub(super) use memory::Prepaid;
 use memory::{Allocation, Canonical};

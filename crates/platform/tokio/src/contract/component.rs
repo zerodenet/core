@@ -725,6 +725,17 @@ pub trait ResourceAccess: Send + Sync {
             super::Impact::Component,
         ))
     }
+    fn bind_outbound_icmp(
+        &self,
+        attempt: crate::controlled_datagram::metadata_pool::MetadataIcmpAttempt,
+    ) -> Result<crate::controlled_icmp::ControlledIcmpSocket, BuildError> {
+        let _ = attempt;
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
     fn bind_inbound_icmp(
         &self,
         _source: std::net::IpAddr,

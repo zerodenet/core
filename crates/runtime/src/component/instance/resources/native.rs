@@ -468,6 +468,12 @@ impl ResourceAccess for HostResources {
             .open_bound_datagram_attempt(request)
     }
 
+    fn bind_outbound_icmp(
+        &self,
+        attempt: zero_platform_tokio::controlled_datagram::metadata_pool::MetadataIcmpAttempt,
+    ) -> Result<zero_platform_tokio::controlled_icmp::ControlledIcmpSocket, ChannelError> {
+        self.bind_outbound_icmp_attempt(attempt)
+    }
     fn bind_inbound_icmp(
         &self,
         source: std::net::IpAddr,

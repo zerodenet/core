@@ -32,6 +32,11 @@ impl ControlledIcmpOwner {
     pub fn close_all(&mut self) -> IcmpOwnerReport {
         self.revoke();
         for entry in self.entries.values() {
+            if entry.metadata_receiver.is_some()
+                && entry.view_live.load(std::sync::atomic::Ordering::Acquire)
+            {
+                continue;
+            }
             let _ = entry.close();
             if let Some(source) = entry.metadata().close_source.clone() {
                 self.first_close_failure.get_or_insert(source);

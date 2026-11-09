@@ -116,6 +116,51 @@ impl MetadataPools {
     }
 }
 impl HostResources {
+    pub(super) fn bind_outbound_icmp_attempt(
+        &self,
+        attempt: zero_platform_tokio::controlled_datagram::metadata_pool::MetadataIcmpAttempt,
+    ) -> Result<zero_platform_tokio::controlled_icmp::ControlledIcmpSocket, ChannelError> {
+        let (instance, scope) = self
+            .metapools
+            .identity
+            .as_ref()
+            .ok_or_else(|| self.denied())?;
+        if attempt.instance() != *instance {
+            return Err(self.denied());
+        }
+        let owned = {
+            let records = self
+                .metapools
+                .records
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            records
+                .values()
+                .find(|record| record.bound && record.actual.same_owner(attempt.metadata_owner()))
+                .map(|record| record.actual.clone())
+        }
+        .ok_or_else(|| self.denied())?;
+        let active = {
+            let state = self
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            !state.closed && !self.cancel.is_cancelled()
+        };
+        // Only this proven actual Host may seal its own rejected attempt. A
+        // foreign provider cannot poison the original by merely observing it.
+        if !active {
+            attempt.reject_unissued();
+            return Err(self.denied());
+        }
+        let Some(icmp) = &self.icmp else {
+            attempt.reject_unissued();
+            return Err(self.denied());
+        };
+        let authorization =
+            attempt.authorize_host(&owned, *instance, scope, &self.metapools.cancel)?;
+        icmp.grant().bind_authorized(authorization)
+    }
     pub(super) fn register_metapool(
         &self,
         ordinal: usize,

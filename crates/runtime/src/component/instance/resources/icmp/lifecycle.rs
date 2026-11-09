@@ -57,7 +57,9 @@ impl ResourceLifecycle for HostIcmpProbeOwner {
 impl HostIcmpProbeOwner {
     fn shutdown_native(&self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.revoke(CloseReason::Shutdown);
+        let _callbacks;
         let mut state = self.shared.state();
+        _callbacks = state.native.defer_notifications();
         state.phase = Phase::Revoked;
         if Instant::now() < deadline {
             state.status = state.native.close_all();

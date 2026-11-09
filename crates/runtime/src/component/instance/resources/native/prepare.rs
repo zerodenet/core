@@ -158,6 +158,7 @@ impl HostResources {
                         *instance,
                         declaration,
                         cancel.clone(),
+                        &originals.packet.driver_metadata_view(),
                     )?;
                     if let Some(tasks) = &original_tasks {
                         let scope = tasks.retirement_observation().ok_or_else(|| {

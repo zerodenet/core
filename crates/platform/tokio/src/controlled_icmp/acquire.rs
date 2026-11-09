@@ -20,6 +20,19 @@ impl ControlledIcmpOwner {
         let entry = self.reserve_for(address.is_ipv6(), Some(caller.clone()))?;
         self.bind_entry(entry, address, egress, || {})
     }
+    pub(crate) fn bind_for_metadata(
+        &mut self,
+        address: IpAddr,
+        egress: Option<&EgressInterface>,
+        caller: &crate::contract::scope::TaskJoinWitness,
+        receiver: crate::controlled_datagram::metadata_pool::MetadataPoolRegistrationObservation,
+        observation: &IcmpAttemptObservation,
+    ) -> Result<ControlledIcmpSocket, IcmpAcquisitionError> {
+        let entry =
+            self.reserve_observed(address.is_ipv6(), Some(caller.clone()), Some(receiver))?;
+        observation.install(&entry);
+        self.bind_entry(entry, address, egress, || {})
+    }
     pub(super) fn bind_entry(
         &mut self,
         entry: Arc<Entry>,

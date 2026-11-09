@@ -57,3 +57,6 @@ fn checked_identity_never_wraps_and_pre_create_unwind_stays_unknown() {
 
 #[path = "../../tests/controlled_icmp/totals.rs"]
 mod totals;
+
+#[path = "../../tests/controlled_icmp/observation.rs"]
+mod observation;

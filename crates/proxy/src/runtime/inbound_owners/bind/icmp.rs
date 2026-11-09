@@ -18,10 +18,11 @@ impl InboundOwner {
         declaration: &ResourceDeclaration,
         originals: Arc<zero_runtime::HostOriginalBudgets>,
     ) -> Result<(), EngineError> {
-        let native = HostIcmpProbeOwner::new(
+        let native = HostIcmpProbeOwner::new_with_metadata(
             self.identity(),
             declaration,
             self.task_access().cancellation(),
+            &originals.packet.driver_metadata_view(),
         )
         .map_err(std::io::Error::other)?;
         native

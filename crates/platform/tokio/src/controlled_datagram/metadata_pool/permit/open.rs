@@ -160,6 +160,14 @@ impl MetadataPoolPermit {
             ));
         }
         native.attempted = true;
+        let selection = match native.selection_credit.take() {
+            Some(credit) => super::super::sources::memory::Allocation::Hosted(
+                zero_traits::packet_metadata::PacketMetadataArc::from_prepaid(selection, credit)
+                    .unwrap_or_else(|_| panic!("original selection prepaid")),
+            ),
+            None => super::super::sources::memory::Allocation::Library(Arc::new(selection)),
+        };
+        native.selection = Some((selection.clone(), target.egress.clone()));
         let grant = native
             .owner
             .acquire(target.peer, &target.binding.dial, &selection)

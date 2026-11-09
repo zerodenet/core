@@ -48,6 +48,10 @@ impl IcmpTotalsBinding {
             error
         };
         if self.stop.is_cancelled()
+            || entry
+                .metadata_receiver
+                .as_ref()
+                .is_some_and(|original| original.instance() != self.instance)
             || !self.scope.scope_identity().resource_open()
             || caller.as_ref().is_some_and(|caller| {
                 caller.is_joined()
@@ -137,6 +141,14 @@ impl SourceCustody for Original {
         {
             return false;
         }
+        if let Some(metadata) = &self.entry.metadata_receiver {
+            if !metadata
+                .released()
+                .is_some_and(|receipt| receipt.matches(metadata))
+            {
+                return false;
+            }
+        }
         if let Some(caller) = &self.caller {
             caller.try_joined().is_some_and(|joined| {
                 caller.matches_joined(&joined) && joined.registration_released()
@@ -150,6 +162,8 @@ impl SourceCustody for Original {
         if (self.entry.cancel.is_cancelled()
             || self.binding.stop.is_cancelled()
             || self.binding.scope.is_drained())
+            && (self.entry.metadata_receiver.is_none()
+                || !self.entry.view_live.load(Ordering::Acquire))
             && !self.native_closed()
         {
             match self.entry.try_close() {
@@ -187,6 +201,7 @@ impl SourceCustody for Original {
                 let entry = self.entry.clone();
                 let caller = self.caller.clone();
                 let scope = self.binding.scope.clone();
+                let metadata = self.entry.metadata_receiver.clone();
                 Box::pin(async move {
                     loop {
                         let changed = entry.changed.notified();
@@ -203,6 +218,9 @@ impl SourceCustody for Original {
                         caller.wait_registration_released().await;
                     } else {
                         scope.wait_drained().await;
+                    }
+                    if let Some(metadata) = metadata {
+                        metadata.wait_original().await;
                     }
                 })
             });

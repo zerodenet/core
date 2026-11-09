@@ -1,8 +1,8 @@
 use super::*;
 use std::net::IpAddr;
 use zero_platform_tokio::{
-    EgressInterface,
     controlled_icmp::{ControlledIcmpSocket, IcmpAcquisitionOutcome, IcmpCloseReceipt},
+    EgressInterface,
 };
 impl HostIcmpProbeGrant {
     fn shared(&self) -> Result<Arc<Shared>, ChannelError> {
@@ -44,6 +44,28 @@ impl HostIcmpProbeGrant {
     ) -> Result<ControlledIcmpSocket, ChannelError> {
         self.bind_inner(bind, egress, Some(caller))
     }
+    pub fn bind_authorized(
+        &self,
+        authorization:zero_platform_tokio::controlled_datagram::metadata_pool::MetadataIcmpAuthorization,
+    ) -> Result<ControlledIcmpSocket, ChannelError> {
+        let observation = authorization.observation();
+        let _observed = observation.defer_notifications();
+        let shared = self.shared()?;
+        let _callbacks;
+        let mut state = shared.try_state()?;
+        _callbacks = state.native.defer_notifications();
+        if shared.cancel.is_cancelled() || state.phase != Phase::Live {
+            return Err(error(
+                self.instance,
+                Stage::Prepare,
+                Reason::Revoked,
+                "metadata ICMP actual owner unavailable",
+            ));
+        }
+        let result = authorization.bind(&mut state.native);
+        state.harvest();
+        result
+    }
     fn bind_inner(
         &self,
         bind: IpAddr,
@@ -59,7 +81,9 @@ impl HostIcmpProbeGrant {
                 "ICMP host owner is revoked",
             ));
         }
+        let _callbacks;
         let mut state = shared.try_state()?;
+        _callbacks = state.native.defer_notifications();
         if shared.cancel.is_cancelled() || state.phase == Phase::Revoked {
             return Err(error(
                 self.instance,
@@ -100,7 +124,9 @@ impl HostIcmpProbeGrant {
     /// Retirement never revokes cleanup authority for this same actual pool.
     pub fn close(&self, view: &ControlledIcmpSocket) -> Result<IcmpCloseReceipt, ChannelError> {
         let shared = self.shared()?;
+        let _callbacks;
         let mut state = shared.try_state()?;
+        _callbacks = state.native.defer_notifications();
         let result = state.native.close(view);
         state.harvest();
         result.map_err(|source| {

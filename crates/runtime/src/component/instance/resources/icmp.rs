@@ -11,8 +11,8 @@ use tokio::time::Instant;
 use zero_core::component::ComponentInstanceId;
 use zero_platform_tokio::{
     contract::{
-        CancellationToken, ChannelError, DeliveryState, Impact, Reason, Stage,
-        component::ResourceDeclaration, lifecycle::CloseReport,
+        component::ResourceDeclaration, lifecycle::CloseReport, CancellationToken, ChannelError,
+        DeliveryState, Impact, Reason, Stage,
     },
     controlled_icmp::{ControlledIcmpOwner, IcmpOwnerReport},
 };
@@ -88,6 +88,24 @@ impl HostIcmpProbeOwner {
         instance: ComponentInstanceId,
         declaration: &ResourceDeclaration,
         parent: CancellationToken,
+        metadata: &zero_platform_tokio::contract::component::PacketDriverMetadataView,
+    ) -> Result<Self, ChannelError> {
+        Self::paid(instance, declaration, parent, metadata, true)
+    }
+    pub fn new_with_metadata(
+        instance: ComponentInstanceId,
+        declaration: &ResourceDeclaration,
+        parent: CancellationToken,
+        metadata: &zero_platform_tokio::contract::component::PacketDriverMetadataView,
+    ) -> Result<Self, ChannelError> {
+        Self::paid(instance, declaration, parent, metadata, false)
+    }
+    fn paid(
+        instance: ComponentInstanceId,
+        declaration: &ResourceDeclaration,
+        parent: CancellationToken,
+        metadata: &zero_platform_tokio::contract::component::PacketDriverMetadataView,
+        drain_consumers: bool,
     ) -> Result<Self, ChannelError> {
         let ResourceDeclaration::NativeIcmp { max_sockets } = declaration else {
             return Err(error(
@@ -97,7 +115,26 @@ impl HostIcmpProbeOwner {
                 "not a native ICMP declaration",
             ));
         };
-        Ok(Self::with_limit(instance, *max_sockets, parent, true))
+        let cancel = parent.child_token();
+        let native = ControlledIcmpOwner::new_with_metadata(
+            *max_sockets,
+            if drain_consumers {
+                CancellationToken::new()
+            } else {
+                cancel.clone()
+            },
+            metadata,
+        )
+        .map_err(|source| {
+            error(
+                instance,
+                Stage::Prepare,
+                Reason::Capacity,
+                "actual ICMP completion metadata refused",
+            )
+            .with_source(source)
+        })?;
+        Ok(Self::from_native(instance, cancel, native))
     }
     fn with_limit(
         instance: ComponentInstanceId,
@@ -106,20 +143,28 @@ impl HostIcmpProbeOwner {
         drain_consumers: bool,
     ) -> Self {
         let cancel = parent.child_token();
+        let native = ControlledIcmpOwner::new(
+            limit,
+            if drain_consumers {
+                CancellationToken::new()
+            } else {
+                cancel.clone()
+            },
+        );
+        Self::from_native(instance, cancel, native)
+    }
+    fn from_native(
+        instance: ComponentInstanceId,
+        cancel: CancellationToken,
+        native: ControlledIcmpOwner,
+    ) -> Self {
         Self {
             shared: Arc::new(Shared {
                 instance,
-                cancel: cancel.clone(),
+                cancel,
                 state: Mutex::new(State {
                     phase: Phase::Cold,
-                    native: ControlledIcmpOwner::new(
-                        limit,
-                        if drain_consumers {
-                            CancellationToken::new()
-                        } else {
-                            cancel
-                        },
-                    ),
+                    native,
                     status: IcmpOwnerReport::default(),
                     closed_total: 0,
                     reported_total: 0,

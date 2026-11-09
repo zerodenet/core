@@ -9,7 +9,7 @@ pub struct MetadataPoolOrigin {
     slot: Weak<Slot>,
     instance: ComponentInstanceId,
     ordinal: u64,
-    closed: Arc<OnceLock<bool>>,
+    closed: completion::Completion,
     owner: MetadataPoolRegistration,
     retired: CancellationToken,
     sources: Option<MetadataOriginalSources>,
@@ -205,6 +205,9 @@ impl MetadataPoolPermit {
     }
 }
 impl MetadataPoolOrigin {
+    pub fn registration_observation(&self) -> MetadataPoolRegistrationObservation {
+        self.closed.observation(self.instance, self.ordinal)
+    }
     /// Durable native-only sources. No Slot, controller, Scope or receiver back edge.
     pub fn original_sources(&self) -> Option<MetadataOriginalSources> {
         self.sources.clone()
@@ -236,7 +239,7 @@ impl MetadataPoolOrigin {
     pub fn same_original(&self, other: &Self) -> bool {
         self.instance == other.instance
             && self.ordinal == other.ordinal
-            && Arc::ptr_eq(&self.closed, &other.closed)
+            && self.closed.same(&other.closed)
     }
     pub fn closed(&self) -> Option<MetadataPoolClosed> {
         self.closed.get().map(|_| MetadataPoolClosed {

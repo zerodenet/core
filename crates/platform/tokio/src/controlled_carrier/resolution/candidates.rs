@@ -71,6 +71,43 @@ impl CarrierCandidates {
         self.opener(index).ok()?;
         self.peers.get(index).copied()
     }
+    /// Bind ICMP ancillary setup to the same already-acquired metadata original
+    /// and exact selected Node candidate. This issues no arbitrary route API.
+    pub fn prepare_icmp(
+        &self,
+        index: usize,
+        port: Option<u16>,
+        permit: &crate::controlled_datagram::metadata_pool::MetadataPoolPermit,
+        query: &crate::contract::scope::TaskJoinWitness,
+        memory: crate::controlled_datagram::metadata_pool::MetadataIcmpMemory,
+    ) -> Result<crate::controlled_datagram::metadata_pool::MetadataIcmpAttempt, ChannelError> {
+        self.opener(index)?;
+        let mut peer = *self.peers.get(index).ok_or_else(|| {
+            error(
+                self.source.grantee,
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            )
+        })?;
+        if let Some(port) = port {
+            peer.set_port(port)
+        }
+        permit.prepare_icmp(
+            query,
+            crate::controlled_datagram::metadata_pool::MetadataCandidate {
+                instance: self.source.grantee,
+                binding: &self.source.binding,
+                endpoint: &self.source.endpoint,
+                peer,
+                dns_generation: self.resolver.as_ref().map(|(_, generation)| *generation),
+                egress: &self.source.egress,
+                observer: None,
+            },
+            &self.context,
+            memory,
+        )
+    }
     /// Acquire ancillary originals through the same actual host-selected Node
     /// candidates. A port override is accepted only by the original explicit
     /// rotation declaration, never by changing the retained domain authority.

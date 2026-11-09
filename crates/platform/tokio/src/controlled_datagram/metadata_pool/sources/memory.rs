@@ -6,7 +6,7 @@ use zero_traits::packet_metadata::{
     PacketMemoryError, PacketMetadataArc, PacketMetadataCredit, PacketMetadataLayout,
 };
 
-pub(super) enum Allocation<T> {
+pub(in crate::controlled_datagram::metadata_pool) enum Allocation<T> {
     Library(Arc<T>),
     Hosted(PacketMetadataArc<T>),
 }
@@ -28,7 +28,7 @@ impl<T> Deref for Allocation<T> {
     }
 }
 impl<T> Allocation<T> {
-    pub(super) fn same(&self, other: &Self) -> bool {
+    pub(in crate::controlled_datagram::metadata_pool) fn same(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Library(a), Self::Library(b)) => Arc::ptr_eq(a, b),
             (Self::Hosted(a), Self::Hosted(b)) => PacketMetadataArc::ptr_eq(a, b),
@@ -56,7 +56,9 @@ pub(in crate::controlled_datagram::metadata_pool) struct Prepaid {
 fn layout(
     limits: super::super::super::metadata::MetadataLimits,
 ) -> Result<PacketMetadataLayout, PacketMemoryError> {
-    PacketMetadataArc::<Originals>::layout()?
+    PacketMetadataArc::<crate::EgressSelection>::layout()?
+        .checked_add(PacketMetadataArc::<super::super::completion::State>::layout()?)?
+        .checked_add(PacketMetadataArc::<Originals>::layout()?)?
         .checked_add(PacketMetadataLayout::array::<Original>(
             limits.main_sockets.get(),
         )?)?
@@ -72,6 +74,16 @@ fn layout(
         .checked_add(zero_error::channel::RetainedError::metadata_layout()?)
 }
 impl Prepaid {
+    pub(in crate::controlled_datagram::metadata_pool) fn egress_credit(&mut self)->Option<PacketMetadataCredit>{
+        self.take(PacketMetadataArc::<crate::EgressSelection>::layout().expect("actual original egress allocation"))
+    }
+    pub(in crate::controlled_datagram::metadata_pool) fn completion(
+        &mut self,
+    ) -> super::super::completion::Completion {
+        super::super::completion::Completion::new(
+            self.allocate(super::super::completion::State::default()),
+        )
+    }
     pub(in crate::controlled_datagram::metadata_pool) fn reserve(
         limits: super::super::super::metadata::MetadataLimits,
         memory: Option<&PacketDriverMetadataView>,

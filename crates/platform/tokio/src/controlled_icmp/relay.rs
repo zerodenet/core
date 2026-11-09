@@ -3,8 +3,8 @@ use super::*;
 use std::{
     ops::{Deref, DerefMut},
     sync::{
-        Weak,
         atomic::{AtomicBool, AtomicUsize, Ordering},
+        Weak,
     },
     task::{Wake, Waker},
 };
@@ -33,6 +33,7 @@ impl IoRelays {
 pub(super) struct NativeGuard<'a> {
     entry: &'a Entry,
     guard: Option<MutexGuard<'a, Native>>,
+    changed: bool,
 }
 impl<'a> NativeGuard<'a> {
     pub(super) fn try_lock(entry: &'a Entry) -> Option<Self> {
@@ -48,6 +49,7 @@ impl<'a> NativeGuard<'a> {
         Some(Self {
             entry,
             guard: Some(guard),
+            changed: false,
         })
     }
     pub(super) fn lock(entry: &'a Entry) -> Self {
@@ -59,6 +61,7 @@ impl<'a> NativeGuard<'a> {
         Self {
             entry,
             guard: Some(guard),
+            changed: false,
         }
     }
 }
@@ -70,6 +73,7 @@ impl Deref for NativeGuard<'_> {
 }
 impl DerefMut for NativeGuard<'_> {
     fn deref_mut(&mut self) -> &mut Native {
+        self.changed = true;
         self.guard.as_deref_mut().expect("live native guard")
     }
 }
@@ -77,6 +81,9 @@ impl Drop for NativeGuard<'_> {
     fn drop(&mut self) {
         drop(self.guard.take());
         self.entry.wakes.leave();
+        if self.changed {
+            self.entry.changed.notify_waiters();
+        }
     }
 }
 pub(super) struct IoRelay {

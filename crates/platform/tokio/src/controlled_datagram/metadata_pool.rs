@@ -16,6 +16,10 @@ use std::{
 };
 use zero_core::component::ComponentInstanceId;
 mod binding;
+mod completion;
+mod icmp;
+pub use completion::{MetadataPoolRegistrationObservation, MetadataPoolRegistrationReleased};
+pub use icmp::{MetadataIcmpAttempt, MetadataIcmpAuthorization, MetadataIcmpMemory};
 mod close;
 mod permit;
 mod preparation;
@@ -67,7 +71,7 @@ struct Slot {
     owner: Weak<Shared>,
     instance: ComponentInstanceId,
     ordinal: u64,
-    closed: Arc<OnceLock<bool>>,
+    closed: completion::Completion,
     retired: CancellationToken,
     protocol: Mutex<Option<Arc<crate::original_protocol::Phase>>>,
     protocol_stop: OnceLock<CancellationToken>,
@@ -102,6 +106,13 @@ struct Native {
     attempted: bool,
     endpoints: Option<(std::net::SocketAddr, std::net::SocketAddr)>,
     binding: Option<MetadataPoolBinding>,
+    selection: Option<(
+        sources::memory::Allocation<crate::EgressSelection>,
+        crate::EgressInterfaceControl,
+    )>,
+    selection_credit: Option<zero_traits::packet_metadata::PacketMetadataCredit>,
+    icmp: Option<zero_traits::packet_metadata::PacketMetadataWeak<icmp::Attempt>>,
+    icmp_prepared: bool,
     report: Option<Arc<MetadataOwnerReport>>,
 }
 fn error(reason: Reason, message: &'static str) -> ChannelError {

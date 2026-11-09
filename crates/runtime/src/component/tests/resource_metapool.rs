@@ -215,3 +215,7 @@ async fn rejected_unbound_claim_keeps_original_custody_and_does_not_poison_the_o
 
 #[path = "resource_metapool/metadata.rs"]
 mod metadata;
+
+#[cfg(any(target_os = "linux", windows))]
+#[path = "resource_metapool/icmp.rs"]
+mod icmp;

@@ -19,11 +19,13 @@ use zero_platform_tokio::controlled_datagram::metadata_pool::{
 #[derive(Default)]
 struct Issued {
     current: Mutex<Option<(MetadataPoolGrants, TaskRegistrar)>>,
+    resources: Mutex<Option<Arc<dyn zero_platform_tokio::contract::component::ResourceAccess>>>,
 }
 struct Factory {
     declaration: ResourceDeclaration,
     issued: Arc<Issued>,
     cap: std::num::NonZeroUsize,
+    icmp: bool,
 }
 struct Lifecycle {
     owner: MetadataPoolOwner,
@@ -39,7 +41,11 @@ impl ComponentFactory for Factory {
             dependencies: vec![],
             static_identity: Arc::from([]),
             task_limit: Some(n(4)),
-            resources: vec![self.declaration.clone()],
+            resources: std::iter::once(self.declaration.clone())
+                .chain(self.icmp.then_some(ResourceDeclaration::NativeIcmp {
+                    max_sockets: self.cap,
+                }))
+                .collect(),
         }
     }
     fn build(&self, _: Arc<()>, context: BuildContext) -> Result<ComponentInstance, ChannelError> {
@@ -63,6 +69,7 @@ impl ResourceLifecycle for Lifecycle {
             &self.context.tasks,
         )?;
         self.owner.start()?;
+        *self.issued.resources.lock().unwrap() = Some(self.context.resources.clone());
         *self.issued.current.lock().unwrap() =
             Some((self.owner.grants(), self.context.tasks.clone()));
         Ok(())
@@ -78,6 +85,7 @@ pub(super) struct Fixture {
     pub slot: Arc<ComponentSlot>,
     pub grants: MetadataPoolGrants,
     pub tasks: TaskRegistrar,
+    pub resources: Arc<dyn zero_platform_tokio::contract::component::ResourceAccess>,
 }
 impl Fixture {
     pub async fn new(peer: SocketAddr, cap: usize) -> Self {
@@ -109,7 +117,28 @@ impl Fixture {
         )
         .await
     }
+    #[cfg(any(target_os = "linux", windows))]
+    pub async fn with_icmp(peer: SocketAddr) -> Self {
+        Self::declared_inner(
+            ResourceDeclaration::ControlledMetadataCarrier {
+                endpoint: zero_core::request::Destination::new(
+                    zero_core::Address::Ipv4([127, 0, 0, 1]),
+                    peer.port(),
+                ),
+                dial: Default::default(),
+                ports: vec![],
+                limits: limits(),
+                max_origins: n(1),
+            },
+            1,
+            true,
+        )
+        .await
+    }
     async fn declared(declaration: ResourceDeclaration, cap: usize) -> Self {
+        Self::declared_inner(declaration, cap, false).await
+    }
+    async fn declared_inner(declaration: ResourceDeclaration, cap: usize, icmp: bool) -> Self {
         // All fixtures model components in one host namespace, as production
         // does. Independent allocators may intentionally reuse numeric IDs.
         static CATALOG: std::sync::OnceLock<ComponentCatalog> = std::sync::OnceLock::new();
@@ -121,6 +150,7 @@ impl Fixture {
                 declaration,
                 issued: issued.clone(),
                 cap: n(cap),
+                icmp,
             }),
             Arc::new(()),
         );
@@ -136,10 +166,12 @@ impl Fixture {
             .await
             .unwrap();
         let (grants, tasks) = issued.current.lock().unwrap().take().unwrap();
+        let resources = issued.resources.lock().unwrap().take().unwrap();
         Self {
             slot,
             grants,
             tasks,
+            resources,
         }
     }
     pub async fn drive<T>(&self, work: impl std::future::Future<Output = T>) -> T {
