@@ -149,7 +149,7 @@ impl OwnedDnsQueryTasks {
                 // pool driver. It is not a still-running descendant. Keep the
                 // actual source with its canonical receiver and require local
                 // acceptance plus real Host ACK instead of replaying it forever.
-                return self.confirm_failure_reception();
+                return self.wait_failure_reception(end).await;
             }
             for original in originals {
                 let registration = async {

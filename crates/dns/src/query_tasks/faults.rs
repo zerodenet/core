@@ -185,6 +185,46 @@ impl OwnedDnsQueryTasks {
         }
         Ok(())
     }
+    /// A locally received worker fault is not a new protocol cleanup error
+    /// merely because its original Host registration has not been ACKed yet.
+    /// Wait on those actual registrations; preserve identity/receiver errors.
+    pub(super) async fn wait_failure_reception(&self, end: tokio::time::Instant) -> io::Result<()> {
+        let originals = {
+            let state = self.0.state.lock().expect("DNS query tasks poisoned");
+            if state.identity_fault {
+                drop(state);
+                return self.confirm_failure_reception();
+            }
+            state.faults.values().cloned().collect::<Vec<_>>()
+        };
+        for original in originals {
+            let Some(actual) = original.registration.get().and_then(Option::as_ref) else {
+                return self.confirm_failure_reception();
+            };
+            let Some(joined) = actual.witness.try_joined() else {
+                return self.confirm_failure_reception();
+            };
+            if !actual.witness.matches_joined(&joined)
+                || !joined.failure_accepted()
+                || joined.result().is_ok()
+                || !actual
+                    .witness
+                    .scope_identity()
+                    .same_scope(&self.0.registrar.scope_identity())
+            {
+                return self.confirm_failure_reception();
+            }
+            tokio::time::timeout_at(end, actual.witness.wait_registration_released())
+                .await
+                .map_err(|source| {
+                    crate::retirement_observation::deadline(
+                        source,
+                        "DNS received worker fault still awaits its original Host ACK",
+                    )
+                })?;
+        }
+        self.confirm_failure_reception()
+    }
     /// Actual finite fault receiver. The first failure closes this Scope's
     /// query admission, so rows are bounded by its already registered tasks.
     /// Records remain until this owner's lifecycle hands them to its host.
