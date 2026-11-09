@@ -15,6 +15,7 @@ use std::{
     },
 };
 mod access;
+mod authorization;
 pub(super) use access::current;
 mod cleanup;
 mod connection;

@@ -13,11 +13,12 @@ pub(super) enum Phase {
     ToolProgress,
     ToolClose,
     Shutdown,
+    AuthorizationOutput,
     WakeRead,
     WakeWrite,
 }
 pub(super) struct Failures {
-    slots: [OnceLock<io::Error>; 20],
+    slots: [OnceLock<io::Error>; 22],
 }
 impl Failures {
     pub(super) fn new() -> Self {
@@ -30,10 +31,10 @@ impl Failures {
         // Each index names the same real close actor, which itself caches its
         // single syscall outcome. A retry cannot introduce a different actor.
         let phase = phase as usize;
-        let slot = if phase < 9 {
-            epoch * 9 + phase
+        let slot = if phase < 10 {
+            epoch * 10 + phase
         } else {
-            18 + phase - 9
+            20 + phase - 10
         };
         let _ = self.slots[slot].set(source);
     }

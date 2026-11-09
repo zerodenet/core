@@ -3,6 +3,7 @@ use super::*;
 use std::{
     fs,
     mem::ManuallyDrop,
+    os::fd::IntoRawFd,
     os::unix::{ffi::OsStrExt, fs::PermissionsExt},
     process::{Child, Command, ExitStatus, Stdio},
 };
@@ -12,6 +13,11 @@ pub(super) struct Native {
     pub(super) socket: Option<HelperSocketGuard>,
     pub(super) child: Option<Child>,
     pub(super) waited: Option<ExitStatus>,
+    pub(super) auth_output: Option<Original>,
+    pub(super) auth_bytes: [u8; 64],
+    pub(super) auth_read: usize,
+    pub(super) auth_eof: bool,
+    pub(super) cancelled: bool,
     pub(super) helper: process::ProcessExit,
     pub(super) authenticated: bool,
     pub(super) attempted: bool,
@@ -25,6 +31,11 @@ impl Native {
             socket: None,
             child: None,
             waited: None,
+            auth_output: None,
+            auth_bytes: [0; 64],
+            auth_read: 0,
+            auth_eof: false,
+            cancelled: false,
             helper: process::ProcessExit::new(),
             authenticated: false,
             attempted: false,
@@ -85,11 +96,27 @@ impl Native {
                 .arg(executable)
                 .args(["__macos-tun-create-helper", "--socket"])
                 .arg(&path.socket)
+                .arg(id.to_string())
                 .stdin(Stdio::inherit())
-                .stdout(Stdio::inherit())
+                .stdout(Stdio::piped())
                 .stderr(Stdio::inherit())
                 .spawn()?,
         );
+        self.auth_output = self
+            .child
+            .as_mut()
+            .unwrap()
+            .stdout
+            .take()
+            .map(|pipe| Original::new(pipe.into_raw_fd(), id));
+        if let Some(output) = &self.auth_output {
+            let flags = unsafe { libc::fcntl(output.fd(), libc::F_GETFL) };
+            if flags < 0
+                || unsafe { libc::fcntl(output.fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0
+            {
+                return Err(io::Error::last_os_error());
+            }
+        }
         Ok(())
     }
     pub(super) fn accept(&mut self, id: u64) -> io::Result<()> {
@@ -100,10 +127,10 @@ impl Native {
             .listener
             .as_ref()
             .filter(|original| original.usable())
+            .map(Original::fd)
             .ok_or_else(|| io::Error::other("retained helper listener is unavailable"))?;
         loop {
-            let raw =
-                unsafe { libc::accept(listener.fd(), std::ptr::null_mut(), std::ptr::null_mut()) };
+            let raw = unsafe { libc::accept(listener, std::ptr::null_mut(), std::ptr::null_mut()) };
             if raw >= 0 {
                 // Store the actual accepted FD before getpeereid/fcntl/pid IO.
                 self.control = Some(Original::new(raw, id));
@@ -141,16 +168,11 @@ impl Native {
             if source.kind() != io::ErrorKind::WouldBlock {
                 return Err(source);
             }
-            if let Some(status) = self.child.as_mut().unwrap().try_wait()? {
-                self.waited = Some(status);
-                return Err(io::Error::other(
-                    "actual authorization Child exited before helper authentication",
-                ));
-            }
+            self.observe_authorization(id)?;
             // Waits inside the one actual blocking responsibility; cancellation
             // retains this Child/listener instead of pretending no helper exists.
             let mut fd = libc::pollfd {
-                fd: listener.fd(),
+                fd: listener,
                 events: libc::POLLIN,
                 revents: 0,
             };
@@ -222,8 +244,10 @@ impl Native {
         Ok(())
     }
     pub(super) fn closed(&self) -> bool {
-        (!self.attempted || self.child.is_none() || (self.exited && self.waited.is_some()))
-            && [&self.listener, &self.control]
+        (!self.attempted
+            || self.child.is_none()
+            || ((self.exited || self.cancelled) && self.waited.is_some()))
+            && [&self.listener, &self.control, &self.auth_output]
                 .into_iter()
                 .flatten()
                 .all(Original::closed)
@@ -254,13 +278,20 @@ pub(super) fn set_flags(fd: RawFd) -> io::Result<()> {
     }
     Ok(())
 }
-const OWNED_SCRIPT: &str = r#"
+pub(super) const OWNED_SCRIPT: &str = r#"
 on run argv
     if (count of argv) is 0 then error "missing privileged command"
     set commandText to quoted form of (item 1 of argv)
-    repeat with argumentIndex from 2 to (count of argv)
+    set nonceText to item (count of argv) of argv
+    repeat with argumentIndex from 2 to ((count of argv) - 1)
         set commandText to commandText & " " & quoted form of (item argumentIndex of argv)
     end repeat
-    do shell script commandText with administrator privileges
+    try
+        do shell script commandText with administrator privileges
+        return "zero.utun.completed." & nonceText
+    on error errorText number errorNumber
+        if errorNumber is -128 then return "zero.utun.cancelled." & nonceText
+        error errorText number errorNumber
+    end try
 end run
 "#;
