@@ -197,10 +197,31 @@ async fn reaping_reuses_finite_records_and_preserves_original_failure_arc_and_de
         assert_eq!(actual_os, Some(10013));
     }
     assert!(!exit.local_failure_accepted()); // original ingress receiver owns ACK
+    assert_eq!(
+        users.slots.active(),
+        1,
+        "the failed caller is still charged before receipt handoff"
+    );
     witness
         .acknowledge_hosted_failure(&witness.wait().await)
         .unwrap();
+    assert!(exit.local_failure_accepted());
+    assert!(
+        users.shutdown(deadline()).await.is_err(),
+        "local receipt acceptance alone cannot replace its actual registration ACK"
+    );
+    assert_eq!(users.slots.active(), 1);
     scope.acknowledge(&exit).unwrap();
+    witness.wait_registration_released().await;
+    let report = users.shutdown(deadline()).await.unwrap();
+    assert!(report.is_complete());
+    assert!(report.closed_io.is_empty());
+    assert_eq!(users.slots.active(), 0);
+    assert!(users.state.lock().unwrap().first.is_none());
+    assert!(
+        Arc::ptr_eq(&original, &exit.result().unwrap_err()),
+        "the actual ingress receiver retains the original after callee retirement"
+    );
 }
 #[tokio::test]
 async fn scope_drop_does_not_close_a_released_view_without_actual_join() {
@@ -226,3 +247,6 @@ async fn scope_drop_does_not_close_a_released_view_without_actual_join() {
 mod pending;
 
 mod taskless_packet;
+
+#[path = "tests/foreign_failure.rs"]
+mod foreign_failure;

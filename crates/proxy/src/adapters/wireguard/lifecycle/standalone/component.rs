@@ -181,12 +181,16 @@ impl ResourceLifecycle for Owner {
             match peer.owner.stop_users(deadline).await {
                 Ok(users) => report.append(users),
                 Err(source) => {
+                    #[cfg(test)]
+                    original_failure_chain("users", &source);
                     first.get_or_insert_with(|| failure(Stage::Close, source));
                 }
             }
             match peer.owner.stop(deadline).await {
                 Ok(joined) => report.append(joined),
                 Err(source) => {
+                    #[cfg(test)]
+                    original_failure_chain("workers", &source);
                     first.get_or_insert_with(|| failure(Stage::Close, source));
                 }
             }
@@ -212,5 +216,28 @@ impl ResourceLifecycle for Owner {
         // It runs with Scope cleanup; waiting for it here would deadlock the
         // original view return. No NativeClosed receipt is minted by this owner.
         first.map_or(Ok(report), Err)
+    }
+}
+
+#[cfg(test)]
+fn original_failure_chain(phase: &str, source: &EngineError) {
+    use std::error::Error;
+    let mut current: &(dyn Error + 'static) = source;
+    for depth in 0..32 {
+        eprintln!("actual standalone {phase} source[{depth}]: {current}");
+        let next = if let Some(EngineError::Io(source)) = current.downcast_ref::<EngineError>() {
+            Some(source as &(dyn Error + 'static))
+        } else if let Some(source) = current.downcast_ref::<std::io::Error>() {
+            source
+                .get_ref()
+                .map(|source| source as &(dyn Error + 'static))
+                .or_else(|| source.source())
+        } else if let Some(source) = current.downcast_ref::<Arc<ChannelError>>() {
+            Some(source.as_ref() as &(dyn Error + 'static))
+        } else {
+            current.source()
+        };
+        let Some(next) = next else { break };
+        current = next;
     }
 }
