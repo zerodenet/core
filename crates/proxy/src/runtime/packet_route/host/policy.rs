@@ -1,8 +1,10 @@
 //! Native packet devices cannot enforce socket constraints, including at execution.
+#[cfg(test)]
 use super::HostPacketDevice;
 use crate::runtime::packet_route::{PacketForwardObservation, PreparedPacketRouteOperation};
 use std::{io, sync::Arc};
 pub(crate) struct PreparedHostPacketOperation {
+    #[cfg(test)]
     pub(crate) device: Arc<HostPacketDevice>,
     pub(crate) dial_policy: zero_traits::DialPolicy,
 }
@@ -22,8 +24,19 @@ impl PreparedPacketRouteOperation for PreparedHostPacketOperation {
                 "native PacketSink cannot enforce outbound dial policy",
             ));
         }
-        self.device
-            .forward(packet, ingress_id, replies, egress_generation, observer)
-            .await
+        #[cfg(test)]
+        {
+            self.device
+                .forward(packet, ingress_id, replies, egress_generation, observer)
+                .await
+        }
+        #[cfg(not(test))]
+        {
+            let _ = (packet, ingress_id, replies, egress_generation, observer);
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "hosted native Packet requires its standard role and owned submission",
+            ))
+        }
     }
 }

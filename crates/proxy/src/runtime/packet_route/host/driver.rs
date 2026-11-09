@@ -116,6 +116,7 @@ pub(super) async fn run<D: zero_tun::TunDevice + 'static>(
             write = rx.recv() => {
                 let Some(write) = write else { break; };
                 let stopped=match write {
+                    #[cfg(test)]
                     Write::Legacy(write)=>legacy_write(write,&mut writer,&mut stopped,&mut failure).await,
                     Write::Owned(write)=>owned_write(write,&mut writer,&mut stopped,&mut failure).await,
                 };
@@ -130,6 +131,7 @@ pub(super) async fn run<D: zero_tun::TunDevice + 'static>(
     rx.close();
     while let Ok(write) = rx.try_recv() {
         match write {
+            #[cfg(test)]
             Write::Legacy(write) => {
                 write.discarded();
                 let _ = write.ack.send((
@@ -162,6 +164,7 @@ impl Drop for SessionCompletion {
         self.0.stop();
     }
 }
+#[cfg(test)]
 async fn legacy_write<W: tokio::io::AsyncWrite + Unpin>(
     write: LegacyWrite,
     writer: &mut W,
