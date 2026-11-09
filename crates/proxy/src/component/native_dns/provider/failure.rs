@@ -33,7 +33,7 @@ impl Receiver {
             // custody record. Never return it through a per-slot control error:
             // that error can itself enter this declaration graph's causes.
             resources
-                .receive_protocol_failure(&self.scope, source)
+                .receive_protocol_failure(&self.scope, &source.clone().into())
                 .map_err(std::io::Error::other)?;
         }
         Ok(())
@@ -70,7 +70,7 @@ impl Receiver {
                 )
             })
             .and_then(|resources| {
-                resources.receive_protocol_failure(&self.scope, &original)?;
+                resources.receive_protocol_failure(&self.scope, &original.clone().into())?;
                 self.receive_related(resources.as_ref()).map_err(error)
             });
         result.map_err(|receiver| {
@@ -112,7 +112,7 @@ impl Provider {
     ) -> Result<Arc<ResourceFailure>, BuildError> {
         let original = Arc::new(source);
         self.resources
-            .receive_protocol_failure(&self.registrar.scope_identity(), &original)
+            .receive_protocol_failure(&self.registrar.scope_identity(), &original.clone().into())
             .map_err(|receiver| {
                 BuildError::retained(original.clone()).with_source(Unreceived {
                     original,

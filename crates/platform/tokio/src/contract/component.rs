@@ -416,7 +416,7 @@ pub trait ResourceAccess: Send + Sync {
     fn receive_protocol_failure(
         &self,
         _scope: &super::scope::TaskScopeIdentity,
-        _source: &Arc<BuildError>,
+        _source: &crate::contract::RetainedError,
     ) -> Result<Arc<super::lifecycle::ResourceFailure>, BuildError> {
         Err(super::ChannelError::new(
             super::Stage::Close,

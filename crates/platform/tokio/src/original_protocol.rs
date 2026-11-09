@@ -165,7 +165,7 @@ impl Phase {
                             ).with_original_sources(self.fault_sources.clone()))
                         })
                         .clone();
-                    state.first_fault = Some(actual.source.clone());
+                    state.first_fault = Some(source.clone());
                     state.report.resource_failures.push(actual);
                 }
             }

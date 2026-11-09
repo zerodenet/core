@@ -132,17 +132,17 @@ async fn actual_scope_protocol_receiver_preserves_two_os_sources_through_held_ac
             actual_failure(&directory.path().join("second-missing"), Reason::Timeout);
         let mut foreign = TaskScope::suspended_hosted(tokio::runtime::Handle::current(), None);
         assert!(resources
-            .receive_protocol_failure(&foreign.registrar().scope_identity(), &first)
+            .receive_protocol_failure(&foreign.registrar().scope_identity(), &first.clone().into())
             .is_err());
         assert!(!first_receipt.is_acknowledged());
         assert!(slot.protocol_failures.get().is_none());
         let denied = crate::component::instance::resources::NoResources;
         assert!(denied
-            .receive_protocol_failure(&tasks.scope_identity(), &first)
+            .receive_protocol_failure(&tasks.scope_identity(), &first.clone().into())
             .is_err());
         assert!(!first_receipt.is_acknowledged());
         let canonical = resources
-            .receive_protocol_failure(&tasks.scope_identity(), &first)
+            .receive_protocol_failure(&tasks.scope_identity(), &first.clone().into())
             .unwrap();
         assert!(first_receipt.is_acknowledged());
         assert!(
@@ -150,7 +150,7 @@ async fn actual_scope_protocol_receiver_preserves_two_os_sources_through_held_ac
             "old acceptance is not late-source acceptance"
         );
         let same = resources
-            .receive_protocol_failure(&tasks.scope_identity(), &second)
+            .receive_protocol_failure(&tasks.scope_identity(), &second.clone().into())
             .unwrap();
         assert!(Arc::ptr_eq(&same, &canonical));
         drop(same);
@@ -224,7 +224,7 @@ async fn actual_scope_protocol_receiver_preserves_two_os_sources_through_held_ac
         // Closing/drained registration never rejects a late diagnostic from
         // this still-retained original Host/Scope receiver.
         let late = resources
-            .receive_protocol_failure(&tasks.scope_identity(), &second)
+            .receive_protocol_failure(&tasks.scope_identity(), &second.clone().into())
             .unwrap();
         assert!(Arc::ptr_eq(&late, &canonical));
         assert_eq!(slot.protocol_failures.source_count(), 2);

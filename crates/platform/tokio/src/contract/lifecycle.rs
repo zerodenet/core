@@ -44,7 +44,7 @@ pub enum ResourceFailurePhase {
 pub struct ResourceFailure {
     pub instance: zero_core::component::ComponentInstanceId,
     pub controller: ResourceFailurePhase,
-    pub source: Arc<ChannelError>,
+    pub source: super::RetainedError,
     original_sources: std::sync::OnceLock<Arc<OriginalProtocolFailures>>,
     reported: AtomicBool,
     ownership: std::sync::OnceLock<Arc<ChannelError>>,
@@ -53,12 +53,12 @@ impl ResourceFailure {
     pub fn new(
         instance: zero_core::component::ComponentInstanceId,
         controller: ResourceFailurePhase,
-        source: Arc<ChannelError>,
+        source: impl Into<super::RetainedError>,
     ) -> Self {
         Self {
             instance,
             controller,
-            source,
+            source: source.into(),
             original_sources: std::sync::OnceLock::new(),
             reported: false.into(),
             ownership: std::sync::OnceLock::new(),

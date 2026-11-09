@@ -60,7 +60,7 @@ pub fn invalid(reason: Reason, message: impl Into<String>) -> ChannelError {
     error.delivery = DeliveryState::NotSubmitted;
     error
 }
-pub fn retained(error: SharedError) -> ChannelError {
+pub fn retained(error: impl Into<zero_platform_tokio::contract::RetainedError>) -> ChannelError {
     ChannelError::retained(error)
 }
 

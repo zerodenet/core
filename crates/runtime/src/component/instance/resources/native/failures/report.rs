@@ -58,7 +58,7 @@ impl DeclaredReceiver {
                 });
             }
             drop(causes);
-            self.causes.first.get_or_init(|| source.clone());
+            self.causes.first.get_or_init(|| source.clone().into());
             self.canonical(instance);
             if let Some(receipt) = source.cleanup_failure_receipt() {
                 let _ = receipt.acknowledge_retained(&source);
@@ -106,7 +106,7 @@ impl DeclaredReceiver {
             {
                 return true;
             }
-            if let Some(retained) = node.retained_source() {
+            if let Some(retained) = node.retained_diagnostic() {
                 node = retained.as_ref();
                 continue;
             }

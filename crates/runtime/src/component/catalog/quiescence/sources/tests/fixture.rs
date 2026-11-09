@@ -118,9 +118,10 @@ impl ResourceLifecycle for Lifecycle {
                 Ok(closed) => report.append(closed),
                 Err(source) => {
                     let source = Arc::new(source);
-                    let received = self
-                        .resources
-                        .receive_protocol_failure(&self.tasks.scope_identity(), &source)?;
+                    let received = self.resources.receive_protocol_failure(
+                        &self.tasks.scope_identity(),
+                        &source.clone().into(),
+                    )?;
                     if !report
                         .resource_failures
                         .iter()
@@ -165,7 +166,9 @@ pub(super) fn install(
     ));
     slot.bind_original_budgets(catalog.original_budgets());
     slot.bind_admission(catalog.admission.clone());
-    catalog.admission.stage([slot.admission_grant()].into_iter());
+    catalog
+        .admission
+        .stage([slot.admission_grant()].into_iter());
     let plan = Arc::new(ComponentPlan {
         builtin: slot.clone(),
         borrowing: catalog.admission.clone(),

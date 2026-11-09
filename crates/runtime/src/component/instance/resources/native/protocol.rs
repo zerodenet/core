@@ -19,7 +19,7 @@ impl HostResources {
     pub(super) fn receive_protocol_fault(
         &self,
         scope: &TaskScopeIdentity,
-        source: &Arc<ChannelError>,
+        source: &zero_platform_tokio::contract::RetainedError,
     ) -> Result<Arc<ResourceFailure>, ChannelError> {
         let actual = self.protocol_scope(scope)?;
         self.protocol_failures.original(actual, source.clone());

@@ -75,7 +75,7 @@ impl std::error::Error for OriginalProtocolFailures {
 }
 #[derive(Debug)]
 pub(super) struct SourcePayload {
-    pub(super) first: Arc<ChannelError>,
+    pub(super) first: crate::contract::RetainedError,
     pub(super) _original: Option<Arc<OriginalProtocolFailures>>,
 }
 impl std::fmt::Display for SourcePayload {

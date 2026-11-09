@@ -58,7 +58,7 @@ pub use controlled_tcp::{InboundTargetClosed, InboundTargetNativeOwner, InboundT
 pub use controlled_tcp::{PendingUnixAccept, PendingUnixConnect};
 #[cfg(unix)]
 mod controlled_unix;
-pub use controlled_tcp::{ControlledTcpControl, ControlledTcpStream};
+pub use controlled_tcp::{ControlledTcpControl, ControlledTcpStream, TcpCloseSources};
 #[cfg(unix)]
 pub use controlled_unix::{
     ControlledUnixListener, ControlledUnixListenerOwner, UnixListenerClosed,

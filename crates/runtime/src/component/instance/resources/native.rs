@@ -300,7 +300,7 @@ impl ResourceAccess for HostResources {
     fn receive_protocol_failure(
         &self,
         scope: &zero_platform_tokio::contract::scope::TaskScopeIdentity,
-        source: &Arc<ChannelError>,
+        source: &zero_platform_tokio::contract::RetainedError,
     ) -> Result<Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>, ChannelError> {
         self.receive_protocol_fault(scope, source)
     }

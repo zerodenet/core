@@ -6,6 +6,7 @@ use std::{error::Error, fmt};
 use zero_platform_tokio::contract::lifecycle::{
     CloseReport, ResourceFailure, ResourceFailurePhase,
 };
+use zero_platform_tokio::contract::RetainedError;
 pub(in crate::component) struct DeclaredReceiver {
     controller: ResourceFailurePhase,
     canonical: std::sync::OnceLock<Arc<ResourceFailure>>,
@@ -13,12 +14,12 @@ pub(in crate::component) struct DeclaredReceiver {
 }
 #[derive(Default)]
 struct Causes {
-    first: std::sync::OnceLock<Arc<ChannelError>>,
+    first: std::sync::OnceLock<RetainedError>,
     sources: Mutex<Vec<Cause>>,
 }
 #[derive(Debug)]
 enum Cause {
-    Original(Arc<ChannelError>),
+    Original(RetainedError),
     Child(Arc<ResourceFailure>),
     ReportTask {
         id: zero_platform_tokio::contract::scope::TaskId,
@@ -114,8 +115,9 @@ impl DeclaredReceiver {
     pub(in crate::component) fn original(
         &self,
         instance: zero_core::component::ComponentInstanceId,
-        source: Arc<ChannelError>,
+        source: impl Into<RetainedError>,
     ) {
+        let source = source.into();
         if self
             .canonical
             .get()
@@ -234,7 +236,7 @@ impl HostResources {
 mod tests;
 
 // Error identity only; no source traversal is used as native/ACK evidence.
-fn same_source<'a>(mut first: &'a Arc<ChannelError>, mut later: &'a Arc<ChannelError>) -> bool {
+fn same_source<'a>(mut first: &'a ChannelError, mut later: &'a ChannelError) -> bool {
     if first.cleanup_failure_receipt().is_some_and(|receipt| {
         later
             .cleanup_failure_receipt()
@@ -242,13 +244,13 @@ fn same_source<'a>(mut first: &'a Arc<ChannelError>, mut later: &'a Arc<ChannelE
     }) {
         return true;
     }
-    while let Some(source) = first.retained_source() {
+    while let Some(source) = first.retained_diagnostic() {
         first = source;
     }
-    while let Some(source) = later.retained_source() {
+    while let Some(source) = later.retained_diagnostic() {
         later = source;
     }
-    Arc::ptr_eq(first, later)
+    std::ptr::eq(first, later)
 }
 
 mod report;
