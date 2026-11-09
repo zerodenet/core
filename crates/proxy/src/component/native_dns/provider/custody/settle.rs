@@ -54,9 +54,12 @@ impl NativeUse {
         }
         // A borrowed physical LoanOwner lives in this adoption's original
         // control, not necessarily in `logical`. Drive it above first. Only
-        // then can that donor's real local/global Root finish its native,
-        // users and registration ACKs. The Query's capacity remains held.
-        self.settle_protocol_originals(end).await?;
+        // then may this Query finish waiting for that same protocol original.
+        // An unhanded original still requires global Root settlement. A cached
+        // original instead supplies its sealed exact receiver, which retains
+        // the actual physical driver/LoanOwner without refunding its Root N or
+        // substituting for this Query's own native/users/registration receipts.
+        self.return_protocol_originals(end).await?;
         let capacity = self
             .capacity
             .lock()
