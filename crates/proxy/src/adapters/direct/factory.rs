@@ -24,7 +24,7 @@ use zero_traits::DialPolicy;
 pub struct DirectOptions {
     pub(super) policy: DialPolicy,
     control: Option<DirectBudgets>,
-    retain_legacy_calls: bool,
+    pub(super) retain_legacy_calls: bool,
     #[cfg(feature = "raw-ip-runtime")]
     pub(super) packet: Option<super::packet::standard::Alias>,
 }
@@ -143,11 +143,11 @@ impl ComponentFactory for DirectFactory {
         }
         let spec = ComponentSpec {
             owner: ResourceOwner::Component,
-            roles: if options.control.is_some() && !options.retain_legacy_calls { vec![RoleKind::Stream] } else { vec![RoleKind::Stream, RoleKind::Datagram] },
+            roles: vec![RoleKind::Stream, RoleKind::Datagram],
             dependencies: vec![],
             // The neutral dial policy contains no credentials.
             static_identity: static_identity.into(),
-            resources: options.control.as_ref().map_or_else(Vec::new, |control| vec![zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {
+            resources: options.control.as_ref().map_or_else(Vec::new, |control| vec![zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier {
                 dial: options.policy.clone(), max_sockets: control.max_sockets,
             }]),
             task_limit: options.control.as_ref().map(|control| control.max_refresh_tasks),
@@ -186,15 +186,11 @@ impl ComponentFactory for DirectFactory {
                     state: state.clone(),
                     control: control.clone(),
                 })),
-                datagram: if control.is_none() || options.retain_legacy_calls {
-                    Some(erase_datagram(Outbound {
-                        options,
-                        state,
-                        control: None,
-                    }))
-                } else {
-                    None
-                },
+                datagram: Some(erase_datagram(Outbound {
+                    options,
+                    state,
+                    control,
+                })),
                 ..Default::default()
             },
         })

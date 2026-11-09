@@ -3,6 +3,7 @@ use super::*;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ServiceRoot {
     pub(crate) endpoint: Destination,
+    pub(crate) datagram: bool,
     pub(crate) dial: zero_traits::DialPolicy,
 }
 pub(crate) fn dns_roots(config: &zero_config::RuntimeConfig) -> Vec<ServiceRoot> {
@@ -49,9 +50,21 @@ pub(crate) fn dns_roots(config: &zero_config::RuntimeConfig) -> Vec<ServiceRoot>
                     let root = ServiceRoot {
                         endpoint,
                         dial: outbound.dial.to_policy(),
+                        datagram: false,
                     };
                     if !roots.contains(&root) {
-                        roots.push(root);
+                        roots.push(root.clone());
+                    }
+                    if outbound.protocol.runtime_kind() == zero_config::OutboundRuntimeKind::Direct
+                        && matches!(server, zero_config::DnsServerConfig::Udp { .. })
+                    {
+                        let datagram = ServiceRoot {
+                            datagram: true,
+                            ..root
+                        };
+                        if !roots.contains(&datagram) {
+                            roots.push(datagram);
+                        }
                     }
                 }
             } else if let Some(group) = config.outbound_groups.iter().find(|group| group.tag == tag)

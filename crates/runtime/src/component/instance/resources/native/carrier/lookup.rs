@@ -210,10 +210,14 @@ impl HostResources {
             return Err(fail());
         };
         let declaration = self.carriers.declarations.get(ordinal).ok_or_else(fail)?;
-        let ResourceDeclaration::ControlledDirectStream {
+        let (ResourceDeclaration::ControlledDirectStream {
             dial: expected,
             max_sockets,
-        } = declaration
+        }
+        | ResourceDeclaration::ControlledDirectCarrier {
+            dial: expected,
+            max_sockets,
+        }) = declaration
         else {
             return Err(fail());
         };
@@ -368,5 +372,25 @@ impl HostResources {
             .as_ref()
             .ok_or_else(|| self.denied())?;
         bound.prepared_direct_service_issuer(fence, grant, caller, endpoint, binding)
+    }
+    pub(in crate::component) fn registered_direct_background_datagram_issuer(
+        &self,
+        instance: ComponentInstanceId,
+        endpoint: &Destination,
+        binding: &UpstreamBinding,
+        grant: &zero_platform_tokio::controlled_carrier::CarrierGrant,
+        caller: zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<zero_platform_tokio::controlled_carrier::CarrierServiceIssuer, ChannelError> {
+        let original = grant
+            .adoption()
+            .cleanup_owner()
+            .ok_or_else(|| self.denied())?;
+        let bound = self.registered_direct_owner(instance, &binding.dial, &original)?;
+        let fence = self
+            .carriers
+            .host_cancel
+            .as_ref()
+            .ok_or_else(|| self.denied())?;
+        bound.prepared_direct_datagram_service_issuer(fence, grant, caller, endpoint, binding)
     }
 }

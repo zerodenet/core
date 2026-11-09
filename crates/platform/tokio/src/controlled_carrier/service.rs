@@ -1,5 +1,6 @@
 //! Original host-fence authority for one fixed Service slot and real caller.
 mod caller;
+mod datagram;
 use super::{error, slot::Slot, CarrierGrant, CarrierOwnerBinding};
 use crate::contract::{
     component::ControlledStreamDemandClass,
@@ -21,6 +22,7 @@ pub struct CarrierServiceIssuer {
     endpoint: Destination,
     upstream: UpstreamBinding,
     direct: bool,
+    datagram: bool,
 }
 #[derive(Clone)]
 pub struct CarrierServiceGrant {
@@ -30,6 +32,7 @@ pub struct CarrierServiceGrant {
     endpoint: Destination,
     upstream: UpstreamBinding,
     direct: bool,
+    datagram: bool,
 }
 pub(super) struct ServiceDemand {
     caller: TaskJoinWitness,
@@ -70,6 +73,7 @@ impl CarrierOwnerBinding {
                 .1
                 .clone(),
             direct: false,
+            datagram: false,
         })
     }
     /// Same dynamic Direct owner, with its real transferred preparation and
@@ -120,6 +124,7 @@ impl CarrierOwnerBinding {
             endpoint: endpoint.clone(),
             upstream: upstream.clone(),
             direct: true,
+            datagram: false,
         })
     }
     /// Exact dynamic Direct Service capability, issued only by the original
@@ -151,6 +156,7 @@ impl CarrierOwnerBinding {
             endpoint: endpoint.clone(),
             upstream: upstream.clone(),
             direct: true,
+            datagram: false,
         })
     }
 }
@@ -169,6 +175,7 @@ impl CarrierServiceIssuer {
             endpoint: self.endpoint,
             upstream: self.upstream,
             direct: self.direct,
+            datagram: self.datagram,
             demand: Arc::new(ServiceDemand {
                 caller: self.caller,
                 cancel: query_cancel,
@@ -199,6 +206,7 @@ impl CarrierServiceGrant {
         authority: &Arc<super::binding::BoundAuthority>,
     ) -> bool {
         self.direct
+            && !self.datagram
             && self.binding.matches_authority(authority)
             && self
                 .binding

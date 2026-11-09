@@ -98,7 +98,7 @@ impl BackgroundPath<'_> {
                         .with_source(source.clone())
                 })?;
                 if first.slot.recipe.spec().resources.iter().any(|resource|matches!(resource,
-                    zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. })) {
+                    zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier { .. })) {
                     let target = nodes.get(1).and_then(|node|node.endpoint.clone()).unwrap_or_else(||endpoint.clone());
                     crate::component::direct_bridge::background::Root::transport(
                         &first.slot,Arc::downgrade(plan),services.upstream_observed(first.tag.as_deref().unwrap_or("")),
@@ -166,7 +166,7 @@ impl BackgroundPath<'_> {
                 deadline: call.deadline,
                 cancel: call.cancel.clone(),
                 upstream,
-                observer: if index == 0 && node.endpoint.is_none() && !node.slot.recipe.spec().resources.iter().any(|resource|matches!(resource,zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..})) {
+                observer: if index == 0 && node.endpoint.is_none() && !node.slot.recipe.spec().resources.iter().any(|resource|matches!(resource,zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier {..})) {
                     let tag = node.tag.as_deref().ok_or_else(|| {
                         invalid(
                             Reason::StalePlan,

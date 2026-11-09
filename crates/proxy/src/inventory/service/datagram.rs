@@ -5,6 +5,7 @@ use zero_platform_tokio::contract::component::RoleKind;
 pub(crate) struct ServiceDatagram {
     pub(crate) slot: Arc<ComponentSlot>,
     pub(crate) tag: Option<String>,
+    pub(crate) direct: bool,
     pub(crate) native: Option<(usize, zero_core::request::Destination)>,
 }
 impl ProtocolInventory {
@@ -16,6 +17,24 @@ impl ProtocolInventory {
     ) -> Result<Option<ServiceDatagram>, TcpOutboundFailure> {
         // The old packet exchange accepted one leaf only. A resolved relay or
         // fallback keeps its existing Stream DNS grammar, without a second pick.
+        if let ResolvedOutbound::Single(
+            leaf @ zero_engine::ResolvedLeafOutbound::Direct { dial_policy, .. },
+        ) = resolved
+        {
+            let Some(node) = self.service_node(ctx, leaf, components)? else {
+                return Ok(None);
+            };
+            let spec = node.slot.recipe.spec();
+            let installed = spec.roles.contains(&RoleKind::Datagram)
+                && matches!(spec.resources.as_slice(), [zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier { dial, max_sockets }]
+                    if dial == dial_policy && node.slot.original_carrier_owner(0).is_some_and(|owner| owner.instance() == node.slot.instance_id() && owner.limit() == *max_sockets && owner.bound().is_some_and(|bound| node.slot.matches_live_scope(&bound.scope_identity()))));
+            return Ok(installed.then_some(ServiceDatagram {
+                slot: node.slot,
+                tag: node.tag,
+                native: None,
+                direct: true,
+            }));
+        }
         let ResolvedOutbound::Single(zero_engine::ResolvedLeafOutbound::Proxy { identity }) =
             resolved
         else {
@@ -99,6 +118,7 @@ impl ProtocolInventory {
             slot,
             tag: Some(outbound.tag.clone()),
             native,
+            direct: false,
         }))
     }
 }

@@ -84,6 +84,7 @@ impl CarrierDeclarations {
                         | ResourceDeclaration::ControlledNodeCarrier { .. }
                         | ResourceDeclaration::ControlledNodeStream { .. }
                         | ResourceDeclaration::ControlledDirectStream { .. }
+                        | ResourceDeclaration::ControlledDirectCarrier { .. }
                 )
             })
             .map(|(ordinal, declaration)| (ordinal, declaration.clone()))
@@ -155,6 +156,9 @@ impl CarrierDeclarations {
                         }
                         ResourceDeclaration::ControlledDirectStream { .. } => {
                             coverage::DeclaredResourceKind::ControlledDirectStream
+                        }
+                        ResourceDeclaration::ControlledDirectCarrier { .. } => {
+                            coverage::DeclaredResourceKind::ControlledDirectCarrier
                         }
                         _ => coverage::DeclaredResourceKind::ControlledOutboundStream,
                     },

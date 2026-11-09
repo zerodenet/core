@@ -181,7 +181,7 @@ impl Provider {
             let root_grants = self
                 .roots
                 .iter()
-                .find(|(root, _)| root.endpoint == endpoint && root.dial == *dial)
+                .find(|(root, _)| !root.datagram && root.endpoint == endpoint && root.dial == *dial)
                 .map(|(_, grants)| grants)
                 .or_else(|| {
                     self.peers

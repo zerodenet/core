@@ -35,19 +35,33 @@ impl Provider {
         let generation = NetworkGeneration(self.egress.generation());
         let binding = UpstreamBinding {
             prefix: vec![role],
-            dial: Default::default(),
+            dial: node.slot.dial.clone(),
             network_generation: generation,
         };
         let root_binding = UpstreamBinding {
             prefix: vec![],
             ..binding.clone()
         };
-        let grants = &self
-            .peers
+        let grants = self
+            .roots
             .iter()
-            .find(|(address, packet, _)| *address == peer && *packet)
-            .ok_or_else(|| std::io::Error::other("DNS datagram endpoint was not declared"))?
-            .2;
+            .find(|(root, _)| {
+                root.datagram && root.endpoint == destination(peer) && root.dial == binding.dial
+            })
+            .map(|(_, grants)| grants)
+            .or_else(|| {
+                (binding.dial == Default::default())
+                    .then(|| {
+                        self.peers
+                            .iter()
+                            .find(|(address, packet, _)| *address == peer && *packet)
+                            .map(|(_, _, grants)| grants)
+                    })
+                    .flatten()
+            })
+            .ok_or_else(|| {
+                std::io::Error::other("DNS Datagram actual endpoint/dial was not declared")
+            })?;
         let network = node.tag.as_deref().map_or_else(
             || execution.upstream(),
             |tag| execution.upstream_observed(tag),
@@ -74,9 +88,13 @@ impl Provider {
             self.cleanup_receiver(),
         )
         .map_err(std::io::Error::other)?;
-        let root = Arc::new(match native {
-            Some((ordinal, _)) => root.with_native_datagram(node.slot.instance_id(), ordinal),
-            None => root.observer_only(),
+        let root = Arc::new(if node.direct {
+            root.with_direct_endpoint(Some(destination(peer)))
+        } else {
+            match native {
+                Some((ordinal, _)) => root.with_native_datagram(node.slot.instance_id(), ordinal),
+                None => root.observer_only(),
+            }
         });
         root.track();
         plan.authorize_carrier_prefix(self.instance, &binding.prefix)

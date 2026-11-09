@@ -232,7 +232,9 @@ pub enum DnsServerConfig {
         port: u16,
         #[serde(default)]
         bootstrap: Vec<IpAddr>,
-        /// Optional route target used to carry DNS-over-TCP to this server.
+        /// Optional route target for this server. An installed standard
+        /// Datagram role carries UDP; a role with an actual Stream-only DNS
+        /// grammar retains that framed transport. No unowned native fallback.
         #[serde(default)]
         detour: Option<String>,
     },

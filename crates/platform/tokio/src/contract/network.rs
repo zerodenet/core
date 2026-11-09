@@ -41,6 +41,17 @@ pub struct ControlledStreamRequest {
     pub retirement: std::time::Duration,
 }
 
+/// Actual selected Direct owner and original setup Scope. This grants neither
+/// IO nor close authority until the host validates its exact Datagram demand.
+pub struct ControlledDatagramRequest {
+    pub destination: Destination,
+    pub association: zero_core::component::AssociationId,
+    pub context: CarrierContext,
+    pub grants: crate::controlled_carrier::CarrierGrants,
+    pub tasks: super::scope::WeakTaskRegistrar,
+    pub retirement: std::time::Duration,
+}
+
 /// One selected, real Process dependency and the same caller's original native grant.
 /// This carries no Process authority, Business admission or new pool capacity.
 pub struct ProcessEndpointStreamRequest {
@@ -428,6 +439,14 @@ impl UpstreamTransport {
     ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierIo, ChannelError>> {
         self.opener
             .acquire_controlled_stream(&self.binding, destination, context, grant)
+    }
+
+    pub fn open_controlled_datagram_loan(
+        &self,
+        request: ControlledDatagramRequest,
+    ) -> BoxFuture<'_, Result<crate::controlled_carrier::loan::DatagramLoan, ChannelError>> {
+        self.opener
+            .open_controlled_datagram_loan(&self.binding, request)
     }
 
     pub fn open_controlled_stream_loan(

@@ -11,6 +11,7 @@ pub(in crate::component) enum DeclaredResourceKind {
     ControlledDatagramCarrier,
     ControlledOutboundDatagram,
     ControlledDirectStream,
+    ControlledDirectCarrier,
     ControlledPacketDevice,
     PacketDatagramReads,
     ControlledNodeStream,
@@ -105,6 +106,9 @@ impl CoverageBinding {
             }
             ResourceDeclaration::ControlledDirectStream { .. } => {
                 Self::Carrier(DeclaredResourceKind::ControlledDirectStream)
+            }
+            ResourceDeclaration::ControlledDirectCarrier { .. } => {
+                Self::Carrier(DeclaredResourceKind::ControlledDirectCarrier)
             }
             ResourceDeclaration::ListenerHandoff { .. } => {
                 return Err(super::error(
@@ -327,6 +331,7 @@ impl evidence::HostIoEvidence {
                             | DeclaredResourceKind::ControlledNodeCarrier
                             | DeclaredResourceKind::ControlledNodeStream
                             | DeclaredResourceKind::ControlledDirectStream
+                            | DeclaredResourceKind::ControlledDirectCarrier
                     ) =>
                 {
                     match (self.carriers.get(index), carriers.get_mut(index)) {

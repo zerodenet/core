@@ -49,7 +49,8 @@ impl HostResources {
             | ResourceDeclaration::ControlledDatagramCarrier { max_sockets, .. }
             | ResourceDeclaration::ControlledNodeCarrier { max_sockets, .. }
             | ResourceDeclaration::ControlledNodeStream { max_sockets, .. }
-            | ResourceDeclaration::ControlledDirectStream { max_sockets, .. } => max_sockets,
+            | ResourceDeclaration::ControlledDirectStream { max_sockets, .. }
+            | ResourceDeclaration::ControlledDirectCarrier { max_sockets, .. } => max_sockets,
             _ => return Err(self.denied()),
         };
         if actual.instance() != *instance

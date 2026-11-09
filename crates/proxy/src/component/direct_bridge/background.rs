@@ -1,5 +1,6 @@
 //! A selected Direct root lends from its one registered original owner.
 mod candidate;
+mod datagram;
 mod opener;
 mod setup;
 use super::super::{
@@ -82,7 +83,7 @@ impl Root {
         if !self.binding.prefix.is_empty() || self.binding.dial != slot.dial
             || self.binding.network_generation.0 != self.services.network_generation()
             || !slot.recipe.spec().resources.iter().any(|resource| matches!(resource,
-                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..})) {
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier {..})) {
             return Err(invalid(Reason::StalePlan,"actual Direct root binding changed"));
         }
         slot.service_admission()

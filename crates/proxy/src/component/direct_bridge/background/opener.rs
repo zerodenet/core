@@ -66,6 +66,17 @@ impl UpstreamOpener for Root {
     fn supports_controlled_stream(&self) -> bool {
         self.call.is_some()
     }
+    fn open_controlled_datagram_loan(
+        &self,
+        binding: &UpstreamBinding,
+        request: zero_platform_tokio::contract::network::ControlledDatagramRequest,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::controlled_carrier::loan::DatagramLoan, ChannelError>,
+    > {
+        let binding = binding.clone();
+        Box::pin(async move { self.open_datagram_loan(binding, request).await })
+    }
     fn open_controlled_stream_loan(
         &self,
         binding: &UpstreamBinding,

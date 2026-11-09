@@ -103,3 +103,6 @@ mod direct;
 
 #[path = "resource_carrier/service_datagram.rs"]
 mod service_datagram;
+
+#[path = "resource_carrier/direct_datagram.rs"]
+mod direct_datagram;

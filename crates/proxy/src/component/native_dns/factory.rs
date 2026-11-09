@@ -20,7 +20,7 @@ impl ComponentFactory for Factory {
             ResourceDeclaration::ControlledCarrierPool {
                 endpoint: root.endpoint.clone(),
                 dial: root.dial.clone(),
-                datagram: false,
+                datagram: root.datagram,
                 max_sockets: limits.originals,
             }
         }));
