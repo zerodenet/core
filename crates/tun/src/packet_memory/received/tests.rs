@@ -11,6 +11,7 @@ fn receive_copy_pays_native_and_erased_storage_atomically_and_keeps_both_until_a
             bytes: 68,
         },
     ));
+    let baseline = root.driver_metadata().occupied;
     let original = root.native_grant(64).unwrap();
     let view = original.memory_view().unwrap();
     let metadata = root.driver_metadata();
@@ -58,7 +59,15 @@ fn receive_copy_pays_native_and_erased_storage_atomically_and_keeps_both_until_a
             bytes: 0
         }
     );
-    assert_eq!(root.driver_metadata().occupied, metadata.occupied);
+    assert_eq!(
+        root.driver_metadata().occupied,
+        baseline
+            .checked_add(PacketMetadataArc::<read::ReadSlot>::layout().unwrap())
+            .unwrap()
+    );
+    drop(view);
+    drop(original);
+    assert_eq!(root.driver_metadata().occupied, baseline);
 }
 #[test]
 fn metadata_refusal_cannot_partially_consume_native_capacity() {

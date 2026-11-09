@@ -103,7 +103,11 @@ fn actual_weak_custody_blocks_policy_shrink_without_installing_any_other_lane() 
 #[test]
 fn revoking_the_actual_read_view_seals_new_metadata_and_keeps_existing_weak_headers_charged() {
     let layout = PacketMetadataArc::<usize>::layout().unwrap();
-    let root = original(layout);
+    let root = original(
+        layout
+            .checked_add(read::header::slot_layout().unwrap())
+            .unwrap(),
+    );
     let read = root.native_grant(1).unwrap();
     let view = read.memory_view().unwrap();
     let actual =
@@ -117,8 +121,15 @@ fn revoking_the_actual_read_view_seals_new_metadata_and_keeps_existing_weak_head
         Err(PacketMemoryError::Stopped)
     ));
     drop(actual);
-    assert_eq!(root.driver_metadata().occupied, charged(layout));
+    let slot = PacketMetadataArc::<read::ReadSlot>::layout().unwrap();
+    assert_eq!(
+        root.driver_metadata().occupied,
+        charged(layout.checked_add(slot).unwrap())
+    );
     drop(weak);
+    assert_eq!(root.driver_metadata().occupied, charged(slot));
+    drop(view);
+    drop(read);
     assert_eq!(root.driver_metadata().occupied, owned());
 }
 #[test]

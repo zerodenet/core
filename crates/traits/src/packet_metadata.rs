@@ -9,8 +9,12 @@ use core::{
 };
 mod counter;
 mod custody;
+mod header;
 pub use counter::{PacketMetadataCounter, PacketMetadataCredit};
 pub use custody::{PacketMetadataArc, PacketMetadataError, PacketMetadataWeak};
+pub use header::{
+    PacketMetadataHeaderLease, PacketMetadataHeaderObservation, PacketMetadataHeaderPromise,
+};
 
 /// Permanent Capacity differs from temporary Busy. Runtime owners separately
 /// apply their existing pause/revocation fences before admitting allocation.
@@ -34,6 +38,18 @@ pub struct PacketMetadataLayout {
     bytes: usize,
 }
 impl PacketMetadataLayout {
+    /// Checked actual count of one concrete repeated owning layout.
+    pub fn repeated(self, count: usize) -> Result<Self, PacketMemoryError> {
+        Ok(Self::new(
+            self.allocations()
+                .checked_mul(count)
+                .ok_or(PacketMemoryError::Overflow)?,
+            self.bytes()
+                .checked_mul(count)
+                .ok_or(PacketMemoryError::Overflow)?,
+        ))
+    }
+
     pub const fn new(allocations: usize, bytes: usize) -> Self {
         Self { allocations, bytes }
     }

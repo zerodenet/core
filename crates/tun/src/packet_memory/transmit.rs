@@ -6,6 +6,7 @@ mod envelope;
 pub use envelope::PacketTransmitEnvelope;
 pub struct PacketTransmitCredit {
     pub(super) credit: credit::Credit,
+    header: PacketMetadataCredit,
 }
 impl PacketReturnTotals {
     pub fn transmit(&self) -> PacketMemorySnapshot {
@@ -26,6 +27,7 @@ impl PacketReturnTotals {
         // The original control's reusable envelope is paid before native IO.
         // Reusing its already admitted workspace can never need a new header
         // allocation during a full-root handshake/ACK operation.
+        let read_metadata = self.reserve_driver_metadata(read::header::slot_layout()?)?;
         let anchor = PacketMemoryLimit { frames: 1, bytes };
         let envelope = self.reserve_envelope_with_anchor(0, 0, anchor)?;
         let credit = credit::Credit {
@@ -34,22 +36,31 @@ impl PacketReturnTotals {
             frames: 1,
             bytes,
         };
-        Ok(NativeReadGrant::from_credit_with_envelope(
+        Ok(NativeReadGrant::from_prepaid_credit(
             credit,
             Some(envelope),
+            read_metadata,
         ))
     }
     pub fn reserve_transmit(
         self: &Arc<Self>,
         lengths: &[usize],
     ) -> Result<Vec<PacketTransmitCredit>, PacketMemoryError> {
+        let layout = NativePacketCredit::header_layout();
+        let mut metadata = self.reserve_driver_metadata(layout.repeated(lengths.len())?)?;
         self.reserve(Lane::Transmit, lengths).map(|credits| {
             credits
                 .into_iter()
-                .map(|credit| PacketTransmitCredit { credit })
+                .map(|credit| PacketTransmitCredit {
+                    credit,
+                    header: metadata
+                        .split(layout)
+                        .expect("same prepaid concrete output header"),
+                })
                 .collect()
         })
     }
+
     /// A pending original's whole transform responsibility is paid atomically.
     /// The envelope is not another allocator root or pool. Later actual
     /// fragmentation/PMTU changes only split this exact existing reservation.
@@ -79,7 +90,7 @@ impl PacketReturnTotals {
         let total_bytes = bytes
             .checked_add(anchor.bytes)
             .ok_or(PacketMemoryError::Overflow)?;
-        let layout = PacketTransmitEnvelope::layout()?;
+        let layout = PacketTransmitEnvelope::layout(frames.max(anchor.frames))?;
         let mut state = self.state();
         if total_frames > state.transmit.limit.frames || total_bytes > state.transmit.limit.bytes {
             return Err(PacketMemoryError::Capacity);
@@ -147,8 +158,9 @@ impl PacketTransmitCredit {
     }
     pub fn allocate(self) -> PacketBuffer {
         let length = self.credit.bytes;
-        let storage =
-            read::NativeReadBuffer::from_credit(NativePacketCredit::new(self.credit, None));
+        let mut original = NativePacketCredit::new(self.credit, None);
+        original.header = Some(credit::PacketHeader::Owned(self.header));
+        let storage = read::NativeReadBuffer::from_credit(original);
         storage
             .into_packet(length)
             .unwrap_or_else(|_| unreachable!("same admitted transmit allocation"))
@@ -177,10 +189,14 @@ impl NativePacketCredit {
             .ok_or(PacketMemoryError::Overflow)?;
         let required_frames = frames.checked_add(1).ok_or(PacketMemoryError::Overflow)?;
         let recycled = if was_native {
-            self.recycle.as_ref().and_then(std::sync::Weak::upgrade)
+            self.recycle.as_ref().and_then(PacketMetadataWeak::upgrade)
         } else {
             None
         };
+        let _notifications = credit.root.defer_notifications();
+        // Both concrete Root wakers are prepared before any slot/root locks.
+        let reserve_wake = std::task::Waker::from(credit.root.clone());
+        let split_wake = std::task::Waker::from(credit.root.clone());
         let mut slot = recycled.as_ref().map(|slot| {
             slot.state
                 .lock()
@@ -221,10 +237,24 @@ impl NativePacketCredit {
         if state.metadata_pauses != 0 {
             return Err(PacketMemoryError::Paused);
         }
-        let metadata = credit.root.metadata.reserve(
-            PacketTransmitEnvelope::layout()?,
-            std::task::Waker::from(credit.root.clone()),
-        )?;
+        let header_count = usize::from(recycled.is_some());
+        let extra_layout = NativePacketCredit::header_layout().repeated(header_count)?;
+        let layout = PacketTransmitEnvelope::layout(frames)?.checked_add(extra_layout)?;
+        let mut metadata = credit.root.metadata.reserve(layout, reserve_wake)?;
+        let emptied = if let Some(slot) = slot.as_ref() {
+            let extra = metadata
+                .split_prepared(extra_layout, split_wake)
+                .unwrap_or_else(|_| unreachable!("same prepaid next-read header"));
+            Some(
+                slot.header
+                    .as_ref()
+                    .ok_or(PacketMemoryError::Stopped)?
+                    .grow(1, extra)
+                    .unwrap_or_else(|_| unreachable!("same Root exact header growth")),
+            )
+        } else {
+            None
+        };
         state.transmit.occupied.frames += add_frames;
         state.transmit.occupied.bytes += add_bytes;
         if was_native {
@@ -242,22 +272,26 @@ impl NativePacketCredit {
             credit.lane = Lane::Transmit;
             self.recycle = None;
         }
+        let envelope_credit = credit::Credit {
+            root: credit.root.clone(),
+            lane: Lane::Transmit,
+            frames,
+            bytes,
+        };
+        let anchor = PacketMemoryLimit {
+            frames: credit.frames,
+            bytes: credit.bytes,
+        };
+        drop(state);
+        drop(slot);
+        drop(emptied); // never drop the consumed original credit under owner locks
+        self.promoted_headers += header_count;
         self.envelope = Some(PacketTransmitEnvelope::with_anchor(
-            credit::Credit {
-                root: credit.root.clone(),
-                lane: Lane::Transmit,
-                frames,
-                bytes,
-            },
-            PacketMemoryLimit {
-                frames: credit.frames,
-                bytes: credit.bytes,
-            },
+            envelope_credit,
+            anchor,
             metadata,
             false,
         ));
-        drop(state);
-        drop(slot);
         if let Some(slot) = recycled {
             slot.notify();
         }

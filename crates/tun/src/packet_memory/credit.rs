@@ -32,19 +32,25 @@ pub struct PacketReturnCredit {
 /// Retaining a result moves this same credit; no second charge or refund gap.
 pub struct NativePacketCredit {
     pub(super) credit: Option<Credit>,
-    pub(super) recycle: Option<std::sync::Weak<read::ReadSlot>>,
+    pub(super) recycle: Option<PacketMetadataWeak<read::ReadSlot>>,
     pub(super) envelope: Option<super::transmit::PacketTransmitEnvelope>,
     pub(super) reserved_envelope: Option<super::transmit::PacketTransmitEnvelope>,
     pub(super) return_to_envelope: bool,
+    pub(super) header: Option<PacketHeader>,
+    pub(super) header_source: Option<zero_traits::packet_metadata::PacketMetadataHeaderObservation>,
+    pub(super) promoted_headers: usize,
 }
 impl NativePacketCredit {
-    pub(super) fn new(credit: Credit, recycle: Option<std::sync::Weak<read::ReadSlot>>) -> Self {
+    pub(super) fn new(credit: Credit, recycle: Option<PacketMetadataWeak<read::ReadSlot>>) -> Self {
         Self {
             credit: Some(credit),
             recycle,
             envelope: None,
             reserved_envelope: None,
             return_to_envelope: false,
+            header: None,
+            header_source: None,
+            promoted_headers: 0,
         }
     }
     pub fn capacity(&self) -> usize {
@@ -73,6 +79,16 @@ impl NativePacketCredit {
             // their original lane. A synchronous production TX cannot enter
             // this path; it must have its whole envelope before queueing.
             let credit = self.credit.as_ref().expect("same actual credit");
+            // Keep this explicit library/native-assembly path on its actual
+            // original lane, but pay every erased storage header first.
+            let mut metadata = credit
+                .root
+                .reserve_driver_metadata(
+                    Self::header_layout()
+                        .repeated(lengths.len())
+                        .map_err(super::transmit::derive_error)?,
+                )
+                .map_err(super::transmit::derive_error)?;
             let credits = credit
                 .root
                 .reserve(credit.lane, lengths)
@@ -81,7 +97,13 @@ impl NativePacketCredit {
                 .into_iter()
                 .map(|credit| {
                     let length = credit.bytes;
-                    read::NativeReadBuffer::from_credit(Self::new(credit, None))
+                    let mut original = Self::new(credit, None);
+                    original.header = Some(PacketHeader::Owned(
+                        metadata
+                            .split(Self::header_layout())
+                            .expect("same prepaid derived header"),
+                    ));
+                    read::NativeReadBuffer::from_credit(original)
                         .into_packet(length)
                         .unwrap_or_else(|_| unreachable!("same admitted assembly length"))
                 })
@@ -100,14 +122,30 @@ impl NativePacketCredit {
         if packet.allocation_bytes() > self.capacity() {
             return Err((PacketMemoryError::Capacity, self, packet));
         }
-        Ok(zero_traits::PacketBuffer::from_owner(Decoded {
+        let mut original = self;
+        let Some(header) = original.header.take() else {
+            return Err((PacketMemoryError::Capacity, original, packet));
+        };
+        match header.wrap(Decoded {
             packet,
-            _credit: self,
-        }))
+            _credit: original,
+        }) {
+            Ok(packet) => Ok(packet),
+            Err((cause, mut owner, header)) => {
+                owner._credit.header = Some(header);
+                Err((cause, owner._credit, owner.packet))
+            }
+        }
     }
 }
 impl Drop for NativePacketCredit {
     fn drop(&mut self) {
+        if self.promoted_headers != 0 {
+            self.header_source
+                .as_ref()
+                .expect("same promoted header")
+                .retire_grown(self.promoted_headers);
+        }
         let Some(credit) = self.credit.take() else {
             return;
         };
@@ -116,7 +154,7 @@ impl Drop for NativePacketCredit {
                 .as_ref()
                 .expect("same prepaid transmit envelope")
                 .return_credit(credit);
-        } else if let Some(slot) = self.recycle.as_ref().and_then(std::sync::Weak::upgrade) {
+        } else if let Some(slot) = self.recycle.as_ref().and_then(PacketMetadataWeak::upgrade) {
             slot.return_credit(credit);
         } else {
             drop(credit);
@@ -162,5 +200,35 @@ impl zero_traits::PacketStorage for Decoded {
     }
     fn allocation_bytes(&self) -> usize {
         self._credit.capacity()
+    }
+}
+
+pub(super) enum PacketHeader {
+    Owned(PacketMetadataCredit),
+    Lease(zero_traits::packet_metadata::PacketMetadataHeaderLease),
+}
+impl PacketHeader {
+    pub(super) fn wrap<T: zero_traits::PacketStorage>(
+        self,
+        owner: T,
+    ) -> Result<zero_traits::PacketBuffer, (PacketMemoryError, T, Self)> {
+        match self {
+            Self::Owned(credit) => zero_traits::PacketBuffer::from_prepaid_owner(owner, credit)
+                .map_err(|(cause, owner, credit)| (cause, owner, Self::Owned(credit))),
+            Self::Lease(header) => zero_traits::PacketBuffer::from_leased_owner(owner, header)
+                .map_err(|(cause, owner, header)| (cause, owner, Self::Lease(header))),
+        }
+    }
+}
+impl NativePacketCredit {
+    pub(super) fn decoded_header_layout() -> PacketMetadataLayout {
+        PacketMetadataLayout::boxed::<Decoded>()
+    }
+    pub(super) fn install_header_lease(
+        &mut self,
+        lease: zero_traits::packet_metadata::PacketMetadataHeaderLease,
+    ) {
+        self.header_source = Some(lease.observe());
+        self.header = Some(PacketHeader::Lease(lease));
     }
 }

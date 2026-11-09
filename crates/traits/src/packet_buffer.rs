@@ -90,7 +90,15 @@ impl PacketStorage for Vec<u8> {
 /// existing backing-allocation lifetime metadata moves with the bytes.
 pub struct PacketBuffer {
     storage: Storage,
-    _metadata: Option<crate::packet_metadata::PacketMetadataCredit>,
+    _metadata: Option<Metadata>,
+}
+enum Metadata {
+    Credit {
+        _credit: crate::packet_metadata::PacketMetadataCredit,
+    },
+    Header {
+        _header: crate::packet_metadata::PacketMetadataHeaderLease,
+    },
 }
 enum Storage {
     Vector(Vec<u8>),
@@ -130,7 +138,34 @@ impl PacketBuffer {
         }
         Ok(Self {
             storage: Storage::Owner(Box::new(owner)),
-            _metadata: Some(credit),
+            _metadata: Some(Metadata::Credit { _credit: credit }),
+        })
+    }
+    /// Consume only the original workspace's already-paid reusable header.
+    /// The lease is released AFTER the actual erased Box deallocates.
+    pub fn from_leased_owner<T: PacketStorage>(
+        owner: T,
+        header: crate::packet_metadata::PacketMetadataHeaderLease,
+    ) -> Result<
+        Self,
+        (
+            crate::packet_metadata::PacketMemoryError,
+            T,
+            crate::packet_metadata::PacketMetadataHeaderLease,
+        ),
+    > {
+        let expected = crate::packet_metadata::PacketMetadataLayout::boxed::<T>();
+        let actual = header.layout();
+        if actual.allocations() < expected.allocations() || actual.bytes() < expected.bytes() {
+            return Err((
+                crate::packet_metadata::PacketMemoryError::Capacity,
+                owner,
+                header,
+            ));
+        }
+        Ok(Self {
+            storage: Storage::Owner(Box::new(owner)),
+            _metadata: Some(Metadata::Header { _header: header }),
         })
     }
     pub fn derive_zeroed<'a>(&'a self, lengths: &'a [usize]) -> PacketDerivation<'a> {
