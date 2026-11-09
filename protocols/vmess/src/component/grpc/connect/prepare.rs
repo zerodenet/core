@@ -92,7 +92,7 @@ impl Managed {
                 }),
             }
         }).map_err(|source|owner.admission.attach(source,session))?;
-        *record.witness.lock().unwrap() = Some(witness);
+        record.install_witness(witness);
         owner
             .check()
             .map_err(|source| owner.admission.attach(source, session))?;

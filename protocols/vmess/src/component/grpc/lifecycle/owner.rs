@@ -79,7 +79,8 @@ impl ResourceLifecycle for Owner {
     }
     async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, BuildError> {
         self.revoke(CloseReason::Shutdown);
-        let (base, physical, service) = tokio::join!(
+        let records = self.managed.records.lock().unwrap().clone();
+        let (base, physical, service, ()) = tokio::join!(
             self.base.shutdown(deadline),
             self.carriers.shutdown(deadline),
             async {
@@ -88,11 +89,8 @@ impl ResourceLifecycle for Owner {
                     None => Ok(CloseReport::default()),
                 }
             },
+            super::super::reception::receive_all(records, deadline),
         );
-        let records = self.managed.records.lock().unwrap().clone();
-        for record in records {
-            record.receive_available();
-        }
         let mut report = base?;
         report.append(physical?);
         report.append(service?);
