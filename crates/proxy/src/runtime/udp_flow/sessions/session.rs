@@ -5,13 +5,18 @@ use zero_core::{Address, Session};
 use zero_engine::EngineError;
 use zero_traits::packet_metadata::{PacketMetadataArc, PacketMetadataCredit};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 // Preserve the existing unannotated Session's inline storage; the Source
 // variant has a prepaid actual Arc and needs no additional wrapper Box.
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum UdpFlowSession {
     Existing(Session),
     Source(PacketMetadataArc<SourceSession>),
+}
+impl std::fmt::Debug for UdpFlowSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&**self, f)
+    }
 }
 #[derive(Debug)]
 pub(crate) struct SourceSession {

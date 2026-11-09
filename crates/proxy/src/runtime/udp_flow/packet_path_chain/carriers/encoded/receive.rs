@@ -1,7 +1,7 @@
 //! Same actual packet RX, separated from pure TX dimension preparation.
 use super::*;
 impl Encoded {
-    async fn recv_decoded(
+    pub(super) async fn recv_decoded(
         &self,
         output: &mut [u8],
     ) -> Result<(usize, Option<SocketAddr>), EngineError> {

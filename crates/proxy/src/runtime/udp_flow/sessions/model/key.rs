@@ -6,11 +6,16 @@ use zero_engine::EngineError;
 use zero_platform_tokio::contract::component::PacketDriverMetadataView;
 use zero_traits::packet_metadata::{PacketMetadataArc, PacketMetadataCredit, PacketMetadataLayout};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(super) enum KeyTarget {
     Existing(Address),
     Source(PacketMetadataArc<Target>),
     Session(PacketMetadataArc<super::super::session::SourceSession>),
+}
+impl std::fmt::Debug for KeyTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self.address(), f)
+    }
 }
 pub(super) struct Target {
     address: Address,
@@ -37,7 +42,7 @@ impl KeyTarget {
     }
 }
 mod response;
-pub(super) use response::{ResponseIdentity, ResponseLookup};
+pub(in crate::runtime::udp_flow::sessions) use response::{ResponseIdentity, ResponseLookup};
 impl PartialEq for KeyTarget {
     fn eq(&self, other: &Self) -> bool {
         self.address() == other.address()
