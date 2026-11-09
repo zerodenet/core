@@ -1,21 +1,23 @@
 //! Only this actual worker submits/cancels these original OVERLAPPED objects.
 use super::*;
 mod operations;
+mod panic;
+pub(super) use panic::split as split_panic;
 use std::{os::windows::ffi::OsStrExt, ptr};
 use windows_sys::Win32::{
     Foundation::{
         CloseHandle, ERROR_BROKEN_PIPE, ERROR_HANDLE_EOF, ERROR_IO_INCOMPLETE, ERROR_IO_PENDING,
-        ERROR_NO_DATA, ERROR_NOT_FOUND, ERROR_OPERATION_ABORTED, ERROR_PIPE_CONNECTED, HANDLE,
+        ERROR_NOT_FOUND, ERROR_NO_DATA, ERROR_OPERATION_ABORTED, ERROR_PIPE_CONNECTED, HANDLE,
         INVALID_HANDLE_VALUE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
     },
-    Storage::FileSystem::{FILE_FLAG_OVERLAPPED, PIPE_ACCESS_DUPLEX, ReadFile, WriteFile},
+    Storage::FileSystem::{ReadFile, WriteFile, FILE_FLAG_OVERLAPPED, PIPE_ACCESS_DUPLEX},
     System::{
-        IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED},
         Pipes::{
             ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS,
             PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES,
         },
         Threading::{CreateEventW, ResetEvent, SetEvent, WaitForMultipleObjects},
+        IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED},
     },
 };
 #[derive(Default)]
@@ -149,7 +151,7 @@ impl Native {
         }
         shared.notify_io();
         match work {
-            Err(payload) => std::panic::resume_unwind(payload),
+            Err(payload) => panic::resume(payload, cleanup),
             Ok(Err(error)) => {
                 self.faults.push(error);
                 self.fault_result()

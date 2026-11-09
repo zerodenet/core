@@ -7,10 +7,13 @@ pub(super) struct Worker {
     pub(super) exited: bool,
 }
 #[derive(Debug)]
-struct WorkerPanic(Mutex<Box<dyn std::any::Any + Send>>);
+struct WorkerPanic {
+    payload: Mutex<Box<dyn std::any::Any + Send>>,
+    drain: Option<Arc<io::Error>>,
+}
 impl std::fmt::Display for WorkerPanic {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let payload = lock(&self.0);
+        let payload = lock(&self.payload);
         if let Some(message) = payload.downcast_ref::<String>() {
             write!(f, "original pipe worker panicked: {message}")
         } else if let Some(message) = payload.downcast_ref::<&str>() {
@@ -20,7 +23,11 @@ impl std::fmt::Display for WorkerPanic {
         }
     }
 }
-impl std::error::Error for WorkerPanic {}
+impl std::error::Error for WorkerPanic {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.drain.as_ref().map(|source| source.as_ref() as _)
+    }
+}
 struct Exited(Arc<Shared>);
 impl Drop for Exited {
     fn drop(&mut self) {
@@ -129,7 +136,13 @@ pub(super) fn join_if_finished(shared: &Shared) {
         .expect("same installed original pipe thread");
     let result = match actual.join() {
         Ok(result) => result.map_err(Arc::new),
-        Err(payload) => Err(Arc::new(io::Error::other(WorkerPanic(Mutex::new(payload))))),
+        Err(payload) => {
+            let (payload, drain) = native::split_panic(payload);
+            Err(Arc::new(io::Error::other(WorkerPanic {
+                payload: Mutex::new(payload),
+                drain,
+            })))
+        }
     };
     if let Err(error) = &result {
         let mut state = lock(&shared.state);
@@ -142,3 +155,6 @@ pub(super) fn join_if_finished(shared: &Shared) {
     drop(worker);
     shared.notify_io();
 }
+
+#[cfg(test)]
+mod tests;

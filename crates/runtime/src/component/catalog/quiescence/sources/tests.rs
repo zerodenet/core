@@ -17,7 +17,15 @@ fn end() -> tokio::time::Instant {
 }
 fn contains(mut source: &(dyn Error + 'static), expected: &Arc<ChannelError>) -> bool {
     loop {
-        if std::ptr::eq(source, expected.as_ref() as &(dyn Error + 'static)) {
+        // A dyn Error pointer includes a potentially duplicated vtable.
+        // Compare the actual typed original, not that codegen-unit metadata.
+        if source
+            .downcast_ref::<ChannelError>()
+            .is_some_and(|actual| std::ptr::eq(actual, expected.as_ref()))
+            || source
+                .downcast_ref::<Arc<ChannelError>>()
+                .is_some_and(|actual| Arc::ptr_eq(actual, expected))
+        {
             return true;
         }
         let Some(next) = source.source() else {
@@ -44,7 +52,9 @@ async fn actual_declared_capsule_survives_tcp_journal_failure_and_original_scope
             .install_after_retirement(std::num::NonZeroUsize::new(2).unwrap())
             .unwrap();
         catalog.drive_supervised(plan.start(end())).await.unwrap();
-        catalog.admission.publish([slot.admission_grant()].into_iter());
+        catalog
+            .admission
+            .publish([slot.admission_grant()].into_iter());
         assert!(
             slot.stream(end()).await.is_ok(),
             "genuine actual Direct Stream role"
