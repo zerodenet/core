@@ -1,24 +1,20 @@
 #[cfg(feature = "udp-runtime")]
-use std::vec::Vec;
-
-#[cfg(feature = "udp-runtime")]
-use tokio::task::JoinSet;
-#[cfg(feature = "udp-runtime")]
 use zero_core::Address;
 #[cfg(feature = "udp-runtime")]
 use zero_engine::EngineError;
 
 /// A response item produced by a chain-outbound recv bridge task.
 ///
-/// Stored in a unified [`JoinSet`] so all chain outbound responses are
+/// Stored in the unified original response owner so all chain outbound responses are
 /// polled from a single `select!` branch via UDP dispatch chain polling.
 #[cfg(feature = "udp-runtime")]
-pub(crate) type ChainTask = Result<(Address, u16, Vec<u8>, Option<u64>), EngineError>;
+pub(crate) type ChainTask =
+    Result<(Address, u16, zero_traits::PacketBuffer, Option<u64>), EngineError>;
 
 /// Runtime context shared by UDP outbound managers for one send operation.
 #[cfg(feature = "udp-runtime")]
 pub(crate) struct UdpFlowContext<'a> {
-    pub(crate) chain_tasks: &'a mut JoinSet<ChainTask>,
+    pub(crate) chain_tasks: &'a mut crate::runtime::udp_flow::response_join::ResponseSetLease,
     pub(crate) session_id: u64,
 }
 

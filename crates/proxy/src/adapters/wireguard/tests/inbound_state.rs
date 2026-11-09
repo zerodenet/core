@@ -81,7 +81,9 @@ fn cold_listener_preparation_never_claims_running_listener_or_mutates_device() {
         unreachable!()
     };
     *mtu = 1280;
-    let cold = adapter.prepare_wireguard_listener(next, None).unwrap();
+    let cold = adapter
+        .prepare_wireguard_listener(next, None, Default::default())
+        .unwrap();
     assert!(live.listener_active());
     assert!(live.matches_identity(inbound_protocol_identity(&original.protocol).unwrap()));
     drop(cold);

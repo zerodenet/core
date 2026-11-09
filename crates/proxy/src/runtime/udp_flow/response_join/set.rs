@@ -1,6 +1,8 @@
 //! A single lease of the existing response Set; its owner survives caller Drop.
+mod packets;
 mod wake;
 use super::*;
+pub(crate) use packets::PacketReplySender;
 use std::{
     ops::{Deref, DerefMut},
     sync::atomic::{AtomicBool, Ordering},
@@ -15,6 +17,9 @@ pub(crate) struct ResponseSetOwner {
     tasks: Arc<AsyncMutex<JoinSet<ChainTask>>>,
     evidence: ResponseTasks,
     wake: Arc<wake::Relay>,
+    packets: std::sync::OnceLock<
+        zero_traits::packet_metadata::PacketMetadataArc<packets::PacketReplies>,
+    >,
     revoked: AtomicBool,
     closed: AtomicBool,
 }
@@ -47,6 +52,7 @@ impl ResponseSetOwner {
             tasks,
             evidence: ResponseTasks::default(),
             wake: Arc::default(),
+            packets: Default::default(),
             revoked: AtomicBool::new(false),
             closed: AtomicBool::new(false),
         });
@@ -61,6 +67,9 @@ impl ResponseSetOwner {
     pub(crate) fn revoke(&self) {
         self.evidence.expected_cancel.store(true, Ordering::Release);
         self.revoked.store(true, Ordering::Release);
+        if let Some(packets) = self.packets.get() {
+            packets.close();
+        }
     }
     pub(crate) fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)
@@ -133,8 +142,16 @@ impl ResponseSetLease {
             let _deferred = self.owner.wake.enter();
             self.tasks.abort_all();
         }
-        let result = wake::join(&mut self.tasks, &self.owner.wake).await?;
-        Some(self.owner.evidence.observe(result))
+        match wake::next(
+            &mut self.tasks,
+            &self.owner.wake,
+            self.owner.packets.get().map(|value| &**value),
+        )
+        .await?
+        {
+            wake::Next::Native(result) => Some(self.owner.evidence.observe(result)),
+            wake::Next::Packet(packet) => Some(Ok(Ok(packet))),
+        }
     }
 }
 // Compatibility is restricted to the existing synchronous original spawn

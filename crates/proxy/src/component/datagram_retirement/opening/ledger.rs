@@ -37,16 +37,20 @@ impl PendingOpen {
         ))
     }
     fn valid(&self, adoption: &CarrierAdoption) -> bool {
-        self.source
-            .upgrade()
-            .and_then(|source| source.runtime_services().ok())
-            .is_some_and(|services| {
-                services.execution().components.as_ref().is_ok_and(|plan| {
-                    self.roles
-                        .iter()
-                        .any(|role| plan.validate_carrier_adoption(*role, adoption).is_ok())
-                })
+        self.plan.upgrade().is_some_and(|plan| {
+            self.roles
+                .iter()
+                .any(|role| plan.validate_carrier_adoption(*role, adoption).is_ok())
+        })
+    }
+    fn valid_owned(&self, adoption: &CarrierAdoption) -> bool {
+        self.source.upgrade().is_some_and(|source| {
+            self.roles.iter().any(|role| {
+                source
+                    .validate_owned_carrier_adoption(*role, adoption)
+                    .is_ok()
             })
+        })
     }
     pub(super) fn retain(&self, adoption: CarrierAdoption) -> Result<(), ChannelError> {
         if !self.valid(&adoption) {
@@ -100,13 +104,13 @@ impl PendingOpen {
                         && proof
                             .owner()
                             .is_some_and(|owner| owner.matches_adoption(original))
-                        && self.valid(original)
+                        && self.valid_owned(original)
                 }) || original.retained_preparation_job().is_some_and(|proof| {
                     proof.retains(original)
                         && proof
                             .owner()
                             .is_some_and(|owner| owner.matches_adoption(original))
-                        && self.valid(original)
+                        && self.valid_owned(original)
                 }) || loans.iter().any(|(receiver, proof)| {
                     !receiver.same_slot(original) && proof.retains(original)
                 })

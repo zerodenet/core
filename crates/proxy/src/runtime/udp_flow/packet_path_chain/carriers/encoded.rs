@@ -15,12 +15,13 @@ pub(crate) fn wrap(
     path: Arc<dyn PacketPathCarrier>,
     source: UdpDatagramSource,
 ) -> Arc<dyn PacketPathCarrier> {
-    wrap_with_memory(path, source, None)
+    wrap_with_memory(path, source, None, None)
 }
 pub(crate) fn wrap_with_memory(
     path: Arc<dyn PacketPathCarrier>,
     source: UdpDatagramSource,
     memory: Option<crate::protocol_registry::packet_memory::PacketCodecReceiveMemory>,
+    business: Option<crate::protocol_registry::packet_memory::business::BusinessMemory>,
 ) -> Arc<dyn PacketPathCarrier> {
     let endpoint = source.descriptor().endpoint();
     Arc::new(Encoded {
@@ -29,6 +30,7 @@ pub(crate) fn wrap_with_memory(
         target: endpoint.target(),
         port: endpoint.port(),
         memory,
+        business,
     })
 }
 struct Encoded {
@@ -37,6 +39,7 @@ struct Encoded {
     target: Address,
     port: u16,
     memory: Option<crate::protocol_registry::packet_memory::PacketCodecReceiveMemory>,
+    business: Option<crate::protocol_registry::packet_memory::business::BusinessMemory>,
 }
 impl Encoded {
     async fn recv_decoded(
@@ -49,7 +52,40 @@ impl Encoded {
                 .receive(self.path.as_ref(), self.source.codec.as_ref(), output)
                 .await;
         }
-        // Only the explicit independent library branch has no Source handoff.
+        if let Some(memory) = &self.business {
+            let mut wire = memory.buffer(65536)?;
+            loop {
+                let length = self.path.recv_from(&mut wire).await?;
+                let decoded = match memory.decode(self.source.codec.as_ref(), &wire[..length]) {
+                    Err(source)
+                        if crate::protocol_registry::packet_memory::business::is_pressure(
+                            &source,
+                        ) =>
+                    {
+                        tracing::warn!(%source,"original Host cannot admit this new codec response");
+                        tokio::task::consume_budget().await;
+                        continue;
+                    }
+                    result => result?,
+                };
+                let Some((target, port, payload)) = decoded else {
+                    tokio::task::consume_budget().await;
+                    continue;
+                };
+                if payload.len() > output.len() {
+                    drop(target);
+                    drop(payload);
+                    return Err(layout_error());
+                }
+                output[..payload.len()].copy_from_slice(&payload);
+                let result = (payload.len(), packet_path_source(&target, port));
+                drop(target);
+                drop(payload);
+                return Ok(result);
+            }
+        }
+        // Remaining compatibility consumers retain their previous ownership;
+        // absence of a Source grant does not identify a library caller.
         let mut wire = vec![0; 65536];
         loop {
             let length = self.path.recv_from(&mut wire).await?;
@@ -70,6 +106,12 @@ impl Encoded {
 }
 #[async_trait::async_trait]
 impl PacketPathCarrier for Encoded {
+    fn logical_registration(
+        &self,
+    ) -> Option<crate::component::datagram_retirement::DatagramRegistration> {
+        self.path.logical_registration()
+    }
+
     fn has_driver_handoff(&self) -> bool {
         self.path.has_driver_handoff()
     }
@@ -190,7 +232,11 @@ impl PacketPathCarrier for Encoded {
                 .send_codec_buffered(target, port, payload, &mut buffers, &mut copy)
                 .await;
         }
-        // Only an explicit independent library path has no Host handoff.
+        if let Some(memory) = &self.business {
+            let wire = memory.encode(self.source.codec.as_ref(), target, port, payload)?;
+            return self.path.send_to(&self.target, self.port, &wire).await;
+        }
+        // Remaining compatibility consumers have not yet migrated their book.
         let wire = self
             .source
             .codec

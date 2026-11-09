@@ -1,6 +1,6 @@
 use super::*;
 use std::{future::Future, task::Poll};
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::oneshot;
 
 async fn pending(future: impl Future) {
     tokio::pin!(future);
@@ -14,7 +14,7 @@ fn packet() -> Packet {
     (
         Address::Ipv4([192, 0, 2, 1]),
         53,
-        b"actual response".to_vec(),
+        b"actual response".to_vec().into(),
         Some(7),
     )
 }
@@ -23,12 +23,11 @@ async fn real_response_receive_and_cancel_still_require_the_original_join_consum
     let owner = ResponseTasks::default();
     let record = ResponseTask::new();
     let mut tasks = JoinSet::new();
-    let (_sender, mut receiver) = broadcast::channel::<Packet>(1);
+    let (_sender, receiver) = oneshot::channel::<Packet>();
     let (entered, at_receive) = oneshot::channel();
     owner.spawn(&mut tasks, &record, async move {
         entered.send(()).unwrap();
         receiver
-            .recv()
             .await
             .map_err(|error| std::io::Error::other(error).into())
     });

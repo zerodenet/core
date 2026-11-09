@@ -1,9 +1,8 @@
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use zero_core::Address;
 
-use super::bridge::Waiter;
+use super::bridge::Waiters;
 use super::key::PathKey;
 use crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation;
 use crate::runtime::udp_flow::packet_path::PacketPathCarrier;
@@ -31,8 +30,11 @@ impl PacketPathCarrierRequest {
 }
 
 pub(super) struct Entry {
-    pub(super) path: Arc<dyn PacketPathCarrier>,
-    pub(super) waiters: Arc<Mutex<VecDeque<Waiter>>>,
+    pub(super) path: Option<Arc<dyn PacketPathCarrier>>,
+    pub(super) retiring: Option<crate::component::datagram_retirement::DatagramRegistration>,
+    pub(super) receiving: super::receiver::PathStatus,
+    pub(super) waiters: zero_traits::packet_metadata::PacketMetadataArc<Waiters>,
+    pub(super) memory: crate::protocol_registry::packet_memory::business::BusinessMemory,
     pub(super) codec: Arc<dyn DatagramCodec<Address, Error = zero_core::Error>>,
     pub(super) datagram_endpoint: UdpDatagramEndpoint,
 }
@@ -46,4 +48,12 @@ impl EntryCandidate {
     pub(super) fn key(&self) -> PathKey {
         PathKey::from_sources(&self.carrier_desc, self.datagram.descriptor().key_part())
     }
+}
+
+/// This same cache's concrete key/endpoint strings and table are prepaid before
+/// opening a path. Settled rows are removed only after actual control closure.
+pub(super) struct CacheRow {
+    pub(super) key: PathKey,
+    pub(super) entry: Entry,
+    pub(super) _strings: zero_traits::packet_metadata::PacketMetadataCredit,
 }

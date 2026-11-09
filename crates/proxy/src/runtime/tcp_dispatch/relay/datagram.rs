@@ -28,7 +28,15 @@ pub(super) fn factory(
         let plan = plan.clone();
         Box::pin(async move {
             let services = retained.services(&prefix).map_err(io::Error::other)?;
-            let execution = PacketPathExecutionServices::from_tcp_execution(&services);
+            let target = zero_core::request::Destination::new(
+                match peer.ip() {
+                    std::net::IpAddr::V4(ip) => zero_core::Address::Ipv4(ip.octets()),
+                    std::net::IpAddr::V6(ip) => zero_core::Address::Ipv6(ip.octets()),
+                },
+                peer.port(),
+            );
+            let execution = PacketPathExecutionServices::from_tcp_execution(&services)
+                .with_packet_target(target);
             let carrier = plan.build(execution).await.map_err(io::Error::other)?;
             Ok(Arc::new(Connected {
                 carrier,

@@ -69,7 +69,7 @@ impl Relay {
         }
         retry.complete = true;
     }
-    fn signal(&self) {
+    pub(super) fn signal(&self) {
         self.0
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -141,4 +141,43 @@ impl Relay {
             .active
             != 0
     }
+}
+
+// A data delivery is deliberately distinct from an original native join.
+pub(super) enum Next {
+    Native(NativeChainJoin),
+    Packet(Packet),
+}
+pub(super) async fn next(
+    tasks: &mut JoinSet<ChainTask>,
+    relay: &Arc<Relay>,
+    packets: Option<&super::packets::PacketReplies>,
+) -> Option<Next> {
+    let target = Arc::new(Target::default());
+    std::future::poll_fn(|cx| {
+        target.register(cx);
+        relay.bind(&target);
+        let deferred = relay.enter();
+        let waker = Waker::from(relay.clone());
+        let mut native = Context::from_waker(&waker);
+        // Consume real joins first so a ready data queue cannot starve cleanup.
+        let joined = tasks.poll_join_next_with_id(&mut native);
+        drop(deferred);
+        if let Poll::Ready(Some(result)) = joined {
+            return Poll::Ready(Some(Next::Native(result)));
+        }
+        if let Some(packets) = packets {
+            if let Some(packet) = packets.pop() {
+                return Poll::Ready(Some(Next::Packet(packet)));
+            }
+            if !packets.is_closed() {
+                return Poll::Pending;
+            }
+        }
+        match joined {
+            Poll::Ready(None) => Poll::Ready(None),
+            _ => Poll::Pending,
+        }
+    })
+    .await
 }

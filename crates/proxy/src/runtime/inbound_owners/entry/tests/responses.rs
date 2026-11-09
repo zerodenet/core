@@ -223,17 +223,17 @@ async fn response_panic_keeps_original_source_after_real_response_joins_and_chil
         live.owner.shutdown(deadline()).await.is_err(),
         "physical close never clears original panic"
     );
-    assert!(Arc::ptr_eq(
-        live.owner.failure.lock().unwrap().as_ref().unwrap(),
-        &sticky
+    assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
+        (live.owner.failure.lock().unwrap().as_ref().unwrap()).as_ref(),
+        (&sticky).as_ref()
     ));
     assert!(Arc::ptr_eq(
         &original,
         &responses.first_fatal_failure().unwrap()
     ));
     assert!(live.owner.shutdown(deadline()).await.is_err());
-    assert!(Arc::ptr_eq(
-        live.owner.failure.lock().unwrap().as_ref().unwrap(),
-        &sticky
+    assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
+        (live.owner.failure.lock().unwrap().as_ref().unwrap()).as_ref(),
+        (&sticky).as_ref()
     ));
 }

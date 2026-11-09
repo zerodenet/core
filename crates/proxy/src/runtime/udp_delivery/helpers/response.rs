@@ -101,7 +101,7 @@ pub(crate) fn record_chain_udp_response_parts(
     dispatch: &UdpDispatch,
     target: Address,
     port: u16,
-    payload: Vec<u8>,
+    payload: zero_traits::PacketBuffer,
     session_id: Option<u64>,
 ) -> UdpChainResponseParts {
     dispatch.confirm_passive_health(session_id);

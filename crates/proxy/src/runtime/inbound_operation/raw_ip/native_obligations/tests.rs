@@ -5,6 +5,7 @@ use tokio::{
     sync::{oneshot, watch, Notify},
     time::timeout,
 };
+use zero_platform_tokio::contract::lifecycle::ResourceLifecycle;
 
 #[tokio::test]
 async fn never_entered_reservation_is_known_no_acquisition_but_entered_drop_never_returns_capacity()
@@ -163,6 +164,7 @@ async fn actual_child_udp_drop_and_true_scope_join_cannot_complete_its_host_term
 }
 
 mod caller;
+mod receiver;
 
 mod business;
 

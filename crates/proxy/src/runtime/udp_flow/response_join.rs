@@ -1,7 +1,7 @@
 //! Evidence comes only from consumption of the original response JoinSet.
 mod set;
 use super::packet_path::ChainTask;
-pub(crate) use set::{ResponseSetClosed, ResponseSetLease, ResponseSetOwner};
+pub(crate) use set::{PacketReplySender, ResponseSetClosed, ResponseSetLease, ResponseSetOwner};
 use std::{
     collections::HashMap,
     future::Future,
@@ -14,7 +14,7 @@ use tokio::{
 use zero_core::Address;
 use zero_engine::EngineError;
 
-type Packet = (Address, u16, Vec<u8>, Option<u64>);
+type Packet = (Address, u16, zero_traits::PacketBuffer, Option<u64>);
 pub(crate) type NativeChainJoin = Result<(Id, ChainTask), JoinError>;
 pub(crate) type ObservedChainJoin = Result<Result<Packet, Arc<EngineError>>, Arc<JoinError>>;
 #[derive(Clone, Debug)]

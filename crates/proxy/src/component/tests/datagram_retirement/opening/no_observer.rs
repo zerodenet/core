@@ -46,7 +46,7 @@ async fn abandoned_direct_socks_service_role_closes_its_original_without_observe
         let context = OpenContext {
             identity:RequestIdentity::Service(Arc::new(ServiceRequestFacts {
                 origin:ServiceOrigin::Runtime, purpose:ServicePurpose::DiagnosticProbe,
-            })), deadline:Some(end), cancel:cancel.clone(), observer:None,
+            }).into()), deadline:Some(end), cancel:cancel.clone(), observer:None,
             upstream:UpstreamTransport::new(binding, Arc::new(opener)),
         };
         assert!(context.upstream.observed_pending_carrier().is_none());

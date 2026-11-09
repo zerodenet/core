@@ -36,6 +36,21 @@ impl std::fmt::Debug for CurrentServiceSource {
     }
 }
 impl CurrentServiceSource {
+    /// Same actual Host's pure accounting. Neither book reconstructs task,
+    /// Source, native, resolver or request authority.
+    pub(crate) fn packet_path_memory(
+        &self,
+    ) -> io::Result<(
+        zero_platform_tokio::controlled_carrier::CarrierBufferBudget,
+        zero_platform_tokio::contract::component::PacketDriverMetadataView,
+    )> {
+        let inventory = self.protocols()?;
+        let originals = inventory.runtime_host().original_budgets();
+        Ok((
+            originals.carrier.buffer_budget(),
+            originals.packet.driver_metadata_view(),
+        ))
+    }
     pub(super) fn new(
         engine: Engine,
         resolver: &Arc<DnsSystem>,

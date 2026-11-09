@@ -8,6 +8,8 @@ pub(super) struct Path {
     association: AssociationId,
     stop: CancellationToken,
     handoff: Option<PacketDriverDatagramHandoff>,
+    registration: Option<crate::component::datagram_retirement::DatagramRegistration>,
+    memory: Option<crate::protocol_registry::packet_memory::business::BusinessMemory>,
 }
 impl Path {
     pub(super) fn new(
@@ -24,11 +26,30 @@ impl Path {
             association,
             stop,
             handoff,
+            registration: None,
+            memory: None,
         }
+    }
+    pub(super) fn new_business(
+        session: BoxDatagramSession,
+        association: AssociationId,
+        stop: CancellationToken,
+        original: crate::component::datagram_retirement::DatagramRegistration,
+        memory: crate::protocol_registry::packet_memory::business::BusinessMemory,
+    ) -> Self {
+        let mut actual = Self::new(session, association, stop, None);
+        actual.registration = Some(original);
+        actual.memory = Some(memory);
+        actual
     }
 }
 #[async_trait::async_trait]
 impl PacketPathCarrier for Path {
+    fn logical_registration(
+        &self,
+    ) -> Option<crate::component::datagram_retirement::DatagramRegistration> {
+        self.registration.clone()
+    }
     fn has_driver_handoff(&self) -> bool {
         self.handoff.is_some()
     }
@@ -168,11 +189,17 @@ impl PacketPathCarrier for Path {
                 .send_codec_buffered(target, port, payload, &mut buffers, &mut copy)
                 .await;
         }
-        // Explicit independent library caller, never a missing Kernel grant.
-        let frame = zero_core::packet::Datagram {
-            association: self.association,
-            address: Destination::new(target.clone(), port),
-            payload: payload.to_vec().into(),
+        // Business paths retain their actual logical controller in the same
+        // Host's pre-I/O reservation. Explicit library paths keep their old
+        // owned controller. Neither branch borrows a Source grant.
+        let frame = if let Some(memory) = &self.memory {
+            memory.datagram(self.association, target, port, payload)?
+        } else {
+            zero_core::packet::Datagram {
+                association: self.association,
+                address: Destination::new(target.clone(), port),
+                payload: payload.to_vec().into(),
+            }
         };
         let mut tx = self.tx.lock().await;
         let mut control = self.control.lock().await;

@@ -113,12 +113,20 @@ async fn earlier_main_fault_preserves_same_cleanup_payload_and_ack_before_origin
             .unwrap();
         assert_eq!(closed.terminal().closed_io_receipts(), 1);
         assert_eq!(closed.terminal().joined_tasks(), 1);
-        assert!(Arc::ptr_eq(&closed.terminal().failure().unwrap(), &first));
+        assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
+            (&closed.terminal().failure().unwrap()).as_ref(),
+            (&first).as_ref()
+        ));
         assert!(closed
             .terminal()
             .native_bound_failures()
             .iter()
-            .any(|fault| Arc::ptr_eq(fault, &original_cleanup)));
+            .any(
+                |fault| std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
+                    (fault).as_ref(),
+                    (&original_cleanup).as_ref()
+                )
+            ));
         assert!(
             proxy
                 .inbound_owners

@@ -151,7 +151,10 @@ async fn pre_ready_actual_task_panic_preserves_original_join_source_and_never_co
         let failures = owner.task_failures.lock().unwrap();
         let actual = failures.get(owner.driver.get().unwrap()).unwrap();
         assert_eq!(actual.class, TaskClass::Critical);
-        assert!(Arc::ptr_eq(&actual.source, &original));
+        assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
+            (&actual.source).as_ref(),
+            (&original).as_ref()
+        ));
     }
     let EngineError::Io(returned) = failed else {
         panic!("expected original retained scope error")
@@ -165,7 +168,13 @@ async fn pre_ready_actual_task_panic_preserves_original_join_source_and_never_co
         .unwrap()
         .downcast_ref::<Arc<ChannelError>>()
         .unwrap();
-    assert!(Arc::ptr_eq(returned_original, &original), "{returned:?}");
+    assert!(
+        std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
+            (returned_original).as_ref(),
+            (&original).as_ref()
+        ),
+        "{returned:?}"
+    );
     let source = std::error::Error::source(original.as_ref()).unwrap();
     let source = std::error::Error::source(source).unwrap();
     assert!(source
@@ -176,9 +185,9 @@ async fn pre_ready_actual_task_panic_preserves_original_join_source_and_never_co
         .shutdown("failed", Instant::now() + Duration::from_secs(2))
         .await
         .is_err());
-    assert!(Arc::ptr_eq(
-        owner.failure.lock().unwrap().as_ref().unwrap(),
-        &original
+    assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
+        (owner.failure.lock().unwrap().as_ref().unwrap()).as_ref(),
+        (&original).as_ref()
     ));
 }
 
@@ -247,7 +256,10 @@ async fn resource_start_failure_prevents_loop_poll_and_ready_with_original_os_er
         .unwrap()
         .downcast_ref::<Arc<ChannelError>>()
         .unwrap();
-    assert!(Arc::ptr_eq(original_ref, &original));
+    assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
+        (original_ref).as_ref(),
+        (&original).as_ref()
+    ));
     assert!(proxy
         .inbound_owners
         .shutdown("resource-failed", Instant::now() + Duration::from_secs(2))

@@ -11,11 +11,35 @@ impl StandardPacketPath {
         prefix: &PreparedTcpRelayPrefix,
         descriptor: PacketPathCarrierDescriptor,
     ) -> Result<Option<Arc<dyn PacketPathCarrier>>, EngineError> {
-        // Presence distinguishes the original independent library contract;
-        // it grants no caller/native authority. Once present, every subsequent
+        // The actual Source and Business are distinct existing callers;
+        // neither absence nor Service identity grants their IO. Once present, subsequent
         // target/binding/plan error is terminal for this attempt.
         if !services.has_packet_driver_caller() {
-            return Ok(None);
+            let execution = services.tcp();
+            if !services.has_business_invocation() {
+                return Ok(None);
+            }
+            let plan = execution
+                .components
+                .as_ref()
+                .map_err(|source| failure(crate::component::instance::retained(source.clone())))?;
+            let tag = descriptor.tag.as_deref().ok_or_else(|| {
+                failure(invalid(Reason::StalePlan, "associated target is absent"))
+            })?;
+            let slot = plan
+                .configured(tag)
+                .ok_or_else(|| failure(invalid(Reason::Revoked, "associated owner retired")))?;
+            if !slot
+                .recipe
+                .spec()
+                .roles
+                .contains(&zero_platform_tokio::contract::component::RoleKind::Datagram)
+            {
+                return Ok(None);
+            }
+            return super::business::open_associated(services, prefix, &descriptor)
+                .await
+                .map(Some);
         }
         let execution = services.tcp();
         let plan = execution
@@ -33,7 +57,7 @@ impl StandardPacketPath {
             .as_deref()
             .expect("validated associated target tag");
         // Exact target/prefix graph and pending capacity are checked by the
-        // original Source issuer. None is only its explicit library contract.
+        // original Source issuer. Absence cannot relabel another caller.
         let Some(caller) = services
             .packet_driver_call(slot.instance_id(), &binding)
             .map_err(failure)?
@@ -109,7 +133,7 @@ impl StandardPacketPath {
         ))))
     }
 }
-fn destination(host: &str, port: u16) -> Destination {
+pub(super) fn destination(host: &str, port: u16) -> Destination {
     Destination::new(
         match host.parse::<std::net::IpAddr>() {
             Ok(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
@@ -147,7 +171,7 @@ pub(crate) fn associated_binding(
     associated_selection(plan, prefix, descriptor, network_generation)
         .map(|(_, _, binding)| binding)
 }
-fn associated_selection(
+pub(super) fn associated_selection(
     plan: &crate::component::catalog::ComponentPlan,
     prefix: &PreparedTcpRelayPrefix,
     descriptor: &PacketPathCarrierDescriptor,

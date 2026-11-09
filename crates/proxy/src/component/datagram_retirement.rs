@@ -1,8 +1,10 @@
 //! Application-owned logical Datagram controllers, reserved before actual open.
 mod entry;
 mod lease;
-mod operations;
+mod registration;
+pub(crate) use registration::DatagramRegistration;
 mod opening;
+mod operations;
 pub(crate) use opening::{DatagramOpening, PendingOpen};
 mod poll;
 mod progress;
@@ -61,6 +63,9 @@ impl std::fmt::Debug for RetiredDatagrams {
     }
 }
 impl RetiredDatagrams {
+    pub(crate) fn capacity(&self) -> usize {
+        self.capacity.get()
+    }
     pub(crate) fn new(capacity: NonZeroUsize) -> Self {
         Self {
             capacity,

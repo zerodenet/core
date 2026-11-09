@@ -88,9 +88,9 @@ async fn peer_binding_publishes_only_the_real_dispatched_scope_receipt_and_origi
     assert!(Arc::ptr_eq(&first, &retry));
     assert_eq!(first.task(), task);
     assert_eq!(first.class(), TaskClass::Critical);
-    assert!(Arc::ptr_eq(
-        &first.failure().unwrap(),
-        owner.failure.lock().unwrap().as_ref().unwrap()
+    assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
+        (&first.failure().unwrap()).as_ref(),
+        (owner.failure.lock().unwrap().as_ref().unwrap()).as_ref()
     ));
     crate::runtime::inbound_owners::test_support::assert_tracked_panic(
         &binding,

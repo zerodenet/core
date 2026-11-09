@@ -19,7 +19,7 @@ pub(crate) fn spawn_response_bridge<T, F>(
             .await
             .map_err(|_| EngineError::Io(std::io::Error::other(closed_message)))?;
         let (target, port, payload) = into_packet(response);
-        Ok((target, port, payload, Some(session_id)))
+        Ok((target, port, payload.into(), Some(session_id)))
     });
 }
 

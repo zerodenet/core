@@ -31,7 +31,7 @@ impl<T: ManagedDatagramFlowConnection> ManagedDatagramUdpConnection for Connecti
         chain_tasks.spawn(async move {
             response
                 .await
-                .map(|(target, port, payload)| (target, port, payload, Some(session_id)))
+                .map(|(target, port, payload)| (target, port, payload.into(), Some(session_id)))
         });
         Ok(payload.len())
     }
