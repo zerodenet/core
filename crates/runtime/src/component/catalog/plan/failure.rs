@@ -92,6 +92,20 @@ impl PlanFailure {
             _ => self.reported.load(Ordering::Acquire),
         }
     }
+    /// The existing plan archive must own this exact RF, not merely another
+    /// error with the same controller key or cleanup receipt, before accepting
+    /// the original protocol ledger. Publication remains a separate handoff.
+    pub(in crate::component::catalog) fn receive_resource_ownership(
+        &self,
+        received: &Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>,
+    ) -> bool {
+        match &self.kind {
+            FailureKind::Resource(actual) if Arc::ptr_eq(actual, received) => {
+                actual.acknowledge_retained(received)
+            }
+            _ => false,
+        }
+    }
     pub(in crate::component::catalog) fn confirm_reported(&self) {
         self.reported.store(true, Ordering::Release);
         if let FailureKind::Resource(f) = &self.kind {

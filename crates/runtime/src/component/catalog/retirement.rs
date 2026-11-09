@@ -88,14 +88,12 @@ impl ComponentPlan {
                         // Persist the exact source in the existing canonical archive
                         // before acknowledging the original provider receipt.
                         // Publication uses the same row after full real close.
-                        if let Some(receipt) = failure.source.cleanup_failure_receipt() {
-                            if actual
-                                .original()
-                                .cleanup_failure_receipt()
-                                .is_some_and(|same| same.same_receipt(receipt))
-                            {
-                                receipt.acknowledge_retained(&failure.source);
-                            }
+                        if !actual.receive_resource_ownership(failure) {
+                            return Err(invalid(
+                                Reason::StalePlan,
+                                "resource failure differs from its actual retained archive row",
+                            )
+                            .with_source(failure.clone()));
                         }
                     }
                     let complete = report.is_complete();

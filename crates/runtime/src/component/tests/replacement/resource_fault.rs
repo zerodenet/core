@@ -39,6 +39,17 @@ fn canonical(old: &ComponentPlan, state: &fixture::State) -> Arc<plan::PlanFailu
         .cleanup_failure_receipt()
         .unwrap()
         .is_acknowledged());
+    {
+        let evidence = old.close_evidence.lock().unwrap();
+        let report = &evidence[&old.order[0].instance_id()];
+        let received = report
+            .resource_failures
+            .iter()
+            .find(|failure| failure.controller == ResourceFailurePhase::ProtocolLifecycle)
+            .unwrap();
+        assert!(received.ownership_received(),
+            "actual canonical archive must accept the RF and its original ledger, not only its receipt");
+    }
     actual
 }
 
@@ -81,6 +92,8 @@ async fn actual_cleanup_deadline_is_archived_before_ack_and_same_original_late_j
             .err()
             .unwrap();
         let original = canonical(&old, &state);
+        assert!(!original.reported(),
+            "local original ownership never fabricates outer supervisor publication");
         assert!(Arc::ptr_eq(original_failure(&error), &original));
         assert!(!batch.released());
         assert!(!next.started.load(Ordering::Acquire));
