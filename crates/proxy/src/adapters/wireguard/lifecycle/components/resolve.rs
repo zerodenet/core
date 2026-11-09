@@ -64,7 +64,7 @@ impl WireguardAdapter {
         }
         let mut invocations = candidate.invocations.lock().await;
         for (tag, invocation) in invocations.iter_mut() {
-            let outbound = config.outbounds.iter().find(|outbound|matches!(&outbound.protocol, OutboundProtocolConfig::Wireguard {inbound_tag:Some(inbound),outer_udp_proxy:None,..} if inbound == tag)).ok_or_else(||invalid("actual linked invocation has no candidate outbound"))?;
+            let outbound = config.outbounds.iter().find(|outbound|matches!(&outbound.protocol, OutboundProtocolConfig::Wireguard {inbound_tag:Some(inbound),..} if inbound == tag)).ok_or_else(||invalid("actual linked invocation has no candidate outbound"))?;
             let pending = candidate
                 .get(tag)
                 .ok_or_else(|| invalid("actual linked peer originals are missing"))?;

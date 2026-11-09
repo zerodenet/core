@@ -128,6 +128,8 @@ impl ComponentCatalog {
         let mut nodes = aliases::nodes(original, &mut resources, &deferred_devices)?;
         resources.validate(nodes.iter().map(|slot| (slot.id, slot.recipe.spec())))?;
         let shared_identities = resources.identities()?;
+        let source_dependencies =
+            resources.take_source_dependencies_or(&original.source_dependencies);
         for resource in resources.into_resources()? {
             let id = resource.component();
             super::cold::validate_executors(
@@ -180,7 +182,7 @@ impl ComponentCatalog {
             closing: Default::default(),
             close_evidence: Default::default(),
             shared_identities,
-            source_dependencies: original.source_dependencies.clone(),
+            source_dependencies,
         };
         self.bind_plan_ownership(&plan);
         Ok(plan)

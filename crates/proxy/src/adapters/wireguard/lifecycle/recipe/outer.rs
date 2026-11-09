@@ -1,12 +1,15 @@
 //! Immutable existing leaf/flat-Relay order, over actual same-pass callees.
 //! No protocol work, IO, Snapshot owner or synthetic component is created here.
 use super::*;
+mod material;
+pub(crate) use material::{OuterMaterial, OuterMaterials};
 #[derive(Clone)]
 pub(in crate::adapters::wireguard::lifecycle) struct OuterPathRecipe {
     pub(super) tag: String,
     pub(super) network: std::sync::Weak<crate::component::background::BackgroundNetwork>,
     pub(super) ordered: Arc<[(String, ComponentId)]>,
     pub(super) projections: Arc<[Option<crate::protocol_registry::ColdPacketPathProjection>]>,
+    identities: Arc<[Arc<[u8]>]>,
     pub(super) formatters: Arc<[Option<crate::runtime::udp_flow::packet_path::UdpDatagramSource>]>,
 }
 impl OuterPathRecipe {
@@ -16,10 +19,7 @@ impl OuterPathRecipe {
         registry: &crate::protocol_registry::ProtocolRegistry,
         config: &zero_config::RuntimeConfig,
         network: Option<&Arc<crate::component::background::BackgroundNetwork>>,
-        materials: &mut std::collections::HashMap<
-            String,
-            Arc<[Option<crate::protocol_registry::ColdPacketPathProjection>]>,
-        >,
+        materials: &mut OuterMaterials,
     ) -> Result<Option<Self>, EngineError> {
         let OutboundProtocolConfig::Wireguard {
             outer_udp_proxy: Some(tag),
@@ -68,8 +68,20 @@ impl OuterPathRecipe {
                 .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
             ordered.push((name.clone(), id));
         }
-        let projections = match materials.get(tag) {
-            Some(actual) => actual.clone(),
+        let identities: Arc<[Arc<[u8]>]> = names
+            .iter()
+            .map(|name| {
+                resources
+                    .prepared_named_identity(name)
+                    .map_err(|source| EngineError::Io(std::io::Error::other(source)))
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into();
+        let projections = match materials
+            .get(tag)
+            .filter(|actual| actual.identities == identities)
+        {
+            Some(actual) => actual.projections.clone(),
             None => {
                 let mut values = Vec::with_capacity(names.len());
                 for name in &names {
@@ -117,10 +129,19 @@ impl OuterPathRecipe {
                     values.push(projection);
                 }
                 let values: Arc<[_]> = values.into();
-                materials.insert(tag.clone(), values.clone());
+                materials.insert(
+                    tag.clone(),
+                    OuterMaterial {
+                        identities: identities.clone(),
+                        projections: values.clone(),
+                    },
+                );
                 values
             }
         };
+        if projections.iter().any(Option::is_none) {
+            return Ok(None); // actual existing packet-path grammar is absent
+        }
         // The first actual root is opened through its standard Datagram role;
         // only subsequent formatter layers use this same association family.
         let formatters = projections
@@ -141,6 +162,7 @@ impl OuterPathRecipe {
             ordered: ordered.into(),
             formatters,
             projections,
+            identities,
         }))
     }
     pub(in crate::adapters::wireguard::lifecycle) fn dependencies(
@@ -156,7 +178,45 @@ impl OuterPathRecipe {
             })
             .collect()
     }
-    pub(super) fn hash(&self, hash: &mut impl sha2::Digest) {
+    pub(in crate::adapters::wireguard::lifecycle) fn retained_material(&self) -> OuterMaterial {
+        OuterMaterial {
+            identities: self.identities.clone(),
+            projections: self.projections.clone(),
+        }
+    }
+    pub(in crate::adapters::wireguard::lifecycle) fn network(
+        &self,
+    ) -> &std::sync::Weak<crate::component::background::BackgroundNetwork> {
+        &self.network
+    }
+    pub(in crate::adapters::wireguard::lifecycle) fn materials(
+        &self,
+    ) -> (
+        &str,
+        &Arc<[Option<crate::protocol_registry::ColdPacketPathProjection>]>,
+    ) {
+        (&self.tag, &self.projections)
+    }
+    pub(in crate::adapters::wireguard::lifecycle) fn device_identity(
+        &self,
+        config: &zero_config::RuntimeConfig,
+        protocol: [u8; 32],
+    ) -> Result<[u8; 32], EngineError> {
+        use sha2::Digest;
+        let members = self
+            .ordered
+            .iter()
+            .map(|(tag, _)| config.outbounds.iter().find(|member| member.tag == *tag));
+        if members.clone().any(|member| member.is_none()) {
+            return Err(invalid("same cold outer member left its actual candidate"));
+        }
+        let path = crate::inventory::path_identity_for(config, members.flatten())?;
+        let mut hash = sha2::Sha256::new();
+        hash.update(protocol);
+        hash.update(path);
+        Ok(hash.finalize().into())
+    }
+    pub(in crate::adapters::wireguard::lifecycle) fn hash(&self, hash: &mut impl sha2::Digest) {
         hash.update(b"actual.ordered.outer.path.v1");
         hash.update((self.tag.len() as u64).to_le_bytes());
         hash.update(self.tag.as_bytes());

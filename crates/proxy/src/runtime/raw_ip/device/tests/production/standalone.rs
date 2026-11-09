@@ -198,3 +198,6 @@ async fn ordinary_standalone_wireguard_domain_stream_resolves_over_same_real_wir
 
 #[path = "standalone/replacement.rs"]
 mod replacement;
+
+#[path = "standalone/outer.rs"]
+mod outer;

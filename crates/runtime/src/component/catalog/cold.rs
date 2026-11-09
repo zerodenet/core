@@ -206,6 +206,12 @@ impl ComponentCatalog {
         )?;
         let mut outbounds = BTreeMap::new();
         for input in supported {
+            // The actual device cold pass may decline a still-unused alias
+            // after obtaining its same-pass semantic projection. Never start a
+            // native placeholder or run another decoder for that old executor.
+            if resources.named_component(&input.tag).is_none() {
+                continue;
+            }
             let old = previous.and_then(|(old, plan)| {
                 old.outbounds
                     .iter()

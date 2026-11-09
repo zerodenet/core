@@ -1,4 +1,4 @@
-use super::super::{RawIpAction, RawIpTunnel, RawIpWireCarrier};
+use super::super::{RawIpAction, RawIpTunnel};
 use super::{DeviceHealth, ForwardedPackets, PacketReturns};
 use std::{
     net::SocketAddr,
@@ -21,7 +21,7 @@ pub(super) struct Device {
     pub(super) input: Option<super::wire::NativeWireInput>,
     pub(super) traffic: super::super::RawIpTraffic,
     pub(super) endpoint: SocketAddr,
-    pub(super) carrier: Arc<dyn RawIpWireCarrier>,
+    pub(super) carrier: super::wire::Carrier,
     pub(super) tunnel: Box<dyn RawIpTunnel>,
     pub(super) udp: ClientUdpStack,
     pub(super) tcp: Arc<ClientTcpStack>,

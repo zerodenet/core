@@ -38,6 +38,10 @@ fn broken(message: &'static str) -> ChannelError {
         .with_source(std::io::Error::other(message))
 }
 impl RegisteredProxiedRawIpWireCarrier {
+    pub(crate) fn matches_driver(&self, driver: &TaskJoinWitness) -> bool {
+        self.state.wire.same_registration(driver)
+    }
+
     pub(crate) async fn start(
         operation: Arc<dyn PreparedUdpPacketPathOperation>,
         execution: PacketPathExecutionSource,

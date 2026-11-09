@@ -1,11 +1,14 @@
 //! A validated wire peer uses the same original client worker owner.
 use super::*;
+mod carrier;
 mod native;
+pub(super) use carrier::Carrier;
 pub(crate) use native::PendingNativeWire;
 pub(super) use native::{NativeWireInput, WireReads};
 enum WireOriginal {
     Existing(Arc<dyn RawIpWireCarrier>),
     Hosted(NativeWireInput),
+    Logical(NativeWireInput),
 }
 
 pub(crate) struct WireStackRecipe {
@@ -46,6 +49,33 @@ impl WireStackRecipe {
             },
             pending,
             carrier,
+        ))
+    }
+
+    /// No path is opened here. The same actual wire first waits at its input
+    /// gate; only its registered Source may hand in the exact logical path.
+    pub(crate) fn prepare_logical(
+        local_addresses: Vec<IpAddr>,
+        mtu: u16,
+        endpoint: SocketAddr,
+        tunnel: Box<dyn RawIpTunnel>,
+        options: super::super::RawIpStackOptions,
+        memory: &zero_platform_tokio::contract::component::PacketDriverMetadataView,
+    ) -> Result<(Self, PendingNativeWire), EngineError> {
+        ClientUdpStack::validate_configuration(&local_addresses, mtu, options.udp_receive_queue)
+            .map_err(stack_udp_error)?;
+        let carrier = Carrier::logical(memory)?;
+        let (input, pending) = NativeWireInput::logical_channel(carrier);
+        Ok((
+            Self {
+                local_addresses,
+                mtu,
+                endpoint,
+                original: WireOriginal::Logical(input),
+                tunnel,
+                options,
+            },
+            pending,
         ))
     }
 
@@ -154,10 +184,9 @@ impl SharedRawIpDevice {
         options: super::super::RawIpStackOptions,
         task: Arc<workers::DeviceWorkers>,
     ) -> Result<Arc<Self>, EngineError> {
-        let (carrier, input): (Arc<dyn RawIpWireCarrier>, Option<NativeWireInput>) = match original
-        {
-            WireOriginal::Existing(carrier) => (carrier, None),
-            WireOriginal::Hosted(mut input) => {
+        let (carrier, input): (Carrier, Option<NativeWireInput>) = match original {
+            WireOriginal::Existing(carrier) => (Carrier::Existing(carrier), None),
+            WireOriginal::Hosted(mut input) | WireOriginal::Logical(mut input) => {
                 input.workers = Arc::downgrade(&task);
                 (input.carrier.clone(), Some(input))
             }

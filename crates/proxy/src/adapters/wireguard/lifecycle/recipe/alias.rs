@@ -46,7 +46,6 @@ impl WireguardAdapter {
             outbound.protocol,
             OutboundProtocolConfig::Wireguard {
                 inbound_tag: None,
-                outer_udp_proxy: None,
                 ..
             }
         ) {
@@ -54,7 +53,6 @@ impl WireguardAdapter {
         }
         let OutboundProtocolConfig::Wireguard {
             inbound_tag: Some(tag),
-            outer_udp_proxy: None,
             ..
         } = &outbound.protocol
         else {
@@ -182,8 +180,9 @@ impl WireguardAdapter {
             .iter()
             .filter(|(tag, _)| config.outbounds.iter().any(|outbound| matches!(
                 &outbound.protocol,
-                OutboundProtocolConfig::Wireguard { inbound_tag:Some(inbound),outer_udp_proxy:None,.. } if inbound.as_str()==tag.as_str()
+                OutboundProtocolConfig::Wireguard { inbound_tag:Some(inbound),.. } if inbound.as_str()==tag.as_str()
             )))
+            .filter(|(_, pending)| pending.actual_graph().is_some())
             .map(|(tag, pending)| {
                 let graph = pending
                     .actual_graph()
@@ -223,7 +222,6 @@ impl WireguardAdapter {
             match &outbound.protocol {
                 OutboundProtocolConfig::Wireguard {
                     inbound_tag: Some(tag),
-                    outer_udp_proxy: None,
                     ..
                 } => {
                     if let Some(origin) = links
@@ -236,14 +234,14 @@ impl WireguardAdapter {
                     }
                 }
                 OutboundProtocolConfig::Wireguard {
-                    inbound_tag: None,
-                    outer_udp_proxy: None,
-                    ..
+                    inbound_tag: None, ..
                 } => {
                     if let Some(root) = roots.get(&outbound.tag) {
                         for peer in 0..root.peers.len() {
-                            if let Ok(origin) = root.original(peer) {
-                                originals.push(zero_platform_tokio::controlled_carrier::CarrierOrigin::from_listener(origin));
+                            if let Ok(origin) = root.carrier_origin(peer) {
+                                if !originals.iter().any(|actual| origin.same_original(actual)) {
+                                    originals.push(origin);
+                                }
                             }
                         }
                     }

@@ -25,10 +25,7 @@ impl WireguardAdapter {
         for root in roots {
             for (index, peer) in root.peers.iter().enumerate() {
                 if let Some(stopping) = stopping {
-                    let original =
-                        zero_platform_tokio::controlled_carrier::CarrierOrigin::from_listener(
-                            root.original(index).map_err(std::io::Error::other)?,
-                        );
+                    let original = root.carrier_origin(index).map_err(std::io::Error::other)?;
                     if !stopping.stops_instance(original.instance()) {
                         continue;
                     }
@@ -87,11 +84,8 @@ impl StandaloneStackOptions {
         (0..self.peers.len())
             .map(|index| {
                 let device = self.device(index).map_err(std::io::Error::other)?;
-                let original = self.original(index).map_err(std::io::Error::other)?;
-                Ok((
-                    device,
-                    zero_platform_tokio::controlled_carrier::CarrierOrigin::from_listener(original),
-                ))
+                let original = self.carrier_origin(index).map_err(std::io::Error::other)?;
+                Ok((device, original))
             })
             .collect()
     }

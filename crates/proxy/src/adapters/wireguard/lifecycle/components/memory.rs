@@ -12,7 +12,7 @@ impl WireguardAdapter {
     ) -> Result<(), EngineError> {
         let linked = config.outbounds.iter().any(|outbound| {
             matches!(&outbound.protocol,
-            OutboundProtocolConfig::Wireguard {inbound_tag:Some(source),outer_udp_proxy:None,..}
+            OutboundProtocolConfig::Wireguard {inbound_tag:Some(source),..}
                 if source==tag)
         });
         if !linked {
@@ -28,8 +28,12 @@ impl WireguardAdapter {
             ));
         }
         let pending = PendingEndpoints::staged(&self.pending_endpoints, config)
-            .and_then(|candidate| candidate.get(tag).cloned())
-            .ok_or_else(|| invalid("Source memory has no same actual linked candidate"))?;
+            .and_then(|candidate| candidate.get(tag).cloned());
+        let Some(pending) = pending else {
+            // An unselected advanced outer still has its original Source. It
+            // has no canonical software graph to receive this projection.
+            return Ok(());
+        };
         let graph = pending
             .actual_graph()
             .ok_or_else(|| invalid("actual linked memory factory owner was released"))?;
@@ -103,6 +107,27 @@ impl WireguardAdapter {
                     }
                     std::collections::hash_map::Entry::Occupied(entry) => {
                         if !Arc::ptr_eq(entry.get(), formatters) {
+                            return Err(invalid(
+                                "same cold outer path has different actual association families",
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        let standalone = candidate
+            .standalone
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for candidate in standalone.values() {
+            if let Some(outer) = &candidate.root.outer {
+                let (tag, projections) = outer.materials();
+                match values.entry(tag.to_owned()) {
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(projections.clone());
+                    }
+                    std::collections::hash_map::Entry::Occupied(entry) => {
+                        if !Arc::ptr_eq(entry.get(), projections) {
                             return Err(invalid(
                                 "same cold outer path has different actual association families",
                             ));

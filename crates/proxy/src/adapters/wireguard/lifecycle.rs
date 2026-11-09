@@ -1,4 +1,7 @@
 //! Transactional device preparation; protocol config stays inside this adapter.
+mod source_selection;
+pub(crate) use recipe::outer::OuterMaterials;
+pub(crate) use source_selection::outer_members_selected;
 
 mod borrowers;
 mod components;

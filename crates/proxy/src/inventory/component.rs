@@ -316,16 +316,23 @@ impl super::ProtocolInventory {
         let config = prepared.config().clone();
         // These are the first pass's actual never-built pending recipes, not
         // the committed device publication. Release only their real wrappers.
-        self.devices.release_component_resources(&config)?;
+        let materials = self
+            .devices
+            .release_component_resources_for_refresh(&config)?;
         prepared
             .refresh_device_resources(deadline, |resources| {
-                let deferred =
-                    self.devices
-                        .prepare_component_resources(&config, resources, &self.registry)?;
+                let deferred = self.devices.prepare_component_resources_with_materials(
+                    &config,
+                    resources,
+                    &self.registry,
+                    materials,
+                )?;
                 let sources = self
                     .devices
                     .source_component_dependencies(&config, resources)?;
                 resources.set_source_dependencies(sources)?;
+                let aliases = self.devices.device_alias_overrides(&config, resources)?;
+                resources.set_device_alias_overrides(aliases)?;
                 Ok(deferred)
             })
             .await

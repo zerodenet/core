@@ -36,7 +36,7 @@ impl WireguardAdapter {
         // retirement rules. No newly disabled endpoint acquires client stacks.
         let OutboundProtocolConfig::Wireguard {
             inbound_tag: Some(tag),
-            outer_udp_proxy: None,
+            outer_udp_proxy,
             ..
         } = &outbound.protocol
         else {
@@ -59,6 +59,9 @@ impl WireguardAdapter {
             })
             .cloned();
         let Some(link) = link else { return Ok(0) };
+        if outer_udp_proxy.is_some() && link.owned_resources().is_none() {
+            return Ok(0); // unchanged unselected physical compatibility owner
+        }
         let devices = {
             let state = link.state.lock().unwrap_or_else(|e| e.into_inner());
             if state.identity != identity || state.generation != generation {

@@ -6,7 +6,26 @@ use zero_core::component::ComponentId;
 use zero_platform_tokio::contract::{ChannelError, Impact, Reason, Stage};
 pub(crate) type SourceComponentDependencies =
     std::collections::BTreeMap<String, ([u8; 32], BTreeSet<ComponentId>)>;
+#[derive(Default)]
+pub(crate) struct DeviceColdMaterials {
+    #[cfg(feature = "wireguard")]
+    wireguard: super::super::wireguard::lifecycle::OuterMaterials,
+}
 impl Devices {
+    pub(crate) fn release_component_resources_for_refresh(
+        &self,
+        config: &RuntimeConfig,
+    ) -> Result<DeviceColdMaterials, EngineError> {
+        #[cfg(feature = "wireguard")]
+        if let Some(owner) = &self.wireguard {
+            return Ok(DeviceColdMaterials {
+                wireguard: owner.release_component_resources_for_refresh(config)?,
+            });
+        }
+        self.release_component_resources(config)?;
+        Ok(DeviceColdMaterials::default())
+    }
+
     pub(crate) fn install_packet_source_memory(
         &self,
         config: &RuntimeConfig,
@@ -87,6 +106,20 @@ impl Devices {
         resources: &mut crate::component::ResourcePreparation<'_>,
         _registry: &crate::protocol_registry::ProtocolRegistry,
     ) -> Result<BTreeSet<ComponentId>, ChannelError> {
+        self.prepare_component_resources_with_materials(
+            config,
+            resources,
+            _registry,
+            DeviceColdMaterials::default(),
+        )
+    }
+    pub(crate) fn prepare_component_resources_with_materials(
+        &self,
+        config: &Arc<RuntimeConfig>,
+        resources: &mut crate::component::ResourcePreparation<'_>,
+        _registry: &crate::protocol_registry::ProtocolRegistry,
+        _material: DeviceColdMaterials,
+    ) -> Result<BTreeSet<ComponentId>, ChannelError> {
         let mut deferred = BTreeSet::new();
         if let Some(direct) = &self.direct {
             if let Some(id) = direct
@@ -105,7 +138,14 @@ impl Devices {
             let generation = network.as_ref().map(|network| network.egress.generation());
             deferred.extend(
                 owner
-                    .prepare_component_resources(config, resources, _registry, generation, network)
+                    .prepare_component_resources_with_materials(
+                        config,
+                        resources,
+                        _registry,
+                        generation,
+                        network,
+                        _material.wireguard,
+                    )
                     .map_err(|source| {
                         ChannelError::new(Stage::Prepare, Reason::InvalidConfig, Impact::Component)
                             .with_source(source)

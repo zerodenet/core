@@ -18,7 +18,7 @@ pub(crate) use standard_packet::PacketSubmission;
 mod tests;
 mod translation;
 mod wire;
-pub(crate) use wire::WireStackRecipe;
+pub(crate) use wire::{PendingNativeWire, WireStackRecipe};
 mod workers;
 
 use std::{
@@ -64,7 +64,7 @@ pub(crate) struct SharedRawIpDevice {
     retired: AtomicBool,
     ready: watch::Receiver<Option<Result<(), String>>>,
     task: Arc<workers::DeviceWorkers>,
-    carrier: Option<Arc<dyn RawIpWireCarrier>>,
+    carrier: Option<wire::Carrier>,
     packet_wire_memory: Option<zero_stack::packet_output::memory::PacketWireMemory>,
 }
 

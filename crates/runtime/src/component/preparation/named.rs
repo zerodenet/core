@@ -52,6 +52,50 @@ impl<'a> ResourcePreparation<'a> {
         self.primary_factories = Some(factories);
         self
     }
+    /// Immutable description from this same pass's already memoized recipe.
+    /// Recovery reads only its accepted recipe. This supplies no IO/role rights.
+    pub fn prepared_named_identity(&mut self, tag: &str) -> Result<Arc<[u8]>, BuildError> {
+        self.prepare_named_component(tag)?;
+        self.named_recipes
+            .get(tag)
+            .map(|(recipe, _)| recipe.spec().static_identity.clone())
+            .ok_or_else(|| invalid(Reason::StalePlan, "same named recipe was not retained"))
+    }
+    /// A device's cold semantic projection can decline an unused alias before
+    /// its actual primary decoder runs. The source keeps its existing executor;
+    /// a prepared or referenced actual component cannot be removed this way.
+    pub fn omit_unused_device_alias(&mut self, tag: &str) -> Result<(), BuildError> {
+        self.ensure_valid()?;
+        let id =
+            self.named_components.get(tag).copied().ok_or_else(|| {
+                invalid(Reason::StalePlan, "device alias has no reserved identity")
+            })?;
+        if self.device_alias_rebinding
+            || self.active_named.is_some()
+            || !self.preparing_named.is_empty()
+            || self.named_recipes.contains_key(tag)
+            || self
+                .source_dependencies
+                .as_ref()
+                .is_some_and(|sources| sources.values().any(|(_, ids)| ids.contains(&id)))
+            || self
+                .resources
+                .values()
+                .any(|resource| resource.recipe.spec().dependencies.contains(&id))
+            || self
+                .named_recipes
+                .values()
+                .any(|(recipe, _)| recipe.spec().dependencies.contains(&id))
+        {
+            self.invalidate();
+            return Err(invalid(
+                Reason::StalePlan,
+                "prepared/referenced device alias cannot become unselected",
+            ));
+        }
+        self.named_components.remove(tag);
+        Ok(())
+    }
     /// Prepare this existing named callee exactly once in the same cold pass.
     /// The actual protocol decoder keeps all private options/material. No owner
     /// starts here, and a cyclic request invalidates this entire candidate.

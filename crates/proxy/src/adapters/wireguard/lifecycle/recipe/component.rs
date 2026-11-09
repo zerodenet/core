@@ -36,6 +36,11 @@ pub(in crate::adapters::wireguard) struct LinkedStackOptions {
     source_memory: Arc<OnceLock<zero_tun::packet_memory::PacketMemoryView>>,
 }
 impl LinkedStackOptions {
+    pub(in crate::adapters::wireguard) fn retained_outer(
+        &self,
+    ) -> Option<super::outer::OuterPathRecipe> {
+        self.outer.clone()
+    }
     pub(in crate::adapters::wireguard) fn has_outer_path(&self) -> bool {
         self.outer.is_some()
     }

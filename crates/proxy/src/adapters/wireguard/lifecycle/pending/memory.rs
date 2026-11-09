@@ -81,3 +81,17 @@ impl PendingLinkedEndpoint {
         self.resources.source_outer_network()
     }
 }
+
+impl PeerResources {
+    pub(in crate::adapters::wireguard) fn retained_outer(
+        &self,
+    ) -> Option<super::super::recipe::outer::OuterPathRecipe> {
+        let actual = {
+            self.graph
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .upgrade()
+        };
+        actual.and_then(|graph| graph.retained_outer())
+    }
+}

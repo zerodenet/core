@@ -1,6 +1,7 @@
 //! Production linked graph recipes and invocations in the actual candidate map.
 use super::*;
 mod install;
+mod materials;
 mod memory;
 mod resolve;
 use super::{
@@ -43,6 +44,24 @@ impl WireguardAdapter {
         generation: Option<u64>,
         network: Option<Arc<crate::component::background::BackgroundNetwork>>,
     ) -> Result<BTreeSet<ComponentId>, EngineError> {
+        self.prepare_component_resources_with_materials(
+            config,
+            resources,
+            registry,
+            generation,
+            network,
+            Default::default(),
+        )
+    }
+    pub(crate) fn prepare_component_resources_with_materials(
+        &self,
+        config: &Arc<zero_config::RuntimeConfig>,
+        resources: &mut crate::component::ResourcePreparation<'_>,
+        registry: &crate::protocol_registry::ProtocolRegistry,
+        generation: Option<u64>,
+        network: Option<Arc<crate::component::background::BackgroundNetwork>>,
+        inherited: super::recipe::outer::OuterMaterials,
+    ) -> Result<BTreeSet<ComponentId>, EngineError> {
         let admission = zero_engine::EndpointAdmission::from_config(config);
         let outbounds = config
             .outbounds
@@ -53,10 +72,15 @@ impl WireguardAdapter {
                     outbound.protocol,
                     OutboundProtocolConfig::Wireguard {
                         inbound_tag: Some(_),
-                        outer_udp_proxy: None,
                         ..
                     }
                 )
+            })
+            .filter(|outbound| resources.named_component(&outbound.tag).is_some())
+            .filter(|outbound| {
+                super::source_selection::outer_members_selected(outbound, config, |member| {
+                    resources.named_component(&member.tag).is_some()
+                })
             })
             .collect::<Vec<_>>();
         let previous = self
@@ -74,10 +98,9 @@ impl WireguardAdapter {
                 outbound.protocol,
                 OutboundProtocolConfig::Wireguard {
                     inbound_tag: None,
-                    outer_udp_proxy: None,
                     ..
                 }
-            )
+            ) && resources.named_component(&outbound.tag).is_some()
         });
         if outbounds.is_empty() && !has_standalone {
             return Ok(BTreeSet::new());
@@ -130,6 +153,8 @@ impl WireguardAdapter {
             config.runtime.effective_packet_return_total_max_frames(),
             config.runtime.effective_packet_return_total_max_bytes(),
         );
+        let mut outer_materials = self.retained_outer_materials(config)?;
+        outer_materials.extend(inherited);
         let (standalone, mut deferred) = self.prepare_standalone_resources(
             config,
             resources,
@@ -138,6 +163,8 @@ impl WireguardAdapter {
                 .as_ref()
                 .ok_or_else(|| invalid("plain WireGuard requires its actual host network"))?,
             &options,
+            registry,
+            &mut outer_materials,
         )?;
         let mut declared_peers = standalone
             .values()
@@ -147,7 +174,6 @@ impl WireguardAdapter {
             .filter(|used| *used <= crate::runtime::raw_ip::MAX_RAW_IP_DEVICES)
             .ok_or_else(|| invalid("actual cold WireGuard peer union exceeds the device bound"))?;
         let mut recipes = Vec::new();
-        let mut outer_materials = HashMap::new();
         let mut entries = HashMap::new();
         for outbound in outbounds {
             let OutboundProtocolConfig::Wireguard {
@@ -179,9 +205,9 @@ impl WireguardAdapter {
             };
             // The actual owning cold pass computes the finite outer data and
             // dependencies; no None default can hide a configured outer path.
-            // Today's linked producer admits plain sources explicitly above.
-            // When a real outer candidate is selected it must carry this exact
-            // same prepared material and dependency IDs, never a new decode.
+            // The selection above used the existing whole-owning factory
+            // grammar before any named dependency decode. A selected outer
+            // carries this exact accepted material; errors cannot fall back.
             let outer = super::recipe::outer::OuterPathRecipe::prepare(
                 outbound,
                 resources,
@@ -190,6 +216,19 @@ impl WireguardAdapter {
                 network.as_ref(),
                 &mut outer_materials,
             )?;
+            if matches!(
+                &outbound.protocol,
+                OutboundProtocolConfig::Wireguard {
+                    outer_udp_proxy: Some(_),
+                    ..
+                }
+            ) && outer.is_none()
+            {
+                resources
+                    .omit_unused_device_alias(&outbound.tag)
+                    .map_err(std::io::Error::other)?;
+                continue;
+            }
             let mut dependencies = dependencies;
             if let Some(outer) = &outer {
                 for (id, instance) in outer.dependencies(resources) {
@@ -198,10 +237,12 @@ impl WireguardAdapter {
                     }
                 }
             }
-            let identity = options.identity(
-                protocol_identity(&outbound.protocol)
-                    .ok_or_else(|| invalid("cannot identify linked WireGuard outbound"))?,
-            );
+            let protocol = protocol_identity(&outbound.protocol)
+                .ok_or_else(|| invalid("cannot identify linked WireGuard outbound"))?;
+            let identity = options.identity(match &outer {
+                Some(outer) => outer.device_identity(config, protocol)?,
+                None => protocol,
+            });
             let peers = self.retained_peer_count(
                 outbound,
                 &config.inbounds,

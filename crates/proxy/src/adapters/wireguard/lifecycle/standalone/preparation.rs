@@ -23,6 +23,8 @@ impl WireguardAdapter {
         generation: NetworkGeneration,
         network: &Arc<crate::component::background::BackgroundNetwork>,
         options: &RawIpStackOptions,
+        registry: &crate::protocol_registry::ProtocolRegistry,
+        materials: &mut super::super::recipe::outer::OuterMaterials,
     ) -> Result<
         (
             HashMap<String, Candidate>,
@@ -38,14 +40,48 @@ impl WireguardAdapter {
                 outbound.protocol,
                 OutboundProtocolConfig::Wireguard {
                     inbound_tag: None,
-                    outer_udp_proxy: None,
                     ..
                 }
             ) {
                 continue;
             }
+            if resources.named_component(&outbound.tag).is_none() {
+                continue;
+            }
+            if !super::super::source_selection::outer_members_selected(outbound, config, |member| {
+                resources.named_component(&member.tag).is_some()
+            }) {
+                continue;
+            }
+            let outer = super::super::recipe::outer::OuterPathRecipe::prepare(
+                outbound,
+                resources,
+                registry,
+                config,
+                Some(network),
+                materials,
+            )?;
+            if matches!(
+                &outbound.protocol,
+                OutboundProtocolConfig::Wireguard {
+                    outer_udp_proxy: Some(_),
+                    ..
+                }
+            ) && outer.is_none()
+            {
+                resources
+                    .omit_unused_device_alias(&outbound.tag)
+                    .map_err(std::io::Error::other)?;
+                continue;
+            }
             let plan = Arc::new(WireguardRawIpPlan::from_protocol(&outbound.protocol)?);
-            let dependencies = if (0..plan.peer_count()).any(|peer| {
+            let protocol = super::super::super::protocol_identity(&outbound.protocol)
+                .ok_or_else(|| invalid("standalone protocol identity is unavailable"))?;
+            let device_identity = options.identity(match &outer {
+                Some(outer) => outer.device_identity(config, protocol)?,
+                None => protocol,
+            });
+            let mut dependencies = if (0..plan.peer_count()).any(|peer| {
                 plan.peer_endpoint(peer)
                     .is_some_and(|(host, _)| host.parse::<IpAddr>().is_err())
             }) {
@@ -56,6 +92,13 @@ impl WireguardAdapter {
             } else {
                 Vec::new()
             };
+            if let Some(outer) = &outer {
+                for (id, _) in outer.dependencies(resources) {
+                    if !dependencies.contains(&id) {
+                        dependencies.push(id);
+                    }
+                }
+            }
             let actual = dependencies
                 .iter()
                 .map(|id| resources.reusable_resource_instance(*id))
@@ -67,6 +110,8 @@ impl WireguardAdapter {
                 generation,
                 dependencies.clone(),
                 plan.peer_count(),
+                outer.clone(),
+                device_identity,
             )?);
             let staged = pending_map::PendingEndpoints::staged(&self.pending_endpoints, config)
                 .and_then(|candidate| {
@@ -102,6 +147,8 @@ impl WireguardAdapter {
                             generation,
                             dependencies,
                             0,
+                            outer.clone(),
+                            device_identity,
                         )?),
                         owned: true,
                     },
@@ -120,6 +167,9 @@ impl WireguardAdapter {
                 candidate.root.clone(),
             );
             for index in 0..candidate.root.peers.len() {
+                if candidate.root.outer.is_some() {
+                    break;
+                }
                 recipe = recipe
                     .with_native_datagram_binding(
                         index * 2,

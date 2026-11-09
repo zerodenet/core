@@ -28,6 +28,20 @@ impl ComponentFactory for Factory {
         {
             return Err(error(Stage::Prepare, Reason::StalePlan));
         }
+        let completion = if options.outer.is_some() {
+            let memory = context.resources.packet_driver_metadata()?;
+            Some(
+                context
+                    .tasks
+                    .downgrade()
+                    .retirement_completion(&memory)
+                    .map_err(|source| {
+                        error(Stage::Prepare, Reason::Capacity).with_source(source)
+                    })?,
+            )
+        } else {
+            None
+        };
         {
             let mut state = options
                 .state
@@ -37,6 +51,9 @@ impl ComponentFactory for Factory {
                 return Err(error(Stage::Prepare, Reason::Revoked));
             }
             state.scope = Some(context.tasks.scope_identity());
+            state.tasks = Some(context.tasks.downgrade());
+            state.completion = completion;
+            state.cancel = Some(context.cancel.clone());
             state.dependencies = Some(context.dependencies.clone());
             state.resources = Some(context.resources.clone());
         }
@@ -110,6 +127,20 @@ impl ResourceLifecycle for Owner {
                 .plan
                 .build_tunnel(index)
                 .map_err(|source| failure(Stage::Prepare, source))?;
+            if self.options.outer.is_some() {
+                self.options
+                    .start_logical_peer(
+                        index,
+                        endpoint,
+                        options,
+                        tunnel,
+                        checkpoint,
+                        resources.as_ref(),
+                        deadline,
+                    )
+                    .await?;
+                continue;
+            }
             let (recipe, mut pending, carrier) =
                 crate::runtime::raw_ip::WireStackRecipe::prepare_hosted(
                     self.options.plan.local_addresses(),
@@ -164,6 +195,9 @@ impl ResourceLifecycle for Owner {
                 .await
                 .map_err(|source| error(Stage::Prepare, Reason::Timeout).with_source(source))?
                 .map_err(|source| failure(Stage::Prepare, source))?;
+        }
+        if self.options.outer.is_some() {
+            self.options.register_logical_source(resources.as_ref())?;
         }
         Ok(())
     }

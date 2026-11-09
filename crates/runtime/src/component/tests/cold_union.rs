@@ -355,3 +355,6 @@ fn actual_named_callee_prepares_once_before_devices_and_is_consumed_by_the_same_
 
 #[path = "cold_union/packet_facts.rs"]
 mod packet_facts;
+
+#[path = "cold_union/device_alias.rs"]
+mod device_alias;

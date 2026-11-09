@@ -33,7 +33,7 @@ pub(super) fn is_background_stopped(error: &io::Error) -> bool {
         .get_ref()
         .is_some_and(|source| source.is::<BackgroundStopped>())
 }
-fn background_stopped() -> io::Error {
+pub(super) fn background_stopped() -> io::Error {
     io::Error::new(io::ErrorKind::Interrupted, BackgroundStopped)
 }
 

@@ -39,24 +39,27 @@ impl Devices {
         #[cfg(feature = "wireguard")]
         if let Some(wireguard) = &self.wireguard {
             let admission = EndpointAdmission::from_config(config);
-            for input in config.outbounds.iter().filter(|input| {
-                matches!(
-                    &input.protocol,
-                    zero_config::OutboundProtocolConfig::Wireguard {
-                        inbound_tag: None,
-                        outer_udp_proxy: None,
-                        ..
-                    }
-                ) || admission.device_enabled(&input.tag)
-                    && matches!(
+            for input in config
+                .outbounds
+                .iter()
+                .filter(|input| {
+                    matches!(
                         &input.protocol,
                         zero_config::OutboundProtocolConfig::Wireguard {
-                            inbound_tag: Some(_),
-                            outer_udp_proxy: None,
+                            inbound_tag: None,
                             ..
                         }
-                    )
-            }) {
+                    ) || admission.device_enabled(&input.tag)
+                        && matches!(
+                            &input.protocol,
+                            zero_config::OutboundProtocolConfig::Wireguard {
+                                inbound_tag: Some(_),
+                                ..
+                            }
+                        )
+                })
+                .filter(|input| resources.named_component(&input.tag).is_some())
+            {
                 aliases.insert(
                     Some(input.tag.clone()),
                     wireguard.device_alias_recipe(input, resources)?,

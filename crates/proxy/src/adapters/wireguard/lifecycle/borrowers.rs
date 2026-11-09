@@ -29,19 +29,9 @@ impl WireguardAdapter {
             .iter()
             .filter(|outbound| admission.device_enabled(&outbound.tag))
         {
-            let OutboundProtocolConfig::Wireguard {
-                inbound_tag,
-                outer_udp_proxy,
-                ..
-            } = &outbound.protocol
-            else {
+            let OutboundProtocolConfig::Wireguard { inbound_tag, .. } = &outbound.protocol else {
                 continue;
             };
-            if outer_udp_proxy.is_some() {
-                return Err(invalid(
-                    "TEMP logical Flow original is not yet installed in the standard source graph",
-                ));
-            }
             let sources = if let Some(tag) = inbound_tag {
                 let link = links
                     .get(tag)

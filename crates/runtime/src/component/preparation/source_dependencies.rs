@@ -23,8 +23,13 @@ impl ResourcePreparation<'_> {
             .keys()
             .any(|tag| !candidate.inbounds.iter().any(|input| &input.tag == tag))
             || sources.values().any(|(_, ids)| {
-                ids.iter()
-                    .any(|id| !self.named_components.values().any(|known| known == id))
+                ids.iter().any(|id| {
+                    !self.named_components.values().any(|known| known == id)
+                        && !self
+                            .resources
+                            .values()
+                            .any(|resource| resource.component == *id)
+                })
             })
         {
             return Err(invalid(
@@ -34,6 +39,14 @@ impl ResourcePreparation<'_> {
         }
         self.source_dependencies = Some(sources);
         Ok(())
+    }
+    pub(in crate::component) fn take_source_dependencies_or(
+        &mut self,
+        previous: &SourceDependencyDeclarations,
+    ) -> SourceDependencyDeclarations {
+        self.source_dependencies
+            .take()
+            .unwrap_or_else(|| previous.clone())
     }
     pub(in crate::component) fn take_source_dependencies(
         &mut self,

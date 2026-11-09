@@ -295,3 +295,7 @@ async fn ordinary_device_preparation_cannot_fall_back_to_private_plain_linked_wo
     assert!(adapter.pending_endpoints.lock().unwrap().is_none());
     assert!(adapter.linked_endpoints.lock().unwrap().is_empty());
 }
+
+#[cfg(all(feature = "socks5", feature = "shadowsocks"))]
+#[path = "tests/material.rs"]
+mod material;

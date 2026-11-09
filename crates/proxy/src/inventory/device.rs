@@ -245,9 +245,19 @@ impl ProtocolInventory {
 }
 
 fn path_identity(config: &RuntimeConfig, indices: &[usize]) -> Result<[u8; 32], EngineError> {
+    path_identity_for(
+        config,
+        indices.iter().map(|&index| &config.outbounds[index]),
+    )
+}
+
+pub(crate) fn path_identity_for<'a>(
+    config: &RuntimeConfig,
+    members: impl IntoIterator<Item = &'a zero_config::OutboundConfig>,
+) -> Result<[u8; 32], EngineError> {
     let mut hash = Sha256::new();
-    for &index in indices {
-        let encoded = serde_json::to_vec(&config.outbounds[index])
+    for outbound in members {
+        let encoded = serde_json::to_vec(outbound)
             .map_err(|error| EngineError::Io(std::io::Error::other(error)))?;
         hash.update((encoded.len() as u64).to_le_bytes());
         hash.update(encoded);

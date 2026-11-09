@@ -28,30 +28,32 @@ impl WireguardAdapter {
         let desired = selected
             .iter()
             .map(|(outbound, _, identity, plan)| {
-                let count = if matches!(
-                    outbound.protocol,
-                    OutboundProtocolConfig::Wireguard {
-                        inbound_tag: None,
-                        outer_udp_proxy: None,
-                        ..
+                let root = cold.as_ref().and_then(|candidate| {
+                    candidate
+                        .standalone
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .get(&outbound.tag)
+                        .cloned()
+                });
+                let count = match root {
+                    Some(root) => root.root.peers.len(),
+                    None if matches!(
+                        outbound.protocol,
+                        OutboundProtocolConfig::Wireguard {
+                            inbound_tag: None,
+                            outer_udp_proxy: None,
+                            ..
+                        }
+                    ) =>
+                    {
+                        return Err(invalid(
+                            "plain standalone WireGuard has no actual cold component root",
+                        ));
                     }
-                ) {
-                    cold.as_ref()
-                        .and_then(|candidate| {
-                            candidate
-                                .standalone
-                                .lock()
-                                .unwrap_or_else(|error| error.into_inner())
-                                .get(&outbound.tag)
-                                .map(|candidate| candidate.root.peers.len())
-                        })
-                        .ok_or_else(|| {
-                            invalid("plain standalone WireGuard has no actual cold component root")
-                        })?
-                } else {
-                    self.prepared_peer_count(
+                    None => self.prepared_peer_count(
                         outbound, inbounds, plan, *identity, generation, &context,
-                    )?
+                    )?,
                 };
                 Ok((outbound.tag.clone(), (*identity, generation, count)))
             })
@@ -70,15 +72,12 @@ impl WireguardAdapter {
             let canonical = match &outbound.protocol {
                 OutboundProtocolConfig::Wireguard {
                     inbound_tag: Some(tag),
-                    outer_udp_proxy: None,
                     ..
                 } => cold
                     .as_ref()
                     .is_some_and(|candidate| candidate.contains_key(tag)),
                 OutboundProtocolConfig::Wireguard {
-                    inbound_tag: None,
-                    outer_udp_proxy: None,
-                    ..
+                    inbound_tag: None, ..
                 } => cold.as_ref().is_some_and(|candidate| {
                     candidate
                         .standalone
@@ -170,7 +169,7 @@ impl WireguardAdapter {
                 );
                 continue;
             }
-            if outer_udp_proxy.is_none() {
+            if canonical {
                 let root = cold
                     .as_ref()
                     .and_then(|candidate| {
@@ -186,6 +185,12 @@ impl WireguardAdapter {
                             "plain standalone WireGuard cannot start through its old UDP executor",
                         )
                     })?;
+                if let Some(tag) = outer_udp_proxy {
+                    root.install_outer(context.packet_paths.get(tag).ok_or_else(|| {
+                        invalid("actual standalone outer operation was not prepared")
+                    })?)
+                    .await?;
+                }
                 for peer in 0..root.peers.len() {
                     let device = root.device(peer).map_err(std::io::Error::other)?;
                     let retained = self
@@ -212,7 +217,7 @@ impl WireguardAdapter {
                         generation,
                         cell,
                         fresh,
-                        false,
+                        outer_udp_proxy.is_some(),
                     )?;
                 }
                 profiles.insert(

@@ -1,5 +1,6 @@
 //! One standard host slot owns each standalone peer's existing wire and stack.
 mod component;
+mod logical;
 mod pause;
 mod preparation;
 mod resolve;
@@ -24,6 +25,9 @@ use zero_platform_tokio::{
 pub(super) const NAMESPACE: &str = "actual.assembly.wireguard.standalone.peers";
 pub(in crate::adapters::wireguard) struct StandaloneStackOptions {
     pub(super) plan: Arc<WireguardRawIpPlan>,
+    pub(super) outer: Option<super::recipe::outer::OuterPathRecipe>,
+    logical_source:
+        OnceLock<zero_platform_tokio::controlled_carrier::LogicalPacketProviderRegistration>,
     pub(super) spec: ComponentSpec,
     pub(super) binding: UpstreamBinding,
     pub(super) resource: OnceLock<ComponentId>,
@@ -36,9 +40,13 @@ pub(super) struct Peer {
     original: OnceLock<Arc<crate::runtime::raw_ip::HostedRawIpWireCarrier>>,
     pause: OnceLock<Arc<ReadPause>>,
     memory: Arc<OnceLock<zero_tun::packet_memory::PacketMemoryView>>,
+    logical: OnceLock<logical::Original>,
 }
 struct State {
     scope: Option<TaskScopeIdentity>,
+    tasks: Option<zero_platform_tokio::contract::scope::WeakTaskRegistrar>,
+    completion: Option<zero_platform_tokio::contract::scope::ScopeRetirementCompletion>,
+    cancel: Option<zero_platform_tokio::contract::CancellationToken>,
     dependencies: Option<Arc<[ComponentInstanceId]>>,
     resources: Option<Arc<dyn ResourceAccess>>,
     endpoints: Option<Vec<SocketAddr>>,
@@ -54,12 +62,13 @@ impl StandaloneStackOptions {
         network_generation: NetworkGeneration,
         dependencies: Vec<ComponentId>,
         count: usize,
+        outer: Option<super::recipe::outer::OuterPathRecipe>,
+        device_identity: [u8; 32],
     ) -> Result<Self, EngineError> {
         if !matches!(
             outbound.protocol,
             OutboundProtocolConfig::Wireguard {
                 inbound_tag: None,
-                outer_udp_proxy: None,
                 ..
             }
         ) {
@@ -74,6 +83,21 @@ impl StandaloneStackOptions {
         }
         let mut resources = Vec::with_capacity(count * 2);
         for _ in 0..count {
+            if let Some(outer) = &outer {
+                let mut supplemental = outer.supplemental_memory(1)?;
+                // This peer's first declared read IS the proxy wire read. The
+                // separate extra reader is needed only by a linked Source.
+                if supplemental.receive_workspaces.first().map(|n| n.get()) != Some(65536) {
+                    return Err(invalid("outer original proxy reader layout changed"));
+                }
+                supplemental.receive_workspaces.remove(0);
+                resources.push(ResourceDeclaration::LogicalPacketWorkspaces {
+                    workspaces: [NonZeroUsize::new(65_536).unwrap(); 2],
+                    control_workspace: NonZeroUsize::new(148),
+                    supplemental,
+                });
+                continue;
+            }
             let datagram = resources.len();
             resources.push(ResourceDeclaration::BoundOutboundDatagram {
                 max_sockets: NonZeroUsize::MIN,
@@ -100,23 +124,26 @@ impl StandaloneStackOptions {
             hash.update((encoded.len() as u64).to_le_bytes());
             hash.update(encoded);
         }
-        hash.update(
-            options.identity(
-                super::super::protocol_identity(&outbound.protocol)
-                    .ok_or_else(|| invalid("standalone protocol identity is unavailable"))?,
-            ),
-        );
+        hash.update(device_identity);
         hash.update(network_generation.0.to_le_bytes());
+        if let Some(outer) = &outer {
+            outer.hash(&mut hash);
+        }
         hash.update((count as u64).to_le_bytes());
         for dependency in &dependencies {
             hash.update(dependency.0.to_le_bytes());
         }
+        let per_peer = EndpointStackOwner::TASK_LIMIT
+            .checked_add(usize::from(outer.is_some()))
+            .ok_or_else(|| invalid("standalone actual worker layout overflow"))?;
         let task_limit = count
-            .checked_mul(EndpointStackOwner::TASK_LIMIT)
+            .checked_mul(per_peer)
             .map(NonZeroUsize::new)
             .ok_or_else(|| invalid("standalone actual task bound overflow"))?;
         Ok(Self {
             plan,
+            outer,
+            logical_source: OnceLock::new(),
             spec: ComponentSpec {
                 owner: ResourceOwner::Component,
                 roles: vec![RoleKind::Packet, RoleKind::Stream, RoleKind::Datagram],
@@ -138,10 +165,14 @@ impl StandaloneStackOptions {
                     original: OnceLock::new(),
                     pause: OnceLock::new(),
                     memory: Arc::default(),
+                    logical: OnceLock::new(),
                 })
                 .collect(),
             state: Mutex::new(State {
                 scope: None,
+                tasks: None,
+                completion: None,
+                cancel: None,
                 dependencies: None,
                 resources: None,
                 endpoints: None,
@@ -185,6 +216,25 @@ impl StandaloneStackOptions {
             .filter(|original| !original.is_retired())
             .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))
     }
+    pub(super) fn carrier_origin(
+        &self,
+        peer: usize,
+    ) -> Result<zero_platform_tokio::controlled_carrier::CarrierOrigin, ChannelError> {
+        if self.outer.is_some() {
+            self.peers
+                .get(peer)
+                .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))?;
+            return self
+                .logical_source
+                .get()
+                .filter(|source| !source.is_retired())
+                .cloned()
+                .map(zero_platform_tokio::controlled_carrier::CarrierOrigin::from_logical_packet)
+                .ok_or_else(|| error(Stage::Prepare, Reason::Revoked));
+        }
+        self.original(peer)
+            .map(zero_platform_tokio::controlled_carrier::CarrierOrigin::from_listener)
+    }
     pub(super) fn acquisition(
         &self,
         peer: usize,
@@ -210,13 +260,22 @@ impl StandaloneStackOptions {
             if state.scope.is_none() {
                 return false;
             } // Pure cold metadata only.
+            if self.outer.is_some()
+                && state
+                    .completion
+                    .as_ref()
+                    .is_none_or(|done| !done.is_drained())
+            {
+                return true; // includes the original N=1 reconnect registration and its Host ACK
+            }
             state.resources.clone()
         };
         if self.peers.iter().any(|peer| !peer.owner.is_drained()) {
             return true;
         }
         resources.as_ref().is_none_or(|resources| {
-            (0..self.peers.len()).any(|index| !resources.bound_datagram_retired(index * 2))
+            self.outer.is_none()
+                && (0..self.peers.len()).any(|index| !resources.bound_datagram_retired(index * 2))
         })
     }
 }

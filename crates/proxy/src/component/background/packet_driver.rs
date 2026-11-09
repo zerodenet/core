@@ -1,13 +1,15 @@
 //! One real actor's short execution view. Retained state holds only the weak
 //! existing Host service owner and its sealed caller; never Engine or snapshots.
 use super::*;
+mod receive;
+pub(crate) use receive::PacketCodecReceiveGroups;
 use zero_platform_tokio::contract::component::GrantedPacketServiceCaller;
 #[derive(Clone)]
 pub(crate) struct PacketPathExecutionSource {
     services: Weak<CurrentServiceSource>,
     caller: Arc<GrantedPacketServiceCaller>,
     resources: Weak<dyn zero_platform_tokio::contract::component::ResourceAccess>,
-    receive: Option<Arc<[crate::protocol_registry::packet_memory::PacketCodecReceiveMemory]>>,
+    receive: Option<PacketCodecReceiveGroups>,
 }
 impl PacketPathExecutionSource {
     pub(crate) fn receive_cleanup_failure(
@@ -50,7 +52,28 @@ impl PacketPathExecutionSource {
                 "codec workspaces belong to another actual Source Kernel Root",
             ));
         }
-        self.receive = Some(groups.into());
+        let memory = self
+            .resources
+            .upgrade()
+            .ok_or_else(|| invalid(Reason::Revoked, "actual Packet Source resources retired"))?
+            .packet_driver_metadata()?;
+        self.receive = Some(PacketCodecReceiveGroups::from_values(&memory, groups)?);
+        Ok(self)
+    }
+    pub(crate) fn with_prepaid_receive(
+        mut self,
+        groups: PacketCodecReceiveGroups,
+    ) -> Result<Self, ChannelError> {
+        if groups
+            .iter()
+            .any(|group| !group.matches_caller(&self.caller))
+        {
+            return Err(invalid(
+                Reason::StalePlan,
+                "codec workspaces belong to another actual Source Kernel Root",
+            ));
+        }
+        self.receive = Some(groups);
         Ok(self)
     }
     pub(crate) fn caller(&self) -> &zero_platform_tokio::contract::scope::TaskJoinWitness {

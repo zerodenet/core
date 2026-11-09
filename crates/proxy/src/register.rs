@@ -701,6 +701,9 @@ pub(crate) fn compiled_registries_with_network(
             )
             .expect("unique standard WireGuard inbound registration");
         let outbound_adapter = adapter.clone();
+        // Freeze the actual prior protocol factories, including their existing
+        // whole-config selectors. The WG selector must not recurse into itself.
+        let outer_factories = components.clone();
         components
             .register_with_resources(
                 adapter.descriptor(),
@@ -712,15 +715,31 @@ pub(crate) fn compiled_registries_with_network(
                 },
             )
             .expect("unique canonical WireGuard outbound registration");
-        components.set_candidate_acceptance("wireguard", |outbound, _| {
-            matches!(
-                &outbound.protocol,
+        components.set_candidate_acceptance(
+            "wireguard",
+            move |outbound, candidate| match &outbound.protocol {
                 zero_config::OutboundProtocolConfig::Wireguard {
                     outer_udp_proxy: None,
                     ..
+                } => true,
+                zero_config::OutboundProtocolConfig::Wireguard { .. } => {
+                    candidate.is_some_and(|candidate| {
+                        crate::adapters::wireguard::lifecycle::outer_members_selected(
+                            outbound,
+                            candidate,
+                            |member| {
+                                outer_factories.has_factory_for_candidate(
+                                    member.protocol.protocol_name(),
+                                    member,
+                                    Some(candidate),
+                                )
+                            },
+                        )
+                    })
                 }
-            )
-        });
+                _ => false,
+            },
+        );
         registry
             .register_standard_protocol(adapter, Some(WireguardAdapter::claim_outbound_leaf_impl));
     }

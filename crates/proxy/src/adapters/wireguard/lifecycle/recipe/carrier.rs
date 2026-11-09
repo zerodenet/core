@@ -63,7 +63,7 @@ impl Carrier {
             }
             Graph::Standalone(root) => {
                 for index in 0..root.peers.len() {
-                    root.original(index)?;
+                    root.carrier_origin(index)?;
                 }
             }
         }
@@ -107,14 +107,12 @@ impl Carrier {
         use crate::runtime::raw_ip::RawIpOutboundPlan;
         match &self.options {
             Graph::Linked(_) => self.origin(),
-            Graph::Standalone(root) => Ok(CarrierOrigin::from_listener(
-                root.original(
-                    self.plan()
-                        .peer_for_target(target)
-                        .map_err(failure)?
-                        .peer_index,
-                )?,
-            )),
+            Graph::Standalone(root) => root.carrier_origin(
+                self.plan()
+                    .peer_for_target(target)
+                    .map_err(failure)?
+                    .peer_index,
+            ),
         }
     }
     fn origin(&self) -> Result<CarrierOrigin, ChannelError> {

@@ -10,7 +10,7 @@ pub(crate) struct PacketPathExecutionServices {
     pub(super) tcp: TcpExecutionServices,
     pub(super) network: UdpNetworkServices,
     pub(super) receive:
-        Option<std::sync::Arc<[crate::protocol_registry::packet_memory::PacketCodecReceiveMemory]>>,
+        Option<crate::component::background::packet_driver::PacketCodecReceiveGroups>,
 }
 
 pub(crate) struct PacketPathDriverCall {
@@ -47,9 +47,7 @@ impl PacketPathExecutionServices {
     }
     pub(crate) fn with_packet_driver_receive(
         mut self,
-        receive: std::sync::Arc<
-            [crate::protocol_registry::packet_memory::PacketCodecReceiveMemory],
-        >,
+        receive: crate::component::background::packet_driver::PacketCodecReceiveGroups,
     ) -> Self {
         self.receive = Some(receive);
         self

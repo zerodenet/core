@@ -84,12 +84,14 @@ impl LinkedEndpointRecipe {
         match &outbound.protocol {
             OutboundProtocolConfig::Wireguard {
                 inbound_tag: Some(tag),
-                outer_udp_proxy: None,
+                outer_udp_proxy,
                 ..
-            } if tag == &inbound.tag => {}
+            } if tag == &inbound.tag
+                && outer_udp_proxy.as_deref()
+                    == settings.outer.as_ref().map(|outer| outer.tag.as_str()) => {}
             _ => {
                 return Err(invalid(
-                    "cold linked recipe requires its actual plain linked WireGuard outbound",
+                    "cold linked recipe requires its actual declared linked WireGuard outbound",
                 ));
             }
         }
