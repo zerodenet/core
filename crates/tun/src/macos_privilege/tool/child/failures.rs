@@ -43,6 +43,19 @@ fn result(mut phases: [Option<io::Error>; 4]) -> io::Result<()> {
         _ => Err(io::Error::other(Failures { phases })),
     }
 }
+// Preserve a real errno through this private multi-phase aggregate when
+// crossing the authenticated helper boundary; never format an OS cause.
+pub(super) fn original_errno(source: &io::Error) -> i32 {
+    fn original(source: &io::Error) -> Option<i32> {
+        source.raw_os_error().or_else(|| {
+            source
+                .get_ref()
+                .and_then(|source| source.downcast_ref::<Failures>())
+                .and_then(|phases| phases.phases.iter().flatten().find_map(original))
+        })
+    }
+    original(source).unwrap_or(libc::EIO)
+}
 pub(super) fn spawn_failed(source: io::Error, closed: io::Result<()>) -> io::Error {
     result([Some(source), None, closed.err(), None]).unwrap_err()
 }
@@ -65,6 +78,36 @@ pub(super) fn finish(
     result([ends.err(), collect, closed.err(), wait])?;
     let (stdout, stderr) = bytes.unwrap();
     Ok(Output {
+        status: status.unwrap(),
+        stdout,
+        stderr,
+    })
+}
+pub(super) fn finish_unit(
+    ends: io::Result<()>,
+    operation: io::Result<()>,
+    closed: io::Result<()>,
+    waited: io::Result<()>,
+) -> io::Result<()> {
+    result([ends.err(), operation.err(), closed.err(), waited.err()])
+}
+pub(super) fn finish_owned(
+    ends: io::Result<()>,
+    collected: io::Result<[crate::macos_privilege::command::CommandBytes; 2]>,
+    closed: io::Result<()>,
+    waited: io::Result<ExitStatus>,
+) -> io::Result<crate::macos_privilege::command::CommandOutput> {
+    let (bytes, collect) = match collected {
+        Ok(bytes) => (Some(bytes), None),
+        Err(source) => (None, Some(source)),
+    };
+    let (status, wait) = match waited {
+        Ok(status) => (Some(status), None),
+        Err(source) => (None, Some(source)),
+    };
+    result([ends.err(), collect, closed.err(), wait])?;
+    let [stdout, stderr] = bytes.unwrap();
+    Ok(crate::macos_privilege::command::CommandOutput {
         status: status.unwrap(),
         stdout,
         stderr,

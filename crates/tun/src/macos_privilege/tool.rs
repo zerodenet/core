@@ -7,7 +7,7 @@ use std::{
     os::unix::net::UnixStream,
 };
 mod child;
-pub(super) use child::{run, run_query, ChildOriginal};
+pub(super) use child::{run, run_owned, run_query, run_query_owned, run_streamed, ChildOriginal};
 pub(in crate::macos_privilege) enum Query {
     Route(Vec<String>),
     RouteTable(bool),

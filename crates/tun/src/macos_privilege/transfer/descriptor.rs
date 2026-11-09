@@ -29,6 +29,11 @@ impl Original {
     pub(in crate::macos_privilege) fn closed(&self) -> bool {
         self.close == Some(Ok(()))
     }
+    /// Read only this original actor's cached syscall outcome; no retry or
+    /// inference from an FD number. None includes both unattempted and success.
+    pub(in crate::macos_privilege) fn close_errno(&self) -> Option<i32> {
+        self.close.and_then(Result::err)
+    }
     pub(in crate::macos_privilege) fn usable(&self) -> bool {
         self.close.is_none()
     }
