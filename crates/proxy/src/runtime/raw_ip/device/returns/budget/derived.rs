@@ -122,6 +122,7 @@ impl ReturnBudget {
     }
     /// The original producing driver owns this pending admission. Once this
     /// succeeds, its queue entry never waits for additional transformation credit.
+    #[cfg(test)]
     pub(in crate::runtime::raw_ip::device::returns) async fn retain_for_return_wait(
         &self,
         mut packet: PacketBuffer,

@@ -39,36 +39,6 @@ impl WireguardAdapter {
         }
         Ok(pauses)
     }
-    pub(crate) async fn pause_standalone_if_idle(
-        &self,
-        deadline: tokio::time::Instant,
-    ) -> Result<Vec<crate::runtime::packet_route::host::NativeDevicePaused>, EngineError> {
-        let roots = {
-            let current = self
-                .profiles
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            current
-                .values()
-                .filter_map(|profile| profile.graph.as_ref())
-                .map(|root| {
-                    root.upgrade()
-                        .ok_or_else(|| invalid("actual standalone factory owner was released"))
-                })
-                .collect::<Result<Vec<_>, _>>()?
-        };
-        let mut pauses = Vec::new();
-        for root in roots {
-            for peer in &root.peers {
-                let pause = peer
-                    .pause
-                    .get()
-                    .ok_or_else(|| invalid("actual standalone wire checkpoint is unavailable"))?;
-                pauses.push(pause.pause(deadline).await.map_err(std::io::Error::other)?);
-            }
-        }
-        Ok(pauses)
-    }
 }
 
 impl StandaloneStackOptions {

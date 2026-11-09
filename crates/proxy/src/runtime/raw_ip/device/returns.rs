@@ -82,28 +82,6 @@ struct ReturnRoute {
     touched: Instant,
 }
 
-// Borrowed host reads allocate only after a native return route is found.
-enum NativePacket<'a> {
-    Borrowed(&'a [u8]),
-    Owned(zero_traits::PacketBuffer),
-}
-impl AsRef<[u8]> for NativePacket<'_> {
-    fn as_ref(&self) -> &[u8] {
-        match self {
-            Self::Borrowed(bytes) => bytes,
-            Self::Owned(bytes) => bytes,
-        }
-    }
-}
-impl NativePacket<'_> {
-    fn into_owned(self) -> zero_traits::PacketBuffer {
-        match self {
-            Self::Borrowed(bytes) => bytes.to_vec().into(),
-            Self::Owned(bytes) => bytes,
-        }
-    }
-}
-
 impl PacketReturns {
     pub(crate) fn defer_notifications(&self) -> zero_tun::packet_memory::PacketRootNotifications {
         self.budget.defer_notifications()
@@ -177,32 +155,6 @@ impl PacketReturns {
                 .with_source(failure)
             })
     }
-    pub(crate) fn retain_reply_buffer_for(
-        &self,
-        packet: zero_traits::PacketBuffer,
-        return_mtu: u16,
-    ) -> Result<zero_traits::PacketBuffer, zero_traits::PacketBuffer> {
-        self.budget
-            .retain_for_return(packet, return_mtu)
-            .map_err(|failure| {
-                tracing::trace!(cause = ?failure.cause, bytes = failure.original.len(), "same original Packet return admission rejected");
-                failure.original
-            })
-    }
-    pub(crate) async fn retain_reply_buffer_wait(
-        &self,
-        packet: zero_traits::PacketBuffer,
-        return_mtu: u16,
-    ) -> Result<zero_traits::PacketBuffer, zero_traits::PacketDeriveError> {
-        self.budget
-            .retain_for_return_wait(packet, return_mtu)
-            .await
-            .map_err(|failure| {
-                failure
-                    .cause
-                    .expect("temporary occupancy is awaited by the same producing driver")
-            })
-    }
     pub(super) fn queue_reply(
         &self,
         replies: &zero_stack::packet_output::PacketSender,
@@ -254,11 +206,12 @@ impl PacketReturns {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn deliver(&self, packet: &[u8]) -> bool {
         if self.deliver_correlated(packet) {
             return true;
         }
-        self.deliver_native(NativePacket::Borrowed(packet)).is_ok()
+        self.deliver_native(packet.to_vec().into()).is_ok()
     }
 
     /// Move a native return into its bounded channel; misses return ownership.
@@ -269,8 +222,7 @@ impl PacketReturns {
         if self.deliver_correlated(&packet) {
             return Ok(());
         }
-        self.deliver_native(NativePacket::Owned(packet))
-            .map_err(NativePacket::into_owned)
+        self.deliver_native(packet)
     }
 
     pub(crate) async fn deliver_owned_wait(

@@ -83,20 +83,12 @@ impl<T: Send + 'static> TasksGuard<'_, T> {
         }
         Ok(self.tasks.spawn(future).id())
     }
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.tasks.len()
     }
     pub(crate) fn is_empty(&self) -> bool {
         self.tasks.is_empty()
-    }
-    pub(crate) fn abort_all(&mut self) {
-        self.tasks.abort_all();
-    }
-    pub(crate) async fn join_next(&mut self) -> Option<Result<T, JoinError>> {
-        self.tasks.join_next().await
-    }
-    pub(crate) fn try_join_next(&mut self) -> Option<Result<T, JoinError>> {
-        self.tasks.try_join_next()
     }
 }
 impl<T: Send + 'static> Clone for RetainedTasks<T> {
@@ -125,6 +117,7 @@ impl<T: Send + 'static> RetainedTasks<T> {
             .expect("raw-IP task admission poisoned")
             .revoked
     }
+    #[cfg(test)]
     pub(crate) async fn lock(&self) -> Result<TasksGuard<'_, T>, ChannelError> {
         let tasks = self.inner.tasks.lock().await;
         if !self.admitted() {
@@ -213,11 +206,6 @@ impl<T: TaskOutput> RetainedTasks<T> {
             Ok(joined)
         }
     }
-    pub(crate) fn resource(
-        &self,
-    ) -> Box<dyn zero_platform_tokio::contract::lifecycle::DynResourceLifecycle> {
-        zero_platform_tokio::contract::lifecycle::erase_lifecycle(self.clone())
-    }
     fn joined(&self, result: Result<(tokio::task::Id, T), JoinError>) {
         match result {
             Ok((id, output)) => {
@@ -230,6 +218,7 @@ impl<T: TaskOutput> RetainedTasks<T> {
             }
         }
     }
+    #[cfg(test)]
     pub(crate) async fn finish(&self, guard: &mut TasksGuard<'_, T>) {
         assert!(
             std::ptr::eq(guard.owner, self.inner.as_ref()),

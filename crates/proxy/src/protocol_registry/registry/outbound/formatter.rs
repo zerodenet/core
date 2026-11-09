@@ -61,6 +61,7 @@ impl ProtocolRegistry {
             formatter,
         }))
     }
+    #[cfg(test)]
     pub(crate) fn prepare_cold_datagram_source(
         &self,
         config: &RuntimeConfig,

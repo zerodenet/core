@@ -22,8 +22,6 @@ mod runtime;
 pub(crate) use runtime::serve_dns_tcp_owned;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) use sniff::sniff_tcp_target;
-#[cfg(feature = "raw-ip-runtime")]
-pub(crate) const MAX_TCP_DNS_CONNECTIONS: usize = runtime::MAX_CONCURRENT_DNS_CONNECTIONS;
 mod sniff;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) mod source;
@@ -379,14 +377,6 @@ impl Proxy {
         }
     }
 
-    pub(crate) async fn reconcile_configured_tun(
-        &self,
-        desired: Option<&zero_config::TunConfig>,
-        network_mtu: u16,
-    ) -> Result<(), EngineError> {
-        self.reconcile_configured_tun_candidate(desired, network_mtu, None)
-            .await
-    }
     pub(crate) async fn reconcile_configured_tun_for_config(
         &self,
         config: Arc<zero_config::RuntimeConfig>,

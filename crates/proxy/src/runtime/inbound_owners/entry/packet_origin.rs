@@ -1,28 +1,5 @@
-//! Read the same already-retained Source observer cell; no new weak owner.
+//! Actual Source registration and exact cleanup-fault receiver validation.
 use super::*;
-impl InboundOwner {
-    pub(in crate::runtime) fn packet_carrier_origin(
-        &self,
-    ) -> Result<zero_platform_tokio::controlled_carrier::CarrierOrigin, ChannelError> {
-        self.packet_native
-            .get()
-            .and_then(std::sync::Weak::upgrade)
-            .and_then(|grant| grant.packet_source_origin())
-            .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component))
-    }
-}
-impl InboundTaskAccess {
-    pub(in crate::runtime) fn packet_carrier_origin(
-        &self,
-    ) -> Result<zero_platform_tokio::controlled_carrier::CarrierOrigin, ChannelError> {
-        self.packet_native
-            .get()
-            .and_then(std::sync::Weak::upgrade)
-            .and_then(|grant| grant.packet_source_origin())
-            .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component))
-    }
-}
-
 impl InboundOwner {
     pub(in crate::runtime::inbound_owners) fn validate_packet_software_activation(
         &self,

@@ -45,20 +45,6 @@ impl ProtocolInventory {
     > {
         self.devices.actual_packet_flow_sources(previous)
     }
-    pub(crate) async fn pause_direct_packet_if_idle(
-        &self,
-        deadline: tokio::time::Instant,
-    ) -> Result<Option<crate::runtime::packet_route::host::NativeDevicePaused>, EngineError> {
-        self.devices.pause_direct_packet_if_idle(deadline).await
-    }
-
-    #[cfg(feature = "wireguard")]
-    pub(crate) async fn pause_standalone_packet_if_idle(
-        &self,
-        deadline: tokio::time::Instant,
-    ) -> Result<Vec<crate::runtime::packet_route::host::NativeDevicePaused>, EngineError> {
-        self.devices.pause_standalone_packet_if_idle(deadline).await
-    }
 
     #[cfg(all(test, feature = "wireguard"))]
     pub(crate) fn test_packet_source_origins(
@@ -288,24 +274,8 @@ fn root_binding(
 mod tests;
 
 impl ProtocolInventory {
-    /// The source still owns its native controller and Scope. Project only its
-    /// real wire origin into this same candidate's canonical consumer graph.
-    pub(crate) fn bind_actual_packet_source(
-        &self,
-        config: &RuntimeConfig,
-        plan: &crate::component::catalog::ComponentPlan,
-        inbound_tag: &str,
-        original: zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
-        memory: zero_platform_tokio::contract::packet::PacketSourceMemory,
-    ) -> Result<(), EngineError> {
-        self.bind_actual_packet_carrier_source(
-            config,
-            plan,
-            inbound_tag,
-            zero_platform_tokio::controlled_carrier::CarrierOrigin::from_listener(original),
-            memory,
-        )
-    }
+    /// The source still owns its original controller and Scope. Project only
+    /// its real carrier into this same candidate's canonical consumer graph.
     pub(crate) fn bind_actual_packet_carrier_source(
         &self,
         config: &RuntimeConfig,

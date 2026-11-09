@@ -1,6 +1,7 @@
 //! Shared TUN TCP DNS behavior; production Source tasks use the original host.
 use std::{io, sync::Arc};
 use zero_stack::UserTcpStream;
+#[cfg(test)]
 pub(super) const MAX_CONCURRENT_DNS_CONNECTIONS: usize = 256;
 #[cfg(test)]
 #[path = "runtime/tests/stack_fixture.rs"]

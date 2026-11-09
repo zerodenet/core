@@ -83,10 +83,10 @@ impl PacketReturns {
         }
         Ok(None)
     }
-    pub(super) fn deliver_native<'a>(
+    pub(super) fn deliver_native(
         &self,
-        packet: NativePacket<'a>,
-    ) -> Result<(), NativePacket<'a>> {
+        packet: zero_traits::PacketBuffer,
+    ) -> Result<(), zero_traits::PacketBuffer> {
         let Some(destination) = packet::ip_destination(packet.as_ref()) else {
             return Err(packet);
         };
@@ -143,7 +143,7 @@ impl PacketReturns {
         if let Some(observer) = &observer {
             observer.received(packet.as_ref().len());
         }
-        let mut forwarded = packet.into_owned();
+        let mut forwarded = packet;
         if packet::advance_ip_hop(&mut forwarded) {
             self.send_reply(&replies, forwarded, observer.as_deref());
         } else {

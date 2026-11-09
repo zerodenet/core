@@ -75,17 +75,6 @@ impl Devices {
             None => Ok(Vec::new()),
         }
     }
-    #[cfg(feature = "wireguard")]
-    pub(crate) fn replacement_sources_retained(
-        &self,
-        previous: &RuntimeConfig,
-        stopping: &crate::component::catalog::ReplacementUsersPause,
-    ) -> Result<bool, EngineError> {
-        Ok(self
-            .actual_packet_flow_sources(previous)?
-            .iter()
-            .all(|(device, origin)| device.replacement_users_retained(stopping, origin)))
-    }
 
     pub(crate) async fn fence_direct_packet_acquisition(
         &self,
@@ -109,26 +98,6 @@ impl Devices {
                     .fence_standalone_acquisition(deadline, stopping)
                     .await
             }
-            None => Ok(Vec::new()),
-        }
-    }
-    pub(crate) async fn pause_direct_packet_if_idle(
-        &self,
-        deadline: tokio::time::Instant,
-    ) -> Result<Option<crate::runtime::packet_route::host::NativeDevicePaused>, EngineError> {
-        match &self.direct {
-            Some(direct) => direct.pause_packet_if_idle(deadline).await,
-            None => Ok(None),
-        }
-    }
-
-    #[cfg(feature = "wireguard")]
-    pub(crate) async fn pause_standalone_packet_if_idle(
-        &self,
-        deadline: tokio::time::Instant,
-    ) -> Result<Vec<crate::runtime::packet_route::host::NativeDevicePaused>, EngineError> {
-        match &self.wireguard {
-            Some(wireguard) => wireguard.pause_standalone_if_idle(deadline).await,
             None => Ok(Vec::new()),
         }
     }

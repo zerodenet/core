@@ -153,6 +153,7 @@ impl ReadPause {
                 .map_err(|source| error(Reason::Timeout).with_source(source))?;
         }
     }
+    #[cfg(test)]
     pub(crate) async fn pause(
         self: &Arc<Self>,
         deadline: tokio::time::Instant,
@@ -289,16 +290,6 @@ impl HostPacketDevice {
             .as_ref()
             .ok_or_else(|| error(Reason::Unsupported))?
             .fence(deadline)
-            .await
-    }
-    pub(crate) async fn pause_if_idle(
-        &self,
-        deadline: tokio::time::Instant,
-    ) -> Result<NativeDevicePaused, ChannelError> {
-        self.read_pause
-            .as_ref()
-            .ok_or_else(|| error(Reason::Unsupported))?
-            .pause(deadline)
             .await
     }
 }

@@ -105,6 +105,7 @@ impl InboundOwnerRegistry {
     }
     /// Host identity, last-good facts and the actual terminal precede invoking
     /// opaque protocol behavior. The capsule itself cannot manufacture a permit.
+    #[cfg(test)]
     pub(crate) fn prepare_recovery_bind(
         &self,
         inbound: InboundConfig,
