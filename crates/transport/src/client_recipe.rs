@@ -136,6 +136,29 @@ impl OwnedClientRecipe {
             Some(bytes),
         )
     }
+    #[cfg(feature = "quic")]
+    pub fn prepare_quic_material(
+        &self,
+        profile: &crate::profile::OwnedClientTlsProfile,
+        alpn: &[Vec<u8>],
+    ) -> io::Result<crate::quic::QuicClientConfig> {
+        let bytes = self.snapshot.get().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "actual CA File material is absent",
+            )
+        })?;
+        crate::quic::client_config_with_ca_material(
+            profile.insecure,
+            None,
+            alpn,
+            None,
+            Some(&self.path),
+            &profile.options,
+            Some(bytes),
+        )
+        .map_err(io::Error::other)
+    }
     /// The owning factory first proves the same full recipe, actual prior
     /// instance and same Source. Path equality alone cannot select `previous`.
     pub fn reuse_material_from(&self, previous: &Self) -> io::Result<bool> {

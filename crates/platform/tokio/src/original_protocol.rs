@@ -44,6 +44,51 @@ struct State {
     resource_fault: Option<Arc<crate::contract::lifecycle::ResourceFailure>>,
 }
 impl CarrierProtocolRetirement {
+    pub async fn wait_settled_original(&self) -> Result<(), ChannelError> {
+        if self.is_settled() {
+            return Ok(());
+        }
+        let phase = self.phase.upgrade().ok_or_else(|| {
+            ChannelError::new(
+                crate::contract::Stage::Close,
+                crate::contract::Reason::Revoked,
+                crate::contract::Impact::Component,
+            )
+        })?;
+        phase.request();
+        loop {
+            let changed = phase.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if self.is_settled() {
+                return Ok(());
+            }
+            changed.await;
+        }
+    }
+    pub async fn wait_protocol_original(&self) -> Result<(), ChannelError> {
+        if self.is_settled() {
+            return Ok(());
+        }
+        let phase = self.phase.upgrade().ok_or_else(|| {
+            ChannelError::new(
+                crate::contract::Stage::Close,
+                crate::contract::Reason::Revoked,
+                crate::contract::Impact::Component,
+            )
+        })?;
+        phase.request();
+        loop {
+            let changed = phase.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if phase.complete() {
+                return Ok(());
+            }
+            changed.await;
+        }
+    }
+
     /// Same original Root removed its charged reservation only after the real
     /// native/users receipts and every actual registration ACK.
     pub fn is_settled(&self) -> bool {

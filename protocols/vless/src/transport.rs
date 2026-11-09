@@ -11,7 +11,8 @@ mod navigation;
 mod options;
 mod outbound;
 mod profile;
-pub(crate) use profile::client_tls_for_stream;
+pub(crate) use outbound::OwnedVlessOutboundTransportPlan;
+pub(crate) use profile::{client_tls_for_stream, VlessQuicClientProfile};
 mod runtime;
 
 pub use inbound::{

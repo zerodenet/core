@@ -14,6 +14,7 @@ use zero_transport::{
     tls::{OwnedClientRecipe, OwnedPreparedClient},
 };
 mod cold;
+mod quic;
 mod registry;
 use registry::Census;
 pub(crate) use registry::Registry;

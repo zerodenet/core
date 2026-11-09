@@ -14,6 +14,13 @@ pub(crate) struct ReportReceiver(Mutex<Failures>);
 struct Failures {
     tasks: Vec<Arc<TaskFailure>>,
     resources: Vec<Arc<ResourceFailure>>,
+    delivery: std::sync::Weak<Delivery>,
+}
+/// Immutable originals only. A returned error must never point to the mutable
+/// receiver: its actual Scope can return that error to this same receiver.
+struct Delivery {
+    tasks: Vec<Arc<TaskFailure>>,
+    resources: Vec<Arc<ResourceFailure>>,
 }
 pub(crate) struct ReportObservation {
     pub(crate) complete: bool,
@@ -46,6 +53,7 @@ impl ReportReceiver {
                         && same_error(&same.error, &failure.error)
                 }) {
                     stored.tasks.push(failure.clone());
+                    stored.delivery = std::sync::Weak::new();
                 }
             }
             if let Some(receipt) = failure.error.cleanup_failure_receipt() {
@@ -72,32 +80,42 @@ impl ReportReceiver {
                     .any(|same| Arc::ptr_eq(same, &failure))
                 {
                     stored.resources.push(failure.clone());
+                    stored.delivery = std::sync::Weak::new();
                 }
             }
             failure.acknowledge_retained(&failure);
         }
-        let first = {
-            let stored = self
+        let delivery = {
+            let mut stored = self
                 .0
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            stored
-                .tasks
-                .first()
-                .cloned()
-                .map(First::Task)
-                .or_else(|| stored.resources.first().cloned().map(First::Resource))
+            if stored.tasks.is_empty() && stored.resources.is_empty() {
+                None
+            } else if let Some(delivery) = stored.delivery.upgrade() {
+                Some(delivery)
+            } else {
+                // One immutable projection per actual source version, reused
+                // while any returned error still holds it. No controller,
+                // Scope, callback or back-reference to this receiver.
+                let delivery = Arc::new(Delivery {
+                    tasks: stored.tasks.clone(),
+                    resources: stored.resources.clone(),
+                });
+                stored.delivery = Arc::downgrade(&delivery);
+                Some(delivery)
+            }
         };
-        let result = if complete && first.is_none() {
+        let result = if complete && delivery.is_none() {
             Ok(())
         } else {
             Err(io::Error::other(ReportFailure {
                 label,
-                failures: self.clone(),
-                first,
+                delivery,
                 report,
             }))
         };
+
         ReportObservation { complete, result }
     }
 }
@@ -112,8 +130,7 @@ fn same_error(mut a: &ChannelError, mut b: &ChannelError) -> bool {
 }
 struct ReportFailure {
     label: &'static str,
-    failures: Arc<ReportReceiver>,
-    first: Option<First>,
+    delivery: Option<Arc<Delivery>>,
     report: CloseReport,
 }
 impl std::fmt::Debug for ReportFailure {
@@ -123,15 +140,9 @@ impl std::fmt::Debug for ReportFailure {
 }
 impl std::fmt::Display for ReportFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Never format foreign source payloads while holding the receiver lock.
-        let (tasks, resources) = {
-            let s = self
-                .failures
-                .0
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            (s.tasks.len(), s.resources.len())
-        };
+        let (tasks, resources) = self.delivery.as_ref().map_or((0, 0), |delivery| {
+            (delivery.tasks.len(), delivery.resources.len())
+        });
         write!(
             f,
             "{} cleanup: {} task faults, {} resource faults, {} unfinished",
@@ -142,17 +153,19 @@ impl std::fmt::Display for ReportFailure {
         )
     }
 }
-enum First {
-    Task(Arc<TaskFailure>),
-    Resource(Arc<ResourceFailure>),
-}
 impl std::error::Error for ReportFailure {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self.first.as_ref()? {
-            First::Task(task) => Some(&task.error),
-            First::Resource(resource) => Some(&*resource.source),
+        let actual = self.delivery.as_ref()?;
+        if let Some(task) = actual.tasks.first() {
+            Some(&task.error)
+        } else {
+            actual
+                .resources
+                .first()
+                .map(|resource| &*resource.source as _)
         }
     }
 }
+
 #[cfg(test)]
 mod tests;

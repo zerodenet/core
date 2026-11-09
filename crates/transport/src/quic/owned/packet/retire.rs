@@ -1,5 +1,39 @@
 use super::*;
 impl PacketSegment {
+    pub async fn retire_final_original(
+        &mut self,
+    ) -> Result<(PacketQueues, MetadataUsersClosedReceipt), ChannelError> {
+        self.final_retirement.store(true, Ordering::Release);
+        self.stop();
+        drop(self.source.take());
+        if let Some(id) = self.driver {
+            if self.received.is_none() {
+                self.received = Some(self.receiver.receive_original(id).await?);
+            }
+            self.receiver
+                .release_body(self.received.as_ref().unwrap())?;
+        }
+        let receipt = self
+            .graph
+            .completion()
+            .try_owned_closed()
+            .ok_or_else(|| error(Reason::Internal))?;
+        let receipt = self
+            .identity
+            .final_receipt(receipt)
+            .map_err(|_| error(Reason::Internal))?;
+        let channels = self
+            .queues
+            .lock()
+            .unwrap()
+            .take()
+            .ok_or_else(|| error(Reason::Revoked))?;
+        if let Some(native) = &channels.native {
+            native.lock().unwrap().current = None;
+        }
+        Ok((PacketQueues(Some(channels), self.identity.clone()), receipt))
+    }
+
     pub fn stop(&self) {
         self.stop.cancel();
         self.graph.users().cancellation().cancel();

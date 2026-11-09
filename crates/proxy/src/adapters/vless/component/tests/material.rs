@@ -67,3 +67,6 @@ mod direct;
 
 #[path = "material/navigation.rs"]
 mod navigation;
+
+#[path = "material/quic.rs"]
+mod quic;

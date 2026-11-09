@@ -27,7 +27,8 @@ pub use client::{
 };
 pub use options::QuicTransportOptions;
 pub use quinn::{
-    Connection as QuicConnection, ServerConfig as QuicServerConfig,
+    ClientConfig as QuicClientConfig, Connection as QuicConnection,
+    ConnectionError as QuicConnectionError, ServerConfig as QuicServerConfig,
     TransportConfig as QuicTransportConfig,
 };
 
