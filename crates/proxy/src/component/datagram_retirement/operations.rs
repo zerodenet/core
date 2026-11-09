@@ -67,6 +67,12 @@ impl RetiredDatagrams {
             }
         };
         if let Some(entry) = &removed {
+            {
+                let mut original = entry.lock().expect("Datagram entry poisoned");
+                assert!(original.reserved && original.control.is_none());
+                original.reserved = false;
+                original.closed = true;
+            }
             let returns = entry
                 .lock()
                 .expect("Datagram entry poisoned")

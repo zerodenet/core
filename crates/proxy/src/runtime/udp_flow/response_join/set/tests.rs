@@ -4,7 +4,7 @@ use std::{
     task::{Context, Poll, Wake, Waker},
     time::Duration,
 };
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::oneshot;
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(2)
 }
@@ -21,12 +21,11 @@ async fn actual_receiver_set_survives_cancelled_cleanup_and_lease_drop_until_the
 ) {
     let (owner, mut lease) = ResponseSetOwner::new(JoinSet::new());
     let record = ResponseTask::new();
-    let (_sender, mut receiver) = broadcast::channel::<Packet>(1);
+    let (_sender, receiver) = oneshot::channel::<Packet>();
     let (entered, receiving) = oneshot::channel();
     owner.evidence.spawn(&mut lease, &record, async move {
         entered.send(()).unwrap();
         receiver
-            .recv()
             .await
             .map_err(|error| std::io::Error::other(error).into())
     });

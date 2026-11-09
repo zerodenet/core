@@ -23,6 +23,12 @@ struct Observed {
 }
 #[async_trait::async_trait]
 impl PacketPathCarrier for Observed {
+    fn logical_registration(
+        &self,
+    ) -> Option<crate::component::datagram_retirement::DatagramRegistration> {
+        self.path.logical_registration()
+    }
+
     fn has_driver_handoff(&self) -> bool {
         self.path.has_driver_handoff()
     }

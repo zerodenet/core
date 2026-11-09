@@ -3,6 +3,7 @@ use super::*;
 use crate::component::instance::{retained, SharedError};
 use tokio::sync::Notify;
 mod observer;
+mod packet_receiver;
 mod process;
 mod responses;
 use zero_core::component::TaskId;
@@ -81,7 +82,9 @@ impl HostPeerBinding {
         parent: ComponentInstanceId,
         cancel: CancellationToken,
         registrar: zero_platform_tokio::contract::scope::WeakTaskRegistrar,
-        lookup_root: std::sync::Weak<zero_platform_tokio::controlled_carrier::CarrierOriginalTotals>,
+        lookup_root: std::sync::Weak<
+            zero_platform_tokio::controlled_carrier::CarrierOriginalTotals,
+        >,
     ) -> Self {
         Self {
             parent,

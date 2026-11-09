@@ -11,6 +11,19 @@ pub(super) struct PathKey {
 }
 
 impl PathKey {
+    pub(super) fn matches_sources(
+        &self,
+        carrier: &PacketPathCarrierDescriptor,
+        datagram: &super::model::EntryCandidate,
+    ) -> bool {
+        let source = datagram.datagram.descriptor();
+        self.carrier_key == carrier.cache_key
+            && self.datagram.tag == source.tag
+            && self.datagram.server == source.server
+            && self.datagram.port == source.port
+            && self.datagram.cache_key == source.cache_key
+    }
+
     pub(super) fn from_lookup(lookup: PacketPathLookupKey) -> Self {
         let (carrier_key, datagram) = lookup.into_path_parts();
         Self {

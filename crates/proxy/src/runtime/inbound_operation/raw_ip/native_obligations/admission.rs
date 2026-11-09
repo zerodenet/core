@@ -71,6 +71,9 @@ impl NativeRegistration {
                 || !record.additional_carriers.is_empty()
                 || !record.pending_carriers.is_empty()
                 || record.datagram.is_some()
+                || !record.logical_datagrams.is_empty()
+                || record.receiver_starting
+                || record.receiver.is_some()
             {
                 return Ok(None);
             }

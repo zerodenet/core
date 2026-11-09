@@ -56,6 +56,9 @@ impl NativeRegistration {
     }
 
     async fn settle(&self, deadline: Instant) -> Result<bool, ChannelError> {
+        if !self.receiver_released()? {
+            return Ok(false);
+        }
         if let Some(settled) = self.settle_dns(deadline).await? {
             return Ok(settled);
         }
@@ -70,7 +73,7 @@ impl NativeRegistration {
         let Some(owner) = self.owner.upgrade() else {
             return Ok(false);
         };
-        let (kind, caller, adoptions, datagram) = {
+        let (kind, caller, adoptions, datagram, logical) = {
             let state = owner.lock().unwrap_or_else(|error| error.into_inner());
             let Some(record) = state.records.get(&self.id) else {
                 return Ok(true);
@@ -92,6 +95,7 @@ impl NativeRegistration {
                     .cloned()
                     .collect::<Vec<_>>(),
                 record.datagram.clone(),
+                record.logical_datagrams.clone(),
             )
         };
         let Some(caller) = caller else {
@@ -111,6 +115,12 @@ impl NativeRegistration {
                 || actual.class() != joined.class()
                 || !actual.registration_released()
         }) {
+            return Ok(false);
+        }
+        if logical
+            .iter()
+            .any(|original| !original.belongs_to(&witness) || !original.closed())
+        {
             return Ok(false);
         }
         match kind {
@@ -139,19 +149,20 @@ impl NativeRegistration {
                 }
                 Ok(true)
             }
-            ChildKind::Udp => Ok(datagram.is_some_and(|provider| {
-                provider.closed().is_some_and(|closed| {
-                    let original = provider.identity();
-                    let actual = closed.identity();
-                    closed.matches(&provider)
-                        && actual.instance == original.instance
-                        && actual.association == original.association
-                        && actual.task == original.task
-                        && actual.task == joined.task()
-                        && closed.joined().task() == joined.task()
-                        && closed.joined().class() == joined.class()
-                })
-            })),
+            ChildKind::Udp => Ok((!logical.is_empty() || datagram.is_some())
+                && datagram.is_none_or(|provider| {
+                    provider.closed().is_some_and(|closed| {
+                        let original = provider.identity();
+                        let actual = closed.identity();
+                        closed.matches(&provider)
+                            && actual.instance == original.instance
+                            && actual.association == original.association
+                            && actual.task == original.task
+                            && actual.task == joined.task()
+                            && closed.joined().task() == joined.task()
+                            && closed.joined().class() == joined.class()
+                    })
+                })),
             ChildKind::Dns => Ok(false),
         }
     }
@@ -165,7 +176,12 @@ impl NativeObligations {
             .records
             .values()
             .any(|record| {
-                record.dns.is_some()
+                // A real receiver registration also needs this continuation
+                // to retain/accept its actual exit while Source collect runs.
+                // This changes progress only, never native coverage evidence.
+                record.receiver_starting
+                    || record.receiver.is_some()
+                    || record.dns.is_some()
                     || record.no_business_admission
                     || !record.pending_carriers.is_empty()
                     || record.gateways > 0
@@ -213,12 +229,17 @@ impl NativeObligations {
                 .map(|registration| registration.settle(deadline)),
         )
         .await;
-        let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
         let mut failure = None;
         for (registration, result) in registrations.iter().zip(settled) {
             match result {
                 Ok(true) => {
-                    state.records.remove(&registration.id);
+                    let removed = self
+                        .0
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .records
+                        .remove(&registration.id);
+                    drop(removed);
                 }
                 Ok(false) => {}
                 Err(error) => {

@@ -5,9 +5,9 @@ use zero_platform_tokio::contract::{
     BoxFuture, ChannelError, CloseReason,
 };
 pub(crate) struct DatagramReservation {
-    owner: Arc<RetiredDatagrams>,
-    id: u64,
-    entry: Arc<Mutex<Entry>>,
+    pub(super) owner: Arc<RetiredDatagrams>,
+    pub(super) id: u64,
+    pub(super) entry: Arc<Mutex<Entry>>,
     adopted: bool,
 }
 impl DatagramReservation {

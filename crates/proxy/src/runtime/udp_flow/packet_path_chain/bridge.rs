@@ -9,4 +9,4 @@ mod waiter;
 
 pub(super) use dispatch::dispatch_via_entry;
 pub(super) use recv::recv_loop;
-pub(super) use waiter::Waiter;
+pub(super) use waiter::Waiters;

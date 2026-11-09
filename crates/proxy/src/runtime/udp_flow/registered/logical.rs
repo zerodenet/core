@@ -148,7 +148,7 @@ impl LogicalConnection {
         let closed = self.0.closed.clone();
         owner.spawn(tasks, &self.0.reader, async move {
             match io.receive().await {
-                Ok((target, port, payload)) => Ok((target, port, payload, Some(session_id))),
+                Ok((target, port, payload)) => Ok((target, port, payload.into(), Some(session_id))),
                 Err(error) => {
                     closed.store(true, Ordering::Release);
                     Err(error)

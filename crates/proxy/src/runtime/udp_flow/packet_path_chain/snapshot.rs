@@ -1,8 +1,6 @@
-use std::collections::HashMap;
-
 use super::bridge::dispatch_via_entry;
 use super::key::PathKey;
-use super::model::Entry;
+use super::model::{CacheRow, Entry};
 use super::state::PacketPathManager;
 use crate::runtime::udp_flow::packet_path::{PacketPathLookupKey, UdpFlowContext, UdpPacketRef};
 use crate::runtime::udp_flow::result::FlowFailure;
@@ -13,18 +11,22 @@ pub(super) struct SnapshotLookup {
 }
 
 pub(super) fn lookup_entry(
-    upstreams: &HashMap<PathKey, Entry>,
+    upstreams: &[CacheRow],
     lookup: SnapshotLookup,
 ) -> Result<&Entry, FlowFailure> {
     let upstream = lookup.lookup_key.datagram_endpoint();
     let key = PathKey::from_lookup(lookup.lookup_key);
-    upstreams.get(&key).ok_or_else(|| FlowFailure {
-        stage: "packet_path_carrier_dropped",
-        error: EngineError::Io(std::io::Error::other(
-            "cached packet-path carrier not found",
-        )),
-        upstream: Some(upstream),
-    })
+    upstreams
+        .iter()
+        .find(|row| row.key == key)
+        .map(|row| &row.entry)
+        .ok_or_else(|| FlowFailure {
+            stage: "packet_path_carrier_dropped",
+            error: EngineError::Io(std::io::Error::other(
+                "cached packet-path carrier not found",
+            )),
+            upstream: Some(upstream),
+        })
 }
 
 pub(crate) struct SendWithSnapshotRequest<'a> {

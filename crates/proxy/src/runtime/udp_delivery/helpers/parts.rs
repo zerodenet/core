@@ -21,7 +21,7 @@ pub(crate) struct UdpDirectResponseParts<'payload> {
 pub(crate) struct UdpChainResponseParts {
     pub(crate) target: Address,
     pub(crate) port: u16,
-    pub(crate) payload: Vec<u8>,
+    pub(crate) payload: zero_traits::PacketBuffer,
     pub(crate) accounting: UdpInboundResponseAccounting,
 }
 

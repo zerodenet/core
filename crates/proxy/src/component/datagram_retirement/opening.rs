@@ -24,6 +24,7 @@ pub(crate) struct DatagramOpening {
     lease: Option<zero_platform_tokio::contract::lifecycle::BoxChannelControl>,
 }
 pub(crate) struct PendingOpen {
+    plan: Weak<crate::component::catalog::ComponentPlan>,
     source: Weak<CurrentServiceSource>,
     roles: Arc<[RoleInstanceId]>,
     limit: usize,
@@ -58,6 +59,7 @@ impl DatagramReservation {
             .map_err(|source| crate::component::instance::retained(source.clone()))?;
         let limit = plan.pending_carrier_capacity(&roles)?;
         let pending = Arc::new(PendingOpen {
+            plan: Arc::downgrade(plan),
             source: execution.current_source.clone(),
             roles: roles.into(),
             limit,

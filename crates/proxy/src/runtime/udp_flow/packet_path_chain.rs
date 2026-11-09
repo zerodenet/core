@@ -12,6 +12,7 @@ pub(crate) mod carriers;
 mod entry;
 mod key;
 mod model;
+mod receiver;
 mod snapshot;
 mod start;
 mod state;

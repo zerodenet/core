@@ -13,6 +13,13 @@ use zero_engine::EngineError;
 /// adapter's prepared packet-path operation, zero manager changes.
 #[async_trait]
 pub(crate) trait PacketPathCarrier: Send + Sync {
+    /// Same actual application-owned logical controller. This observes only
+    /// its exact original completion; it grants no Source or donor native IO.
+    fn logical_registration(
+        &self,
+    ) -> Option<crate::component::datagram_retirement::DatagramRegistration> {
+        None
+    }
     fn confirm_driver_handoff(
         &self,
         _driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
@@ -54,7 +61,7 @@ pub(crate) trait PacketPathCarrier: Send + Sync {
     }
 
     /// Presence only; a Kernel caller must already hold a sealed real handoff.
-    /// The explicit standalone library branch has no such packet memory root.
+    /// Other real callers keep their distinct original memory responsibility.
     fn has_driver_handoff(&self) -> bool {
         false
     }

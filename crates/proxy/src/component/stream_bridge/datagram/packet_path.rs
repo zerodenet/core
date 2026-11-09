@@ -27,6 +27,7 @@ use zero_platform_tokio::contract::{
     network::{UpstreamBinding, UpstreamTransport},
     CancellationToken, ChannelError, CloseReason, Reason,
 };
+mod business;
 mod path;
 pub(crate) mod relay;
 use path::Path;
@@ -36,6 +37,46 @@ pub(crate) struct StandardPacketPath {
     associated: bool,
 }
 impl StandardPacketPath {
+    /// Existing claimed operation supplies the exact old capability/grammar;
+    /// the actual installed role supplies its own generation and IO owner.
+    pub(crate) async fn build_installed(
+        operation: &dyn PreparedUdpPacketPathOperation,
+        services: &PacketPathExecutionServices,
+    ) -> Result<Option<Arc<dyn PacketPathCarrier>>, EngineError> {
+        if services.has_packet_driver_caller() || !services.has_business_invocation() {
+            return Ok(None);
+        }
+        let Some(descriptor) = operation.carrier_descriptor() else {
+            return Ok(None);
+        };
+        let Some(tag) = descriptor.tag.as_deref() else {
+            return Ok(None);
+        };
+        let execution = services.tcp();
+        let plan = execution
+            .components
+            .as_ref()
+            .map_err(|source| failure(crate::component::instance::retained(source.clone())))?;
+        let slot = plan
+            .configured(tag)
+            .ok_or_else(|| failure(invalid(Reason::Revoked, "packet carrier owner retired")))?;
+        if !slot
+            .recipe
+            .spec()
+            .roles
+            .contains(&zero_platform_tokio::contract::component::RoleKind::Datagram)
+        {
+            // An old legal transport still without an owning Factory remains
+            // an explicit compatibility caller. This is not a library grant.
+            return Ok(None);
+        }
+        let selected = Self {
+            selected: StreamRoleRef::new(&slot),
+            descriptor,
+            associated: operation.supports_associated_relay_carrier(),
+        };
+        selected.build_carrier(services.clone()).await.map(Some)
+    }
     pub(crate) fn prepare(
         slot: &Arc<ComponentSlot>,
         tag: &str,
@@ -110,6 +151,16 @@ impl PreparedUdpPacketPathOperation for StandardPacketPath {
             let caller = services
                 .packet_driver_call(slot.instance_id(), &binding)
                 .map_err(failure)?;
+            if caller.is_none() && services.has_business_invocation() {
+                return business::open_root(
+                    &execution,
+                    &slot,
+                    tag,
+                    &self.descriptor,
+                    services.packet_target(),
+                )
+                .await;
+            }
             let deadline = caller.as_ref().and_then(|caller| caller.call.deadline);
             // This is the existing local role-readiness bound, not a new total
             // lifetime on an actual caller whose original deadline is None.
