@@ -40,6 +40,7 @@ struct Record {
     // original task was really joined. Stream Drop alone does not refund it.
     _slot: LogicalUserPermit<Admission>,
     caller: Option<TaskJoinWitness>,
+    failed_caller: std::sync::OnceLock<zero_platform_tokio::contract::scope::TaskJoined>,
     packet_driver: Option<zero_platform_tokio::contract::component::PacketDriverCallRetained>,
     logical_closed: Option<Arc<std::sync::atomic::AtomicBool>>,
     packet_closed: Option<Arc<std::sync::atomic::AtomicBool>>,
@@ -146,13 +147,16 @@ impl FlowUsers {
             .first
             .clone();
         if let Some(first) = first {
-            self.revoke();
+            // This foreign caller's actual supervisor still owns the fault.
+            // Deny new admission until its receipt is accepted and released;
+            // do not cancel other healthy views merely to clear this ledger.
             return Err(crate::component::instance::retained(first));
         }
         let slot = self.slots.acquire()?;
         let record = Arc::new(Record {
             _slot: slot,
             caller: caller.map(|caller| caller.witness),
+            failed_caller: std::sync::OnceLock::new(),
             packet_closed,
             logical_closed: packet_driver
                 .as_ref()

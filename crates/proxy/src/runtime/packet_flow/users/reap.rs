@@ -1,55 +1,88 @@
 use super::*;
 impl FlowUsers {
     pub(super) fn reap(&self) {
-        // One actual row at a time. Predicate/Scope observations and removed
-        // user-permit drops never happen under this ledger's owner mutex.
-        let count = self
-            .state
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .records
-            .len();
-        let mut index = 0;
-        for _ in 0..count {
-            let record = self
-                .state
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .records
-                .get(index)
-                .cloned();
-            let Some(record) = record else { break };
-            if !record.returned() {
-                index += 1;
+        loop {
+            // Restart after one actual removal. A stable revision is required
+            // before publishing the first outstanding failure: concurrent
+            // reapers must not skip a secondary row or clear a new cause.
+            let (count, revision) = {
+                let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+                (state.records.len(), state.revision)
+            };
+            let mut first = None;
+            let mut retire = None;
+            for index in 0..count {
+                let record = {
+                    let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+                    if state.revision != revision {
+                        break;
+                    }
+                    state.records.get(index).cloned()
+                };
+                let Some(record) = record else { break };
+                if !record.returned() {
+                    continue;
+                }
+                if record.packet_closed.is_none() && record.packet_driver.is_none() {
+                    if let Some(joined) = record
+                        .caller
+                        .as_ref()
+                        .and_then(TaskJoinWitness::try_joined)
+                        .filter(|joined| joined.result().is_err())
+                    {
+                        // Retain the SAME original joined outcome, not another
+                        // failure receiver or a synthetic callee task receipt.
+                        let actual = record.failed_caller.get_or_init(|| joined.clone());
+                        let same_original = record
+                            .caller
+                            .as_ref()
+                            .is_some_and(|caller| caller.matches_joined(actual))
+                            && actual
+                                .result()
+                                .err()
+                                .zip(joined.result().err())
+                                .is_some_and(|(retained, observed)| {
+                                    Arc::ptr_eq(&retained, &observed)
+                                });
+                        if !same_original
+                            || !actual.failure_accepted()
+                            || !actual.registration_released()
+                        {
+                            first.get_or_insert_with(|| actual.result().unwrap_err());
+                            continue;
+                        }
+                    }
+                }
+                retire = Some(record);
+                break;
+            }
+            let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+            if state.revision != revision {
+                drop(state);
                 continue;
             }
-            let first = if record.packet_closed.is_none() && record.packet_driver.is_none() {
-                record
-                    .caller
-                    .as_ref()
-                    .and_then(TaskJoinWitness::try_joined)
-                    .and_then(|joined| joined.result().err())
-            } else {
-                None
-            };
-            let removed = {
-                let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-                if state.first.is_none() {
-                    state.first = first;
-                }
-                state
+            if let Some(record) = retire {
+                let position = state
                     .records
                     .iter()
                     .position(|same| Arc::ptr_eq(same, &record))
-                    .map(|at| {
-                        state.revision = state.revision.checked_add(1).unwrap_or_else(|| {
-                            state.unaccounted = true;
-                            state.revision
-                        });
-                        state.records.remove(at)
-                    })
-            };
-            drop(removed);
+                    .expect("same observed user revision");
+                state.revision = state.revision.checked_add(1).unwrap_or_else(|| {
+                    state.unaccounted = true;
+                    state.revision
+                });
+                let removed = state.records.remove(position);
+                drop(state);
+                // User permits, error payloads and their external wake/drop
+                // paths run only after the owning users mutex was released.
+                drop(removed);
+                drop(record);
+                continue;
+            }
+            let previous = std::mem::replace(&mut state.first, first);
+            drop(state);
+            drop(previous);
+            return;
         }
     }
 }
