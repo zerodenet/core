@@ -24,7 +24,9 @@ impl HostResources {
         Ok(
             HostNodeDnsSource::for_host(source.clone(), self.carriers.host_fence()?)
                 .with_memory_root(
-                    self.originals.dns_wire.clone(),
+                    zero_traits::packet_metadata::PacketMetadataBudget::from_counter(
+                        self.originals.dns_wire.clone(),
+                    ),
                     self.originals.packet.driver_metadata_view(),
                     instance,
                     tasks.scope_identity(),

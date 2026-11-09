@@ -34,6 +34,9 @@ impl PacketMetadataCandidateIssuer {
     pub fn same_counter(&self, counter: &Arc<PacketMetadataCounter>) -> bool {
         Arc::ptr_eq(&self.state.counter, counter)
     }
+    pub fn same_budget(&self, budget: &PacketMetadataBudget) -> bool {
+        Arc::ptr_eq(&self.state.counter, &budget.counter)
+    }
     pub fn same_candidate(&self, other: &Self) -> bool {
         PacketMetadataArc::ptr_eq(&self.state, &other.state)
     }
@@ -97,6 +100,9 @@ impl PacketMetadataCandidateSource {
     /// Pure identity of the actual Root's counter; no IO/Scope authority.
     pub fn same_counter(&self, counter: &Arc<PacketMetadataCounter>) -> bool {
         Arc::ptr_eq(&self.source.state.counter, counter)
+    }
+    pub fn same_budget(&self, budget: &PacketMetadataBudget) -> bool {
+        Arc::ptr_eq(&self.source.state.counter, &budget.counter)
     }
     /// Return memory authority, not native close, task join or Scope ACK.
     /// Existing original backing keeps its credit, even after rollback.

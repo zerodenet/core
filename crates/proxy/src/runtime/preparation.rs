@@ -137,7 +137,9 @@ pub(super) fn install_dns_wire(
         .install_limit(limits)
         .map_err(std::io::Error::other)?;
     let memory = zero_dns::DnsWireMemory::from_host(
-        originals.dns_wire.clone(),
+        zero_traits::packet_metadata::PacketMetadataBudget::from_counter(
+            originals.dns_wire.clone(),
+        ),
         originals.packet.driver_metadata_view(),
     );
     network.native_dns.bind_wire_memory(memory.clone())?;

@@ -5,8 +5,8 @@ use zero_platform_tokio::contract::{
     component::PacketDriverMetadataView, scope::TaskScopeIdentity,
 };
 use zero_traits::packet_metadata::{
-    PacketMemoryError, PacketMetadataCandidateCredit, PacketMetadataCandidateSource,
-    PacketMetadataCounter, PacketMetadataCredit, PacketMetadataLayout,
+    PacketMemoryError, PacketMetadataBudget, PacketMetadataCandidateCredit,
+    PacketMetadataCandidateSource, PacketMetadataCredit, PacketMetadataLayout,
 };
 mod buffer;
 mod lock;
@@ -17,7 +17,7 @@ pub(crate) use buffer::WireBuffer;
 pub use response::DnsWireResponse;
 #[derive(Clone)]
 pub struct DnsWireMemory {
-    counter: Arc<PacketMetadataCounter>,
+    counter: PacketMetadataBudget,
     pub(crate) metadata: PacketDriverMetadataView,
     source: Option<Source>,
 }
@@ -42,10 +42,7 @@ impl std::fmt::Debug for DnsWireMemory {
 impl DnsWireMemory {
     /// The actual Proxy passes its existing Host roots before local/cached
     /// answers can allocate. This does not create a counter or authorize IO.
-    pub fn from_host(
-        counter: Arc<PacketMetadataCounter>,
-        metadata: PacketDriverMetadataView,
-    ) -> Self {
+    pub fn from_host(counter: PacketMetadataBudget, metadata: PacketDriverMetadataView) -> Self {
         Self {
             counter,
             metadata,
@@ -53,10 +50,7 @@ impl DnsWireMemory {
         }
     }
     pub fn same_root(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.counter, &other.counter) && self.metadata.same_root(&other.metadata)
-    }
-    pub fn matches_counter(&self, counter: &Arc<PacketMetadataCounter>) -> bool {
-        Arc::ptr_eq(&self.counter, counter)
+        self.counter.same_budget(&other.counter) && self.metadata.same_root(&other.metadata)
     }
     /// Only the actual Factory binds the real target Source instance/Scope.
     /// A provisional permit comes from the same accepted ConfigAttempt and
@@ -69,7 +63,7 @@ impl DnsWireMemory {
     ) -> io::Result<Self> {
         if provisional
             .as_ref()
-            .is_some_and(|source| !source.same_counter(&self.counter))
+            .is_some_and(|source| !source.same_budget(&self.counter))
         {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
@@ -90,7 +84,7 @@ impl DnsWireMemory {
         &self,
         issuer: &zero_traits::packet_metadata::PacketMetadataCandidateIssuer,
     ) -> io::Result<Option<zero_platform_tokio::contract::dns::DnsWireAllocation>> {
-        if !issuer.same_counter(&self.counter) {
+        if !issuer.same_budget(&self.counter) {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "DNS warm candidate belongs to another Host",

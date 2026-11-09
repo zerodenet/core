@@ -8,6 +8,8 @@ use core::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     task::Waker,
 };
+mod budget;
+pub use budget::PacketMetadataBudget;
 mod counter;
 mod custody;
 mod header;

@@ -26,7 +26,7 @@ impl HostNodeDnsSource {
 
 #[derive(Clone)]
 struct Memory {
-    counter: Arc<zero_traits::packet_metadata::PacketMetadataCounter>,
+    counter: zero_traits::packet_metadata::PacketMetadataBudget,
     metadata: crate::contract::component::PacketDriverMetadataView,
     instance: zero_core::component::ComponentInstanceId,
     scope: crate::contract::scope::TaskScopeIdentity,
@@ -36,7 +36,7 @@ impl HostNodeDnsSource {
     /// the existing private fence continues to seal every IO issuer.
     pub fn with_memory_root(
         mut self,
-        counter: Arc<zero_traits::packet_metadata::PacketMetadataCounter>,
+        counter: zero_traits::packet_metadata::PacketMetadataBudget,
         metadata: crate::contract::component::PacketDriverMetadataView,
         instance: zero_core::component::ComponentInstanceId,
         scope: crate::contract::scope::TaskScopeIdentity,
@@ -58,7 +58,7 @@ impl HostNodeDnsSource {
         if !self
             .memory
             .as_ref()
-            .is_some_and(|memory| issuer.same_counter(&memory.counter))
+            .is_some_and(|memory| issuer.same_budget(&memory.counter))
         {
             return Err(crate::contract::ChannelError::new(
                 crate::contract::Stage::Prepare,

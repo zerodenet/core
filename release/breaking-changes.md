@@ -1116,3 +1116,5 @@ Source 可在同次 warm 中取得预付的候选内存；失败恢复原准入�
 错误帧。真正的 standalone provider 保留显式原 owner 与库责任，Kernel 缺 book 不回退。
 V1 控制 JSON、DNS wire、默认 UDP/DoH 能力、Query 原 deadline/Scope/原 pool 与 ACK 不变。
 新源码及新增回归尚需实际同输入编测；不代表完整 DNS/控制域或全部高级 donor 已完成。
+
+DNS wire配套收窄：`ResourceAccess::dns_wire_buffer_budget` 返回同原Counter的 `PacketMetadataBudget` 分配视图，只有reserve/snapshot/identity，不再把原Arc/limit setter/候选发行权交给协议consumer。`DnsWireMemory::from_host`、实际Node source内存装配同步消费该视图；配置候选仍仅真实Host/原Proxy Apply持有。此为Rust签名变化，未改配置/wire shape，不新增账本或分配。

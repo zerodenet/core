@@ -229,3 +229,43 @@ fn rejection_drop_and_actual_credit_release_reenter_the_same_counter_outside_its
     );
     assert_eq!(counter.snapshot().occupied, owned());
 }
+
+#[test]
+fn consumer_budget_is_the_same_original_lane_and_only_actual_host_candidate_can_release_growth() {
+    use zero_traits::packet_metadata::PacketMetadataBudget;
+    let header = headers();
+    let counter = PacketMetadataCounter::new_owned(bytes(32)).unwrap();
+    let view = PacketMetadataBudget::from_counter(counter.clone());
+    let same = view.clone();
+    assert!(view.same_budget(&same));
+    let other =
+        PacketMetadataBudget::from_counter(PacketMetadataCounter::new_owned(bytes(32)).unwrap());
+    assert!(!view.same_budget(&other));
+    let original = view
+        .reserve(PacketMetadataLayout::new(1, 32), Waker::noop().clone())
+        .unwrap();
+    assert_eq!(view.snapshot(), counter.snapshot());
+    let candidate = prepare(&counter, &header, bytes(128));
+    let issuer = candidate.issuer();
+    assert!(issuer.same_budget(&view));
+    assert!(!issuer.same_budget(&other));
+    assert_eq!(
+        same.reserve(PacketMetadataLayout::new(1, 1), Waker::noop().clone())
+            .err(),
+        Some(PacketMemoryError::Busy)
+    );
+    candidate.seal().unwrap();
+    candidate.validate_publication().unwrap();
+    candidate.commit_validated_deferred();
+    assert_eq!(view.snapshot().limit, bytes(32));
+    candidate.publish();
+    let fresh = same
+        .reserve(PacketMetadataLayout::new(1, 64), Waker::noop().clone())
+        .unwrap();
+    assert_eq!(counter.snapshot().occupied, view.snapshot().occupied);
+    drop(fresh);
+    drop(original);
+    drop(issuer);
+    drop(candidate);
+    assert_eq!(view.snapshot().occupied, owned());
+}
