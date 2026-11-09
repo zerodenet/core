@@ -7,6 +7,8 @@ use zero_platform_tokio::contract::{
     scope::{TaskJoinWitness, TaskScopeIdentity},
 };
 mod close;
+#[cfg(all(feature = "raw-ip-runtime", target_os = "macos"))]
+mod macos_helper;
 #[cfg(feature = "raw-ip-runtime")]
 mod memory;
 #[cfg(feature = "raw-ip-runtime")]

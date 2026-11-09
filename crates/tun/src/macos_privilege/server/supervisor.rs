@@ -4,10 +4,21 @@ impl Server {
         &mut self,
         stream: &mut UnixStream,
         id: u64,
+        request_capacity: usize,
     ) -> io::Result<()> {
         if self.supervisor.is_some() || self.transfer.is_some() {
             return Err(io::Error::other("same helper supervisor already attempted"));
         }
+        if request_capacity < 65_536 {
+            return Err(io::Error::other("helper request framing grant is invalid"));
+        }
+        // The actual parent prepaid this exact peer workspace before launching
+        // this process. It remains charged through its physical exit/Scope ACK.
+        let mut request = Box::<[u8]>::new_uninit_slice(request_capacity);
+        for byte in &mut request {
+            byte.write(0);
+        }
+        self.request = Some(unsafe { request.assume_init() });
         self.transfer = Some(Transfer::new(id));
         let transfer = self.transfer.as_ref().unwrap();
         transfer.submit_create();

@@ -7,6 +7,7 @@ pub(super) struct ProcessExit {
     pid: libc::pid_t,
     nonce: u64,
     live: bool,
+    registered: bool,
     exited: bool,
 }
 /// Issued only after the original NOTE_EXIT registration and the same process's
@@ -27,6 +28,7 @@ impl ProcessExit {
             pid: 0,
             nonce: 0,
             live: false,
+            registered: false,
             exited: false,
         }
     }
@@ -67,12 +69,19 @@ impl ProcessExit {
         if result.data != 0 {
             return Err(io::Error::from_raw_os_error(result.data as i32));
         }
+        self.registered = true;
         Ok(())
+    }
+    pub(super) fn registered_for(&self, pid: libc::pid_t, nonce: u64) -> bool {
+        self.registered
+            && self.pid == pid
+            && self.nonce == nonce
+            && self.event.as_ref().is_some_and(Original::usable)
     }
     /// Only the owning wire reader calls this after reading the matching LIVE
     /// frame. Registering a PID or finding it missing never supplies liveness.
     pub(super) fn observe_live(&mut self, pid: libc::pid_t, nonce: u64) -> io::Result<()> {
-        if self.pid != pid || self.nonce != nonce || self.event.is_none() {
+        if !self.registered_for(pid, nonce) {
             return Err(io::Error::other("process LIVE belongs to another original"));
         }
         self.live = true;

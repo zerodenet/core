@@ -3,8 +3,13 @@ use super::*;
 impl Epoch {
     pub(super) fn connect(&mut self) -> io::Result<()> {
         if self.stage == Stage::Cold {
-            self.native.begin(self.id)?;
-            self.stage = Stage::Accept;
+            let began = self.native.begin(self.id);
+            // A late fallible step after spawn must not replay authorization
+            // or lose the already retained accept/Child continuation.
+            if began.is_ok() || self.native.child.is_some() {
+                self.stage = Stage::Accept;
+            }
+            began?;
         }
         if self.stage == Stage::Accept {
             self.native.accept(self.id)?;
@@ -18,7 +23,10 @@ impl Epoch {
             self.native.authenticate(self.id, &response)?;
             self.tools.prepare(self.id)?;
             self.rpc.begin(
-                &HelperRequest::InstallSupervisor { transfer: self.id },
+                &HelperRequest::InstallSupervisor {
+                    transfer: self.id,
+                    request_capacity: self.rpc.request_capacity(),
+                },
                 None,
             )?;
             self.stage = Stage::SupervisorRequest;

@@ -162,7 +162,9 @@ mod macos_privilege;
 #[cfg(all(feature = "device", target_os = "macos"))]
 pub use macos::Utun;
 #[cfg(all(feature = "device", target_os = "macos"))]
-pub use macos_privilege::run_utun_create_helper;
+pub use macos_privilege::session::{MacosHelperAccess, MacosHelperContext, MacosHelperLease};
+#[cfg(all(feature = "device", target_os = "macos"))]
+pub use macos_privilege::{run_owned_utun_create_helper, run_utun_create_helper};
 
 #[cfg(all(feature = "device", target_os = "windows"))]
 mod windows;
@@ -197,4 +199,11 @@ pub fn create(name: Option<&str>) -> io::Result<impl TunDevice> {
             "TUN is not yet supported on this platform",
         ))
     }
+}
+
+/// Actual process credential fact for the existing nonroot Create helper duty.
+/// It gives no Scope/Native authority and never acquires a descriptor.
+#[cfg(all(feature = "device", target_os = "macos"))]
+pub fn macos_utun_create_needs_helper_worker() -> bool {
+    (unsafe { libc::geteuid() }) != 0
 }

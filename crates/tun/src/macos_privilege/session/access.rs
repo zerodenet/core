@@ -61,6 +61,7 @@ impl MacosHelperOwner {
         arguments: &[String],
         input: Option<&str>,
     ) -> io::Result<Output> {
+        let _notifications = self.0.memory.defer_notifications();
         self.0.prepare_actor_wake()?;
         let index = self.0.current.load(Ordering::Acquire);
         let mut epoch = self.0.epochs[index]
@@ -82,25 +83,25 @@ impl MacosHelperOwner {
                 "prior command continuation still owns this helper",
             ));
         }
-        epoch.command = epoch
+        let next = epoch
             .command
             .checked_add(1)
             .ok_or_else(|| io::Error::other("helper command sequence exhausted"))?;
         let nonce = epoch
             .id
-            .checked_add(epoch.command)
+            .checked_add(next)
             .ok_or_else(|| io::Error::other("helper command nonce overflow"))?;
+        let request = HelperRequest::OwnedCommand {
+            program,
+            arguments: arguments.to_vec(),
+            input: input.map(str::to_owned),
+            nonce,
+            output_limit: self.0.output_limit,
+        };
+        epoch.ensure_request_capacity(&request, &self.0.memory)?;
+        epoch.command = next;
         epoch.tools.begin(nonce)?;
-        epoch.rpc.begin(
-            &HelperRequest::OwnedCommand {
-                program,
-                arguments: arguments.to_vec(),
-                input: input.map(str::to_owned),
-                nonce,
-                output_limit: self.0.output_limit,
-            },
-            Some(nonce),
-        )?;
+        epoch.rpc.begin(&request, Some(nonce))?;
         if let Err(source) = epoch.drive_rpc() {
             self.0.retain(index, Phase::ToolProgress, source);
             return Err(io::Error::other(self.0.failures.clone().into_error()));
@@ -123,6 +124,27 @@ impl Drop for MacosHelperContext {
     }
 }
 impl MacosHelperLease {
+    /// Epoch one belongs to this SAME actual route duty, since the initial
+    /// helper actor has already joined/ACKed before its creation was allowed.
+    /// Keep this body alive through its own helper's original close receipts.
+    pub fn finish_cleanup(&self) -> io::Result<()> {
+        if self.owner.0.current.load(Ordering::Acquire) == 0 {
+            return Ok(());
+        }
+        loop {
+            let result = self.owner.finish_registered_epoch(1);
+            if self.owner.require_closed().is_ok() {
+                return result;
+            }
+            if let Err(source) = result {
+                self.owner.0.retain(1, Phase::Shutdown, source);
+            }
+            self.owner.wait_original_progress(1);
+        }
+    }
+    pub fn require_closed(&self) -> io::Result<()> {
+        self.owner.require_closed()
+    }
     pub fn enter(&self) -> io::Result<MacosHelperContext> {
         self.owner.enter()
     }

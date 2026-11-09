@@ -483,7 +483,8 @@ fn family(ipv6: bool) -> &'static str {
 fn run_route(arguments: &[String]) -> io::Result<Vec<u8>> {
     let program = route_program();
     let output = if arguments.iter().any(|argument| argument == "get") {
-        Command::new(program).args(arguments).output()
+        crate::macos_privilege::route_query(arguments)
+            .unwrap_or_else(|| Command::new(program).args(arguments).output())
     } else {
         crate::macos_privilege::output(program, arguments)
     }

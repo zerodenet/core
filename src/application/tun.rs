@@ -148,18 +148,26 @@ pub async fn execute(
             }
             Ok(())
         }
-        Command::MacosTunCreateHelper { socket_path, name } => {
+        Command::MacosTunCreateHelper {
+            socket_path,
+            name,
+            owned,
+        } => {
             #[cfg(target_os = "macos")]
             {
-                zero_tun::run_utun_create_helper(
-                    std::path::Path::new(&socket_path),
-                    name.as_deref(),
-                )?;
+                if owned {
+                    zero_tun::run_owned_utun_create_helper(std::path::Path::new(&socket_path))?;
+                } else {
+                    zero_tun::run_utun_create_helper(
+                        std::path::Path::new(&socket_path),
+                        name.as_deref(),
+                    )?;
+                }
                 Ok(())
             }
             #[cfg(not(target_os = "macos"))]
             {
-                let _ = (socket_path, name);
+                let _ = (socket_path, name, owned);
                 Err("macOS TUN helper is unavailable on this platform".into())
             }
         }

@@ -27,9 +27,8 @@ pub(super) fn ensure_scoped_bypass(
 fn scoped_bypass_exists(ipv6: bool, egress_name: &str) -> io::Result<bool> {
     let arguments = scoped_bypass_get_arguments(ipv6, egress_name);
     let program = route_program();
-    let output = Command::new(program)
-        .args(&arguments)
-        .output()
+    let output = crate::macos_privilege::route_query(&arguments)
+        .unwrap_or_else(|| Command::new(program).args(&arguments).output())
         .map_err(|error| io::Error::new(error.kind(), format!("execute `{program}`: {error}")))?;
     if output.status.success() {
         return Ok(route_output_has_scoped_flag(&output.stdout));

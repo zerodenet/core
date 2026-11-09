@@ -8,7 +8,7 @@ pub struct HostOriginalBudgets {
     /// Actual component/inbound task registrations through their real ACK.
     pub component_tasks:
         std::sync::Arc<zero_platform_tokio::contract::scope::TaskRegistrationBudget>,
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
     pub process: std::sync::Arc<zero_platform_tokio::owned_process::ProcessBudget>,
     /// Same pure memory Root even when native packet IO is not compiled.
     pub packet: std::sync::Arc<zero_tun::packet_memory::PacketReturnTotals>,
@@ -28,6 +28,10 @@ impl HostOriginalBudgets {
             component_tasks: Arc::default(),
             #[cfg(any(target_os = "linux", windows))]
             process: Arc::default(),
+            #[cfg(target_os = "macos")]
+            process: zero_platform_tokio::owned_process::ProcessBudget::new_for_host(
+                packet.driver_metadata_view(),
+            ),
             packet,
         }
     }
@@ -146,7 +150,7 @@ impl HostOriginalBudgets {
                 std::num::NonZeroUsize::new(limit).expect("validated positive cap"),
             )
             .map_err(prepare_error)?;
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(target_os = "linux", target_os = "macos", windows))]
         self.process
             .check_install(zero_platform_tokio::owned_process::ProcessBudgetLimits {
                 max_jobs: runtime.effective_process_max_jobs(),
@@ -208,7 +212,7 @@ impl HostOriginalBudgets {
                 )
                 .with_source(source)
             })?;
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(target_os = "linux", target_os = "macos", windows))]
         self.process
             .install(zero_platform_tokio::owned_process::ProcessBudgetLimits {
                 max_jobs: runtime.effective_process_max_jobs(),
@@ -249,7 +253,7 @@ impl HostOriginalBudgets {
         let waker = std::task::Waker::from(self.carrier_wake.clone());
         let mut cx = std::task::Context::from_waker(&waker);
         self.carrier.poll_cancelled_retirements(&mut cx);
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(target_os = "linux", target_os = "macos", windows))]
         self.process.poll_released(&mut cx);
     }
 }

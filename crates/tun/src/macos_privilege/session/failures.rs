@@ -1,4 +1,4 @@
-//! Two concrete helper epochs, each with nine independent actual close phases.
+//! Two concrete helper epochs, each with ten independent actual close phases.
 //! This payload has no Source/Scope/controller edge back to its owning Session.
 use super::*;
 use std::{fmt, sync::OnceLock};

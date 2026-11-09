@@ -48,6 +48,7 @@ impl OrchestrationState {
                 || old.runtime.effective_system_tun_max_tcp_dns_connections()
                     != next.runtime.effective_system_tun_max_tcp_dns_connections()
                 || budget_barrier::windows_ring_budget_changed(old, next)
+                || budget_barrier::macos_helper_budget_changed(old, next)
                 || budget_barrier::carrier_budget_changed(old, next)
                 || old.runtime.system_tun_task_limit != next.runtime.system_tun_task_limit
                 || old.runtime.tun != next.runtime.tun

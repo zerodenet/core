@@ -1,5 +1,8 @@
 //! Same original Scope census; never a reconstructed registrar or task receipt.
 use super::*;
+mod completion;
+pub(super) use completion::CompletionFlag;
+pub use completion::ScopeRetirementCompletion;
 
 /// Issued only by the actual registrar. This keeps that original census alive
 /// after a provider is transferred. It cannot join, cancel, register, ACK or

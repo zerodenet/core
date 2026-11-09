@@ -12,6 +12,8 @@ type Backend = crate::Utun;
 mod create;
 mod io_view;
 #[cfg(target_os = "macos")]
+mod macos_helper;
+#[cfg(target_os = "macos")]
 mod macos_memory;
 pub use io_view::AdoptedTunIo;
 
@@ -43,6 +45,10 @@ impl std::error::Error for TunAcquisitionError {
 /// is one reservation, not a retry pool. Unknown originals remain charged.
 pub struct AdoptedTunOwner {
     state: Mutex<State>,
+    #[cfg(target_os = "macos")]
+    creating: std::sync::atomic::AtomicBool,
+    #[cfg(target_os = "macos")]
+    macos_helper: std::sync::OnceLock<crate::macos_privilege::session::MacosHelperOwner>,
     acquisition_failure: Mutex<Option<Arc<io::Error>>>,
     created: std::sync::atomic::AtomicBool,
     #[cfg(target_os = "macos")]
@@ -77,6 +83,10 @@ impl AdoptedTunOwner {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
             state: Mutex::new(State::Cold),
+            #[cfg(target_os = "macos")]
+            creating: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(target_os = "macos")]
+            macos_helper: std::sync::OnceLock::new(),
             acquisition_failure: Mutex::new(None),
             created: std::sync::atomic::AtomicBool::new(false),
             #[cfg(target_os = "macos")]
@@ -206,7 +216,17 @@ impl AdoptedTunOwner {
     pub fn close(&self) -> Result<Arc<TunCloseReceipt>, Arc<io::Error>> {
         #[cfg(target_os = "macos")]
         let _notifications = self.macos_memory.get().map(|memory| memory.notifications());
-        close_state(&mut self.lock(), "")
+        let mut state = self.lock();
+        #[cfg(target_os = "macos")]
+        if self.creating.load(std::sync::atomic::Ordering::Acquire)
+            || matches!(*state, State::Acquiring)
+        {
+            return Err(Arc::new(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "actual utun initialization has not returned",
+            )));
+        }
+        close_state(&mut state, "")
     }
     fn register_backend(
         &self,

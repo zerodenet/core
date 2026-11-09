@@ -12,6 +12,14 @@ pub(super) fn run(original: Arc<Shared>) -> Result<(), ChannelError> {
                 "same route worker input was already consumed",
             )
         })?;
+    #[cfg(target_os = "macos")]
+    let helper = original.metadata.macos_helper_lease()?;
+    // The actual blocking route duty owns this lease for discovery, route/PF
+    // mutation and final cleanup. No global helper fallback is available.
+    #[cfg(target_os = "macos")]
+    let mut helper_context = Some(helper.enter().map_err(|source| {
+        error(Reason::Io, "same Source helper context failed").with_source(source)
+    })?);
     let mut fault = None;
     while !original.closing.load(Ordering::Acquire) {
         let Some(job) = received.blocking_recv() else {
@@ -26,7 +34,7 @@ pub(super) fn run(original: Arc<Shared>) -> Result<(), ChannelError> {
                         .unwrap_or_else(|error| error.into_inner());
                     (native.spec.dns_hijack, native.spec.strict_route)
                 };
-                let result = prepare(&config, hijack).or_else(|source| {
+                let result = prepare(&config, hijack, &original).or_else(|source| {
                     if strict { Err(source) } else {
                         tracing::warn!(%source,"TUN DNS interception disabled after preparation failure");
                         Ok(crate::inbound::tun::PreparedTunNetwork {dns_hijack:false,route_exclusions:vec![]})
@@ -80,7 +88,7 @@ pub(super) fn run(original: Arc<Shared>) -> Result<(), ChannelError> {
                     .unwrap_or_else(|error| error.into_inner())
                     .spec
                     .dns_hijack;
-                let result = prepare(&config, hijack).and_then(|prepared| {
+                let result = prepare(&config, hijack, &original).and_then(|prepared| {
                     original
                         .native
                         .lock()
@@ -103,6 +111,31 @@ pub(super) fn run(original: Arc<Shared>) -> Result<(), ChannelError> {
     }
     let mut close_fault = None;
     loop {
+        #[cfg(target_os = "macos")]
+        {
+            // Re-enter only the same helper's fixed cleanup epoch. Drop TLS
+            // before observing another real actor's join/ACK so no recursive
+            // helper command can be dispatched through a retired context.
+            drop(helper_context.take());
+            match helper.prepare_cleanup() {
+                Ok(context) => helper_context = Some(context),
+                Err(source) if source.kind() == io::ErrorKind::WouldBlock => {
+                    if let Err(source) = tokio::runtime::Handle::current()
+                        .block_on(original.metadata.wait_macos_helper_actor_returned())
+                    {
+                        close_fault.get_or_insert_with(|| Arc::new(io::Error::other(source)));
+                    }
+                    continue;
+                }
+                Err(source) => {
+                    close_fault.get_or_insert_with(|| Arc::new(source));
+                    // Native unknown stays on this worker. No new helper or
+                    // replacement epoch can be started without its receipts.
+                    std::thread::park_timeout(ROUTE_RETRY_DELAYS[0]);
+                    continue;
+                }
+            }
+        }
         let monitor = original.monitor_io.blocking_lock().close();
         let routes = original
             .native
@@ -119,7 +152,16 @@ pub(super) fn run(original: Arc<Shared>) -> Result<(), ChannelError> {
         } else {
             Err(io::Error::other(CleanupFailures(failures)))
         } {
-            Ok(()) => break,
+            Ok(()) => {
+                #[cfg(target_os = "macos")]
+                if let Err(source) = helper.finish_cleanup() {
+                    close_fault.get_or_insert_with(|| Arc::new(source));
+                    if helper.require_closed().is_err() {
+                        continue;
+                    }
+                }
+                break;
+            }
             Err(source) => {
                 close_fault.get_or_insert_with(|| Arc::new(source));
                 // Failed cleanup keeps this actual worker and native originals
@@ -128,6 +170,11 @@ pub(super) fn run(original: Arc<Shared>) -> Result<(), ChannelError> {
                 std::thread::park_timeout(ROUTE_RETRY_DELAYS[0]);
             }
         }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        drop(helper_context.take());
+        drop(helper); // actual route responsibility ends, waking original actor
     }
     original
         .observed
@@ -153,14 +200,21 @@ pub(super) fn run(original: Arc<Shared>) -> Result<(), ChannelError> {
 fn prepare(
     config: &zero_config::RuntimeConfig,
     hijack: bool,
+    original: &Shared,
 ) -> Result<crate::inbound::tun::PreparedTunNetwork, SourceError> {
-    let (dns_hijack, mut route_exclusions) = crate::inbound::tun::config::prepare_dns_routes(
-        config,
-        hijack,
-        true,
-        zero_platform_tokio::system_dns_servers,
-    )
-    .map_err(Arc::new)?;
+    let (dns_hijack, mut route_exclusions) =
+        crate::inbound::tun::config::prepare_dns_routes(config, hijack, true, || {
+            #[cfg(target_os = "macos")]
+            {
+                original.metadata.macos_system_dns_servers()
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = original;
+                zero_platform_tokio::system_dns_servers()
+            }
+        })
+        .map_err(Arc::new)?;
     route_exclusions.retain(|address| crate::inbound::tun::tun_route_exclusion_required(*address));
     route_exclusions.sort_unstable();
     route_exclusions.dedup();

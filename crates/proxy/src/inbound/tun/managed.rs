@@ -50,6 +50,8 @@ impl Proxy {
         config: Arc<zero_config::RuntimeConfig>,
         recovery: Option<Arc<budget::TunBudgetRecovery>>,
     ) -> Result<(), EngineError> {
+        #[cfg(target_os = "macos")]
+        let helper_request_capacity = macos_helper_request_capacity(&start, &config)?;
         let id = NEXT_TUN_ID
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| io::Error::other("System TUN identity space is exhausted"))?;
@@ -66,6 +68,18 @@ impl Proxy {
             .task_limit(true)
             .map_err(io::Error::other)?
             .checked_add(1 + if start.options.auto_route { 2 } else { 0 })
+            .and_then(|tasks| {
+                tasks.checked_add({
+                    #[cfg(target_os = "macos")]
+                    {
+                        usize::from(zero_tun::macos_utun_create_needs_helper_worker())
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        0
+                    }
+                })
+            })
             .ok_or_else(|| io::Error::other("System TUN actual task ceiling overflow"))?;
         let limit = NonZeroUsize::new(config.runtime.effective_system_tun_task_limit(actual_tasks))
             .ok_or_else(|| io::Error::other("System TUN task ceiling must be positive"))?;
@@ -137,6 +151,9 @@ impl Proxy {
             route_recovery: None,
         });
         let result=async {
+            #[cfg(target_os="macos")]
+            metadata.install_macos_helper(lease.prepare_macos_helper(config.runtime.effective_file_read_max_bytes(),helper_request_capacity)?)
+                .map_err(std::io::Error::other)?;
             let (route_recovery,recovery)=tokio::sync::mpsc::channel(1);
             let prepared=if let Some(routes)=&routes{
                 let tasks=lease.preparation_tasks()?;
@@ -251,4 +268,45 @@ impl std::error::Error for StartFailure {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(&self.source)
     }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_helper_request_capacity(
+    start: &Start,
+    config: &zero_config::RuntimeConfig,
+) -> Result<usize, EngineError> {
+    if !start.options.auto_route {
+        return Ok(65_536);
+    }
+    let protected = start
+        .route_addresses
+        .iter()
+        .try_fold(0usize, |count, (address, _)| {
+            count.checked_add(
+                zero_tun::capture_route_prefixes_with_exclusions(
+                    *address,
+                    &start.options.include_cidrs,
+                    &start.options.exclude_cidrs,
+                )
+                .len(),
+            )
+        })
+        .ok_or_else(|| io::Error::other("actual helper prefix layout overflow"))?;
+    // Existing system-DNS snapshot truncates to 32. The other entries come
+    // from this actual candidate's pure literal endpoint projection, no DNS IO.
+    let excluded = config::configured_dns_endpoint_addresses_with(config, || Ok(Vec::new()))?
+        .len()
+        .checked_add(32)
+        .ok_or_else(|| io::Error::other("actual helper exclusion layout overflow"))?;
+    // Removing IPv6 loopback splits a /0 at most 128 ways. 80 bytes covers
+    // each concrete numeric PF line and its JSON newline escaping; fixed
+    // command/name/header overhead is separate. This is allocated layout,
+    // never another per-Source policy or substitute for the Host total.
+    protected
+        .checked_mul(128)
+        .and_then(|count| count.checked_add(excluded))
+        .and_then(|count| count.checked_mul(80))
+        .and_then(|bytes| bytes.checked_add(1024))
+        .map(|bytes| bytes.max(65_536))
+        .ok_or_else(|| io::Error::other("actual helper request layout overflow").into())
 }

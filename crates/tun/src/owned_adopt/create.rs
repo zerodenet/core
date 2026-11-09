@@ -8,6 +8,10 @@ impl AdoptedTunOwner {
         self: &Arc<Self>,
         name: Option<&str>,
     ) -> Result<AdoptedTunIo, TunAcquisitionError> {
+        #[cfg(target_os = "macos")]
+        if self.macos_helper.get().is_some() && unsafe { libc::geteuid() } != 0 {
+            return self.create_with_retained_helper(name);
+        }
         #[cfg(target_os = "linux")]
         let remote = false;
         #[cfg(target_os = "macos")]

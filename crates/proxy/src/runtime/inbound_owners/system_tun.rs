@@ -15,6 +15,8 @@ use zero_platform_tokio::contract::{
 pub(crate) const SYSTEM_TUN_OWNER: &str = "\0system-tun";
 pub(crate) struct SystemTunLease {
     owner: Arc<InboundOwner>,
+    #[cfg(target_os = "macos")]
+    resources: Arc<HostResources>,
     installed: InboundInstallContext,
     recipe: ComponentRecipe,
     armed: bool,
@@ -117,11 +119,30 @@ impl InboundOwnerRegistry {
             .map_err(|_| std::io::Error::other("same System TUN device class already installed"))?;
         let owner = Arc::new(owner);
         owner.begin_listener_installation();
+        #[cfg(target_os = "macos")]
+        let resources = {
+            let tasks = owner.accepted_registrar().clone();
+            let resources = HostResources::new_hosted(
+                owner.identity(),
+                &recipe.spec().resources,
+                owner.task_access().cancellation(),
+                tasks.downgrade(),
+                protocols.runtime_host().original_budgets(),
+            )
+            .map_err(std::io::Error::other)?;
+            owner.install_after_scope_resource(
+                owner.identity(),
+                erase_lifecycle(Native(resources.clone())),
+            )?;
+            resources
+        };
         active.insert(SYSTEM_TUN_OWNER.into(), owner.clone());
         drop(reserved);
         drop(active);
         self.mark_listener_generation();
         Ok(SystemTunLease {
+            #[cfg(target_os = "macos")]
+            resources,
             installed: InboundInstallContext {
                 entry: owner.clone(),
                 protocols: protocols.clone(),
@@ -153,6 +174,29 @@ impl SystemTunLease {
         self.owner.preparation_tasks()
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) fn prepare_macos_helper(
+        &self,
+        output_limit: usize,
+        request_capacity: usize,
+    ) -> Result<
+        (
+            zero_platform_tokio::contract::component::PacketDeviceIdentity,
+            zero_tun::MacosHelperAccess,
+            Option<zero_platform_tokio::contract::scope::TaskJoinWitness>,
+            std::sync::Weak<dyn ResourceAccess>,
+        ),
+        EngineError,
+    > {
+        self.owner.preparation_tasks()?;
+        let (identity, access, driver) = self
+            .resources
+            .prepare_macos_packet_helper("system.tun.original", output_limit, request_capacity)
+            .map_err(std::io::Error::other)?;
+        let resources: Arc<dyn ResourceAccess> = self.resources.clone();
+        Ok((identity, access, driver, Arc::downgrade(&resources)))
+    }
+
     /// All child resources enter the same retained owner before spawn_driver
     /// snapshots it. Native identity is read only after the real start acquires.
     pub(crate) fn start(
@@ -165,6 +209,9 @@ impl SystemTunLease {
         let identity = self.owner.identity();
         let tasks = self.owner.accepted_registrar().clone();
         let cancel = self.owner.task_access().cancellation();
+        #[cfg(target_os = "macos")]
+        let resources = self.resources.clone();
+        #[cfg(not(target_os = "macos"))]
         let resources = HostResources::new_hosted(
             identity,
             &self.recipe.spec().resources,
@@ -175,6 +222,7 @@ impl SystemTunLease {
         .map_err(std::io::Error::other)?;
         // The concrete provider stays outside the main body. Its native close
         // must follow this same Scope's consumed wire and main task exits.
+        #[cfg(not(target_os = "macos"))]
         self.owner
             .install_after_scope_resource(identity, erase_lifecycle(Native(resources.clone())))?;
         let icmp = resources
@@ -262,7 +310,10 @@ impl ResourceLifecycle for Native {
     async fn start(&mut self, _: Instant) -> Result<(), ChannelError> {
         Ok(())
     }
-    fn revoke(&self, _: CloseReason) {}
+    fn revoke(&self, _: CloseReason) {
+        #[cfg(target_os = "macos")]
+        self.0.stop_macos_packet_helpers();
+    }
     async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.0.shutdown_io(deadline).await
     }

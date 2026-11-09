@@ -17,6 +17,7 @@ fn parses_private_macos_utun_helper_without_treating_socket_as_config() {
         Command::MacosTunCreateHelper {
             socket_path: "/tmp/descriptor.sock".to_owned(),
             name: Some("utun8".to_owned()),
+            owned: false,
         }
     );
 }
@@ -65,4 +66,40 @@ fn managed_run_finds_config_after_lifetime_and_socket_options() {
     ];
 
     assert_eq!(config_path_from_args(&args), Some("config.json"));
+}
+
+#[test]
+fn private_owned_helper_uses_the_same_socket_command_and_rejects_a_second_implicit_create() {
+    let command = parse_args(
+        [
+            "zero",
+            "__macos-tun-create-helper",
+            "--owned",
+            "--socket",
+            "/tmp/owned.sock",
+        ]
+        .map(str::to_owned),
+    )
+    .unwrap();
+    assert_eq!(
+        command,
+        Command::MacosTunCreateHelper {
+            socket_path: "/tmp/owned.sock".into(),
+            name: None,
+            owned: true
+        }
+    );
+    assert!(parse_args(
+        [
+            "zero",
+            "__macos-tun-create-helper",
+            "--owned",
+            "--socket",
+            "/tmp/owned.sock",
+            "--name",
+            "utun8"
+        ]
+        .map(str::to_owned)
+    )
+    .is_err());
 }

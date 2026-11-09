@@ -1,6 +1,51 @@
 //! Cancellation is a private authorization result, never PID/EOF inference.
 use super::*;
 impl native::Native {
+    pub(super) fn prepare_authorization_output(&mut self, id: u64) -> io::Result<()> {
+        let mut pair = [-1; 2];
+        if unsafe { libc::pipe(pair.as_mut_ptr()) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        self.auth_ends = [
+            Some(Original::new(pair[0], id)),
+            Some(Original::new(pair[1], id)),
+        ];
+        for index in 0..2 {
+            let original = self.auth_ends[index].as_mut().unwrap();
+            let fd = original.fd();
+            let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+            if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0
+            {
+                return Err(io::Error::last_os_error());
+            }
+            if fd <= 2 {
+                let next = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 3) };
+                if next < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                let slot = if index == 0 {
+                    &mut self.auth_output
+                } else {
+                    &mut self.auth_writer
+                };
+                *slot = Some(Original::new(next, id)); // before closing/replacing old
+                original.close_once()?;
+            }
+        }
+        if self.auth_output.is_none() {
+            self.auth_output = self.auth_ends[0].take();
+        }
+        if self.auth_writer.is_none() {
+            self.auth_writer = self.auth_ends[1].take();
+        }
+        let read = self.auth_output.as_ref().unwrap().fd();
+        let flags = unsafe { libc::fcntl(read, libc::F_GETFL) };
+        if flags < 0 || unsafe { libc::fcntl(read, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
     pub(super) fn observe_authorization(&mut self, id: u64) -> io::Result<()> {
         let Some(child) = self.child.as_mut() else {
             return Ok(());
@@ -66,10 +111,17 @@ impl native::Native {
         Ok(())
     }
     pub(super) fn close_authorization_output(&mut self) -> io::Result<()> {
-        if let Some(output) = self.auth_output.as_mut() {
-            output.close_once()?;
+        let mut failure = None;
+        for original in [&mut self.auth_output, &mut self.auth_writer]
+            .into_iter()
+            .chain(self.auth_ends.iter_mut())
+            .flatten()
+        {
+            if let Err(source) = original.close_once() {
+                failure.get_or_insert(source);
+            }
         }
-        Ok(())
+        failure.map_or(Ok(()), Err)
     }
 }
 

@@ -198,6 +198,25 @@ pub(in crate::runtime) fn raw_source_work_changed(
             .map(|actual| actual.wire_values())
             .ok()
 }
+pub(in crate::runtime) fn macos_helper_budget_changed(
+    old: &RuntimeConfig,
+    next: &RuntimeConfig,
+) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        old.runtime.effective_process_max_jobs() != next.runtime.effective_process_max_jobs()
+            || old.runtime.effective_process_max_jobs_per_instance()
+                != next.runtime.effective_process_max_jobs_per_instance()
+            || old.runtime.effective_file_read_max_bytes()
+                != next.runtime.effective_file_read_max_bytes()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (old, next);
+        false
+    }
+}
+#[cfg(feature = "raw-ip-runtime")]
 pub(in crate::runtime) fn windows_ring_budget_changed(
     old: &RuntimeConfig,
     next: &RuntimeConfig,
@@ -278,7 +297,11 @@ pub(super) async fn pause_sources<'a>(
         }
     }
     #[cfg(feature = "raw-ip-runtime")]
-    if packet_changed || carrier_changed || ring_changed {
+    if packet_changed
+        || carrier_changed
+        || ring_changed
+        || macos_helper_budget_changed(previous, next)
+    {
         if let Some(original) = proxy
             .inbound_owners
             .owner(crate::runtime::inbound_owners::system_tun::SYSTEM_TUN_OWNER)

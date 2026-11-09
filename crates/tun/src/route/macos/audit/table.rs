@@ -13,10 +13,12 @@ pub(super) struct RouteEntry {
 }
 
 pub(super) fn read(ipv6: bool) -> io::Result<Vec<RouteEntry>> {
-    let output = Command::new("/usr/sbin/netstat")
-        .args(["-rnW", "-f", if ipv6 { "inet6" } else { "inet" }])
-        .env("LC_ALL", "C")
-        .output()?;
+    let output = crate::macos_privilege::route_table(ipv6).unwrap_or_else(|| {
+        Command::new("/usr/sbin/netstat")
+            .args(["-rnW", "-f", if ipv6 { "inet6" } else { "inet" }])
+            .env("LC_ALL", "C")
+            .output()
+    })?;
     if !output.status.success() {
         return Err(io::Error::other(format!(
             "read macOS route table: {}",

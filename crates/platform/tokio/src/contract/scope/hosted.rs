@@ -174,7 +174,10 @@ impl TaskRegistrar {
 }
 
 impl HostedScope {
-    pub fn bind_task_budget(&mut self, budget: Arc<TaskRegistrationBudget>) -> Result<(), SpawnError> {
+    pub fn bind_task_budget(
+        &mut self,
+        budget: Arc<TaskRegistrationBudget>,
+    ) -> Result<(), SpawnError> {
         self.0.bind_task_budget(budget)
     }
     pub fn defer_callbacks(&self) -> HostedCallbacks {
@@ -364,5 +367,6 @@ impl Shared {
             self.notify_hosted();
             self.relay.deliver_notifications();
         }
+        self.seal_retirement_completion();
     }
 }
