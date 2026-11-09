@@ -15,12 +15,16 @@ enum Pending {
 pub(super) struct EventJobs {
     bridge: Option<tokio::task::JoinHandle<()>>,
     writer: Option<tokio::task::JoinHandle<io::Result<()>>>,
+    writer_result: Option<Result<(), Arc<io::Error>>>,
+    bridge_result: Option<Result<(), Arc<io::Error>>>,
 }
 impl EventJobs {
     pub(super) fn new() -> Self {
         Self {
             bridge: None,
             writer: None,
+            writer_result: None,
+            bridge_result: None,
         }
     }
     pub(super) fn start<W>(
@@ -154,21 +158,39 @@ impl EventJobs {
         }));
     }
     pub(super) async fn join(&mut self) -> [io::Result<()>; 2] {
-        let events = match self.writer.take() {
-            Some(task) => match task.await {
-                Ok(Err(error)) if is_transient_disconnect(&error) => {
-                    tracing::debug!(%error,"IPC event writer observed peer disconnect");
-                    Ok(())
-                }
-                Ok(result) => result,
-                Err(error) => Err(io::Error::other(error)),
-            },
-            None => Ok(()),
-        };
-        let bridge = match self.bridge.take() {
-            Some(task) => task.await.map_err(io::Error::other),
-            None => Ok(()),
-        };
-        [events, bridge]
+        // Keep each actual handle until Ready, and each original result while
+        // the sibling is still pending. Cancelling this waiter proves neither
+        // child joined and cannot discard the first child's collected error.
+        if self.writer_result.is_none() {
+            let result = match self.writer.as_mut() {
+                Some(task) => match task.await {
+                    Ok(Err(error)) if is_transient_disconnect(&error) => {
+                        tracing::debug!(%error,"IPC event writer observed peer disconnect");
+                        Ok(())
+                    }
+                    Ok(result) => result,
+                    Err(error) => Err(io::Error::other(error)),
+                },
+                None => Ok(()),
+            };
+            self.writer_result = Some(result.map_err(Arc::new));
+            self.writer = None;
+        }
+        if self.bridge_result.is_none() {
+            let result = match self.bridge.as_mut() {
+                Some(task) => task.await.map_err(io::Error::other),
+                None => Ok(()),
+            };
+            self.bridge_result = Some(result.map_err(Arc::new));
+            self.bridge = None;
+        }
+        [
+            self.writer_result.as_ref().unwrap(),
+            self.bridge_result.as_ref().unwrap(),
+        ]
+        .map(|result| result.clone().map_err(|source| io::Error::new(source.kind(), source)))
     }
 }
+
+#[cfg(test)]
+mod tests;
