@@ -34,13 +34,27 @@ impl Supervisor {
             self.child.register(pid, nonce)?;
         }
         let ack = nonce.to_be_bytes();
-        while self.ack < ack.len() {
-            let count =
-                unsafe { libc::write(fd, ack[self.ack..].as_ptr().cast(), ack.len() - self.ack) };
-            match result(count)? {
-                Some(0) => return Err(io::Error::from_raw_os_error(libc::EPIPE)),
-                Some(count) => self.ack += count,
-                None => return Ok(()),
+        if let Some(control) = &self.control {
+            if !control.acknowledge_remote(nonce)? {
+                return Ok(());
+            }
+        } else {
+            let mut message = [0; super::super::command::control::MESSAGE];
+            message[0] = super::super::command::control::ACK;
+            message[1..].copy_from_slice(&ack);
+            while self.ack < message.len() {
+                let count = unsafe {
+                    libc::write(
+                        fd,
+                        message[self.ack..].as_ptr().cast(),
+                        message.len() - self.ack,
+                    )
+                };
+                match result(count)? {
+                    Some(0) => return Err(io::Error::from_raw_os_error(libc::EPIPE)),
+                    Some(count) => self.ack += count,
+                    None => return Ok(()),
+                }
             }
         }
         while self.live_read < self.live.len() {
@@ -62,7 +76,16 @@ impl Supervisor {
                 "tool LIVE does not match the registered process",
             ));
         }
-        self.child.observe_live(pid, nonce)
+        self.child.observe_live(pid, nonce)?;
+        // This is the same original kqueue already registered before ACK,
+        // consumed by this one Supervisor. Keep progressing it while RPC is
+        // waiting for Finish, even after all child stdio has been closed.
+        if self.child.observe_exit()?.is_some() {
+            if let Some(control) = &self.control {
+                control.observe_remote_exit(nonce)?;
+            }
+        }
+        Ok(())
     }
 }
 fn result(count: isize) -> io::Result<Option<usize>> {

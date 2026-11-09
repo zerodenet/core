@@ -2,7 +2,7 @@
 use super::*;
 use std::fmt;
 struct Failures {
-    phases: [Option<io::Error>; 4],
+    phases: [Option<io::Error>; 5],
 }
 impl fmt::Debug for Failures {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -36,7 +36,7 @@ impl std::error::Error for Failures {
             .map(|source| source as _)
     }
 }
-fn result(mut phases: [Option<io::Error>; 4]) -> io::Result<()> {
+fn result(mut phases: [Option<io::Error>; 5]) -> io::Result<()> {
     match phases.iter().flatten().count() {
         0 => Ok(()),
         1 => Err(phases.iter_mut().find_map(Option::take).unwrap()),
@@ -57,7 +57,7 @@ pub(super) fn original_errno(source: &io::Error) -> i32 {
     original(source).unwrap_or(libc::EIO)
 }
 pub(super) fn spawn_failed(source: io::Error, closed: io::Result<()>) -> io::Error {
-    result([Some(source), None, closed.err(), None]).unwrap_err()
+    result([Some(source), None, closed.err(), None, None]).unwrap_err()
 }
 pub(super) fn finish(
     ends: io::Result<()>,
@@ -75,7 +75,7 @@ pub(super) fn finish(
     };
     // Move all exact sources before testing the first result. A read error
     // never destroys an independently returned close/wait error or vice versa.
-    result([ends.err(), collect, closed.err(), wait])?;
+    result([ends.err(), collect, closed.err(), wait, None])?;
     let (stdout, stderr) = bytes.unwrap();
     Ok(Output {
         status: status.unwrap(),
@@ -88,8 +88,15 @@ pub(super) fn finish_unit(
     operation: io::Result<()>,
     closed: io::Result<()>,
     waited: io::Result<()>,
+    cancel: io::Result<()>,
 ) -> io::Result<()> {
-    result([ends.err(), operation.err(), closed.err(), waited.err()])
+    result([
+        ends.err(),
+        operation.err(),
+        closed.err(),
+        waited.err(),
+        cancel.err(),
+    ])
 }
 pub(super) fn finish_owned(
     ends: io::Result<()>,
@@ -105,7 +112,7 @@ pub(super) fn finish_owned(
         Ok(status) => (Some(status), None),
         Err(source) => (None, Some(source)),
     };
-    result([ends.err(), collect, closed.err(), wait])?;
+    result([ends.err(), collect, closed.err(), wait, None])?;
     let [stdout, stderr] = bytes.unwrap();
     Ok(crate::macos_privilege::command::CommandOutput {
         status: status.unwrap(),

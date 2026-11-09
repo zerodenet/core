@@ -8,28 +8,46 @@ mod drain;
 mod failures;
 mod owned;
 mod stream;
-pub(in crate::macos_privilege) use owned::{run_owned, run_query_owned};
+pub(in crate::macos_privilege) use owned::{run_owned, run_query_owned, OutputStorage};
 pub(in crate::macos_privilege) use stream::run_streamed;
 mod handshake;
+#[cfg(test)]
+mod pending;
 mod pipes;
 
 pub(in crate::macos_privilege) struct ChildOriginal {
     child: Option<Child>,
+    #[cfg(test)]
+    pending: Option<std::sync::mpsc::SyncSender<()>>,
+    #[cfg(test)]
+    pending_after_stdio: bool,
+    local_control: Option<
+        crate::packet_memory::PacketMetadataArc<
+            crate::macos_privilege::command::control::CommandControl,
+        >,
+    >,
     pipes: [Option<Original>; 3],
     child_pipes: [Option<Original>; 3],
     preparing: [Option<Original>; 2],
     relocated: [Option<Original>; 2],
     waited: Option<ExitStatus>,
+    cancel: Option<Result<(), i32>>,
 }
 impl ChildOriginal {
     pub(in crate::macos_privilege) fn new() -> Self {
         Self {
             child: None,
+            #[cfg(test)]
+            pending: None,
+            #[cfg(test)]
+            pending_after_stdio: false,
+            local_control: None,
             pipes: [None, None, None],
             child_pipes: [None, None, None],
             preparing: [None, None],
             relocated: [None, None],
             waited: None,
+            cancel: None,
         }
     }
     pub(in crate::macos_privilege) fn close_pipes(&mut self) -> io::Result<()> {
@@ -52,7 +70,7 @@ impl ChildOriginal {
         &mut self,
         _output_limit: usize,
     ) -> io::Result<()> {
-        if self.child.is_none() {
+        if !self.has_child() {
             return self.close_pipes();
         }
         if self.reusable() {
@@ -63,14 +81,32 @@ impl ChildOriginal {
         let output = self.drain();
         let closed = self.close_pipes();
         let waited = self.wait();
-        failures::finish_unit(Ok(()), output, closed, waited.map(|_| ()))
+        failures::finish_unit(Ok(()), output, closed, waited.map(|_| ()), Ok(()))
     }
     pub(in crate::macos_privilege) fn reaped(&self) -> bool {
         self.waited.is_some()
+            || self
+                .local_control
+                .as_ref()
+                .is_some_and(|control| control.local_reaped())
+    }
+    fn has_child(&self) -> bool {
+        self.child.is_some()
+            || self
+                .local_control
+                .as_ref()
+                .is_some_and(|control| control.local_has_child())
     }
     pub(in crate::macos_privilege) fn wait(&mut self) -> io::Result<ExitStatus> {
         if let Some(status) = self.waited {
             return Ok(status);
+        }
+        if let Some(control) = &self.local_control {
+            if control.local_has_child() {
+                let status = control.wait_local()?;
+                self.waited = Some(status);
+                return Ok(status);
+            }
         }
         let child = self
             .child
@@ -80,8 +116,25 @@ impl ChildOriginal {
         self.waited = Some(status);
         Ok(status)
     }
+    pub(super) fn request_cancel(&mut self) -> io::Result<()> {
+        if self.reaped() {
+            return Ok(());
+        }
+        if let Some(result) = self.cancel {
+            return result.map_err(io::Error::from_raw_os_error);
+        }
+        let child = self
+            .child
+            .as_mut()
+            .ok_or_else(|| io::Error::other("cancel has no returned original Child"))?;
+        let result = child
+            .kill()
+            .map_err(|source| source.raw_os_error().unwrap_or(libc::EIO));
+        self.cancel = Some(result);
+        result.map_err(io::Error::from_raw_os_error)
+    }
     pub(in crate::macos_privilege) fn reusable(&self) -> bool {
-        (self.child.is_none() || self.reaped())
+        (!self.has_child() || self.reaped())
             && self
                 .pipes
                 .iter()
@@ -117,7 +170,7 @@ fn run_fixed(
     supervisor: Option<(RawFd, u64)>,
     output_limit: usize,
 ) -> io::Result<Output> {
-    let child_ends = start_fixed(slot, executable, arguments, input, supervisor)?;
+    let child_ends = start_fixed(slot, executable, arguments, input, supervisor, None)?;
     let output = slot.collect(input.unwrap_or("").as_bytes(), output_limit);
     // Even an IO failure must progress all independent close and wait duties.
     let close = slot.close_pipes();
@@ -152,18 +205,38 @@ fn start_fixed(
     arguments: &[String],
     input: Option<&str>,
     supervisor: Option<(RawFd, u64)>,
+    mode: Option<&crate::macos_privilege::session::CommandMode>,
 ) -> io::Result<io::Result<()>> {
     if !slot.reusable() {
         return Err(io::Error::other(
             "previous fixed tool originals are not retired",
         ));
     }
+    #[cfg(test)]
+    let pending = (slot.pending.take(), slot.pending_after_stdio);
     *slot = ChildOriginal::new();
+    #[cfg(test)]
+    {
+        slot.pending = pending.0;
+        slot.pending_after_stdio = pending.1;
+    }
+    if let Some(mode) = mode {
+        mode.control().begin_local(mode)?;
+        slot.local_control = Some(mode.control().clone());
+    }
     let mut command = Command::new(executable);
     command.args(arguments).env("LC_ALL", "C");
     // Parent and child ends enter this exact slot BEFORE flags or spawning.
     // Command owns no implicit Stdio::piped originals in the Kernel path.
-    slot.prepare_pipes(input.is_some())?;
+    if let Err(source) = slot.prepare_pipes(input.is_some()) {
+        // This branch has not called std::spawn. Preserve actual partial FD
+        // originals, but do not invent an unresolved Child registration.
+        if let Some(control) = &slot.local_control {
+            control.observe_no_returned_child();
+        }
+        let closed = slot.close_pipes();
+        return Err(failures::spawn_failed(source, closed));
+    }
     let descriptors = slot
         .child_pipes
         .each_ref()
@@ -184,10 +257,25 @@ fn start_fixed(
     let spawned = command.spawn();
     let spawn_failure = match spawned {
         Ok(child) => {
-            slot.child = Some(child);
-            None
+            if let Some(control) = &slot.local_control {
+                match control.install_child(child) {
+                    Ok(()) => None,
+                    Err((source, child)) => {
+                        slot.child = Some(child);
+                        Some(source)
+                    }
+                }
+            } else {
+                slot.child = Some(child);
+                None
+            }
         }
-        Err(source) => Some(source),
+        Err(source) => {
+            if let Some(control) = &slot.local_control {
+                control.observe_no_returned_child();
+            }
+            Some(source)
+        }
     };
     let child_ends = slot.close_child_ends();
     if let Some(source) = spawn_failure {

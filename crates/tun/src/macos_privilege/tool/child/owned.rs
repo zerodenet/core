@@ -4,28 +4,30 @@ use crate::{
     macos_privilege::command::{inline::Storage, CommandBytes, CommandOutput},
     packet_memory::{PacketMemoryView, PacketMetadataArc},
 };
+pub(in crate::macos_privilege) struct OutputStorage<'a> {
+    pub(in crate::macos_privilege) memory: &'a PacketMemoryView,
+    pub(in crate::macos_privilege) storage: &'a [PacketMetadataArc<Storage>; 2],
+    pub(in crate::macos_privilege) mode: &'a crate::macos_privilege::session::CommandMode,
+    pub(in crate::macos_privilege) limit: usize,
+}
 pub(in crate::macos_privilege) fn run_owned(
     slot: &mut ChildOriginal,
     program: HelperProgram,
     arguments: &[String],
     input: Option<&str>,
-    memory: &PacketMemoryView,
-    storage: &[PacketMetadataArc<Storage>; 2],
-    limit: usize,
+    output: OutputStorage<'_>,
 ) -> io::Result<CommandOutput> {
     let executable = match program {
         HelperProgram::Ifconfig => "/sbin/ifconfig",
         HelperProgram::Route => "/sbin/route",
         HelperProgram::Pfctl => "/sbin/pfctl",
     };
-    run(slot, executable, arguments, input, memory, storage, limit)
+    run(slot, executable, arguments, input, output)
 }
 pub(in crate::macos_privilege) fn run_query_owned(
     slot: &mut ChildOriginal,
     query: super::super::Query,
-    memory: &PacketMemoryView,
-    storage: &[PacketMetadataArc<Storage>; 2],
-    limit: usize,
+    output: OutputStorage<'_>,
 ) -> io::Result<CommandOutput> {
     let (executable, arguments) = match query {
         super::super::Query::Route(arguments) => ("/sbin/route", arguments),
@@ -39,22 +41,26 @@ pub(in crate::macos_privilege) fn run_query_owned(
         ),
         super::super::Query::SystemDns => ("/usr/sbin/scutil", vec!["--dns".into()]),
     };
-    run(slot, executable, &arguments, None, memory, storage, limit)
+    run(slot, executable, &arguments, None, output)
 }
 fn run(
     slot: &mut ChildOriginal,
     executable: &'static str,
     arguments: &[String],
     input: Option<&str>,
-    memory: &PacketMemoryView,
-    storage: &[PacketMetadataArc<Storage>; 2],
-    limit: usize,
+    output: OutputStorage<'_>,
 ) -> io::Result<CommandOutput> {
     // Both claims precede even pipe creation. An outstanding previous result
     // rejects this new operation without overwriting it or launching a Child.
+    let OutputStorage {
+        memory,
+        storage,
+        mode,
+        limit,
+    } = output;
     let stdout = CommandBytes::inline(Storage::claim(&storage[0])?);
     let stderr = CommandBytes::inline(Storage::claim(&storage[1])?);
-    let ends = start_fixed(slot, executable, arguments, input, None)?;
+    let ends = start_fixed(slot, executable, arguments, input, None, Some(mode))?;
     let collected = slot.collect_owned(
         input.unwrap_or("").as_bytes(),
         memory,
@@ -85,6 +91,13 @@ impl ChildOriginal {
         let mut offset = 0;
         let mut storage_failure = None;
         while self.pipes.iter().flatten().any(Original::usable) {
+            if self
+                .local_control
+                .as_ref()
+                .is_some_and(|control| control.local_cancelled())
+            {
+                return Err(io::Error::from_raw_os_error(libc::EINTR));
+            }
             let mut descriptors = [libc::pollfd {
                 fd: -1,
                 events: 0,
@@ -109,6 +122,8 @@ impl ChildOriginal {
             if descriptors.iter().all(|fd| fd.fd < 0) {
                 break;
             }
+            #[cfg(test)]
+            self.observe_pending(&mut descriptors)?;
             if unsafe { libc::poll(descriptors.as_mut_ptr(), descriptors.len() as _, -1) } < 0 {
                 let source = io::Error::last_os_error();
                 if source.kind() == io::ErrorKind::Interrupted {

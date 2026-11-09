@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use std::os::unix::net::UnixStream;
 pub(in crate::macos_privilege) const HEADER: usize = 13;
 pub(in crate::macos_privilege) const CHUNK: usize = 4096;
-pub(in crate::macos_privilege) const FINISH: usize = 56;
+pub(in crate::macos_privilege) const FINISH: usize = 60;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(in crate::macos_privilege) enum Kind {
     Stdout = 1,
@@ -61,6 +61,7 @@ pub(in crate::macos_privilege) struct Finished {
     pub child_pid: i32,
     pub operation_errno: i32,
     pub wait_errno: i32,
+    pub cancel_errno: i32,
     pub close_errnos: [i32; 10],
 }
 impl Finished {
@@ -70,6 +71,7 @@ impl Finished {
             self.child_pid,
             self.operation_errno,
             self.wait_errno,
+            self.cancel_errno,
         ];
         let mut bytes = [0; FINISH];
         for (slot, word) in bytes
@@ -81,7 +83,7 @@ impl Finished {
         bytes
     }
     pub(in crate::macos_privilege) fn decode(bytes: &[u8; FINISH]) -> Self {
-        let words: [i32; 14] = std::array::from_fn(|index| {
+        let words: [i32; 15] = std::array::from_fn(|index| {
             i32::from_be_bytes(bytes[index * 4..index * 4 + 4].try_into().unwrap())
         });
         Self {
@@ -89,7 +91,8 @@ impl Finished {
             child_pid: words[1],
             operation_errno: words[2],
             wait_errno: words[3],
-            close_errnos: std::array::from_fn(|index| words[index + 4]),
+            cancel_errno: words[4],
+            close_errnos: std::array::from_fn(|index| words[index + 5]),
         }
     }
 }

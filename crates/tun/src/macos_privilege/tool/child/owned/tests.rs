@@ -16,6 +16,11 @@ fn actual_local_child_result_holds_same_source_storage_until_consumed_before_nex
     let root = Arc::new(PacketReturnTotals::default());
     let read = root.native_grant(64).unwrap();
     let memory = read.memory_view().unwrap();
+    let owner =
+        crate::macos_privilege::session::MacosHelperOwner::prepare(&memory, 131072, false, 65536)
+            .unwrap();
+    let _context = owner.enter().unwrap();
+    let mode = owner.test_command_mode().unwrap();
     let storage = backing(&memory);
     let charged = root.driver_metadata().occupied;
     let mut child = ChildOriginal::new();
@@ -26,30 +31,37 @@ fn actual_local_child_result_holds_same_source_storage_until_consumed_before_nex
         "/bin/cat",
         &[],
         Some("actual result"),
-        &memory,
-        &storage,
-        65536,
+        OutputStorage {
+            memory: &memory,
+            storage: &storage,
+            mode: &mode,
+            limit: 65536,
+        },
     )
     .unwrap();
     assert!(output.status.success());
     assert_eq!(&*output.stdout, b"actual result");
     assert!(child.reusable());
-    let first = child.child.as_ref().unwrap().id();
+    let first = mode.control().test_child_id().unwrap();
     assert_eq!(
         run(
             &mut child,
             "/bin/cat",
             &[],
             Some("cannot overwrite"),
-            &memory,
-            &storage,
-            65536
+            OutputStorage {
+                memory: &memory,
+                storage: &storage,
+                mode: &mode,
+                limit: 65536
+            }
         )
         .unwrap_err()
         .kind(),
         io::ErrorKind::WouldBlock
     );
-    assert_eq!(child.child.as_ref().unwrap().id(), first);
+    assert_eq!(mode.control().test_child_id(), Some(first));
+    assert!(mode.control().local_reaped());
     assert_eq!(&*output.stdout, b"actual result");
     drop(output);
     let output = run(
@@ -57,9 +69,12 @@ fn actual_local_child_result_holds_same_source_storage_until_consumed_before_nex
         "/bin/cat",
         &[],
         Some("same source cleanup"),
-        &memory,
-        &storage,
-        65536,
+        OutputStorage {
+            memory: &memory,
+            storage: &storage,
+            mode: &mode,
+            limit: 65536,
+        },
     )
     .unwrap();
     assert!(output.status.success());
@@ -74,6 +89,11 @@ fn actual_full_root_drains_original_child_and_returns_original_fds_before_small_
     let root = Arc::new(PacketReturnTotals::default());
     let read = root.native_grant(64).unwrap();
     let memory = read.memory_view().unwrap();
+    let owner =
+        crate::macos_privilege::session::MacosHelperOwner::prepare(&memory, 131072, false, 65536)
+            .unwrap();
+    let _context = owner.enter().unwrap();
+    let mode = owner.test_command_mode().unwrap();
     let storage = backing(&memory);
     let charged = root.driver_metadata().occupied;
     root.install_original_limits(
@@ -90,9 +110,12 @@ fn actual_full_root_drains_original_child_and_returns_original_fds_before_small_
         "/bin/cat",
         &[],
         Some(&input),
-        &memory,
-        &storage,
-        131072,
+        OutputStorage {
+            memory: &memory,
+            storage: &storage,
+            mode: &mode,
+            limit: 131072,
+        },
     )
     .unwrap_err();
     assert!(error
@@ -115,9 +138,12 @@ fn actual_full_root_drains_original_child_and_returns_original_fds_before_small_
         "/bin/cat",
         &[],
         Some("cleanup after pressure"),
-        &memory,
-        &storage,
-        131072,
+        OutputStorage {
+            memory: &memory,
+            storage: &storage,
+            mode: &mode,
+            limit: 131072,
+        },
     )
     .unwrap();
     assert!(output.status.success());
@@ -126,3 +152,6 @@ fn actual_full_root_drains_original_child_and_returns_original_fds_before_small_
     drop(output);
     assert_eq!(root.driver_metadata().occupied, charged);
 }
+
+#[path = "tests/cancel.rs"]
+mod cancel;

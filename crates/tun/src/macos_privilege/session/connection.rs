@@ -100,7 +100,7 @@ impl Epoch {
             },
             libc::pollfd {
                 fd: self.tools.poll_fd().unwrap_or(-1),
-                events: libc::POLLIN,
+                events: self.tools.poll_events(),
                 revents: 0,
             },
             libc::pollfd {

@@ -27,11 +27,21 @@ pub(super) enum Phase {
 }
 pub(super) struct Failures {
     slots: [OnceLock<io::Error>; 32],
+    controls: Option<[PacketMetadataArc<super::super::command::control::CommandControl>; 2]>,
 }
 impl Failures {
     pub(super) fn new() -> Self {
         Self {
             slots: std::array::from_fn(|_| OnceLock::new()),
+            controls: None,
+        }
+    }
+    pub(super) fn with_controls(
+        controls: [PacketMetadataArc<super::super::command::control::CommandControl>; 2],
+    ) -> Self {
+        Self {
+            controls: Some(controls),
+            ..Self::new()
         }
     }
     pub(super) fn retain(&self, epoch: usize, phase: Phase, source: io::Error) -> bool {
@@ -68,6 +78,10 @@ impl Failures {
     }
     pub(super) fn any(&self) -> bool {
         self.slots.iter().any(|source| source.get().is_some())
+            || self
+                .controls
+                .as_ref()
+                .is_some_and(|controls| controls.iter().any(|control| control.any_fault()))
     }
 }
 impl fmt::Debug for Failures {
@@ -90,6 +104,15 @@ impl fmt::Display for Failures {
             first = false;
             write!(f, "helper original phase {phase}: {source}")?;
         }
+        if let Some(controls) = &self.controls {
+            for (epoch, control) in controls
+                .iter()
+                .enumerate()
+                .filter(|(_, control)| control.any_fault())
+            {
+                write!(f, "; helper epoch {epoch} {control}")?;
+            }
+        }
         Ok(())
     }
 }
@@ -98,7 +121,13 @@ impl std::error::Error for Failures {
         self.slots
             .iter()
             .find_map(OnceLock::get)
-            .map(|source| source as _)
+            .map(|source| source as &(dyn std::error::Error + 'static))
+            .or_else(|| {
+                self.controls
+                    .as_ref()
+                    .and_then(|controls| controls.iter().find_map(|control| control.first_fault()))
+                    .map(|source| source as _)
+            })
     }
 }
 

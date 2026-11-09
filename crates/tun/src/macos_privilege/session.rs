@@ -15,6 +15,7 @@ use std::{
     },
 };
 mod access;
+pub(in crate::macos_privilege) use access::CommandMode;
 pub use access::MacosHelperContext;
 mod authorization;
 pub(super) use access::current;
@@ -55,6 +56,7 @@ struct Session {
     dedicated_worker: bool,
     wait: Mutex<wake::PendingSignals>,
     failures: PacketMetadataArc<Failures>,
+    command_controls: [PacketMetadataArc<super::command::control::CommandControl>; 2],
     output_limit: usize,
     memory: PacketMemoryView,
 }
@@ -97,6 +99,8 @@ impl MacosHelperOwner {
         }
         let owner_layout = PacketMetadataArc::<Session>::layout().map_err(io::Error::other)?;
         let failures_layout = PacketMetadataArc::<Failures>::layout().map_err(io::Error::other)?;
+        let control_layout = PacketMetadataArc::<super::command::control::CommandControl>::layout()
+            .map_err(io::Error::other)?;
         let transfer_layout = PacketMetadataArc::<Transfer>::layout().map_err(io::Error::other)?;
         let output_layout = super::command::inline::Storage::layout().map_err(io::Error::other)?;
         if request_capacity < rpc::CAPACITY {
@@ -120,16 +124,32 @@ impl MacosHelperOwner {
             .and_then(|layout| layout.checked_add(output_layout))
             .and_then(|layout| layout.checked_add(output_layout))
             .map_err(io::Error::other)?;
+        let all = all
+            .checked_add(control_layout)
+            .and_then(|layout| layout.checked_add(control_layout))
+            .map_err(io::Error::other)?;
         let mut credit = memory
             .reserve_driver_metadata(all)
             .map_err(io::Error::other)?;
+        let command_controls = [
+            PacketMetadataArc::from_prepaid(
+                super::command::control::CommandControl::new(),
+                credit.split(control_layout).map_err(io::Error::other)?,
+            )
+            .map_err(|(source, _, _)| io::Error::other(source))?,
+            PacketMetadataArc::from_prepaid(
+                super::command::control::CommandControl::new(),
+                credit.split(control_layout).map_err(io::Error::other)?,
+            )
+            .map_err(|(source, _, _)| io::Error::other(source))?,
+        ];
         let faults = PacketMetadataArc::from_prepaid(
-            Failures::new(),
+            Failures::with_controls(command_controls.clone()),
             credit.split(failures_layout).map_err(io::Error::other)?,
         )
         .map_err(|(source, _, _)| io::Error::other(source))?;
         let mut epochs = [None, None];
-        for slot in &mut epochs {
+        for (index, slot) in epochs.iter_mut().enumerate() {
             let id = super::UTUN_HELPER_SEQUENCE
                 .try_update(Ordering::AcqRel, Ordering::Acquire, |value| {
                     value.checked_add(1)
@@ -157,7 +177,7 @@ impl MacosHelperOwner {
                 id,
                 native: native::Native::new(),
                 transfer,
-                tools: tool::Supervisor::new(),
+                tools: tool::Supervisor::from_source(command_controls[index].clone()),
                 rpc,
                 stage: Stage::Cold,
                 command: 0,
@@ -182,6 +202,7 @@ impl MacosHelperOwner {
             dedicated_worker,
             wait: Mutex::new(wake::PendingSignals::default()),
             failures: faults,
+            command_controls,
             output_limit,
             memory: memory.clone(),
         };
@@ -194,6 +215,9 @@ impl MacosHelperOwner {
     }
     pub fn stop(&self) {
         self.0.stopped.store(true, Ordering::Release);
+        for original in &self.0.command_controls {
+            original.request_stop();
+        }
         self.0.notify();
     }
     /// Invoked only by the concrete runtime provider after matching its actual

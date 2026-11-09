@@ -27,7 +27,7 @@ impl MacosHelperOwner {
                     && !self.0.route_held.load(Ordering::Acquire))
             {
                 if ready && !self.0.stopped.load(Ordering::Acquire) {
-                    self.0.stopped.store(true, Ordering::Release);
+                    self.stop();
                     self.0.retain(
                         0,
                         Phase::Shutdown,

@@ -16,7 +16,20 @@ pub(in crate::macos_privilege) fn run_streamed(
         HelperProgram::Route => "/sbin/route",
         HelperProgram::Pfctl => "/sbin/pfctl",
     };
-    let started = start_fixed(slot, executable, arguments, input, Some(supervisor));
+    run_fixed_streamed(
+        slot, executable, arguments, input, supervisor, stream, limit,
+    )
+}
+fn run_fixed_streamed(
+    slot: &mut ChildOriginal,
+    executable: &'static str,
+    arguments: &[String],
+    input: Option<&str>,
+    supervisor: (RawFd, u64),
+    stream: &mut UnixStream,
+    limit: usize,
+) -> io::Result<()> {
+    let started = start_fixed(slot, executable, arguments, input, Some(supervisor), None);
     let mut operation = None;
     let mut ends = Ok(());
     match started {
@@ -25,13 +38,18 @@ pub(in crate::macos_privilege) fn run_streamed(
             // collect must still drain the actual Child even if one end failed.
             ends = child_ends;
             if let Err(source) =
-                slot.collect_streamed(input.unwrap_or("").as_bytes(), stream, supervisor.1, limit)
+                slot.collect_streamed(input.unwrap_or("").as_bytes(), stream, supervisor, limit)
             {
                 operation = Some(source);
             }
         }
         Err(source) => operation = Some(source),
     }
+    let cancel = if operation.is_some() && slot.child.is_some() {
+        slot.request_cancel()
+    } else {
+        Ok(())
+    };
     let closed = slot.close_pipes();
     let waited = if slot.child.is_some() {
         slot.wait().map(Some)
@@ -64,6 +82,7 @@ pub(in crate::macos_privilege) fn run_streamed(
             .or_else(|| ends.as_ref().err())
             .map_or(0, errno),
         wait_errno,
+        cancel_errno: cancel.as_ref().err().map_or(0, errno),
         close_errnos,
     };
     wire::write(stream, supervisor.1, wire::Kind::Finish, &report.encode())?;
@@ -72,6 +91,7 @@ pub(in crate::macos_privilege) fn run_streamed(
         operation.map_or(Ok(()), Err),
         closed,
         waited.map(|_| ()),
+        cancel,
     )
 }
 fn errno(source: &io::Error) -> i32 {
@@ -82,9 +102,10 @@ impl ChildOriginal {
         &mut self,
         input: &[u8],
         stream: &mut UnixStream,
-        nonce: u64,
+        supervisor: (RawFd, u64),
         limit: usize,
     ) -> io::Result<()> {
+        let (supervisor_fd, nonce) = supervisor;
         for original in self.pipes.iter().flatten() {
             let flags = unsafe { libc::fcntl(original.fd(), libc::F_GETFL) };
             if flags < 0
@@ -97,12 +118,15 @@ impl ChildOriginal {
         let mut lengths = [0usize; 2];
         let mut offset = 0;
         let mut full = false;
-        while self.pipes.iter().flatten().any(Original::usable) {
+        let mut cancel = [0u8; crate::macos_privilege::command::control::MESSAGE];
+        let mut cancel_read = 0;
+        let mut terminal_observed = false;
+        while self.pipes.iter().flatten().any(Original::usable) || !terminal_observed {
             let mut poll = [libc::pollfd {
                 fd: -1,
                 events: 0,
                 revents: 0,
-            }; 3];
+            }; 4];
             for (index, original) in self.pipes.iter().enumerate() {
                 if let Some(original) = original.as_ref().filter(|original| original.usable()) {
                     poll[index].fd = original.fd();
@@ -113,6 +137,8 @@ impl ChildOriginal {
                     };
                 }
             }
+            poll[3].fd = supervisor_fd;
+            poll[3].events = libc::POLLIN;
             if offset == input.len() {
                 if let Some(stdin) = self.pipes[0].as_mut().filter(|original| original.usable()) {
                     stdin.close_once()?;
@@ -122,6 +148,8 @@ impl ChildOriginal {
             if poll.iter().all(|fd| fd.fd == -1) {
                 break;
             }
+            #[cfg(test)]
+            self.observe_pending(&mut poll)?;
             if unsafe { libc::poll(poll.as_mut_ptr(), poll.len() as _, -1) } < 0 {
                 let source = io::Error::last_os_error();
                 if source.kind() == io::ErrorKind::Interrupted {
@@ -133,7 +161,45 @@ impl ChildOriginal {
                 if polled.fd < 0 || polled.revents == 0 {
                     continue;
                 }
-                if index == 0 {
+                if index == 3 {
+                    let count = unsafe {
+                        libc::read(
+                            supervisor_fd,
+                            cancel[cancel_read..].as_mut_ptr().cast(),
+                            cancel.len() - cancel_read,
+                        )
+                    };
+                    if count == 0 {
+                        return Err(io::Error::from_raw_os_error(libc::EPIPE));
+                    }
+                    if count < 0 {
+                        check_error()?;
+                        continue;
+                    }
+                    cancel_read += count as usize;
+                    if cancel_read == cancel.len() {
+                        let kind = cancel[0];
+                        if !matches!(
+                            kind,
+                            crate::macos_privilege::command::control::CANCEL
+                                | crate::macos_privilege::command::control::EXIT
+                        ) {
+                            return Err(io::Error::from_raw_os_error(libc::EPROTO));
+                        }
+                        let actual = u64::from_be_bytes(cancel[1..].try_into().unwrap());
+                        if actual == nonce {
+                            if kind == crate::macos_privilege::command::control::CANCEL {
+                                self.request_cancel()?;
+                                return Err(io::Error::from_raw_os_error(libc::EINTR));
+                            }
+                            // Authenticated same-nonce observation permits the
+                            // original worker to enter its true std::Child.wait.
+                            // It is never treated as the wait/close receipt.
+                            terminal_observed = true;
+                        }
+                        cancel_read = 0; // previous terminal's late cancellation
+                    }
+                } else if index == 0 {
                     let count = unsafe {
                         libc::write(
                             polled.fd,
@@ -192,3 +258,7 @@ fn check_error() -> io::Result<()> {
         Err(source)
     }
 }
+
+#[cfg(test)]
+#[path = "stream/tests.rs"]
+mod tests;

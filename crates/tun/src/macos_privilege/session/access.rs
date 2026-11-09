@@ -12,6 +12,29 @@ pub struct MacosHelperContext {
     previous: Option<Entered>,
     _thread: std::marker::PhantomData<std::rc::Rc<()>>,
 }
+/// Issued only by the actual Source owner after checking its current context.
+/// It carries the same concrete control allocation, never a boolean Host grant.
+#[derive(Clone)]
+pub(in crate::macos_privilege) struct CommandMode {
+    control: PacketMetadataArc<super::super::command::control::CommandControl>,
+    cleanup: bool,
+}
+impl CommandMode {
+    pub(in crate::macos_privilege) fn matches(
+        &self,
+        control: &super::super::command::control::CommandControl,
+    ) -> bool {
+        std::ptr::eq(self.control.as_ref(), control)
+    }
+    pub(in crate::macos_privilege) fn is_cleanup(&self) -> bool {
+        self.cleanup
+    }
+    pub(in crate::macos_privilege) fn control(
+        &self,
+    ) -> &PacketMetadataArc<super::super::command::control::CommandControl> {
+        &self.control
+    }
+}
 impl MacosHelperAccess {
     pub fn lease_routes(&self) -> io::Result<MacosHelperLease> {
         MacosHelperOwner(
@@ -75,6 +98,45 @@ impl MacosHelperOwner {
             })
         })
     }
+    pub(in crate::macos_privilege::session) fn command_mode(
+        &self,
+        index: usize,
+    ) -> io::Result<CommandMode> {
+        let cleanup = CURRENT.with(|slot| {
+            let current = slot.borrow();
+            if current
+                .as_ref()
+                .is_some_and(|current| !current.owner.same_owner(self))
+            {
+                return Err(io::Error::other(
+                    "command context belongs to another actual Source",
+                ));
+            }
+            Ok(current.as_ref().is_some_and(|current| current.cleanup))
+        })?;
+        if self.0.stopped.load(Ordering::Acquire) && !cleanup {
+            return Err(io::Error::from(io::ErrorKind::Interrupted));
+        }
+        Ok(CommandMode {
+            control: self.0.command_controls[index].clone(),
+            cleanup,
+        })
+    }
+    #[cfg(test)]
+    pub(in crate::macos_privilege) fn test_command_mode(&self) -> io::Result<CommandMode> {
+        self.command_mode(self.0.current.load(Ordering::Acquire))
+    }
+    #[cfg(test)]
+    pub(in crate::macos_privilege) fn test_output_storage(
+        &self,
+    ) -> io::Result<[PacketMetadataArc<super::super::command::inline::Storage>; 2]> {
+        self.0.epochs[self.0.current.load(Ordering::Acquire)]
+            .lock()
+            .unwrap()
+            .rpc
+            .output_storage()
+            .cloned()
+    }
     pub(in crate::macos_privilege) fn output(
         &self,
         program: HelperProgram,
@@ -88,6 +150,7 @@ impl MacosHelperOwner {
         self.0.prepare_actor_wake()?;
         let _progress = wake::EpochProgress(&self.0);
         let index = self.0.current.load(Ordering::Acquire);
+        let mode = self.command_mode(index)?;
         let mut epoch = self.0.epochs[index]
             .lock()
             .unwrap_or_else(|error| error.into_inner());
@@ -98,9 +161,12 @@ impl MacosHelperOwner {
                 program,
                 arguments,
                 input,
-                &self.0.memory,
-                &storage,
-                self.0.output_limit,
+                tool::OutputStorage {
+                    memory: &self.0.memory,
+                    storage: &storage,
+                    mode: &mode,
+                    limit: self.0.output_limit,
+                },
             );
         }
         epoch.connect()?;
@@ -126,7 +192,7 @@ impl MacosHelperOwner {
         };
         epoch.ensure_request_capacity(&request, &self.0.memory)?;
         epoch.rpc.begin(&request, Some(nonce))?;
-        if let Err(source) = epoch.tools.begin(nonce) {
+        if let Err(source) = epoch.tools.begin_source(nonce, &mode) {
             epoch.rpc.cancel_prepared(nonce)?;
             return Err(source);
         }
@@ -135,7 +201,11 @@ impl MacosHelperOwner {
             self.0.retain(index, Phase::ToolProgress, source);
             return Err(failures::retained(self.0.failures.clone().into_error()));
         }
-        epoch.rpc.take_command_output()
+        let output = epoch.rpc.take_command_output()?;
+        if !self.0.io_allowed() {
+            return Err(io::Error::from(io::ErrorKind::Interrupted));
+        }
+        Ok(output)
     }
 }
 impl Drop for MacosHelperContext {

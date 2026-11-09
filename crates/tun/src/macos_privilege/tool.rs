@@ -9,7 +9,9 @@ use std::{
 mod child;
 #[cfg(test)]
 pub(super) use child::run_query;
-pub(super) use child::{run, run_owned, run_query_owned, run_streamed, ChildOriginal};
+pub(super) use child::{
+    run, run_owned, run_query_owned, run_streamed, ChildOriginal, OutputStorage,
+};
 pub(in crate::macos_privilege) enum Query {
     Route(Vec<String>),
     RouteTable(bool),
@@ -28,6 +30,8 @@ pub(super) struct Supervisor {
     live: [u8; 8],
     live_read: usize,
     no_returned_child: bool,
+    control:
+        Option<crate::packet_memory::PacketMetadataArc<super::command::control::CommandControl>>,
 }
 impl Supervisor {
     pub(super) fn new() -> Self {
@@ -42,6 +46,15 @@ impl Supervisor {
             live: [0; 8],
             live_read: 0,
             no_returned_child: false,
+            control: None,
+        }
+    }
+    pub(super) fn from_source(
+        control: crate::packet_memory::PacketMetadataArc<super::command::control::CommandControl>,
+    ) -> Self {
+        Self {
+            control: Some(control),
+            ..Self::new()
         }
     }
     /// Both descriptors enter the installed Session before any fcntl or IPC.
@@ -81,6 +94,26 @@ impl Supervisor {
         if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
             return Err(io::Error::last_os_error());
         }
+        if let Some(control) = &self.control {
+            control.bind_remote(fd)?;
+        }
+        Ok(())
+    }
+    pub(super) fn begin_source(
+        &mut self,
+        nonce: u64,
+        mode: &super::session::CommandMode,
+    ) -> io::Result<()> {
+        if self.control.is_none() {
+            return Err(io::Error::other(
+                "actual Source supervisor control was not installed",
+            ));
+        }
+        self.begin(nonce)?;
+        if let Err(source) = self.control.as_ref().unwrap().begin_remote(nonce, mode) {
+            self.nonce = None;
+            return Err(source);
+        }
         Ok(())
     }
     pub(super) fn remote_fd(&self) -> io::Result<RawFd> {
@@ -115,6 +148,13 @@ impl Supervisor {
             .as_ref()
             .filter(|original| original.usable())
             .map(Original::fd)
+    }
+    pub(super) fn poll_events(&self) -> i16 {
+        let outgoing = self.control.as_ref().map_or(
+            self.read == self.report.len() && self.ack < super::command::control::MESSAGE,
+            |control| control.remote_pending_write(),
+        );
+        libc::POLLIN | if outgoing { libc::POLLOUT } else { 0 }
     }
     pub(super) fn event_fd(&self) -> Option<RawFd> {
         self.child.event_fd()
@@ -204,6 +244,9 @@ impl Supervisor {
         }
         if let Err(source) = self.child.close_event() {
             failure.get_or_insert(source);
+        }
+        if let Some(control) = &self.control {
+            control.unbind_remote()?;
         }
         for original in [&mut self.local, &mut self.remote].into_iter().flatten() {
             if let Err(source) = original.close_once() {

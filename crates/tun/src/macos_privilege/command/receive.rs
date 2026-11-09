@@ -128,6 +128,7 @@ impl Receiving {
         if self.output_error.is_some()
             || done.operation_errno != 0
             || done.wait_errno != 0
+            || done.cancel_errno != 0
             || done.close_errnos.iter().any(|errno| *errno != 0)
         {
             return Err(io::Error::other(RemoteFailure {
@@ -170,7 +171,7 @@ impl std::fmt::Debug for RemoteFailure {
 }
 impl std::fmt::Display for RemoteFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f,"actual fixed command faults: operation errno {}, wait errno {}, original close errnos {:?}",self.remote.operation_errno,self.remote.wait_errno,self.remote.close_errnos)
+        write!(f,"actual fixed command faults: operation errno {}, wait errno {}, cancel errno {}, original close errnos {:?}",self.remote.operation_errno,self.remote.wait_errno,self.remote.cancel_errno,self.remote.close_errnos)
     }
 }
 impl std::error::Error for RemoteFailure {

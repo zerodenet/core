@@ -47,6 +47,7 @@ impl MacosHelperOwner {
         let _notifications = self.0.memory.defer_notifications();
         let _progress = wake::EpochProgress(&self.0);
         let index = self.0.current.load(Ordering::Acquire);
+        let mode = self.command_mode(index).map_err(QueryFailure::Original)?;
         let mut epoch = self.0.epochs[index]
             .lock()
             .unwrap_or_else(|source| source.into_inner());
@@ -67,9 +68,12 @@ impl MacosHelperOwner {
         let result = tool::run_query_owned(
             &mut epoch.local_tool,
             query,
-            &self.0.memory,
-            &storage,
-            self.0.output_limit,
+            tool::OutputStorage {
+                memory: &self.0.memory,
+                storage: &storage,
+                mode: &mode,
+                limit: self.0.output_limit,
+            },
         );
         match result {
             Err(source)
@@ -86,6 +90,9 @@ impl MacosHelperOwner {
                     self.0.failures.clone().into_error(),
                 )))
             }
+            Ok(_output) if !self.0.io_allowed() => Err(QueryFailure::Original(io::Error::from(
+                io::ErrorKind::Interrupted,
+            ))),
             Ok(output) => Ok(output),
         }
     }

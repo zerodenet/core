@@ -1,5 +1,6 @@
 //! Private owned-helper command bytes, with no raw Vec escape from Root custody.
 mod buffer;
+pub(super) mod control;
 pub(super) mod inline;
 pub(super) mod receive;
 pub(super) mod wire;

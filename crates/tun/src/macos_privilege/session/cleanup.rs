@@ -2,6 +2,9 @@
 use super::*;
 impl Session {
     pub(super) fn require_closed(&self) -> io::Result<()> {
+        for control in &self.command_controls {
+            control.require_no_live_child()?;
+        }
         if !self.route_files_closed() {
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
         }

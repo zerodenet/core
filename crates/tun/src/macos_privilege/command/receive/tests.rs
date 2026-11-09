@@ -14,6 +14,7 @@ fn done() -> Finished {
         child_pid: 0,
         operation_errno: 0,
         wait_errno: 0,
+        cancel_errno: 0,
         close_errnos: [0; 10],
     }
 }
