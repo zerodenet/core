@@ -34,11 +34,11 @@ impl PacketSegment {
         &mut self,
         socket: &PacketSocket,
         tasks: &TaskRegistrar,
-        limits: super::OwnedEndpointLimits,
+        limits: crate::quic::owned::OwnedEndpointLimits,
     ) -> Result<
         (
             MetadataUserGraph<OwnedDriverOrigin, DriverBody>,
-            super::DriverExitReceiver,
+            crate::quic::owned::DriverExitReceiver,
         ),
         ChannelError,
     > {

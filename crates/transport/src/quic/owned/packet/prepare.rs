@@ -18,7 +18,7 @@ impl PacketSegment {
         tasks: TaskRegistrar,
         peer: SocketAddr,
         logical: SocketAddr,
-        limits: super::OwnedEndpointLimits,
+        limits: crate::quic::owned::OwnedEndpointLimits,
     ) -> Result<Self, Box<RejectedPacketSegment>> {
         Self::prepare_inner(grant, queues, tasks, peer, logical, Some(limits))
     }
@@ -28,7 +28,7 @@ impl PacketSegment {
         tasks: TaskRegistrar,
         peer: SocketAddr,
         logical: SocketAddr,
-        endpoint_limits: Option<super::OwnedEndpointLimits>,
+        endpoint_limits: Option<crate::quic::owned::OwnedEndpointLimits>,
     ) -> Result<Self, Box<RejectedPacketSegment>> {
         let fail = |error, grant, queues| {
             Box::new(RejectedPacketSegment {
@@ -68,7 +68,7 @@ impl PacketSegment {
                 return Err(fail(source, grant, queues));
             }
         }
-        let source = match super::HostedMetadataSocket::new(grant, &tasks) {
+        let source = match crate::quic::owned::HostedMetadataSocket::new(grant, &tasks) {
             Ok(source) => source,
             Err(rejected) => {
                 let mut rejected = *rejected;
