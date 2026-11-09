@@ -7,7 +7,7 @@ use zero_platform_tokio::{
     contract::{
         lifecycle::ResourceLifecycle,
         network::{CarrierContext, UpstreamBinding, UpstreamTransport},
-        scope::{SpawnError, TaskClass, TaskJoinWitness, TaskScope},
+        scope::{SpawnError, TaskClass, TaskJoinWitness, TaskRegistrar, TaskScope},
         CancellationToken,
     },
     controlled_carrier::{CarrierDriver, CarrierIo, CarrierOwner, NativeCarrierOpener},
@@ -33,24 +33,19 @@ fn record(grant: &zero_platform_tokio::controlled_carrier::CarrierGrant) -> Arc<
 }
 fn install(
     record: &Arc<Record>,
-    scope: &TaskScope,
+    tasks: &TaskRegistrar,
     io: CarrierDriver<CarrierIo>,
 ) -> TaskJoinWitness {
     let (_, witness) = record
         .adoption
-        .spawn_driver(
-            &scope.registrar(),
-            TaskClass::Auxiliary,
-            io,
-            |mut io| async move {
-                let mut byte = [0];
-                let source = io.read_exact(&mut byte).await.unwrap_err();
-                Err(
-                    ChannelError::new(Stage::Receive, Reason::Io, Impact::Component)
-                        .with_source(source),
-                )
-            },
-        )
+        .spawn_driver(tasks, TaskClass::Auxiliary, io, |mut io| async move {
+            let mut byte = [0];
+            let source = io.read_exact(&mut byte).await.unwrap_err();
+            Err(
+                ChannelError::new(Stage::Receive, Reason::Io, Impact::Component)
+                    .with_source(source),
+            )
+        })
         .unwrap();
     record.install_witness(witness.clone());
     record
@@ -112,10 +107,10 @@ async fn late_first_original_does_not_block_receiving_the_second_real_tcp_failur
             drivers.push(io.into_driver());
             peers.push(listener.accept().await.unwrap().0);
         }
-        let second = install(&records[1], &scope, drivers.pop().unwrap());
+        let second = install(&records[1], &scope.registrar(), drivers.pop().unwrap());
         peers[1].shutdown().await.unwrap();
         let receipt = scope.next_receipt().await.unwrap();
-        assert!(second.matches_joined(&receipt));
+        assert!(second.matches_joined(receipt.joined()));
         let original = receipt.result().unwrap_err();
         assert!(!receipt.local_failure_accepted());
         let receive = super::reception::receive_all(records.clone(), deadline);
@@ -132,19 +127,19 @@ async fn late_first_original_does_not_block_receiving_the_second_real_tcp_failur
             }
         })
         .await;
-        assert!(!receipt.registration_released());
+        assert!(!receipt.joined().registration_released());
         let retained = records[1].received.lock().unwrap().clone().unwrap();
         assert!(second.matches_joined(&retained));
         assert!(Arc::ptr_eq(&original, &retained.result().unwrap_err()));
         assert_eq!(owner.retained(), 2);
-        let first = install(&records[0], &scope, drivers.pop().unwrap());
+        let first = install(&records[0], &scope.registrar(), drivers.pop().unwrap());
         peers[0].shutdown().await.unwrap();
         receive.await;
         let first_receipt = scope.next_receipt().await.unwrap();
-        assert!(first.matches_joined(&first_receipt));
+        assert!(first.matches_joined(first_receipt.joined()));
         assert!(first_receipt.result().is_err());
         assert!(first_receipt.local_failure_accepted());
-        assert!(!first_receipt.registration_released());
+        assert!(!first_receipt.joined().registration_released());
         assert_eq!(
             scope
                 .registrar()

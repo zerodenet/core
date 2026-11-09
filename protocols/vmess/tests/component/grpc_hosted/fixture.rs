@@ -165,7 +165,9 @@ pub(super) async fn actual_failure(user_receives: bool) {
             fn original_scope<'a>(
                 source: &'a (dyn std::error::Error + 'static),
             ) -> Option<&'a Arc<ChannelError>> {
-                if let Some(failure) = source.downcast_ref::<super::wire::SharedFailure>() {
+                if let Some(failure) =
+                    source.downcast_ref::<crate::component::grpc::wire::SharedFailure>()
+                {
                     return Some(&failure.0);
                 }
                 if let Some(io) = source.downcast_ref::<std::io::Error>() {
@@ -195,7 +197,7 @@ pub(super) async fn actual_failure(user_receives: bool) {
             }
         })
         .await;
-        assert!(!receipt.registration_released());
+        assert!(!receipt.joined().registration_released());
         assert!(Arc::ptr_eq(&original, &receipt.result().unwrap_err()));
         assert!(
             receipt.local_failure_accepted(),
@@ -211,7 +213,7 @@ pub(super) async fn actual_failure(user_receives: bool) {
         let report = shutdown.await.unwrap();
         assert!(report.is_complete(), "{report:?}");
         assert_eq!(report.closed_io.len(), 1);
-        assert!(receipt.registration_released());
+        assert!(receipt.joined().registration_released());
         let healthy = scope
             .registrar()
             .spawn(TaskClass::Auxiliary, async { Ok(()) })
