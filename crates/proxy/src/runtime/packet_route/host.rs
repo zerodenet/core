@@ -2,11 +2,13 @@
 mod driver;
 pub(crate) mod pause;
 pub(crate) use pause::{NativeDeviceFenced, NativeDevicePaused};
+#[cfg(test)]
 mod legacy;
 mod policy;
 mod scoped;
 mod session;
 mod task;
+#[cfg(test)]
 use super::{PacketForwardObservation, PreparedPacketRouteOperation};
 use crate::runtime::raw_ip::PacketReturns;
 pub(crate) use policy::PreparedHostPacketOperation;
@@ -16,13 +18,16 @@ use tokio::{
     sync::{mpsc, oneshot, watch},
 };
 use zero_stack::packet;
+#[cfg(test)]
 use zero_traits::IoObserver;
+#[cfg(test)]
 struct LegacyWrite {
     return_channel: zero_stack::packet_output::PacketSender,
     packet: zero_traits::PacketBuffer,
     observer: Option<Arc<dyn IoObserver>>,
     ack: oneshot::Sender<(zero_traits::PacketBuffer, io::Result<()>)>,
 }
+#[cfg(test)]
 impl LegacyWrite {
     fn discarded(&self) {
         if let Some(observer) = &self.observer {
@@ -31,6 +36,7 @@ impl LegacyWrite {
     }
 }
 enum Write {
+    #[cfg(test)]
     Legacy(LegacyWrite),
     Owned(session::OwnedWrite),
 }

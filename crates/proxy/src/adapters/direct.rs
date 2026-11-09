@@ -97,17 +97,22 @@ impl DirectAdapter {
                 .unwrap_or_else(|e| e.into_inner())
                 .as_ref()
                 .filter(|d| dial_policy == zero_traits::DialPolicy::default() && d.usable())
-                .map(|d| crate::runtime::packet_route::PacketRouteOperations {
-                    native: std::sync::Arc::new(
-                        crate::runtime::packet_route::host::PreparedHostPacketOperation {
-                            device: d.clone(),
-                            dial_policy: dial_policy.clone(),
-                        },
-                    ),
-                    translated: None,
-                    datagram: None,
-                    flow: None,
-                    correlated_returns: false,
+                .map(|device| {
+                    #[cfg(not(test))]
+                    let _ = device;
+                    crate::runtime::packet_route::PacketRouteOperations {
+                        native: std::sync::Arc::new(
+                            crate::runtime::packet_route::host::PreparedHostPacketOperation {
+                                #[cfg(test)]
+                                device: device.clone(),
+                                dial_policy: dial_policy.clone(),
+                            },
+                        ),
+                        translated: None,
+                        datagram: None,
+                        flow: None,
+                        correlated_returns: false,
+                    }
                 }),
             #[cfg(feature = "udp-runtime")]
             packet_path: None,
