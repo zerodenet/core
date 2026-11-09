@@ -23,9 +23,33 @@ impl Demand {
             deadline: context.deadline,
             cancel: context.cancel.clone(),
         };
-        let selected = generation
-            .upstream
-            .select_background_carrier(Some(context.upstream.binding().clone()), call.clone());
+        // Keep the actual waiting caller's existing finite pending ledger when
+        // rebuilding the owning physical prefix. A fresh NodeOpener with no
+        // observer cannot receive its lower originals before loan delivery.
+        let waiting = context.upstream.observed_pending_carrier();
+        let selected = async {
+            match waiting {
+                Some(waiting) => {
+                    generation
+                        .upstream
+                        .select_background_carrier_observed(
+                            Some(context.upstream.binding().clone()),
+                            call.clone(),
+                            waiting,
+                        )
+                        .await
+                }
+                None => {
+                    generation
+                        .upstream
+                        .select_background_carrier(
+                            Some(context.upstream.binding().clone()),
+                            call.clone(),
+                        )
+                        .await
+                }
+            }
+        };
         let upstream = with_deadline(context.deadline, selected)
             .await
             .map_err(|source| error(Stage::Prepare, Reason::Timeout).with_source(source))??;

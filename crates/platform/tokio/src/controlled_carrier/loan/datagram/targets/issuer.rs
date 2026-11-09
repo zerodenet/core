@@ -43,6 +43,11 @@ impl CarrierOwnerBinding {
     }
 }
 impl ServiceDatagramTargetIssuer {
+    /// Actual Host-registered receiver for metadata source lookup only. The
+    /// returned identity grants no resolver, native, cached or task authority.
+    pub fn instance(&self) -> zero_core::component::ComponentInstanceId {
+        self.bound.registration().instance()
+    }
     pub fn binding(&self) -> &UpstreamBinding {
         &self.binding
     }

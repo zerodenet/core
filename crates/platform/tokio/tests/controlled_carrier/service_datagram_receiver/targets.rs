@@ -10,6 +10,10 @@ async fn foreign_host_node_source_is_denied_before_resolve_and_literal_does_not_
     timeout(Duration::from_secs(3), async {
         let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let actual = Actual::new(peer.local_addr().unwrap(), true).await;
+        assert_eq!(
+            actual.issuer().unwrap().instance(),
+            actual.original.instance()
+        );
         // Token clones have identical cancellation behavior but foreign private
         // Arc identity; an arbitrary resolver wrapper cannot forge this Host.
         let foreign = HostNodeDnsSource::for_host(

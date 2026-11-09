@@ -215,6 +215,7 @@ impl UpstreamOpener for PrefixOpener {
         if binding != &self.expected_binding
             || binding.network_generation.0 != self.network.network_generation()
             || issuer.binding() != binding
+            || issuer.endpoint() != &self.expected_endpoint
         {
             return Box::pin(async {
                 Err(crate::component::instance::invalid(
@@ -223,9 +224,19 @@ impl UpstreamOpener for PrefixOpener {
                 ))
             });
         }
-        self.context
-            .upstream
-            .resolve_service_datagram_candidates(issuer)
+        // This issuer belongs to the receiver beyond this prefix. Resolving
+        // through context.upstream would replace its full binding with the
+        // shorter root binding and select the lower role's Node source.
+        // The same current plan supplies the receiver's Host-installed source;
+        // resolve_on_node still checks the issuer's private Host fence and Aux.
+        let plan = self.plan.as_ref().and_then(std::sync::Weak::upgrade);
+        let network = binding.network_generation;
+        Box::pin(async move {
+            let plan =
+                plan.ok_or_else(|| invalid(Reason::Revoked, "actual Service target plan retired"))?;
+            let source = plan.host_node_dns_source(issuer.instance())?;
+            issuer.resolve_on_node(&source, network).await
+        })
     }
     fn resolve_packet_target(
         &self,
