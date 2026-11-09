@@ -30,8 +30,7 @@ impl ProtocolInventory {
                     // Shared roles borrow their donor's actual logical control.
                     // The cold graph must contain an integrated carrier provider;
                     // taskless framing alone still uses the caller's DNS original.
-                    let device = components.has_device_carrier_provider(slot.role_id());
-                    let borrowed = device
+                    let borrowed = components.has_device_carrier_provider(slot.role_id())
                         || (spec.task_limit.is_none()
                             || components.has_preparing_node_carrier_provider(slot.role_id())
                             || components.has_node_stream_provider(slot.role_id())
@@ -39,7 +38,7 @@ impl ProtocolInventory {
                             || components.has_cached_stream_provider(slot.role_id()))
                             && components.has_carrier_provider(slot.role_id())
                             && components.stream_dependencies_supported(slot.role_id());
-                    if slot.dial != Default::default() && !direct && !device
+                    if slot.dial != Default::default() && !direct
                         || !spec.roles.contains(&RoleKind::Stream)
                         || !direct
                             && !borrowed

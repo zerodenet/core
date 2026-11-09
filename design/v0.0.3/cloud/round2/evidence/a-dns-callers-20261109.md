@@ -3,7 +3,9 @@
 Current source checkpoint: M `232958b344ac172e4c235d5b6fc6bd399633952a`.
 This includes B's ordinary QUIC and cached/H3 original custody, the 102-file
 mixed producer, A's DNS wire allocation/candidate/read-only view pair, actual
-Direct/SS/SOCKS Datagram consumers and A's nondefault WG/device dial pair.
+Direct/SS/SOCKS Datagram consumers. A13's nondefault WG/device slice was
+subsequently identified as outside current configuration acceptance and is
+retracted below; it has no runtime qualification.
 Source acceptance is not runtime qualification or DNS-domain closure. Historical
 results below remain tied to their stated source and lock.
 
@@ -11,8 +13,9 @@ The d68 exact pre-delivery Root/initializer tests passed. On f616, Mieru's four
 UDP cases and concurrent ACK, SOCKS health, and SIP DoT/warm-DoH process cases
 passed. The SS first-query failure on that input was traced to loss of the
 actual peer ResourceAccess/Scope; its paired Source-context repair is now
-installed but needs a new ordinary wire input. Direct's new actual UDP and
-nondefault WG/device consumers likewise await their new Proxy wire input.
+installed but needs a new ordinary wire input. Direct's new actual UDP consumer likewise awaits its new Proxy wire input.
+The two new A13 nondefault WG fixtures would fail before IO at the existing
+Direct-only dial validator; they do not constitute a qualified caller.
 The wire-policy/DoH followup's exact 070011 input passed DoH21, policy5 and
 listener47. These separate results do not qualify current mixed/H3 or all DNS.
 
@@ -22,8 +25,9 @@ not the installed donor. Existing UDP-over-Stream framing remains the original
 contract for those callers. Plain standalone and linked WG share the actual
 standard Stream/Datagram provider and Scope; ff143's six standalone tests are
 qualified only on that input. WG DNS is not a TEMP implementation dependency.
-The current additional consumer work is nondefault dial for the newly installed
-cached/mixed provider, with exact provider/Scope/prefix and Query custody checks.
+The cached/mixed donor uses accepted default-dial configuration. Its actual
+self-owned Datagram classification and two-half UDP/persistent-DoH regression
+pair is installed in c058c333a; runtime qualification is still pending.
 
 | Actual entry/caller | Actual responsibility and standard landing | Remaining prerequisite / deletion gate / required regression |
 | --- | --- | --- |
@@ -34,8 +38,8 @@ cached/mixed provider, with exact provider/Scope/prefix and Query custody checks
 | Ordinary non-MUX VLESS/VMess/Trojan and existing Stream Relay | Actual installed Node/Service roles return their same loans. Setup Aux really joins and ACKs; VMess per-connection gRPC retains its real H2 driver per layer. Lower native and parent borrowing remain distinct. | B ordinary EOF/standing-retirement corrections need exact-input ordinary regressions. Three-node DNS must preserve each actual driver/parent/native receipt; no caller cancellation or deadline/assertion reduction. |
 | Native MUX and cached gRPC to MUX | Child uses the real physical pool. VLESS cached-gRPC/MUX has upper MUX driver/native-none and borrowed lower H2 driver/native; other existing owning MUX paths retain their original native/driver shape. | Existing legal material consumers remain. New source is not qualified by old unit tests. Advanced or missing roles cannot borrow an anonymous pool through inferred dependencies. |
 | New ordinary owning QUIC, native and borrowed | B seals the same per-call Entry/Phase/Scope/physical prefix into ProtocolOriginal before Aux or first await. A validates the canonical Query observer and exact owning installed role/provider/Scope; the same NativeUse prepays and retains its finite observation table. Returned loan custody is released before passive wait for true local and global Root removal. | The B39/A pre-delivery pair and subsequent returned-custody consumer are installed. Preserve real UDP pending suspension, same-binding foreign observer rejection, native-positive with held HostACK, global-N removal wake, cancellation/retry and persistent DoH reuse. New cached handoff proves exact logical original custody, never physical/global settlement. No second provider or fabricated early origin. |
-| WG/plain linked/device/standalone routes | Actual Source/wire ownership and original packet driver/loan are separate from the Query child. Standalone native owner remains explicit. TEMP logical child close never proves its outer physical/reconnect ancestor closed. | Plain WG is available independently of TEMP. A13 now binds nondefault underlay dial to the original installed device, with pure logical Query roots and no repeated Host bind on inner sockets; its two new lifecycle regressions are unrun. C G4 software outer Some uses the new memory-only workspace prelude but still needs the complete actual factory/wire/Ready/ACK caller pair; physical/reconnect ancestry stays Unknown. |
-| Mieru and other advanced detours | Current genuinely installed managed donor paths retain their real owning Scope/pool; no second compatibility pool is admitted after native ownership. | B102 actual mixed XHTTP/Xmux TCP/H3 halves are now installed under one Entry/Scope/book; default-dial DNS selectors consume the installed cached-provider predicate. Nondefault cached DNS selection/custody remains an A consumer task. Browser/mKCP/remaining advanced factories, full mixed/legacy Mieru and C software outer callers retain their concrete implementation/qualification prerequisites. The two Kernel PacketPath(None) borrowers now have their actual Business custody pair; its presence is not blanket advanced donor qualification. A blocked legal configuration is not a completed implementation. |
+| WG/plain linked/device/standalone routes | Actual Source/wire ownership and original packet driver/loan are separate from the Query child. Standalone native owner remains explicit. TEMP logical child close never proves its outer physical/reconnect ancestor closed. | Plain WG is available independently of TEMP. A13's nondefault WG slice is retracted: the unchanged validator accepts nondefault dial only on Direct. Original default-dial WG wire/TC/DoT/DoH/Scope/ACK tests are preserved byte-for-byte; no runtime qualification is claimed for the removed new fixtures. C G4 software outer Some uses the new memory-only workspace prelude but still needs the complete actual factory/wire/Ready/ACK caller pair; physical/reconnect ancestry stays Unknown. |
+| Mieru and other advanced detours | Current genuinely installed managed donor paths retain their real owning Scope/pool; no second compatibility pool is admitted after native ownership. | B102 actual mixed XHTTP/Xmux TCP/H3 halves are now installed under one Entry/Scope/book; default-dial DNS selectors consume the installed cached-provider predicate. Nondefault cached/mixed dial is outside the unchanged Direct-only acceptance boundary; it is not a missing accepted caller. Browser/mKCP/remaining advanced factories, full mixed/legacy Mieru and C software outer callers retain their concrete implementation/qualification prerequisites. The two Kernel PacketPath(None) borrowers now have their actual Business custody pair; its presence is not blanket advanced donor qualification. A blocked legal configuration is not a completed implementation. |
 | Reserved DoQ.detour | `model/dns.rs` explicitly reserves the field; `validate/dns.rs::validate_servers` rejects it after checking the referenced target. Both parsed and hand-built RuntimeConfig inputs reach this validation before Kernel resource acceptance. `zero-dns` also rejects a detoured DoQ backend rather than dial directly. | Not a current legal Kernel combination and not a TEMP dependency. This corrects the earlier A planning note that called it a missing implementation. Native DoQ and explicit standalone DoQ provider duties remain; no new detour syntax or validation relaxation is proposed. |
 | Fake-IP Default source | Default-only actual ControlledJournal declaration/lease uses the same Source graph and real journal OriginalFiles; decode/write/rotate/native close and Scope/ACK remain separate. Node does not open another journal. | M recorded FakeIP14 and Journal8 on their exact earlier input. Ordinary Proxy journal reload still needs its actual ordinary test input. Keep matching close, paid read/write state, typed late errors, generation overflow rejection and unknown owner retention. |
 | Installed ProxyDnsOutboundConnector | Only `runtime.rs` installs it; its private adapter contains Session(0) and prepare_datagram_exchange. All Kernel backend exchange attempts with native source return earlier. Therefore it has no Kernel execution, and does not protect advanced functionality. | User-required order remains: finish all legal real donors/callers, then delete installation, private adapter, cold current-services fixture and obsolete Session(0)/prepare branches together. Deleting this unreachable installation now would not complete any blocked donor. |
@@ -88,10 +92,11 @@ written. This is a scope correction, not evidence of a newly closed caller.
 
 ## Remaining deletion work, in order
 
-1. Finish nondefault cached/mixed DNS consumers against their actual installed
-   provider; retain successful persistent DoH physical custody and original
-   Query logical return separately. Qualify Direct, SS peer repair, A13 device
-   dial and the newly accepted mixed source on their actual ordinary inputs.
+1. Qualify the accepted default-dial cached/mixed DNS consumers against their
+   actual installed provider, retaining successful persistent DoH physical
+   custody and original Query logical return separately. Qualify Direct and
+   SS peer repair on their actual ordinary inputs. Nondefault dial remains
+   Direct-only; do not invent a Direct+WG relay to salvage a rejected fixture.
 2. Consume each remaining concrete B/C factory when delivered: no generic
    Datagram-role allowance, second resolver, anonymous pool, fake Session or
    Source witness. C plain standalone WG is already available; C G4 outer Some
@@ -104,3 +109,22 @@ written. This is a scope correction, not evidence of a newly closed caller.
    early return in `zero-dns::owned_root::exchange_backend_attempt` makes this
    installation inert for Kernel execution now; keeping it supplies no advanced
    execution. Genuine standalone/custom connector APIs keep their real duties.
+
+## Nondefault dial scope correction
+
+`crates/config/src/validate/dial.rs::validate_outbound_dial` rejects every
+non-Direct outbound whose dial is not default; `validate.rs` invokes it for
+every configured outbound. The existing oracle
+`crates/config/tests/outbound_dial.rs::dial_constraints_are_a_common_field_with_direct_only_nondefault_support`
+asserts this exact public boundary. Neither B's internal Policy projection nor
+C's sealed underlay binding makes a rejected RuntimeConfig legal.
+
+The A13 new WG source_ip fixtures parse the configuration before Proxy/native
+IO. Their first result would therefore be InvalidOutbound, before all proposed
+wire/Scope checks. No run is claimed. The original frozen A13 source and its
+hash manifest remain outside the repository as historical evidence. Its new
+unreachable logical-root branch and two new unaccepted fixtures are retracted;
+the original accepted default WG fixtures and assertions return byte-for-byte
+to their previous source. B102 cached predicates, c058's actual self-owned
+Datagram classification and all mature original ownership gates remain.
+No validator, legal target, timeout, cap, native receipt or Scope ACK is weakened.

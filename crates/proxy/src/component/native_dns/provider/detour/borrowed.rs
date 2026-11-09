@@ -13,19 +13,13 @@ impl Provider {
         call: &CarrierContext,
         caller: TaskJoinWitness,
         root: Arc<root::Root>,
-        logical_grants: Option<&CarrierGrants>,
     ) -> std::io::Result<StreamLoan> {
-        let grants = match logical_grants {
-            Some(grants) => grants,
-            None => {
-                &self
-                    .peers
-                    .iter()
-                    .find(|(address, packet, _)| *address == peer && !packet)
-                    .ok_or_else(|| std::io::Error::other("DNS borrowed endpoint was not declared"))?
-                    .2
-            }
-        };
+        let grants = &self
+            .peers
+            .iter()
+            .find(|(address, packet, _)| *address == peer && !packet)
+            .ok_or_else(|| std::io::Error::other("DNS borrowed endpoint was not declared"))?
+            .2;
         let capacity = self.budget.reserve(1)?;
         let mut grant = grants.reserve().map_err(std::io::Error::other)?;
         let view = grant
@@ -67,12 +61,9 @@ impl Provider {
         let origin = loan.owner.original().clone();
         // Persist the exact logical controller before validation or any await.
         // A stale or cancelled acquisition remains in the same retained slot.
-        let io = if logical_grants.is_some() {
-            grant.adopt_service_stream_loan(binding, destination(peer), call, loan)
-        } else {
-            grant.adopt_stream_loan(binding, destination(peer), call, loan)
-        }
-        .map_err(std::io::Error::other)?;
+        let io = grant
+            .adopt_stream_loan(binding, destination(peer), call, loan)
+            .map_err(std::io::Error::other)?;
         self.release_installed_pending(&caller);
         execution
             .components

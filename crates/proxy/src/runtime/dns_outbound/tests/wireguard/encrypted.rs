@@ -11,14 +11,11 @@ async fn ordinary_standalone_wireguard_dot_and_doh_share_the_actual_bound_wire_a
     exercise(false).await;
 }
 async fn exercise(linked: bool) {
-    exercise_with_source(linked, None).await;
-}
-pub(super) async fn exercise_with_source(linked: bool, source: Option<&str>) {
     tokio::time::timeout(Duration::from_secs(25),async {
         for doh in [false,true] {
             let mut tls=crate::dns_fixture::TlsDns::new(doh).await;
             let peer=peer::Peer::new(tls.address).await;
-            let (proxy,running)=start_server_with_source(&peer,tls.server(doh),linked,false,source).await;
+            let (proxy,running)=start_server_mode(&peer,tls.server(doh),linked).await;
             if doh {zero_dns::test_support::install_doh_ca(&proxy.resolver,"query",tls.certificate.clone()).unwrap();}
             else {zero_dns::test_support::install_dot_ca(&proxy.resolver,"query",tls.certificate.clone()).unwrap();}
             let root=proxy.protocols.test_packet_source_origins(proxy.engine().config().as_ref()).remove(0);
@@ -30,9 +27,6 @@ pub(super) async fn exercise_with_source(linked: bool, source: Option<&str>) {
                     request=tokio::time::timeout_at(end(),tls.requests.recv())=>request.unwrap().unwrap(),
                     result=&mut query=>panic!("WG encrypted DNS failed before its real TLS request: {result:?}"),
                 };
-                if let Some(source) = source {
-                    assert_eq!(peer.actual_outer_source().unwrap().ip(), source.parse::<std::net::IpAddr>().unwrap(), "only the actual WG underlay binds the configured host source");
-                }
                 let actual=pending(&proxy).await;let child=actual.original.as_ref().unwrap();
                 native_pending(child,&root);
                 if let Some(old)=&physical {
