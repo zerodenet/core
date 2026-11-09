@@ -3,6 +3,7 @@ use crate::protocol_registry::ProtocolRegistry;
 mod component;
 #[cfg(feature = "raw-ip-runtime")]
 mod device;
+#[cfg(feature = "raw-ip-runtime")]
 pub(crate) use device::path_identity_for;
 mod dns_dependencies;
 mod endpoint;
