@@ -8,6 +8,64 @@ use crate::{
 use super::validate_tag;
 
 pub(super) fn validate_api(api: &ApiConfig) -> Result<(), ConfigError> {
+    for (field, value) in [
+        (
+            "max_worker_tasks",
+            api.dispatcher.effective_max_worker_tasks(),
+        ),
+        (
+            "max_open_originals",
+            api.dispatcher.effective_max_open_originals(),
+        ),
+    ] {
+        if value == 0 || value > usize::MAX >> 3 {
+            return Err(ConfigError::InvalidApi(format!(
+                "api.dispatcher.{field} must be a positive representable semaphore count"
+            )));
+        }
+    }
+    if !api.event_sinks.is_empty() || api.dead_letter_path.is_some() {
+        let publisher = api
+            .event_sinks
+            .iter()
+            .any(|sink| matches!(sink, EventSinkConfig::JsonLines { .. }));
+        let minimum = api
+            .event_sinks
+            .len()
+            .checked_add(2)
+            .and_then(|n| n.checked_add(usize::from(publisher)))
+            .ok_or_else(|| ConfigError::InvalidApi("dispatcher task layout overflow".into()))?;
+        if api
+            .dispatcher
+            .max_worker_tasks
+            .is_some_and(|limit| limit < minimum)
+        {
+            return Err(ConfigError::InvalidApi(format!(
+                "api.dispatcher.max_worker_tasks must allow {minimum} actual receiver/source/initializer/publisher positions"
+            )));
+        }
+    }
+    if !api.event_sinks.is_empty() || api.dead_letter_path.is_some() {
+        let files = api
+            .event_sinks
+            .iter()
+            .filter(|sink| matches!(sink, EventSinkConfig::JsonLines { .. }))
+            .count();
+        let minimum = files
+            .checked_mul(2)
+            .and_then(|n| n.checked_add(2 * usize::from(api.dead_letter_path.is_some())))
+            .and_then(|n| n.checked_add(4 * usize::from(api.outbox_path.is_some())))
+            .ok_or_else(|| ConfigError::InvalidApi("dispatcher original layout overflow".into()))?;
+        if api
+            .dispatcher
+            .max_open_originals
+            .is_some_and(|limit| limit < minimum)
+        {
+            return Err(ConfigError::InvalidApi(format!(
+                "api.dispatcher.max_open_originals must allow {minimum} actual configured providers and compaction position"
+            )));
+        }
+    }
     if !(1..=256 * 1024 * 1024).contains(&api.dispatcher.max_in_memory_delivery_bytes) {
         return Err(ConfigError::InvalidApi(
             "api.dispatcher.max_in_memory_delivery_bytes must be between 1 and 268435456"

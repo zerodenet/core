@@ -1,3 +1,5 @@
+#[path = "config_parse/dispatcher_capacity.rs"]
+mod dispatcher_capacity;
 use std::fs;
 use zero_runtime::configuration::RuntimeConfigPreparation;
 #[path = "config_parse/owner_budgets.rs"]

@@ -32,13 +32,22 @@ impl SinkWorker {
         result_tx: mpsc::UnboundedSender<SinkWorkerResult>,
         children: Arc<DispatcherChildren>,
     ) -> Self {
+        // Production cold validation includes all configured receivers and the
+        // original source/parent. No publisher can be active before activation.
+        let charge = children
+            .task_charge()
+            .unwrap_or_else(|source| std::panic::panic_any(source));
         let tag = sink.tag.clone();
         let event_types = sink.event_types.clone();
         let source_id = sink.source_id.clone();
         let supports_cancellation = sink.supports_cancellation();
         let worker_tag = tag.clone();
         let (sender, mut receiver) = mpsc::channel::<Arc<RawApiEvent>>(1);
+        let (start, started) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(async move {
+            if started.await.is_err() {
+                return;
+            }
             while let Some(event) = receiver.recv().await {
                 let event_id = event.event_id.clone();
                 let result = sink.publish_prepared(event).await;
@@ -54,7 +63,8 @@ impl SinkWorker {
                 }
             }
         });
-        let task = children.register(task);
+        let task = children.register(task, charge);
+        let _ = start.send(());
         Self {
             tag,
             event_types,

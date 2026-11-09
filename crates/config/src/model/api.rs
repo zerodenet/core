@@ -36,6 +36,15 @@ pub struct ApiConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EventDispatcherConfig {
+    /// All original dispatcher jobs together: initializer/loop, source reader,
+    /// sink receivers and blocking publishers. Webhook transport/DNS tasks
+    /// retain their separate `runtime.event_network_max_tasks` owner.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_worker_tasks: Option<usize>,
+    /// Original file/lock and SQLite-with-scratch providers in this dispatcher,
+    /// including pending, failed and retiring acquisitions until actual close.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_open_originals: Option<usize>,
     #[serde(default = "default_dispatcher_max_in_memory_deliveries")]
     pub max_in_memory_deliveries: usize,
     /// Serialized-byte charge for queued and in-flight deliveries combined.
@@ -79,6 +88,8 @@ pub struct EventDispatcherConfig {
 impl Default for EventDispatcherConfig {
     fn default() -> Self {
         Self {
+            max_worker_tasks: None,
+            max_open_originals: None,
             max_in_memory_deliveries: default_dispatcher_max_in_memory_deliveries(),
             max_in_memory_delivery_bytes: default_delivery_max_bytes(),
             replay_batch_size: default_dispatcher_replay_batch_size(),
@@ -91,6 +102,16 @@ impl Default for EventDispatcherConfig {
             outbox_min_free_percent: default_outbox_min_free_percent(),
             exhausted_delivery_policy: ExhaustedDeliveryPolicy::default(),
         }
+    }
+}
+
+impl EventDispatcherConfig {
+    pub fn effective_max_worker_tasks(&self) -> usize {
+        self.max_worker_tasks.unwrap_or(64)
+    }
+
+    pub fn effective_max_open_originals(&self) -> usize {
+        self.max_open_originals.unwrap_or(64)
     }
 }
 

@@ -143,7 +143,8 @@ impl PerSinkStats {
 
 pub struct EventDispatcherHandle {
     shutdown: Option<tokio::sync::oneshot::Sender<ShutdownMode>>,
-    task: JoinHandle<Option<EventDispatcherContinuation>>,
+    task: Option<JoinHandle<Option<EventDispatcherContinuation>>>,
+    task_charge: Option<crate::capacity::TaskCharge>,
     task_exit: Option<DispatcherTaskExit>,
     children: Arc<DispatcherChildren>,
     resources: DispatcherResources,
@@ -351,12 +352,38 @@ where
     let sink_stats: SharedSinkStats = Arc::new(Mutex::new(Vec::new()));
     let stats_for_handle = sink_stats.clone();
     let stats_for_thread = sink_stats.clone();
-    let children = Arc::new(DispatcherChildren::default());
+    let capacity = Arc::new(crate::capacity::DispatcherCapacity::from_api(&api));
+    let children = Arc::new(DispatcherChildren::with_capacity(capacity.clone()));
     let worker_children = children.clone();
-    let resources = DispatcherResources::default();
+    let resources = DispatcherResources::with_capacity(capacity.clone());
     let worker_resources = resources.clone();
 
+    let prepared =
+        crate::capacity::DispatcherCapacity::validate(&api).and_then(|()| capacity.task());
+    let task_charge = match prepared {
+        Ok(charge) => charge,
+        Err(error) => {
+            return EventDispatcherHandle {
+                shutdown: None,
+                task: None,
+                task_charge: None,
+                // Known not submitted: this cold input never starts a task or IO.
+                task_exit: Some(Ok(None)),
+                children,
+                resources,
+                init_rx: None,
+                init_notify,
+                init_result: Some(Err(Arc::new(ConnectorError::Config(error.to_string())))),
+                activate: None,
+                sink_stats: stats_for_handle,
+            };
+        }
+    };
+    let (start_initializer, initializer_ready) = mpsc::sync_channel(1);
     let task = tokio::task::spawn_blocking(move || {
+        if initializer_ready.recv().is_err() {
+            return None;
+        }
         let core_instance_id = match source.core_instance_id() {
             Ok(identity) => identity,
             Err(error) => {
@@ -512,9 +539,10 @@ where
         )))
     });
 
-    EventDispatcherHandle {
+    let handle = EventDispatcherHandle {
         shutdown: Some(shutdown_tx),
-        task,
+        task: Some(task),
+        task_charge: Some(task_charge),
         task_exit: None,
         children,
         resources,
@@ -523,7 +551,9 @@ where
         init_result: None,
         activate: paused.then_some(activate_tx),
         sink_stats: stats_for_handle,
-    }
+    };
+    let _ = start_initializer.send(());
+    handle
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -557,14 +587,22 @@ where
         .collect::<Vec<_>>();
     drop(result_tx);
     let source_cancelled = Arc::new(AtomicBool::new(false));
-    let (mut source_rx, source_budget, source_task) = source::spawn_bridge(
+    children
+        .reserve_source()
+        .unwrap_or_else(|error| std::panic::panic_any(error));
+    let (mut source_rx, source_budget, source_task, start_source) = source::spawn_bridge(
         subscriber,
         source_cancelled.clone(),
         dispatcher_config.replay_batch_size,
         dispatcher_config.source_queue_max_bytes,
         source_budget,
-    );
+    )
+    .unwrap_or_else(|error| {
+        children.source_not_started(); // actual std::thread::spawn Err
+        std::panic::panic_any(error)
+    });
     children.source(source_task, source_cancelled.clone(), source_budget.clone());
+    let _ = start_source.send(());
     for (_, sink) in stats.lock().expect("sink stats").iter() {
         *sink.source_buffer.lock().expect("sink stats") = Some(source_budget.clone());
     }

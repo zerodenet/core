@@ -34,11 +34,13 @@ impl PendingIndex {
         Self::new_owned(path, DispatcherResources::default())
     }
     pub(super) fn new_owned(path: &Path, resources: DispatcherResources) -> ConnectorResult<Self> {
-        let scratch = tempfile::Builder::new()
-            .prefix("zero-outbox-index-")
-            .tempdir()
+        let db = resources
+            .database(|| {
+                tempfile::Builder::new()
+                    .prefix("zero-outbox-index-")
+                    .tempdir()
+            })
             .map_err(|e| error(path, e))?;
-        let db = resources.database(scratch).map_err(|e| error(path, e))?;
         db.lock()
             .unwrap()
             .connection

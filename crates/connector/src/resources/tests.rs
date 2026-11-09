@@ -34,14 +34,12 @@ fn outstanding_actual_writer_view_keeps_original_and_blocks_native_replacement()
     assert!(identity.upgrade().is_some());
     // No native construction may occur after the unconfirmed retirement.
     let mut constructed = false;
-    assert!(
-        resources
-            .open(|| {
-                constructed = true;
-                File::open(&path)
-            })
-            .is_err()
-    );
+    assert!(resources
+        .open(|| {
+            constructed = true;
+            File::open(&path)
+        })
+        .is_err());
     assert!(!constructed);
     drop(view);
     assert!(resources.close().is_err()); // sticky failure remains evidence
@@ -84,7 +82,7 @@ fn dead_letter_preserves_public_envelope_and_jsonl_writer_views_retire_before_cl
 #[test]
 fn sqlite_close_busy_retains_the_exact_original_connection_and_error() {
     let resources = DispatcherResources::default();
-    let original = resources.database(tempfile::tempdir().unwrap()).unwrap();
+    let original = resources.database(tempfile::tempdir).unwrap();
     let raw_connection;
     let mut raw_statement = std::ptr::null_mut();
     {
@@ -121,12 +119,10 @@ fn sqlite_close_busy_retains_the_exact_original_connection_and_error() {
     );
     let first = original.lock().unwrap().failure.as_ref().unwrap().clone();
     let repeated = original.lock().unwrap().close().unwrap_err(); // do not erase first failure
-    assert!(
-        repeated
-            .get_ref()
-            .and_then(|source| source.downcast_ref::<Arc<rusqlite::Error>>())
-            .is_some_and(|source| Arc::ptr_eq(source, &first))
-    );
+    assert!(repeated
+        .get_ref()
+        .and_then(|source| source.downcast_ref::<Arc<rusqlite::Error>>())
+        .is_some_and(|source| Arc::ptr_eq(source, &first)));
     {
         let database = original.lock().unwrap();
         assert!(
@@ -143,10 +139,8 @@ fn sqlite_close_busy_retains_the_exact_original_connection_and_error() {
     assert!(resources.close().is_err());
     assert!(resources.0.databases.lock().unwrap().is_empty());
     assert!(resources.retirement_complete());
-    assert!(
-        resources.0.retired_faults.lock().unwrap()[0]
-            .get_ref()
-            .and_then(|source| source.downcast_ref::<Arc<rusqlite::Error>>())
-            .is_some_and(|source| Arc::ptr_eq(source, &first))
-    );
+    assert!(resources.0.retired_faults.lock().unwrap()[0]
+        .get_ref()
+        .and_then(|source| source.downcast_ref::<Arc<rusqlite::Error>>())
+        .is_some_and(|source| Arc::ptr_eq(source, &first)));
 }

@@ -44,5 +44,8 @@ mod encoding;
 #[cfg(feature = "event-dispatcher")]
 mod resources;
 
+#[cfg(feature = "event-dispatcher")]
+mod capacity;
+
 #[cfg(feature = "kernel-events")]
 pub use dispatcher::prepare_kernel_event_dispatcher_paused_with_network;

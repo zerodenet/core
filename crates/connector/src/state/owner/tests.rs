@@ -17,7 +17,7 @@ fn held_actual_sqlite_view_keeps_original_attempt_and_both_faults_until_real_ret
     let original = lease.original.clone();
     let scratch = tempfile::tempdir().unwrap();
     let scratch_path = scratch.path().to_owned();
-    let database = original.resources.database(scratch).unwrap();
+    let database = original.resources.database(|| Ok(scratch)).unwrap();
     database
         .lock()
         .unwrap()

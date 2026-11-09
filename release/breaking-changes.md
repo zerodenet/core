@@ -439,6 +439,8 @@ wire、结果码、策略/健康中立性与配置字段不变，无 GUI/SDK 迁
 
 ### Connector 持久化预检与配置热更新
 
+- `api.dispatcher.max_worker_tasks` 与 `max_open_originals` 是可选的每 dispatcher 原任务及文件/锁、SQLite-with-scratch 原件上限。省略时不增加导出字段，有限默认值按实际固定 sink/provider 布局适配；显式值必须容纳既有接收者、源线程及一个发布/压缩进展位置。准入先于启动/打开，取消不退还运行中任务额度，未归还视图、未知获取及失败关闭继续占额。真实 join 与原件关闭分别确认；原有 ACK、事件身份、持久投递、配置回滚和计量保持。网络载体继续使用 `runtime.event_network_*` 的实际 owner，两个字段不是进程 RSS 或全内核总额度。
+
 - `zero connector state`、outbox 启动回放、dead-letter 和配额状态检查改为流式读取。预检只检查打开文件时的快照，不申请持久化写锁、不修复文件，也不改变运行中的内核；日志格式及 API/event V1 标识保持不变。
 - outbox 在 PUT、ACK 和启动时检查历史压缩阈值，保留每个未确认事件的最新完整记录、payload 和重试状态。真正未投递的事件不会因压缩被删除；空间不足时保留原日志并延迟压缩。
 - 配置热更新只重建实际变化的应用组件。仅修改代理设置时保留 dispatcher、状态监视器和未变化的 hook；需要重建 dispatcher 时取消已有 outbox 副本的在途请求，保留持久化事实供恢复，丢弃临时采样。没有 outbox 的生命周期事实仍须完成投递；接收端继续按既有事件身份幂等处理可能的重投。

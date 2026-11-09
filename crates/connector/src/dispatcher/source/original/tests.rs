@@ -95,7 +95,9 @@ async fn actual_kernel_bridge_backpressures_original_payload_and_joins_its_same_
     let (live, _) = source.subscribe().unwrap();
     let stop = Arc::new(AtomicBool::new(false));
     let budget = SourceBudget::new(1, 65_536);
-    let (mut rx, book, task) = super::super::bridge::spawn(live, stop.clone(), 1, 65_536, budget);
+    let (mut rx, book, task, start) =
+        super::super::bridge::spawn(live, stop.clone(), 1, 65_536, budget).unwrap();
+    start.send(()).unwrap();
     emit(&engine, "first");
     let first = tokio::time::timeout(Duration::from_secs(3), rx.recv())
         .await
@@ -235,7 +237,9 @@ async fn missing_replay_prefix_gets_same_n1_credit_before_pending_future_live_or
     let baseline = baseline.unwrap();
     let stop = Arc::new(AtomicBool::new(false));
     let budget = SourceBudget::new(1, 64);
-    let (mut rx, book, task) = super::super::bridge::spawn(live, stop.clone(), 1, 64, budget);
+    let (mut rx, book, task, start) =
+        super::super::bridge::spawn(live, stop.clone(), 1, 64, budget).unwrap();
+    start.send(()).unwrap();
     emit(&engine, "missing-prefix");
     let first = tokio::time::timeout(Duration::from_secs(3), rx.recv())
         .await

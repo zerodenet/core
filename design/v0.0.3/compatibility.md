@@ -520,3 +520,8 @@ until deallocation. All five lanes validate/install atomically, so a failed
 shrink changes none. Omitted fields remain omitted on export. The SDK/root
 consumers are installed; remaining Source/actor/helper consumers still require
 complete implementation and qualification, not merely these configuration keys.
+
+
+### Dispatcher 原任务与持久原件准入
+
+可选 `api.dispatcher.max_worker_tasks` / `max_open_originals` 仅约束同一个实际 dispatcher 的原任务与文件/锁、SQLite/scratch provider；已有网络与事件字节预算继续各归原 owner。省略仍不导出新字段，并以实际配置固定布局和有限默认量设置冷准入。显式不足的布局在配置验证时拒绝，运行中的持久事实、ACK 与有效历史不会被驱逐。原句柄安装后才允许任务进入业务，取消和 body 完成都不表示已 join，归还视图也不表示原 provider 已关闭。对外事件/API V1、CLI、FFI 及客户端面板流程保持原语义。

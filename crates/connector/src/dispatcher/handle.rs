@@ -30,7 +30,20 @@ impl EventDispatcherHandle {
         &mut self,
     ) -> Result<Option<EventDispatcherContinuation>, Arc<tokio::task::JoinError>> {
         if self.task_exit.is_none() {
-            self.task_exit = Some((&mut self.task).await.map_err(Arc::new));
+            self.task_exit = Some(
+                self.task
+                    .as_mut()
+                    .expect("submitted original dispatcher task")
+                    .await
+                    .map_err(Arc::new),
+            );
+            // Original parent join and stable outcome are recorded before its
+            // admission can return; cancelling this wait retains both fields.
+            if self.task_exit.as_ref().is_some_and(Result::is_ok) {
+                if let Some(charge) = self.task_charge.take() {
+                    charge.complete();
+                }
+            }
         }
         self.task_exit
             .as_ref()
@@ -40,7 +53,7 @@ impl EventDispatcherHandle {
 
     /// Diagnostic only; retirement still consumes the actual join and native providers.
     pub fn is_terminated(&self) -> bool {
-        self.task_exit.is_some() || self.task.is_finished()
+        self.task_exit.is_some() || self.task.as_ref().is_some_and(|task| task.is_finished())
     }
 
     pub fn original_shutdown_failure(&self) -> Option<Arc<tokio::task::JoinError>> {

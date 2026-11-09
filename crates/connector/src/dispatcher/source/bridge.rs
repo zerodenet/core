@@ -24,11 +24,12 @@ pub(in crate::dispatcher) fn spawn<S: EventStream + Send + 'static>(
     capacity: usize,
     byte_limit: u32,
     budget: Arc<SourceBudget>,
-) -> (
+) -> std::io::Result<(
     tokio::sync::mpsc::Receiver<QueuedSourceEvent>,
     Arc<SourceBudget>,
     std::thread::JoinHandle<()>,
-) {
+    std::sync::mpsc::SyncSender<()>,
+)> {
     // Validated config uses <=256 MiB. Direct embedders also cannot exceed a
     // platform's semaphore ceiling or request an impossible reservation.
     let byte_limit = byte_limit.clamp(1, Semaphore::MAX_PERMITS.min(u32::MAX as usize) as u32);
@@ -36,9 +37,13 @@ pub(in crate::dispatcher) fn spawn<S: EventStream + Send + 'static>(
     let (tx, rx) = tokio::sync::mpsc::channel(capacity);
     let thread_budget = budget.clone();
     let runtime = tokio::runtime::Handle::current();
+    let (start, started) = std::sync::mpsc::sync_channel(1);
     let task = std::thread::Builder::new()
         .name("zero-event-source".to_owned())
         .spawn(move || {
+            if started.recv().is_err() {
+                return;
+            }
             let send = |event: super::original::Record| {
                 // An existing oversized record is admitted alone. Do not turn
                 // a new memory setting into implicit event deletion or stall
@@ -74,7 +79,6 @@ pub(in crate::dispatcher) fn spawn<S: EventStream + Send + 'static>(
                     return;
                 }
             }
-        })
-        .expect("event source bridge thread");
-    (rx, budget, task)
+        })?;
+    Ok((rx, budget, task, start))
 }

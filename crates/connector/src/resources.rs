@@ -1,4 +1,5 @@
 //! The original dispatcher's finite resource inventory, installed before initialization.
+use crate::capacity::{DispatcherCapacity, OriginalCharge};
 use std::{
     fs::{File, Metadata, TryLockError},
     io::{self, Read, Seek, SeekFrom, Write},
@@ -8,6 +9,7 @@ use zero_api::JsonLineEventSink;
 use zero_platform_tokio::file::OriginalFile;
 mod database;
 mod dead_letter;
+mod files;
 pub(crate) use database::OriginalDatabase;
 pub(crate) use dead_letter::RetainedDeadLetter;
 
@@ -15,7 +17,8 @@ pub(crate) use dead_letter::RetainedDeadLetter;
 pub(crate) struct DispatcherResources(Arc<Resources>);
 #[derive(Default)]
 struct Resources {
-    files: Mutex<Vec<Arc<Mutex<OriginalFile>>>>,
+    capacity: Arc<DispatcherCapacity>,
+    files: Mutex<Vec<Arc<Mutex<FileOriginal>>>>,
     databases: Mutex<Vec<Arc<Mutex<OriginalDatabase>>>>,
     jsonl: Mutex<Vec<Arc<JsonLineEventSink<FileView>>>>,
     dead_letters: Mutex<Vec<Arc<RetainedDeadLetter>>>,
@@ -24,11 +27,31 @@ struct Resources {
     retired_faults: Mutex<Vec<Arc<io::Error>>>,
     retired_databases: Mutex<Vec<Arc<Mutex<OriginalDatabase>>>>,
 }
+/// Installed before the concrete opener runs. Unknown acquisition stays here,
+/// keeping the original quota and replacement barrier even after a panic.
+struct FileOriginal {
+    acquiring: bool,
+    original: Option<Arc<Mutex<OriginalFile>>>,
+    charge: Option<OriginalCharge>,
+}
 #[derive(Debug)]
 pub(crate) struct FileView {
     original: Arc<Mutex<OriginalFile>>,
 }
 impl DispatcherResources {
+    pub(crate) fn with_capacity(capacity: Arc<DispatcherCapacity>) -> Self {
+        Self(Arc::new(Resources {
+            capacity,
+            files: Mutex::new(Vec::new()),
+            databases: Mutex::new(Vec::new()),
+            jsonl: Mutex::new(Vec::new()),
+            dead_letters: Mutex::new(Vec::new()),
+            failure: Mutex::new(None),
+            retired_faults: Mutex::new(Vec::new()),
+            retired_databases: Mutex::new(Vec::new()),
+        }))
+    }
+
     #[cfg(test)]
     pub(crate) fn original_file_count_for_test(&self) -> usize {
         self.0.files.lock().unwrap().len()
@@ -64,68 +87,14 @@ impl DispatcherResources {
             .get_or_insert_with(|| source.clone());
         self.0.retired_faults.lock().unwrap().push(source);
     }
-    pub(crate) fn open(&self, open: impl FnOnce() -> io::Result<File>) -> io::Result<FileView> {
-        self.retire_files(false)?;
-        self.available()?;
-        let original = Arc::new(Mutex::new(OriginalFile::adopt(open()?)));
-        self.0.files.lock().unwrap().push(original.clone());
-        Ok(FileView { original })
-    }
-    pub(crate) fn temporary(
-        &self,
-        parent: &std::path::Path,
-    ) -> io::Result<(FileView, tempfile::TempPath)> {
-        self.retire_files(false)?;
-        self.available()?;
-        let (file, path) = tempfile::NamedTempFile::new_in(parent)?.into_parts();
-        let original = Arc::new(Mutex::new(OriginalFile::adopt(file)));
-        self.0.files.lock().unwrap().push(original.clone());
-        Ok((FileView { original }, path))
-    }
+
     pub(crate) fn jsonl(&self, file: FileView) -> Arc<JsonLineEventSink<FileView>> {
         let sink = Arc::new(JsonLineEventSink::new(file));
         self.0.jsonl.lock().unwrap().push(sink.clone());
         sink
     }
     /// Release actual returned views first, then consume each original receipt.
-    pub(crate) fn retire_files(&self, require_all: bool) -> io::Result<()> {
-        let mut files = self.0.files.lock().unwrap();
-        let mut position = 0;
-        let mut outstanding = false;
-        while position < files.len() {
-            if Arc::strong_count(&files[position]) != 1 {
-                outstanding = true;
-                position += 1;
-                continue;
-            }
-            let mut original = files[position]
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            let outcome = original.close();
-            match outcome {
-                Ok(receipt) if original.matches_closed(&receipt) => {
-                    drop(original);
-                    files.remove(position);
-                }
-                Ok(_) => {
-                    self.retain_failure(io::Error::other("file receipt mismatches original"));
-                    drop(original);
-                    position += 1;
-                }
-                Err(error) => {
-                    self.retain_failure(error);
-                    drop(original);
-                    position += 1;
-                }
-            }
-        }
-        if require_all && outstanding {
-            return Err(self.retain_failure(io::Error::other(
-                "original dispatcher file still has a transferred view",
-            )));
-        }
-        self.available()
-    }
+
     pub(crate) fn close(&self) -> io::Result<()> {
         // The real blocking publishers and original sink workers must already
         // have joined. Arc uniqueness is only view retirement, never native close.
@@ -212,3 +181,6 @@ impl Seek for FileView {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod capacity_tests;
