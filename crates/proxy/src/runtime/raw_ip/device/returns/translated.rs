@@ -44,7 +44,7 @@ impl PacketReturns {
                     .lock()
                     .unwrap_or_else(|error| error.into_inner());
                 let outcome =
-                    owner.response_owned(original, usize::from(mtu), wire, Instant::now());
+                    owner.response_batch(original, usize::from(mtu), wire, Instant::now());
                 drop(owner);
                 outcome
             };
@@ -138,7 +138,7 @@ impl PacketReturns {
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
         mtu: usize,
         wire: zero_stack::packet_output::memory::PacketWireMemory,
-    ) -> Result<Vec<zero_traits::PacketBuffer>, zero_stack::echo_translation::OwnedTranslationFailure>
+    ) -> Result<zero_traits::PacketBatch, zero_stack::echo_translation::OwnedTranslationFailure>
     {
         let Some((return_mtu, return_wire)) = replies.return_mtu().zip(replies.wire_memory())
         else {
@@ -153,7 +153,7 @@ impl PacketReturns {
         self.translated
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .request_owned(
+            .request_batch(
                 packet,
                 local,
                 TranslatedReturn { replies, observer },

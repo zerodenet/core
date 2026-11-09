@@ -63,7 +63,7 @@ impl ProtocolOriginalChildren {
         }
         let ordinal = self
             .next
-            .fetch_update(
+            .try_update(
                 std::sync::atomic::Ordering::AcqRel,
                 std::sync::atomic::Ordering::Acquire,
                 |current| current.checked_add(1),

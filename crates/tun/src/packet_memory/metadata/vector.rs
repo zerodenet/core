@@ -65,9 +65,9 @@ impl<T> PacketMetadataVec<T> {
             .as_ref()
             .map(PacketMetadataCredit::layout)
             .unwrap_or(PacketMetadataLayout::new(0, 0));
-        let peak = old.checked_add(layout).and_then(|peak| {
-            peak.checked_add(zero_traits::packet_metadata::PacketMetadataCounter::owned_layout())
-        })?;
+        let peak = old
+            .checked_add(layout)?
+            .checked_add(memory.minimum_layout()?)?;
         let limit = memory.snapshot().limit;
         if peak.allocations() > limit.allocations() || peak.bytes() > limit.bytes() {
             return Err(PacketMemoryError::Capacity);
@@ -153,6 +153,13 @@ enum Admission<'a> {
     Host(&'a PacketDriverMetadataView),
 }
 impl Admission<'_> {
+    fn minimum_layout(&self) -> Result<PacketMetadataLayout, PacketMemoryError> {
+        let counter = zero_traits::packet_metadata::PacketMetadataCounter::owned_layout();
+        match self {
+            Self::Packet(memory) => counter.checked_add(memory.minimum_metadata_layout()?),
+            Self::Host(_) => Ok(counter),
+        }
+    }
     fn snapshot(&self) -> PacketMetadataSnapshot {
         match self {
             Self::Packet(memory) => memory.driver_metadata(),

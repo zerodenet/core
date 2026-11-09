@@ -20,6 +20,21 @@ impl InboundDevice {
         }
         output
     }
+    pub fn send_ip_packet_batch(
+        &mut self,
+        peer: usize,
+        packet: PacketBuffer,
+        control: PacketBuffer,
+    ) -> OwnedTunnelResult<Vec<TunnelAction>> {
+        let Some(tunnel) = self.peers.get_mut(peer) else {
+            return failed(TunnelError::UnknownPeer, None, Some(packet), control);
+        };
+        let output = tunnel.send_ip_packet_batch(packet, control);
+        if let Ok(actions) = &output.result {
+            self.register_indices(peer, actions);
+        }
+        output
+    }
     pub fn tick_peer_owned(
         &mut self,
         peer: usize,

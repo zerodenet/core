@@ -22,6 +22,7 @@ pub(super) struct Preparation {
     pub(super) auxiliary: OnceLock<TaskJoinWitness>,
     pub(super) published: AtomicBool,
     pub(super) connect_rejection: OnceLock<crate::contract::scope::TaskJoined>,
+    pub(super) connect_rejection_source: OnceLock<Arc<ChannelError>>,
     pub(super) job: OnceLock<Arc<job::Job>>,
     pending: OnceLock<crate::contract::network::PendingCarrierObserver>,
 }
@@ -65,6 +66,7 @@ impl CarrierGrant {
             auxiliary: OnceLock::new(),
             published: AtomicBool::new(false),
             connect_rejection: OnceLock::new(),
+            connect_rejection_source: OnceLock::new(),
             job: OnceLock::new(),
             pending: OnceLock::new(),
         });
@@ -110,6 +112,7 @@ impl CarrierGrant {
             auxiliary: OnceLock::new(),
             published: AtomicBool::new(false),
             connect_rejection: OnceLock::new(),
+            connect_rejection_source: OnceLock::new(),
             job: OnceLock::new(),
             pending: OnceLock::new(),
         });

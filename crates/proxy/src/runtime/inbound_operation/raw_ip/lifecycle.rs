@@ -44,8 +44,8 @@ pub(super) fn refresh_device_generation(
         *endpoints = (0..device.peer_count())
             .map(|peer| retained_endpoint(device, initial_endpoints, peer))
             .collect();
-        *fragments = OwnedFragmentReassembler::new();
-        *endpoint_fragments = OwnedFragmentReassembler::new();
+        fragments.reset();
+        endpoint_fragments.reset();
     }
 }
 

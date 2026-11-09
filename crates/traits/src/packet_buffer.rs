@@ -47,6 +47,14 @@ pub trait PacketStorage: AsRef<[u8]> + AsMut<[u8]> + Send + Sync + 'static {
     ) -> Result<Vec<PacketBuffer>, PacketDeriveError> {
         Err(PacketDeriveError::Unreserved)
     }
+    /// Same already-admitted transform, including the actual returned array.
+    /// Existing independent library Vec APIs keep their explicit ownership.
+    fn try_derive_owned(
+        &self,
+        _lengths: &[usize],
+    ) -> Result<crate::PacketBatch, PacketDeriveError> {
+        Err(PacketDeriveError::Unreserved)
+    }
     /// Admit this original's complete transmit transform before enqueueing it.
     /// Concrete owned storage reserves every returned allocation in the same
     /// Kernel root and preserves the original on error. No IO/task permission
@@ -182,6 +190,15 @@ impl PacketBuffer {
     ) -> Result<Vec<PacketBuffer>, PacketDeriveError> {
         match &self.storage {
             Storage::Owner(owner) => owner.try_derive_zeroed(lengths),
+            Storage::Vector(_) | Storage::Bytes(_) => Err(PacketDeriveError::Unreserved),
+        }
+    }
+    pub fn try_derive_owned(
+        &self,
+        lengths: &[usize],
+    ) -> Result<crate::PacketBatch, PacketDeriveError> {
+        match &self.storage {
+            Storage::Owner(owner) => owner.try_derive_owned(lengths),
             Storage::Vector(_) | Storage::Bytes(_) => Err(PacketDeriveError::Unreserved),
         }
     }

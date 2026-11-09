@@ -24,8 +24,8 @@ struct CacheKey {
 
 struct CacheEntry {
     addresses: Vec<IpAddress>,
-    raw_query: Option<Vec<u8>>,
-    raw_response: Option<Vec<u8>>,
+    raw_query: Option<crate::DnsWireResponse>,
+    raw_response: Option<crate::DnsWireResponse>,
     stored_at: Instant,
     expires_at: Instant,
     last_used: u64,
@@ -33,8 +33,8 @@ struct CacheEntry {
 
 pub(crate) struct DnsWireCacheValue {
     pub(crate) addresses: Vec<IpAddress>,
-    pub(crate) query: Vec<u8>,
-    pub(crate) response: Vec<u8>,
+    pub(crate) query: crate::DnsWireResponse,
+    pub(crate) response: crate::DnsWireResponse,
     pub(crate) ttl_seconds: u32,
 }
 
@@ -51,6 +51,8 @@ pub(crate) struct DnsCache {
 }
 
 struct DnsCacheInner {
+    metadata:
+        std::sync::OnceLock<zero_platform_tokio::contract::component::PacketDriverMetadataView>,
     state: Mutex<CacheState>,
     max_entries: usize,
     max_ttl: Option<Duration>,
@@ -68,6 +70,7 @@ impl DnsCache {
         Self {
             native_node: false,
             inner: Arc::new(DnsCacheInner {
+                metadata: Default::default(),
                 state: Mutex::new(CacheState::default()),
                 max_entries: config.max_entries,
                 max_ttl: config.max_ttl_seconds.map(Duration::from_secs),
@@ -88,7 +91,13 @@ impl DnsCache {
             domain,
             query_type,
         };
+        let _notifications;
         let mut state = self.inner.state.lock().await;
+        _notifications = self
+            .inner
+            .metadata
+            .get()
+            .map(|metadata| metadata.notifications());
         let now = Instant::now();
         if state
             .entries
@@ -105,21 +114,33 @@ impl DnsCache {
         Some(entry.addresses.clone())
     }
 
-    pub(crate) async fn get_response(
+    pub(crate) async fn get_response_with_memory(
         &self,
         scope: QueryScope,
         domain: &str,
         query_type: u16,
         query: &[u8],
-    ) -> Option<Vec<u8>> {
-        let domain = normalize_domain(domain).ok()?;
+        memory: Option<&crate::DnsWireMemory>,
+    ) -> std::io::Result<Option<crate::DnsWireResponse>> {
+        if let Some(memory) = memory {
+            self.bind_wire_memory(memory)?;
+        }
+        let Ok(domain) = normalize_domain(domain) else {
+            return Ok(None);
+        };
         let key = CacheKey {
             native_node: self.native_node,
             scope,
             domain,
             query_type,
         };
+        let _notifications;
         let mut state = self.inner.state.lock().await;
+        _notifications = self
+            .inner
+            .metadata
+            .get()
+            .map(|metadata| metadata.notifications());
         let now = Instant::now();
         if state
             .entries
@@ -127,35 +148,82 @@ impl DnsCache {
             .is_some_and(|entry| entry.expires_at <= now)
         {
             state.entries.remove(&key);
-            return None;
+            return Ok(None);
         }
         state.clock = state.clock.wrapping_add(1);
         let clock = state.clock;
-        let (mut response, elapsed_seconds, remaining_seconds) = {
-            let entry = state.entries.get(&key)?;
-            let cached_query = entry.raw_query.as_deref()?;
-            if cached_query.get(2..)? != query.get(2..)? {
-                return None;
+        let (response, elapsed_seconds, remaining_seconds) = {
+            let Some(entry) = state.entries.get(&key) else {
+                return Ok(None);
+            };
+            let Some(cached_query) = entry.raw_query.as_deref() else {
+                return Ok(None);
+            };
+            if cached_query.get(2..).is_none() || cached_query.get(2..) != query.get(2..) {
+                return Ok(None);
             }
             (
-                entry.raw_response.clone()?,
+                match entry.raw_response.clone() {
+                    Some(response) => response,
+                    None => return Ok(None),
+                },
                 now.saturating_duration_since(entry.stored_at)
                     .as_secs()
                     .min(u64::from(u32::MAX)) as u32,
                 duration_seconds_ceiling(entry.expires_at.saturating_duration_since(now)),
             )
         };
-        if message::rewrite_response_ttls(&mut response, elapsed_seconds, Some(remaining_seconds))
-            .is_err()
+        let mut response = response.mutable_copy(memory)?;
+        if message::rewrite_response_ttls(
+            response.as_mut(),
+            elapsed_seconds,
+            Some(remaining_seconds),
+        )
+        .is_err()
         {
             state.entries.remove(&key);
-            return None;
+            return Ok(None);
         }
-        response.get_mut(..2)?.copy_from_slice(query.get(..2)?);
-        state.entries.get_mut(&key)?.last_used = clock;
-        Some(response)
+        let (Some(target), Some(id)) = (response.as_mut().get_mut(..2), query.get(..2)) else {
+            return Ok(None);
+        };
+        target.copy_from_slice(id);
+        state
+            .entries
+            .get_mut(&key)
+            .expect("same cache membership guard")
+            .last_used = clock;
+        Ok(Some(response.freeze()?))
     }
 
+    fn bind_wire_memory(&self, memory: &crate::DnsWireMemory) -> std::io::Result<()> {
+        if let Err(view) = self.inner.metadata.set(memory.metadata.clone()) {
+            if !self
+                .inner
+                .metadata
+                .get()
+                .is_some_and(|same| same.same_root(&view))
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "DNS cache crossed its actual Host metadata Root",
+                ));
+            }
+        }
+        Ok(())
+    }
+    pub(crate) fn cap_wire_response_ttls(
+        &self,
+        response: crate::DnsWireResponse,
+        memory: Option<&crate::DnsWireMemory>,
+    ) -> std::io::Result<crate::DnsWireResponse> {
+        if self.inner.max_ttl.is_none() {
+            return Ok(response);
+        }
+        let mut changed = response.mutable_copy(memory)?;
+        self.cap_response_ttls(changed.as_mut())?;
+        changed.freeze()
+    }
     pub(crate) fn cap_response_ttls(&self, response: &mut [u8]) -> std::io::Result<()> {
         let Some(max_ttl) = self.inner.max_ttl else {
             return Ok(());
@@ -166,7 +234,13 @@ impl DnsCache {
 
     pub(crate) async fn inspect(&self, domain: &str) -> Option<(Vec<IpAddress>, u64)> {
         let domain = normalize_domain(domain).ok()?;
+        let _notifications;
         let mut state = self.inner.state.lock().await;
+        _notifications = self
+            .inner
+            .metadata
+            .get()
+            .map(|metadata| metadata.notifications());
         remove_expired(&mut state);
         let now = Instant::now();
         let matching = state
@@ -186,7 +260,13 @@ impl DnsCache {
     }
 
     pub(crate) async fn entries(&self, limit: usize) -> Vec<(String, Vec<IpAddress>, u64)> {
+        let _notifications;
         let mut state = self.inner.state.lock().await;
+        _notifications = self
+            .inner
+            .metadata
+            .get()
+            .map(|metadata| metadata.notifications());
         remove_expired(&mut state);
         let now = Instant::now();
         let mut grouped: BTreeMap<String, (Vec<IpAddress>, u64)> = BTreeMap::new();
@@ -276,11 +356,17 @@ impl DnsCache {
         &self,
         key: CacheKey,
         addresses: Vec<IpAddress>,
-        raw_query: Option<Vec<u8>>,
-        raw_response: Option<Vec<u8>>,
+        raw_query: Option<crate::DnsWireResponse>,
+        raw_response: Option<crate::DnsWireResponse>,
         effective_ttl: Duration,
     ) {
+        let _notifications;
         let mut state = self.inner.state.lock().await;
+        _notifications = self
+            .inner
+            .metadata
+            .get()
+            .map(|metadata| metadata.notifications());
         if !crate::coordinator::query_is_observed() {
             return;
         }

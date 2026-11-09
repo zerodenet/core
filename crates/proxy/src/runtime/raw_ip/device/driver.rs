@@ -86,9 +86,9 @@ async fn run_device_inner(
                 let Some(zero_stack::packet_output::ObservedPacket { packet, observer }) = packet else { return Ok(()); };
                 tracing::trace!(ip_bytes = packet.len(), "raw-IP outbound stack packet");
                 let packets = if packet::ip_protocol(&packet) == Some(packet::IPPROTO_TCP) {
-                    device.tcp.fragment_outbound_packet_buffer(packet).await.map_err(std::io::Error::other)?
+                    device.tcp.fragment_outbound_packet_batch(packet).await.map_err(std::io::Error::other)?
                 } else {
-                    vec![packet]
+                    zero_traits::PacketBatch::one(packet)
                 };
                 for packet in packets {
                     let actions = device.tunnel.send_ip_packet(&packet).inspect_err(|_| { device.traffic.error(TrafficPlane::Inner, true); device.traffic.dropped_reason(TrafficPlane::Inner, true, zero_api::TrafficDropReason::IoFailure); if let Some(observer) = &observer { observer.dropped_reason(zero_traits::PacketDropReason::IoFailure); } })?;

@@ -43,7 +43,7 @@ impl OwnedDnsQueryTasks {
                 ));
             }
         }
-        Ok(BOOTSTRAP_TARGET.scope(Arc::downgrade(&self.0), work).await)
+        Ok(BOOTSTRAP_TARGET.scope(self.0.downgrade(), work).await)
     }
     pub(super) fn inherited_tasks(&self) -> io::Result<Vec<TaskJoinWitness>> {
         let Some((record, caller)) = QUERY_RECORD
@@ -61,7 +61,7 @@ impl OwnedDnsQueryTasks {
                 .try_with(std::sync::Weak::upgrade)
                 .ok()
                 .flatten()
-                .is_some_and(|target| Arc::ptr_eq(&target, &self.0))
+                .is_some_and(|target| self.0.same_arc(&target))
                 && record.budget.same_budget(&self.0.budget)
                 && record
                     .registration

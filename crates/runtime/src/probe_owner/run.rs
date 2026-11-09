@@ -1,6 +1,8 @@
 //! Install the original task and its credit before diagnostic work can poll.
 use super::*;
-use std::{future::Future, num::NonZeroUsize};
+use std::future::Future;
+#[cfg(test)]
+use std::num::NonZeroUsize;
 use tokio::sync::oneshot;
 use zero_platform_tokio::contract::scope::{TaskClass, TaskRegistrar};
 struct CancelWaiter(ProbeCall);

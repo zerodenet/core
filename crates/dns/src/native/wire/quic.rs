@@ -36,7 +36,7 @@ pub(super) async fn exchange(
         io.write_u16(length).await?;
         io.write_all(request.bytes).await?;
         io.shutdown().await?;
-        crate::backends::read_framed(&mut io).await
+        crate::wire_memory::read_framed(&mut io).await
     };
     let response = attempt(request.end, async {
         OwnedDnsQueryTasks::native_io(work).await?

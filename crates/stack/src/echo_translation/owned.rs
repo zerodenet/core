@@ -1,7 +1,9 @@
 //! Host packet custody pays cache images, fragments and wire transforms before
 //! inserting correlation state or returning an output to a bounded queue.
 use super::*;
+mod batch;
 use crate::packet_output::memory::PacketWireMemory;
+use batch::derive;
 use zero_traits::{PacketDeriveError, PacketStorage};
 
 #[derive(Debug)]
@@ -38,12 +40,13 @@ impl<C> EchoTranslation<C> {
     /// Keep the actual incoming allocation and cache until validation and all
     /// outgoing transform storage succeed. A capacity refusal changes neither
     /// the pending correlation entry nor the original packet bytes.
-    pub fn response_owned(
+    fn response_storage(
         &mut self,
         original: PacketBuffer,
         mtu: usize,
         wire: PacketWireMemory,
         now: Instant,
+        batch: bool,
     ) -> Result<OwnedEchoResponse<C>, OwnedTranslationFailure> {
         let Some(key) = packet::echo_response_key(&original) else {
             return Ok(OwnedEchoResponse::Unmatched(original));
@@ -70,10 +73,8 @@ impl<C> EchoTranslation<C> {
         let prepared = (|| -> io::Result<Option<PacketBuffer>> {
             // Before the original request entered any FIFO it paid this
             // response's entire transform responsibility on the same envelope.
-            let mut outputs = pending
-                .original
-                .try_derive_zeroed(&[original.len()])
-                .map_err(memory)?;
+            let mut outputs =
+                derive(&pending.original, &[original.len()], batch).map_err(memory)?;
             if outputs.len() != 1 {
                 return Err(memory(PacketDeriveError::LayoutMismatch));
             }
@@ -110,7 +111,7 @@ impl<C> EchoTranslation<C> {
         ))
     }
 
-    pub fn request_owned(
+    fn request_storage(
         &mut self,
         mut original: PacketBuffer,
         local: IpAddr,
@@ -120,7 +121,8 @@ impl<C> EchoTranslation<C> {
         return_mtu: usize,
         return_wire: PacketWireMemory,
         now: Instant,
-    ) -> Result<Vec<PacketBuffer>, OwnedTranslationFailure> {
+        batch: bool,
+    ) -> Result<zero_traits::PacketBatch, OwnedTranslationFailure> {
         self.expire_due(now);
         let prepared = (|| -> io::Result<_> {
             let request = packet::parse_icmp_echo_request(&original)
@@ -167,8 +169,7 @@ impl<C> EchoTranslation<C> {
             original
                 .prepare_transmit(lengths.len(), bytes)
                 .map_err(memory)?;
-            let mut buffers = original
-                .try_derive_zeroed(&[original.len(), original.len()])
+            let mut buffers = derive(&original, &[original.len(), original.len()], batch)
                 .map_err(memory)?
                 .into_iter();
             let mut output = buffers
@@ -188,8 +189,13 @@ impl<C> EchoTranslation<C> {
             } else {
                 0
             };
-            let outputs = packet::fragment_ip_packet_prepaid(output, mtu, identification)
-                .map_err(|failure| memory(failure.cause))?;
+            let outputs = if batch {
+                packet::fragment_ip_packet_batch(output, mtu, identification)
+            } else {
+                packet::fragment_ip_packet_prepaid(output, mtu, identification)
+                    .map(zero_traits::PacketBatch::from_library)
+            }
+            .map_err(|failure| memory(failure.cause))?;
             Ok((key, cached, outputs))
         })();
         let (key, cached, outputs) = match prepared {
@@ -214,16 +220,13 @@ impl<C> EchoTranslation<C> {
                 }),
             },
         );
-        Ok(outputs
-            .into_iter()
-            .map(|packet| {
-                PacketBuffer::from_owner(Retained {
-                    packet,
-                    original: original.clone(),
-                    incoming: None,
-                })
+        Ok(outputs.map_in_place(|packet| {
+            PacketBuffer::from_owner(Retained {
+                packet,
+                original: original.clone(),
+                incoming: None,
             })
-            .collect())
+        }))
     }
 }
 fn invalid(message: &'static str) -> io::Error {
@@ -267,6 +270,12 @@ impl PacketStorage for Retained {
     }
     fn prepare_transmit(&mut self, frames: usize, bytes: usize) -> Result<(), PacketDeriveError> {
         self.packet.prepare_transmit(frames, bytes)
+    }
+    fn try_derive_owned(
+        &self,
+        lengths: &[usize],
+    ) -> Result<zero_traits::PacketBatch, PacketDeriveError> {
+        self.packet.try_derive_owned(lengths)
     }
     fn try_derive_zeroed(&self, lengths: &[usize]) -> Result<Vec<PacketBuffer>, PacketDeriveError> {
         self.packet.try_derive_zeroed(lengths)

@@ -2,7 +2,7 @@
 use super::*;
 use zero_platform_tokio::controlled_carrier::ProtocolOriginal;
 impl Observer {
-    fn receive_protocol(
+    pub(super) fn receive_protocol(
         &self,
         binding: &UpstreamBinding,
         original: ProtocolOriginal,

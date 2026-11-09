@@ -68,11 +68,7 @@ impl Lifetime {
     pub(super) fn error(&self) -> io::Result<()> {
         #[cfg(feature = "quic")]
         if let Some(source) = self.retained_error.get() {
-            let kind = source
-                .as_error()
-                .downcast_ref::<io::Error>()
-                .map_or(io::ErrorKind::Other, io::Error::kind);
-            return Err(io::Error::new(kind, source.clone()));
+            return Err(super::xmux::owned::request::original_io(source.clone()));
         }
         match self.error.lock().unwrap().as_ref() {
             Some(error) => Err(io::Error::other(error.clone())),

@@ -5,7 +5,7 @@ pub(super) async fn exchange(
     backend: &crate::backends::ResolverBackend,
     io: zero_platform_tokio::controlled_carrier::loan::LoanIo,
     query: &[u8],
-) -> io::Result<Vec<u8>> {
+) -> io::Result<crate::DnsWireResponse> {
     let DnsServerConfig::Dot {
         host, server_name, ..
     } = config
@@ -19,5 +19,5 @@ pub(super) async fn exchange(
         .connect(name, io)
         .await?;
     crate::backends::write_framed(&mut stream, query).await?;
-    crate::backends::read_framed(&mut stream).await
+    crate::wire_memory::read_framed(&mut stream).await
 }

@@ -6,5 +6,6 @@ pub(crate) struct PendingReloadAck {
     pub(super) expected: Arc<zero_engine::EngineRuntimeSnapshot>,
     pub(super) previous: Arc<zero_engine::EngineRuntimeSnapshot>,
     pub(super) compensating: bool,
+    pub(super) wire: Option<super::handle::configuration::wire_budget::WireCandidate>,
     pub(super) sender: oneshot::Sender<Result<(), String>>,
 }

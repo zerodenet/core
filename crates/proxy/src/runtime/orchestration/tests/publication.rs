@@ -55,6 +55,7 @@ async fn pending(
         expected: snapshot.clone(),
         previous: previous.clone(),
         compensating: false,
+        wire: None,
         sender: send,
     });
     state.reconcile_reload(proxy).await;
@@ -82,7 +83,7 @@ async fn pending(
 }
 async fn commit(proxy: &Proxy, snapshot: Arc<EngineRuntimeSnapshot>) {
     ProxyHandle::new(EngineHandle::new(proxy.engine().clone()), proxy.clone())
-        .commit_configuration(snapshot, Duration::from_secs(5), false)
+        .commit_configuration(snapshot, Duration::from_secs(5), false, None)
         .await
         .unwrap();
 }

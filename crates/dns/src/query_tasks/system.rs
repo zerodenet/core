@@ -80,6 +80,9 @@ impl OwnedDnsQueryTasks {
         );
         let cold = retirement.preparing();
         let record = Arc::new(Record {
+            // The real blocking lookup owns its result/native registration,
+            // not a DNS wire allocator. Its caller Query serializes afterward.
+            wire_memory: Mutex::new(None),
             budget: self.0.budget.clone(),
             ech: Mutex::new(None),
             retirement: retirement.clone(),

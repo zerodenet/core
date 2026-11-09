@@ -240,7 +240,7 @@ impl AsRef<[u8]> for Frame {
 struct OriginalIo(PacketMetadataError);
 impl std::fmt::Display for OriginalIo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        std::fmt::Display::fmt(self.0.as_error(), f)
     }
 }
 impl std::error::Error for OriginalIo {
@@ -248,7 +248,7 @@ impl std::error::Error for OriginalIo {
         Some(self.0.as_error())
     }
 }
-fn original_io(source: PacketMetadataError) -> io::Error {
+pub(in crate::split_http) fn original_io(source: PacketMetadataError) -> io::Error {
     let kind = source
         .as_error()
         .downcast_ref::<io::Error>()

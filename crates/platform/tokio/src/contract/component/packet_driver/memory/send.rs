@@ -3,7 +3,7 @@ use super::*;
 /// Concrete fixed buffers for this actual Source's one serialized send.
 /// It cannot create a Root, change policy, or authorize native IO.
 pub struct PacketDriverSendBuffers {
-    buffers: Vec<zero_traits::PacketBuffer>,
+    buffers: zero_traits::PacketBatch,
     copy: PacketDriverSendCopy,
 }
 pub struct PacketDriverSendCopy {
@@ -15,8 +15,11 @@ pub struct PacketDriverSendCopy {
     target: Option<zero_tun::packet_memory::NativeReadBuffer>,
 }
 impl PacketDriverSendBuffers {
-    pub fn into_parts(self) -> (Vec<zero_traits::PacketBuffer>, PacketDriverSendCopy) {
+    pub fn into_batch_parts(self) -> (zero_traits::PacketBatch, PacketDriverSendCopy) {
         (self.buffers, self.copy)
+    }
+    pub fn into_parts(self) -> (Vec<zero_traits::PacketBuffer>, PacketDriverSendCopy) {
+        (self.buffers.into_iter().collect(), self.copy)
     }
 }
 impl PacketDriverSendCopy {
@@ -145,7 +148,7 @@ impl PacketDriverDatagramHandoff {
             let buffers = grant
                 .memory_view()
                 .map_err(memory_error)?
-                .transmit_buffers(lengths)
+                .transmit_batch(lengths)
                 .map_err(memory_error)?;
             Ok(PacketDriverSendBuffers {
                 buffers,
@@ -194,6 +197,12 @@ impl zero_traits::PacketStorage for DatagramCopyStorage {
         bytes: usize,
     ) -> Result<(), zero_traits::PacketDeriveError> {
         self.payload.prepare_transmit(frames, bytes)
+    }
+    fn try_derive_owned(
+        &self,
+        lengths: &[usize],
+    ) -> Result<zero_traits::PacketBatch, zero_traits::PacketDeriveError> {
+        self.payload.try_derive_owned(lengths)
     }
     fn try_derive_zeroed(
         &self,

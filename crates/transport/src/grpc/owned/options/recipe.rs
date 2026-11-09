@@ -141,7 +141,7 @@ impl NativePoolOptions {
             (identity, None)
         };
         Ok(Self {
-            pool: Arc::downgrade(&pool.0),
+            pool: pool_ref::PoolRef::new(&pool.0),
             scoped_preparation: false,
             selected_background: false,
             settings,

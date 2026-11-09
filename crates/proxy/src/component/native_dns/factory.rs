@@ -77,6 +77,16 @@ impl ComponentFactory for Factory {
         options: Arc<Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
+        let counter = context.resources.dns_wire_buffer_budget().ok_or_else(|| {
+            provider::error(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "Kernel DNS Factory lacks its same-Host wire budget",
+            ))
+        })?;
+        let metadata = context.resources.packet_driver_metadata()?;
+        let memory = zero_dns::DnsWireMemory::from_host(counter, metadata)
+            .for_source(context.instance(), context.tasks.scope_identity(), None)
+            .map_err(provider::error)?;
         let limits = options.budget.limits();
         let owners = (0..options.peers.len() + options.roots.len() + options.ech.len())
             .map(|_| CarrierOwner::new(context.instance(), limits.originals, &context.cancel))
@@ -103,12 +113,17 @@ impl ComponentFactory for Factory {
         let provider = Arc::new(Provider::new(
             &context,
             &options,
+            memory.clone(),
             &owners,
             self.0.egress.clone(),
             self.0.clone(),
             #[cfg(feature = "dns")]
             &metadata,
         ));
+        provider
+            .tasks()
+            .bind_wire_memory(memory)
+            .map_err(provider::error)?;
         Ok(ComponentInstance {
             roles: ComponentRoles::default(),
             lifecycle: erase_lifecycle(Owner {

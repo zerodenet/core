@@ -29,6 +29,41 @@ impl ComponentPlan {
             .iter()
             .find(|slot| slot.instance_id() == actual)
             .ok_or_else(|| invalid(Reason::StalePlan, "actual Node consumer is absent"))?;
-        slot.host_node_dns_source()
+        let source = slot.host_node_dns_source()?;
+        match self.dns_wire.get() {
+            Some(issuer) => source.with_wire_issuer(issuer.clone()),
+            None => Ok(source),
+        }
+    }
+}
+
+impl ComponentPlan {
+    /// Read only the issuer already bound by the unique accepted target
+    /// snapshot. No issuer is installed in reused Slots or old caller contexts.
+    pub fn dns_wire_candidate(
+        &self,
+    ) -> Option<zero_traits::packet_metadata::PacketMetadataCandidateIssuer> {
+        self.dns_wire.get().cloned()
+    }
+    /// The Proxy supplies only its exact accepted snapshot's metadata issuer,
+    /// before starting this already selected target graph. No Slot/old plan is
+    /// changed and this grants no resource, execution or close authority.
+    pub fn bind_dns_wire_candidate(
+        &self,
+        issuer: zero_traits::packet_metadata::PacketMetadataCandidateIssuer,
+    ) -> Result<(), ChannelError> {
+        if let Err(issuer) = self.dns_wire.set(issuer) {
+            if !self
+                .dns_wire
+                .get()
+                .is_some_and(|same| same.same_candidate(&issuer))
+            {
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "component plan already names another DNS wire attempt",
+                ));
+            }
+        }
+        Ok(())
     }
 }

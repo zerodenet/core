@@ -35,7 +35,20 @@ impl OwnedDnsQueryTasks {
             self.0.finalizer.get().cloned(),
         );
         let cold = retirement.preparing();
+        // Only a DNS Query builds/owns wire buffers. A persistent transport
+        // driver must not pin the initializer's provisional memory authority;
+        // its actual task/native/Scope responsibilities remain independent.
+        let memory = if kind == TaskKind::Query {
+            self.0
+                .wire_memory
+                .get()
+                .map(|memory| memory.for_new_query())
+                .transpose()?
+        } else {
+            None
+        };
         let record = Arc::new(Record {
+            wire_memory: Mutex::new(memory),
             budget: self.0.budget.clone(),
             // Only persistent physical drivers inherit an explicit endpoint;
             // nested bootstrap queries retain their own configured targets.
@@ -103,11 +116,26 @@ impl OwnedDnsQueryTasks {
         let finalizer = self.0.finalizer.get().cloned();
         let original_retirement = retirement.clone();
         cold.submitting();
+        // Capture before registration: even an unpolled original future's
+        // destruction returns only memory authority, never native/join/ACK.
+        let wire_return = WireReturn(query_record.clone());
         let spawned = self.0.registrar.spawn_tracked(self.0.class, async move {
+            let _wire_return = wire_return;
             let Ok(witness) = receiver.await else {
                 return Ok(());
             };
             let caller = witness.clone();
+            let previous = {
+                let mut memory = query_record
+                    .wire_memory
+                    .lock()
+                    .expect("DNS wire memory poisoned");
+                let rebound = memory
+                    .as_ref()
+                    .map(|memory| memory.at_registered_query(witness.scope_identity()));
+                std::mem::replace(&mut *memory, rebound)
+            };
+            drop(previous);
             // No original resolution/native I/O can run before the same spawn's
             // witness has been persisted and delivered by its original caller.
             QUERY_RECORD
@@ -192,5 +220,21 @@ impl OwnedDnsQueryTasks {
                 Err(io::Error::other(source))
             }
         }
+    }
+}
+
+/// The same original task returns allocation authority after its body/inline
+/// cleanup ends (also on panic). Actual bytes retain their independent credits;
+/// native originals, real task join and Host registration ACK remain separate.
+struct WireReturn(Arc<Record>);
+impl Drop for WireReturn {
+    fn drop(&mut self) {
+        let returned = self
+            .0
+            .wire_memory
+            .lock()
+            .expect("DNS wire memory poisoned")
+            .take();
+        drop(returned);
     }
 }

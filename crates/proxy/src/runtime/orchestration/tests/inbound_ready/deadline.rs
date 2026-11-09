@@ -21,6 +21,7 @@ async fn actual_plugin_start_deadline_rejects_ready_ack_only_after_original_clea
         expected: expected.clone(),
         previous: previous.clone(),
         compensating: false,
+        wire: None,
         sender,
     });
     drop(reserved);

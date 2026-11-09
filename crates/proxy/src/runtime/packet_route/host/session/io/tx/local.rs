@@ -63,7 +63,7 @@ pub(super) fn respond(
         .prepare_transmit_buffers(lengths.len(), total)
         .map_err(memory_failure)?;
     let mut outputs = frame
-        .try_derive_payload_buffers(&[length])
+        .try_derive_payload_batch(&[length])
         .map_err(memory_failure)?;
     if outputs.len() != 1 {
         return Err(memory_failure(PacketDeriveError::LayoutMismatch));
@@ -127,6 +127,12 @@ impl PacketStorage for Retained {
     }
     fn prepare_transmit(&mut self, frames: usize, bytes: usize) -> Result<(), PacketDeriveError> {
         self.packet.prepare_transmit(frames, bytes)
+    }
+    fn try_derive_owned(
+        &self,
+        lengths: &[usize],
+    ) -> Result<zero_traits::PacketBatch, zero_traits::PacketDeriveError> {
+        self.packet.try_derive_owned(lengths)
     }
     fn try_derive_zeroed(&self, lengths: &[usize]) -> Result<Vec<PacketBuffer>, PacketDeriveError> {
         self.packet.try_derive_zeroed(lengths)

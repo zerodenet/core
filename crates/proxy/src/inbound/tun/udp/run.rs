@@ -109,9 +109,12 @@ pub(super) async fn run_inner(
                                 "dropping TUN DNS query at the concurrency limit"
                             );
                         }
-                        let response = runtime.resolver().busy_response(&buffer[..size]);
                         drop(payload); // The rejected input is no longer read by this reply.
-                        stack.send_to(&response, destination, source).await;
+                        let response = runtime.resolver().busy_response(&buffer[..size]);
+                        match response {
+                            Ok(response)=>stack.send_to(&response, destination, source).await,
+                            Err(error)=>tracing::warn!(%error, "rejected DNS request has no admitted failure-frame storage"),
+                        }
                         continue;
                     }
                     let query_runtime = runtime.clone();
@@ -125,9 +128,12 @@ pub(super) async fn run_inner(
                         ).await {
                             Ok(native) => Some(native),
                             Err(error) if crate::runtime::raw_ip::tasks::capacity::before_work(&error) => {
-                                let response = runtime.resolver().busy_response(&buffer[..size]);
                                 drop(query); // No child accepted or still borrows this original.
-                                stack.send_to(&response, destination, source).await;
+                                let response = runtime.resolver().busy_response(&buffer[..size]);
+                                match response {
+                            Ok(response)=>stack.send_to(&response, destination, source).await,
+                            Err(error)=>tracing::warn!(%error, "rejected DNS request has no admitted failure-frame storage"),
+                        }
                                 continue;
                             }
                             Err(error) => return Err(std::io::Error::other(error).into()),
@@ -163,7 +169,10 @@ pub(super) async fn run_inner(
                         #[cfg(feature = "raw-ip-runtime")]
                         if crate::runtime::raw_ip::tasks::capacity::before_work(&error) {
                             let response = runtime.resolver().busy_response(&buffer[..size]);
-                            stack.send_to(&response, destination, source).await;
+                            match response {
+                            Ok(response)=>stack.send_to(&response, destination, source).await,
+                            Err(error)=>tracing::warn!(%error, "rejected DNS request has no admitted failure-frame storage"),
+                        }
                             continue;
                         }
                         return Err(std::io::Error::other(error).into());

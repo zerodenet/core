@@ -69,6 +69,7 @@ impl ProxyHandle {
         timeout: std::time::Duration,
         restore: Option<std::sync::Arc<zero_engine::EngineRuntimeSnapshot>>,
         compensating: bool,
+        wire: Option<&super::configuration::wire_budget::WireCandidate>,
     ) -> Result<std::sync::Arc<zero_engine::EngineRuntimeSnapshot>, String> {
         let mut ready = self.proxy.orchestration_ready.subscribe();
         if !*ready.borrow() {
@@ -86,7 +87,7 @@ impl ProxyHandle {
         }
 
         let (receiver, candidate) =
-            self.begin_acknowledged_reload(config, restore, compensating)?;
+            self.begin_acknowledged_reload(config, restore, compensating, wire)?;
         // The accepted host operation owns this exact acknowledgement. A
         // waiting caller's deadline/cancellation cannot clear it, construct a
         // second recovery candidate, or certify original resource cleanup.
@@ -177,6 +178,7 @@ impl ProxyHandle {
         config: zero_config::RuntimeConfig,
         restore: Option<std::sync::Arc<zero_engine::EngineRuntimeSnapshot>>,
         compensating: bool,
+        wire: Option<&super::configuration::wire_budget::WireCandidate>,
     ) -> Result<PreparedReloadAcknowledgement, String> {
         let candidate = match restore {
             Some(snapshot) => snapshot,
@@ -192,6 +194,9 @@ impl ProxyHandle {
                 )
                 .map_err(|error| error.to_string())?,
         };
+        if let Some(wire) = wire {
+            wire.bind_snapshot(&candidate)?;
+        }
         let (sender, receiver) = tokio::sync::oneshot::channel();
         let mut pending = self
             .proxy
@@ -207,6 +212,7 @@ impl ProxyHandle {
                 expected: candidate.clone(),
                 previous: self.proxy.engine.runtime_snapshot(),
                 compensating,
+                wire: wire.cloned(),
                 sender,
             });
         }

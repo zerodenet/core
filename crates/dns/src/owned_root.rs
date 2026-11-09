@@ -69,7 +69,7 @@ pub(crate) async fn exchange_backend_attempt(
     snapshot: &ResolveSnapshot,
     next: Option<&ResolverBackend>,
     timeout_ms: u64,
-) -> (io::Result<Vec<u8>>, bool) {
+) -> (io::Result<DnsWireResponse>, bool) {
     let duration = std::time::Duration::from_millis(timeout_ms);
     if let Some(source) = snapshot
         .native_source
@@ -105,7 +105,7 @@ pub(crate) async fn exchange_backend_attempt(
             }
             Ok(response)
         });
-        return (result, permits_fallback);
+        return (result.map(DnsWireResponse::library), permits_fallback);
     }
     #[cfg(feature = "doq")]
     if let ResolverBackend::Doq(resolver) = server.backend.as_ref() {
@@ -120,10 +120,11 @@ pub(crate) async fn exchange_backend_attempt(
             // Neither another IP nor a different fallback backend may overtake
             // its retained native/user/driver cleanup. Host-bound attempts already
             // returned above; an explicit external QUIC provider keeps its contract.
-            return backends::ATTEMPT_DEADLINE
+            let (result, settled) = backends::ATTEMPT_DEADLINE
                 .scope(deadline, resolver.exchange_attempt(query))
                 .await
                 .into_parts();
+            return (result.map(DnsWireResponse::library), settled);
         }
     }
     #[cfg(not(feature = "udp"))]
@@ -147,7 +148,7 @@ pub(crate) async fn exchange_backend_attempt(
             format!("DNS backend `{tag}` timed out after {timeout_ms}ms"),
         ))
     });
-    (result, true)
+    (result.map(DnsWireResponse::library), true)
 }
 
 #[cfg(all(test, feature = "udp"))]

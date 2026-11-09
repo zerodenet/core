@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    grpc::{pool::State, GrpcPool},
+    grpc::GrpcPool,
     profile::{OwnedClientTlsProfile, OwnedGrpcProfile},
     RuntimeError,
 };
@@ -21,7 +21,7 @@ pub struct NativePoolSettings {
 }
 #[derive(Clone)]
 pub struct NativePoolOptions {
-    pub(super) pool: Weak<State>,
+    pub(super) pool: pool_ref::PoolRef,
     pub(super) scoped_preparation: bool,
     pub(super) selected_background: bool,
     pub(super) settings: NativePoolSettings,
@@ -47,6 +47,7 @@ impl std::fmt::Debug for NativePoolOptions {
     }
 }
 mod file;
+mod pool_ref;
 mod recipe;
 pub(super) use file::CaFile;
 impl NativePoolOptions {

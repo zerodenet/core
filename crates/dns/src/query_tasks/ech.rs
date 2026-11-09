@@ -48,7 +48,7 @@ impl OwnedDnsQueryTasks {
     ) -> io::Result<TaskJoinWitness> {
         // The only cross-purpose entry is this concrete Node ECH operation;
         // inherited_tasks still requires the actual same-budget parent record.
-        BOOTSTRAP_TARGET.sync_scope(Arc::downgrade(&self.0), || {
+        BOOTSTRAP_TARGET.sync_scope(self.0.downgrade(), || {
             self.spawn_kind(job, cancel, Some(network), TaskKind::Query)
         })
     }

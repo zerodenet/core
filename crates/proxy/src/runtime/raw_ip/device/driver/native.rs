@@ -23,7 +23,11 @@ pub(super) async fn run(
     let mut next_tcp_sweep = Instant::now() + Duration::from_secs(60);
     let mut buffer: Option<NativeReadBuffer> = None;
     let mut decode: Option<NativeReadBuffer> = None;
-    let mut fragments = OwnedFragmentReassembler::new();
+    let memory = reads.reads[0]
+        .memory_view()
+        .map_err(std::io::Error::other)?;
+    let mut fragments =
+        OwnedFragmentReassembler::new_with_memory(memory).map_err(std::io::Error::other)?;
     let mut receiving: Option<
         zero_platform_tokio::contract::BoxFuture<'static, Result<(), EngineError>>,
     > = None;
@@ -62,8 +66,8 @@ pub(super) async fn run(
             packet = device.raw_packets.recv() => {
                 let Some(zero_stack::packet_output::ObservedPacket { packet, observer }) = packet else { return Ok(()); };
                 let packets = if packet::ip_protocol(&packet) == Some(packet::IPPROTO_TCP) {
-                    device.tcp.fragment_outbound_packet_buffer(packet).await.map_err(std::io::Error::other)?
-                } else { vec![packet] };
+                    device.tcp.fragment_outbound_packet_batch(packet).await.map_err(std::io::Error::other)?
+                } else { zero_traits::PacketBatch::one(packet) };
                 for packet in packets {
                     send_inner(device, packet, observer.as_deref(), &reads).await?;
                 }

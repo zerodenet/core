@@ -184,7 +184,7 @@ impl PacketPathCarrier for Path {
     ) -> Result<(), EngineError> {
         if self.handoff.is_some() {
             let prepared = self.prepare_codec_send(&[]).map_err(failure)?;
-            let (mut buffers, mut copy) = prepared.into_parts();
+            let (mut buffers, mut copy) = prepared.into_batch_parts();
             return self
                 .send_codec_buffered(target, port, payload, &mut buffers, &mut copy)
                 .await;

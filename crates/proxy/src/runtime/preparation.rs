@@ -51,7 +51,8 @@ impl ProxyPreparation {
         runtime: &zero_config::RuntimeOptionsConfig,
     ) -> Result<(), EngineError> {
         install_original_limit(&self.protocols, runtime)?;
-        install_control_limit(&self.protocols, runtime)
+        install_control_limit(&self.protocols, runtime)?;
+        install_dns_wire(&self.protocols, &self.node_network, runtime)
     }
     /// The actual Host-wide registration budget, shared with component scopes.
     pub fn application_task_budget(
@@ -120,5 +121,28 @@ pub(super) fn install_control_limit(
     if budget.limits() != limits {
         budget.prepare(limits)?.commit()?;
     }
+    Ok(())
+}
+
+/// Initial cold assembly only: the same configured lane precedes bootstrap IO.
+pub(super) fn install_dns_wire(
+    protocols: &ProtocolInventory,
+    network: &crate::component::background::BackgroundNetwork,
+    runtime: &zero_config::RuntimeOptionsConfig,
+) -> Result<(), EngineError> {
+    let originals = protocols.runtime_host().original_budgets();
+    let limits = zero_runtime::HostOriginalBudgets::dns_wire_limits(runtime)?;
+    originals
+        .dns_wire
+        .install_limit(limits)
+        .map_err(std::io::Error::other)?;
+    let memory = zero_dns::DnsWireMemory::from_host(
+        zero_traits::packet_metadata::PacketMetadataBudget::from_counter(
+            originals.dns_wire.clone(),
+        ),
+        originals.packet.driver_metadata_view(),
+    );
+    network.native_dns.bind_wire_memory(memory.clone())?;
+    network.query_dns.bind_wire_memory(memory)?;
     Ok(())
 }

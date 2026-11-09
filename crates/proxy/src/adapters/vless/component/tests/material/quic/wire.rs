@@ -11,6 +11,9 @@ async fn open(client: &Running, target: SocketAddr) -> TcpStream {
     io.write_all(&request).await.unwrap();
     let mut reply = [0; 10];
     io.read_exact(&mut reply).await.unwrap();
+    if reply[1] != 0 {
+        crate::component::stream_bridge::capacity_debug::books(&client.proxy);
+    }
     assert_eq!(reply[1], 0);
     io
 }

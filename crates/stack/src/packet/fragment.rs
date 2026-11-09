@@ -3,8 +3,8 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use super::checksum;
 mod owned;
 pub use owned::{
-    fragment_ip_packet_accounted, fragment_ip_packet_prepaid, fragment_packet_lengths,
-    write_packet_fragments, PacketFragmentFailure,
+    fragment_ip_packet_accounted, fragment_ip_packet_batch, fragment_ip_packet_prepaid,
+    fragment_packet_lengths, write_packet_fragments, PacketFragmentFailure,
 };
 
 /// Whether a complete IPv4 packet permits router fragmentation.

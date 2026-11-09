@@ -255,6 +255,34 @@ pub(super) async fn read_response(response: http::Response<h2::RecvStream>) -> i
     Ok(response)
 }
 
+async fn read_native_response(
+    response: http::Response<h2::RecvStream>,
+) -> io::Result<crate::DnsWireResponse> {
+    if !response.status().is_success() {
+        return Err(io::Error::other(format!(
+            "DoH server returned HTTP {}",
+            response.status()
+        )));
+    }
+    let mut body = response.into_body();
+    let memory = crate::OwnedDnsQueryTasks::current_wire_memory();
+    let mut response = crate::wire_memory::WireBuffer::new(0, memory.as_ref())?;
+    while let Some(chunk) = body.data().await {
+        let chunk = chunk.map_err(|error| context_error("DoH read failed", error))?;
+        if response.len().saturating_add(chunk.len()) > crate::message::MAX_DNS_MESSAGE_SIZE {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "DoH response exceeds DNS message limit",
+            ));
+        }
+        response.extend(&chunk)?;
+        body.flow_control()
+            .release_capacity(chunk.len())
+            .map_err(|error| context_error("DoH flow control failed", error))?;
+    }
+    response.freeze()
+}
+
 #[cfg(test)]
 mod tests;
 

@@ -27,7 +27,7 @@ impl RawIpTunnel for WireguardRawIpTunnel {
             .control
             .as_ref()
             .map(|grant| grant.defer_notifications());
-        owned_result(self.tunnel.send_ip_packet_owned(packet, control), convert)
+        owned_result(self.tunnel.send_ip_packet_batch(packet, control), convert)
     }
     fn receive_datagram_owned(
         &mut self,

@@ -22,6 +22,7 @@ use zero_platform_tokio::{
     },
 };
 pub(super) struct Provider {
+    memory: zero_dns::DnsWireMemory,
     resources: Arc<dyn zero_platform_tokio::contract::component::ResourceAccess>,
     tasks: OwnedDnsQueryTasks,
     budget: Arc<super::Budget>,
@@ -49,6 +50,7 @@ impl Provider {
     pub(super) fn new(
         context: &BuildContext,
         options: &Options,
+        memory: zero_dns::DnsWireMemory,
         owners: &[CarrierOwner],
         egress: zero_platform_tokio::EgressInterfaceControl,
         network: Arc<BackgroundNetwork>,
@@ -56,6 +58,7 @@ impl Provider {
         metadata: &[zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOwner],
     ) -> Self {
         Self {
+            memory,
             resources: context.resources.clone(),
             tasks: OwnedDnsQueryTasks::new_critical_with_budget(
                 &context.tasks,

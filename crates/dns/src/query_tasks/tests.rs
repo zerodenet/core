@@ -332,3 +332,6 @@ async fn independent_purpose_scopes_share_task_capacity_until_the_original_join_
         .await
         .unwrap();
 }
+
+#[path = "tests/storage.rs"]
+mod storage;

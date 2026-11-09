@@ -41,6 +41,7 @@ use zero_core::component::{ComponentId, ResourceGeneration};
 use zero_platform_tokio::contract::{ChannelError, Reason};
 
 pub struct ComponentPlan {
+    dns_wire: OnceLock<zero_traits::packet_metadata::PacketMetadataCandidateIssuer>,
     builtin: Arc<ComponentSlot>,
     borrowing: Arc<super::admission::HostAdmission>,
     borrowing_revision: u64,

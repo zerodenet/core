@@ -4,7 +4,7 @@
 //! accumulate back into a single runtime file.
 
 mod command;
-mod configuration;
+pub(in crate::runtime) mod configuration;
 mod event;
 mod model;
 mod query;

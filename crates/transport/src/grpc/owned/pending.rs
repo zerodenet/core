@@ -264,7 +264,7 @@ impl Physical {
                             && owner.as_ref().is_some_and(|owner| {
                                 owner
                                     .upstream
-                                    .validate_pending_carrier(&self.physical.binding, slot)
+                                    .validate_pending_carrier(&self.binding, slot)
                                     .is_ok()
                             })
                     })
@@ -276,7 +276,7 @@ impl Physical {
                             && owner.as_ref().is_some_and(|owner| {
                                 owner
                                     .upstream
-                                    .validate_pending_carrier(&self.physical.binding, slot)
+                                    .validate_pending_carrier(&self.binding, slot)
                                     .is_ok()
                             })
                     })

@@ -13,6 +13,10 @@ pub(in crate::split_http) struct Sender {
     pub(super) logical: Option<owned::OwnedLogicalReturn>,
 }
 impl Sender {
+    pub(in crate::split_http) fn bind_logical(&mut self, original: owned::OwnedLogicalReturn) {
+        self.logical = Some(original);
+    }
+
     pub(super) async fn owned_original(
         &self,
     ) -> io::Result<(

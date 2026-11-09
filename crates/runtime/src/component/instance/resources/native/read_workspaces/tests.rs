@@ -25,3 +25,101 @@ fn cold_read_descriptions_reject_wrong_descriptor_and_duplicate_same_original() 
         Some([NonZeroUsize::new(65_536).unwrap(); 2])
     );
 }
+
+#[cfg(feature = "raw-ip-runtime")]
+#[tokio::test]
+async fn revoked_controller_detaches_only_its_memory_handles_and_last_actual_buffer_frees_the_header(
+) {
+    use zero_core::component::ResourceGeneration;
+    use zero_platform_tokio::contract::scope::TaskScope;
+    let mut scope =
+        TaskScope::suspended_hosted(tokio::runtime::Handle::current(), NonZeroUsize::new(1));
+    scope.enable_registration().unwrap();
+    let roots = Arc::new(crate::HostOriginalBudgets::default());
+    roots.packet.install_native(2, 128).unwrap();
+    let baseline = roots.packet.driver_metadata().occupied;
+    let original = HostPacketReadReservation::new(
+        ComponentInstanceId {
+            component: ComponentId(713),
+            generation: ResourceGeneration(1),
+        },
+        scope.registrar().scope_identity(),
+        roots.clone(),
+        [NonZeroUsize::new(64).unwrap(); 2],
+    )
+    .unwrap();
+    original
+        .prepare_before_listener_bind(&scope.registrar())
+        .unwrap();
+    let grants = original.take().unwrap();
+    let held = grants[0].try_buffer().unwrap();
+    drop(grants);
+    original.revoke();
+    assert!(original.state.lock().unwrap().grants.is_none());
+    assert!(original.state.lock().unwrap().supplemental.is_none());
+    assert!(
+        original.released(),
+        "memory admission is sealed, never an IO/Scope receipt"
+    );
+    assert_eq!(roots.packet.native().occupied.frames, 1);
+    assert!(roots.packet.driver_metadata().occupied.bytes() > baseline.bytes());
+    assert!(original.take().is_err());
+    drop(held);
+    assert_eq!(roots.packet.native().occupied.frames, 0);
+    assert_eq!(roots.packet.driver_metadata().occupied, baseline,
+        "the still-live controller cannot pin removed memory headers after their actual users return");
+    assert!(original.state.lock().unwrap().stopped);
+    scope.begin_shutdown();
+    assert!(scope.next_receipt().await.is_none());
+}
+
+#[cfg(feature = "raw-ip-runtime")]
+#[tokio::test]
+async fn actual_supplemental_arrays_and_receiver_bits_stay_in_same_root_until_real_revoke() {
+    use zero_core::component::ResourceGeneration;
+    use zero_platform_tokio::contract::{component::PacketSupplementalMemory, scope::TaskScope};
+    let mut scope =
+        TaskScope::suspended_hosted(tokio::runtime::Handle::current(), NonZeroUsize::new(1));
+    scope.enable_registration().unwrap();
+    let roots = Arc::new(crate::HostOriginalBudgets::default());
+    roots.packet.install_native(3, 192).unwrap();
+    roots.packet.install_transmit(2, 32).unwrap();
+    let baseline = roots.packet.driver_metadata().occupied;
+    let original = HostPacketReadReservation::new_with_supplemental(
+        ComponentInstanceId {
+            component: ComponentId(714),
+            generation: ResourceGeneration(1),
+        },
+        scope.registrar().scope_identity(),
+        roots.clone(),
+        [NonZeroUsize::new(64).unwrap(); 2],
+        None,
+        PacketSupplementalMemory {
+            receive_workspaces: vec![NonZeroUsize::new(64).unwrap()],
+            transmit_copy: NonZeroUsize::new(16),
+            transmit_target: NonZeroUsize::new(16),
+        },
+    )
+    .unwrap();
+    original
+        .prepare_before_listener_bind(&scope.registrar())
+        .unwrap();
+    let reads = original.take().unwrap();
+    let extra = original.take_supplemental_receive(0).unwrap();
+    assert!(original.take_supplemental_receive(0).is_err());
+    let held = extra.try_buffer().unwrap();
+    drop(extra);
+    drop(reads);
+    assert_eq!(roots.packet.native().occupied.frames, 3);
+    assert_eq!(roots.packet.transmit().occupied.frames, 2);
+    original.revoke();
+    assert!(original.state.lock().unwrap().received.is_empty());
+    assert_eq!(roots.packet.native().occupied.frames, 1);
+    assert_eq!(roots.packet.transmit().occupied.frames, 0);
+    assert!(original.take_supplemental_receive(0).is_err());
+    drop(held);
+    assert_eq!(roots.packet.native().occupied.frames, 0);
+    assert_eq!(roots.packet.driver_metadata().occupied, baseline);
+    scope.begin_shutdown();
+    assert!(scope.next_receipt().await.is_none());
+}

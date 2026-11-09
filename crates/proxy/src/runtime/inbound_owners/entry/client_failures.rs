@@ -34,3 +34,42 @@ impl InboundOwner {
         Ok(actual.clone())
     }
 }
+
+#[cfg(test)]
+impl InboundOwner {
+    pub(crate) fn diagnose_datagram_failures_for_test(&self) {
+        use std::error::Error;
+        eprintln!(
+            "actual Source result {:?}: {:?}",
+            self.identity,
+            self.result()
+        );
+        if let Some(receiver) = self.client_failure_receiver() {
+            for failure in receiver.iter() {
+                eprintln!(
+                    "actual Source accepted failure: task={:?} class={:?} result={:?}",
+                    failure.id(),
+                    failure.class(),
+                    failure.result()
+                );
+                if let Err(error) = failure.result() {
+                    let mut source: Option<&(dyn Error + 'static)> = Some(error);
+                    for index in 0..32 {
+                        let Some(actual) = source else {
+                            break;
+                        };
+                        eprintln!("actual accepted failure source[{index}]: {actual:?}; {actual}");
+                        source = actual.source();
+                    }
+                }
+            }
+        }
+        #[cfg(feature = "managed-datagram-runtime")]
+        {
+            let groups = self.peers.lock().expect("peer owners poisoned").clone();
+            for peers in groups {
+                peers.diagnose_actual_retirement();
+            }
+        }
+    }
+}

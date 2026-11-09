@@ -9,6 +9,7 @@ mod carrier_budget;
 mod control_budget;
 mod operation;
 mod publication;
+pub(in crate::runtime) mod wire_budget;
 
 /// Application-owned services that must follow a full runtime configuration.
 ///
@@ -171,9 +172,16 @@ impl ProxyHandle {
             return Err("proxy stopped before accepting configuration changes".to_owned());
         }
 
+        let wire = self.prepare_wire_transition(&candidate)?;
         let control = self.prepare_control_transition(&candidate, timeout).await?;
         let result = self
-            .apply_config_after_control_prepared(candidate, previous, timeout, persist)
+            .apply_config_after_control_prepared(
+                candidate,
+                previous,
+                timeout,
+                persist,
+                wire.as_ref(),
+            )
             .await;
         self.finish_control_transition(control, result)
     }
@@ -255,6 +263,7 @@ impl ProxyHandle {
                 timeout,
                 Some(previous.clone()),
                 true,
+                None,
             )
             .await;
         result?;

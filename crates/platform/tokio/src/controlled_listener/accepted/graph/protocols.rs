@@ -108,3 +108,11 @@ impl Users {
         complete
     }
 }
+
+fn gone() -> ChannelError {
+    failure(
+        Stage::Prepare,
+        Reason::Revoked,
+        "accepted caller is not live",
+    )
+}

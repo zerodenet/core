@@ -179,7 +179,17 @@ impl Engine {
         snapshot: Arc<super::EngineRuntimeSnapshot>,
         control: Option<&zero_runtime::configuration::ControlBudgetCandidate>,
     ) -> Result<(), EngineError> {
-        self.install_snapshot_with_control(snapshot, true, control)
+        self.install_snapshot_with_control(snapshot, true, control, None)
+    }
+    /// The same Host's DNS wire candidate participates in this exact metadata
+    /// publication; the Proxy releases deferred admission outside Host guards.
+    pub fn publish_prepared_snapshot_with_budgets(
+        &self,
+        snapshot: Arc<super::EngineRuntimeSnapshot>,
+        control: Option<&zero_runtime::configuration::ControlBudgetCandidate>,
+        wire: Option<&zero_traits::packet_metadata::PacketMetadataLimitCandidate>,
+    ) -> Result<(), EngineError> {
+        self.install_snapshot_with_control(snapshot, true, control, wire)
     }
 
     fn install_prepared_snapshot(
@@ -187,14 +197,25 @@ impl Engine {
         snapshot: Arc<super::EngineRuntimeSnapshot>,
         reconcile_live_choices: bool,
     ) -> Result<(), EngineError> {
-        self.install_snapshot_with_control(snapshot, reconcile_live_choices, None)
+        self.install_snapshot_with_control(snapshot, reconcile_live_choices, None, None)
     }
     fn install_snapshot_with_control(
         &self,
         snapshot: Arc<super::EngineRuntimeSnapshot>,
         reconcile_live_choices: bool,
         control: Option<&zero_runtime::configuration::ControlBudgetCandidate>,
+        wire: Option<&zero_traits::packet_metadata::PacketMetadataLimitCandidate>,
     ) -> Result<(), EngineError> {
+        if let Some(wire) = wire {
+            if wire.target()
+                != zero_runtime::HostOriginalBudgets::dns_wire_limits(&snapshot.config.runtime)?
+            {
+                return Err(EngineError::InvalidPlan {
+                    message: "configuration differs from actual DNS wire candidate".into(),
+                });
+            }
+            wire.validate_publication().map_err(std::io::Error::other)?;
+        }
         if control.is_some_and(|candidate| {
             candidate.limits()
                 != zero_runtime::configuration::ControlBudgetLimits::from_runtime(
@@ -232,6 +253,9 @@ impl Engine {
         // guards precede the Root book, matching query prepayment lock order.
         if let Some(candidate) = control {
             candidate.commit_deferred()?;
+        }
+        if let Some(wire) = wire {
+            wire.commit_validated_deferred();
         }
         statistics.commit();
         let waiters = if reconcile_live_choices

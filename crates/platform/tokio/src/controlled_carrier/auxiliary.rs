@@ -164,7 +164,11 @@ impl CarrierAdoption {
             let mut state = self.slot.state();
             state.auxiliary_exit.get_or_insert_with(|| joined.clone());
         }
-        if let Some(source) = rejection {
+        let original_result = rejection.cloned().or_else(|| {
+            self.preparation()?
+                .retained_connect_rejection_result(&joined)
+        });
+        if let Some(source) = original_result.as_ref() {
             self.preparation()
                 .ok_or_else(|| {
                     error(

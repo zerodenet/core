@@ -218,6 +218,38 @@ pub fn fragment_ip_packet_prepaid(
         .collect())
 }
 
+pub fn fragment_ip_packet_batch(
+    packet: PacketBuffer,
+    mtu: usize,
+    identification: u32,
+) -> Result<zero_traits::PacketBatch, PacketFragmentFailure> {
+    if packet.len() <= mtu {
+        return Ok(zero_traits::PacketBatch::one(packet));
+    }
+    let result = (|| {
+        let lengths = fragment_packet_lengths(&packet, mtu)?;
+        let mut outputs = packet.try_derive_owned(&lengths)?;
+        write_packet_fragments(&packet, mtu, identification, &mut outputs)?;
+        Ok(outputs)
+    })();
+    let outputs = match result {
+        Ok(outputs) => outputs,
+        Err(cause) => {
+            return Err(PacketFragmentFailure {
+                cause,
+                original: packet,
+            })
+        }
+    };
+    let original = Arc::new(packet);
+    Ok(outputs.map_in_place(|packet| {
+        PacketBuffer::from_owner(Derived {
+            packet,
+            _original: original.clone(),
+        })
+    }))
+}
+
 struct Derived {
     packet: PacketBuffer,
     _original: Arc<PacketBuffer>,
@@ -235,6 +267,12 @@ impl AsMut<[u8]> for Derived {
 impl PacketStorage for Derived {
     fn prepare_transmit(&mut self, frames: usize, bytes: usize) -> Result<(), PacketDeriveError> {
         self.packet.prepare_transmit(frames, bytes)
+    }
+    fn try_derive_owned(
+        &self,
+        lengths: &[usize],
+    ) -> Result<zero_traits::PacketBatch, zero_traits::PacketDeriveError> {
+        self.packet.try_derive_owned(lengths)
     }
     fn try_derive_zeroed(&self, lengths: &[usize]) -> Result<Vec<PacketBuffer>, PacketDeriveError> {
         self.packet.try_derive_zeroed(lengths)

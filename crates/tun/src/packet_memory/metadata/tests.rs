@@ -191,3 +191,6 @@ async fn original_metadata_wait_rejects_an_impossible_layout_including_its_real_
 
 #[path = "tests/credit_transfer.rs"]
 mod credit_transfer;
+
+#[path = "tests/policy.rs"]
+mod policy;

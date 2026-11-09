@@ -16,6 +16,7 @@ impl OrchestrationState {
         recover_dns: bool,
     ) -> zero_platform_tokio::contract::BoxFuture<'a, ()> {
         Box::pin(async move {
+            proxy.rollback_pending_dns_wire(rejected);
             // Only candidate instances registered by this phase are stopped.
             // Recovery uses the last-good factory without this admission fence.
             self.preparing_inbounds.begin_shutdown();

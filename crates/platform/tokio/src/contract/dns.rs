@@ -78,3 +78,6 @@ pub trait DnsService: Send + Sync {
         context: DnsQueryContext,
     ) -> BoxFuture<'_, Result<DnsResolution, ChannelError>>;
 }
+
+mod allocation;
+pub use allocation::{current_wire_allocation, DnsWireAllocation};

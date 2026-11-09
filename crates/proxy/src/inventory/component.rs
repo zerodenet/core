@@ -373,7 +373,14 @@ impl super::ProtocolInventory {
                     .into(),
             });
         }
-        let upstream = services.upstream();
+        let plan = services
+            .components
+            .as_ref()
+            .map_err(|error| std::io::Error::other(retained(error.clone())))?;
+        let mut upstream = services.upstream();
+        if let Some(issuer) = plan.dns_wire_candidate() {
+            upstream = upstream.with_dns_wire_candidate(issuer);
+        }
         self.devices
             .resolve_component_resources(config, &upstream, services.engine(), deadline, cancel)
             .await?;

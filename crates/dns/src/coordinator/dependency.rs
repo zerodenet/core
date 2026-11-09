@@ -1,8 +1,9 @@
 use super::{AtomicUsize, QueryKey};
+use crate::wire_memory::MetadataMutex as Mutex;
 use std::{
     collections::{HashMap, HashSet},
     io,
-    sync::{atomic::Ordering, Arc, Mutex},
+    sync::{atomic::Ordering, Arc},
 };
 
 #[derive(Clone, PartialEq, Eq, Hash)]

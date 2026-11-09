@@ -20,7 +20,11 @@ async fn cancelling_before_quic_loan_delivery_waits_for_the_same_native_and_borr
                 loop {
                     let (size, _) = tokio::select! {
                         result=tokio::time::timeout_at(wire_end,blackhole.recv_from(&mut bytes))=>result.unwrap().unwrap(),
-                        result=&mut query=>panic!("QUIC query returned before actual Initial transmission (borrowed={borrowed}, attempt={index}): {result:?}"),
+                        result=&mut query=>{
+                            crate::component::stream_bridge::capacity_debug::books(&proxy);
+                            if let Ok(Err(source))=&result {crate::component::stream_bridge::capacity_debug::source("actual DNS before Initial",source);}
+                            panic!("QUIC query returned before actual Initial transmission (borrowed={borrowed}, attempt={index}): {result:?}")
+                        },
                     };
                     assert!(size > 6 && bytes[0] & 0x80 != 0, "real QUIC Initial reached the original peer");
                     let len = bytes[5] as usize; assert!(len >= 8 && len <= 20 && size >= 6 + len);

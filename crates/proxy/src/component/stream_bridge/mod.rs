@@ -25,6 +25,8 @@ pub(in crate::component) mod network;
 mod packet_network;
 mod pending;
 pub(crate) use pending::actual_protocol_caller;
+#[cfg(test)]
+pub(crate) mod capacity_debug;
 pub(crate) mod relay;
 mod traffic;
 pub(crate) use relay::connect as connect_relay;
@@ -163,6 +165,9 @@ pub(super) fn failure_optional(
 ) -> TcpOutboundFailure {
     #[cfg(test)]
     {
+        if error.reason == Reason::Capacity {
+            capacity_debug::source("actual native Stream before legacy projection", &error);
+        }
         // Read only the retained typed facts before legacy display projection.
         // These facts grant no IO, admission, retry or cleanup authority.
         let mut pending: Vec<&(dyn std::error::Error + 'static)> = vec![&error];

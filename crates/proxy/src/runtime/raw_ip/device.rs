@@ -47,7 +47,7 @@ pub(crate) use returns::{PacketReturnTotals, PacketReturns};
 
 pub(super) struct ForwardedPackets {
     return_channel: zero_stack::packet_output::PacketSender,
-    packets: Vec<zero_traits::PacketBuffer>,
+    packets: zero_traits::PacketBatch,
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
 }
 
@@ -176,7 +176,7 @@ impl SharedRawIpDevice {
             conversation,
         )?;
         permit.send(ForwardedPackets {
-            packets: std::mem::take(packets),
+            packets: zero_traits::PacketBatch::from_library(std::mem::take(packets)),
             observer,
             return_channel,
         });

@@ -50,7 +50,7 @@ impl CachedPacket {
             Self::Library(bytes) => Ok(bytes.clone().into()),
             #[cfg(feature = "packet-memory")]
             Self::Owned(original) => {
-                let mut outputs = original.try_derive_zeroed(&[original.len()])?;
+                let mut outputs = original.try_derive_owned(&[original.len()])?;
                 if outputs.len() != 1 || outputs[0].len() != original.len() {
                     return Err(PacketDeriveError::LayoutMismatch);
                 }
@@ -151,6 +151,12 @@ impl PacketStorage for Outgoing {
     }
     fn prepare_transmit(&mut self, frames: usize, bytes: usize) -> Result<(), PacketDeriveError> {
         self.packet.prepare_transmit(frames, bytes)
+    }
+    fn try_derive_owned(
+        &self,
+        lengths: &[usize],
+    ) -> Result<zero_traits::PacketBatch, zero_traits::PacketDeriveError> {
+        self.packet.try_derive_owned(lengths)
     }
     fn try_derive_zeroed(&self, lengths: &[usize]) -> Result<Vec<PacketBuffer>, PacketDeriveError> {
         self.packet.try_derive_zeroed(lengths)

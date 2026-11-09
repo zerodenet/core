@@ -148,7 +148,7 @@ impl PacketReturnTotals {
             .checked_add(derived_bytes)
             .ok_or(PacketMemoryError::Overflow)?;
         let envelope = self.reserve_transmit_envelope(frames, bytes)?;
-        let mut buffers = envelope.allocate(&[original])?;
+        let mut buffers = envelope.allocate_owned(&[original])?;
         Ok(buffers.pop().expect("same admitted original"))
     }
 }

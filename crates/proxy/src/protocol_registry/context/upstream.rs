@@ -23,6 +23,8 @@ use ech::RuntimeEchResolver;
 /// access. Optional prepared I/O observers only receive boundary facts.
 #[derive(Clone)]
 pub(crate) struct UpstreamConnectServices {
+    #[cfg(feature = "raw-ip-runtime")]
+    dns_wire: Option<zero_traits::packet_metadata::PacketMetadataCandidateIssuer>,
     pub(super) resolver: Arc<DnsSystem>,
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
     dial_trace: Option<crate::transport::establishment::DialTrace>,
@@ -120,6 +122,8 @@ impl UpstreamConnectServices {
         #[cfg(feature = "tls-ech-runtime")]
         let ech_resolver = Arc::new(std::sync::OnceLock::new());
         Self {
+            #[cfg(feature = "raw-ip-runtime")]
+            dns_wire: None,
             resolver,
             observer: None,
             dial_trace: None,
@@ -198,16 +202,42 @@ impl UpstreamConnectServices {
     }
 
     #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn with_dns_wire_candidate(
+        mut self,
+        issuer: zero_traits::packet_metadata::PacketMetadataCandidateIssuer,
+    ) -> Self {
+        self.dns_wire = Some(issuer);
+        self
+    }
+    #[cfg(feature = "raw-ip-runtime")]
     pub(crate) async fn resolve_node_address(
         &self,
         address: &zero_core::Address,
         port: u16,
         error_message: &'static str,
     ) -> Result<std::net::SocketAddr, zero_engine::EngineError> {
-        self.connector
-            .resolve_node_address(address, port, self.resolver.as_ref(), error_message)
-            .await
-            .map_err(Into::into)
+        // Literal endpoints and already-resolved device recipes need no
+        // Node provider or candidate source. Prepare only at this real DNS call.
+        let allocation = if matches!(address, zero_core::Address::Domain(_)) {
+            self.dns_wire
+                .as_ref()
+                .map(|issuer| self.resolver.prepare_node_wire_allocation(issuer))
+                .transpose()?
+                .flatten()
+        } else {
+            None
+        };
+        let resolution = self.connector.resolve_node_address(
+            address,
+            port,
+            self.resolver.as_ref(),
+            error_message,
+        );
+        match allocation {
+            Some(allocation) => allocation.with_memory(resolution).await,
+            None => resolution.await,
+        }
+        .map_err(Into::into)
     }
 
     #[cfg(feature = "tls-ech-runtime")]

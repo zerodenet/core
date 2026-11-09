@@ -88,6 +88,12 @@ impl zero_traits::PacketStorage for OpaqueSource {
     fn prepare_transmit(&mut self, frames: usize, bytes: usize) -> Result<(), PacketDeriveError> {
         self.0.prepare_transmit(frames, bytes)
     }
+    fn try_derive_owned(
+        &self,
+        lengths: &[usize],
+    ) -> Result<zero_traits::PacketBatch, zero_traits::PacketDeriveError> {
+        self.0.try_derive_owned(lengths)
+    }
     fn try_derive_zeroed(&self, lengths: &[usize]) -> Result<Vec<PacketBuffer>, PacketDeriveError> {
         self.0.try_derive_zeroed(lengths)
     }
@@ -106,7 +112,7 @@ fn queued_owned_data_at_exact_tx_limit_does_not_block_real_handshake_or_read_pro
     let mut packet = root.transmit_packet(payload.len(), 1, 64).unwrap();
     packet.copy_from_slice(&payload);
     let packet = PacketBuffer::from_owner(OpaqueSource(packet));
-    let output = client.send_ip_packet_owned(packet, received(control, &[0; 148]));
+    let output = client.send_ip_packet_batch(packet, received(control, &[0; 148]));
     assert!(output.unused_control.is_none());
     let initiation = networks(output.result.unwrap());
     assert!(

@@ -7,6 +7,7 @@ impl ProxyHandle {
         previous: Arc<zero_engine::EngineRuntimeSnapshot>,
         timeout: Duration,
         persist: bool,
+        wire: Option<&wire_budget::WireCandidate>,
     ) -> Result<Option<ConfigReconcileResult>, String> {
         let application_prepared = if let Some(reconciler) = &self.config_reconciler {
             match reconciler
@@ -15,6 +16,9 @@ impl ProxyHandle {
             {
                 Ok(prepared) => prepared,
                 Err(error) => {
+                    if let Some(wire) = wire {
+                        wire.rollback();
+                    }
                     return Err(self
                         .restore_carrier_budget_application(
                             previous.clone(),
@@ -30,11 +34,14 @@ impl ProxyHandle {
             None
         };
         let prepared = match self
-            .apply_proxy_config_under_guard(candidate.clone(), timeout, None, false)
+            .apply_proxy_config_under_guard(candidate.clone(), timeout, None, false, wire)
             .await
         {
             Ok(prepared) => prepared,
             Err(error) if application_prepared.is_some() => {
+                if let Some(wire) = wire {
+                    wire.rollback();
+                }
                 return Err(self
                     .restore_carrier_budget_application(
                         previous.clone(),
@@ -45,14 +52,22 @@ impl ProxyHandle {
                     )
                     .await);
             }
-            Err(error) => return Err(error),
+            Err(error) => {
+                if let Some(wire) = wire {
+                    wire.rollback();
+                }
+                return Err(error);
+            }
         };
 
         let Some(reconciler) = &self.config_reconciler else {
             if let Err(error) = self
-                .commit_configuration(prepared.clone(), timeout, persist)
+                .commit_configuration(prepared.clone(), timeout, persist, wire)
                 .await
             {
+                if let Some(wire) = wire {
+                    wire.rollback();
+                }
                 let recovery = self
                     .confirm_source_compensation(&prepared)
                     .map_err(|recovery| format!("{error}; {recovery}"))?;
@@ -75,9 +90,12 @@ impl ProxyHandle {
         match application {
             Ok(result) => {
                 if let Err(error) = self
-                    .commit_configuration(prepared.clone(), timeout, persist)
+                    .commit_configuration(prepared.clone(), timeout, persist, wire)
                     .await
                 {
+                    if let Some(wire) = wire {
+                        wire.rollback();
+                    }
                     let recovery = self
                         .retire_application_for_recovery(
                             reconciler.as_ref(),
@@ -115,6 +133,9 @@ impl ProxyHandle {
                 Ok(Some(result))
             }
             Err(apply_error) => {
+                if let Some(wire) = wire {
+                    wire.rollback();
+                }
                 let recovery = self
                     .retire_application_for_recovery(
                         reconciler.as_ref(),

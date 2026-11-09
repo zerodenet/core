@@ -1,7 +1,8 @@
 //! HTTP client-group pooling. Logical streams own usage leases, while HTTP
 //! drivers and response bodies retain connections independently of those leases.
 mod allocations;
-use allocations::{GroupRef, Groups, UsageRef};
+pub(in crate::split_http) use allocations::UsageRef;
+use allocations::{GroupRef, Groups};
 mod connection;
 mod group;
 pub(in crate::split_http) mod group_body;

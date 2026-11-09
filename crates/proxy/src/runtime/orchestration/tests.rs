@@ -91,6 +91,7 @@ async fn duplicate_reload_notification_preserves_dns_candidate_owned_by_acknowle
         previous,
 
         compensating: false,
+        wire: None,
         sender,
     });
     state.reconcile_reload(&proxy).await;
@@ -120,6 +121,7 @@ async fn identical_config_snapshots_do_not_cross_acknowledge_reload_operations()
         previous: previous.clone(),
 
         compensating: true,
+        wire: None,
         sender,
     });
     assert!(!proxy.pending_reload_compensates(&previous));
@@ -217,3 +219,6 @@ mod source_limits;
 
 #[cfg(all(feature = "vless", feature = "hysteria2"))]
 mod inbound_targets;
+
+#[cfg(all(feature = "wireguard", feature = "udp-runtime"))]
+mod dns_wire;

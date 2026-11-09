@@ -6,6 +6,7 @@ impl ProxyHandle {
         snapshot: Arc<zero_engine::EngineRuntimeSnapshot>,
         timeout: Duration,
         persist: bool,
+        wire: Option<&wire_budget::WireCandidate>,
     ) -> Result<(), String> {
         if self.proxy.host.apply().is_closing() {
             return Err("proxy stopped before configuration commit".to_owned());
@@ -29,6 +30,9 @@ impl ProxyHandle {
                 ),
             )
             .map_err(|error| error.to_string())?;
+        if let Some(wire) = wire {
+            wire.policy().seal().map_err(|error| error.to_string())?;
+        }
         let committed = self.proxy.host.apply().commit(|| {
             if persist {
                 self.proxy
@@ -53,7 +57,11 @@ impl ProxyHandle {
                         .map_err(|error| format!("DNS config commit failed: {error}"))?;
                     self.proxy
                         .engine
-                        .publish_prepared_snapshot_with_control(snapshot.clone(), control.as_ref())
+                        .publish_prepared_snapshot_with_budgets(
+                            snapshot.clone(),
+                            control.as_ref(),
+                            wire.map(|wire| wire.policy()),
+                        )
                         .map_err(|error| error.to_string())?;
                     self.proxy.engine.commit_config_change();
                     Ok(())
@@ -79,6 +87,11 @@ impl ProxyHandle {
                 control
                     .publish_committed()
                     .map_err(|error| error.to_string())?;
+            }
+        }
+        if let Some(wire) = wire {
+            if wire.policy().metadata_committed() {
+                wire.policy().publish();
             }
         }
         committed?;

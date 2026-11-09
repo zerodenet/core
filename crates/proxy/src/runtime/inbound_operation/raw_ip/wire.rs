@@ -85,8 +85,13 @@ pub(super) async fn run(
     let mut receiving: Option<
         zero_platform_tokio::contract::BoxFuture<'static, Result<(), EngineError>>,
     > = None;
-    let mut fragments = OwnedFragmentReassembler::new();
-    let mut endpoint_fragments = OwnedFragmentReassembler::new();
+    let memory = read_memory.0[0]
+        .memory_view()
+        .map_err(std::io::Error::other)?;
+    let mut fragments =
+        OwnedFragmentReassembler::new_with_memory(memory.clone()).map_err(std::io::Error::other)?;
+    let mut endpoint_fragments =
+        OwnedFragmentReassembler::new_with_memory(memory).map_err(std::io::Error::other)?;
     let mut maintenance = tokio::time::interval(Duration::from_secs(5));
     maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut fragment_id = 1_u32;
@@ -314,7 +319,7 @@ pub(super) async fn run(
                 let mtu = usize::from(operation.device.mtu());
                 let packets=tokio::select! { biased;
                     _=shutdown.changed()=>break Ok(()),
-                    result=async move {packet::fragment_ip_packet_prepaid(outgoing.packet,mtu,fragment_id)}=>result.map_err(receive::fragment_failure)?,
+                    result=async move {packet::fragment_ip_packet_batch(outgoing.packet,mtu,fragment_id)}=>result.map_err(receive::fragment_failure)?,
                 };
                 fragment_id = fragment_id.wrapping_add(1);
                 for packet in packets {
@@ -342,7 +347,7 @@ pub(super) async fn run(
                 let mtu = usize::from(operation.device.mtu());
                 let packets=tokio::select! { biased;
                     _=shutdown.changed()=>break Ok(()),
-                    result=async move {packet::fragment_ip_packet_prepaid(response,mtu,fragment_id)}=>result.map_err(receive::fragment_failure)?,
+                    result=async move {packet::fragment_ip_packet_batch(response,mtu,fragment_id)}=>result.map_err(receive::fragment_failure)?,
                 };
                 tracing::trace!(fragments = packets.len(), "raw-IP inbound response fragments");
                 fragment_id = fragment_id.wrapping_add(1);

@@ -4,6 +4,14 @@ fn charged(layout: PacketMetadataLayout) -> PacketMetadataLayout {
         .checked_add(layout)
         .unwrap()
 }
+fn charged_origin(layout: PacketMetadataLayout) -> PacketMetadataLayout {
+    charged(
+        read::header::slot_layout()
+            .unwrap()
+            .checked_add(layout)
+            .unwrap(),
+    )
+}
 fn original(
     allocations: usize,
     bytes: usize,
@@ -17,9 +25,7 @@ fn original(
             one,
             one,
             one,
-            zero_traits::packet_metadata::PacketMetadataCounter::owned_layout()
-                .checked_add(PacketMetadataLayout::new(allocations, bytes))
-                .unwrap(),
+            charged_origin(PacketMetadataLayout::new(allocations, bytes)),
         )
         .unwrap(),
     );
@@ -37,18 +43,18 @@ fn table_growth_pays_old_and_new_capacity_and_removal_keeps_real_capacity_charge
     assert_eq!(&*table, &[7, 11]);
     assert_eq!(
         root.driver_metadata().occupied,
-        charged(PacketMetadataLayout::new(1, 2 * std::mem::size_of::<u64>()))
+        charged_origin(PacketMetadataLayout::new(1, 2 * std::mem::size_of::<u64>()))
     );
     assert_eq!(table.remove(0), 7);
     assert_eq!(table.remove(0), 11);
     assert_eq!(
         root.driver_metadata().occupied.bytes(),
-        charged(PacketMetadataLayout::new(0, 2 * std::mem::size_of::<u64>())).bytes()
+        charged_origin(PacketMetadataLayout::new(0, 2 * std::mem::size_of::<u64>())).bytes()
     );
     drop(table);
     assert_eq!(
         root.driver_metadata().occupied,
-        charged(PacketMetadataLayout::new(0, 0))
+        charged_origin(PacketMetadataLayout::new(0, 0))
     );
 }
 #[test]
@@ -62,7 +68,7 @@ fn impossible_self_growth_returns_the_new_row_and_keeps_existing_rows() {
     assert_eq!(&*table, &[7]);
     assert_eq!(
         root.driver_metadata().occupied,
-        charged(PacketMetadataLayout::new(1, std::mem::size_of::<u64>()))
+        charged_origin(PacketMetadataLayout::new(1, std::mem::size_of::<u64>()))
     );
 }
 #[test]
@@ -81,7 +87,7 @@ fn foreign_occupied_bytes_are_busy_and_a_real_release_allows_the_same_row() {
     drop(table);
     assert_eq!(
         root.driver_metadata().occupied,
-        charged(PacketMetadataLayout::new(0, 0))
+        charged_origin(PacketMetadataLayout::new(0, 0))
     );
 }
 #[test]
@@ -94,16 +100,25 @@ fn pending_table_slot_is_paid_before_row_install_and_empty_storage_is_not_a_refu
     let actual = root.driver_metadata().occupied;
     assert_eq!(
         actual,
-        charged(PacketMetadataLayout::new(1, std::mem::size_of::<u64>()))
+        charged_origin(PacketMetadataLayout::new(1, std::mem::size_of::<u64>()))
     );
     read.revoke();
-    assert_eq!(root.driver_metadata().occupied, actual);
+    let retained_origin = PacketMetadataArc::<read::ReadSlot>::layout().unwrap();
+    let retired = charged(
+        retained_origin
+            .checked_add(PacketMetadataLayout::array::<u64>(1).unwrap())
+            .unwrap(),
+    );
+    assert_eq!(root.driver_metadata().occupied, retired);
     assert_eq!(table.push_reserved(71), Ok(()));
     assert_eq!(table.push_reserved(72), Err(72));
     assert_eq!(&*table, &[71]);
     assert_eq!(table.remove(0), 71);
-    assert_eq!(root.driver_metadata().occupied, actual);
+    assert_eq!(root.driver_metadata().occupied, retired);
     drop(table);
+    assert_eq!(root.driver_metadata().occupied, charged(retained_origin));
+    drop(view);
+    drop(read);
     assert_eq!(
         root.driver_metadata().occupied,
         charged(PacketMetadataLayout::new(0, 0))
@@ -168,7 +183,21 @@ fn neutral_host_table_keeps_exact_capacity_paid_across_mutation_retain_and_reuse
 }
 #[test]
 fn neutral_growth_pays_old_and_new_and_old_packet_entry_keeps_revocation_fence() {
-    let (root, read, packet) = original(1, 2 * std::mem::size_of::<u64>());
+    // Pure Host admission has no mandatory live Native original. Keep its
+    // same exact 1-allocation/16-byte table policy and Capacity classification.
+    let one = PacketMemoryLimit {
+        frames: 1,
+        bytes: 1,
+    };
+    let root = Arc::new(
+        PacketReturnTotals::new_with_metadata(
+            one,
+            one,
+            one,
+            charged(PacketMetadataLayout::new(1, 2 * std::mem::size_of::<u64>())),
+        )
+        .unwrap(),
+    );
     let host = root.driver_metadata_view();
     let mut table = PacketMetadataVec::default();
     table.try_push_with_metadata(7u64, &host, 2).unwrap();
@@ -177,6 +206,10 @@ fn neutral_growth_pays_old_and_new_and_old_packet_entry_keeps_revocation_fence()
     assert_eq!(same, 11);
     assert_eq!(&*table, &[7]);
     drop(table);
+    // Separately exercise both authorities over ONE genuinely bound original
+    // Root, now including that original's actual paid cold/header lifetime.
+    let (bound_root, read, packet) = original(1, 2 * std::mem::size_of::<u64>());
+    let host = bound_root.driver_metadata_view();
     read.revoke();
     let mut revoked = PacketMetadataVec::<u64>::default();
     assert_eq!(

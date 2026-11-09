@@ -67,6 +67,16 @@ impl NativePacketCredit {
         }
         Err(zero_traits::PacketDeriveError::Unreserved)
     }
+    pub(super) fn try_derive_owned(
+        &self,
+        lengths: &[usize],
+    ) -> Result<zero_traits::PacketBatch, zero_traits::PacketDeriveError> {
+        self.envelope
+            .as_ref()
+            .ok_or(zero_traits::PacketDeriveError::Unreserved)?
+            .allocate_owned(lengths)
+            .map_err(super::transmit::derive_error)
+    }
     pub(super) fn derive_zeroed<'a>(
         &'a self,
         lengths: &'a [usize],
@@ -184,6 +194,12 @@ impl zero_traits::PacketStorage for Decoded {
         self._credit
             .begin_transmit(frames, bytes)
             .map_err(super::transmit::derive_error)
+    }
+    fn try_derive_owned(
+        &self,
+        lengths: &[usize],
+    ) -> Result<zero_traits::PacketBatch, zero_traits::PacketDeriveError> {
+        self._credit.try_derive_owned(lengths)
     }
     fn take_vec_allocation(&mut self) -> Option<Vec<u8>> {
         self.packet.take_vec_allocation()

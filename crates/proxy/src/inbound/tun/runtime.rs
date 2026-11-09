@@ -54,8 +54,8 @@ async fn serve_dns_tcp_inner(
                 "zero-length DNS-over-TCP query",
             ));
         }
-        let mut query = vec![0_u8; length];
-        stream.read_exact(&mut query).await?;
+        let mut query = resolver.prepare_wire_input(length)?;
+        stream.read_exact(query.as_mut_slice()).await?;
         let (call, work) = resolver.prepare_tcp_query(&query);
         #[cfg(feature = "raw-ip-runtime")]
         let mut at_capacity = false;
@@ -86,7 +86,7 @@ async fn serve_dns_tcp_inner(
         #[cfg(feature = "raw-ip-runtime")]
         let response = if at_capacity {
             drop(work); // This exact answer future was never polled/submitted.
-            resolver.busy_response(&query)
+            resolver.busy_response(&query)?
         } else {
             work.await?
         };

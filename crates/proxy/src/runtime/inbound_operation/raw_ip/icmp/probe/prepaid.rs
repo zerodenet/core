@@ -34,7 +34,7 @@ pub(in crate::runtime::inbound_operation::raw_ip::icmp) fn prepare(
         .prepare_transmit(lengths.len(), bytes)
         .map_err(memory)?;
     let mut buffers = packet
-        .try_derive_zeroed(&[message, length])
+        .try_derive_owned(&[message, length])
         .map_err(memory)?
         .into_iter();
     let message = buffers
@@ -124,6 +124,12 @@ impl zero_traits::PacketStorage for Retained {
     }
     fn prepare_transmit(&mut self, frames: usize, bytes: usize) -> Result<(), PacketDeriveError> {
         self.packet.prepare_transmit(frames, bytes)
+    }
+    fn try_derive_owned(
+        &self,
+        lengths: &[usize],
+    ) -> Result<zero_traits::PacketBatch, zero_traits::PacketDeriveError> {
+        self.packet.try_derive_owned(lengths)
     }
     fn try_derive_zeroed(&self, lengths: &[usize]) -> Result<Vec<PacketBuffer>, PacketDeriveError> {
         self.packet.try_derive_zeroed(lengths)

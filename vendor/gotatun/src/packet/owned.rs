@@ -45,6 +45,16 @@ impl Packet {
             .ok_or(zero_traits::PacketDeriveError::Unreserved)?
             .try_derive_zeroed(lengths)
     }
+    pub fn try_derive_owned_batch(
+        &self,
+        lengths: &[usize],
+    ) -> Result<zero_traits::PacketBatch, zero_traits::PacketDeriveError> {
+        self.inner
+            ._custody
+            .as_ref()
+            .ok_or(zero_traits::PacketDeriveError::Unreserved)?
+            .try_derive_owned(lengths)
+    }
     /// The owned producer has prepaid its one complete ciphertext allocation.
     /// Padding is written into that output payload, never another plaintext Vec.
     pub fn install_owned_padding(&mut self, padded: usize) -> Result<(), ()> {

@@ -15,7 +15,7 @@ tokio::task_local! {
     static QUERY_ORIGIN: TaskJoinWitness;
     static QUERY_CANCEL: CancellationToken;
     static QUERY_RECORD: Arc<Record>;
-    static BOOTSTRAP_TARGET: std::sync::Weak<Shared>;
+    static BOOTSTRAP_TARGET: storage::WeakStorage;
 }
 mod descendants;
 #[cfg(feature = "doh")]
@@ -39,7 +39,8 @@ pub use system::NativeSystemLookup;
 /// nor service/business authority. A native provider must separately validate
 /// its private root grant and the original witness's actual Scope identity.
 #[derive(Clone, Debug)]
-pub struct OwnedDnsQueryTasks(Arc<Shared>);
+pub struct OwnedDnsQueryTasks(storage::Storage);
+mod storage;
 #[derive(Debug)]
 struct Shared {
     registrar: WeakTaskRegistrar,
@@ -49,6 +50,7 @@ struct Shared {
     budget: OwnedDnsQueryBudget,
     state: Mutex<State>,
     finalizer: OnceLock<std::sync::Weak<dyn crate::native::NativeDnsProvider>>,
+    wire_memory: OnceLock<crate::DnsWireMemory>,
 }
 #[derive(Debug, Default)]
 struct State {
@@ -67,6 +69,7 @@ enum TaskKind {
     Driver,
 }
 struct Record {
+    wire_memory: Mutex<Option<crate::DnsWireMemory>>,
     budget: OwnedDnsQueryBudget,
     ech: Mutex<Option<crate::EchDnsEndpoint>>,
     retirement: Arc<Retirement>,
@@ -158,7 +161,7 @@ impl OwnedDnsQueryBudget {
 }
 impl OwnedDnsQueryTasks {
     pub(crate) fn same_owner(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
+        self.0.same(&other.0)
     }
     pub async fn close(&self, deadline: tokio::time::Instant) -> io::Result<()> {
         self.shutdown(deadline).await
@@ -202,7 +205,7 @@ impl OwnedDnsQueryTasks {
         class: TaskClass,
         budget: OwnedDnsQueryBudget,
     ) -> Self {
-        Self(Arc::new(Shared {
+        Self(storage::Storage::new(Shared {
             registrar: registrar.downgrade(),
             parent: registrar.cancellation(),
             limit: max_queries,
@@ -210,7 +213,42 @@ impl OwnedDnsQueryTasks {
             budget,
             state: Mutex::new(State::default()),
             finalizer: OnceLock::new(),
+            wire_memory: OnceLock::new(),
         }))
+    }
+    pub fn bind_wire_memory(&self, memory: crate::DnsWireMemory) -> io::Result<()> {
+        if !memory.matches_scope(&self.0.registrar.scope_identity()) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "DNS memory and original query Scope differ",
+            ));
+        }
+        if let Err(memory) = self.0.wire_memory.set(memory) {
+            if !self
+                .0
+                .wire_memory
+                .get()
+                .is_some_and(|same| same.same_root(&memory))
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "DNS task memory already bound",
+                ));
+            }
+        }
+        Ok(())
+    }
+    pub(crate) fn current_wire_memory() -> Option<crate::DnsWireMemory> {
+        QUERY_RECORD
+            .try_with(|record| {
+                record
+                    .wire_memory
+                    .lock()
+                    .expect("DNS wire memory poisoned")
+                    .clone()
+            })
+            .ok()
+            .flatten()
     }
     pub(crate) fn current_witness() -> io::Result<TaskJoinWitness> {
         QUERY_ORIGIN.try_with(Clone::clone).map_err(|_| {

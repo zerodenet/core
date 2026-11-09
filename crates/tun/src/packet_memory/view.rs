@@ -50,6 +50,21 @@ impl PacketMemoryView {
         }
         self.original.0.root.native_grant(bytes)
     }
+    /// One actual fragment assembly in the SAME Native frame/byte lane.
+    /// This is memory-only admission, never another IO/read/Scope permission.
+    pub fn try_assembly(&self, bytes: usize) -> Result<NativeReadBuffer, PacketMemoryError> {
+        let _notifications = self.defer_notifications();
+        let state = self
+            .original
+            .0
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.revoked {
+            return Err(PacketMemoryError::Stopped);
+        }
+        self.original.0.root.native_assembly(bytes)
+    }
     /// Read-only identity of the exact granting original, never a close proof.
     pub fn same_original(&self, other: &Self) -> bool {
         PacketMetadataArc::ptr_eq(&self.original.0, &other.original.0)
@@ -105,6 +120,36 @@ impl PacketMemoryView {
             .map(super::PacketTransmitCredit::allocate)
             .collect())
     }
+    pub fn transmit_batch(
+        &self,
+        lengths: &[usize],
+    ) -> Result<zero_traits::PacketBatch, PacketMemoryError> {
+        if lengths.is_empty() {
+            self.check_open()?;
+            return Ok(Default::default());
+        }
+        let bytes = lengths
+            .iter()
+            .try_fold(0usize, |sum, n| sum.checked_add(*n))
+            .ok_or(PacketMemoryError::Overflow)?;
+        let _notifications = self.defer_notifications();
+        let envelope = {
+            let state = self
+                .original
+                .0
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if state.revoked {
+                return Err(PacketMemoryError::Stopped);
+            }
+            self.original
+                .0
+                .root
+                .reserve_transmit_envelope(lengths.len(), bytes)?
+        };
+        envelope.allocate_owned(lengths)
+    }
     /// Prepay a concrete owning Source/driver layout before constructing its
     /// heap objects. No IO, Scope, native receipt or policy setter is issued.
     /// Existing prepaid credits remain owned after this view is revoked.
@@ -128,6 +173,11 @@ impl PacketMemoryView {
     pub fn driver_metadata_view(&self) -> Result<PacketDriverMetadataView, PacketMemoryError> {
         self.original.check_memory_open()?;
         Ok(self.original.0.root.driver_metadata_view())
+    }
+    pub(in crate::packet_memory) fn minimum_metadata_layout(
+        &self,
+    ) -> Result<PacketMetadataLayout, PacketMemoryError> {
+        self.original.minimum_header_layout()
     }
     pub fn driver_metadata(&self) -> PacketMetadataSnapshot {
         self.original.0.root.driver_metadata()

@@ -9,7 +9,7 @@ use zero_platform_tokio::contract::{
 pub(super) struct NodeQueries {
     pub(super) source: Arc<native::NativeDnsSource>,
     pub(super) coordinator: QueryCoordinator<Vec<IpAddress>>,
-    pub(super) wire: QueryCoordinator<Vec<u8>>,
+    pub(super) wire: QueryCoordinator<crate::DnsWireResponse>,
 }
 impl DnsSystem {
     /// Installs metadata only. The actual RuntimeHost must start its original
@@ -68,6 +68,43 @@ impl DnsSystem {
                 node.wire.cancel_pending();
             }
         }
+    }
+    /// Pure wire-memory preparation for this resolver's actual installed Node
+    /// provider. Deferred device setup already owns its original resolver; it
+    /// must not fabricate a not-yet-built device Scope or a second executor.
+    pub fn prepare_node_wire_allocation(
+        &self,
+        issuer: &zero_traits::packet_metadata::PacketMetadataCandidateIssuer,
+    ) -> io::Result<Option<zero_platform_tokio::contract::dns::DnsWireAllocation>> {
+        let node = self.node_queries.as_ref().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Kernel Node wire Source is absent",
+            )
+        })?;
+        let provider = node.source.provider()?;
+        let (instance, scope) = provider.host_scope().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Kernel Node Source has no actual Scope",
+            )
+        })?;
+        let memory = provider
+            .wire_memory()
+            .filter(|memory| {
+                memory.matches_source(instance, &scope)
+                    && node
+                        .source
+                        .cold_wire_memory()
+                        .is_some_and(|root| memory.same_root(&root))
+            })
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "Node wire allocation differs from its actual provider/Scope",
+                )
+            })?;
+        memory.prepare_candidate_allocation(issuer)
     }
     pub fn native_node_service(self: &Arc<Self>) -> Arc<dyn DnsService> {
         Arc::new(NodeService(Arc::downgrade(self)))

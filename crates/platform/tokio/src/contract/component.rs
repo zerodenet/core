@@ -1,5 +1,7 @@
 // This neutral memory-only view does not enable a native packet provider.
-pub use zero_tun::packet_memory::{PacketDriverMetadataView, PacketMetadataVec};
+pub use zero_tun::packet_memory::{
+    PacketDriverMetadataView, PacketMetadataVec, PacketRootNotifications,
+};
 pub(crate) mod packet_driver;
 pub use packet_driver::{
     GrantedPacketServiceCaller, PacketDriverCallGrant, PacketDriverCallRetained, PacketDriverCalls,
@@ -458,12 +460,10 @@ pub trait ResourceAccess: Send + Sync {
     fn carrier_buffer_budget(&self) -> Option<crate::controlled_carrier::CarrierBufferBudget> {
         None
     }
-    /// The actual same Host DNS wire backing counter. No allocation/IO is
-    /// granted by observing it; Kernel DNS must not replace a missing source
-    /// with an independent library budget. Wire headers keep their own book.
-    fn dns_wire_buffer_budget(
-        &self,
-    ) -> Option<std::sync::Arc<zero_traits::packet_metadata::PacketMetadataCounter>> {
+    /// The actual same Host DNS wire allocation view. No raw Counter, limit
+    /// setter, candidate/issuer or IO permission is exposed. Kernel DNS cannot
+    /// replace a missing view with an independent book; headers keep their lane.
+    fn dns_wire_buffer_budget(&self) -> Option<zero_traits::packet_metadata::PacketMetadataBudget> {
         None
     }
 

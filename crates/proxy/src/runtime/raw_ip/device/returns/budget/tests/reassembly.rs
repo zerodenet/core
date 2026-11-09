@@ -36,7 +36,8 @@ async fn charged_reassembly_keeps_authenticated_namespaces_and_full_root_read_pr
         );
         let fragments = packet::fragment_ip_packet(&original, 576, 37);
         assert!(fragments.len() > 1);
-        let mut cache = OwnedFragmentReassembler::<u64>::new();
+        let mut cache =
+            OwnedFragmentReassembler::<u64>::new_with_memory(grant.memory_view().unwrap()).unwrap();
         for source_session in [1, 2] {
             assert!(matches!(
                 cache

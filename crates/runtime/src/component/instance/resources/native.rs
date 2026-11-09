@@ -346,10 +346,12 @@ impl ResourceAccess for HostResources {
         Ok(self.originals.packet.driver_metadata_view())
     }
 
-    fn dns_wire_buffer_budget(
-        &self,
-    ) -> Option<Arc<zero_traits::packet_metadata::PacketMetadataCounter>> {
-        Some(self.originals.dns_wire.clone())
+    fn dns_wire_buffer_budget(&self) -> Option<zero_traits::packet_metadata::PacketMetadataBudget> {
+        Some(
+            zero_traits::packet_metadata::PacketMetadataBudget::from_counter(
+                self.originals.dns_wire.clone(),
+            ),
+        )
     }
 
     fn carrier_buffer_budget(

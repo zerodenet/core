@@ -4,7 +4,7 @@ use super::*;
 async fn only_received_native_connect_rejection_avoids_duplicate_component_fault_after_original_ack(
 ) {
     timeout(Duration::from_secs(5), async {
-        for mode in ["received", "received_before_ack", "undelivered", "panic"] {
+        for mode in ["received", "received_before_ack", "retained_cleanup", "undelivered", "panic", "retained_panic"] {
             let mut fixture=Fixture::cold(1).await;
             let bad=tokio::net::TcpSocket::new_v4().unwrap();
             bad.bind("127.0.0.1:0".parse().unwrap()).unwrap();
@@ -24,21 +24,25 @@ async fn only_received_native_connect_rejection_avoids_duplicate_component_fault
             let(begin,started)=tokio::sync::oneshot::channel::<crate::contract::scope::TaskJoinWitness>();
             let(send,mut receive)=tokio::sync::oneshot::channel::<Arc<ChannelError>>();
             let selection=fixture.egress.clone();
+            let producer=preparation.clone();
             let(_,actual)=original.spawn_auxiliary(&tasks,async move {
                 let actual=started.await.unwrap();
                 let call=context();
-                let ticket=bound.prepared_direct_service_issuer(&fence,&grant,actual,&endpoint,&binding).unwrap()
+                let ticket=bound.prepared_direct_service_issuer(&fence,&grant,actual.clone(),&endpoint,&binding).unwrap()
                     .authorize(call.cancel.clone(),call.deadline).unwrap();
                 let native=NativeCarrierOpener::service(ticket,selection,None).unwrap();
                 let failed=native.prepare_controlled_stream(&binding,endpoint,call,grant).unwrap().open(deadline()).await;
                 let source=Arc::new(failed.err().expect("real bound nonlistening peer refuses connect"));
                 assert!(crate::controlled_carrier::original_connect_error(&source).is_some());
+                if mode=="retained_cleanup" || mode=="retained_panic" {
+                    producer.retain_connect_rejection_result(&actual,source.clone()).unwrap();
+                }
                 let _=send.send(source.clone());
-                if mode=="panic" {panic!("real initializer panic after an independently returned native rejection");}
+                if mode=="panic" || mode=="retained_panic" {panic!("real initializer panic after an independently returned native rejection");}
                 Err(ChannelError::retained(source))
             }).unwrap();
             begin.send(actual.clone()).unwrap();
-            let delivered=if mode=="undelivered" {receive.close();None}else{Some(receive.await.unwrap())};
+            let delivered=if mode=="undelivered" || mode=="retained_cleanup" {receive.close();None}else{Some(receive.await.unwrap())};
             let receipt=scope.next_receipt().await.unwrap();
             let joined=if mode=="received_before_ack" {
                 // Remove the logical view before allowing the actual Source's
@@ -59,13 +63,19 @@ async fn only_received_native_connect_rejection_avoids_duplicate_component_fault
                 assert!(preparation.receive_connect_rejection(&foreign).is_err());
                 preparation.receive_connect_rejection(source).unwrap();
                 preparation.receive_connect_rejection(source).unwrap();
-            }else if mode=="panic" {
+            }else if mode=="panic" || mode=="retained_panic" {
                 assert!(preparation.receive_connect_rejection(delivered.as_ref().unwrap()).is_err(),"actual task panic cannot be marked as its earlier operation result");
             }
             drop(view);
             let report=original.retire(deadline()).await.unwrap();
             assert!(report.is_complete()&&report.exited_tasks.contains(&joined.id()));
-            if mode=="received" || mode=="received_before_ack" {assert!(report.failed_tasks.is_empty());}
+            if mode=="received" || mode=="received_before_ack" || mode=="retained_cleanup" {
+                assert!(report.failed_tasks.is_empty());
+                if mode=="retained_cleanup" {
+                    assert!(delivered.is_none(),"the cancelled final caller never accepted the queued result");
+                    assert!(joined.result().is_err(),"retaining a native operation result never rewrites the real TaskJoined error");
+                }
+            }
             else {
                 let failed=report.failed_tasks.iter().find(|failed|failed.id==joined.id()).unwrap();
                 assert!(Arc::ptr_eq(failed.error.retained_source().unwrap(),&joined.result().unwrap_err()));

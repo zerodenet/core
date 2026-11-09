@@ -65,6 +65,12 @@ impl zero_traits::PacketStorage for ReadPacket {
             .begin_transmit(frames, bytes)
             .map_err(crate::packet_memory::transmit::derive_error)
     }
+    fn try_derive_owned(
+        &self,
+        lengths: &[usize],
+    ) -> Result<zero_traits::PacketBatch, zero_traits::PacketDeriveError> {
+        self._credit.try_derive_owned(lengths)
+    }
     fn take_vec_allocation(&mut self) -> Option<Vec<u8>> {
         Some(std::mem::take(&mut self.bytes))
     }

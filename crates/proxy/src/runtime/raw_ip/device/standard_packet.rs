@@ -106,7 +106,7 @@ impl SharedRawIpDevice {
                 }
             }
         } else {
-            match zero_stack::packet::fragment_ip_packet_prepaid(
+            match zero_stack::packet::fragment_ip_packet_batch(
                 frame.into_payload(),
                 request.mtu,
                 identification,
