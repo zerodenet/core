@@ -11,7 +11,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use tokio::time::{sleep, Duration};
-use zero_core::{Address, Error};
+use zero_core::Address;
+#[cfg(feature = "socks5")]
+use zero_core::Error;
 use zero_proxy::{Proxy as Engine, RunningProxy as RunningEngine};
 
 static RUSTLS_READY: OnceLock<()> = OnceLock::new();
@@ -81,10 +83,12 @@ pub fn spawn_engine(engine: Engine) -> RunningEngine {
     engine.spawn()
 }
 
+#[cfg(feature = "socks5")]
 pub fn build_udp_packet(address: &Address, port: u16, payload: &[u8]) -> Result<Vec<u8>, Error> {
     socks5::udp::Socks5InboundUdpCodec.encode_response_to_client(address, port, payload)
 }
 
+#[cfg(feature = "socks5")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodedUdpPacket {
     pub target: Address,
@@ -92,6 +96,7 @@ pub struct DecodedUdpPacket {
     pub payload: Vec<u8>,
 }
 
+#[cfg(feature = "socks5")]
 pub fn parse_udp_packet(packet: &[u8]) -> Result<DecodedUdpPacket, Error> {
     socks5::udp::Socks5InboundUdpCodec
         .decode_response(packet)
