@@ -135,8 +135,7 @@ async fn actual_finish_ack_survives_cancelled_waiter_and_keeps_full_reverse_tail
             retained.local_addr().unwrap_err().kind(),
             io::ErrorKind::NotConnected
         );
-        scope.begin_shutdown();
-        assert!(scope.is_drained());
+        assert!(scope.shutdown(Instant::now()).await.is_complete());
     })
     .await
     .unwrap();
