@@ -74,7 +74,38 @@ impl CarrierBufferBudget {
             .checked_add(shape.transmit_working_bytes)
             .and_then(|bytes| bytes.checked_add(shape.receive_working_bytes))
             .ok_or(io::ErrorKind::InvalidInput)?;
-        let mut credit = self.try_reserve(peak)?;
+        let credit = self.try_reserve(peak)?;
+        self.working_set_prepaid(shape, credit)
+    }
+    /// One inline wait for the complete concrete scratch/TX/RX set. The same
+    /// original book admits its whole peak before any working slot allocation.
+    pub fn working_set(
+        &self,
+        shape: CarrierBufferWorkingShape,
+    ) -> impl std::future::Future<Output = io::Result<CarrierBufferWorkingSet>> + Send + 'static
+    {
+        let actual = self.clone();
+        async move {
+            if shape.receive_scratch_bytes == 0
+                || shape.transmit_working_bytes == 0
+                || shape.receive_working_bytes == 0
+            {
+                return Err(io::ErrorKind::InvalidInput.into());
+            }
+            let peak = shape
+                .receive_scratch_bytes
+                .checked_add(shape.transmit_working_bytes)
+                .and_then(|bytes| bytes.checked_add(shape.receive_working_bytes))
+                .ok_or(io::ErrorKind::InvalidInput)?;
+            let credit = actual.reserve(peak).await?;
+            actual.working_set_prepaid(shape, credit)
+        }
+    }
+    fn working_set_prepaid(
+        &self,
+        shape: CarrierBufferWorkingShape,
+        mut credit: CarrierBufferCredit,
+    ) -> io::Result<CarrierBufferWorkingSet> {
         let scratch = credit.split_off(shape.receive_scratch_bytes)?;
         let transmit = credit.split_off(shape.transmit_working_bytes)?;
         let lane = |credit: CarrierBufferCredit| {
@@ -122,11 +153,34 @@ impl CarrierBufferWorkingLane {
         if bound <= previous {
             return Ok(());
         }
-        let mut extra = match self.0.book.try_reserve(bound - previous) {
+        let extra = match self.0.book.try_reserve(bound - previous) {
             Ok(extra) => extra,
             Err(_) if self.bound() >= bound => return Ok(()),
             Err(source) => return Err(source),
         };
+        self.install_growth(bound, extra)
+    }
+    /// Inline admission for this same original's actual growing backing.
+    /// Retains the real root credit until it moves into the same lane; no
+    /// release/reacquire race, extra task, waiter registry or second byte book.
+    pub fn grow_bound(
+        &self,
+        bound: usize,
+    ) -> impl std::future::Future<Output = io::Result<()>> + Send + 'static {
+        let actual = self.clone();
+        async move {
+            let previous = actual.bound();
+            if bound <= previous {
+                return Ok(());
+            }
+            if bound > actual.0.book.limits().total_max_bytes {
+                return Err(io::ErrorKind::InvalidInput.into());
+            }
+            let extra = actual.0.book.reserve(bound - previous).await?;
+            actual.install_growth(bound, extra)
+        }
+    }
+    fn install_growth(&self, bound: usize, mut extra: CarrierBufferCredit) -> io::Result<()> {
         let spent = {
             let mut state = self
                 .0

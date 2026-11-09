@@ -75,7 +75,13 @@ impl Pool {
                 repoll: AtomicBool::new(false),
             }),
         )
-        .map(Some)
+        .map(|reservation| {
+            *entry
+                .original_return
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(reservation.returner());
+            Some(reservation)
+        })
     }
 }
 struct Original {

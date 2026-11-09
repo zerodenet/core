@@ -195,7 +195,28 @@ pub(super) struct Reservation {
     root: Arc<CarrierOriginalTotals>,
     original: Arc<dyn SourceCustody>,
 }
+/// Weak authority to settle this exact provider after its own native/users/ACK
+/// outcome. It cannot keep the provider, listener or global book alive.
+#[derive(Clone)]
+pub(super) struct SettledSourceReturn {
+    root: Weak<CarrierOriginalTotals>,
+    original: Weak<dyn SourceCustody>,
+}
+impl SettledSourceReturn {
+    pub(super) fn release_settled(&self) {
+        if let (Some(root), Some(original)) = (self.root.upgrade(), self.original.upgrade()) {
+            root.release_source_if_settled(&original);
+        }
+    }
+}
 impl Reservation {
+    pub(super) fn returner(&self) -> SettledSourceReturn {
+        SettledSourceReturn {
+            root: Arc::downgrade(&self.root),
+            original: Arc::downgrade(&self.original),
+        }
+    }
+
     pub(super) fn new(
         root: Arc<CarrierOriginalTotals>,
         instance: ComponentInstanceId,

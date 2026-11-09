@@ -140,6 +140,7 @@ struct Entry {
     identity: Arc<()>,
     state: Mutex<EntryState>,
     control: OnceLock<AsyncMutex<ControlledTcpControl>>,
+    original_return: Mutex<Option<super::totals::SettledSourceReturn>>,
     uncertain: Arc<ChannelError>,
     users: Option<Arc<graph::Users>>,
     cancel: CancellationToken,
