@@ -190,7 +190,7 @@ mod tests {
         TunDatagram {
             peer_identity: None,
             destination: SocketAddress::new(IpAddress::V4([203, 0, 113, 53]), 53),
-            payload: vec![1],
+            payload: vec![1].into(),
         }
     }
 

@@ -77,11 +77,11 @@ pub(super) async fn run_inner(
                 #[cfg(feature = "raw-ip-runtime")]
                 if let Some(admission) = &admission {
                     let (received, acquisition) = crate::runtime::raw_ip::tasks::input::admitted(
-                        stack.recv_from_with_peer(&mut buffer), admission,
+                        stack.recv_datagram_with_peer(), admission,
                     ).await.map_err(std::io::Error::other)?;
                     return Ok::<_, EngineError>((received, Some(acquisition)));
                 }
-                let received = stack.recv_from_with_peer(&mut buffer).await;
+                let received = stack.recv_datagram_with_peer().await;
                 #[cfg(feature = "raw-ip-runtime")]
                 let acquisition = None;
                 #[cfg(not(feature = "raw-ip-runtime"))]
@@ -92,9 +92,11 @@ pub(super) async fn run_inner(
                 // synchronous spawn_bound/spawn. The same child records own
                 // every admitted datagram before this branch releases it.
                 let (received, _acquisition) = received?;
-                let Some((size, source, destination, peer_identity)) = received else {
+                let Some(zero_stack::udp::UdpStackDatagram { data: payload, source, destination, peer_identity }) = received else {
                     return Ok(());
                 };
+                let size = payload.len();
+                buffer[..size].copy_from_slice(&payload);
                 if dns_hijack && destination.port == 53 {
                     dns_hijacked_queries.fetch_add(1, Ordering::Relaxed);
                     let now = Instant::now();
@@ -108,12 +110,13 @@ pub(super) async fn run_inner(
                             );
                         }
                         let response = runtime.resolver().busy_response(&buffer[..size]);
+                        drop(payload); // The rejected input is no longer read by this reply.
                         stack.send_to(&response, destination, source).await;
                         continue;
                     }
                     let query_runtime = runtime.clone();
                     let query_stack = Arc::clone(&stack);
-                    let query = buffer[..size].to_vec();
+                    let query = payload;
                     #[cfg(feature = "raw-ip-runtime")]
                     let mut native = match &owned {
                         Some(owner) => match owner.native.reserve_reclaimed(
@@ -123,6 +126,7 @@ pub(super) async fn run_inner(
                             Ok(native) => Some(native),
                             Err(error) if crate::runtime::raw_ip::tasks::capacity::before_work(&error) => {
                                 let response = runtime.resolver().busy_response(&buffer[..size]);
+                                drop(query); // No child accepted or still borrows this original.
                                 stack.send_to(&response, destination, source).await;
                                 continue;
                             }
@@ -143,6 +147,10 @@ pub(super) async fn run_inner(
                         #[cfg(not(feature = "raw-ip-runtime"))]
                         let _ = (call, witness);
                         let response = work.await;
+                        // The original query work has returned. Release its
+                        // actual input before a response needs same-Root TX;
+                        // retaining dead input here could wait on ourselves.
+                        drop(query);
                         // The original Auxiliary output keeps query failures;
                         // the actual call token separately proves cleanup.
                         // A normal failed query cannot poison all later calls
@@ -165,7 +173,7 @@ pub(super) async fn run_inner(
                 let datagram = TunDatagram {
                     peer_identity,
                     destination,
-                    payload: buffer[..size].to_vec(),
+                    payload,
                 };
                 let now = Instant::now();
                 tracing::trace!(

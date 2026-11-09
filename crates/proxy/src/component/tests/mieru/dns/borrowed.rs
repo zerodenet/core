@@ -26,29 +26,43 @@ fn detoured(dns: &Dns, server: &Server) -> zero_config::RuntimeConfig {
 
 #[tokio::test]
 async fn actual_dns_queries_return_borrowed_originals_and_reuse_the_same_mieru_donor() {
-    borrowed(false, false).await;
+    borrowed(false, false, false).await;
 }
 
 #[tokio::test]
 async fn actual_pending_dns_cancellation_returns_its_loan_without_retiring_the_mieru_donor() {
-    borrowed(true, false).await;
+    borrowed(true, false, false).await;
 }
 
 #[tokio::test]
 async fn actual_domain_mieru_detour_uses_a_distinct_bootstrap_scope_and_the_same_donor_pool() {
-    borrowed(false, true).await;
+    borrowed(false, true, false).await;
 }
 
-async fn borrowed(cancel: bool, domain: bool) {
+#[tokio::test]
+async fn actual_datagram_dns_reuses_the_same_mieru_packet_underlay_after_query_return() {
+    borrowed(false, false, true).await;
+}
+
+async fn borrowed(cancel: bool, domain: bool, packet_underlay: bool) {
     tokio::time::timeout(Duration::from_secs(25), async {
         let mut dns = Dns::new().await;
-        let server = Server::new(true).await;
+        let server = if packet_underlay { Server::packet(true).await } else { Server::new(true).await };
         let mut settings = detoured(&dns, &server);
+        settings.runtime.mieru_max_carriers = Some(1);
+        if packet_underlay {
+            let zero_config::OutboundProtocolConfig::Mieru { transport, .. } = &mut settings.outbounds[0].protocol else { unreachable!() };
+            *transport = zero_config::MieruTransport::Udp;
+        }
         if domain {
             let zero_config::OutboundProtocolConfig::Mieru { server, .. } = &mut settings.outbounds[0].protocol else { unreachable!() };
             *server = "borrowed.node.test".into();
         }
         let (proxy, running, handle) = start(settings.clone()).await;
+        let plan = proxy.tcp_runtime_services().components.clone().unwrap();
+        let role = plan.configured("a").unwrap();
+        assert!(role.recipe.spec().resources.is_empty() && role.recipe.spec().task_limit.is_none());
+        assert!(plan.has_background_carrier_pool(role.role_id()));
         let mut query = tokio::spawn({
             let resolver = proxy.resolver.clone();
             async move { resolver.resolve_real_type("first.borrowed.test", 1).await }
@@ -71,7 +85,7 @@ async fn borrowed(cancel: bool, domain: bool) {
             request = dns.request() => request,
             result = &mut query => panic!("DNS query returned before its actual request reached the fixture: {result:?}"),
         };
-        assert!(request.tcp);
+        assert!(!request.tcp, "the same owning pool lends its real UDP ASSOCIATE Datagram");
         if let Some(bootstrap) = &bootstrap {
             let query = pending(&proxy).await;
             assert!(!query.task.scope_identity().same_scope(&bootstrap.task.scope_identity()),
@@ -125,7 +139,7 @@ async fn borrowed(cancel: bool, domain: bool) {
             request = dns.request() => request,
             result = &mut query => panic!("DNS query returned before its actual request reached the fixture: {result:?}"),
         };
-        assert!(request.tcp);
+        assert!(!request.tcp, "the same owning pool lends its real UDP ASSOCIATE Datagram");
         let second = pending(&proxy).await;
         let next = second.original.clone().unwrap();
         assert!(!next.same_original(&child));

@@ -93,8 +93,11 @@ pub(super) async fn client(
     match &mut backend {
         zero_config::DnsServerConfig::Doh {
             detour: selected, ..
+        }
+        | zero_config::DnsServerConfig::Udp {
+            detour: selected, ..
         } => *selected = Some(detour.into()),
-        _ => panic!("actual persistent DoH backend"),
+        _ => panic!("actual UDP or persistent DoH backend"),
     }
     let mut nodes = vec![
         serde_json::json!({"tag":"node","protocol":{"type":"vless","server":"127.0.0.1","port":peer.port(),"id":ID,"quic":{"server_name":"localhost","ca_cert_path":ca}}}),

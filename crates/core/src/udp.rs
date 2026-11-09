@@ -90,7 +90,7 @@ pub struct InboundUdpAssociationResponse {
 /// Protocol crates convert decoded wire packets into this shape before handing
 /// them to proxy runtime glue. The proxy should not need to inspect
 /// protocol-specific inbound UDP request structs to route a packet.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct InboundUdpDispatch {
     peer_identity: Option<Arc<str>>,
     target: Address,
@@ -99,7 +99,7 @@ pub struct InboundUdpDispatch {
     sniffed_host_source: Option<TargetHostSource>,
     skip_fake_ip_restore: bool,
     port: u16,
-    payload: Vec<u8>,
+    payload: zero_traits::PacketBuffer,
     protocol: ProtocolType,
     client_session_id: Option<u64>,
     transparent_target: bool,
@@ -362,6 +362,17 @@ impl InboundUdpDispatch {
         payload: Vec<u8>,
         client_session_id: Option<u64>,
     ) -> Self {
+        Self::new_with_packet(protocol, target, port, payload.into(), client_session_id)
+    }
+    /// Move the actual packet owner through transparent ingress and all
+    /// borrowed dispatch awaits. This performs no copy, allocation or IO.
+    pub fn new_with_packet(
+        protocol: ProtocolType,
+        target: Address,
+        port: u16,
+        payload: zero_traits::PacketBuffer,
+        client_session_id: Option<u64>,
+    ) -> Self {
         Self {
             peer_identity: None,
             target,
@@ -481,7 +492,7 @@ impl InboundUdpDispatch {
             self.protocol,
             self.target,
             self.port,
-            self.payload,
+            self.payload.into_vec(),
             self.client_session_id,
         )
     }
@@ -525,3 +536,5 @@ impl UdpFlowPacket {
 
 #[cfg(test)]
 mod tests;
+
+mod payload;

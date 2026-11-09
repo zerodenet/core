@@ -8,6 +8,9 @@ pub struct HostOriginalBudgets {
     /// Actual component/inbound task registrations through their real ACK.
     pub component_tasks:
         std::sync::Arc<zero_platform_tokio::contract::scope::TaskRegistrationBudget>,
+    /// One concrete DNS wire allocation book in this same Host. A pure
+    /// counter, not a resolver, resource pool, task Scope or IO authority.
+    pub dns_wire: Arc<zero_traits::packet_metadata::PacketMetadataCounter>,
     #[cfg(any(target_os = "linux", target_os = "macos", windows))]
     pub process: std::sync::Arc<zero_platform_tokio::owned_process::ProcessBudget>,
     /// Same pure memory Root even when native packet IO is not compiled.
@@ -26,6 +29,13 @@ impl HostOriginalBudgets {
             carrier_wake: Arc::default(),
             carrier: Arc::default(),
             component_tasks: Arc::default(),
+            dns_wire: zero_traits::packet_metadata::PacketMetadataCounter::new_owned(
+                zero_traits::packet_metadata::PacketMetadataLayout::new(
+                    16 * 1024 * 1024,
+                    16 * 1024 * 1024,
+                ),
+            )
+            .expect("valid finite DNS wire defaults"),
             #[cfg(any(target_os = "linux", windows))]
             process: Arc::default(),
             #[cfg(target_os = "macos")]
@@ -35,6 +45,20 @@ impl HostOriginalBudgets {
             packet,
         }
     }
+    /// The DNS owner installs a real candidate on this same counter at its
+    /// actual configuration transaction, preserving live backing allocations.
+    pub fn dns_wire_limits(
+        runtime: &zero_config::RuntimeOptionsConfig,
+    ) -> std::io::Result<zero_traits::packet_metadata::PacketMetadataLayout> {
+        let bytes = runtime.effective_dns_wire_total_max_buffered_bytes();
+        if !(1..=1_073_741_824).contains(&bytes) {
+            return Err(std::io::ErrorKind::InvalidInput.into());
+        }
+        Ok(zero_traits::packet_metadata::PacketMetadataLayout::new(
+            bytes, bytes,
+        ))
+    }
+
     pub(crate) fn limits_changed(
         current: &zero_config::RuntimeOptionsConfig,
         target: &zero_config::RuntimeOptionsConfig,

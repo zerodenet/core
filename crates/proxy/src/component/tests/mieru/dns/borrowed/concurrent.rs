@@ -18,24 +18,22 @@ async fn cancelling_first_tunnel_ack_waiter_keeps_the_actual_pool_borrowed_by_a_
             let profile = mieru::inbound::MieruInboundProfile::from_config(vec![("u".into(), "p".into())]);
             let connection = profile.accept_multiplexer(zero_platform_tokio::TcpRelayStream::new(socket)).await.unwrap();
             let mut first = connection.accept_next().await.unwrap().unwrap();
-            // The literal DNS target yields this exact SOCKS5 CONNECT frame.
-            // Consume it but withhold its ACK. ClientPool already published the
-            // authenticated connection before this per-stream request was sent.
+            // The actual Datagram role sends UDP ASSOCIATE on this logical
+            // stream. Withhold that exact ACK after the authenticated shared
+            // connection has been published, before any DNS packet can pass.
             let mut connect = [0u8; 10];
             first.read_exact(&mut connect).await.unwrap();
-            assert_eq!(&connect[..4], &[5, 1, 0, 1]);
+            assert_eq!(connect, [5, 3, 0, 1, 0, 0, 0, 0, 0, 0]);
             waiting_tx.send(()).unwrap();
             let mut streams = tokio::task::JoinSet::new();
             loop {
                 let next = tokio::select! { _ = stopped.cancelled() => break, next = connection.accept_next() => next };
                 let Some(next) = next.unwrap() else { break; };
                 let route = connection.accept_route(next).await.unwrap();
-                let mieru::inbound::MieruInboundAcceptedSession::Tcp { session, mut stream } = route else { panic!("DNS detour must use actual Stream"); };
-                let zero_core::Address::Ipv4(ip) = session.target else { panic!("literal declared DNS target"); };
+                assert!(matches!(&route, mieru::inbound::MieruInboundAcceptedSession::Udp { .. }), "DNS must use the same actual UDP ASSOCIATE role");
                 let stopped = stopped.clone();
                 streams.spawn(async move {
-                    let mut peer = tokio::net::TcpStream::connect((std::net::Ipv4Addr::from(ip), session.port)).await.unwrap();
-                    tokio::select! { _ = stopped.cancelled() => {}, _ = tokio::io::copy_bidirectional(&mut stream, &mut peer) => {} }
+                    tokio::select! { _ = stopped.cancelled() => {}, _ = crate::component::tests::mieru::fixtures::forward_route(route, true) => {} }
                 });
             }
             drop(first);
@@ -63,9 +61,9 @@ async fn cancelling_first_tunnel_ack_waiter_keeps_the_actual_pool_borrowed_by_a_
         let resolver = proxy.resolver.clone();
         let mut second = tokio::spawn(async move { resolver.resolve_real_type("second.concurrent.test", 1).await });
         let request = tokio::select! { request = dns.request() => request, result = &mut second => panic!("second query failed before actual DNS IO: {result:?}") };
-        assert!(request.tcp);
+        assert!(!request.tcp);
         // The first caller already observes its real donor while suspended at
-        // CONNECT. Select the distinct caller that reached the second request.
+        // UDP ASSOCIATE. Select the distinct caller that reached the second request.
         let second_caller = tokio::time::timeout(Duration::from_secs(3), async {
             loop {
                 if let Some(query) = proxy.resolver.native_query_observations().into_iter().find(|query| {

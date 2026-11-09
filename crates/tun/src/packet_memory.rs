@@ -14,6 +14,7 @@ pub use notifications::{PacketMemoryNotifications, PacketRootNotifications};
 mod view;
 pub use view::PacketMemoryView;
 mod datagram;
+mod received;
 mod workspaces;
 pub use datagram::PacketDatagramWorkspaces;
 pub use workspaces::PacketIoWorkspaces;

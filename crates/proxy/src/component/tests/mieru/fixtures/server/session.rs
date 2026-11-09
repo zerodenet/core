@@ -8,7 +8,7 @@ fn host(address: &Address) -> String {
         Address::Ipv6(ip) => std::net::Ipv6Addr::from(*ip).to_string(),
     }
 }
-pub(super) async fn run(
+pub(in crate::component::tests::mieru) async fn run(
     route: mieru::inbound::MieruInboundAcceptedSession<
         mieru::inbound::multiplex::MieruLogicalStream,
     >,

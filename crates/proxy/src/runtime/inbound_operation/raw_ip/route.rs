@@ -123,7 +123,7 @@ pub(super) async fn feed_inner_packet(
     {
         match protocol {
             Some(packet::IPPROTO_TCP) => tcp.feed_with_peer(&packet, peer_identity).await,
-            Some(packet::IPPROTO_UDP) => udp.feed_with_peer(&packet, peer_identity).await,
+            Some(packet::IPPROTO_UDP) => udp.feed_owned_with_peer(packet, peer_identity).await,
             _ => {}
         }
         return;
@@ -267,7 +267,8 @@ pub(super) async fn feed_inner_packet(
                         tcp.feed_with_peer(&packet, peer_identity.clone()).await
                     }
                     Some(packet::IPPROTO_UDP) => {
-                        udp.feed_with_peer(&packet, peer_identity.clone()).await
+                        udp.feed_owned_with_peer(packet, peer_identity.clone())
+                            .await
                     }
                     _ => {}
                 }

@@ -42,7 +42,7 @@ pub(super) async fn actual_retry(
     handoff.confirm_receiver(wire).unwrap();
     let zero_platform_tokio::contract::datagram::DatagramSession {
         mut tx,
-        rx,
+        mut rx,
         mut control,
         limits,
     } = session;
@@ -71,7 +71,31 @@ pub(super) async fn actual_retry(
         zero_stack::packet::parse_udp(&packet).unwrap().payload,
         b"recovered"
     );
+    let sent = zero_stack::packet::parse_udp(&packet).unwrap();
+    let reply =
+        zero_stack::packet::build_udp(peer.ip(), sent.src.ip, peer.port(), sent.src.port, b"reply");
     drop(packet);
+    let mut native = read.try_buffer().unwrap();
+    native.as_mut_bytes()[..reply.len()].copy_from_slice(&reply);
+    let original_reply = native.into_packet(reply.len()).unwrap();
+    let original_payload = original_reply[28..].as_ptr();
+    stack.feed_correlated_packet(original_reply).unwrap();
+    let received = poll_fn(|cx| rx.as_mut().poll_recv(cx))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(received.payload.as_ref(), b"reply");
+    assert_eq!(received.payload.as_ptr(), original_payload);
+    assert_eq!(received.payload.allocation_bytes(), read.bytes());
+    assert!(
+        read.try_buffer().is_err(),
+        "same actual read cannot be reused while Datagram retains its input range"
+    );
+    drop(received);
+    assert!(
+        read.try_buffer().is_ok(),
+        "actual standard caller returned that exact read workspace"
+    );
     drop(frame);
     drop(tx);
     drop(rx);

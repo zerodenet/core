@@ -46,6 +46,10 @@ impl ByteBudget {
             maximum,
         })
     }
+    #[cfg(all(test, feature = "packet-memory"))]
+    pub(super) fn test_used(&self) -> usize {
+        self.used.load(Ordering::Relaxed)
+    }
     fn acquire(&self, bytes: usize) -> Result<(), ()> {
         self.used
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
@@ -121,21 +125,34 @@ impl Drop for Charges {
     }
 }
 pub(super) struct QueuedEvent {
-    pub(super) event: ClientUdpEvent,
+    event: Event,
     _charges: Charges,
+}
+enum Event {
+    Library(ClientUdpEvent),
+    #[cfg(feature = "packet-memory")]
+    Packet(super::ClientUdpPacketEvent),
 }
 impl QueuedEvent {
     pub(super) fn control(event: ClientUdpEvent) -> Self {
         Self {
-            event,
+            event: Event::Library(event),
             _charges: Charges {
                 state: None,
                 bytes: 0,
             },
         }
     }
+    pub(super) fn into_packet_event(self) -> super::ClientUdpPacketEvent {
+        match self.event {
+            Event::Library(event) => event.into(),
+            #[cfg(feature = "packet-memory")]
+            Event::Packet(event) => event,
+        }
+    }
+    #[cfg(test)]
     pub(super) fn into_event(self) -> ClientUdpEvent {
-        self.event
+        self.into_packet_event().into_library_event()
     }
 }
 
@@ -154,10 +171,10 @@ pub(super) fn enqueue_datagram(
         Ok(permit) => {
             let charges = budget.acquire(bytes).map_err(|_| Full(()))?;
             permit.send(QueuedEvent {
-                event: ClientUdpEvent::Datagram(ClientUdpDatagram {
+                event: Event::Library(ClientUdpEvent::Datagram(ClientUdpDatagram {
                     source,
                     payload: copy(),
-                }),
+                })),
                 _charges: charges,
             });
             Ok(())
@@ -167,7 +184,10 @@ pub(super) fn enqueue_datagram(
             let permit = sender.try_reserve()?;
             let charges = budget.acquire(bytes).map_err(|_| Full(()))?;
             permit.send(QueuedEvent {
-                event: ClientUdpEvent::Datagram(ClientUdpDatagram { source, payload }),
+                event: Event::Library(ClientUdpEvent::Datagram(ClientUdpDatagram {
+                    source,
+                    payload,
+                })),
                 _charges: charges,
             });
             Ok(())
@@ -179,3 +199,64 @@ pub(super) fn enqueue_datagram(
 #[cfg(test)]
 #[path = "../../tests/client_udp/queue.rs"]
 mod tests;
+
+#[cfg(feature = "packet-memory")]
+pub(super) fn enqueue_packet(
+    sender: &mpsc::Sender<QueuedEvent>,
+    budget: &QueueBudget,
+    source: Endpoint,
+    bytes: &[u8],
+    memory: &crate::packet_output::PacketSender,
+) -> Result<(), mpsc::error::TrySendError<()>> {
+    use mpsc::error::TrySendError::{Closed, Full};
+    let (permit, payload) = match sender.try_reserve() {
+        Ok(permit) => (Some(permit), None),
+        Err(Closed(())) => return Err(Closed(())),
+        // Preserve the original retry opportunity on transient queue pressure,
+        // but this materialization now pays its actual Root before allocation.
+        Err(Full(())) => (
+            None,
+            Some(memory.copy_received_payload(bytes).map_err(|_| Full(()))?),
+        ),
+    };
+    let permit = match permit {
+        Some(permit) => permit,
+        None => sender.try_reserve()?,
+    };
+    let charges = budget.acquire(bytes.len()).map_err(|_| Full(()))?;
+    let payload = match payload {
+        Some(payload) => payload,
+        None => memory.copy_received_payload(bytes).map_err(|_| Full(()))?,
+    };
+    permit.send(QueuedEvent {
+        event: Event::Packet(super::ClientUdpPacketEvent::Datagram(
+            super::ClientUdpPacketDatagram { source, payload },
+        )),
+        _charges: charges,
+    });
+    Ok(())
+}
+
+#[cfg(feature = "packet-memory")]
+pub(super) fn enqueue_original_packet(
+    sender: &mpsc::Sender<QueuedEvent>,
+    budget: &QueueBudget,
+    source: Endpoint,
+    original: zero_traits::PacketBuffer,
+    range: std::ops::Range<usize>,
+    memory: &crate::packet_output::PacketSender,
+) -> Result<(), mpsc::error::TrySendError<()>> {
+    use mpsc::error::TrySendError::Full;
+    let permit = sender.try_reserve()?;
+    let charges = budget.acquire(range.len()).map_err(|_| Full(()))?;
+    let payload = memory
+        .retain_received_payload(original, range)
+        .map_err(|_| Full(()))?;
+    permit.send(QueuedEvent {
+        event: Event::Packet(super::ClientUdpPacketEvent::Datagram(
+            super::ClientUdpPacketDatagram { source, payload },
+        )),
+        _charges: charges,
+    });
+    Ok(())
+}

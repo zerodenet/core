@@ -18,7 +18,7 @@ use zero_platform_tokio::contract::{
     Stage,
 };
 use zero_stack::client_udp::{
-    ClientUdpCloseReceipt, ClientUdpEvent, ClientUdpSendError, ClientUdpSocket,
+    ClientUdpCloseReceipt, ClientUdpPacketEvent, ClientUdpSendError, ClientUdpSocket,
 };
 
 mod control;
@@ -122,6 +122,13 @@ fn failure(stage: Stage, reason: Reason) -> ChannelError {
 }
 impl Shared {
     fn stop(&self) {
+        let sender = self
+            .original
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .socket
+            .sender();
+        let _notifications = sender.defer_memory_notifications();
         self.cancel.cancel();
         let mut original = self
             .original
@@ -173,13 +180,20 @@ impl DatagramRx for Rx {
             shared.stop();
             return Poll::Ready(Ok(None));
         }
+        let sender = shared
+            .original
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .socket
+            .sender();
+        let _notifications = sender.defer_memory_notifications();
         let mut original = shared
             .original
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         loop {
-            match std::task::ready!(original.socket.poll_recv_event(cx)) {
-                Some(ClientUdpEvent::Datagram(packet)) => {
+            match std::task::ready!(original.socket.poll_recv_packet_event(cx)) {
+                Some(ClientUdpPacketEvent::Datagram(packet)) => {
                     if packet.source.ip != shared.peer.ip()
                         || packet.source.port != shared.peer.port()
                     {
@@ -188,10 +202,10 @@ impl DatagramRx for Rx {
                     return Poll::Ready(Ok(Some(Datagram {
                         address: shared.target.clone(),
                         association: shared.association,
-                        payload: packet.payload.into(),
+                        payload: packet.payload,
                     })));
                 }
-                Some(ClientUdpEvent::IcmpError(source)) => {
+                Some(ClientUdpPacketEvent::IcmpError(source)) => {
                     return Poll::Ready(Err(failure(Stage::Receive, Reason::Io).with_source(
                         std::io::Error::new(
                             std::io::ErrorKind::NetworkUnreachable,

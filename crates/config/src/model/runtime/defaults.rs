@@ -107,6 +107,7 @@ impl Default for RuntimeOptionsConfig {
             quic_shared_endpoint_max_users: None,
             quic_max_queue_packets: None,
             quic_total_max_buffered_bytes: None,
+            dns_wire_total_max_buffered_bytes: None,
             event_subscriber_stats_max_bytes: None,
             event_subscriber_max_pending_events: None,
             event_subscriber_total_max_pending_events: None,

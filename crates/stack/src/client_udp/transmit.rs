@@ -2,7 +2,7 @@
 use crate::{packet, packet_output::PacketSender};
 use zero_traits::{PacketBuffer, PacketDeriveError};
 
-pub(super) async fn build(
+pub(crate) async fn build(
     sender: &PacketSender,
     spec: packet::UdpPacketSpec<'_>,
     mtu: usize,
@@ -22,7 +22,16 @@ pub(super) async fn build(
     }
     let mut original = sender.allocate_transmit_groups(length, groups)?;
     spec.write_into(&mut original)?;
-    packet::fragment_ip_packet_accounted(original, mtu, identification)
-        .await
-        .map_err(|source| source.cause)
+    if fragments.is_empty() {
+        return Ok(vec![original]);
+    }
+    // This builder created the temporary IP image from the still-borrowed
+    // caller input. Once the exact fragments are filled, nothing uses that
+    // image again. Each child retains the same envelope's entire original,
+    // fragment and wire promise until its last actual user returns; no extra
+    // Arc<original> or erased Derived wrapper is needed here. The explicit
+    // general library fragmentation API keeps its original custody contract.
+    let mut outputs = original.try_derive_zeroed(&fragments)?;
+    packet::write_packet_fragments(&original, mtu, identification, &mut outputs)?;
+    Ok(outputs)
 }
