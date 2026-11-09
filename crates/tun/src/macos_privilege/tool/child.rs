@@ -4,6 +4,12 @@ use std::{
     os::unix::process::CommandExt,
     process::{Child, Command, ExitStatus, Output},
 };
+mod drain;
+mod failures;
+mod owned;
+mod stream;
+pub(in crate::macos_privilege) use owned::{run_owned, run_query_owned};
+pub(in crate::macos_privilege) use stream::run_streamed;
 mod handshake;
 mod pipes;
 
@@ -44,7 +50,7 @@ impl ChildOriginal {
     }
     pub(in crate::macos_privilege) fn finish_local(
         &mut self,
-        output_limit: usize,
+        _output_limit: usize,
     ) -> io::Result<()> {
         if self.child.is_none() {
             return self.close_pipes();
@@ -54,13 +60,10 @@ impl ChildOriginal {
         }
         // Same Child/pipes, no new command or guessed process-tree receipt.
         // This fixed local query has no input to reconstruct after interruption.
-        let output = self.collect(&[], output_limit);
+        let output = self.drain();
         let closed = self.close_pipes();
         let waited = self.wait();
-        drop(output?);
-        closed?;
-        waited?;
-        Ok(())
+        failures::finish_unit(Ok(()), output, closed, waited.map(|_| ()))
     }
     pub(in crate::macos_privilege) fn reaped(&self) -> bool {
         self.waited.is_some()
@@ -114,6 +117,42 @@ fn run_fixed(
     supervisor: Option<(RawFd, u64)>,
     output_limit: usize,
 ) -> io::Result<Output> {
+    let child_ends = start_fixed(slot, executable, arguments, input, supervisor)?;
+    let output = slot.collect(input.unwrap_or("").as_bytes(), output_limit);
+    // Even an IO failure must progress all independent close and wait duties.
+    let close = slot.close_pipes();
+    let waited = slot.wait();
+    failures::finish(child_ends, output, close, waited)
+}
+
+#[cfg(test)]
+pub(in crate::macos_privilege) fn run_query(
+    slot: &mut ChildOriginal,
+    query: super::Query,
+    output_limit: usize,
+) -> io::Result<Output> {
+    let (executable, arguments) = match query {
+        super::Query::Route(arguments) => ("/sbin/route", arguments),
+        super::Query::RouteTable(ipv6) => (
+            "/usr/sbin/netstat",
+            vec![
+                "-rnW".into(),
+                "-f".into(),
+                if ipv6 { "inet6" } else { "inet" }.into(),
+            ],
+        ),
+        super::Query::SystemDns => ("/usr/sbin/scutil", vec!["--dns".into()]),
+    };
+    run_fixed(slot, executable, &arguments, None, None, output_limit)
+}
+
+fn start_fixed(
+    slot: &mut ChildOriginal,
+    executable: &'static str,
+    arguments: &[String],
+    input: Option<&str>,
+    supervisor: Option<(RawFd, u64)>,
+) -> io::Result<io::Result<()>> {
     if !slot.reusable() {
         return Err(io::Error::other(
             "previous fixed tool originals are not retired",
@@ -152,39 +191,8 @@ fn run_fixed(
     };
     let child_ends = slot.close_child_ends();
     if let Some(source) = spawn_failure {
-        let _ = slot.close_pipes(); // all actual failure outcomes stay in the originals
-        return Err(source);
+        let closed = slot.close_pipes();
+        return Err(failures::spawn_failed(source, closed));
     }
-    child_ends?;
-    let output = slot.collect(input.unwrap_or("").as_bytes(), output_limit);
-    // Even an IO failure must progress all independent close and wait duties.
-    let close = slot.close_pipes();
-    let waited = slot.wait();
-    let (stdout, stderr) = output?;
-    close?;
-    Ok(Output {
-        status: waited?,
-        stdout,
-        stderr,
-    })
-}
-
-pub(in crate::macos_privilege) fn run_query(
-    slot: &mut ChildOriginal,
-    query: super::Query,
-    output_limit: usize,
-) -> io::Result<Output> {
-    let (executable, arguments) = match query {
-        super::Query::Route(arguments) => ("/sbin/route", arguments),
-        super::Query::RouteTable(ipv6) => (
-            "/usr/sbin/netstat",
-            vec![
-                "-rnW".into(),
-                "-f".into(),
-                if ipv6 { "inet6" } else { "inet" }.into(),
-            ],
-        ),
-        super::Query::SystemDns => ("/usr/sbin/scutil", vec!["--dns".into()]),
-    };
-    run_fixed(slot, executable, &arguments, None, None, output_limit)
+    Ok(child_ends)
 }

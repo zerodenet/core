@@ -1,5 +1,5 @@
 use super::*;
-use std::{os::fd::FromRawFd, os::fd::OwnedFd, time::Duration, time::Instant};
+use std::{os::fd::AsRawFd, os::fd::FromRawFd, os::fd::OwnedFd, time::Duration, time::Instant};
 
 #[test]
 fn actual_fixed_tool_reports_its_own_pid_before_exec_and_waits_for_original_event_registration() {
@@ -64,4 +64,20 @@ fn fixed_local_query_reaps_its_actual_child_and_explicitly_closes_all_preinstall
     assert!(child.reaped());
     assert!(child.reusable());
     drop(second);
+}
+
+#[test]
+fn only_the_exact_controlled_terminal_spawn_failure_can_settle_a_command_without_returned_child() {
+    let mut supervisor = Supervisor::new();
+    supervisor.prepare(601).unwrap();
+    supervisor.begin(602).unwrap();
+    assert!(supervisor.completed_report(603, 0, libc::ENOENT).is_err());
+    assert!(!supervisor.completed().unwrap());
+    assert!(supervisor.completed_report(602, 0, 0).is_err());
+    assert!(supervisor.completed_report(602, 0, libc::ENOENT).unwrap());
+    assert!(supervisor.completed().unwrap());
+    // No kqueue/NOTE_EXIT or process-tree receipt is minted by this report.
+    assert!(supervisor.event_fd().is_none());
+    supervisor.close().unwrap();
+    assert!(supervisor.closed());
 }

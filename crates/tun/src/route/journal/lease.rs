@@ -101,13 +101,17 @@ impl RouteLease {
 }
 impl Drop for RouteLease {
     fn drop(&mut self) {
-        if let Lock::Library(lock) = &self._lock {
-            if let Err(error) = remove_owner(&self.owner_path) {
-                tracing::warn!(%error,"failed to remove TUN route lease owner metadata");
+        match &self._lock {
+            Lock::Library(lock) => {
+                if let Err(error) = remove_owner(&self.owner_path) {
+                    tracing::warn!(%error,"failed to remove TUN route lease owner metadata");
+                }
+                if let Err(error) = fs2::FileExt::unlock(lock) {
+                    tracing::warn!(%error,"failed to unlock TUN route lease");
+                }
             }
-            if let Err(error) = fs2::FileExt::unlock(lock) {
-                tracing::warn!(%error,"failed to unlock TUN route lease");
-            }
+            #[cfg(target_os = "macos")]
+            Lock::Owned(_) => {}
         }
         // Owned Drop only returns the lease. Its same Session keeps the actual
         // FD until its original duty consumes explicit close, including errors.

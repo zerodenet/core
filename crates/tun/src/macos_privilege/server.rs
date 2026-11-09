@@ -15,6 +15,7 @@ struct Server {
     request: Option<Box<[u8]>>,
     owned: bool,
 }
+#[cfg(test)]
 pub(super) fn serve(stream: &mut UnixStream) -> io::Result<()> {
     serve_with_initial(stream, None)
 }
@@ -145,15 +146,15 @@ impl Server {
                         .ok_or_else(|| {
                             io::Error::other("owned command has no original supervisor")
                         })?;
-                    let output = tool::run(
+                    tool::run_streamed(
                         &mut self.child,
                         program,
                         &arguments,
                         input.as_deref(),
-                        Some((original.fd(), nonce)),
+                        (original.fd(), nonce),
+                        stream,
                         output_limit,
                     )?;
-                    write_output(stream, output)?;
                 }
                 HelperRequest::Command {
                     program,

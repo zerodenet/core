@@ -161,21 +161,26 @@ impl MacosHelperOwner {
             && !epoch.native.observe_exit()?
         {
             if epoch.rpc.pending() {
-                match epoch.drive_rpc().and_then(|()| epoch.rpc.take_response()) {
-                    Ok(response) => drop(response),
+                match epoch
+                    .drive_rpc()
+                    .and_then(|()| epoch.rpc.discard_response())
+                {
+                    Ok(()) => {}
                     Err(source) => {
                         self.0.retain(index, Phase::ToolProgress, source);
                         // Stop reading a reply that cannot fit its actual
                         // revoked/full storage. Closing this exact control
                         // requests helper exit; the independent tool event,
                         // transfer and actual helper NOTE_EXIT still must seal.
-                        if let Err(source) = epoch.native.close_control() {
-                            self.0.retain(index, Phase::Control, source);
+                        if epoch.rpc.pending() {
+                            if let Err(source) = epoch.native.close_control() {
+                                self.0.retain(index, Phase::Control, source);
+                            }
+                            while !epoch.native.observe_exit()? {
+                                epoch.wait_io(libc::POLLIN)?;
+                            }
+                            return self.0.finish_epoch(index, &mut epoch);
                         }
-                        while !epoch.native.observe_exit()? {
-                            epoch.wait_io(libc::POLLIN)?;
-                        }
-                        return self.0.finish_epoch(index, &mut epoch);
                     }
                 }
             }

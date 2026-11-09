@@ -1,7 +1,8 @@
 //! Metadata-only commands run by the same already registered route worker.
 //! They never go through or enlarge the privileged helper command whitelist.
+use super::super::command::CommandOutput;
 use super::*;
-use std::{net::IpAddr, process::Output};
+use std::net::IpAddr;
 enum QueryFailure {
     Closed(io::Error),
     Original(io::Error),
@@ -37,7 +38,7 @@ impl MacosHelperAccess {
     }
 }
 impl MacosHelperOwner {
-    fn query(&self, query: tool::Query) -> Result<Output, QueryFailure> {
+    fn query(&self, query: tool::Query) -> Result<CommandOutput, QueryFailure> {
         if !self.0.io_allowed() {
             return Err(QueryFailure::Original(io::Error::from(
                 io::ErrorKind::Interrupted,
@@ -58,8 +59,26 @@ impl MacosHelperOwner {
                 "prior local metadata FD remains unknown",
             )));
         }
-        let result = tool::run_query(&mut epoch.local_tool, query, self.0.output_limit);
+        let storage = epoch
+            .rpc
+            .output_storage()
+            .map_err(QueryFailure::Original)?
+            .clone();
+        let result = tool::run_query_owned(
+            &mut epoch.local_tool,
+            query,
+            &self.0.memory,
+            &storage,
+            self.0.output_limit,
+        );
         match result {
+            Err(source)
+                if source.get_ref().is_some_and(|source| {
+                    source.is::<crate::packet_memory::PacketMemoryError>()
+                }) =>
+            {
+                Err(QueryFailure::Original(source))
+            }
             Err(source) if epoch.local_tool.reusable() => Err(QueryFailure::Closed(source)),
             Err(source) => {
                 self.0.retain(index, Phase::ToolProgress, source);
@@ -152,14 +171,14 @@ fn parse_dns(bytes: &[u8]) -> (bool, Vec<IpAddr>) {
 mod tests;
 /// None is the explicit independent-library path, not a Kernel fallback after
 /// failure. A present actual Source context always returns Some, including Err.
-pub(crate) fn route_query(arguments: &[String]) -> Option<io::Result<Output>> {
+pub(crate) fn route_query(arguments: &[String]) -> Option<io::Result<CommandOutput>> {
     current().map(|owner| {
         owner
             .query(tool::Query::Route(arguments.to_vec()))
             .map_err(QueryFailure::into_io)
     })
 }
-pub(crate) fn route_table(ipv6: bool) -> Option<io::Result<Output>> {
+pub(crate) fn route_table(ipv6: bool) -> Option<io::Result<CommandOutput>> {
     current().map(|owner| {
         owner
             .query(tool::Query::RouteTable(ipv6))

@@ -1,6 +1,7 @@
 //! Only a weak observation crosses the actual provider/Source handoff.
+use super::super::command::CommandOutput;
 use super::*;
-use std::{cell::RefCell, process::Output};
+use std::cell::RefCell;
 #[derive(Clone)]
 struct Entered {
     owner: MacosHelperOwner,
@@ -79,7 +80,7 @@ impl MacosHelperOwner {
         program: HelperProgram,
         arguments: &[String],
         input: Option<&str>,
-    ) -> io::Result<Output> {
+    ) -> io::Result<CommandOutput> {
         if !self.0.io_allowed() {
             return Err(io::Error::from(io::ErrorKind::Interrupted));
         }
@@ -91,12 +92,14 @@ impl MacosHelperOwner {
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         if unsafe { libc::geteuid() } == 0 {
-            return tool::run(
+            let storage = epoch.rpc.output_storage()?.clone();
+            return tool::run_owned(
                 &mut epoch.local_tool,
                 program,
                 arguments,
                 input,
-                None,
+                &self.0.memory,
+                &storage,
                 self.0.output_limit,
             );
         }
@@ -122,19 +125,17 @@ impl MacosHelperOwner {
             output_limit: self.0.output_limit,
         };
         epoch.ensure_request_capacity(&request, &self.0.memory)?;
-        epoch.command = next;
-        epoch.tools.begin(nonce)?;
         epoch.rpc.begin(&request, Some(nonce))?;
+        if let Err(source) = epoch.tools.begin(nonce) {
+            epoch.rpc.cancel_prepared(nonce)?;
+            return Err(source);
+        }
+        epoch.command = next;
         if let Err(source) = epoch.drive_rpc() {
             self.0.retain(index, Phase::ToolProgress, source);
             return Err(failures::retained(self.0.failures.clone().into_error()));
         }
-        let response = epoch.rpc.take_response()?;
-        Ok(Output {
-            status: super::super::exit_status(response.success, response.code),
-            stdout: response.stdout,
-            stderr: response.stderr,
-        })
+        epoch.rpc.take_command_output()
     }
 }
 impl Drop for MacosHelperContext {

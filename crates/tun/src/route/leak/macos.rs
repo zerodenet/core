@@ -40,13 +40,17 @@ impl SystemLeakGuard {
         // Audit activation and the actual anchor even when desired configuration
         // is unchanged. A retained but flushed anchor is not leak protection.
         verify_anchor_namespace()?;
-        let observed = anchor_rules(&self.anchor)?;
-        let observed = std::str::from_utf8(&observed)
-            .map_err(io::Error::other)?
-            .trim();
+        let observed_matches = {
+            let observed = anchor_rules(&self.anchor)?;
+            std::str::from_utf8(&observed)
+                .map_err(io::Error::other)?
+                .trim()
+                == self.installed_rules
+        }; // Return this actual result's workspace BEFORE another helper RPC.
+
         let repaired = super::audit::repair_policy(
             &self.installed_rules,
-            Some(observed),
+            observed_matches.then_some(self.installed_rules.as_str()),
             protected != self.protected || excluded != self.excluded,
             || {
                 apply_policy(&self.anchor, &self.tun_name, &protected, &excluded)?;
@@ -128,7 +132,7 @@ fn evaluates_anchor_namespace(rules: &str) -> bool {
     })
 }
 
-fn anchor_rules(anchor: &str) -> io::Result<Vec<u8>> {
+fn anchor_rules(anchor: &str) -> io::Result<crate::macos_privilege::CommandBytes> {
     // No verbose counters/state table or -r/-M name resolution. Do not use
     // -n here: for pfctl it means no-action, not numeric output.
     let output = run_pfctl(&["-a", anchor, "-sr"])?;
@@ -204,7 +208,7 @@ fn flush_anchor(anchor: &str) -> io::Result<()> {
     }
 }
 
-fn run_pfctl(arguments: &[&str]) -> io::Result<std::process::Output> {
+fn run_pfctl(arguments: &[&str]) -> io::Result<crate::macos_privilege::CommandOutput> {
     let arguments = arguments
         .iter()
         .map(|argument| (*argument).to_owned())
