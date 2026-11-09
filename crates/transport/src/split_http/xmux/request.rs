@@ -17,44 +17,6 @@ impl Sender {
         self.logical = Some(original);
     }
 
-    pub(super) async fn owned_original(
-        &self,
-    ) -> io::Result<(
-        zero_traits::packet_metadata::PacketMetadataArc<owned::Runtime>,
-        zero_platform_tokio::controlled_carrier::CarrierOrigin,
-    )> {
-        let group = self.usage.lock().unwrap().group.clone();
-        let connection = group
-            .connections
-            .acquire_owned(&group, &self.factory)
-            .await?;
-        let runtime = connection
-            .owned_runtime()
-            .ok_or(io::ErrorKind::PermissionDenied)?;
-        let origin = connection
-            .owned_origin()
-            .ok_or(io::ErrorKind::PermissionDenied)?;
-        if matches!(connection.sender, carrier::Sender::Http1(_)) {
-            group.connections.recycle(connection);
-        }
-        Ok((runtime, origin))
-    }
-    pub(super) async fn owned_runtime(
-        &self,
-    ) -> io::Result<zero_traits::packet_metadata::PacketMetadataArc<owned::Runtime>> {
-        let group = self.usage.lock().unwrap().group.clone();
-        let original = group
-            .connections
-            .acquire_owned(&group, &self.factory)
-            .await?;
-        let runtime = original
-            .owned_runtime()
-            .ok_or(io::ErrorKind::PermissionDenied)?;
-        if matches!(original.sender, carrier::Sender::Http1(_)) {
-            group.connections.recycle(original);
-        }
-        Ok(runtime)
-    }
     pub(in crate::split_http) async fn send_request(
         &mut self,
         mut request: http::Request<Body>,

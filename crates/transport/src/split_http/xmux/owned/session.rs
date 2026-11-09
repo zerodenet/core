@@ -69,24 +69,6 @@ impl PreparedLogical {
     }
 }
 impl Runtime {
-    pub(in crate::split_http) async fn connect_profiles(
-        runtime: &PacketMetadataArc<Self>,
-        upload: carrier::Sender,
-        download: carrier::Sender,
-        profile: Profile,
-        download_profile: Profile,
-    ) -> io::Result<XhttpStream> {
-        let prepared = PreparedLogical::prepare(&runtime.book, &runtime.memory, &profile)?;
-        Self::connect_prepared(
-            runtime,
-            upload,
-            download,
-            profile,
-            download_profile,
-            prepared,
-        )
-        .await
-    }
     pub(in crate::split_http) async fn connect_prepared(
         runtime: &PacketMetadataArc<Self>,
         mut upload: carrier::Sender,

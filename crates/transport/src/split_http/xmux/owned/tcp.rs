@@ -59,7 +59,6 @@ pub(in crate::split_http) struct Original {
     state: PacketMetadataArc<State>,
     retirement: CarrierProtocolRetirement,
     origin: CarrierOrigin,
-    witness: TaskJoinWitness,
 }
 impl PreparedXhttpTcp {
     pub fn new(
@@ -197,7 +196,6 @@ impl PendingXhttpTcp {
                 state: self.state.clone(),
                 retirement: self.retirement.clone(),
                 origin: self.origin.clone(),
-                witness: self.witness.clone(),
             },
             credit,
         )
