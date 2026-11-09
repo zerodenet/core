@@ -30,7 +30,7 @@ impl Supervisor {
             ));
         }
         let pid = i32::from_be_bytes(self.report[8..12].try_into().unwrap());
-        if self.child.event_fd().is_none() {
+        if !self.child.registered_for(pid, nonce) {
             self.child.register(pid, nonce)?;
         }
         let ack = nonce.to_be_bytes();

@@ -1,6 +1,93 @@
 //! Drain both outputs while feeding stdin; one fixed tool, no pipe reader task.
 use super::*;
 impl ChildOriginal {
+    pub(super) fn prepare_pipes(&mut self, input: bool) -> io::Result<()> {
+        for index in 0..3 {
+            if index == 0 && !input {
+                let fd =
+                    unsafe { libc::open(c"/dev/null".as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC) };
+                if fd < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                self.preparing[0] = Some(Original::new(fd, 0));
+                if fd <= 2 {
+                    let relocated = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 3) };
+                    if relocated < 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    self.relocated[0] = Some(Original::new(relocated, 0));
+                    self.preparing[0].as_mut().unwrap().close_once()?;
+                }
+                self.child_pipes[0] = self.relocated[0]
+                    .take()
+                    .or_else(|| self.preparing[0].take());
+                continue;
+            }
+            let mut pair = [-1; 2];
+            if unsafe { libc::pipe(pair.as_mut_ptr()) } < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            self.preparing = [
+                Some(Original::new(pair[0], 0)),
+                Some(Original::new(pair[1], 0)),
+            ];
+            for original in self.preparing.iter().flatten() {
+                let flags = unsafe { libc::fcntl(original.fd(), libc::F_GETFD) };
+                if flags < 0
+                    || unsafe {
+                        libc::fcntl(original.fd(), libc::F_SETFD, flags | libc::FD_CLOEXEC)
+                    } < 0
+                {
+                    return Err(io::Error::last_os_error());
+                }
+            }
+            // Keep child sources above standard descriptors so dup2 cannot
+            // overwrite a different pipe when the application started without
+            // one of stdin/stdout/stderr. Retain both originals before close.
+            for slot in 0..2 {
+                let original = self.preparing[slot].as_mut().unwrap();
+                if original.fd() <= 2 {
+                    let fd = unsafe { libc::fcntl(original.fd(), libc::F_DUPFD_CLOEXEC, 3) };
+                    if fd < 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    self.relocated[slot] = Some(Original::new(fd, 0));
+                    original.close_once()?; // both originals are durable in self
+                }
+            }
+            let mut ends = [None, None];
+            for slot in 0..2 {
+                ends[slot] = self.relocated[slot]
+                    .take()
+                    .or_else(|| self.preparing[slot].take());
+            }
+            let [read, write] = ends;
+            if index == 0 {
+                self.pipes[index] = write;
+                self.child_pipes[index] = read;
+            } else {
+                self.pipes[index] = read;
+                self.child_pipes[index] = write;
+            }
+        }
+        Ok(())
+    }
+    pub(super) fn close_child_ends(&mut self) -> io::Result<()> {
+        let mut failed = None;
+        for original in self
+            .child_pipes
+            .iter_mut()
+            .chain(&mut self.preparing)
+            .chain(&mut self.relocated)
+            .flatten()
+        {
+            if let Err(source) = original.close_once() {
+                failed.get_or_insert(source);
+            }
+        }
+        failed.map_or(Ok(()), Err)
+    }
+
     pub(super) fn collect(&mut self, input: &[u8], limit: usize) -> io::Result<(Vec<u8>, Vec<u8>)> {
         for original in self.pipes.iter().flatten() {
             let flags = unsafe { libc::fcntl(original.fd(), libc::F_GETFL) };

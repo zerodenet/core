@@ -78,8 +78,8 @@ impl Server {
                         stderr: Vec::new(),
                     },
                 )?,
-                HelperRequest::InstallSupervisor { transfer } => {
-                    self.install_supervisor(stream, transfer)?
+                HelperRequest::InstallSupervisor { transfer, request_capacity } => {
+                    self.install_supervisor(stream, transfer, request_capacity)?
                 }
                 HelperRequest::OwnedCreateUtun { name, transfer } => {
                     self.create(stream, name.as_deref(), Some(transfer))?

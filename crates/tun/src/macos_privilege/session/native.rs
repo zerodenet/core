@@ -1,10 +1,12 @@
 //! Actual authorization Child, accepted control, listener and helper kqueue.
 use super::*;
+mod launch;
+use launch::set_flags;
+pub(super) use launch::OWNED_SCRIPT;
 use std::{
     fs,
     mem::ManuallyDrop,
-    os::fd::IntoRawFd,
-    os::unix::{ffi::OsStrExt, fs::PermissionsExt},
+    os::unix::{ffi::OsStrExt, fs::PermissionsExt, process::CommandExt},
     process::{Child, Command, ExitStatus, Stdio},
 };
 pub(super) struct Native {
@@ -14,6 +16,8 @@ pub(super) struct Native {
     pub(super) child: Option<Child>,
     pub(super) waited: Option<ExitStatus>,
     pub(super) auth_output: Option<Original>,
+    pub(super) auth_writer: Option<Original>,
+    pub(super) auth_ends: [Option<Original>; 2],
     pub(super) auth_bytes: [u8; 64],
     pub(super) auth_read: usize,
     pub(super) auth_eof: bool,
@@ -32,6 +36,8 @@ impl Native {
             child: None,
             waited: None,
             auth_output: None,
+            auth_writer: None,
+            auth_ends: [None, None],
             auth_bytes: [0; 64],
             auth_read: 0,
             auth_eof: false,
@@ -90,38 +96,34 @@ impl Native {
         let executable = std::env::current_exe()?;
         // Foreground command: the actual authorization Child is retained here,
         // no detached shell helper and no untracked child.wait thread.
-        self.child = Some(
-            Command::new("/usr/bin/osascript")
-                .args(["-e", OWNED_SCRIPT, "--"])
-                .arg(executable)
-                .args(["__macos-tun-create-helper", "--socket"])
-                .arg(&path.socket)
-                .arg(id.to_string())
-                .stdin(Stdio::inherit())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::inherit())
-                .spawn()?,
-        );
-        self.auth_output = self
-            .child
-            .as_mut()
-            .unwrap()
-            .stdout
-            .take()
-            .map(|pipe| Original::new(pipe.into_raw_fd(), id));
-        if let Some(output) = &self.auth_output {
-            let flags = unsafe { libc::fcntl(output.fd(), libc::F_GETFL) };
-            if flags < 0
-                || unsafe { libc::fcntl(output.fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0
-            {
-                return Err(io::Error::last_os_error());
-            }
+        self.prepare_authorization_output(id)?;
+        let writer = self.auth_writer.as_ref().unwrap().fd();
+        let mut command = Command::new("/usr/bin/osascript");
+        command
+            .args(["-e", OWNED_SCRIPT, "--"])
+            .arg(executable)
+            .args(["__macos-tun-create-helper", "--socket"])
+            .arg(&self.socket.as_ref().unwrap().socket)
+            .arg(id.to_string())
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit());
+        unsafe {
+            command.pre_exec(move || {
+                if libc::dup2(writer, libc::STDOUT_FILENO) < 0 {
+                    Err(io::Error::last_os_error())
+                } else {
+                    Ok(())
+                }
+            });
         }
+        self.child = Some(command.spawn()?);
+        self.auth_writer.as_mut().unwrap().close_once()?;
         Ok(())
     }
     pub(super) fn accept(&mut self, id: u64) -> io::Result<()> {
         if self.control.is_some() {
-            return Ok(());
+            return self.register_control(id);
         }
         let listener = self
             .listener
@@ -134,32 +136,7 @@ impl Native {
             if raw >= 0 {
                 // Store the actual accepted FD before getpeereid/fcntl/pid IO.
                 self.control = Some(Original::new(raw, id));
-                set_flags(raw)?;
-                let stream = unsafe { ManuallyDrop::new(UnixStream::from_raw_fd(raw)) };
-                if peer_effective_uid(&stream)? != 0 {
-                    return Err(io::Error::other(
-                        "helper peer is not the authorized root process",
-                    ));
-                }
-                let mut pid: libc::pid_t = 0;
-                let mut length = std::mem::size_of_val(&pid) as libc::socklen_t;
-                if unsafe {
-                    libc::getsockopt(
-                        raw,
-                        libc::SOL_LOCAL,
-                        libc::LOCAL_PEERPID,
-                        (&mut pid as *mut libc::pid_t).cast(),
-                        &mut length,
-                    )
-                } < 0
-                {
-                    return Err(io::Error::last_os_error());
-                }
-                if length as usize != std::mem::size_of_val(&pid) {
-                    return Err(io::Error::other("helper PID observation is incomplete"));
-                }
-                self.helper.register(pid, id)?;
-                return Ok(());
+                return self.register_control(id);
             }
             let source = io::Error::last_os_error();
             if source.kind() == io::ErrorKind::Interrupted {
@@ -183,6 +160,37 @@ impl Native {
                 }
             }
         }
+    }
+    fn register_control(&mut self, id: u64) -> io::Result<()> {
+        let raw = self.control_fd()?;
+        set_flags(raw)?;
+        let stream = unsafe { ManuallyDrop::new(UnixStream::from_raw_fd(raw)) };
+        if peer_effective_uid(&stream)? != 0 {
+            return Err(io::Error::other(
+                "helper peer is not the authorized root process",
+            ));
+        }
+        let mut pid: libc::pid_t = 0;
+        let mut length = std::mem::size_of_val(&pid) as libc::socklen_t;
+        if unsafe {
+            libc::getsockopt(
+                raw,
+                libc::SOL_LOCAL,
+                libc::LOCAL_PEERPID,
+                (&mut pid as *mut libc::pid_t).cast(),
+                &mut length,
+            )
+        } < 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        if length as usize != std::mem::size_of_val(&pid) {
+            return Err(io::Error::other("helper PID observation is incomplete"));
+        }
+        if !self.helper.registered_for(pid, id) {
+            self.helper.register(pid, id)?;
+        }
+        return Ok(());
     }
     pub(super) fn control_fd(&self) -> io::Result<RawFd> {
         self.control
@@ -247,51 +255,17 @@ impl Native {
         (!self.attempted
             || self.child.is_none()
             || ((self.exited || self.cancelled) && self.waited.is_some()))
-            && [&self.listener, &self.control, &self.auth_output]
-                .into_iter()
-                .flatten()
-                .all(Original::closed)
+            && [
+                &self.listener,
+                &self.control,
+                &self.auth_output,
+                &self.auth_writer,
+                &self.auth_ends[0],
+                &self.auth_ends[1],
+            ]
+            .into_iter()
+            .flatten()
+            .all(Original::closed)
             && self.helper.event_closed()
     }
 }
-pub(super) fn set_flags(fd: RawFd) -> io::Result<()> {
-    let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
-    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    let enabled = 1_i32;
-    if unsafe {
-        libc::setsockopt(
-            fd,
-            libc::SOL_SOCKET,
-            libc::SO_NOSIGPIPE,
-            (&enabled as *const i32).cast(),
-            std::mem::size_of_val(&enabled) as _,
-        )
-    } < 0
-    {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(())
-}
-pub(super) const OWNED_SCRIPT: &str = r#"
-on run argv
-    if (count of argv) is 0 then error "missing privileged command"
-    set commandText to quoted form of (item 1 of argv)
-    set nonceText to item (count of argv) of argv
-    repeat with argumentIndex from 2 to ((count of argv) - 1)
-        set commandText to commandText & " " & quoted form of (item argumentIndex of argv)
-    end repeat
-    try
-        do shell script commandText with administrator privileges
-        return "zero.utun.completed." & nonceText
-    on error errorText number errorNumber
-        if errorNumber is -128 then return "zero.utun.cancelled." & nonceText
-        error errorText number errorNumber
-    end try
-end run
-"#;

@@ -2,7 +2,7 @@
 use super::*;
 use std::{
     os::unix::process::CommandExt,
-    process::{Child, Command, ExitStatus, Output, Stdio},
+    process::{Child, Command, ExitStatus, Output},
 };
 mod handshake;
 mod pipes;
@@ -10,6 +10,9 @@ mod pipes;
 pub(in crate::macos_privilege) struct ChildOriginal {
     child: Option<Child>,
     pipes: [Option<Original>; 3],
+    child_pipes: [Option<Original>; 3],
+    preparing: [Option<Original>; 2],
+    relocated: [Option<Original>; 2],
     waited: Option<ExitStatus>,
 }
 impl ChildOriginal {
@@ -17,12 +20,22 @@ impl ChildOriginal {
         Self {
             child: None,
             pipes: [None, None, None],
+            child_pipes: [None, None, None],
+            preparing: [None, None],
+            relocated: [None, None],
             waited: None,
         }
     }
     pub(in crate::macos_privilege) fn close_pipes(&mut self) -> io::Result<()> {
         let mut failure = None;
-        for original in self.pipes.iter_mut().flatten() {
+        for original in self
+            .pipes
+            .iter_mut()
+            .chain(&mut self.child_pipes)
+            .chain(&mut self.preparing)
+            .chain(&mut self.relocated)
+            .flatten()
+        {
             if let Err(source) = original.close_once() {
                 failure.get_or_insert(source);
             }
@@ -62,7 +75,15 @@ impl ChildOriginal {
         Ok(status)
     }
     pub(in crate::macos_privilege) fn reusable(&self) -> bool {
-        self.child.is_none() || (self.reaped() && self.pipes.iter().flatten().all(Original::closed))
+        (self.child.is_none() || self.reaped())
+            && self
+                .pipes
+                .iter()
+                .chain(&self.child_pipes)
+                .chain(&self.preparing)
+                .chain(&self.relocated)
+                .flatten()
+                .all(Original::closed)
     }
 }
 pub(in crate::macos_privilege) fn run(
@@ -97,35 +118,41 @@ fn run_fixed(
     }
     *slot = ChildOriginal::new();
     let mut command = Command::new(executable);
-    command
-        .args(arguments)
-        .stdin(if input.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    if let Some((fd, nonce)) = supervisor {
-        // Only stack data, getpid/read/write and errno handling run after fork.
-        unsafe {
-            command.pre_exec(move || handshake::announce(fd, nonce));
-        }
+    command.args(arguments).env("LC_ALL", "C");
+    // Parent and child ends enter this exact slot BEFORE flags or spawning.
+    // Command owns no implicit Stdio::piped originals in the Kernel path.
+    slot.prepare_pipes(input.is_some())?;
+    let descriptors = slot
+        .child_pipes
+        .each_ref()
+        .map(|original| original.as_ref().map_or(-1, Original::fd));
+    unsafe {
+        command.pre_exec(move || {
+            for (target, fd) in descriptors.into_iter().enumerate() {
+                if fd >= 0 && libc::dup2(fd, target as i32) < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+            }
+            if let Some((fd, nonce)) = supervisor {
+                handshake::announce(fd, nonce)?;
+            }
+            Ok(())
+        });
     }
-    let mut child = command.spawn()?;
-    slot.pipes[0] = child
-        .stdin
-        .take()
-        .map(|pipe| Original::new(pipe.into_raw_fd(), 0));
-    slot.pipes[1] = child
-        .stdout
-        .take()
-        .map(|pipe| Original::new(pipe.into_raw_fd(), 0));
-    slot.pipes[2] = child
-        .stderr
-        .take()
-        .map(|pipe| Original::new(pipe.into_raw_fd(), 0));
-    slot.child = Some(child);
+    let spawned = command.spawn();
+    let spawn_failure = match spawned {
+        Ok(child) => {
+            slot.child = Some(child);
+            None
+        }
+        Err(source) => Some(source),
+    };
+    let child_ends = slot.close_child_ends();
+    if let Some(source) = spawn_failure {
+        let _ = slot.close_pipes(); // all actual failure outcomes stay in the originals
+        return Err(source);
+    }
+    child_ends?;
     let output = slot.collect(input.unwrap_or("").as_bytes(), output_limit);
     // Even an IO failure must progress all independent close and wait duties.
     let close = slot.close_pipes();
