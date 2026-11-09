@@ -13,7 +13,10 @@ async fn multiple_constructor_rejects_actual_fixed_limits_and_returns_the_same_n
         let egress = Arc::new(crate::EgressInterfaceControl::default());
         let binding = UpstreamBinding {
             prefix: vec![],
-            dial: Default::default(),
+            dial: zero_traits::DialPolicy {
+                source_ip: Some(remote.ip()),
+                ..Default::default()
+            },
             network_generation: NetworkGeneration(egress.generation()),
         };
         let one = NonZeroUsize::new(1).unwrap();
