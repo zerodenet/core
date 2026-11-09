@@ -76,8 +76,15 @@ impl ProtocolInventory {
             && slot.recipe.spec().resources.is_empty()
             && components.has_background_carrier_pool(slot.role_id())
             && components.stream_dependencies_supported(slot.role_id());
+        // These self-owned donors already retain each physical half in their
+        // background Root. Only the remaining SS/SOCKS shape asks this Query
+        // to acquire its original: two cached H3 pools are not ambiguous native
+        // issuers and must not fall back to Stream DNS framing.
         let mut native = None;
-        if slot.dial == Default::default()
+        if !device
+            && !metadata
+            && !shared
+            && slot.dial == Default::default()
             && components.stream_dependencies_supported(slot.role_id())
         {
             for (ordinal, resource) in slot.recipe.spec().resources.iter().enumerate() {

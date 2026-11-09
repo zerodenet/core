@@ -1,4 +1,6 @@
 //! Ordinary installed mixed/independent-download clients, with real wire IO.
+#[path = "mixed/dns.rs"]
+mod dns;
 #[path = "mixed/originals.rs"]
 mod originals;
 #[path = "mixed/peer.rs"]

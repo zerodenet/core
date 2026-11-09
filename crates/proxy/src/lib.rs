@@ -24,7 +24,15 @@ pub fn compiled_protocol_features() -> Vec<String> {
     register::compiled_protocol_features()
 }
 
-#[cfg(all(test, any(feature = "vmess", feature = "mieru", feature = "hysteria2")))]
+#[cfg(all(
+    test,
+    any(
+        feature = "vless",
+        feature = "vmess",
+        feature = "mieru",
+        feature = "hysteria2"
+    )
+))]
 mod dns_fixture;
 #[cfg(test)]
 mod socket_fixture;

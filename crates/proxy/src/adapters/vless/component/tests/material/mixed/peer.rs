@@ -14,6 +14,12 @@ pub(super) struct Peer {
 }
 impl Peer {
     pub async fn new(certificate: &rcgen::CertifiedKey<rcgen::KeyPair>) -> Self {
+        Self::with_registry(certificate, SplitHttpRegistry::new()).await
+    }
+    pub async fn with_registry(
+        certificate: &rcgen::CertifiedKey<rcgen::KeyPair>,
+        registry: SplitHttpRegistry,
+    ) -> Self {
         let config = rustls::ServerConfig::builder_with_provider(Arc::new(
             rustls::crypto::ring::default_provider(),
         ))
@@ -44,7 +50,6 @@ impl Peer {
             secure.local_addr().unwrap(),
             endpoint.local_addr().unwrap(),
         ];
-        let registry = SplitHttpRegistry::new();
         let stop = CancellationToken::new();
         let profile = OwnedSplitHttpProfile {
             host: None,
