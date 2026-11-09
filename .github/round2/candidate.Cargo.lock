@@ -3688,6 +3688,7 @@ dependencies = [
  "zero-platform-tokio",
  "zero-traits",
  "zero-transport",
+ "zero-tun",
  "zeroize",
  "ztls",
 ]
