@@ -134,11 +134,19 @@ async fn late_first_original_does_not_block_receiving_the_second_real_tcp_failur
         assert_eq!(owner.retained(), 2);
         let first = install(&records[0], &scope.registrar(), drivers.pop().unwrap());
         peers[0].shutdown().await.unwrap();
-        receive.await;
-        let first_receipt = scope.next_receipt().await.unwrap();
+        // A witness observes joins; only this original HostedScope consumes
+        // its actual JoinSet exit. Drive that real consumer beside reception.
+        let ((), first_receipt) = tokio::join!(receive.as_mut(), scope.next_receipt());
+        let first_receipt = first_receipt.unwrap();
         assert!(first.matches_joined(first_receipt.joined()));
         assert!(first_receipt.result().is_err());
         assert!(first_receipt.local_failure_accepted());
+        let retained_first = records[0].received.lock().unwrap().clone().unwrap();
+        assert!(first.matches_joined(&retained_first));
+        assert!(Arc::ptr_eq(
+            &first_receipt.result().unwrap_err(),
+            &retained_first.result().unwrap_err()
+        ));
         assert!(!first_receipt.joined().registration_released());
         assert_eq!(
             scope
