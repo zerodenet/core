@@ -127,6 +127,12 @@ impl IpPacket {
     ) -> Result<alloc::vec::Vec<PacketBuffer>, zero_traits::PacketDeriveError> {
         self.payload.try_derive_zeroed(lengths)
     }
+    pub fn try_derive_payload_batch(
+        &self,
+        lengths: &[usize],
+    ) -> Result<zero_traits::PacketBatch, zero_traits::PacketDeriveError> {
+        self.payload.try_derive_owned(lengths)
+    }
     pub fn family(&self) -> IpFamily {
         self.family
     }

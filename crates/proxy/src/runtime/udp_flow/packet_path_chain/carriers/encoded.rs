@@ -227,7 +227,7 @@ impl PacketPathCarrier for Encoded {
             let buffers = self
                 .prepare_codec_send(&lengths)
                 .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
-            let (mut buffers, mut copy) = buffers.into_parts();
+            let (mut buffers, mut copy) = buffers.into_batch_parts();
             return self
                 .send_codec_buffered(target, port, payload, &mut buffers, &mut copy)
                 .await;

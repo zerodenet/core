@@ -1,6 +1,8 @@
 //! One already-paid pending packet. Child allocations only split its existing
 //! frame/byte debit; unused responsibility survives until the last actual user.
 use super::*;
+mod owned;
+mod prepare;
 use zero_traits::packet_metadata::PacketMetadataHeaderPromise;
 #[derive(Clone)]
 pub struct PacketTransmitEnvelope(PacketMetadataArc<Mutex<Reservation>>);
@@ -11,15 +13,28 @@ struct Reservation {
     reusable: bool,
     anchor_returned: bool,
     headers: Option<PacketMetadataHeaderPromise>,
+    arrays: Option<PacketMetadataHeaderPromise>,
 }
 impl PacketTransmitEnvelope {
     pub(in crate::packet_memory) fn layout(
         frames: usize,
     ) -> Result<PacketMetadataLayout, PacketMemoryError> {
-        PacketMetadataArc::<Mutex<Reservation>>::layout()?.checked_add(
+        let basic = PacketMetadataArc::<Mutex<Reservation>>::layout()?.checked_add(
             PacketMetadataHeaderPromise::layout(NativePacketCredit::header_layout(), frames)?,
-        )
+        )?;
+        if frames > 1 {
+            basic.checked_add(PacketMetadataHeaderPromise::layout(
+                Self::array_unit(),
+                frames,
+            )?)
+        } else {
+            Ok(basic)
+        }
     }
+    fn array_unit() -> PacketMetadataLayout {
+        PacketMetadataLayout::array::<PacketBuffer>(1).expect("one concrete packet array element")
+    }
+
     pub(in crate::packet_memory) fn with_anchor(
         credit: credit::Credit,
         anchor: PacketMemoryLimit,
@@ -39,15 +54,36 @@ impl PacketTransmitEnvelope {
         // A pre-native control workspace promises its one actual control
         // output header cold; later reuse cannot require new metadata.
         let promised = credit.frames.max(if reusable { anchor.frames } else { 0 });
+        let header_credit = metadata
+            .split(
+                PacketMetadataHeaderPromise::layout(NativePacketCredit::header_layout(), promised)
+                    .expect("same actual header layout"),
+            )
+            .expect("same cold storage headers prepaid");
         let headers = PacketMetadataHeaderPromise::from_prepaid(
             NativePacketCredit::header_layout(),
             promised,
             promised,
-            metadata,
+            header_credit,
             wake.clone(),
-            wake,
+            wake.clone(),
         )
         .unwrap_or_else(|_| unreachable!("same prepaid concrete header promises"));
+        let arrays = if promised > 1 {
+            Some(
+                PacketMetadataHeaderPromise::from_prepaid(
+                    Self::array_unit(),
+                    promised,
+                    promised,
+                    metadata,
+                    wake.clone(),
+                    wake,
+                )
+                .unwrap_or_else(|_| unreachable!("same original array layout prepaid")),
+            )
+        } else {
+            None
+        };
         Self(
             PacketMetadataArc::from_prepaid(
                 Mutex::new(Reservation {
@@ -57,94 +93,12 @@ impl PacketTransmitEnvelope {
                     reusable,
                     anchor_returned: true,
                     headers: Some(headers),
+                    arrays,
                 }),
                 owner,
             )
             .unwrap_or_else(|_| unreachable!("same concrete Envelope layout was prepaid")),
         )
-    }
-    /// Called only at a concrete producer's pre-FIFO boundary. Received data
-    /// may become an actual forward only after authentication/routing; extend
-    /// that same original's finite reservation there, never in a wire driver.
-    pub(super) fn prepare(&self, frames: usize, bytes: usize) -> Result<(), PacketMemoryError> {
-        let root = self
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .remaining
-            .root
-            .clone();
-        let _notifications = root.defer_notifications();
-        let wake = std::task::Waker::from(root.clone());
-        let mut reserved = self
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let add_frames = frames.saturating_sub(reserved.remaining.frames);
-        let add_bytes = bytes.saturating_sub(reserved.remaining.bytes);
-        let total_frames = reserved
-            .total
-            .frames
-            .checked_add(add_frames)
-            .and_then(|v| v.checked_add(reserved.anchor.frames))
-            .ok_or(PacketMemoryError::Overflow)?;
-        let total_bytes = reserved
-            .total
-            .bytes
-            .checked_add(add_bytes)
-            .and_then(|v| v.checked_add(reserved.anchor.bytes))
-            .ok_or(PacketMemoryError::Overflow)?;
-        let mut state = root.state();
-        if total_frames > state.transmit.limit.frames || total_bytes > state.transmit.limit.bytes {
-            return Err(PacketMemoryError::Capacity);
-        }
-        if state.paused || state.metadata_pauses != 0 {
-            return Err(PacketMemoryError::Paused);
-        }
-        if add_frames
-            > state
-                .transmit
-                .limit
-                .frames
-                .saturating_sub(state.transmit.occupied.frames)
-            || add_bytes
-                > state
-                    .transmit
-                    .limit
-                    .bytes
-                    .saturating_sub(state.transmit.occupied.bytes)
-        {
-            return Err(PacketMemoryError::Busy);
-        }
-        let headers = reserved.headers.as_ref().expect("same envelope headers");
-        let count = reserved
-            .total
-            .frames
-            .checked_add(add_frames)
-            .ok_or(PacketMemoryError::Overflow)?
-            .saturating_sub(headers.capacity());
-        let emptied = if count != 0 {
-            let metadata = root
-                .metadata
-                .reserve(NativePacketCredit::header_layout().repeated(count)?, wake)?;
-            Some(
-                headers
-                    .grow(count, metadata)
-                    .unwrap_or_else(|_| unreachable!("same counter exact header growth")),
-            )
-        } else {
-            None
-        };
-        state.transmit.occupied.frames += add_frames;
-        state.transmit.occupied.bytes += add_bytes;
-        reserved.remaining.frames += add_frames;
-        reserved.remaining.bytes += add_bytes;
-        reserved.total.frames += add_frames;
-        reserved.total.bytes += add_bytes;
-        drop(state);
-        drop(reserved);
-        drop(emptied); // same original Waker/Arc, always outside all owner locks
-        Ok(())
     }
     pub(in crate::packet_memory) fn anchor_borrowed(&self) {
         let mut reserved = self
@@ -263,3 +217,6 @@ impl Reservation {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod batch_tests;

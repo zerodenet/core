@@ -222,7 +222,7 @@ impl ClientUdpSender {
             None
         };
         #[cfg(not(feature = "packet-memory"))]
-        let owned: Option<Vec<zero_traits::PacketBuffer>> = None;
+        let owned: Option<zero_traits::PacketBatch> = None;
         let fragments = match owned {
             Some(fragments) => fragments,
             None => {
@@ -235,10 +235,12 @@ impl ClientUdpSender {
                     destination.port,
                     payload,
                 );
-                packet::fragment_ip_packet_owned(packet, mtu, identification)
-                    .into_iter()
-                    .map(Into::into)
-                    .collect()
+                zero_traits::PacketBatch::from_library(
+                    packet::fragment_ip_packet_owned(packet, mtu, identification)
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                )
             }
         };
         if fragments.is_empty() {

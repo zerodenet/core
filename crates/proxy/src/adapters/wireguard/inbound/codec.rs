@@ -114,7 +114,7 @@ impl RawIpInboundDevice for WireguardInboundDevice {
             .device
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .send_ip_packet_owned(peer, packet, control);
+            .send_ip_packet_batch(peer, packet, control);
         inbound_owned(output, |actions| {
             actions.into_iter().map(map_action).collect()
         })

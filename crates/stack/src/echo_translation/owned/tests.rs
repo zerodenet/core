@@ -16,7 +16,7 @@ async fn full_transmit_root_restores_prepaid_response_and_retains_originals_duri
     let pointer = original.as_ptr();
     let mut table = EchoTranslation::default();
     let mut outgoing = table
-        .request_owned(
+        .request_batch(
             original,
             "10.0.0.3".parse().unwrap(),
             7,
@@ -45,7 +45,7 @@ async fn full_transmit_root_restores_prepaid_response_and_retains_originals_duri
         .into_packet(reply.len())
         .unwrap_or_else(|_| panic!("same native length"));
     let restored = match table
-        .response_owned(received, 1500, PacketWireMemory::Native, Instant::now())
+        .response_batch(received, 1500, PacketWireMemory::Native, Instant::now())
         .unwrap()
     {
         OwnedEchoResponse::Response(context, restored) => {

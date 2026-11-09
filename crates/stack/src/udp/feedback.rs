@@ -48,7 +48,7 @@ impl UserUdpStack {
         if response.length() != response_length {
             return false;
         }
-        let Ok(mut packets) = original.try_derive_zeroed(&[response_length]) else {
+        let Ok(mut packets) = original.try_derive_owned(&[response_length]) else {
             return false;
         };
         let Some(mut packet) = packets.pop() else {

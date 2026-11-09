@@ -21,6 +21,12 @@ impl PacketStorage for EnginePacket {
     ) -> Result<(), zero_traits::PacketDeriveError> {
         self.0.prepare_owned_transmit(frames, bytes)
     }
+    fn try_derive_owned(
+        &self,
+        lengths: &[usize],
+    ) -> Result<zero_traits::PacketBatch, zero_traits::PacketDeriveError> {
+        self.0.try_derive_owned_batch(lengths)
+    }
     fn try_derive_zeroed(
         &self,
         lengths: &[usize],

@@ -468,6 +468,30 @@ impl ClientTcpStack {
             .collect())
     }
 
+    pub async fn fragment_outbound_packet_batch(
+        &self,
+        packet: zero_traits::PacketBuffer,
+    ) -> Result<zero_traits::PacketBatch, packet::PacketFragmentFailure> {
+        #[cfg(feature = "packet-memory")]
+        if self.outbound.has_packet_memory() {
+            let Some(mtu) = self.outbound_packet_mtu(&packet).await else {
+                return Err(packet::PacketFragmentFailure {
+                    cause: zero_traits::PacketDeriveError::LayoutMismatch,
+                    original: packet,
+                });
+            };
+            let identification = self.next_fragment_id.fetch_add(1, Ordering::Relaxed);
+            return packet::fragment_ip_packet_batch(packet, mtu, identification);
+        }
+        Ok(zero_traits::PacketBatch::from_library(
+            self.fragment_outbound_packet_owned(packet.into_vec())
+                .await
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        ))
+    }
+
     async fn outbound_packet_mtu(&self, raw_packet: &[u8]) -> Option<usize> {
         let tcp = packet::parse_tcp(raw_packet)?;
         let key = (tcp.dst.ip, tcp.dst.port, tcp.src.ip, tcp.src.port);

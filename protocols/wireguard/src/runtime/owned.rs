@@ -55,12 +55,31 @@ impl PeerTunnel {
                 unused_control: Some(control),
             };
         }
-        let result = self.send_prepared_ip_packet(packet);
+        let result = self.send_prepared_ip_packet(packet, false);
+        self.finish_owned_operation(result)
+    }
+    pub fn send_ip_packet_batch(
+        &mut self,
+        packet: PacketBuffer,
+        control: PacketBuffer,
+    ) -> OwnedTunnelResult<Vec<TunnelAction>> {
+        if let Err((source, control)) = self.install_control(control) {
+            return OwnedTunnelResult {
+                result: Err(OwnedTunnelFailure {
+                    error: TunnelError::Engine,
+                    storage: Some(source),
+                    original: Some(packet),
+                }),
+                unused_control: Some(control),
+            };
+        }
+        let result = self.send_prepared_ip_packet(packet, true);
         self.finish_owned_operation(result)
     }
     fn send_prepared_ip_packet(
         &mut self,
         packet: PacketBuffer,
+        batch: bool,
     ) -> Result<Vec<TunnelAction>, OwnedTunnelFailure> {
         let lengths =
             self.transmit_buffer_lengths(packet.len())
@@ -83,7 +102,14 @@ impl PeerTunnel {
                 original: Some(packet),
             });
         }
-        let mut buffers = match packet.try_derive_zeroed(&[lengths[1]]) {
+        let claim = if batch {
+            packet.try_derive_owned(&[lengths[1]])
+        } else {
+            packet
+                .try_derive_zeroed(&[lengths[1]])
+                .map(zero_traits::PacketBatch::from_library)
+        };
+        let mut buffers = match claim {
             Ok(buffers) if buffers.len() == 1 && buffers[0].len() == lengths[1] => buffers,
             Ok(_) => {
                 return Err(OwnedTunnelFailure {

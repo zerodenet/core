@@ -120,6 +120,36 @@ impl PacketMemoryView {
             .map(super::PacketTransmitCredit::allocate)
             .collect())
     }
+    pub fn transmit_batch(
+        &self,
+        lengths: &[usize],
+    ) -> Result<zero_traits::PacketBatch, PacketMemoryError> {
+        if lengths.is_empty() {
+            self.check_open()?;
+            return Ok(Default::default());
+        }
+        let bytes = lengths
+            .iter()
+            .try_fold(0usize, |sum, n| sum.checked_add(*n))
+            .ok_or(PacketMemoryError::Overflow)?;
+        let _notifications = self.defer_notifications();
+        let envelope = {
+            let state = self
+                .original
+                .0
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if state.revoked {
+                return Err(PacketMemoryError::Stopped);
+            }
+            self.original
+                .0
+                .root
+                .reserve_transmit_envelope(lengths.len(), bytes)?
+        };
+        envelope.allocate_owned(lengths)
+    }
     /// Prepay a concrete owning Source/driver layout before constructing its
     /// heap objects. No IO, Scope, native receipt or policy setter is issued.
     /// Existing prepaid credits remain owned after this view is revoked.

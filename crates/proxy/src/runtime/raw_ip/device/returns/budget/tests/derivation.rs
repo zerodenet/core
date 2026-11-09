@@ -96,7 +96,7 @@ async fn full_actual_return_queue_derives_without_extra_credit_and_holds_origina
     assert!(root.transmit_packet(1, 0, 0).is_err());
     assert_eq!(*budget.0.occupied.lock().unwrap(), (frames * 2, bytes * 2));
     let first = rx.recv().await.unwrap();
-    let packets = zero_stack::packet::fragment_ip_packet_prepaid(first, 1500, 17)
+    let packets = zero_stack::packet::fragment_ip_packet_batch(first, 1500, 17)
         .expect("a full return queue head only splits its existing storage envelope");
     assert_eq!(packets.len(), lengths.len());
     assert_eq!(*budget.0.occupied.lock().unwrap(), (frames * 2, bytes * 2));

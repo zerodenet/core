@@ -148,6 +148,16 @@ impl PacketStorage for Charged {
     fn take_vec_allocation(&mut self) -> Option<Vec<u8>> {
         self.packet.take_vec_allocation()
     }
+    fn try_derive_owned(
+        &self,
+        lengths: &[usize],
+    ) -> Result<zero_traits::PacketBatch, zero_traits::PacketDeriveError> {
+        if self.transmitting {
+            self.packet.try_derive_owned(lengths)
+        } else {
+            Err(zero_traits::PacketDeriveError::Unreserved)
+        }
+    }
     fn try_derive_zeroed(
         &self,
         lengths: &[usize],

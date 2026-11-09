@@ -22,6 +22,12 @@ impl PacketStorage for Reassembled {
     ) -> Result<(), zero_traits::PacketDeriveError> {
         self.storage.prepare_transmit(frames, bytes)
     }
+    fn try_derive_owned(
+        &self,
+        lengths: &[usize],
+    ) -> Result<zero_traits::PacketBatch, zero_traits::PacketDeriveError> {
+        self.storage.try_derive_owned(lengths)
+    }
     fn try_derive_zeroed(
         &self,
         lengths: &[usize],
