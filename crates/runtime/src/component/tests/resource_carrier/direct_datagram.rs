@@ -94,7 +94,7 @@ async fn direct_dual_owner_rejects_bare_and_stream_authority_before_native_udp_a
     );
     assert!(closed_scope.is_complete());
     let joined = joined.unwrap().unwrap();
-    assert_eq!(joined.class(), TaskClass::Aux);
+    assert_eq!(joined.class(), TaskClass::Auxiliary);
     assert!(witness.matches_joined(&joined));
     joined.result().unwrap();
     assert!(fixture.owner.registration().observe().unwrap().slots()[0]
