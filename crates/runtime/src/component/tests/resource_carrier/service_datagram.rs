@@ -136,7 +136,11 @@ async fn service_datagram_registration_keeps_exact_ordinal_scope_owner_and_no_ca
             .unwrap();
         let mut bytes = [0; 64];
         let (size, source) = peer.recv_from(&mut bytes).await.unwrap();
-        assert_eq!(source, local);
+        assert!(local.ip().is_unspecified(), "original unconnected native bind");
+        assert_eq!(
+            source,
+            std::net::SocketAddr::new(peer.local_addr().unwrap().ip(), local.port())
+        );
         assert_eq!(&bytes[..size], b"actual service driver");
         peer.send_to(&bytes[..size], source).await.unwrap();
         observed.await.unwrap();
