@@ -49,7 +49,7 @@ where
                 continue;
             }
 
-            let mut request_storage = None;
+            let mut request_storage;
             let request = match super::super::owner::decode_ipc(line.trim(), &budget) {
                 Ok(decoded) => {
                     let (request, storage) = decoded.into_parts();
