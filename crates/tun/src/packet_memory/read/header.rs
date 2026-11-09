@@ -46,6 +46,28 @@ pub(super) fn promise(
     )
     .map_err(|(cause, _)| cause)
 }
+impl NativeReadGrant {
+    /// The minimal real metadata that THIS live view itself keeps occupied.
+    /// Other unrelated Sources/history remain temporary foreign occupancy.
+    pub(in crate::packet_memory) fn minimum_header_layout(
+        &self,
+    ) -> Result<PacketMetadataLayout, PacketMemoryError> {
+        let state = self
+            .0
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.revoked {
+            return Err(PacketMemoryError::Stopped);
+        }
+        let layout = slot_layout()?;
+        if state.envelope.is_some() {
+            layout.checked_add(crate::packet_memory::PacketTransmitEnvelope::layout(1)?)
+        } else {
+            Ok(layout)
+        }
+    }
+}
 static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_ref, release);
 unsafe fn clone(pointer: *const ()) -> RawWaker {
     unsafe { Arc::increment_strong_count(pointer.cast::<Wake>()) };

@@ -129,6 +129,11 @@ impl PacketMemoryView {
         self.original.check_memory_open()?;
         Ok(self.original.0.root.driver_metadata_view())
     }
+    pub(in crate::packet_memory) fn minimum_metadata_layout(
+        &self,
+    ) -> Result<PacketMetadataLayout, PacketMemoryError> {
+        self.original.minimum_header_layout()
+    }
     pub fn driver_metadata(&self) -> PacketMetadataSnapshot {
         self.original.0.root.driver_metadata()
     }
