@@ -55,14 +55,7 @@ impl DatagramOutbound for Outbound {
         context: OpenContext,
     ) -> Result<zero_platform_tokio::controlled_carrier::loan::DatagramLoan, ChannelError> {
         let session = self.admission.check(&context)?;
-        let DatagramTargets::Fixed(endpoint) = request.targets.clone() else {
-            return Err(self.admission.error(
-                session,
-                Stage::Prepare,
-                Reason::Unsupported,
-                DeliveryState::NotSubmitted,
-            ));
-        };
+        let targets = request.targets.clone();
         if self.carriers.is_none() {
             return Err(self.admission.error(
                 session,
@@ -73,6 +66,7 @@ impl DatagramOutbound for Outbound {
         }
         let association = request.association;
         let channel = self.open(request, context).await?;
+        let wire_relay = channel.tx.wire_relay().clone();
         let original = channel
             .control
             .original()
@@ -81,16 +75,40 @@ impl DatagramOutbound for Outbound {
             .control
             .related_control()
             .expect("controlled UDP retains its same actual TCP control");
-        let mut loan = zero_platform_tokio::controlled_carrier::loan::DatagramLoan::new(
-            zero_platform_tokio::contract::datagram::erase_session(channel),
-            original,
-            association,
-            endpoint,
-        );
+        let endpoint = match &targets {
+            DatagramTargets::Fixed(endpoint) => endpoint.clone(),
+            DatagramTargets::Multiple => wire_relay,
+        };
+        let channel = zero_platform_tokio::contract::datagram::erase_session(channel);
+        let formed = match targets {
+            DatagramTargets::Fixed(_) => Ok(
+                zero_platform_tokio::controlled_carrier::loan::DatagramLoan::new(
+                    channel,
+                    original,
+                    association,
+                    endpoint,
+                ),
+            ),
+            DatagramTargets::Multiple => {
+                zero_platform_tokio::controlled_carrier::loan::DatagramLoan::new_multiple(
+                    channel,
+                    original,
+                    association,
+                    endpoint,
+                )
+            }
+        };
+        let (mut loan, failure) = match formed {
+            Ok(loan) => (loan, None),
+            Err((error, loan)) => (loan, Some(error)),
+        };
         // Strong custody of the exact associated parent, not an observational
         // related_control edge, lets the receiving actual LoanOwner prove the
         // whole TCP+UDP cleanup handoff to its caller's finite pending ledger.
         loan.retain_related_control(parent)?;
+        if let Some(error) = failure {
+            return Err(error);
+        }
         Ok(loan)
     }
     async fn open(

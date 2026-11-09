@@ -10,8 +10,12 @@ use zero_platform_tokio::contract::{
     network::{CarrierContext, UpstreamBinding, UpstreamTransport},
     CancellationToken,
 };
+#[path = "no_observer/multiple.rs"]
+mod multiple;
 #[path = "no_observer/ready.rs"]
 mod ready;
+#[path = "no_observer/rejection.rs"]
+mod rejection;
 
 #[tokio::test]
 async fn abandoned_direct_socks_service_role_closes_its_original_without_observer_next_dial_or_shutdown(

@@ -166,3 +166,5 @@ mod service_datagram_receiver;
 
 #[path = "preparation_jobs.rs"]
 mod preparation_jobs;
+
+mod multiple_targets;

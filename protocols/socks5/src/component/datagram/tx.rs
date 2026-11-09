@@ -47,6 +47,10 @@ impl Tx {
             cancelled: Box::pin(cancel.cancelled_owned()),
         }
     }
+    /// The actual resolved BND wire destination, not a logical payload target.
+    pub(super) fn wire_relay(&self) -> &Destination {
+        &self.relay
+    }
     fn failure(&self, reason: Reason, delivery: DeliveryState) -> SendFailure {
         SendFailure::new(self.shared.error(Stage::Send, reason, delivery), delivery)
     }

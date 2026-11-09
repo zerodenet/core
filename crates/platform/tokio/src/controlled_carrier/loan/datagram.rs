@@ -3,7 +3,11 @@ use super::*;
 use crate::contract::datagram::{BoxDatagramSession, DatagramLimits, DatagramRx, DatagramTx};
 use std::{future::poll_fn, io, pin::Pin, sync::atomic::Ordering};
 use tokio::sync::Mutex;
-use zero_core::{component::AssociationId, packet::Datagram, request::Destination};
+use zero_core::{
+    component::AssociationId,
+    packet::Datagram,
+    request::{DatagramTargets, Destination},
+};
 mod adopt;
 pub(in crate::controlled_carrier) mod endpoint;
 mod targets;
@@ -30,6 +34,7 @@ pub struct LoanDatagramIo {
     association: AssociationId,
     wire_association: AssociationId,
     endpoint: Destination,
+    multiple_targets: bool,
     limits: DatagramLimits,
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
     returned_by_parts: bool,
@@ -82,6 +87,7 @@ impl DatagramLoan {
                 association,
                 wire_association: association,
                 endpoint,
+                multiple_targets: false,
                 limits: session.limits,
                 observer: None,
                 returned_by_parts: false,
@@ -90,12 +96,15 @@ impl DatagramLoan {
         }
     }
 }
+mod multiple;
+
 impl LoanDatagramIo {
     pub fn set_observer(&mut self, observer: Option<Arc<dyn zero_traits::IoObserver>>) {
         self.observer = observer;
     }
     pub(super) fn targets(&self, endpoint: &Destination) -> bool {
-        self.endpoint.port == endpoint.port
+        !self.multiple_targets
+            && self.endpoint.port == endpoint.port
             && (self.endpoint.address == endpoint.address
                 || literal(&self.endpoint.address)
                     .is_some_and(|ip| Some(ip) == literal(&endpoint.address)))
@@ -118,10 +127,17 @@ impl LoanDatagramIo {
     pub fn wire_association(&self) -> AssociationId {
         self.wire_association
     }
+    /// Fixed payload target, or the actual wire relay for a Multiple loan.
+    /// In Multiple mode this fact never authorizes a fixed-target adoption.
     pub fn endpoint(&self) -> &Destination {
         &self.endpoint
     }
+    /// Target mode of the actual session; not a close or custody receipt.
+    pub fn has_multiple_targets(&self) -> bool {
+        self.multiple_targets
+    }
     pub async fn send(&self, bytes: &[u8]) -> io::Result<()> {
+        self.require_fixed_target()?;
         let frame = Datagram {
             association: self.wire_association,
             address: self.endpoint.clone(),
@@ -148,6 +164,7 @@ impl LoanDatagramIo {
         Ok(())
     }
     pub async fn receive(&self, bytes: &mut [u8]) -> io::Result<usize> {
+        self.require_fixed_target()?;
         let mut rx = self.rx.lock().await;
         loop {
             let receiving = poll_fn(|cx| {
