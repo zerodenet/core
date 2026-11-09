@@ -1,5 +1,6 @@
 //! Independent SS UDP and SOCKS control/BND use their actual original grants.
 use super::*;
+use futures_util::FutureExt;
 use std::{sync::Arc, time::Duration};
 use zero_platform_tokio::controlled_carrier::CarrierOrigin;
 #[path = "native_datagram/fixture.rs"]
@@ -16,6 +17,7 @@ async fn independent_dns_datagrams_return_selected_native_and_related_control_be
             #[cfg(feature="shadowsocks")] ("shadowsocks", false),
             #[cfg(all(feature="shadowsocks",target_os="linux"))] ("shadowsocks", true),
         ] {
+            eprintln!("native Datagram DNS family starts: kind={kind}, tcp_only_plugin={tcp_only_plugin}");
             let remote = Remote::new(kind).await;
             let mut dns = crate::dns_fixture::Dns::new().await;
             let (proxy, running, _material) = client(&remote, &dns, tcp_only_plugin).await;
@@ -24,8 +26,18 @@ async fn independent_dns_datagrams_return_selected_native_and_related_control_be
                 let resolver = proxy.resolver.clone();
                 let name = format!("{index}.{kind}.independent.udp.dns.test");
                 let mut query = tokio::spawn(async move { resolver.resolve_real_type(&name, 1).await });
+                eprintln!("native Datagram DNS request starts: kind={kind}, tcp_only_plugin={tcp_only_plugin}, attempt={index}, cancel={cancel}, remote={:?}, target={:?}", remote.address, dns.address);
                 let request = tokio::select! {
-                    request = dns.request() => request,
+                    request = std::panic::AssertUnwindSafe(dns.request()).catch_unwind() => match request {
+                        Ok(request)=>request,
+                        Err(original)=>{
+                            eprintln!("native Datagram DNS original request deadline failed: kind={kind}, tcp_only_plugin={tcp_only_plugin}, attempt={index}");
+                            remote.diagnose();
+                            eprintln!("actual Query observations: {:?}",proxy.resolver.native_query_observations());
+                            eprintln!("actual Query Root: {:?}",proxy.protocols.runtime_host().original_budgets().carrier.snapshot());
+                            std::panic::resume_unwind(original)
+                        }
+                    },
                     result = &mut query => panic!("{kind} Datagram DNS failed before actual UDP: {result:?}"),
                 };
                 assert!(!request.tcp, "the actual standard Datagram role must reach UDP DNS");

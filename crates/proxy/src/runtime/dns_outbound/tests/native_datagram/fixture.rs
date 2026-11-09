@@ -3,6 +3,7 @@ pub(super) struct Remote {
     pub address: std::net::SocketAddr,
     kind: &'static str,
     running: crate::RunningProxy,
+    proxy: Proxy,
     original: Arc<crate::runtime::inbound_owners::InboundOwner>,
 }
 impl Remote {
@@ -35,7 +36,7 @@ impl Remote {
             .unwrap();
         crate::ProxyHandle::new(
             zero_engine::EngineHandle::new(proxy.engine().clone()),
-            proxy,
+            proxy.clone(),
         )
         .apply_runtime_config_and_wait(config, Duration::from_secs(5))
         .await
@@ -44,8 +45,22 @@ impl Remote {
             address: *original.original_listener_address.get().unwrap(),
             kind,
             running,
+            proxy,
             original,
         }
+    }
+    pub fn diagnose(&self) {
+        eprintln!("actual remote Source: kind={} address={:?} running={} terminal={:?} activeSessions={} completedSessions={}",self.kind,self.address,self.original.is_running(),self.original.terminal_for_test(),self.proxy.engine().active_sessions().len(),self.proxy.engine().completed_sessions().len());
+        self.original.diagnose_datagram_failures_for_test();
+        eprintln!(
+            "actual remote Root: {:?}",
+            self.proxy
+                .protocols
+                .runtime_host()
+                .original_budgets()
+                .carrier
+                .snapshot()
+        );
     }
     pub async fn close(self) {
         self.running.shutdown().await.unwrap();
