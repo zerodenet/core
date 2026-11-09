@@ -118,7 +118,7 @@ async fn fault_delivery_cannot_close_the_actual_unix_original_or_release_its_sco
         let path = directory.path().join("control.sock");
         let listener = tokio::net::UnixListener::bind(&path).unwrap();
         let (mut pending, mut native) =
-            PendingUnixConnect::prepare(&path, CancellationToken::new()).unwrap();
+            PendingUnixConnect::prepare(path.to_str().unwrap(), CancellationToken::new()).unwrap();
         let mut client = pending
             .connect(tokio::time::Instant::now() + std::time::Duration::from_secs(2))
             .await
