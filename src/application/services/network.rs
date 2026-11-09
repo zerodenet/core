@@ -11,8 +11,8 @@ use tokio::time::Instant;
 #[cfg(feature = "event-dispatcher")]
 use zero_connector::{EventSinkTcpConnectFuture, EventSinkTcpDialer};
 use zero_core::component::{ComponentInstanceId, ResourceGeneration};
-use zero_platform_tokio::EgressInterfaceControl;
 use zero_platform_tokio::controlled_carrier::CarrierOriginalTotals;
+use zero_platform_tokio::EgressInterfaceControl;
 mod epoch;
 mod stream;
 #[cfg(test)]
@@ -25,6 +25,7 @@ pub(crate) struct ApplicationEventSinkTcpDialer {
     epoch: Mutex<Epochs>,
     instance: ComponentInstanceId,
     originals: Arc<CarrierOriginalTotals>,
+    task_budget: Arc<zero_platform_tokio::contract::scope::TaskRegistrationBudget>,
     limits: Mutex<EpochLimits>,
     transition: tokio::sync::Mutex<()>,
 }
@@ -37,6 +38,7 @@ impl ApplicationEventSinkTcpDialer {
         egress: EgressInterfaceControl,
         instance: ComponentInstanceId,
         originals: Arc<CarrierOriginalTotals>,
+        task_budget: Arc<zero_platform_tokio::contract::scope::TaskRegistrationBudget>,
     ) -> Self {
         Self {
             egress,
@@ -46,6 +48,7 @@ impl ApplicationEventSinkTcpDialer {
             }),
             instance,
             originals,
+            task_budget,
             limits: Mutex::new(EpochLimits::default()),
             transition: tokio::sync::Mutex::new(()),
         }
@@ -54,7 +57,7 @@ impl ApplicationEventSinkTcpDialer {
     pub(crate) fn for_test(egress: EgressInterfaceControl) -> Self {
         let original = zero_proxy::ProxyPreparation::new();
         let (instance, totals) = original.application_network_originals().unwrap();
-        Self::new(egress, instance, totals)
+        Self::new(egress, instance, totals, original.application_task_budget())
     }
     fn current(&self) -> io::Result<Arc<Epoch>> {
         self.epoch
@@ -113,6 +116,7 @@ impl ApplicationEventSinkTcpDialer {
             *self.limits.lock().unwrap(),
             instance,
             self.originals.clone(),
+            self.task_budget.clone(),
         )?;
         let retired = state.current.replace(next);
         drop(state);

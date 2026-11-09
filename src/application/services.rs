@@ -88,6 +88,7 @@ impl ApplicationServices {
                     preparation.egress_interface_control(),
                     instance,
                     originals,
+                    preparation.application_task_budget(),
                 ),
             ))
         };
@@ -115,6 +116,7 @@ impl ApplicationServices {
                     proxy.egress_interface_control(),
                     instance,
                     originals,
+                    proxy.application_task_budget(),
                 ),
             ))
         };

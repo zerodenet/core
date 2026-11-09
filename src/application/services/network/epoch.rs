@@ -3,21 +3,21 @@ use std::{
     io,
     net::SocketAddr,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
     },
 };
 use tokio::{
-    sync::{Mutex as AsyncMutex, oneshot},
+    sync::{oneshot, Mutex as AsyncMutex},
     time::Instant,
 };
 use zero_core::component::ComponentInstanceId;
+use zero_platform_tokio::contract::{component::ResourceDeclaration, lifecycle::ResourceLifecycle};
 use zero_platform_tokio::contract::{
-    CancellationToken,
     lifecycle::{CloseReport, TaskClass},
     scope::{TaskExit, TaskJoinWitness, TaskRegistrar, TaskScope},
+    CancellationToken,
 };
-use zero_platform_tokio::contract::{component::ResourceDeclaration, lifecycle::ResourceLifecycle};
 use zero_platform_tokio::controlled_carrier::{
     CarrierAdoption, CarrierOriginalTotals, CarrierOwner, CarrierOwnerBinding,
 };
@@ -62,8 +62,12 @@ impl Epoch {
         limits: EpochLimits,
         instance: ComponentInstanceId,
         totals: Arc<CarrierOriginalTotals>,
+        task_budget: Arc<zero_platform_tokio::contract::scope::TaskRegistrationBudget>,
     ) -> io::Result<Arc<Self>> {
-        let scope = TaskScope::new(tokio::runtime::Handle::current(), limits.max_tasks());
+        let mut scope = TaskScope::new(tokio::runtime::Handle::current(), limits.max_tasks());
+        scope
+            .bind_task_budget(task_budget)
+            .map_err(io::Error::other)?;
         let stop = Arc::new(CancellationToken::new());
         let native = CarrierOwner::new(instance, limits.max_originals(), &stop);
         let binding = native

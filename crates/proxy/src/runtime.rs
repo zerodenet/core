@@ -308,6 +308,12 @@ impl Proxy {
     pub fn embedded_command_owner(&self) -> Arc<zero_runtime::EmbeddedCommandOwner> {
         self.host.embedded_commands().clone()
     }
+    /// The actual Host-wide registration budget, shared with component scopes.
+    pub fn application_task_budget(
+        &self,
+    ) -> Arc<zero_platform_tokio::contract::scope::TaskRegistrationBudget> {
+        self.host.original_budgets().component_tasks.clone()
+    }
     pub fn application_network_originals(
         &self,
     ) -> Result<

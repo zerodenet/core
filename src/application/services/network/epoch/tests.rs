@@ -8,7 +8,14 @@ fn end() -> Instant {
 fn epoch(generation: u64, limits: EpochLimits) -> Arc<Epoch> {
     let preparation = zero_proxy::ProxyPreparation::new();
     let (instance, totals) = preparation.application_network_originals().unwrap();
-    Epoch::new(generation, limits, instance, totals).unwrap()
+    Epoch::new(
+        generation,
+        limits,
+        instance,
+        totals,
+        preparation.application_task_budget(),
+    )
+    .unwrap()
 }
 async fn connected(
     epoch: &Arc<Epoch>,
@@ -30,15 +37,13 @@ async fn joined_connect_and_cancellation_do_not_close_a_held_transfer_view() {
     );
     let (stream, mut peer) = connected(&epoch).await;
     let original = epoch.originals.lock().unwrap()[0].clone();
-    assert!(
-        original
-            .custody
-            .users
-            .lock()
-            .unwrap()
-            .iter()
-            .all(TaskJoinWitness::is_joined)
-    );
+    assert!(original
+        .custody
+        .users
+        .lock()
+        .unwrap()
+        .iter()
+        .all(TaskJoinWitness::is_joined));
     assert!(epoch.retire(end()).await.is_err());
     assert!(!epoch.closed());
     assert!(original.receipt.lock().unwrap().is_none());
@@ -107,23 +112,21 @@ async fn pending_http_user_requires_real_scope_join_before_original_close() {
         "TaskJoined alone is not native close"
     );
     epoch.retire(end()).await.unwrap();
-    assert!(
-        !original
-            .receipt
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .closed_io
-            .is_empty()
-    );
+    assert!(!original
+        .receipt
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .closed_io
+        .is_empty());
     let mut byte = [0];
     assert_eq!(peer.read(&mut byte).await.unwrap(), 0);
 }
 
 #[tokio::test]
 async fn bootstrap_http_uses_the_same_original_task_users_and_native_controller_receipt() {
-    use super::super::{ApplicationEventSinkTcpDialer, download::DownloadEvent};
+    use super::super::{download::DownloadEvent, ApplicationEventSinkTcpDialer};
     use tokio::io::AsyncWriteExt;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -175,25 +178,21 @@ async fn bootstrap_http_uses_the_same_original_task_users_and_native_controller_
     let closed = original.adoption.closed().unwrap();
     assert!(closed.matches(&original.adoption) && closed.had_native_acquisition());
     assert!(original.custody.returned_and_joined());
-    assert!(
-        original
-            .custody
-            .users
-            .lock()
-            .unwrap()
-            .iter()
-            .all(TaskJoinWitness::is_joined)
-    );
-    assert!(
-        !original
-            .receipt
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .closed_io
-            .is_empty()
-    );
+    assert!(original
+        .custody
+        .users
+        .lock()
+        .unwrap()
+        .iter()
+        .all(TaskJoinWitness::is_joined));
+    assert!(!original
+        .receipt
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .closed_io
+        .is_empty());
     peer.await.unwrap();
 }
 
@@ -283,27 +282,25 @@ async fn actual_webhook_http_drivers_join_before_the_same_original_native_close(
     dispatcher.shutdown().await;
     network.retire_generation(end()).await.unwrap();
     assert!(witnesses.iter().all(TaskJoinWitness::is_joined));
-    assert!(
-        !original
-            .receipt
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .closed_io
-            .is_empty()
-    );
+    assert!(!original
+        .receipt
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .closed_io
+        .is_empty());
     let mut byte = [0];
     assert_eq!(peer.read(&mut byte).await.unwrap(), 0);
     // Same original epoch is closed, never silently revived by a new caller.
-    assert!(
-        dialer
-            .connect(address.ip().to_string(), address.port())
-            .await
-            .is_err()
-    );
+    assert!(dialer
+        .connect(address.ip().to_string(), address.port())
+        .await
+        .is_err());
 }
 
 mod lookup;
 
 mod retirement;
+
+mod global_budget;

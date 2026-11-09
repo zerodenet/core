@@ -110,6 +110,7 @@ impl BootstrapSlot {
             preparation.egress_interface_control(),
             instance,
             originals,
+            preparation.application_task_budget(),
         );
         let original = Arc::new(BootstrapAttempt {
             source: source.clone(),

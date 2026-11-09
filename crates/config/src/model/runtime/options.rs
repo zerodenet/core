@@ -124,8 +124,9 @@ pub struct RuntimeOptionsConfig {
     /// process HANDLE. These are not Child jobs or a native FD total.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub carrier_max_total_originals: Option<usize>,
-    /// Actual component/inbound Scope registrations across this Host, including
-    /// pre-bind launches and joined-unACK work. Default4096; not all OS threads.
+    /// Actual component/inbound and application event-network/rule-fetch Scope
+    /// registrations across this Host, including pre-bind launches and joined-
+    /// unACK work. Default4096; not all OS threads.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component_total_max_tasks: Option<usize>,
     /// Actual native process jobs across this kernel, including pending,
