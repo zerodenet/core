@@ -26,6 +26,34 @@ impl PacketDriverMetadataView {
     ) -> Result<PacketMetadataCredit, PacketMemoryError> {
         self.0.reserve_driver_metadata(layout)
     }
+    /// One inline owned wait on this same Root's existing notification. No
+    /// boxed future, task, waiter registry or replacement accounting owner.
+    pub fn reserve_owned(
+        &self,
+        layout: PacketMetadataLayout,
+    ) -> impl std::future::Future<Output = Result<PacketMetadataCredit, PacketMemoryError>>
+           + Send
+           + 'static {
+        let actual = self.clone();
+        async move {
+            loop {
+                let changed = actual.0.changed.notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                let minimum = layout.checked_add(
+                    zero_traits::packet_metadata::PacketMetadataCounter::owned_layout(),
+                )?;
+                let limit = actual.snapshot().limit;
+                if minimum.allocations() > limit.allocations() || minimum.bytes() > limit.bytes() {
+                    return Err(PacketMemoryError::Capacity);
+                }
+                match actual.reserve(layout) {
+                    Err(PacketMemoryError::Busy | PacketMemoryError::Paused) => changed.await,
+                    result => return result,
+                }
+            }
+        }
+    }
     pub fn snapshot(&self) -> PacketMetadataSnapshot {
         self.0.driver_metadata()
     }

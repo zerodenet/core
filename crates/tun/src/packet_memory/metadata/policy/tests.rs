@@ -11,10 +11,12 @@ fn failed_shrink_preserves_actual_history_and_last_weak_header_without_sealing_o
     let root = original();
     let baseline = root.driver_metadata().occupied;
     let layout = PacketMetadataArc::<[u8; 2048]>::layout().unwrap();
-    let original =
-        PacketMetadataArc::from_prepaid([9; 2048], root.reserve_driver_metadata(layout).unwrap())
-            .ok()
-            .unwrap();
+    let original = PacketMetadataArc::from_prepaid(
+        [9_u8; 2048],
+        root.reserve_driver_metadata(layout).unwrap(),
+    )
+    .ok()
+    .unwrap();
     let weak = PacketMetadataArc::downgrade(&original);
     let next = PacketMetadataLayout::new(4096, baseline.bytes() + 1);
     assert!(matches!(

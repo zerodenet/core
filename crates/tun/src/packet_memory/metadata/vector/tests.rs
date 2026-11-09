@@ -211,3 +211,42 @@ fn actual_paid_array_maintenance_frees_old_capacity_only_after_paid_move() {
     drop(table);
     assert_eq!(view.snapshot().occupied, baseline);
 }
+
+#[test]
+fn paid_growth_rejects_a_foreign_counter_and_moves_only_after_same_root_peak_is_paid() {
+    let root = std::sync::Arc::new(PacketReturnTotals::default());
+    let other = std::sync::Arc::new(PacketReturnTotals::default());
+    let view = root.driver_metadata_view();
+    let foreign = other.driver_metadata_view();
+    let mut values = PacketMetadataVec::<u64>::default();
+    values.try_push_with_metadata(7, &view, 2).unwrap();
+    let layout = values.growth_layout(2).unwrap().unwrap();
+    let held = foreign.reserve(layout).unwrap();
+    let (error, held) = values.grow_prepaid(held, 2).err().unwrap();
+    assert_eq!(error, PacketMemoryError::Capacity);
+    assert_eq!(&values[..], &[7]);
+    assert_eq!(values.capacity(), 1);
+    assert_eq!(
+        foreign.snapshot().occupied.bytes(),
+        zero_traits::packet_metadata::PacketMetadataCounter::owned_layout().bytes()
+            + layout.bytes()
+    );
+    drop(held);
+    let before = view.snapshot().occupied;
+    let prepaid = view.reserve(layout).unwrap();
+    let old = values
+        .grow_prepaid(prepaid, 2)
+        .unwrap_or_else(|_| panic!("same Root array layout"));
+    assert_eq!(&values[..], &[7]);
+    assert_eq!(values.capacity(), 2);
+    assert_eq!(
+        view.snapshot().occupied.bytes(),
+        before.bytes() + layout.bytes()
+    );
+    drop(old);
+    assert_eq!(
+        view.snapshot().occupied.bytes(),
+        zero_traits::packet_metadata::PacketMetadataCounter::owned_layout().bytes()
+            + layout.bytes()
+    );
+}

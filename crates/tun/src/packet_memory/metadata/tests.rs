@@ -134,3 +134,46 @@ fn policy_that_cannot_hold_its_actual_counter_is_rejected_before_allocating_it()
 }
 #[path = "tests/owner_box.rs"]
 mod owner_box;
+
+#[tokio::test]
+async fn original_metadata_wait_observes_actual_refund_and_pause_release_without_another_owner() {
+    use std::{
+        future::Future,
+        task::{Context, Poll},
+    };
+    let layout = PacketMetadataLayout::boxed::<[u8; 32]>();
+    let root = original(layout);
+    let view = root.driver_metadata_view();
+    let occupied = view.reserve(layout).unwrap();
+    let waiting = view.reserve_owned(layout);
+    tokio::pin!(waiting);
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(waiting.as_mut().poll(&mut cx).is_pending());
+    drop(occupied);
+    let credit = match waiting.as_mut().poll(&mut cx) {
+        Poll::Ready(Ok(credit)) => credit,
+        _ => panic!("the same Root refund completes its original waiter"),
+    };
+    drop(credit);
+    let limit = view.snapshot().limit;
+    let pause = root.pause_driver_metadata_for_limit(limit).unwrap();
+    // Equal limits need no pause. A real new smaller installed policy does.
+    drop(pause);
+    let next = PacketMetadataLayout::new(limit.allocations(), limit.bytes() - 1);
+    let pause = root.pause_driver_metadata_for_limit(next).unwrap().unwrap();
+    let waiting = view.reserve_owned(PacketMetadataLayout::boxed::<u8>());
+    tokio::pin!(waiting);
+    assert!(waiting.as_mut().poll(&mut cx).is_pending());
+    drop(pause);
+    assert!(matches!(waiting.as_mut().poll(&mut cx), Poll::Ready(Ok(_))));
+}
+
+#[tokio::test]
+async fn original_metadata_wait_rejects_an_impossible_layout_including_its_real_counter() {
+    let root = original(PacketMetadataLayout::boxed::<u8>());
+    let view = root.driver_metadata_view();
+    assert!(matches!(
+        view.reserve_owned(view.snapshot().limit).await,
+        Err(PacketMemoryError::Capacity)
+    ));
+}
