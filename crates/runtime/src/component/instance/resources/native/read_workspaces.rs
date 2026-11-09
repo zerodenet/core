@@ -165,9 +165,9 @@ impl HostPacketReadReservation {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.stopped = true;
         #[cfg(feature = "raw-ip-runtime")]
-        let grants = state.grants.clone();
+        let grants = state.grants.take();
         #[cfg(feature = "raw-ip-runtime")]
-        let supplemental = state.supplemental.clone();
+        let supplemental = state.supplemental.take();
         drop(state);
         #[cfg(feature = "raw-ip-runtime")]
         if let Some(supplemental) = supplemental {

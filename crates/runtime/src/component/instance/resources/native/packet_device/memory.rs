@@ -9,13 +9,18 @@ mod ring;
 pub(super) struct Memory {
     roots: Arc<crate::HostOriginalBudgets>,
     tasks: Option<WeakTaskRegistrar>,
-    reads: Mutex<Option<Vec<NativeReadGrant>>>,
+    reads: Mutex<Reads>,
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     reader: Mutex<Option<TaskJoinWitness>>,
     #[cfg(windows)]
     ring: Mutex<Option<zero_tun::packet_memory::RequestedRingCapacityCredit>>,
     #[cfg(windows)]
     session_metadata: Mutex<Option<zero_tun::packet_memory::PacketMetadataCredit>>,
+}
+#[derive(Default)]
+struct Reads {
+    stopped: bool,
+    values: Option<[Option<NativeReadGrant>; 3]>,
 }
 impl Memory {
     pub(super) fn new(
@@ -25,7 +30,7 @@ impl Memory {
         Self {
             roots,
             tasks,
-            reads: Mutex::new(None),
+            reads: Mutex::new(Reads::default()),
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             reader: Mutex::new(None),
             #[cfg(windows)]
@@ -44,16 +49,27 @@ impl Memory {
         original: &original::Original,
         component: zero_core::component::ComponentId,
     ) -> Result<NativeReadGrant, ChannelError> {
-        #[cfg(target_os = "macos")]
-        if let Some(read) = self
-            .reads
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_ref()
-            .and_then(|reads| reads.first())
-            .cloned()
         {
-            return Ok(read);
+            let held = self
+                .reads
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if held.stopped {
+                return Err(error(
+                    component,
+                    Reason::Revoked,
+                    "same original memory admission stopped",
+                ));
+            }
+            #[cfg(target_os = "macos")]
+            if let Some(read) = held
+                .values
+                .as_ref()
+                .and_then(|reads| reads[0].as_ref())
+                .cloned()
+            {
+                return Ok(read);
+            }
         }
         #[cfg(windows)]
         self.prepare_ring(component)?;
@@ -75,44 +91,55 @@ impl Memory {
                     .with_source(source)
                 })?;
             let write = work.control.expect("same prepaid utun write workspace");
-            let mut reads = Vec::from(work.reads);
-            reads.push(write.clone());
-            (reads, write)
+            let [first, second] = work.reads;
+            ([Some(first), Some(second), Some(write.clone())], write)
         };
         #[cfg(not(target_os = "macos"))]
         let reads = {
-            let lengths: &[usize] = if cfg!(target_os = "windows") && self.tasks.is_some() {
-                &[65_536, 65_536]
-            } else {
-                &[65_536]
-            };
-            let reads = self.roots.packet.native_grants(lengths).map_err(|source| {
+            let failure = |source| {
                 error(
                     component,
                     Reason::Capacity,
                     "native read workspaces cannot fit before acquisition",
                 )
                 .with_source(source)
-            })?;
-            reads
+            };
+            if cfg!(target_os = "windows") && self.tasks.is_some() {
+                let work = self
+                    .roots
+                    .packet
+                    .datagram_workspaces([65_536; 2], None)
+                    .map_err(failure)?;
+                let [first, second] = work.reads;
+                [Some(first), Some(second), None]
+            } else {
+                [
+                    Some(self.roots.packet.native_grant(65_536).map_err(failure)?),
+                    None,
+                    None,
+                ]
+            }
         };
-        let actual = reads[0].clone();
+        let actual = reads[0].as_ref().expect("same actual primary read").clone();
         #[cfg(target_os = "windows")]
-        let sdk = reads.get(1).cloned();
+        let sdk = reads[1].clone();
         #[cfg(target_os = "macos")]
-        let macos_read = reads[1].clone();
+        let macos_read = reads[1]
+            .as_ref()
+            .expect("same actual utun prefix read")
+            .clone();
         let mut held = self
             .reads
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if held.is_some() {
+        if held.stopped || held.values.is_some() {
             return Err(error(
                 component,
                 Reason::Revoked,
                 "same original native workspace already issued",
             ));
         }
-        *held = Some(reads);
+        held.values = Some(reads);
         drop(held);
         #[cfg(target_os = "macos")]
         original
@@ -179,13 +206,16 @@ impl Memory {
         Ok(actual)
     }
     pub(super) fn stop(&self, original: &original::Original) {
-        let reads = self
-            .reads
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
+        let reads = {
+            let mut state = self
+                .reads
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            state.stopped = true;
+            state.values.take()
+        };
         if let Some(reads) = reads {
-            for read in reads {
+            for read in reads.into_iter().flatten() {
                 read.revoke();
             }
         }

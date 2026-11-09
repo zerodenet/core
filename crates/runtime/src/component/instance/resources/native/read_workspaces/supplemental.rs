@@ -1,7 +1,6 @@
 //! Actual pre-bind receive workers and this wire's separate pending TX copy.
 use super::*;
 use zero_tun::packet_memory::{NativeReadGrant, PacketDatagramWorkspaces};
-#[derive(Clone)]
 pub(super) struct OriginalSupplemental {
     receive: Vec<NativeReadGrant>,
     copy: Option<NativeReadGrant>,

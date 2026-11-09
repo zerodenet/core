@@ -36,15 +36,30 @@ impl PacketReturnTotals {
         reads: [usize; 2],
         control: Option<usize>,
     ) -> Result<PacketDatagramWorkspaces, PacketMemoryError> {
-        let work = self.io_workspaces(&reads, &control.into_iter().collect::<Vec<_>>())?;
-        let mut original = work.reads.into_iter();
-        Ok(PacketDatagramWorkspaces {
-            reads: [
-                original.next().expect("same read0"),
-                original.next().expect("same decode"),
-            ],
-            control: work.transmit.into_iter().next(),
-        })
+        if reads.contains(&0) || control == Some(0) {
+            return Err(PacketMemoryError::Capacity);
+        }
+        let count = 2 + usize::from(control.is_some());
+        let layout = read::header::slot_layout()?.repeated(count)?.checked_add(
+            PacketTransmitEnvelope::layout(1)?.repeated(usize::from(control.is_some()))?,
+        )?;
+        let mut metadata = self.prepay_io_set(
+            PacketMemoryLimit {
+                frames: 2,
+                bytes: reads[0]
+                    .checked_add(reads[1])
+                    .ok_or(PacketMemoryError::Overflow)?,
+            },
+            PacketMemoryLimit {
+                frames: usize::from(control.is_some()),
+                bytes: control.unwrap_or(0),
+            },
+            layout,
+        )?;
+        let reads = reads.map(|bytes| self.prepaid_io_grant(Lane::Native, bytes, &mut metadata));
+        let control =
+            control.map(|bytes| self.prepaid_io_grant(Lane::Transmit, bytes, &mut metadata));
+        Ok(PacketDatagramWorkspaces { reads, control })
     }
 }
 

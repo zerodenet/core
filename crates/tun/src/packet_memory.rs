@@ -193,8 +193,12 @@ impl PacketReturnTotals {
         self: &Arc<Self>,
         bytes: usize,
     ) -> Result<NativeReadGrant, PacketMemoryError> {
-        self.native_grants(&[bytes])
-            .map(|mut grants| grants.pop().expect("one actual native workspace"))
+        if bytes == 0 {
+            return Err(PacketMemoryError::Capacity);
+        }
+        let metadata = self.reserve_driver_metadata(read::header::slot_layout()?)?;
+        let credit = self.reserve_one(Lane::Native, bytes)?;
+        Ok(NativeReadGrant::from_prepaid_credit(credit, None, metadata))
     }
     /// A fragment assembly is admitted separately from the prepaid read slot.
     /// It cannot consume another original driver's promised next read credit.
@@ -206,10 +210,7 @@ impl PacketReturnTotals {
             return Err(PacketMemoryError::Capacity);
         }
         let header = self.reserve_driver_metadata(NativePacketCredit::header_layout())?;
-        let credit = self
-            .reserve(Lane::Native, &[bytes])?
-            .pop()
-            .expect("one actual assembly");
+        let credit = self.reserve_one(Lane::Native, bytes)?;
         let mut original = NativePacketCredit::new(credit, None);
         original.header = Some(credit::PacketHeader::Owned(header));
         Ok(NativeReadBuffer::from_credit(original))
@@ -224,6 +225,31 @@ impl PacketReturnTotals {
             .try_fold(0usize, |sum, next| sum.checked_add(*next))
             .ok_or(PacketMemoryError::Overflow)?;
         let frames = lengths.len();
+        self.admit(lane, frames, bytes)?;
+        Ok(lengths
+            .iter()
+            .map(|bytes| credit::Credit {
+                root: self.clone(),
+                lane,
+                bytes: *bytes,
+                frames: 1,
+            })
+            .collect())
+    }
+    fn reserve_one(
+        self: &Arc<Self>,
+        lane: Lane,
+        bytes: usize,
+    ) -> Result<credit::Credit, PacketMemoryError> {
+        self.admit(lane, 1, bytes)?;
+        Ok(credit::Credit {
+            root: self.clone(),
+            lane,
+            bytes,
+            frames: 1,
+        })
+    }
+    fn admit(&self, lane: Lane, frames: usize, bytes: usize) -> Result<(), PacketMemoryError> {
         let mut state = self.state();
         let current = match lane {
             Lane::Returns => &state.returns,
@@ -251,15 +277,7 @@ impl PacketReturnTotals {
         current.occupied.frames += frames;
         current.occupied.bytes += bytes;
         drop(state);
-        Ok(lengths
-            .iter()
-            .map(|bytes| credit::Credit {
-                root: self.clone(),
-                lane,
-                bytes: *bytes,
-                frames: 1,
-            })
-            .collect())
+        Ok(())
     }
     /// Wakes only existing memory waiters. This is not task or native closure.
     pub fn wake(&self) {

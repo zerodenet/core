@@ -44,6 +44,24 @@ impl PacketReturnTotals {
                     .ok_or(PacketMemoryError::Overflow)?,
             )?
             .checked_add(tx_layout.repeated(transmit.len())?)?;
+        let mut metadata = self.prepay_io_set(native, sending, layout)?;
+        let mut grants = |lane, lengths: &[usize]| {
+            lengths
+                .iter()
+                .map(|bytes| self.prepaid_io_grant(lane, *bytes, &mut metadata))
+                .collect()
+        };
+        Ok(PacketIoWorkspaces {
+            reads: grants(Lane::Native, reads),
+            transmit: grants(Lane::Transmit, transmit),
+        })
+    }
+    pub(in crate::packet_memory) fn prepay_io_set(
+        self: &Arc<Self>,
+        native: PacketMemoryLimit,
+        sending: PacketMemoryLimit,
+        layout: PacketMetadataLayout,
+    ) -> Result<PacketMetadataCredit, PacketMemoryError> {
         let wake = std::task::Waker::from(self.clone());
         let mut state = self.state();
         for (request, lane) in [(native, state.native), (sending, state.transmit)] {
@@ -63,56 +81,50 @@ impl PacketReturnTotals {
         }
         // Every concrete Slot/header promise and control Envelope is paid for
         // the WHOLE real peer set before any IO or first allocation begins.
-        let mut metadata = self.metadata.reserve(layout, wake)?;
+        let metadata = self.metadata.reserve(layout, wake)?;
         state.native.occupied.frames += native.frames;
         state.native.occupied.bytes += native.bytes;
         state.transmit.occupied.frames += sending.frames;
         state.transmit.occupied.bytes += sending.bytes;
         drop(state);
-        let mut grants = |lane, lengths: &[usize]| {
-            lengths
-                .iter()
-                .map(|bytes| {
-                    let slot = metadata
-                        .split(slot_layout)
-                        .expect("same prepaid whole slot set");
-                    let envelope = if matches!(lane, Lane::Transmit) {
-                        Some(PacketTransmitEnvelope::with_anchor(
-                            credit::Credit {
-                                root: self.clone(),
-                                lane,
-                                frames: 0,
-                                bytes: 0,
-                            },
-                            PacketMemoryLimit {
-                                frames: 1,
-                                bytes: *bytes,
-                            },
-                            metadata
-                                .split(tx_layout)
-                                .expect("same prepaid whole control set"),
-                            true,
-                        ))
-                    } else {
-                        None
-                    };
-                    NativeReadGrant::from_prepaid_credit(
-                        credit::Credit {
-                            root: self.clone(),
-                            lane,
-                            frames: 1,
-                            bytes: *bytes,
-                        },
-                        envelope,
-                        slot,
-                    )
-                })
-                .collect()
+        Ok(metadata)
+    }
+    pub(in crate::packet_memory) fn prepaid_io_grant(
+        self: &Arc<Self>,
+        lane: Lane,
+        bytes: usize,
+        metadata: &mut PacketMetadataCredit,
+    ) -> NativeReadGrant {
+        let slot = metadata
+            .split(read::header::slot_layout().expect("actual slot layout"))
+            .expect("same prepaid whole slot set");
+        let envelope = if matches!(lane, Lane::Transmit) {
+            Some(PacketTransmitEnvelope::with_anchor(
+                credit::Credit {
+                    root: self.clone(),
+                    lane,
+                    frames: 0,
+                    bytes: 0,
+                },
+                PacketMemoryLimit { frames: 1, bytes },
+                metadata
+                    .split(PacketTransmitEnvelope::layout(1).expect("actual control layout"))
+                    .expect("same prepaid whole control set"),
+                true,
+            ))
+        } else {
+            None
         };
-        Ok(PacketIoWorkspaces {
-            reads: grants(Lane::Native, reads),
-            transmit: grants(Lane::Transmit, transmit),
-        })
+        NativeReadGrant::from_prepaid_credit(
+            credit::Credit {
+                root: self.clone(),
+                lane,
+                frames: 1,
+                bytes,
+            },
+            envelope,
+            slot,
+        )
     }
 }
 #[cfg(test)]
