@@ -138,6 +138,9 @@ impl QuinnDriverOwner {
     pub(super) async fn wait_joined_original(&self) -> Result<Vec<TaskJoined>, ChannelError> {
         self.ledger.wait_joined_original().await
     }
+    pub(super) fn next_task(&self, previous: Option<TaskId>) -> Option<TaskId> {
+        self.ledger.next_task(previous)
+    }
     pub fn task_status(&self) -> DriverTaskStatus {
         self.ledger.task_status()
     }

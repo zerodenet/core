@@ -18,6 +18,7 @@ mod body;
 mod completion;
 mod join;
 mod reception;
+mod sealed;
 pub(in crate::controlled_datagram::metadata::users) use completion::RegistrationSequence;
 pub use completion::{DriverRegistrationsClosed, RegistrationIter};
 mod registration;

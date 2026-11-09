@@ -165,6 +165,11 @@ impl CarrierAdoption {
         self.slot.state().auxiliary_accepted = true;
         Ok(Some(joined))
     }
+    /// Read-only identity of this original's already installed setup task.
+    /// This never reconstructs task/IO authority from an ID or Scope value.
+    pub fn initializer_registration(&self) -> Option<TaskJoinWitness> {
+        self.slot.state().auxiliary.clone()
+    }
     pub fn auxiliary_exit(&self) -> Option<TaskJoined> {
         self.slot.state().auxiliary_exit.clone()
     }

@@ -7,7 +7,9 @@ use zero_platform_tokio::{
 };
 
 mod observation;
+mod protocol;
 mod retire;
+pub use protocol::BorrowedProtocolReturned;
 type Input = CarrierDriver<(BorrowedDatagram, CarrierUserView)>;
 pub struct BorrowedPacketSegment {
     adoption: CarrierAdoption,
