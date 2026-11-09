@@ -43,7 +43,18 @@ pub(crate) struct Runtime {
     memory: PacketDriverMetadataView,
     book: CarrierBufferBudget,
     stopped: CancellationToken,
-    pool: std::sync::Mutex<Option<std::sync::Weak<super::Inner>>>,
+    pool: std::sync::Mutex<Option<std::sync::Weak<dyn OriginalPoolIdle>>>,
+}
+// Erase only the existing pool's passive maintenance reference. The same Arc
+// allocation is unsized, with no wrapper allocation or new pool/executor. This
+// cuts the auto-trait expansion through pool -> original -> Runtime -> pool.
+trait OriginalPoolIdle: Send + Sync {
+    fn reap(self: Arc<Self>);
+}
+impl OriginalPoolIdle for super::Inner {
+    fn reap(self: Arc<Self>) {
+        super::XhttpClientPool::reap_inner(&self);
+    }
 }
 impl Runtime {
     pub fn prepare(
@@ -68,14 +79,16 @@ impl Runtime {
         .map_err(|(source, _, _)| io::Error::other(source))
     }
     pub(super) fn bind_pool(&self, pool: &Arc<super::Inner>) {
+        let original: Arc<dyn OriginalPoolIdle> = pool.clone();
+        let original = Arc::downgrade(&original);
         let mut actual = self
             .pool
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(actual) = &*actual {
-            assert!(actual.ptr_eq(&Arc::downgrade(pool)));
+            assert!(actual.ptr_eq(&original));
         } else {
-            *actual = Some(Arc::downgrade(pool));
+            *actual = Some(original);
         }
     }
     pub async fn run(&self) {
@@ -93,7 +106,7 @@ impl Runtime {
                 _=self.stopped.cancelled()=>{self.ledger.cancel_all();return;},
                 _=progress=>return,
                 _=&mut changed=>{},
-                _=idle.tick()=>{let pool={self.pool.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref().and_then(std::sync::Weak::upgrade)};if let Some(pool)=pool{super::XhttpClientPool::reap_inner(&pool);}},
+                _=idle.tick()=>{let pool={self.pool.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref().and_then(std::sync::Weak::upgrade)};if let Some(pool)=pool{pool.reap();}},
             }
         }
     }
