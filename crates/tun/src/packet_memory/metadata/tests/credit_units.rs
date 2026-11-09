@@ -1,5 +1,6 @@
 use super::*;
 use zero_traits::packet_metadata::PacketMetadataCounter;
+#[path = "credit_units/waker.rs"]
 mod waker;
 #[test]
 fn same_credit_scalar_growth_and_refund_never_clone_drop_or_wake_its_generic_waker() {

@@ -35,7 +35,7 @@ impl Gateway<'_> {
                 std::fmt::write(&mut value, format_args!("{address}")).map_err(io::Error::other)?;
                 let text =
                     std::str::from_utf8(&value.bytes[..value.length]).map_err(io::Error::other)?;
-                Self::Text(text).copy(owner)
+                owner.string(text).map_err(io::Error::other)
             }
         }
     }
