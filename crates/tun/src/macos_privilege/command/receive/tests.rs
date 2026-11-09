@@ -78,7 +78,8 @@ fn metadata_pause_preserves_small_cleanup_output_on_the_same_already_paid_worksp
             .reserve_driver_metadata(
                 crate::packet_memory::PacketMetadataLayout::array::<u8>(1).unwrap()
             )
-            .unwrap_err(),
+            .err()
+            .expect("actual metadata admission is paused"),
         PacketMemoryError::Paused
     );
     let (mut peer, source) = UnixStream::pair().unwrap();

@@ -231,3 +231,7 @@ fn write(fd: RawFd, bytes: &[u8; MESSAGE], offset: &mut usize) -> io::Result<boo
     }
     Ok(true)
 }
+
+#[cfg(test)]
+#[path = "tests.rs"]
+mod tests;

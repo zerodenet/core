@@ -78,5 +78,3 @@ impl std::error::Error for CommandControl {
     }
 }
 
-#[cfg(test)]
-mod tests;
