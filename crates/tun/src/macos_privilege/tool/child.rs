@@ -125,6 +125,7 @@ fn run_fixed(
     failures::finish(child_ends, output, close, waited)
 }
 
+#[cfg(test)]
 pub(in crate::macos_privilege) fn run_query(
     slot: &mut ChildOriginal,
     query: super::Query,

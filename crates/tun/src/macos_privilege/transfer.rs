@@ -6,13 +6,15 @@ use std::{
     os::fd::RawFd,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex, OnceLock,
+        Mutex, OnceLock,
     },
 };
 mod confirm;
 mod descriptor;
 mod receive;
 pub(super) use descriptor::Original;
+#[cfg(test)]
+use std::sync::Arc;
 #[cfg(test)]
 mod tests;
 
@@ -50,9 +52,6 @@ impl Transfer {
             progress: Mutex::new(confirm::Progress::default()),
             remote: Mutex::new(Remote::Unattempted),
         }
-    }
-    pub(super) fn id(&self) -> u64 {
-        self.id
     }
     pub(super) fn submit_create(&self) {
         self.submitted.store(true, Ordering::Release);
@@ -106,6 +105,7 @@ impl Transfer {
     pub(super) fn observe_remote_settled(&self) {
         *self.remote.lock().unwrap_or_else(|e| e.into_inner()) = Remote::Closed;
     }
+    #[cfg(test)]
     pub(super) fn remote_closed(&self) -> bool {
         matches!(
             *self.remote.lock().unwrap_or_else(|e| e.into_inner()),
@@ -153,17 +153,11 @@ impl Transfer {
     }
 }
 #[derive(Clone)]
-pub(crate) enum TransferOwner {
-    Library(Arc<Transfer>),
-    Kernel(crate::packet_memory::PacketMetadataArc<Transfer>),
-}
+pub(crate) struct TransferOwner(crate::packet_memory::PacketMetadataArc<Transfer>);
 impl std::ops::Deref for TransferOwner {
     type Target = Transfer;
     fn deref(&self) -> &Transfer {
-        match self {
-            Self::Library(owner) => owner,
-            Self::Kernel(owner) => owner,
-        }
+        &self.0
     }
 }
 impl TransferOwner {
@@ -172,34 +166,7 @@ impl TransferOwner {
         credit: crate::packet_memory::PacketMetadataCredit,
     ) -> io::Result<Self> {
         crate::packet_memory::PacketMetadataArc::from_prepaid(Transfer::new(id), credit)
-            .map(Self::Kernel)
+            .map(Self)
             .map_err(|(source, _, _)| io::Error::other(source))
-    }
-    pub(super) fn prepare(
-        id: u64,
-        memory: Option<&crate::packet_memory::PacketMemoryView>,
-    ) -> io::Result<Self> {
-        match memory {
-            Some(memory) => {
-                type Paid = crate::packet_memory::PacketMetadataArc<Transfer>;
-                let layout = Paid::layout().map_err(io::Error::other)?;
-                let credit = memory
-                    .reserve_driver_metadata(layout)
-                    .map_err(io::Error::other)?;
-                Paid::from_prepaid(Transfer::new(id), credit)
-                    .map(Self::Kernel)
-                    .map_err(|(source, _, _)| io::Error::other(source))
-            }
-            None => Ok(Self::Library(Arc::new(Transfer::new(id)))),
-        }
-    }
-    pub(super) fn same_owner(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Library(a), Self::Library(b)) => Arc::ptr_eq(a, b),
-            (Self::Kernel(a), Self::Kernel(b)) => {
-                crate::packet_memory::PacketMetadataArc::ptr_eq(a, b)
-            }
-            _ => false,
-        }
     }
 }

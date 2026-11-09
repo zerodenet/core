@@ -98,6 +98,7 @@ impl MacosHelperOwner {
         let owner_layout = PacketMetadataArc::<Session>::layout().map_err(io::Error::other)?;
         let failures_layout = PacketMetadataArc::<Failures>::layout().map_err(io::Error::other)?;
         let transfer_layout = PacketMetadataArc::<Transfer>::layout().map_err(io::Error::other)?;
+        let output_layout = super::command::inline::Storage::layout().map_err(io::Error::other)?;
         if request_capacity < rpc::CAPACITY {
             return Err(io::Error::other(
                 "helper request layout is smaller than bootstrap framing",
@@ -113,6 +114,12 @@ impl MacosHelperOwner {
             .and_then(|layout| layout.checked_add(request_layout))
             .and_then(|layout| layout.checked_add(request_layout))
             .map_err(io::Error::other)?;
+        let all = all
+            .checked_add(output_layout)
+            .and_then(|layout| layout.checked_add(output_layout))
+            .and_then(|layout| layout.checked_add(output_layout))
+            .and_then(|layout| layout.checked_add(output_layout))
+            .map_err(io::Error::other)?;
         let mut credit = memory
             .reserve_driver_metadata(all)
             .map_err(io::Error::other)?;
@@ -124,7 +131,7 @@ impl MacosHelperOwner {
         let mut epochs = [None, None];
         for slot in &mut epochs {
             let id = super::UTUN_HELPER_SEQUENCE
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |value| {
                     value.checked_add(1)
                 })
                 .map_err(|_| io::Error::other("helper original sequence exhausted"))?;
@@ -137,6 +144,15 @@ impl MacosHelperOwner {
                 credit.split(request_layout).map_err(io::Error::other)?,
             )?;
             rpc.bind_metadata(memory.clone(), output_limit)?;
+            let outputs = [
+                super::command::inline::Storage::from_prepaid(
+                    credit.split(output_layout).map_err(io::Error::other)?,
+                )?,
+                super::command::inline::Storage::from_prepaid(
+                    credit.split(output_layout).map_err(io::Error::other)?,
+                )?,
+            ];
+            rpc.bind_output_storage(outputs);
             *slot = Some(Mutex::new(Epoch {
                 id,
                 native: native::Native::new(),

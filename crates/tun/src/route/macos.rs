@@ -485,15 +485,18 @@ fn family(ipv6: bool) -> &'static str {
     }
 }
 
-fn run_route(arguments: &[String]) -> io::Result<Vec<u8>> {
+fn run_route(arguments: &[String]) -> io::Result<crate::macos_privilege::CommandBytes> {
     let program = route_program();
     let output = if arguments.iter().any(|argument| argument == "get") {
-        crate::macos_privilege::route_query(arguments)
-            .unwrap_or_else(|| Command::new(program).args(arguments).output())
+        crate::macos_privilege::route_query(arguments).unwrap_or_else(|| {
+            Command::new(program)
+                .args(arguments)
+                .output()
+                .map(crate::macos_privilege::CommandOutput::library)
+        })
     } else {
         crate::macos_privilege::output(program, arguments)
-    }
-    .map_err(|error| io::Error::new(error.kind(), format!("execute `{program}`: {error}")))?;
+    }?;
     if output.status.success() {
         Ok(output.stdout)
     } else {
@@ -503,8 +506,7 @@ fn run_route(arguments: &[String]) -> io::Result<Vec<u8>> {
 
 fn run_route_remove(arguments: &[String]) -> io::Result<()> {
     let program = route_program();
-    let output = crate::macos_privilege::output(program, arguments)
-        .map_err(|error| io::Error::new(error.kind(), format!("execute `{program}`: {error}")))?;
+    let output = crate::macos_privilege::output(program, arguments)?;
     let stderr = String::from_utf8_lossy(&output.stderr).to_ascii_lowercase();
     if output.status.success()
         || stderr.contains("not in table")

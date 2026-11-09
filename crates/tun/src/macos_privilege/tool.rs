@@ -3,11 +3,13 @@
 use super::{process::ProcessExit, transfer::Original, HelperProgram};
 use std::{
     io,
-    os::fd::{AsRawFd, IntoRawFd, RawFd},
+    os::fd::{IntoRawFd, RawFd},
     os::unix::net::UnixStream,
 };
 mod child;
-pub(super) use child::{run, run_owned, run_query, run_query_owned, run_streamed, ChildOriginal};
+#[cfg(test)]
+pub(super) use child::run_query;
+pub(super) use child::{run, run_owned, run_query_owned, run_streamed, ChildOriginal};
 pub(in crate::macos_privilege) enum Query {
     Route(Vec<String>),
     RouteTable(bool),
@@ -25,6 +27,7 @@ pub(super) struct Supervisor {
     ack: usize,
     live: [u8; 8],
     live_read: usize,
+    no_returned_child: bool,
 }
 impl Supervisor {
     pub(super) fn new() -> Self {
@@ -38,6 +41,7 @@ impl Supervisor {
             ack: 0,
             live: [0; 8],
             live_read: 0,
+            no_returned_child: false,
         }
     }
     /// Both descriptors enter the installed Session before any fcntl or IPC.
@@ -103,6 +107,7 @@ impl Supervisor {
         self.ack = 0;
         self.live = [0; 8];
         self.live_read = 0;
+        self.no_returned_child = false;
         Ok(())
     }
     pub(super) fn poll_fd(&self) -> Option<RawFd> {
@@ -118,11 +123,70 @@ impl Supervisor {
         self.nonce.is_some()
     }
     pub(super) fn completed(&mut self) -> io::Result<bool> {
-        if self.nonce.is_none() {
+        if self.nonce.is_none() || self.no_returned_child {
             return Ok(true);
         }
-        self.advance()?;
-        Ok(self.child.observe_exit()?.is_some())
+        if let Err(source) = self.advance() {
+            if source.kind() != io::ErrorKind::UnexpectedEof
+                || self.read != self.report.len()
+                || self.live_read != self.live.len()
+                || self.live != self.nonce.unwrap().to_be_bytes()
+            {
+                return Err(source);
+            }
+        }
+        let pid = i32::from_be_bytes(self.report[8..12].try_into().unwrap());
+        Ok(self
+            .child
+            .observe_exit()?
+            .is_some_and(|exit| exit.matches(pid, self.nonce.unwrap())))
+    }
+    // Only the authenticated controlled helper's terminal command report may
+    // describe spawn returning no Child. EOF/absence alone is never this fact.
+    pub(in crate::macos_privilege) fn completed_report(
+        &mut self,
+        nonce: u64,
+        returned_pid: i32,
+        operation_errno: i32,
+    ) -> io::Result<bool> {
+        if self.nonce != Some(nonce) || returned_pid < 0 {
+            return Err(io::Error::other(
+                "terminal command belongs to another original",
+            ));
+        }
+        if let Err(source) = self.advance() {
+            // A failed fixed command can close the helper after its terminal
+            // frame. Previously registered process receipts remain independent.
+            if source.kind() != io::ErrorKind::UnexpectedEof {
+                return Err(source);
+            }
+        }
+        if returned_pid == 0
+            && operation_errno != 0
+            && self.read == 0
+            && self.child.event_fd().is_none()
+        {
+            self.no_returned_child = true;
+            return Ok(true);
+        }
+        if returned_pid == 0 && operation_errno == 0 && self.read == 0 {
+            return Err(io::Error::other(
+                "terminal success did not return its original Child",
+            ));
+        }
+        if self.read != self.report.len() {
+            return Ok(false);
+        }
+        let actual_pid = i32::from_be_bytes(self.report[8..12].try_into().unwrap());
+        if returned_pid != 0 && actual_pid != returned_pid {
+            return Err(io::Error::other(
+                "returned Child mismatches registered command",
+            ));
+        }
+        Ok(self
+            .child
+            .observe_exit()?
+            .is_some_and(|exit| exit.matches(actual_pid, nonce)))
     }
     /// A known incomplete request has not reached the helper parser. This
     /// narrow fact is supplied by the same retained RPC byte continuation.

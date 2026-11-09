@@ -18,6 +18,7 @@ pub(super) fn read(ipv6: bool) -> io::Result<Vec<RouteEntry>> {
             .args(["-rnW", "-f", if ipv6 { "inet6" } else { "inet" }])
             .env("LC_ALL", "C")
             .output()
+            .map(crate::macos_privilege::CommandOutput::library)
     })?;
     if !output.status.success() {
         return Err(io::Error::other(format!(

@@ -6,7 +6,7 @@
 //! tools used by this crate.
 
 use std::fs;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, Read, Write};
 use std::mem;
 use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::fs::PermissionsExt;
@@ -18,6 +18,8 @@ use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 
+mod command;
+pub(crate) use command::{CommandBytes, CommandOutput};
 mod launch;
 mod process;
 mod server;
@@ -369,28 +371,32 @@ fn receive_fd(socket: RawFd) -> io::Result<RawFd> {
     Ok(fd)
 }
 
-pub(crate) fn output(program: &str, arguments: &[String]) -> io::Result<Output> {
+pub(crate) fn output(program: &str, arguments: &[String]) -> io::Result<CommandOutput> {
     if let Some(owner) = session::current() {
         return owner.output(helper_program(program)?, arguments, None);
     }
     if unsafe { libc::geteuid() } == 0 {
-        return Command::new(program).args(arguments).output();
+        return Command::new(program)
+            .args(arguments)
+            .output()
+            .map(CommandOutput::library);
     }
-    helper_output(program, arguments, None)
+    helper_output(program, arguments, None).map(CommandOutput::library)
 }
 
 pub(crate) fn output_with_input(
     program: &str,
     arguments: &[String],
     input: &str,
-) -> io::Result<Output> {
+) -> io::Result<CommandOutput> {
     if let Some(owner) = session::current() {
         return owner.output(helper_program(program)?, arguments, Some(input));
     }
     if unsafe { libc::geteuid() } == 0 {
-        return run_as_root(helper_program(program)?, arguments, Some(input));
+        return run_as_root(helper_program(program)?, arguments, Some(input))
+            .map(CommandOutput::library);
     }
-    helper_output(program, arguments, Some(input))
+    helper_output(program, arguments, Some(input)).map(CommandOutput::library)
 }
 
 fn helper_output(program: &str, arguments: &[String], input: Option<&str>) -> io::Result<Output> {

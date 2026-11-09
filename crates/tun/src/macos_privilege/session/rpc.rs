@@ -2,17 +2,25 @@
 use super::*;
 use std::io::Cursor;
 pub(super) const CAPACITY: usize = 65_536;
+mod output;
 mod request;
 pub(super) use request::Request;
 pub(super) struct Rpc {
     request: Request,
     length: usize,
     written: usize,
-    response: [u8; CAPACITY],
+    #[cfg(test)]
+    response: Option<Box<[u8]>>,
+    scratch: [u8; 4096],
+    result_storage: Option<
+        [crate::packet_memory::PacketMetadataArc<super::super::command::inline::Storage>; 2],
+    >,
+    receiving: Option<super::super::command::receive::Receiving>,
     read: usize,
     newline: bool,
     started: bool,
     command: Option<u64>,
+    command_limit: usize,
     parsed: Option<HelperResponse>,
     owned_response: Option<(
         crate::packet_memory::PacketMemoryView,
@@ -23,7 +31,9 @@ pub(super) struct Rpc {
 impl Rpc {
     #[cfg(test)]
     pub(super) fn new() -> Self {
-        Self::with_request(Request::library())
+        let mut rpc = Self::with_request(Request::library());
+        rpc.response = Some(vec![0; CAPACITY].into_boxed_slice());
+        rpc
     }
     pub(super) fn from_prepaid(
         bytes: usize,
@@ -36,11 +46,16 @@ impl Rpc {
             request,
             length: 0,
             written: 0,
-            response: [0; CAPACITY],
+            #[cfg(test)]
+            response: None,
+            scratch: [0; 4096],
+            result_storage: None,
+            receiving: None,
             read: 0,
             newline: false,
             started: false,
             command: None,
+            command_limit: 0,
             parsed: None,
             owned_response: None,
         }
@@ -55,6 +70,15 @@ impl Rpc {
                 "same helper RPC still owns an unfinished request",
             ));
         }
+        let receiving = match command {
+            Some(nonce) => Some(super::super::command::receive::Receiving::new(
+                nonce,
+                self.result_storage.as_ref().ok_or_else(|| {
+                    io::Error::other("owned command lacks same Source output storage")
+                })?,
+            )?),
+            None => None,
+        };
         let mut cursor = Cursor::new(&mut self.request[..]);
         serde_json::to_writer(&mut cursor, request).map_err(io::Error::other)?;
         let length = usize::try_from(cursor.position()).map_err(io::Error::other)?;
@@ -65,6 +89,7 @@ impl Rpc {
         if let Some((_, bytes, _)) = &mut self.owned_response {
             bytes.retain(|_| false);
         }
+        self.receiving = receiving;
         self.length = length + 1;
         self.written = 0;
         self.read = 0;
@@ -83,6 +108,7 @@ impl Rpc {
             .checked_mul(8)
             .and_then(|max| max.checked_add(1024))
             .ok_or_else(|| io::Error::other("helper response layout overflow"))?;
+        self.command_limit = output_limit;
         self.owned_response = Some((memory, Default::default(), max));
         Ok(())
     }
@@ -106,9 +132,6 @@ impl Rpc {
     pub(super) fn pending(&self) -> bool {
         self.started
     }
-    pub(super) fn command(&self) -> Option<u64> {
-        self.command
-    }
     pub(super) fn progress(
         &mut self,
         control: RawFd,
@@ -118,11 +141,34 @@ impl Rpc {
             return Ok(true);
         }
         if self.command.is_some() {
-            tools.advance()?;
+            if let Err(source) = tools.advance() {
+                if self.receiving.is_none() || source.kind() != io::ErrorKind::UnexpectedEof {
+                    return Err(source);
+                }
+            }
         }
         self.write_request(control)?;
         if !self.submitted() {
             return Ok(false);
+        }
+        if let Some(receiving) = &mut self.receiving {
+            let (memory, _, _) = self
+                .owned_response
+                .as_ref()
+                .ok_or_else(|| io::Error::other("owned command lacks original memory view"))?;
+            // The JSON bootstrap bound is larger; the actual command bound is
+            // stored separately and never inferred from serialized expansion.
+            if !receiving.progress(control, &mut self.scratch, memory, self.command_limit)? {
+                return Ok(false);
+            }
+            let report = receiving
+                .finished()
+                .ok_or_else(|| io::Error::other("missing exact command terminal frame"))?;
+            return tools.completed_report(
+                self.command.unwrap(),
+                report.child_pid,
+                report.operation_errno,
+            );
         }
         while !self.newline {
             // Admit actual response capacity BEFORE dequeueing its next byte.
@@ -156,12 +202,21 @@ impl Rpc {
                     .push_reserved(byte)
                     .map_err(|_| io::Error::other("prepaid helper response slot missing"))?;
             } else {
-                if self.read == self.response.len() {
-                    return Err(io::Error::other(
-                        "library helper response exceeds retained fixture workspace",
-                    ));
+                #[cfg(test)]
+                {
+                    let response = self
+                        .response
+                        .as_mut()
+                        .ok_or_else(|| io::Error::other("Kernel reply lacks owned storage"))?;
+                    if self.read == response.len() {
+                        return Err(io::Error::other(
+                            "library helper response exceeds fixture storage",
+                        ));
+                    }
+                    response[self.read] = byte;
                 }
-                self.response[self.read] = byte;
+                #[cfg(not(test))]
+                return Err(io::Error::other("Kernel reply lacks owned storage"));
             }
             self.read += 1;
         }
@@ -169,7 +224,18 @@ impl Rpc {
             let bytes = if let Some((_, bytes, _)) = &self.owned_response {
                 &bytes[..]
             } else {
-                &self.response[..self.read]
+                #[cfg(test)]
+                {
+                    &self
+                        .response
+                        .as_ref()
+                        .ok_or_else(|| io::Error::other("Kernel reply lacks owned storage"))?
+                        [..self.read]
+                }
+                #[cfg(not(test))]
+                {
+                    return Err(io::Error::other("Kernel reply lacks owned storage"));
+                }
             };
             self.parsed = Some(serde_json::from_slice(bytes).map_err(io::Error::other)?);
         }
@@ -225,6 +291,7 @@ impl Rpc {
                 return Err(io::Error::from(io::ErrorKind::WouldBlock));
             }
         }
+        self.receiving = None;
         self.started = false;
         Ok(())
     }
