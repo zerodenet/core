@@ -70,3 +70,9 @@ mod navigation;
 
 #[path = "material/quic.rs"]
 mod quic;
+
+#[path = "material/managed_originals.rs"]
+mod managed_originals;
+
+#[path = "material/h3.rs"]
+mod h3;

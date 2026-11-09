@@ -1,7 +1,7 @@
 use super::{stream_pair, Body, Profile, XhttpMode, XhttpStream};
 use crate::browser_dialer::BrowserDialer;
 use http_body_util::BodyExt;
-use std::{io, sync::Arc, time::Duration};
+use std::{io, time::Duration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zero_traits::SplitHttpTransportProfile;
 
@@ -88,7 +88,7 @@ async fn upload_packets(
     authority: &str,
     session: &str,
     reader: &mut tokio::io::ReadHalf<tokio::io::DuplexStream>,
-    state: &Arc<super::super::io::Lifetime>,
+    state: &super::super::io::LifetimeRef,
 ) -> io::Result<()> {
     let mut buffer = vec![0; profile.options.sc_max_each_post_bytes.to.max(1) as usize];
     let mut next_post = tokio::time::Instant::now();

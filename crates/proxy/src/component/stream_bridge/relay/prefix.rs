@@ -138,6 +138,36 @@ impl UpstreamOpener for PrefixOpener {
                     .ok()
             })
     }
+    fn validate_pending_protocol_original(
+        &self,
+        binding: &UpstreamBinding,
+        original: &zero_platform_tokio::controlled_carrier::ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        if binding != &self.expected_binding
+            || binding.network_generation.0 != self.network.network_generation()
+        {
+            return Err(invalid(
+                Reason::StalePlan,
+                "protocol pending prefix changed",
+            ));
+        }
+        let plan = self
+            .plan
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .ok_or_else(|| invalid(Reason::Revoked, "protocol pending plan retired"))?;
+        if binding.prefix.iter().enumerate().any(|(index, role)| {
+            original.binding().prefix == binding.prefix[..index]
+                && plan.validate_protocol_original(*role, original).is_ok()
+        }) {
+            Ok(())
+        } else {
+            Err(invalid(
+                Reason::StalePlan,
+                "protocol original outside the actual pending prefix",
+            ))
+        }
+    }
     fn validate_pending_carrier(
         &self,
         binding: &UpstreamBinding,

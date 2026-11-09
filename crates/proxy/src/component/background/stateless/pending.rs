@@ -88,6 +88,15 @@ impl Pending {
     }
 }
 impl UpstreamOpener for Pending {
+    fn validate_pending_protocol_original(
+        &self,
+        binding: &UpstreamBinding,
+        original: &zero_platform_tokio::controlled_carrier::ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        self.upstream
+            .validate_pending_protocol_original(binding, original)
+    }
+
     fn protocol_original_observer(
         &self,
     ) -> Option<zero_platform_tokio::contract::network::PendingCarrierObserver> {

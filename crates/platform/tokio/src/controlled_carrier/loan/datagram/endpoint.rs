@@ -79,10 +79,11 @@ impl BorrowedDatagram {
             || state.endpoint_claim.is_some()
             || state.spawn_attempted
             || state.spawning
-            || !state
-                .users
-                .as_ref()
-                .is_some_and(|users| users.live() && users.acquired() && users.transferred())
+            || !state.users.as_ref().is_some_and(|users| {
+                users.live()
+                    && users.acquired()
+                    && users.protocol_target_custody(bound.pool_kind() == Some(true))
+            })
         {
             return Err(failure());
         }
@@ -240,5 +241,60 @@ impl CarrierAdoption {
         drop(state);
         self.slot.notify();
         Ok(())
+    }
+}
+
+impl<O: DriverKind, B: Send + Sync + 'static> CarrierEndpointUserGraph<O, B> {
+    /// This exact unique borrowed IO already bound these endpoint ledgers.
+    /// A pool's actual packet-driver keeper and its real protocol registration
+    /// must both still be live when the persistent Root accepts the handoff.
+    pub fn prepare_protocol_receiver(
+        &self,
+        keeper: crate::controlled_carrier::CarrierDriverRetained,
+        protocol: zero_core::component::TaskId,
+        retirement: &crate::controlled_carrier::CarrierProtocolRetirement,
+    ) -> Result<crate::controlled_carrier::ProtocolReceiverPrepared, ChannelError> {
+        let slot = self.0.original.slot.upgrade().ok_or_else(failure)?;
+        let adoption = CarrierAdoption { slot: slot.clone() };
+        if !keeper.retains(&adoption) {
+            return Err(failure());
+        }
+        let protocol = self
+            .0
+            .drivers
+            .live_registration(protocol)
+            .ok_or_else(failure)?;
+        if !self.0.original.scope.same_scope(&protocol.scope_identity())
+            || !self
+                .0
+                .original
+                .scope
+                .same_scope(&keeper.driver().scope_identity())
+        {
+            return Err(failure());
+        }
+        let phase = {
+            let state = slot.state();
+            if !state
+                .endpoint_claim
+                .as_ref()
+                .is_some_and(|actual| Arc::ptr_eq(actual, &self.0.original))
+                || state.endpoint_closed.is_some()
+                || state.closed
+                || !slot.root_bound
+            {
+                return Err(failure());
+            }
+            state.protocol.clone()
+        }
+        .ok_or_else(failure)?;
+        if !retirement.matches_phase(&phase) {
+            return Err(failure());
+        }
+        let receiver =
+            crate::controlled_carrier::ProtocolOriginalReceiver::carrier(keeper, protocol);
+        Ok(crate::controlled_carrier::ProtocolReceiverPrepared::new(
+            &phase, receiver,
+        ))
     }
 }

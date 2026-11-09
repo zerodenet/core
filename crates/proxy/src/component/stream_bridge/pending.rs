@@ -14,38 +14,18 @@ use zero_platform_tokio::{
 };
 
 pub(super) struct PendingCaller(UpstreamTransport);
-#[derive(Clone)]
-enum Caller {
-    Accepted(AcceptedCaller),
-    Probe(zero_runtime::ProbeCall),
-    #[cfg(feature = "raw-ip-runtime")]
-    Raw(crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration),
-}
-impl Caller {
-    fn check_open(&self) -> Result<(), ChannelError> {
-        match self {
-            Self::Accepted(caller) => caller.check_open(),
-            Self::Probe(caller) => caller.check_open(),
-            #[cfg(feature = "raw-ip-runtime")]
-            Self::Raw(caller) => caller.check_open(),
-        }
-    }
-    fn retain(&self, adoption: CarrierAdoption) -> Result<(), ChannelError> {
-        match self {
-            Self::Accepted(caller) => caller.observe_pending_carrier(adoption),
-            Self::Probe(caller) => caller.observe_pending_carrier(adoption),
-            #[cfg(feature = "raw-ip-runtime")]
-            Self::Raw(caller) => caller.observe_pending_carrier(adoption),
-        }
-    }
-}
+mod caller;
+mod protocol;
+pub(crate) use caller::actual_protocol_caller;
+use caller::Caller;
 
 struct Observer {
     source: Weak<CurrentServiceSource>,
     caller: Caller,
     admitted: Option<AdmittedBusinessDemand>,
-    roles: Arc<[RoleInstanceId]>,
-    binding: UpstreamBinding,
+    roles: Vec<RoleInstanceId>,
+    anchor: std::sync::OnceLock<PendingCarrierObserver>,
+    _roles_memory: zero_traits::packet_metadata::PacketMetadataCredit,
 }
 impl PendingCaller {
     pub(super) fn new(
@@ -111,23 +91,72 @@ impl PendingCaller {
         if plan.pending_carrier_capacity(&roles)? == 0 {
             return Ok(None);
         }
+        let memory = caller.protocol_metadata()?;
+        let roles_memory = memory
+            .reserve(
+                zero_traits::packet_metadata::PacketMetadataLayout::array::<RoleInstanceId>(
+                    roles.capacity(),
+                )
+                .map_err(|source| {
+                    invalid(Reason::Capacity, "pending role storage overflow").with_source(source)
+                })?,
+            )
+            .map_err(|source| {
+                invalid(Reason::Capacity, "pending role metadata capacity").with_source(source)
+            })?;
+        let opener_memory = memory
+            .reserve(
+                UpstreamTransport::opener_metadata_layout::<Observer>(&binding).map_err(
+                    |source| {
+                        invalid(Reason::Capacity, "pending observer storage overflow")
+                            .with_source(source)
+                    },
+                )?,
+            )
+            .map_err(|source| {
+                invalid(Reason::Capacity, "pending observer metadata capacity").with_source(source)
+            })?;
         let observer = Observer {
             source: services.current_source.clone(),
             caller,
             admitted,
-            roles: roles.into(),
-            binding: binding.clone(),
+            roles,
+            anchor: std::sync::OnceLock::new(),
+            _roles_memory: roles_memory,
         };
-        Ok(Some(Self(UpstreamTransport::new(
-            binding,
-            Arc::new(observer),
-        ))))
+        let (transport, actual) =
+            UpstreamTransport::from_prepaid_opener(binding, observer, opener_memory).map_err(
+                |(source, _, _, _)| {
+                    invalid(Reason::Capacity, "pending observer storage refused")
+                        .with_source(source)
+                },
+            )?;
+        assert!(
+            actual
+                .actual()
+                .anchor
+                .set(transport.pending_carrier_observer())
+                .is_ok(),
+            "one actual pending receiver"
+        );
+        drop(actual);
+        Ok(Some(Self(transport)))
     }
     pub(super) fn observer(&self) -> PendingCarrierObserver {
         self.0.pending_carrier_observer()
     }
 }
 impl UpstreamOpener for Observer {
+    fn protocol_original_observer(&self) -> Option<PendingCarrierObserver> {
+        self.anchor.get().cloned()
+    }
+    fn retain_protocol_original(
+        &self,
+        binding: &UpstreamBinding,
+        original: zero_platform_tokio::controlled_carrier::ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        self.receive_protocol(binding, original)
+    }
     fn open_stream(
         &self,
         _: &UpstreamBinding,
@@ -165,7 +194,12 @@ impl UpstreamOpener for Observer {
         true
     }
     fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
-        if binding != &self.binding || self.caller.check_open().is_err() {
+        if self
+            .anchor
+            .get()
+            .is_none_or(|anchor| binding != anchor.binding())
+            || self.caller.check_open().is_err()
+        {
             return None;
         }
         let source = self.source.upgrade()?;
@@ -183,7 +217,11 @@ impl UpstreamOpener for Observer {
         binding: &UpstreamBinding,
         adoption: CarrierAdoption,
     ) -> Result<(), ChannelError> {
-        if binding != &self.binding {
+        if self
+            .anchor
+            .get()
+            .is_none_or(|anchor| binding != anchor.binding())
+        {
             return Err(invalid(Reason::StalePlan, "pending caller binding changed"));
         }
         self.caller.check_open()?;

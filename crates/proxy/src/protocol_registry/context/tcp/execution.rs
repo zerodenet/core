@@ -23,14 +23,13 @@ pub(crate) struct TcpExecutionServices {
         crate::component::instance::SharedError,
     >,
     pub(crate) invocation: Option<crate::component::direct_bridge::Invocation>,
-    pub(crate) pending_datagram:
-        Option<std::sync::Weak<crate::component::datagram_retirement::PendingOpen>>,
+    pub(crate) pending_datagram: Option<crate::component::datagram_retirement::PendingOpenWeak>,
     pub(crate) ingress: Option<crate::component::request::IngressIdentity>,
 }
 impl TcpExecutionServices {
     pub(crate) fn with_pending_datagram(
         mut self,
-        pending: std::sync::Weak<crate::component::datagram_retirement::PendingOpen>,
+        pending: crate::component::datagram_retirement::PendingOpenWeak,
     ) -> Self {
         self.pending_datagram = Some(pending);
         self

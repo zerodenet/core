@@ -72,7 +72,7 @@ impl ClientConnection {
         driver
             .attach_original(&adoption)
             .map_err(io::Error::other)?;
-        registration.registered(witness);
+        registration.registered(witness).map_err(io::Error::other)?;
         Ok(Self::from_prepared(
             first,
             opens,
@@ -123,7 +123,7 @@ impl ClientConnection {
             }
         }).map_err(io::Error::other)?;
         driver.registered(witness.clone());
-        registration.registered(witness);
+        registration.registered(witness).map_err(io::Error::other)?;
         Ok(Self::from_prepared(
             prepared.first,
             prepared.opens,

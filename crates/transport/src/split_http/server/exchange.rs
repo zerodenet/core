@@ -1,8 +1,8 @@
-use super::super::{io::Lifetime, sessions::Sessions};
+use super::super::{io::LifetimeRef, sessions::Sessions};
 use super::*;
 use tokio::sync::OwnedSemaphorePermit;
 struct UploadGuard {
-    life: Arc<Lifetime>,
+    life: LifetimeRef,
     complete: bool,
 }
 impl UploadGuard {
@@ -159,7 +159,7 @@ where
         // The response owns upload cancellation but successful upload EOF does
         // not terminate the independent download (TCP half-close).
         return Ok(response(Body {
-            receiver,
+            receiver: receiver.into(),
             task: Some(task),
             life: None,
             progress: None,
@@ -171,24 +171,27 @@ where
         let session =
             sessions.get_with_limit(&id, profile.options.sc_max_buffered_posts as usize)?;
         session.claim_download()?;
-        tracing::debug!(session = %id, state = ?Arc::as_ptr(&session.life), "XHTTP download attached");
+        tracing::debug!(session = %id, state = ?session.life.as_ptr(), "XHTTP download attached");
         Some(session)
     };
     let life = session
         .as_ref()
         .map(|s| s.life.clone())
-        .unwrap_or_else(|| Arc::new(Lifetime::default()));
+        .unwrap_or_else(|| LifetimeRef::default());
     let mut admission = UploadGuard {
         life: life.clone(),
         complete: false,
     };
     let (app, net) = tokio::io::duplex(64 * 1024);
     let stream = XhttpStream {
+        owned_return: None,
+        _owned_usage_memory: None,
         inner: app,
         life: life.clone(),
         tasks: Vec::new(),
         usages: Vec::new(),
         drain_on_drop: true,
+        _owned_buffer: None,
     };
     accepted
         .try_send(stream)
@@ -244,7 +247,7 @@ where
     })?;
     admission.complete = true;
     Ok(response(Body {
-        receiver,
+        receiver: receiver.into(),
         task: Some(task),
         life: Some(life),
         progress: None,

@@ -91,7 +91,19 @@ impl ProtocolOriginal {
         self.retirement.is_settled()
     }
     pub fn request_retirement(&self) {
-        self.retirement.request_retirement();
+        self.retirement.request_pre_delivery_retirement();
+    }
+    /// A separate actual cached receiver handoff never changes global settled.
+    pub fn receiver(&self) -> Option<ProtocolOriginalReceiver> {
+        self.retirement
+            .receiver()
+            .filter(|receiver| receiver.names(self))
+    }
+    pub fn is_returned(&self) -> bool {
+        self.is_settled() || self.receiver().is_some()
+    }
+    pub async fn wait_returned_original(&self) -> Result<(), ChannelError> {
+        self.retirement.wait_returned_original().await
     }
     pub async fn wait_settled_original(&self) -> Result<(), ChannelError> {
         self.retirement.wait_settled_original().await
@@ -107,3 +119,5 @@ impl std::fmt::Debug for ProtocolOriginal {
 }
 
 mod issuer;
+mod receiver;
+pub use receiver::{ProtocolOriginalReceiver, ProtocolReceiverPrepared};

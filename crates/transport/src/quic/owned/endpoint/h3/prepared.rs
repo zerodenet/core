@@ -50,10 +50,36 @@ impl PendingHttp3 {
         }
     }
 }
+enum Http3Work {
+    Plain,
+    #[cfg(feature = "split_http")]
+    Xmux(zero_traits::packet_metadata::PacketMetadataArc<crate::split_http::xmux::owned::Runtime>),
+}
 impl super::super::OwnedEndpointOwner {
     /// The input must be a handle from this same actual graph. No alternate
     /// native socket, scope, runtime, pool or default task allowance is created.
     pub fn prepare_http3(&self, connection: OwnedConnection) -> Result<PendingHttp3, ChannelError> {
+        self.prepare_http3_inner(connection, Http3Work::Plain)
+    }
+    #[cfg(feature = "split_http")]
+    pub(crate) fn prepare_xmux_http3(
+        &self,
+        connection: OwnedConnection,
+        work: zero_traits::packet_metadata::PacketMetadataArc<
+            crate::split_http::xmux::owned::Runtime,
+        >,
+    ) -> Result<PendingHttp3, ChannelError> {
+        if !matches!(&self.native,super::super::native::Native::Packet(socket) if socket.matches_buffer_budget(work.buffer_book()))
+        {
+            return Err(error(Stage::Prepare, Reason::InvalidConfig));
+        }
+        self.prepare_http3_inner(connection, Http3Work::Xmux(work))
+    }
+    fn prepare_http3_inner(
+        &self,
+        connection: OwnedConnection,
+        work: Http3Work,
+    ) -> Result<PendingHttp3, ChannelError> {
         if !Arc::ptr_eq(connection.permit.users(), &self.shared.users) {
             return Err(error(Stage::Prepare, Reason::InvalidConfig));
         }
@@ -75,7 +101,7 @@ impl super::super::OwnedEndpointOwner {
                     // drivers. Original observer panics resume outside library locks.
                     let outcome = if accepted.await.is_ok() {
                         crate::quic::owned::callbacks::Boundary::new(
-                            Box::pin(run(connection, cancel, handoff)),
+                            Box::pin(run(connection, cancel, handoff, work)),
                             callbacks,
                         )
                         .await
@@ -118,7 +144,14 @@ async fn run(
     connection: OwnedConnection,
     cancel: CancellationToken,
     mut handoff: oneshot::Sender<RequestSender>,
+    work: Http3Work,
 ) -> Http3DriverExit {
+    #[cfg(feature = "split_http")]
+    let _cleanup = RuntimeStop(match &work {
+        Http3Work::Xmux(runtime) => Some(runtime.clone()),
+        _ => None,
+    });
+
     let handshake = ::h3::client::new(Connection::new(connection));
     tokio::pin!(handshake);
     let (mut driver, sender) = tokio::select! { biased;
@@ -132,11 +165,34 @@ async fn run(
     if handoff.send(sender).is_err() {
         return Http3DriverExit::HandoffDropped;
     }
-    tokio::select! { biased;
-        _ = cancel.cancelled() => Http3DriverExit::Cancelled,
-        source = poll_fn(|cx| driver.poll_close(cx)) => Http3DriverExit::Closed(Arc::new(source)),
+    match work {
+        Http3Work::Plain => tokio::select! { biased;
+            _ = cancel.cancelled() => Http3DriverExit::Cancelled,
+            source = poll_fn(|cx| driver.poll_close(cx)) => Http3DriverExit::Closed(Arc::new(source)),
+        },
+        #[cfg(feature = "split_http")]
+        Http3Work::Xmux(runtime) => tokio::select! {biased;
+            _=cancel.cancelled()=>Http3DriverExit::Cancelled,
+            source=poll_fn(|cx|driver.poll_close(cx))=>Http3DriverExit::Closed(Arc::new(source)),
+            _=runtime.run()=>Http3DriverExit::Cancelled,
+        },
     }
 }
+#[cfg(feature = "split_http")]
+struct RuntimeStop(
+    Option<
+        zero_traits::packet_metadata::PacketMetadataArc<crate::split_http::xmux::owned::Runtime>,
+    >,
+);
+#[cfg(feature = "split_http")]
+impl Drop for RuntimeStop {
+    fn drop(&mut self) {
+        if let Some(runtime) = self.0.take() {
+            runtime.stop();
+        }
+    }
+}
+
 fn error(stage: Stage, reason: Reason) -> ChannelError {
     ChannelError::new(stage, reason, Impact::Session)
 }

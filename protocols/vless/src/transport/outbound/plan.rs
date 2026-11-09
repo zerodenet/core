@@ -512,6 +512,33 @@ impl OwnedVlessOutboundTransportPlan {
         }
         self.transport.quic.clone()
     }
+    // This is the actual accepted pool object, not a new pool or material decode.
+    // Independent download plans keep their existing executor until their own
+    // physical declaration/receiver pair is installed as part of that graph.
+    pub(in crate::transport) fn owned_h3_parts(
+        &self,
+    ) -> Option<(
+        VlessQuicClientProfile,
+        zero_transport::split_http::XhttpClientPool,
+        zero_transport::profile::OwnedSplitHttpProfile,
+    )> {
+        if self.browser_ws
+            || self.browser_xhttp
+            || self.grpc_pool.is_some()
+            || self.hysteria.is_some()
+            || self.mkcp.is_some()
+            || self.download.is_some()
+        {
+            return None;
+        }
+        let profile = self.transport.quic.clone()?;
+        let pool = self.xhttp_pool.clone()?;
+        let mut http = self.transport.split_http.clone()?;
+        http.mode = super::xhttp::mode(self.stream_transport_options())
+            .as_str()
+            .to_owned();
+        Some((profile, pool, http))
+    }
     pub(crate) fn owned_quic_masks(&self) -> &[zero_transport::finalmask::udp::Mask] {
         self.final_mask.udp()
     }

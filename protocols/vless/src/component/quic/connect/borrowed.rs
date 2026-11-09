@@ -17,7 +17,7 @@ pub(super) fn spawn(
     call: CarrierContext,
     demand: PacketMetadataArc<super::demand::Demand>,
     index: usize,
-    ready: oneshot::Sender<Result<zero_platform_tokio::TcpRelayStream, ChannelError>>,
+    ready: oneshot::Sender<Result<super::Ready, ChannelError>>,
 ) -> Result<(), ChannelError> {
     // This is the old XICMP-over-datagram-detour boundary, not a restriction on
     // other legitimate stateful masks. The original ICMP native route has no
@@ -27,7 +27,15 @@ pub(super) fn spawn(
         entry.retirement.request_retirement();
         return Err(error(Stage::Prepare, Reason::Unsupported));
     }
-    let view = grant.claim_transferred_view().map_err(|source| {
+    let view = if generation.options.h3.is_some() {
+        // This actual declaration is ControlledCarrierPool{datagram:true};
+        // its unique physical IO is held by the original packet/H3 graph.
+        // Plain ServiceDatagram keeps its original taskless transferred view.
+        grant.claim_driver_view()
+    } else {
+        grant.claim_transferred_view()
+    }
+    .map_err(|source| {
         entry.owners.set_actor(None);
         entry.retirement.request_retirement();
         source
@@ -57,6 +65,7 @@ pub(super) fn spawn(
         );
         let result = tokio::select! {biased;
             _=work_entry.owners.stop.cancelled()=>None,
+            _=demand.initializer_cancel.cancelled()=>None,
             result=work=>Some(result),
         };
         match result {
@@ -106,7 +115,7 @@ async fn initialize(
     call: CarrierContext,
     demand: &super::demand::Demand,
     index: usize,
-) -> Result<zero_platform_tokio::TcpRelayStream, ChannelError> {
+) -> Result<super::Ready, ChannelError> {
     let options = &generation.options;
     let candidates = demand.borrowed(generation, &grant, caller).await?;
     let peer = candidates.peer(index)?;
@@ -120,17 +129,20 @@ async fn initialize(
     let (socket, queues) =
         PacketSocket::prepare_with_budget_for_masks(peer, generation.buffers.clone(), &plan)
             .map_err(|source| error(Stage::Prepare, Reason::Capacity).with_source(source))?;
-    let client = options
+    let mut client = options
         .protocol
         .material
         .as_ref()
         .unwrap()
-        .prepare_quic(
-            generation.resolver.as_deref(),
-            &options.profile.alpn_protocols(),
-        )
+        .prepare_quic(generation.resolver.as_deref(), &options.alpn())
         .await
         .map_err(|source| error(Stage::Prepare, Reason::InvalidConfig).with_source(source))?;
+    if let Some((_, profile)) = &options.h3 {
+        zero_transport::quic::set_http_keepalive(
+            &mut client,
+            profile.options.xmux.h_keep_alive_period,
+        );
+    }
     let issuer = demand.issuer(generation, &grant, caller)?;
     let target = candidates.select(index, issuer)?;
     let adoption = grant.adoption();
@@ -162,8 +174,7 @@ async fn initialize(
             }
         };
         state.segment = Some(Segment::Borrowed(segment));
-        let drivers =
-            2 + zero_transport::finalmask::owned::driver_count(options.plan.owned_quic_masks());
+        let drivers = options.drivers();
         let Some(Segment::Borrowed(segment)) = state.segment.as_mut() else {
             unreachable!()
         };
@@ -220,7 +231,5 @@ async fn initialize(
             return Err(source);
         }
     };
-    Ok(zero_platform_tokio::TcpRelayStream::new(
-        connection.into_bi_stream().await?,
-    ))
+    super::ready::connected(generation, entry, connection).await
 }

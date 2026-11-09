@@ -62,7 +62,8 @@ impl ManagedPool {
             view,
             self,
             binding.clone(),
-        );
+        )
+        .map_err(std::io::Error::other)?;
         {
             let mut records = self.records.lock().unwrap();
             records.push(record.clone());

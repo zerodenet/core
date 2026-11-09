@@ -1,9 +1,9 @@
-use super::io::Lifetime;
+mod receiver;
+use super::io::LifetimeRef;
 use bytes::Bytes;
 use std::{
     io,
     pin::Pin,
-    sync::Arc,
     task::{Context, Poll},
 };
 use tokio::sync::mpsc;
@@ -51,16 +51,16 @@ pub(super) fn spawn(
     }
 }
 pub(super) struct Body {
-    pub(super) receiver: mpsc::Receiver<io::Result<Bytes>>,
+    pub(super) receiver: receiver::Receiver,
     pub(super) task: Option<Task>,
-    pub(super) life: Option<Arc<Lifetime>>,
-    pub(super) progress: Option<Arc<Lifetime>>,
+    pub(super) life: Option<LifetimeRef>,
+    pub(super) progress: Option<LifetimeRef>,
 }
 impl Body {
     pub(super) fn empty() -> Self {
         let (_, receiver) = mpsc::channel(1);
         Self {
-            receiver,
+            receiver: receiver.into(),
             task: None,
             life: None,
             progress: None,
@@ -70,7 +70,7 @@ impl Body {
         let (sender, receiver) = mpsc::channel(1);
         sender.try_send(Ok(bytes)).unwrap();
         Self {
-            receiver,
+            receiver: receiver.into(),
             task: None,
             life: None,
             progress: None,
@@ -109,7 +109,7 @@ impl Drop for Body {
             task.abort();
         }
         if let Some(life) = &self.life {
-            tracing::debug!(state = ?Arc::as_ptr(life), "XHTTP response ownership ended");
+            tracing::debug!(state = ?life.as_ptr(), "XHTTP response ownership ended");
             life.close();
         }
     }
@@ -118,7 +118,9 @@ impl Drop for Body {
 pub(super) enum ReceivedBody {
     Http(hyper::body::Incoming),
     H3(Body),
+    OwnedH3(super::xmux::owned::request::PaidResponseBody),
     Guarded(Box<GuardedBody>),
+    OwnedGroup(super::xmux::group_body::OwnedGroupBody),
 }
 impl hyper::body::Body for ReceivedBody {
     type Data = Bytes;
@@ -132,7 +134,9 @@ impl hyper::body::Body for ReceivedBody {
                 .poll_frame(cx)
                 .map(|frame| frame.map(|f| f.map_err(io::Error::other))),
             Self::Guarded(body) => Pin::new(body.as_mut()).poll_frame(cx),
+            Self::OwnedGroup(body) => Pin::new(body).poll_frame(cx),
             Self::H3(body) => Pin::new(body).poll_frame(cx),
+            Self::OwnedH3(body) => Pin::new(body).poll_frame(cx),
         }
     }
 }

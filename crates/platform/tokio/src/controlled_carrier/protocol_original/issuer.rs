@@ -34,7 +34,7 @@ impl CarrierGrant {
             || !self.slot.root_bound
             || !retirement.matches_phase(&actual)
             || !scope.matches(tasks)
-            || !bound.permits_service_datagram_loan(upstream.binding(), endpoint, call)
+            || !bound.permits_protocol_datagram_target(upstream.binding(), endpoint, call)
             || call.cancel.is_cancelled()
             || owner.cancel.is_cancelled()
             || self.slot.acquisition_sealed()

@@ -17,11 +17,11 @@ use zero_platform_tokio::{
 struct Pending {
     owner: Arc<Managed>,
     physical: Arc<Physical>,
-    binding: UpstreamBinding,
     call: CarrierContext,
     caller: TaskJoinWitness,
     waiting: Option<PendingCarrierObserver>,
     limit: usize,
+    anchor: std::sync::OnceLock<PendingCarrierObserver>,
 }
 pub(super) fn transport(
     owner: Arc<Managed>,
@@ -39,20 +39,76 @@ pub(super) fn transport(
         None if binding.prefix.is_empty() => 0,
         None => return Err(error(owner.instance, Stage::Prepare, Reason::StalePlan)),
     };
-    Ok(UpstreamTransport::new(
-        binding.clone(),
-        Arc::new(Pending {
-            owner,
-            physical,
-            binding,
-            call,
-            caller,
-            waiting,
-            limit,
-        }),
-    ))
+    let instance = owner.instance;
+    if physical.binding != binding {
+        return Err(error(instance, Stage::Prepare, Reason::StalePlan));
+    }
+    let memory = owner
+        .resources
+        .upgrade()
+        .ok_or_else(|| error(instance, Stage::Prepare, Reason::Revoked))?
+        .packet_driver_metadata()?;
+    let credit = memory
+        .reserve(
+            UpstreamTransport::opener_metadata_layout::<Pending>(&binding).map_err(|source| {
+                error(instance, Stage::Prepare, Reason::Capacity).with_source(source)
+            })?,
+        )
+        .map_err(|source| error(instance, Stage::Prepare, Reason::Capacity).with_source(source))?;
+    let receiver = Pending {
+        owner,
+        physical,
+        call,
+        caller,
+        waiting,
+        limit,
+        anchor: std::sync::OnceLock::new(),
+    };
+    let (transport, lease) = UpstreamTransport::from_prepaid_opener(binding, receiver, credit)
+        .map_err(|(source, _, _, _)| {
+            error(instance, Stage::Prepare, Reason::Capacity).with_source(source)
+        })?;
+    let anchor = transport.pending_carrier_observer();
+    let _ = lease.actual().anchor.set(anchor);
+    drop(lease);
+    Ok(transport)
 }
 impl Pending {
+    fn current_receiver(&self) -> Result<TaskJoinWitness, ChannelError> {
+        // An unjoined initializer uses its original published start gate. A
+        // later cached request is accepted only from this physical original's
+        // installed retained driver, never an arbitrary task in the same Scope.
+        let native = tokio::task::try_id();
+        if self.physical.original.matches_auxiliary(&self.caller)
+            && !self.caller.is_joined()
+            && self
+                .caller
+                .native_task_id()
+                .is_some_and(|id| Some(id) == native)
+        {
+            return Ok(self.caller.clone());
+        }
+        if let Some(driver) = self.physical.original.retained_driver() {
+            if driver.retains(&self.physical.original)
+                && driver
+                    .adoption()
+                    .is_some_and(|same| same.same_slot(&self.physical.original))
+                && !driver.driver().is_joined()
+                && driver
+                    .driver()
+                    .native_task_id()
+                    .is_some_and(|id| Some(id) == native)
+            {
+                return Ok(driver.driver().clone());
+            }
+        }
+        Err(error(
+            self.owner.instance,
+            Stage::Prepare,
+            Reason::StalePlan,
+        ))
+    }
+
     fn check(&self, binding: &UpstreamBinding) -> Result<(), ChannelError> {
         let bound = self
             .owner
@@ -60,14 +116,13 @@ impl Pending {
             .registration()
             .bound()
             .ok_or_else(|| error(self.owner.instance, Stage::Prepare, Reason::Revoked))?;
-        if binding != &self.binding
+        let caller = self.current_receiver()?;
+        if binding != &self.physical.binding
             || !self.owner.ready()
             || self.call.cancel.is_cancelled()
-            || self.caller.is_joined()
-            || !self.caller.scope_identity().resource_open()
-            || !bound
-                .scope_identity()
-                .same_scope(&self.caller.scope_identity())
+            || caller.is_joined()
+            || !caller.scope_identity().resource_open()
+            || !bound.scope_identity().same_scope(&caller.scope_identity())
             || bound.host_cancelled()
         {
             return Err(error(
@@ -80,6 +135,41 @@ impl Pending {
     }
 }
 impl UpstreamOpener for Pending {
+    fn protocol_original_observer(&self) -> Option<PendingCarrierObserver> {
+        self.physical.protocols.as_ref()?;
+        // Identity publication is not permission. A declared receiver remains
+        // present on foreign/cancelled calls so retain returns its real error
+        // before first IO rather than silently selecting NoObserver cleanup.
+        self.anchor.get().cloned()
+    }
+    fn retain_protocol_original(
+        &self,
+        binding: &UpstreamBinding,
+        original: zero_platform_tokio::controlled_carrier::ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        self.check(binding)?;
+        self.current_receiver()?;
+        if !self
+            .anchor
+            .get()
+            .is_some_and(|anchor| original.matches_observer(anchor))
+        {
+            return Err(error(
+                self.owner.instance,
+                Stage::Prepare,
+                Reason::StalePlan,
+            ));
+        }
+        self.owner
+            .upstream
+            .validate_pending_protocol_original(binding, &original)?;
+        self.physical
+            .protocols
+            .as_ref()
+            .ok_or_else(|| error(self.owner.instance, Stage::Prepare, Reason::StalePlan))?
+            .retain(original)
+    }
+
     fn has_pending_carrier_observer(&self) -> bool {
         true
     }
@@ -93,6 +183,7 @@ impl UpstreamOpener for Pending {
         call: &CarrierContext,
     ) -> Result<TaskJoinWitness, ChannelError> {
         self.check(binding)?;
+        self.current_receiver()?;
         if call.session.is_some()
             || call.deadline != self.call.deadline
             || call.cancel.is_cancelled()
@@ -104,7 +195,7 @@ impl UpstreamOpener for Pending {
                 Reason::StalePlan,
             ));
         }
-        Ok(self.caller.clone())
+        self.current_receiver()
     }
     fn retain_pending_carrier(
         &self,
@@ -178,7 +269,7 @@ impl Physical {
                             && owner.as_ref().is_some_and(|owner| {
                                 owner
                                     .upstream
-                                    .validate_pending_carrier(&self.binding, slot)
+                                    .validate_pending_carrier(&self.physical.binding, slot)
                                     .is_ok()
                             })
                     })
@@ -190,7 +281,7 @@ impl Physical {
                             && owner.as_ref().is_some_and(|owner| {
                                 owner
                                     .upstream
-                                    .validate_pending_carrier(&self.binding, slot)
+                                    .validate_pending_carrier(&self.physical.binding, slot)
                                     .is_ok()
                             })
                     })

@@ -9,6 +9,7 @@ use zero_platform_tokio::{
 pub(super) struct Demand {
     pub upstream: UpstreamTransport,
     pub call: CarrierContext,
+    pub initializer_cancel: zero_platform_tokio::contract::CancellationToken,
     identity: RequestIdentity,
     native: Mutex<Option<PacketMetadataArc<CarrierCandidates>>>,
     borrowed: Mutex<Option<PacketMetadataArc<BorrowedDatagramCandidates>>>,
@@ -21,7 +22,15 @@ impl Demand {
         let call = CarrierContext {
             session: None,
             deadline: context.deadline,
-            cancel: context.cancel.clone(),
+            // A cached physical receiver is independent of the first logical
+            // caller once accepted; only its original Entry/Host/related donor
+            // may retire its IO. The genuine initializer still observes the
+            // original caller below, before its ready/custody handoff.
+            cancel: if generation.options.h3.is_some() {
+                generation.cleanup.child_token()
+            } else {
+                context.cancel.clone()
+            },
         };
         // Keep the actual waiting caller's existing finite pending ledger when
         // rebuilding the owning physical prefix. A fresh NodeOpener with no
@@ -77,6 +86,7 @@ impl Demand {
             Self {
                 upstream,
                 call,
+                initializer_cancel: context.cancel.clone(),
                 identity,
                 native: Mutex::new(None),
                 borrowed: Mutex::new(None),

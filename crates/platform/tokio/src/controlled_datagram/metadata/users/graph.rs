@@ -66,7 +66,63 @@ impl MetadataViewClaim {
         ))
     }
 }
+impl MetadataViewClaim {
+    /// One unique native claim creates its actual wire graph and actual endpoint
+    /// graph together. No arbitrary same-Scope ledger can be attached later.
+    pub fn bind_packet_endpoint<O: DriverKind, B: Send + Sync + 'static>(
+        self,
+        registrar: TaskRegistrar,
+        endpoint_drivers: NonZeroUsize,
+        endpoint_users: NonZeroUsize,
+    ) -> Result<(BoundMetadataUsers<O, B>, BoundMetadataUsers<O, B>), Self> {
+        if !self.0.scope.matches(&registrar) || !self.0.scope.registration_open() {
+            return Err(self);
+        }
+        let make = |claim: MetadataViewClaim, drivers: NonZeroUsize, users: NonZeroUsize| {
+            let (drivers, receiver) = DriverOwner::new(registrar.clone(), drivers);
+            let users = LogicalUsers::new(users, registrar.cancellation(), drivers.admission());
+            (
+                MetadataUserGraph(Arc::new(Graph {
+                    views: claim,
+                    drivers,
+                    users,
+                })),
+                receiver,
+            )
+        };
+        let endpoint = make(
+            MetadataViewClaim(self.0.clone()),
+            endpoint_drivers,
+            endpoint_users,
+        );
+        let wire = make(
+            self,
+            NonZeroUsize::new(1).unwrap(),
+            NonZeroUsize::new(1).unwrap(),
+        );
+        Ok((wire, endpoint))
+    }
+}
 impl<O: DriverKind, B: Send + Sync + 'static> MetadataUserGraph<O, B> {
+    pub fn retained_views(
+        &self,
+        driver: zero_core::component::TaskId,
+        endpoint: &Self,
+        protocol: zero_core::component::TaskId,
+    ) -> Option<crate::controlled_datagram::metadata::MetadataViewsRetained> {
+        if !Arc::ptr_eq(&self.0.views.0, &endpoint.0.views.0) {
+            return None;
+        }
+        let driver = self.0.drivers.live_registration(driver)?;
+        let protocol = endpoint.0.drivers.live_registration(protocol)?;
+        Some(
+            crate::controlled_datagram::metadata::MetadataViewsRetained {
+                original: self.0.views.0.clone(),
+                driver,
+                protocol,
+            },
+        )
+    }
     pub fn drivers(&self) -> &DriverOwner<O, B> {
         &self.0.drivers
     }

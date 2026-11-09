@@ -9,6 +9,9 @@ pub struct PacketDriverTarget {
     pub binding: UpstreamBinding,
     pub originals: Arc<[crate::controlled_carrier::CarrierOwnerRegistration]>,
     pub packet_originals: Arc<[CarrierOrigin]>,
+    pub metadata: crate::contract::component::PacketMetadataVec<
+        crate::controlled_datagram::metadata_pool::MetadataPoolRegistration,
+    >,
     pub pending_capacity: usize,
 }
 /// Actual driver authority issued by ResourceAccess. It retains neither an
@@ -222,13 +225,16 @@ impl GrantedPacketServiceCaller {
                 used.checked_add(original.limit().get())
             })
             .ok_or_else(|| failure(Reason::Capacity))?;
-        let grant = self.calls.register(
+        let grant = self.calls.register_with_protocol_targets(
             &self.caller,
             binding.clone(),
             self.call.clone(),
-            capacity,
-            originals.into(),
-            packet_originals.into(),
+            super::registration::OriginalTargets {
+                max_pending: capacity,
+                allowed: originals.into(),
+                packet_originals: packet_originals.into(),
+                protocols: Some((self.targets.clone(), selected.role)),
+            },
         )?;
         attempt
             .records

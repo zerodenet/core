@@ -72,7 +72,6 @@ pub use opener::UpstreamOpener;
 pub struct UpstreamTransport {
     binding: ManuallyDrop<Arc<UpstreamBinding>>,
     opener: ManuallyDrop<Arc<dyn UpstreamOpener>>,
-    #[cfg(feature = "native-packet-origin")]
     packet_metadata: Option<zero_tun::packet_memory::PacketMetadataAttachment>,
 }
 
@@ -82,7 +81,6 @@ pub struct UpstreamTransport {
 pub struct PendingCarrierObserver {
     binding: ManuallyDrop<Arc<UpstreamBinding>>,
     opener: ManuallyDrop<std::sync::Weak<dyn UpstreamOpener>>,
-    #[cfg(feature = "native-packet-origin")]
     packet_metadata: Option<zero_tun::packet_memory::PacketMetadataAttachment>,
 }
 impl PendingCarrierObserver {
@@ -108,7 +106,6 @@ impl PendingCarrierObserver {
         })?;
         Ok(UpstreamOpenerLease {
             opener: ManuallyDrop::new(opener),
-            #[cfg(feature = "native-packet-origin")]
             packet_metadata: self.packet_metadata.clone(),
         })
     }
@@ -151,8 +148,17 @@ impl PendingCarrierObserver {
             .pending_carrier_capacity(&self.binding)
     }
 
+    /// Same immutable selected binding. Observation grants no IO or receipt.
+    pub fn binding(&self) -> &UpstreamBinding {
+        &self.binding
+    }
     pub fn protocol_original_observer(&self) -> Option<Self> {
-        self.opener.upgrade()?.protocol_original_observer()
+        Some(
+            self.opener
+                .upgrade()
+                .and_then(|opener| opener.protocol_original_observer())
+                .unwrap_or_else(|| self.clone()),
+        )
     }
     /// Canonical actual receiver identity, not equal-valued caller facts.
     pub fn same_observer(&self, other: &Self) -> bool {
@@ -244,6 +250,15 @@ impl UpstreamTransport {
         self.opener.validate_pending_carrier(binding, adoption)
     }
 
+    pub fn validate_pending_protocol_original(
+        &self,
+        binding: &UpstreamBinding,
+        original: &crate::controlled_carrier::ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        self.opener
+            .validate_pending_protocol_original(binding, original)
+    }
+
     pub fn borrow_service_datagram_candidate(
         &self,
         target: crate::controlled_carrier::loan::ServiceDatagramTarget,
@@ -316,7 +331,6 @@ impl UpstreamTransport {
         PendingCarrierObserver {
             binding: self.binding.clone(),
             opener: ManuallyDrop::new(Arc::downgrade(&self.opener)),
-            #[cfg(feature = "native-packet-origin")]
             packet_metadata: self.packet_metadata.clone(),
         }
     }
@@ -388,7 +402,6 @@ impl UpstreamTransport {
         Self {
             binding: ManuallyDrop::new(Arc::new(binding)),
             opener: ManuallyDrop::new(opener),
-            #[cfg(feature = "native-packet-origin")]
             packet_metadata: None,
         }
     }
@@ -451,4 +464,5 @@ mod event_limits;
 pub use event_limits::EventNetworkLimits;
 
 mod packet_metadata;
+pub use packet_metadata::PrepaidUpstreamOpenerLease;
 pub(in crate::contract) use packet_metadata::UpstreamOpenerLease;

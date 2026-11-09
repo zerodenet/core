@@ -290,7 +290,7 @@ async fn open_with_accounting(
     let pending = services
         .pending_datagram
         .as_ref()
-        .and_then(std::sync::Weak::upgrade);
+        .and_then(|pending| pending.upgrade());
     let binding = UpstreamBinding {
         prefix: vec![],
         dial: slot.dial.clone(),

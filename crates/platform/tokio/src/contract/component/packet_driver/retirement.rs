@@ -2,6 +2,13 @@ use super::*;
 use std::sync::atomic::Ordering;
 impl Record {
     pub(super) fn released(&self) -> bool {
+        if self
+            .protocols
+            .as_ref()
+            .is_some_and(|children| !children.returned())
+        {
+            return false;
+        }
         if self.failures.failed() && !self.delivery.acknowledged() {
             return false;
         }
@@ -99,6 +106,20 @@ impl Record {
                 Err(_) => report.unfinished.push(Unfinished::Resource(
                     "same Packet driver logical control retained".into(),
                 )),
+            }
+        }
+        // The same actual logical view returned above. Child global settlement
+        // or a sealed actual cached receiver must be positive before this row
+        // can disappear; its Source caller ACK remains an independent gate.
+        if let Some(children) = &self.protocols {
+            match children.wait_returned(deadline).await {
+                Ok(true) => {}
+                Ok(false) => report.unfinished.push(Unfinished::Resource(
+                    "same Source protocol originals remain owned".into(),
+                )),
+                Err(source) => {
+                    failure.get_or_insert(source);
+                }
             }
         }
         // The installed same logical control has been driven after its unique

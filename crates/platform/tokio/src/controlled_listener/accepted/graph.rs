@@ -17,6 +17,7 @@ mod peer;
 pub use peer::AcceptedPeerScope;
 mod carriers;
 mod inbound;
+mod protocols;
 mod received_failure;
 mod receiver;
 pub(super) mod resources;
@@ -59,6 +60,7 @@ pub(super) struct Users {
     changed: tokio::sync::Notify,
     logical_dirty: AtomicBool,
     carrier_cleanup: AsyncMutex<()>,
+    protocols: OnceLock<crate::controlled_carrier::ProtocolOriginalChildren>,
     local: OnceLock<std::net::SocketAddr>,
     pending_acks: Mutex<Vec<TaskJoinWitness>>,
     task_failures: OnceLock<AcceptedTaskFailures>,
@@ -136,6 +138,7 @@ impl Users {
             changed: tokio::sync::Notify::new(),
             logical_dirty: AtomicBool::new(false),
             carrier_cleanup: AsyncMutex::new(()),
+            protocols: OnceLock::new(),
             local: OnceLock::new(),
             pending_acks: Mutex::default(),
             task_failures: task_failures.map_or_else(OnceLock::new, OnceLock::from),

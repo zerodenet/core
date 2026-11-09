@@ -84,4 +84,40 @@ impl BackgroundCarrier {
         }
         Ok(())
     }
+    pub(super) fn validate_pending_protocol(
+        &self,
+        binding: &UpstreamBinding,
+        original: &zero_platform_tokio::controlled_carrier::ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        if binding.dial != self.initial.dial
+            || binding.network_generation.0 != self.network.egress.generation()
+            || original.binding().dial != binding.dial
+            || original.binding().network_generation != binding.network_generation
+        {
+            return Err(invalid(
+                Reason::StalePlan,
+                "protocol pending binding changed",
+            ));
+        }
+        let source = self.network.current_services().map_err(|source| {
+            invalid(Reason::Revoked, "protocol pending host retired").with_source(source)
+        })?;
+        let services = source.runtime_services().map_err(|source| {
+            invalid(Reason::Revoked, "protocol pending services retired").with_source(source)
+        })?;
+        let plan = services.components.as_ref().map_err(|source| {
+            invalid(Reason::StalePlan, "protocol pending plan retired").with_source(source.clone())
+        })?;
+        if binding.prefix.iter().enumerate().any(|(index, role)| {
+            original.binding().prefix == binding.prefix[..index]
+                && plan.validate_protocol_original(*role, original).is_ok()
+        }) {
+            Ok(())
+        } else {
+            Err(invalid(
+                Reason::StalePlan,
+                "protocol original outside the actual ordered owning graph",
+            ))
+        }
+    }
 }

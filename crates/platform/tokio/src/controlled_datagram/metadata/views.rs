@@ -149,3 +149,26 @@ impl fmt::Debug for MetadataViewsClosedReceipt {
             .finish_non_exhaustive()
     }
 }
+
+/// Positive retention of the unique graph's original claim by a real driver.
+/// No constructor, view clone, native/Scope/ACK or close authority is exposed.
+#[derive(Clone)]
+pub struct MetadataViewsRetained {
+    pub(in crate::controlled_datagram::metadata) original: Arc<Claim>,
+    pub(in crate::controlled_datagram::metadata) driver: crate::contract::scope::TaskJoinWitness,
+    pub(in crate::controlled_datagram::metadata) protocol: crate::contract::scope::TaskJoinWitness,
+}
+impl MetadataViewsRetained {
+    pub fn protocol_driver(&self) -> &crate::contract::scope::TaskJoinWitness {
+        &self.protocol
+    }
+    pub fn driver(&self) -> &crate::contract::scope::TaskJoinWitness {
+        &self.driver
+    }
+}
+impl MetadataViewIssuer {
+    pub(crate) fn validates_receiver(&self, receiver: &MetadataViewsRetained) -> bool {
+        Arc::ptr_eq(&self.0, &receiver.original)
+            && self.0.scope.same_scope(&receiver.driver.scope_identity())
+    }
+}

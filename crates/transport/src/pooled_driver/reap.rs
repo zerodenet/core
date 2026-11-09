@@ -44,6 +44,10 @@ impl ManagedPool {
                     self.settled.lock().unwrap().append(report);
                 }
                 record.release_installed_pending();
+                if let Some(children) = &record.protocols {
+                    children.request_return();
+                    children.reclaim_returned();
+                }
             }
         }
         self.harvest();

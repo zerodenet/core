@@ -10,6 +10,7 @@ use std::sync::{Arc, Weak};
 #[derive(Clone)]
 pub struct CarrierDriverRetained {
     slot: Weak<Slot>,
+    instance: zero_core::component::ComponentInstanceId,
     owner: Weak<Shared>,
     binding: Weak<BoundAuthority>,
     driver: TaskJoinWitness,
@@ -21,6 +22,7 @@ impl CarrierAdoption {
         let driver = self.slot.state().driver.as_ref()?.1.clone();
         let proof = CarrierDriverRetained {
             slot: Arc::downgrade(&self.slot),
+            instance: self.slot.instance,
             owner: Arc::downgrade(&owner),
             binding: Arc::downgrade(&binding),
             driver,
@@ -30,6 +32,12 @@ impl CarrierAdoption {
     }
 }
 impl CarrierDriverRetained {
+    pub(crate) fn instance(&self) -> zero_core::component::ComponentInstanceId {
+        self.instance
+    }
+    pub(crate) fn names_original(&self, original: &CarrierAdoption) -> bool {
+        self.slot.ptr_eq(&Arc::downgrade(&original.slot))
+    }
     fn actual(&self) -> Option<(Arc<Slot>, Arc<Shared>)> {
         let slot = self.slot.upgrade()?;
         let owner = self.owner.upgrade()?;

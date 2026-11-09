@@ -9,6 +9,7 @@ use zero_platform_tokio::{
     controlled_carrier::{loan::StreamLoan, CarrierOrigin},
 };
 mod datagram;
+mod h3;
 mod ordinary;
 impl Outbound {
     pub(super) async fn acquire_parts(
@@ -22,6 +23,9 @@ impl Outbound {
         ),
         ChannelError,
     > {
+        if self.generation.options.h3.is_some() {
+            return self.acquire_h3(context).await;
+        }
         let initialized = entry::Generation::acquire(&self.generation, context).await?;
         let entry = initialized.entry.clone();
         let original = entry

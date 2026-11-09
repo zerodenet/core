@@ -1,5 +1,15 @@
 //! Same actual Source registration and finite per-callee cleanup records.
 use super::*;
+/// Original selected declarations; this moves their existing strong handles.
+pub(super) struct OriginalTargets {
+    pub(super) max_pending: usize,
+    pub(super) allowed: Arc<[crate::controlled_carrier::CarrierOwnerRegistration]>,
+    pub(super) packet_originals: Arc<[CarrierOrigin]>,
+    pub(super) protocols: Option<(
+        Arc<[PacketDriverTarget]>,
+        zero_core::component::RoleInstanceId,
+    )>,
+}
 impl PacketDriverCalls {
     pub fn matches_original(&self, original: &CarrierOrigin) -> bool {
         self.original.same_original(original)
@@ -44,6 +54,31 @@ impl PacketDriverCalls {
         allowed: Arc<[crate::controlled_carrier::CarrierOwnerRegistration]>,
         packet_originals: Arc<[CarrierOrigin]>,
     ) -> Result<PacketDriverCallGrant, ChannelError> {
+        self.register_with_protocol_targets(
+            caller,
+            binding,
+            call,
+            OriginalTargets {
+                max_pending,
+                allowed,
+                packet_originals,
+                protocols: None,
+            },
+        )
+    }
+    pub(super) fn register_with_protocol_targets(
+        &self,
+        caller: &TaskJoinWitness,
+        binding: UpstreamBinding,
+        call: CarrierContext,
+        targets: OriginalTargets,
+    ) -> Result<PacketDriverCallGrant, ChannelError> {
+        let OriginalTargets {
+            max_pending,
+            allowed,
+            packet_originals,
+            protocols: protocol_targets,
+        } = targets;
         let source = self
             .original
             .driver()
@@ -137,6 +172,32 @@ impl PacketDriverCalls {
                 .map_err(|(source, _, _)| memory::memory_error(source))?;
         #[cfg(not(feature = "native-packet-origin"))]
         let settled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        #[cfg(feature = "native-packet-origin")]
+        let protocols = protocol_targets
+            .as_ref()
+            .map(|(targets, selected)| {
+                let mut ceiling = max_pending;
+                for role in binding.prefix.iter().chain(std::iter::once(selected)) {
+                    let target = targets
+                        .iter()
+                        .find(|target| target.role == *role)
+                        .ok_or_else(|| failure(Reason::StalePlan))?;
+                    for registration in target.metadata.iter() {
+                        ceiling = ceiling
+                            .checked_add(registration.limit().get())
+                            .ok_or_else(|| failure(Reason::Capacity))?;
+                    }
+                }
+                Ok::<_, ChannelError>(crate::controlled_carrier::ProtocolOriginalChildren::new(
+                    observer_memory
+                        .driver_metadata_view()
+                        .map_err(memory::memory_error)?,
+                    ceiling,
+                ))
+            })
+            .transpose()?;
+        #[cfg(not(feature = "native-packet-origin"))]
+        let protocols = None;
         if let Some(source) = self.receive_actor_failures() {
             return Err(source);
         }
@@ -176,6 +237,8 @@ impl PacketDriverCalls {
             copies,
             allowed,
             packet_originals,
+            protocol_targets,
+            protocols,
             streams: Mutex::new(Vec::new()),
             observer: OnceLock::new(),
             upstream: OnceLock::new(),

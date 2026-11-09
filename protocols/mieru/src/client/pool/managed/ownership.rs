@@ -38,6 +38,7 @@ impl ClientPool {
         bindings: ManagedBindings,
     ) -> io::Result<Arc<ManagedState>> {
         let ManagedBindings {
+            resources,
             carriers,
             plans,
             profiles,
@@ -76,6 +77,7 @@ impl ClientPool {
             return Err(io::ErrorKind::Interrupted.into());
         }
         let owner = Arc::new(ManagedState {
+            resources,
             instance,
             limit,
             tasks,

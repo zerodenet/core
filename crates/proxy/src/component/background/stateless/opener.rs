@@ -13,6 +13,15 @@ pub(super) struct Opener {
     pub(super) association: Option<super::datagram::Association>,
 }
 impl UpstreamOpener for Opener {
+    fn validate_pending_protocol_original(
+        &self,
+        binding: &UpstreamBinding,
+        original: &zero_platform_tokio::controlled_carrier::ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        self.upstream
+            .validate_pending_protocol_original(binding, original)
+    }
+
     fn has_preparation_job_owner(&self) -> bool {
         self.tasks.is_some()
     }

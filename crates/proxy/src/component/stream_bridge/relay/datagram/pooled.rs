@@ -223,7 +223,7 @@ pub(super) async fn open(
     let pending = services
         .pending_datagram
         .as_ref()
-        .and_then(std::sync::Weak::upgrade);
+        .and_then(|pending| pending.upgrade());
     let association_cancel = pending
         .as_ref()
         .map(|pending| pending.cancellation())

@@ -56,7 +56,7 @@ pub fn accept_xhttp_h3_connection<P: SplitHttpTransportProfile + ?Sized>(
                             if let Err(error) = result { let _ = sender.send(Err(error)).await; }
 
                         });
-                        let request = request.map(|_| Body { receiver, task:Some(upload.abort_handle().into()), life:None, progress:None });
+                        let request = request.map(|_| Body { receiver:receiver.into(), task:Some(upload.abort_handle().into()), life:None, progress:None });
                         let response = match registry.requests.clone().try_acquire_owned() {
                             Ok(permit) => exchange::handle(request,profile,registry.sessions,accepted,permit).await.unwrap_or_else(|error| { tracing::debug!(%error, "XHTTP H3 request rejected"); status(400) }),
                             Err(_) => status(503),

@@ -11,12 +11,20 @@ impl Profile {
         seq: u64,
         payload: &[u8],
     ) -> io::Result<Request<Body>> {
+        self.packet_request_owned(session, seq, Bytes::copy_from_slice(payload))
+    }
+    pub(in crate::split_http) fn packet_request_owned(
+        &self,
+        session: &str,
+        seq: u64,
+        payload: Bytes,
+    ) -> io::Result<Request<Body>> {
         let o = &self.options;
         let embedded = matches!(o.uplink_data_placement.as_str(), "header" | "cookie");
         let body = if embedded {
             Body::empty()
         } else {
-            Body::full(Bytes::copy_from_slice(payload))
+            Body::full(payload.clone())
         };
         let mut request = self.request(&o.uplink_http_method, session, Some(seq), body)?;
         if !embedded {
@@ -30,7 +38,7 @@ impl Profile {
             );
         }
         if embedded {
-            let encoded = URL_SAFE_NO_PAD.encode(payload);
+            let encoded = URL_SAFE_NO_PAD.encode(&payload);
             let mut remaining = encoded.as_str();
             let mut i = 0;
             while !remaining.is_empty() {

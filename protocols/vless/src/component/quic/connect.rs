@@ -14,50 +14,50 @@ use zero_traits::packet_metadata::{PacketMetadataArc, PacketMetadataLayout};
 mod before;
 mod borrowed;
 mod demand;
+mod initialized;
 mod native;
-pub(super) struct Pending(pub Option<PacketMetadataArc<Entry>>);
-impl Drop for Pending {
-    fn drop(&mut self) {
-        if let Some(entry) = &self.0 {
-            entry.retirement.request_retirement();
-        }
-    }
-}
-pub(super) struct Initialized {
-    pub entry: PacketMetadataArc<Entry>,
-    pub io: Option<zero_platform_tokio::TcpRelayStream>,
-    pending: Pending,
-}
-impl Initialized {
-    pub fn into_relay(mut self) -> zero_platform_tokio::TcpRelayStream {
-        let io = self.io.take().expect("one original initialized stream");
-        let control = zero_traits::AsyncSocket::transport_bypass_control(&io);
-        let view = entry::View {
-            io: Some(io),
-            original: self.entry.clone(),
-        };
-        let relay = match control {
-            Some(control) => {
-                zero_platform_tokio::TcpRelayStream::with_transport_bypass_control(view, control)
-            }
-            None => zero_platform_tokio::TcpRelayStream::new(view),
-        };
-        self.pending.0.take();
-        relay
-    }
-}
+mod ready;
+pub(super) use initialized::{Initialized, Pending, Ready};
 impl Generation {
     pub async fn acquire(
         generation: &PacketMetadataArc<Self>,
         context: &OpenContext,
     ) -> Result<Initialized, ChannelError> {
+        if context.cancel.is_cancelled() {
+            return Err(error(Stage::Prepare, Reason::Cancelled));
+        }
         let demand = demand::Demand::new(generation, context).await?;
         let mut index = 0;
         loop {
-            let position = Generation::reserve(generation)?;
-            let drivers = 2 + zero_transport::finalmask::owned::driver_count(
-                generation.options.plan.owned_quic_masks(),
-            );
+            let position = match Generation::reserve(generation) {
+                Ok(position) => position,
+                Err(source)
+                    if source.reason == Reason::Capacity && generation.options.h3.is_some() =>
+                {
+                    let mut after = 0;
+                    let mut closing = None;
+                    while let Some((ordinal, entry)) = generation.next_entry(after) {
+                        after = ordinal;
+                        if entry.retirement.retirement_requested() && !entry.retirement.is_settled()
+                        {
+                            closing = Some(entry);
+                            break;
+                        }
+                    }
+                    let Some(entry) = closing else {
+                        return Err(source);
+                    };
+                    with_deadline(context.deadline, entry.retirement.wait_settled_original())
+                        .await
+                        .map_err(|source| {
+                            error(Stage::Close, Reason::Timeout).with_source(source)
+                        })??;
+                    generation.reap();
+                    continue;
+                }
+                Err(source) => return Err(source),
+            };
+            let drivers = generation.options.drivers();
             // No original/control/driver is created before its actual Host memory
             // promises. Refusal leaves no first native IO and no detached worker.
             let owners_header =
@@ -87,6 +87,24 @@ impl Generation {
             .map_err(|(source, _, _)| {
                 error(Stage::Prepare, Reason::Capacity).with_source(source)
             })?;
+            if generation.options.h3.is_some() {
+                let _ = owners.protocols.set(
+                    zero_platform_tokio::controlled_carrier::ProtocolOriginalChildren::new(
+                        generation.metadata_memory.clone(),
+                        generation.options.origins.get(),
+                    ),
+                );
+                owners.state.lock().await.h3 = Some(
+                    zero_transport::split_http::PreparedXhttp3::new(
+                        generation.buffers.clone(),
+                        generation.metadata_memory.clone(),
+                        generation.options.users,
+                    )
+                    .map_err(|source| {
+                        error(Stage::Prepare, Reason::Capacity).with_source(source)
+                    })?,
+                );
+            }
             let control_memory =
                 generation.memory(PacketMetadataLayout::boxed::<ProtocolControl>())?;
             let control =
@@ -202,7 +220,7 @@ impl Generation {
                 _=context.cancel.cancelled()=>return Err(error(Stage::Prepare,Reason::Cancelled)),
                 _=generation.cancel.cancelled()=>return Err(error(Stage::Prepare,Reason::Revoked)),
             };
-            let mut io = match result {
+            let io = match result {
                 Ok(io) => io,
                 Err(source) => {
                     let retry = entry.owners.state.lock().await.retry_connection;
@@ -228,13 +246,24 @@ impl Generation {
                     return Err(source);
                 }
             };
-            // Protocol encryption remains the original immutable accepted client,
-            // above this same unique owned QUIC stream, before VLESS submission.
-            let encrypted = generation.options.plan.encrypt(io);
-            io = with_deadline(context.deadline, encrypted)
-                .await
-                .map_err(|source| error(Stage::Handshake, Reason::Timeout).with_source(source))?
-                .map_err(|source| error(Stage::Handshake, Reason::Io).with_source(source))?;
+            // Only a logical bi-stream is encrypted here. H3 framing belongs
+            // to the physical group; VLESS encryption is applied to the later
+            // returned logical XHTTP duplex, exactly once.
+            let io = match io {
+                Ready::H3(client) => Ready::H3(client),
+                Ready::Stream(io) => {
+                    let encrypted = generation.options.plan.encrypt(io);
+                    let io = with_deadline(context.deadline, encrypted)
+                        .await
+                        .map_err(|source| {
+                            error(Stage::Handshake, Reason::Timeout).with_source(source)
+                        })?
+                        .map_err(|source| {
+                            error(Stage::Handshake, Reason::Io).with_source(source)
+                        })?;
+                    Ready::Stream(io)
+                }
+            };
             // Disarm only after the returned View takes the same entry. That View
             // requests this exact retirement on all failed/cancelled submissions.
             return Ok(Initialized {

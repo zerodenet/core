@@ -21,6 +21,12 @@ pub(super) fn installed(slot: &Arc<ComponentSlot>) -> bool {
                 endpoint,
                 dial,
                 max_sockets,
+            }
+            | R::ControlledCarrierPool {
+                endpoint,
+                dial,
+                max_sockets,
+                datagram: true,
             } if borrowed.is_none() => {
                 borrowed = Some((ordinal, endpoint, dial, *max_sockets));
             }

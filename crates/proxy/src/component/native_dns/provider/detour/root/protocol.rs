@@ -26,6 +26,37 @@ impl Root {
     ) -> UpstreamTransport {
         UpstreamTransport::new(self.binding.clone(), self.clone())
     }
+    pub(super) fn validate_protocol_child(
+        &self,
+        binding: &UpstreamBinding,
+        original: &ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        let fail = || {
+            crate::component::instance::invalid(
+                zero_platform_tokio::contract::Reason::StalePlan,
+                "protocol child differs from actual Query selected graph",
+            )
+        };
+        if binding.dial != self.binding.dial
+            || binding.network_generation != self.binding.network_generation
+            || original.binding().network_generation != binding.network_generation
+            || original.binding().dial != binding.dial
+        {
+            return Err(fail());
+        }
+        let source = self.current.upgrade().ok_or_else(fail)?;
+        let services = source.runtime_services().map_err(error)?;
+        let execution = services.execution();
+        let plan = execution.components.as_ref().map_err(|_| fail())?;
+        if self.roles.iter().enumerate().any(|(index, role)| {
+            original.binding().prefix == self.roles[..index]
+                && plan.validate_protocol_original(*role, original).is_ok()
+        }) {
+            Ok(())
+        } else {
+            Err(fail())
+        }
+    }
     pub(super) fn retain_query_protocol(
         &self,
         binding: &UpstreamBinding,

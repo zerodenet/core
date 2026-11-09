@@ -187,6 +187,14 @@ impl ResourceLifecycle for Owner {
         self.pending.append(self.carriers.shutdown(deadline).await?);
         let records = self.managed.records.lock().unwrap().clone();
         for record in records {
+            if let Some(children) = &record.protocols {
+                if !children.wait_returned(deadline).await? {
+                    self.pending.unfinished.push(Unfinished::Resource(
+                        "original child protocol return/Host ACK remains pending".into(),
+                    ));
+                }
+                children.reclaim_returned();
+            }
             record.release_installed_pending();
             let pending = record.pending.lock().unwrap().clone();
             for original in pending {

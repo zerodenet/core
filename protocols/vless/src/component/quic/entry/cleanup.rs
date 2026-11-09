@@ -91,12 +91,16 @@ impl Owners {
         let endpoint = state.endpoint.take();
         let receiver = state.receiver.take();
         let queues = state.queues.take();
-        state.cleanup_complete = true;
+
         drop(state);
         drop(segment);
         drop(endpoint);
         drop(receiver);
         drop(queues);
+        if let Some(children) = self.protocols.get() {
+            children.wait_returned_original().await?;
+        }
+        self.state.lock().await.cleanup_complete = true;
         self.changed.notify_waiters();
         Ok(CloseReport::default())
     }

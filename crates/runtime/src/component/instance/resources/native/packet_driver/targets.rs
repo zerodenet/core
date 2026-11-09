@@ -70,6 +70,20 @@ impl HostResources {
                 .iter()
                 .try_fold(0usize, |sum, owner| sum.checked_add(owner.limit().get()))
                 .ok_or_else(|| self.denied())?;
+            let metadata_memory = self.originals.packet.driver_metadata_view();
+            let mut metadata =
+                zero_platform_tokio::contract::component::PacketMetadataVec::default();
+            for ordinal in 0..slot.recipe.spec().resources.len() {
+                if let Some(actual) = slot.original_metadata_owner(ordinal) {
+                    metadata
+                        .try_push_with_metadata(
+                            actual,
+                            &metadata_memory,
+                            slot.recipe.spec().resources.len(),
+                        )
+                        .map_err(|(source, _)| self.denied().with_source(source))?;
+                }
+            }
             targets.push(PacketDriverTarget {
                 instance: slot.instance_id(),
                 role: slot.role_id(),
@@ -81,6 +95,7 @@ impl HostResources {
                 },
                 originals: originals.into(),
                 packet_originals: packet_originals.into(),
+                metadata,
                 pending_capacity,
             });
         }

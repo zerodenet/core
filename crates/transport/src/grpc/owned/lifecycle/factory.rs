@@ -75,10 +75,9 @@ impl NativePoolFactory {
         let cancel = context.cancel.child_token();
         let carriers = CarrierOwner::new(instance, options.carrier_limit, &cancel);
         let managed = Managed::new(
-            instance,
+            &context,
             options,
             upstream,
-            context.tasks,
             cancel,
             carriers.grants(),
             #[cfg(feature = "tls")]

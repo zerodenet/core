@@ -28,6 +28,8 @@ mod handle;
 mod masks;
 mod native;
 mod retirement;
+#[cfg(feature = "split_http")]
+mod xhttp_receiver;
 use native::Native;
 mod stream;
 mod users;

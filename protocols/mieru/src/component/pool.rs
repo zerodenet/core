@@ -178,6 +178,7 @@ impl ResourceLifecycle for Owner {
                     self.tasks.clone(),
                     self.cancel.clone(),
                     crate::client::pool::managed::ManagedBindings {
+                        resources: Arc::downgrade(&self.resources),
                         carriers: self
                             .carriers
                             .iter()

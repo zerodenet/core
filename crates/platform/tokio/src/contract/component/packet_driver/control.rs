@@ -80,6 +80,9 @@ impl Record {
             self.release_host_retained_pending(installed);
         }
         self.call.cancel.cancel();
+        if let Some(children) = &self.protocols {
+            children.request_return();
+        }
         for index in 0..self.max_pending {
             let Some(adoption) = self.pending_at(index) else {
                 break;

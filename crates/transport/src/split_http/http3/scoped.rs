@@ -85,7 +85,7 @@ async fn run(
                     })?;
                     let (bridge,mut logical)=mpsc::channel(1);
                     let exchange=async {
-                        let request=request.map(|_|Body{receiver,task:Some(upload),life:None,progress:None});
+                        let request=request.map(|_|Body{receiver:receiver.into(),task:Some(upload),life:None,progress:None});
                         let response=match registry.requests.clone().try_acquire_owned(){Ok(permit)=>exchange::handle(request,profile,registry.sessions,bridge,permit).await.unwrap_or_else(|error|{tracing::debug!(%error,"H3 request rejected");status(400)}),Err(_)=>status(503)};
                         let (parts,mut body)=response.into_parts();send.send_response(http::Response::from_parts(parts,())).await.map_err(io::Error::other)?;
                         while let Some(frame)=body.frame().await{if let Ok(data)=frame?.into_data(){send.send_data(data).await.map_err(io::Error::other)?;}}

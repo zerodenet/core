@@ -30,6 +30,20 @@ impl Observer {
     }
 }
 impl UpstreamOpener for Observer {
+    fn protocol_original_observer(
+        &self,
+    ) -> Option<crate::contract::network::PendingCarrierObserver> {
+        let record = self.0.upgrade()?;
+        record.protocols.as_ref()?;
+        Some(record.observer.get()?.pending_carrier_observer())
+    }
+    fn retain_protocol_original(
+        &self,
+        binding: &UpstreamBinding,
+        original: crate::controlled_carrier::ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        self.record(binding)?.receive_protocol(original)
+    }
     fn open_stream(
         &self,
         binding: &UpstreamBinding,

@@ -85,6 +85,8 @@ pub(super) struct Owners {
     actor_exit: Mutex<Option<zero_platform_tokio::contract::scope::TaskJoined>>,
     actor_changed: Notify,
     pub diagnostics: diagnostics::Diagnostics,
+    pub protocols:
+        std::sync::OnceLock<zero_platform_tokio::controlled_carrier::ProtocolOriginalChildren>,
 }
 #[derive(Default)]
 pub(super) struct State {
@@ -97,6 +99,7 @@ pub(super) struct State {
         Option<zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOrigin>,
     pub retry_connection: bool,
     pub logical_memory: Option<PacketMetadataCredit>,
+    pub h3: Option<zero_transport::split_http::PreparedXhttp3>,
     pub cleanup_complete: bool,
     pub received: Vec<zero_transport::quic::owned::DriverDelivery>,
     pub _received_memory: Option<PacketMetadataCredit>,
@@ -225,6 +228,7 @@ impl Owners {
             actor_exit: Mutex::new(None),
             actor_changed: Notify::new(),
             diagnostics,
+            protocols: std::sync::OnceLock::new(),
         }
     }
     pub fn receive_setup(&self, source: ChannelError) -> RetainedError {

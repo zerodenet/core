@@ -120,6 +120,12 @@ impl PacketMemoryView {
         }
         self.original.0.root.reserve_driver_metadata(layout)
     }
+    /// Metadata-only clone of this actual still-live grant's existing Root.
+    /// It creates no native/task authority, allocator or replacement budget.
+    pub fn driver_metadata_view(&self) -> Result<PacketDriverMetadataView, PacketMemoryError> {
+        self.original.check_memory_open()?;
+        Ok(self.original.0.root.driver_metadata_view())
+    }
     pub fn driver_metadata(&self) -> PacketMetadataSnapshot {
         self.original.0.root.driver_metadata()
     }

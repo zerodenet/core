@@ -68,6 +68,48 @@ pub(crate) struct HostPeerBinding {
     // Scope-header responsibility. This is the same Source book, not a pool.
     process_task_failure: Mutex<Option<zero_platform_tokio::AcceptedTaskFailureRegistration>>,
 }
+impl HostPeerBinding {
+    pub(crate) fn protocol_metadata(
+        &self,
+    ) -> Result<
+        (
+            zero_platform_tokio::contract::component::PacketDriverMetadataView,
+            usize,
+        ),
+        ChannelError,
+    > {
+        if self.cancel.is_cancelled()
+            || self
+                .join_witness()
+                .is_none_or(|witness| witness.is_joined())
+        {
+            return Err(self.error(Reason::Revoked, "actual protocol caller stopped"));
+        }
+        let receiver = self
+            .task_failure
+            .get()
+            .ok_or_else(|| self.error(Reason::Revoked, "actual Source book is absent"))?
+            .receiver();
+        if receiver.instance() != self.parent
+            || !receiver
+                .scope_identity()
+                .same_scope(&self.registrar.scope_identity())
+        {
+            return Err(self.error(
+                Reason::StalePlan,
+                "protocol metadata belongs to another actual Source",
+            ));
+        }
+        let root = self
+            .lookup_root
+            .upgrade()
+            .ok_or_else(|| self.error(Reason::Revoked, "actual Host root retired"))?;
+        Ok((
+            receiver.metadata_view().clone(),
+            root.snapshot().limit.get(),
+        ))
+    }
+}
 impl std::fmt::Debug for HostPeerBinding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let state = self.join.state.lock().expect("peer binding poisoned");
