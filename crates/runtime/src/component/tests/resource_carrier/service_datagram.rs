@@ -73,6 +73,5 @@ async fn service_datagram_registration_keeps_exact_ordinal_scope_owner_and_no_ca
         .await
         .unwrap()
         .is_complete());
-    fixture.scope.begin_shutdown();
-    assert!(fixture.scope.is_drained());
+    assert!(fixture.scope.shutdown(deadline()).await.is_complete());
 }
