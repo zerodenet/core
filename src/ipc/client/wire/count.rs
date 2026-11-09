@@ -42,6 +42,12 @@ pub(in crate::ipc::client) fn scan(bytes: &[u8]) -> io::Result<Layout> {
     ) = (false, false, 0usize, 0, 0, 0, 0, false);
     for (at, byte) in bytes.iter().enumerate() {
         if quote {
+            // The original decoder can grow scratch before reporting EOF.
+            // Keep the escaped prefix even when no closing quote arrives.
+            if has_escape {
+                span = span.max(at - start);
+                escaped = escaped.max(span);
+            }
             if escape {
                 escape = false;
                 continue;
@@ -82,7 +88,10 @@ pub(in crate::ipc::client) fn scan(bytes: &[u8]) -> io::Result<Layout> {
         escaped,
     })
 }
-pub(in crate::ipc::client) fn layout(bytes: &[u8], outer: usize) -> Result<Layout, serde_json::Error> {
+pub(in crate::ipc::client) fn layout(
+    bytes: &[u8],
+    outer: usize,
+) -> Result<Layout, serde_json::Error> {
     let mut parser = serde_json::Deserializer::from_slice(bytes);
     let maps = Count(outer).deserialize(&mut parser)?;
     parser.end()?;
