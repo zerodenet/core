@@ -26,23 +26,6 @@ impl DatagramOutbound for Outbound {
                 DeliveryState::NotSubmitted,
             ));
         };
-        let target = target.clone();
-        let bytes = crate::shared::build_request_to(
-            &target.address,
-            target.port,
-            &self.generation.options.protocol.uuid,
-            crate::shared::CMD_UDP,
-        )
-        .map_err(|source| {
-            self.admission
-                .error(
-                    session,
-                    Stage::Prepare,
-                    Reason::InvalidConfig,
-                    DeliveryState::NotSubmitted,
-                )
-                .with_source(source)
-        })?;
         if self.generation.options.protocol.flow.is_some()
             || target.port == 0
             || context.upstream.binding().dial != self.generation.options.protocol.dial
@@ -54,6 +37,29 @@ impl DatagramOutbound for Outbound {
                 DeliveryState::NotSubmitted,
             ));
         }
+        let mut prepared = datagram::Prepared::new(
+            Some(&datagram::Budget::new(
+                self.generation.buffers.clone(),
+                self.generation.metadata_memory.clone(),
+            )),
+            &context.cancel,
+            &self.admission,
+            target,
+        )?;
+        let target = target.clone();
+        let bytes = prepared
+            .request(&target, &self.generation.options.protocol.uuid)
+            .map_err(|source| {
+                self.admission
+                    .error(
+                        session,
+                        Stage::Prepare,
+                        Reason::InvalidConfig,
+                        DeliveryState::NotSubmitted,
+                    )
+                    .with_source(source)
+            })?;
+
         let (mut io, control, original) = self.acquire_parts(&context).await?;
         let handshake = async {
             io.write_all(&bytes).await?;
@@ -69,6 +75,7 @@ impl DatagramOutbound for Outbound {
             observer.record(session, ConnectFact::RequestSubmitted);
             observer.protocol_traffic(session, 0, bytes.len() as u64);
         }
+        drop(bytes);
         // The existing UDP tunnel waits for the actual VLESS response header;
         // gRPC establishment is not destination acceptance.
         let response = response::read(&mut io, &context, &self.admission, session).await?;
@@ -89,7 +96,8 @@ impl DatagramOutbound for Outbound {
             context,
             self.admission.clone(),
             session,
-            target.clone(),
+            target,
+            prepared,
         ))
     }
     async fn open_carrier(

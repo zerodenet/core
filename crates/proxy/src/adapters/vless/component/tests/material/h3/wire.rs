@@ -1,15 +1,19 @@
 //! Real upload EOF followed by full reverse bytes, with no application reads.
 use super::*;
-pub(super) struct Exchange {
+pub(in crate::adapters::vless::component::tests::material) struct Exchange {
     io: TcpStream,
     peer: tokio::task::JoinHandle<()>,
     payload: Vec<u8>,
 }
 impl Exchange {
-    pub(super) async fn open(client: &Running) -> Self {
+    pub(in crate::adapters::vless::component::tests::material) async fn open(
+        client: &Running,
+    ) -> Self {
         Self::open_with_reply(client, true).await
     }
-    pub(super) async fn discarded(client: &Running) -> Self {
+    pub(in crate::adapters::vless::component::tests::material) async fn discarded(
+        client: &Running,
+    ) -> Self {
         Self::open_with_reply(client, false).await
     }
     async fn open_with_reply(client: &Running, reply: bool) -> Self {
@@ -47,14 +51,14 @@ impl Exchange {
         .await
         .unwrap()
     }
-    pub(super) async fn abandon(self) {
+    pub(in crate::adapters::vless::component::tests::material) async fn abandon(self) {
         drop(self.io);
         timeout(Duration::from_secs(8), self.peer)
             .await
             .unwrap()
             .unwrap();
     }
-    pub(super) async fn finish(mut self) {
+    pub(in crate::adapters::vless::component::tests::material) async fn finish(mut self) {
         timeout(Duration::from_secs(8), async {
             self.io.shutdown().await.unwrap();
             let mut body = Vec::new();

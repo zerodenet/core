@@ -603,3 +603,31 @@ impl CarrierOwnerBinding {
         self.authority.scope.clone()
     }
 }
+
+impl BoundAuthority {
+    // The existing cached TCP carrier class only. Node, Service and association
+    // declarations cannot gain a cached driver or persistent protocol phase.
+    pub(super) fn permits_stream_protocol_control(&self, tasks: &TaskRegistrar) -> bool {
+        matches!(
+            &self.declaration,
+            ResourceDeclaration::ControlledCarrierPool {
+                datagram: false,
+                ..
+            }
+        ) && self.scope.matches(tasks)
+            && self.scope.resource_open()
+            && self.scope.registration_open()
+            && !self.host_cancel.is_cancelled()
+    }
+    pub(super) fn permits_protocol_stream_target(
+        &self,
+        binding: &UpstreamBinding,
+        destination: &Destination,
+        context: &CarrierContext,
+    ) -> bool {
+        self.available()
+            && context.session.is_none()
+            && !context.cancel.is_cancelled()
+            && matches!(&self.declaration,ResourceDeclaration::ControlledCarrierPool {endpoint,dial,datagram:false,..} if endpoint==destination&&dial==&binding.dial)
+    }
+}

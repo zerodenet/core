@@ -11,7 +11,7 @@ use zero_platform_tokio::{
     controlled_carrier::CarrierOwner,
     controlled_datagram::metadata_pool::MetadataPoolOwner,
 };
-mod failures;
+pub(super) mod failures;
 pub struct Factory;
 pub(super) struct Outbound {
     pub generation: PacketMetadataArc<entry::Generation>,
@@ -104,7 +104,10 @@ impl Factory {
             .carrier_buffer_budget()
             .ok_or_else(|| error(Stage::Prepare, Reason::Unsupported))?;
         let metadata_memory = context.resources.packet_driver_metadata()?;
-        let entries = entry::Table::new(&metadata_memory, options.origins.get())?;
+        let masks = options
+            .prepare_masks(buffers.clone(), metadata_memory.clone())
+            .map_err(|source| error(Stage::Prepare, Reason::Capacity).with_source(source))?;
+        let entries = entry::Table::shared(&metadata_memory, options.origins.get())?;
         let instance = context.instance();
         let cleanup = zero_platform_tokio::contract::CancellationToken::new();
         let upstream = context
@@ -135,9 +138,10 @@ impl Factory {
                 options,
                 cancel: context.cancel.child_token(),
                 buffers,
+                masks,
                 metadata_memory,
                 resolver,
-                entries: Mutex::new(entries),
+                entries,
             },
             generation_memory,
         )

@@ -8,6 +8,34 @@ impl Owners {
         if state.cleanup_complete {
             return Ok(CloseReport::default());
         }
+        if let Some(tcp) = state.tcp.as_ref() {
+            tcp.stop();
+        }
+        if let Some(driver) = state.tcp_driver.clone() {
+            // The original HTTP driver owns all Hyper delegates and session
+            // work. Persist its exact delivered source before local acceptance;
+            // native closure and the eventual Host ACK remain the Root's gates.
+            drop(state);
+            let joined = driver.wait().await;
+            if !driver.matches_joined(&joined) {
+                return Err(error(Stage::Close, Reason::StalePlan));
+            }
+            {
+                let mut stored = self.state.lock().await;
+                if let Some(previous) = &stored.tcp_joined {
+                    assert!(driver.matches_joined(previous));
+                } else {
+                    stored.tcp_joined = Some(joined.clone());
+                }
+            }
+            if let Err(source) = joined.result() {
+                self.diagnostics.tcp_driver(source);
+                driver
+                    .acknowledge_hosted_failure(&joined)
+                    .map_err(|source| error(Stage::Close, Reason::Internal).with_source(source))?;
+            }
+            state = self.state.lock().await;
+        }
         if let Some(owner) = state.endpoint.as_ref() {
             owner.begin_shutdown();
             owner.wait_users_original().await?;
@@ -87,12 +115,18 @@ impl Owners {
         }
         // Do not wait for this phase from its own borrowed adoption. Root now
         // resumes native/LoanOwner closure and the independent real Host ACKs.
+        let tcp_masks = state.tcp_masks.take();
+        let tcp_setup = state.tcp_setup.take();
+        let tcp = state.tcp.take();
         let segment = state.segment.take();
         let endpoint = state.endpoint.take();
         let receiver = state.receiver.take();
         let queues = state.queues.take();
 
         drop(state);
+        drop(tcp_masks);
+        drop(tcp_setup);
+        drop(tcp);
         drop(segment);
         drop(endpoint);
         drop(receiver);

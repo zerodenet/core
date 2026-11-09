@@ -9,7 +9,7 @@ use tokio::{
 };
 const ID: &str = "11111111-2222-3333-4444-555555555555";
 #[path = "h3/wire.rs"]
-mod wire;
+pub(in crate::adapters::vless::component::tests::material) mod wire;
 #[tokio::test]
 async fn ordinary_xmux_h3_keeps_one_original_across_two_real_users_and_replaces_after_network_change(
 ) {

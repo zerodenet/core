@@ -80,7 +80,7 @@ impl super::super::VlessAdapter {
             .unwrap_or_default();
         let refs = super::super::outbound_options(&input.tag, (server, *port), &input.protocol)
             .expect("same VLESS projection");
-        let leaf = ::vless::transport::VlessOutboundLeaf::from_options_refs(
+        let (leaf, masks) = ::vless::transport::VlessOutboundLeaf::from_owned_options_refs(
             resources.candidate().and_then(|config| config.source_dir()),
             refs,
             &self.runtime,
@@ -120,6 +120,7 @@ impl super::super::VlessAdapter {
                 input.tag
             ))
         })?;
+        options = options.with_owned_mask_settings(masks);
         options = options
             .with_buffer_policy(
                 zero_platform_tokio::controlled_carrier::CarrierBufferLimits {

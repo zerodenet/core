@@ -10,7 +10,7 @@ use zero_platform_tokio::{
 };
 mod datagram;
 mod h3;
-mod ordinary;
+pub(in crate::component::quic) mod ordinary;
 impl Outbound {
     pub(super) async fn acquire_parts(
         &self,

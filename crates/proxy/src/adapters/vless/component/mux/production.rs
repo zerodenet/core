@@ -8,6 +8,9 @@ impl VlessAdapter {
         candidate: Option<&RuntimeConfig>,
         native: bool,
     ) -> bool {
+        if super::super::xhttp::eligible(input) {
+            return native && candidate.is_some();
+        }
         if super::super::quic::eligible(input) {
             return native && candidate.is_some();
         }

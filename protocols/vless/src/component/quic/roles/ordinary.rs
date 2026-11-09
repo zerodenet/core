@@ -6,7 +6,7 @@ use std::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use zero_platform_tokio::controlled_carrier::loan::StreamLoan;
-pub(super) struct Ordinary(pub(super) StreamLoan);
+pub(in crate::component::quic) struct Ordinary(pub(in crate::component::quic) StreamLoan);
 impl AsyncRead for Ordinary {
     fn poll_read(
         mut self: Pin<&mut Self>,

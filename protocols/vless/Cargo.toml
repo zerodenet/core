@@ -62,6 +62,7 @@ ztls = { path = "../../crates/ztls", default-features = false }
 zero-traits = { path = "../../crates/traits" }
 
 [dev-dependencies]
+zero-tun = { path = "../../crates/tun", default-features = false, features = ["packet-memory"] }
 rustls.workspace = true
 tokio-rustls = { version = "0.26", default-features = false }
 tokio = { workspace = true, features = ["test-util"] }

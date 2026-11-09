@@ -38,6 +38,7 @@ struct Outbound {
     admission: Arc<SessionAdmission>,
     tasks: TaskRegistrar,
     ech_resolver: Option<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>,
+    datagram_budget: Option<datagram::Budget>,
 }
 impl ComponentFactory for Factory {
     type Options = Options;
@@ -68,7 +69,7 @@ impl ComponentFactory for Factory {
         options: Arc<Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
-        self.build_owned(options, context, None)
+        self.build_owned(options, context, None, None)
     }
 }
 impl Factory {
@@ -78,13 +79,25 @@ impl Factory {
         context: BuildContext,
         resolver: Arc<dyn zero_transport::tls::ech::EchConfigResolver>,
     ) -> Result<ComponentInstance, BuildError> {
-        self.build_owned(options, context, Some(resolver))
+        self.build_owned(options, context, Some(resolver), None)
+    }
+    /// Installed Kernel assembly supplies this actual Host's mandatory book.
+    /// Old explicit independent-library constructors retain their original duty.
+    pub fn build_with_host_resources(
+        &self,
+        options: Arc<Options>,
+        context: BuildContext,
+        resolver: Arc<dyn zero_transport::tls::ech::EchConfigResolver>,
+    ) -> Result<ComponentInstance, BuildError> {
+        let budget = datagram::Budget::from_resources(context.resources.as_ref())?;
+        self.build_owned(options, context, Some(resolver), Some(budget))
     }
     fn build_owned(
         &self,
         options: Arc<Options>,
         context: BuildContext,
         resolver: Option<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>,
+        datagram_budget: Option<datagram::Budget>,
     ) -> Result<ComponentInstance, BuildError> {
         let (session, admission) = SessionOwner::new(context.component, &context.cancel);
         let dynamic = options
@@ -133,6 +146,7 @@ impl Factory {
                         admission: admission.clone(),
                         tasks: context.tasks.clone(),
                         ech_resolver: resolver.clone(),
+                        datagram_budget: datagram_budget.clone(),
                     })
                 }),
                 stream: Some(erase_stream(Outbound {
@@ -140,6 +154,7 @@ impl Factory {
                     admission,
                     tasks: context.tasks,
                     ech_resolver: resolver,
+                    datagram_budget,
                 })),
                 ..Default::default()
             },

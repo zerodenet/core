@@ -6,7 +6,7 @@ use super::*;
 #[derive(Clone)]
 pub(in crate::split_http) struct Sender {
     pub(super) pool: XhttpClientPool,
-    pub(super) factory: XhttpCarrierFactory,
+    pub(super) factory: OwnedXhttpCarrierFactory,
     pub(super) usage: UsageRef,
     pub(super) owned: bool,
     pub(super) owner: Option<OwnerKey>,
@@ -34,6 +34,9 @@ impl Sender {
         let origin = connection
             .owned_origin()
             .ok_or(io::ErrorKind::PermissionDenied)?;
+        if matches!(connection.sender, carrier::Sender::Http1(_)) {
+            group.connections.recycle(connection);
+        }
         Ok((runtime, origin))
     }
     pub(super) async fn owned_runtime(
@@ -44,9 +47,13 @@ impl Sender {
             .connections
             .acquire_owned(&group, &self.factory)
             .await?;
-        original
+        let runtime = original
             .owned_runtime()
-            .ok_or(io::ErrorKind::PermissionDenied.into())
+            .ok_or(io::ErrorKind::PermissionDenied)?;
+        if matches!(original.sender, carrier::Sender::Http1(_)) {
+            group.connections.recycle(original);
+        }
+        Ok(runtime)
     }
     pub(in crate::split_http) async fn send_request(
         &mut self,
@@ -92,7 +99,7 @@ impl Sender {
                 .map_err(io::Error::other)?;
         }
         if let Some(original) = &self.logical {
-            connection.sender.bind_logical(original.clone())?;
+            connection.bind_logical(original.clone())?;
         }
         let response = match connection.sender.send_request(request).await {
             Ok(response) => response,
@@ -107,6 +114,7 @@ impl Sender {
                     body,
                     connection,
                     response_use,
+                    group,
                     memory,
                 ))
             }));

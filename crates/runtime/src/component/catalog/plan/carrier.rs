@@ -1,5 +1,6 @@
 //! Check borrowed lineage against actual installed roles and original providers.
 use super::*;
+mod cached;
 mod metadata;
 mod preparation;
 mod process;
@@ -131,6 +132,13 @@ impl ComponentPlan {
             .is_some_and(|slot| metadata::installed(&slot))
     }
 
+    /// Read-only classification of the same actual installed cached TCP and/or
+    /// metadata half issuers. Every acquisition still checks its sealed grant.
+    pub fn has_cached_stream_provider(&self, role: zero_core::component::RoleInstanceId) -> bool {
+        self.role_slot(role)
+            .is_some_and(|slot| cached::installed(&slot))
+    }
+
     /// Planning prerequisite only; actual borrowing still validates the original
     /// registration and executable role before using its transferred stream.
     pub fn has_carrier_provider(&self, role: zero_core::component::RoleInstanceId) -> bool {
@@ -173,7 +181,10 @@ impl ComponentPlan {
             // This is only the exact declared same-job pair. Actual endpoint
             // demand still checks the direct dependency, original grant and
             // both started slots through ensure_process_endpoint_use.
-            if process::paired_endpoint(slot.recipe.spec()) || metadata::installed(slot) {
+            if process::paired_endpoint(slot.recipe.spec())
+                || metadata::installed(slot)
+                || cached::installed(slot)
+            {
                 pending.extend(slot.dependency_instances());
                 continue;
             }

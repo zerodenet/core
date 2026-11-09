@@ -2,6 +2,7 @@
 mod connect;
 mod entry;
 mod factory;
+pub mod mixed;
 mod options;
 mod pending;
 mod roles;

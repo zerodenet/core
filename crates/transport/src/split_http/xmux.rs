@@ -1,5 +1,7 @@
 //! HTTP client-group pooling. Logical streams own usage leases, while HTTP
 //! drivers and response bodies retain connections independently of those leases.
+mod factory;
+pub use factory::{OwnedXhttpCarrierFactory, OwnedXhttpFactoryCall};
 mod allocations;
 pub(in crate::split_http) use allocations::UsageRef;
 use allocations::{GroupRef, Groups};
@@ -10,7 +12,10 @@ mod owner;
 use owner::OwnerKey;
 pub(crate) mod owned;
 mod owned_connect;
-pub use owned_connect::OwnedXhttpContext;
+pub use owned_connect::{
+    OwnedConnectionKind, OwnedConnectionKinds, OwnedXhttpContext, OwnedXhttpDownload,
+    PreparedOwnedXhttp,
+};
 pub(super) mod prepared;
 pub(super) mod request;
 use super::{client, request::Profile, XhttpMode, XhttpStream};
@@ -30,6 +35,7 @@ pub enum XhttpCarrier {
     Http2(zero_platform_tokio::TcpRelayStream),
     Http3(crate::quic::QuicConnection),
     OwnedHttp3(owned::OwnedXhttp3),
+    OwnedTcp(owned::OwnedXhttpTcp),
 }
 pub type XhttpCarrierFactory = Arc<
     dyn Fn() -> Pin<Box<dyn Future<Output = Result<XhttpCarrier, crate::RuntimeError>> + Send>>
@@ -168,7 +174,7 @@ impl XhttpClientPool {
         stream.usages.push(usage.clone());
         let sender = request::Sender {
             pool: self.clone(),
-            factory,
+            factory: factory.into(),
             usage,
             owned: false,
             owner: None,
@@ -191,7 +197,7 @@ impl XhttpClientPool {
             (
                 request::Sender {
                     pool: download.pool.clone(),
-                    factory: download.factory,
+                    factory: download.factory.into(),
                     usage,
                     owned: false,
                     owner: None,

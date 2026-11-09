@@ -5,7 +5,7 @@ use zero_platform_tokio::contract::{
     lifecycle::{ChannelControl, CloseReport, Unfinished},
     CloseReason,
 };
-pub struct Control(pub(super) Arc<Shared>);
+pub struct Control(pub(super) SharedRef);
 impl Control {
     pub(in crate::component) fn original(&self) -> Option<&CarrierOrigin> {
         self.0.original.as_ref()

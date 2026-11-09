@@ -3,9 +3,14 @@
 //! HTTP execution belongs here; protocol authentication and route tasks do not.
 pub mod managed_h2;
 pub(crate) mod xmux;
-pub use xmux::owned::{OwnedLogicalReturn, OwnedXhttp3, PendingXhttp3, PreparedXhttp3};
+pub use xmux::owned::{
+    OwnedLogicalReturn, OwnedXhttp3, OwnedXhttpTcp, PendingXhttp3, PendingXhttpTcp, PreparedXhttp3,
+    PreparedXhttpTcp, TcpVersion,
+};
 pub use xmux::{
-    OwnedXhttpContext, XhttpCarrier, XhttpCarrierFactory, XhttpClientPool, XhttpDownload,
+    OwnedConnectionKind, OwnedConnectionKinds, OwnedXhttpCarrierFactory, OwnedXhttpContext,
+    OwnedXhttpDownload, OwnedXhttpFactoryCall, PreparedOwnedXhttp, XhttpCarrier,
+    XhttpCarrierFactory, XhttpClientPool, XhttpDownload,
 };
 mod body;
 mod chunked;

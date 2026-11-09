@@ -1,7 +1,7 @@
 //! No actual registrar has been called at this stage. A foreign receiver panic
 //! must not turn this known no-task state into an uncertain self-wait.
 use super::*;
-pub(super) struct BeforeActor(pub Option<PacketMetadataArc<Entry>>);
+pub(in crate::component::quic) struct BeforeActor(pub Option<PacketMetadataArc<Entry>>);
 impl BeforeActor {
     pub fn disarm(&mut self) {
         drop(self.0.take());

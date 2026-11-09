@@ -65,7 +65,8 @@ impl ProtocolInventory {
         // Datagram itself. Other Datagram roles may still require this Query
         // to supply their control Stream/UDP originals; an observer is not IO.
         let metadata = slot.dial == Default::default()
-            && components.has_metadata_stream_provider(slot.role_id())
+            && (components.has_metadata_stream_provider(slot.role_id())
+                || components.has_cached_stream_provider(slot.role_id()))
             && components.stream_dependencies_supported(slot.role_id());
         // The logical role publishes no native resources of its own. Its
         // installed background dependency already owns the shared physical

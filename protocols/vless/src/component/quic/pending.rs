@@ -18,7 +18,13 @@ struct Pending {
 pub(super) fn for_current(
     generation: &PacketMetadataArc<entry::Generation>,
     binding: &UpstreamBinding,
-) -> Result<Option<UpstreamTransport>, ChannelError> {
+) -> Result<
+    Option<(
+        UpstreamTransport,
+        zero_platform_tokio::contract::CancellationToken,
+    )>,
+    ChannelError,
+> {
     let native = tokio::task::try_id();
     let mut after = 0;
     while let Some((ordinal, parent)) = generation.next_entry(after) {
@@ -59,7 +65,7 @@ pub(super) fn for_current(
             .anchor
             .set(transport.pending_carrier_observer());
         drop(lease);
-        return Ok(Some(transport));
+        return Ok(Some((transport, parent.owners.stop.clone())));
     }
     Ok(None)
 }

@@ -9,33 +9,48 @@ use tokio::io::{AsyncRead, ReadBuf};
 use zero_core::packet::Datagram;
 use zero_platform_tokio::contract::{datagram::DatagramRx, BoxFuture, CloseReason};
 pub struct Rx {
-    shared: Arc<Shared>,
-    bytes: Vec<u8>,
+    bytes: memory::Buffer,
+    output: Option<memory::Output>,
     offset: usize,
     length: Option<usize>,
     cancelled: BoxFuture<'static, ()>,
+    _cancel_metadata: Option<zero_traits::packet_metadata::PacketMetadataCredit>,
+    shared: SharedRef,
 }
 impl Rx {
-    pub(super) fn new(shared: Arc<Shared>) -> Self {
+    pub(super) fn new(
+        shared: SharedRef,
+        mut bytes: memory::Buffer,
+        output: Option<memory::Output>,
+        cancel_metadata: Option<zero_traits::packet_metadata::PacketMetadataCredit>,
+    ) -> Self {
+        bytes.resize(2, 0);
         Self {
             cancelled: shared.cancellation(),
             shared,
-            bytes: vec![0; 2],
+            bytes,
+            output,
+            _cancel_metadata: cancel_metadata,
             offset: 0,
             length: None,
         }
     }
-    fn packet(&mut self) -> Datagram {
-        let payload = self.bytes[2..].to_vec().into();
+    fn packet(&mut self, cx: &mut Context<'_>) -> Poll<Result<Datagram, ChannelError>> {
+        let (payload, address) = match &mut self.output {
+            Some(output) => {
+                std::task::ready!(output.poll_copy(cx, &self.bytes[2..], &self.shared.target))?
+            }
+            None => (self.bytes[2..].to_vec().into(), self.shared.target.clone()),
+        };
         self.bytes.clear();
         self.bytes.resize(2, 0);
         self.offset = 0;
         self.length = None;
-        Datagram {
+        Poll::Ready(Ok(Datagram {
             association: self.shared.association,
-            address: self.shared.target.clone(),
+            address,
             payload,
-        }
+        }))
     }
 }
 impl DatagramRx for Rx {
@@ -61,7 +76,7 @@ impl DatagramRx for Rx {
                     this.bytes.resize(len + 2, 0);
                 }
                 if this.offset == this.bytes.len() {
-                    return Poll::Ready(Ok(Some(this.packet())));
+                    return this.packet(cx).map(|result| result.map(Some));
                 }
             }
             let mut state = this.shared.state.lock().unwrap();

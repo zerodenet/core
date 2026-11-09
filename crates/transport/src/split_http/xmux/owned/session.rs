@@ -23,18 +23,24 @@ impl Working {
         self.transmit.clone()
     }
 }
-impl Runtime {
-    pub(in crate::split_http) async fn connect_profiles(
-        runtime: &PacketMetadataArc<Self>,
-        mut upload: carrier::Sender,
-        mut download: carrier::Sender,
-        profile: Profile,
-        download_profile: Profile,
-    ) -> io::Result<XhttpStream> {
-        if runtime.stopped.is_cancelled() {
-            return Err(io::ErrorKind::BrokenPipe.into());
-        }
-        let duplex = runtime.book.try_reserve(2 * 64 * 1024)?;
+pub(in crate::split_http) struct PreparedLogical {
+    stream: XhttpStream,
+    network: tokio::io::DuplexStream,
+    working: Working,
+    causes: PacketMetadataArc<sources::RequestCauses>,
+    life: crate::split_http::io::LifetimeRef,
+    book: CarrierBufferBudget,
+    memory: PacketDriverMetadataView,
+    // Keep both real duplex allocations charged through every field Drop.
+    returned: super::OwnedLogicalReturn,
+}
+impl PreparedLogical {
+    pub(in crate::split_http) fn prepare(
+        book: &CarrierBufferBudget,
+        memory: &PacketDriverMetadataView,
+        profile: &Profile,
+    ) -> io::Result<Self> {
+        let duplex = book.try_reserve(2 * 64 * 1024)?;
         let scratch = if matches!(profile.mode, XhttpMode::PacketUp | XhttpMode::Auto) {
             profile.options.sc_max_each_post_bytes.to.max(1) as usize
         } else {
@@ -42,14 +48,69 @@ impl Runtime {
         };
         let transmit = upload::transmit_peak(&profile, scratch)?;
         let working = Working {
-            scratch: Some(runtime.book.try_reserve(scratch)?),
-            transmit: runtime.book.try_working_lane(transmit)?,
+            scratch: Some(book.try_reserve(scratch)?),
+            transmit: book.try_working_lane(transmit)?,
         };
-        let causes = sources::RequestCauses::prepare(&runtime.memory)?;
-        let life = crate::split_http::io::LifetimeRef::prepare(&runtime.memory)?;
+        let causes = sources::RequestCauses::prepare(memory)?;
+        let life = crate::split_http::io::LifetimeRef::prepare(memory)?;
         let (mut stream, network) = client::stream_pair_with_lifetime(life.clone());
-        let returned = super::OwnedLogicalReturn::prepare(&runtime.memory, life.clone(), duplex)?;
+        let returned = super::OwnedLogicalReturn::prepare(memory, life.clone(), duplex)?;
         stream.owned_return = Some(returned.clone());
+        Ok(Self {
+            stream,
+            network,
+            working,
+            causes,
+            life,
+            book: book.clone(),
+            memory: memory.clone(),
+            returned,
+        })
+    }
+}
+impl Runtime {
+    pub(in crate::split_http) async fn connect_profiles(
+        runtime: &PacketMetadataArc<Self>,
+        upload: carrier::Sender,
+        download: carrier::Sender,
+        profile: Profile,
+        download_profile: Profile,
+    ) -> io::Result<XhttpStream> {
+        let prepared = PreparedLogical::prepare(&runtime.book, &runtime.memory, &profile)?;
+        Self::connect_prepared(
+            runtime,
+            upload,
+            download,
+            profile,
+            download_profile,
+            prepared,
+        )
+        .await
+    }
+    pub(in crate::split_http) async fn connect_prepared(
+        runtime: &PacketMetadataArc<Self>,
+        mut upload: carrier::Sender,
+        mut download: carrier::Sender,
+        profile: Profile,
+        download_profile: Profile,
+        prepared: PreparedLogical,
+    ) -> io::Result<XhttpStream> {
+        if runtime.stopped.is_cancelled() {
+            return Err(io::ErrorKind::BrokenPipe.into());
+        }
+        if !runtime.book.same_budget(&prepared.book) || !runtime.memory.same_root(&prepared.memory)
+        {
+            return Err(io::ErrorKind::PermissionDenied.into());
+        }
+        let PreparedLogical {
+            mut stream,
+            network,
+            working,
+            causes,
+            life,
+            returned,
+            ..
+        } = prepared;
         upload.bind_logical(returned.clone())?;
         download.bind_logical(returned.clone())?;
         let (reader, writer) = tokio::io::split(network);

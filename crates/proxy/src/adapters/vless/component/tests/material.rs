@@ -76,3 +76,6 @@ mod managed_originals;
 
 #[path = "material/h3.rs"]
 mod h3;
+
+#[path = "material/mixed.rs"]
+mod mixed;

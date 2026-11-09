@@ -8,13 +8,17 @@ pub use logical::OwnedLogicalReturn;
 pub(in crate::split_http) mod pipe;
 pub(in crate::split_http) mod request;
 mod session;
+pub(in crate::split_http) use session::PreparedLogical;
 mod sources;
+mod tcp;
 use ledger::{Ledger, PaidFuture};
 use std::{
     io,
     sync::Arc,
     task::{Context, Poll},
 };
+pub(super) use tcp::Original as TcpOriginal;
+pub use tcp::{OwnedXhttpTcp, PendingXhttpTcp, PreparedXhttpTcp, TcpVersion};
 use zero_platform_tokio::{
     contract::{component::PacketDriverMetadataView, CancellationToken},
     controlled_carrier::CarrierBufferBudget,
@@ -23,11 +27,12 @@ use zero_traits::packet_metadata::PacketMetadataArc;
 enum Work {
     Session(PaidFuture),
     Request(PaidFuture),
+    Http2Delegate(PaidFuture),
 }
 impl Work {
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<()> {
         match self {
-            Self::Session(work) | Self::Request(work) => work.poll(cx),
+            Self::Session(work) | Self::Request(work) | Self::Http2Delegate(work) => work.poll(cx),
         }
     }
 }

@@ -35,7 +35,8 @@ impl ProtocolInventory {
                         || (spec.task_limit.is_none()
                             || components.has_preparing_node_carrier_provider(slot.role_id())
                             || components.has_node_stream_provider(slot.role_id())
-                            || components.has_metadata_stream_provider(slot.role_id()))
+                            || components.has_metadata_stream_provider(slot.role_id())
+                            || components.has_cached_stream_provider(slot.role_id()))
                             && components.has_carrier_provider(slot.role_id())
                             && components.stream_dependencies_supported(slot.role_id());
                     if slot.dial != Default::default() && !direct && !device

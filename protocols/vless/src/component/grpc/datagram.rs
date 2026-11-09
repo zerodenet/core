@@ -26,23 +26,25 @@ impl DatagramOutbound for Outbound {
                 DeliveryState::NotSubmitted,
             ));
         };
+        let mut prepared = datagram::Prepared::new(
+            self.datagram_budget.as_ref(),
+            &context.cancel,
+            &self.admission,
+            target,
+        )?;
         let target = target.clone();
-        let bytes = crate::shared::build_request_to(
-            &target.address,
-            target.port,
-            &self.options.prepared.protocol.uuid,
-            crate::shared::CMD_UDP,
-        )
-        .map_err(|source| {
-            self.admission
-                .error(
-                    session,
-                    Stage::Prepare,
-                    Reason::InvalidConfig,
-                    DeliveryState::NotSubmitted,
-                )
-                .with_source(source)
-        })?;
+        let bytes = prepared
+            .request(&target, &self.options.prepared.protocol.uuid)
+            .map_err(|source| {
+                self.admission
+                    .error(
+                        session,
+                        Stage::Prepare,
+                        Reason::InvalidConfig,
+                        DeliveryState::NotSubmitted,
+                    )
+                    .with_source(source)
+            })?;
         let raw = self.acquire(&context).await?;
         let (io, control, original) = raw.into_controlled_parts()?;
         // Cached physical acquisition happened in its owning pool's Service
@@ -65,6 +67,7 @@ impl DatagramOutbound for Outbound {
             observer.record(session, ConnectFact::RequestSubmitted);
             observer.protocol_traffic(session, 0, bytes.len() as u64);
         }
+        drop(bytes);
         // The existing UDP tunnel waits for the actual VLESS response header;
         // gRPC establishment is not destination acceptance.
         let response = response::read(&mut io, &context, &self.admission, session).await?;
@@ -85,7 +88,8 @@ impl DatagramOutbound for Outbound {
             context,
             self.admission.clone(),
             session,
-            target.clone(),
+            target,
+            prepared,
         ))
     }
     async fn open_carrier(

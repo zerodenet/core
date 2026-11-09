@@ -23,7 +23,7 @@ impl ComponentFactory for Factory {
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
         let instance = context.instance();
-        ::vless::component::Factory.build_with_ech_resolver(
+        ::vless::component::Factory.build_with_host_resources(
             options,
             context,
             crate::component::background::grpc::tls_resolver(self.network.clone(), instance),

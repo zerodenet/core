@@ -585,3 +585,6 @@ mod download;
 mod xhttp;
 
 mod material;
+
+mod owned_xhttp;
+pub(crate) use owned_xhttp::{OwnedXhttpHalf, OwnedXhttpKind, OwnedXhttpParts};
