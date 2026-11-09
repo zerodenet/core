@@ -19,7 +19,11 @@ async fn ordinary_quic_native_and_borrowed_doh_use_the_same_real_query_and_endpo
             let mut first = query(&proxy, "first.real.quic.doh.test");
             let (_, answer) = tokio::select! {
                 request=tokio::time::timeout_at(deadline(),tls.requests.recv())=>request.unwrap().unwrap(),
-                result=&mut first=>panic!("actual QUIC DNS failed before the declared TLS peer: {result:?}"),
+                result=&mut first=>{
+                    crate::component::stream_bridge::capacity_debug::books(&proxy);
+                    if let Ok(Err(source))=&result {crate::component::stream_bridge::capacity_debug::source("actual DNS before TLS peer",source);}
+                    panic!("actual QUIC DNS failed before the declared TLS peer: {result:?}")
+                },
             };
             let actual = super::pending(&proxy).await;
             let child = actual.original.as_ref().unwrap();
