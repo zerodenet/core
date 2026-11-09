@@ -36,6 +36,23 @@ pub struct CarrierBufferFrameCredit {
     return_to: Option<Arc<Slot>>,
 }
 impl CarrierBufferBudget {
+    /// A concrete control writer has its own prepaid lane so accepted control
+    /// work can finish while business frames occupy their transmit promises.
+    pub fn try_working_lane(&self, bound: usize) -> io::Result<CarrierBufferWorkingLane> {
+        if bound == 0 {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        let credit = self.try_reserve(bound)?;
+        Ok(CarrierBufferWorkingLane(Arc::new(Slot {
+            state: Mutex::new(WorkingState {
+                available: Some(credit),
+                top_up: None,
+                bound,
+            }),
+            changed: tokio::sync::Notify::new(),
+            book: self.clone(),
+        })))
+    }
     /// Sizes come from the actual producer's plain bounds, including its codec
     /// and temporary-copy peak. Native GSO is never guessed or truncated here.
     /// Production must prepay before starting that original's business IO.
