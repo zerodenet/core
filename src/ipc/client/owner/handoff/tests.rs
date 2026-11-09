@@ -45,7 +45,25 @@ async fn actual_paid_decode_fault_handoff_unpins_retired_locals_but_keeps_extern
     assert!(lock(&original.faults.joined).is_empty());
     assert!(lock(&original.faults.native).is_none());
     assert!(lock(&original.faults.abandoned).is_none());
-    assert!(original.driver.join().await.is_ok(),"only the already accepted local diagnostic copy has retired; this is not a second task join");
+    let observed_error = original
+        .driver
+        .join()
+        .await
+        .expect_err("the original driver failed; handoff must not turn it into success");
+    let observed = observed_error
+        .get_ref()
+        .unwrap()
+        .downcast_ref::<Arc<io::Error>>()
+        .expect("live receiver must preserve same original driver Arc");
+    let same = received
+        .driver
+        .as_ref()
+        .unwrap()
+        .get_ref()
+        .unwrap()
+        .downcast_ref::<Arc<io::Error>>()
+        .unwrap();
+    assert!(Arc::ptr_eq(observed, same));
     assert!(
         book.usage().response_bytes > 0,
         "the external exact original DecodeFailure still owns its actual frame"
@@ -59,12 +77,28 @@ async fn actual_paid_decode_fault_handoff_unpins_retired_locals_but_keeps_extern
         book.prepare(target).err().unwrap().kind(),
         io::ErrorKind::WouldBlock
     );
+    drop(observed_error);
     drop(error);
     assert_eq!(
         book.usage().response_bytes,
         0,
         "no retired local diagnostic may pin the actual frame after its external receiver returns"
     );
+    let delivered = original
+        .driver
+        .join()
+        .await
+        .expect_err("past execution failure remains explicit after original payload returns");
+    assert!(delivered.to_string().contains("already handed"));
+    assert!(
+        delivered
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<Arc<io::Error>>()
+            .is_none(),
+        "do not fabricate an original source after it was released"
+    );
+    drop(delivered);
     // No new dial, scope, reaper or fresh book is needed to unpin/shrink.
     book.prepare(target).unwrap().commit().unwrap();
     assert_eq!(book.limits(), target);

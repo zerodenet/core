@@ -15,10 +15,7 @@ impl Attempt {
         };
         let driver_released = match received.driver.as_ref() {
             None => true,
-            Some(error) => error
-                .get_ref()
-                .and_then(|source| source.downcast_ref::<Arc<io::Error>>())
-                .is_some_and(|source| self.driver.release_joined_failure(source)),
+            Some(error) => self.driver.release_joined_failure(error),
         };
         let joined = std::mem::take(&mut *lock(&self.faults.joined));
         let native = lock(&self.faults.native).take();
