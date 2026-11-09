@@ -8,7 +8,7 @@ use std::{
 type ByteWait = Pin<Box<dyn Future<Output = io::Result<CarrierBufferFrameCredit>> + Send>>;
 type MetaWait =
     Pin<Box<dyn Future<Output = Result<PacketMetadataCredit, PacketMemoryError>> + Send>>;
-pub(in crate::finalmask) struct Wait {
+pub(crate) struct Wait {
     memory: Memory,
     bytes: Mutex<Option<ByteWait>>,
     byte_need: usize,
@@ -16,7 +16,7 @@ pub(in crate::finalmask) struct Wait {
     meta_need: Option<PacketMetadataLayout>,
 }
 impl Wait {
-    pub(in crate::finalmask) fn new(memory: Memory) -> Self {
+    pub(crate) fn new(memory: Memory) -> Self {
         Self {
             memory,
             bytes: Mutex::new(None),
@@ -25,7 +25,7 @@ impl Wait {
             meta_need: None,
         }
     }
-    pub(in crate::finalmask) fn poll(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    pub(crate) fn poll(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let Some(actual) = &self.memory.0 else {
             return Poll::Ready(Ok(()));
         };

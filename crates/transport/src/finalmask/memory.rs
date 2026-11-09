@@ -12,7 +12,7 @@ use zero_traits::packet_metadata::{
     PacketMemoryError, PacketMetadataArc, PacketMetadataCredit, PacketMetadataLayout,
 };
 mod wait;
-pub(super) use wait::Wait;
+pub(crate) use wait::Wait;
 #[derive(Clone, Default)]
 pub(crate) struct Memory(Option<PacketMetadataArc<Shared>>);
 struct Shared {
