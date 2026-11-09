@@ -2,6 +2,17 @@
 //! They never go through or enlarge the privileged helper command whitelist.
 use super::*;
 use std::{net::IpAddr, process::Output};
+enum QueryFailure {
+    Closed(io::Error),
+    Original(io::Error),
+}
+impl QueryFailure {
+    fn into_io(self) -> io::Error {
+        match self {
+            Self::Closed(source) | Self::Original(source) => source,
+        }
+    }
+}
 impl MacosHelperAccess {
     pub fn system_dns_servers(&self) -> io::Result<Vec<IpAddr>> {
         let owner = MacosHelperOwner(
@@ -9,12 +20,15 @@ impl MacosHelperAccess {
                 .upgrade()
                 .ok_or_else(|| io::Error::other("actual helper owner expired"))?,
         );
-        let output = owner.query(tool::Query::SystemDns)?;
-        if output.status.success() {
-            let (observed, servers) = parse_dns(&output.stdout);
-            if observed {
-                return require_servers(servers);
+        match owner.query(tool::Query::SystemDns) {
+            Ok(output) if output.status.success() => {
+                let (observed, servers) = parse_dns(&output.stdout);
+                if observed {
+                    return require_servers(servers);
+                }
             }
+            Ok(_) | Err(QueryFailure::Closed(_)) => {}
+            Err(QueryFailure::Original(source)) => return Err(source),
         }
         // A successfully retired query with no usable result preserves the old
         // resolv.conf fallback. Native close/Child errors are never None.
@@ -23,7 +37,7 @@ impl MacosHelperAccess {
     }
 }
 impl MacosHelperOwner {
-    pub(in crate::macos_privilege) fn query(&self, query: tool::Query) -> io::Result<Output> {
+    fn query(&self, query: tool::Query) -> Result<Output, QueryFailure> {
         let _notifications = self.0.memory.defer_notifications();
         let index = self.0.current.load(Ordering::Acquire);
         let mut epoch = self.0.epochs[index]
@@ -34,14 +48,21 @@ impl MacosHelperOwner {
             .as_ref()
             .is_some_and(|original| !original.closed())
         {
-            return Err(io::Error::other("prior local metadata FD remains unknown"));
+            return Err(QueryFailure::Original(io::Error::other(
+                "prior local metadata FD remains unknown",
+            )));
         }
         let result = tool::run_query(&mut epoch.local_tool, query, self.0.output_limit);
-        if let Err(source) = result {
-            self.0.retain(index, Phase::ToolProgress, source);
-            return Err(io::Error::other(self.0.failures.clone().into_error()));
+        match result {
+            Err(source) if epoch.local_tool.reusable() => Err(QueryFailure::Closed(source)),
+            Err(source) => {
+                self.0.retain(index, Phase::ToolProgress, source);
+                Err(QueryFailure::Original(io::Error::other(
+                    self.0.failures.clone().into_error(),
+                )))
+            }
+            Ok(output) => Ok(output),
         }
-        result
     }
     fn resolv_conf(&self) -> io::Result<Vec<u8>> {
         let _notifications = self.0.memory.defer_notifications();
@@ -183,8 +204,16 @@ mod tests;
 /// None is the explicit independent-library path, not a Kernel fallback after
 /// failure. A present actual Source context always returns Some, including Err.
 pub(crate) fn route_query(arguments: &[String]) -> Option<io::Result<Output>> {
-    current().map(|owner| owner.query(tool::Query::Route(arguments.to_vec())))
+    current().map(|owner| {
+        owner
+            .query(tool::Query::Route(arguments.to_vec()))
+            .map_err(QueryFailure::into_io)
+    })
 }
 pub(crate) fn route_table(ipv6: bool) -> Option<io::Result<Output>> {
-    current().map(|owner| owner.query(tool::Query::RouteTable(ipv6)))
+    current().map(|owner| {
+        owner
+            .query(tool::Query::RouteTable(ipv6))
+            .map_err(QueryFailure::into_io)
+    })
 }
