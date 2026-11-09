@@ -76,6 +76,14 @@ async fn later_original_worker_failure_joins_the_same_pending_host_ack_wait() {
             .faults()
             .iter()
             .any(|fault| Arc::ptr_eq(&fault.error, &later_source)));
+        assert!(later.joined().registration_released());
+        assert!(scope.is_joined());
+        assert!(scope.unjoined_tasks().is_empty());
+        assert!(
+            !scope.is_drained(),
+            "registration remains open until its owner closes it"
+        );
+        scope.begin_shutdown();
         assert!(scope.is_drained());
         assert!(tasks.ensure_open().is_err());
     })

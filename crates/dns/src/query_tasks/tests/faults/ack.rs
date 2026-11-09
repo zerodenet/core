@@ -74,6 +74,13 @@ async fn received_worker_panic_waits_for_its_actual_host_ack_without_republishin
         scope.acknowledge(&receipt).unwrap();
         cleanup.await.unwrap();
         assert!(joined.registration_released());
+        assert!(scope.is_joined());
+        assert!(scope.unjoined_tasks().is_empty());
+        assert!(
+            !scope.is_drained(),
+            "registration remains open until its owner closes it"
+        );
+        scope.begin_shutdown();
         assert!(scope.is_drained());
         assert!(Arc::ptr_eq(&joined.result().unwrap_err(), &panic));
         assert!(Arc::ptr_eq(&received.faults()[0].error, &panic));
