@@ -68,7 +68,15 @@ impl ManagedPool {
         F: FnOnce(CarrierIo) -> Fut + Send + 'static,
         Fut: Future<Output = Result<(C, Driver), crate::RuntimeError>> + Send + 'static,
     {
-        let OriginalOpening { physical, binding, call, grant, waiting, caller, candidates } = opening;
+        let OriginalOpening {
+            physical,
+            binding,
+            call,
+            grant,
+            waiting,
+            caller,
+            candidates,
+        } = opening;
         let physical_call = CarrierContext {
             session: None,
             deadline: call.deadline,

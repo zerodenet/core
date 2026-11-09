@@ -10,13 +10,17 @@ pub(super) fn new() -> Probe {
     Arc::new(AtomicBool::new(false))
 }
 #[cfg(not(test))]
-pub(super) fn new() -> Probe { Probe }
+pub(super) fn new() -> Probe {
+    Probe
+}
 #[cfg(test)]
 pub(super) fn clone_probe(probe: &Probe) -> Probe {
     probe.clone()
 }
 #[cfg(not(test))]
-pub(super) fn clone_probe(_: &Probe) -> Probe { Probe }
+pub(super) fn clone_probe(_: &Probe) -> Probe {
+    Probe
+}
 pub(super) async fn receive(
     io: &BorrowedDatagram,
     bytes: &mut [u8],

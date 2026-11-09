@@ -433,7 +433,9 @@ impl AsyncUdpSocket for Socket {
 type FrameWait = Pin<
     Box<
         dyn Future<
-                Output = io::Result<zero_platform_tokio::controlled_carrier::CarrierBufferFrameCredit>,
+                Output = io::Result<
+                    zero_platform_tokio::controlled_carrier::CarrierBufferFrameCredit,
+                >,
             > + Send,
     >,
 >;
