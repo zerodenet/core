@@ -15,7 +15,7 @@ fn actual_journal_files_close_before_return_and_stopped_source_can_only_use_its_
     let mut lock = journal_lock(&lock_path, false).unwrap().unwrap();
     let source = lock.access();
     journal_write(&file, b"actual journal").unwrap().unwrap();
-    assert_eq!(journal_read(&file).unwrap().unwrap(), b"actual journal");
+    assert_eq!(&*journal_read(&file).unwrap().unwrap(), b"actual journal");
     assert!(owner.0.epochs[0]
         .lock()
         .unwrap()
@@ -49,3 +49,5 @@ fn actual_journal_files_close_before_return_and_stopped_source_can_only_use_its_
     lease.finish_cleanup().unwrap();
     owner.require_closed().unwrap();
 }
+
+mod metadata;

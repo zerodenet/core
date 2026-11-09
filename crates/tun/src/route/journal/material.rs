@@ -1,11 +1,35 @@
 //! Kernel material uses the same original Source's finite transient File slot.
 use super::*;
-pub(super) fn read(path: &Path) -> io::Result<Vec<u8>> {
+pub(super) enum Bytes {
+    Library(Vec<u8>),
+    #[cfg(target_os = "macos")]
+    Owned(crate::packet_memory::PacketMetadataVec<u8>),
+}
+impl std::ops::Deref for Bytes {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        match self {
+            Self::Library(bytes) => bytes,
+            #[cfg(target_os = "macos")]
+            Self::Owned(bytes) => bytes,
+        }
+    }
+}
+pub(super) fn read(path: &Path) -> io::Result<Bytes> {
     #[cfg(target_os = "macos")]
     if let Some(result) = crate::macos_privilege::journal_read(path) {
-        return result;
+        return result.map(Bytes::Owned);
     }
-    std::fs::read(path)
+    std::fs::read(path).map(Bytes::Library)
+}
+pub(super) fn encode(value: &impl Serialize) -> io::Result<Bytes> {
+    #[cfg(target_os = "macos")]
+    if let Some(result) = crate::macos_privilege::journal_encode(value) {
+        return result.map(Bytes::Owned);
+    }
+    serde_json::to_vec(value)
+        .map(Bytes::Library)
+        .map_err(io::Error::other)
 }
 pub(super) fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     #[cfg(target_os = "macos")]

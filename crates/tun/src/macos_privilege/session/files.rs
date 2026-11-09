@@ -1,6 +1,7 @@
 //! The same Source's two family lock originals, never a file-owner registry.
 use super::*;
 use std::{fs::File, mem::ManuallyDrop, os::fd::FromRawFd, path::Path};
+mod encoding;
 mod transient;
 #[derive(Default)]
 pub(super) struct Files {
@@ -283,8 +284,15 @@ impl Session {
 pub(crate) fn journal_lock(path: &Path, ipv6: bool) -> Option<io::Result<MacosRouteLock>> {
     current().map(|owner| owner.acquire_route_lock(path, ipv6))
 }
-pub(crate) fn journal_read(path: &Path) -> Option<io::Result<Vec<u8>>> {
+pub(crate) fn journal_read(
+    path: &Path,
+) -> Option<io::Result<crate::packet_memory::PacketMetadataVec<u8>>> {
     current().map(|owner| owner.read_file(path))
+}
+pub(crate) fn journal_encode(
+    value: &impl serde::Serialize,
+) -> Option<io::Result<crate::packet_memory::PacketMetadataVec<u8>>> {
+    current().map(|owner| owner.encode_journal(value))
 }
 pub(crate) fn journal_write(path: &Path, bytes: &[u8]) -> Option<io::Result<()>> {
     current().map(|owner| owner.write_file(path, bytes))

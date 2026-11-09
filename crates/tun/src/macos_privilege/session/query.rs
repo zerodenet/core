@@ -96,7 +96,7 @@ impl MacosHelperOwner {
             Ok(output) => Ok(output),
         }
     }
-    fn resolv_conf(&self) -> io::Result<Vec<u8>> {
+    fn resolv_conf(&self) -> io::Result<crate::packet_memory::PacketMetadataVec<u8>> {
         self.read_file(std::path::Path::new("/etc/resolv.conf"))
     }
 }

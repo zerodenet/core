@@ -1,5 +1,6 @@
 //! One reused read/write File original in the same Source's actual epoch.
 use super::*;
+use crate::packet_memory::{PacketMemoryView, PacketMetadataVec};
 use std::{ffi::CStr, os::unix::ffi::OsStrExt};
 pub(super) struct NativePath {
     bytes: [u8; libc::PATH_MAX as usize],
@@ -33,7 +34,7 @@ impl MacosHelperOwner {
     pub(in crate::macos_privilege::session) fn read_file(
         &self,
         path: &Path,
-    ) -> io::Result<Vec<u8>> {
+    ) -> io::Result<PacketMetadataVec<u8>> {
         self.file_io(path, None)
     }
     pub(in crate::macos_privilege::session) fn write_file(
@@ -48,7 +49,7 @@ impl MacosHelperOwner {
         }
         self.file_io(path, Some(bytes)).map(drop)
     }
-    fn file_io(&self, path: &Path, input: Option<&[u8]>) -> io::Result<Vec<u8>> {
+    fn file_io(&self, path: &Path, input: Option<&[u8]>) -> io::Result<PacketMetadataVec<u8>> {
         if !self.0.io_allowed() {
             return Err(io::Error::from(io::ErrorKind::Interrupted));
         }
@@ -79,8 +80,8 @@ impl MacosHelperOwner {
         }
         epoch.local_file = Some(Original::new(fd, epoch.id));
         let result = match input {
-            Some(bytes) => write_all(fd, bytes).map(|()| Vec::new()),
-            None => read_all(fd, self.0.output_limit),
+            Some(bytes) => write_all(fd, bytes).map(|()| PacketMetadataVec::default()),
+            None => read_all(fd, self.0.output_limit, &self.0.memory),
         };
         let closed = epoch.local_file.as_mut().unwrap().close_once();
         if let Err(source) = closed {
@@ -114,8 +115,8 @@ fn write_all(fd: i32, mut bytes: &[u8]) -> io::Result<()> {
     }
     Ok(())
 }
-fn read_all(fd: i32, limit: usize) -> io::Result<Vec<u8>> {
-    let mut output = Vec::new();
+fn read_all(fd: i32, limit: usize, memory: &PacketMemoryView) -> io::Result<PacketMetadataVec<u8>> {
+    let mut output = PacketMetadataVec::default();
     loop {
         let mut bytes = [0u8; 4096];
         let count = unsafe { libc::read(fd, bytes.as_mut_ptr().cast(), bytes.len()) };
@@ -138,6 +139,10 @@ fn read_all(fd: i32, limit: usize) -> io::Result<Vec<u8>> {
                 "route journal exceeds actual file material allowance",
             ));
         }
-        output.extend_from_slice(&bytes[..count as usize]);
+        for &byte in &bytes[..count as usize] {
+            output
+                .try_push(byte, memory, limit)
+                .map_err(|(source, _)| io::Error::other(source))?;
+        }
     }
 }

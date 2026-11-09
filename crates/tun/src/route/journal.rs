@@ -186,7 +186,7 @@ impl RouteJournal {
     fn persist(&self) -> io::Result<()> {
         #[cfg(target_os = "macos")]
         let _context = self.cleanup_context()?;
-        let encoded = serde_json::to_vec(self).map_err(io::Error::other)?;
+        let encoded = material::encode(self)?;
         let temporary = self.path.with_extension("json.tmp");
         material::write(&temporary, &encoded)?;
         #[cfg(windows)]
