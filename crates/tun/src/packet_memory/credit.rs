@@ -88,6 +88,10 @@ impl NativePacketCredit {
                 .collect())
         })
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "failed admission returns both actual originals without an unbudgeted allocation"
+    )]
     pub fn retain(
         self,
         packet: zero_traits::PacketBuffer,
