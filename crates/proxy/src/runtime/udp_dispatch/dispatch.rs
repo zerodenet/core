@@ -9,6 +9,7 @@ use crate::logging::{log_session_failed, log_session_finished, session_failure_o
 use crate::runtime::passive_relay_health::classify_relay_outcome;
 use crate::runtime::pipe::UdpPipeInput;
 use crate::runtime::udp_flow::rate_limit::UdpFlowRateLimiters;
+use crate::runtime::udp_flow::sessions::PreparedUdpSession;
 use crate::runtime::udp_flow::sessions::UdpFlowKey;
 
 impl UdpDispatch {
@@ -18,9 +19,12 @@ impl UdpDispatch {
     /// the payload. Otherwise creates a new session, routes through the engine,
     /// and dispatches to the resolved outbound.
     pub(crate) async fn dispatch(&mut self, input: UdpPipeInput<'_>) -> Result<u64, EngineError> {
-        let key = UdpFlowKey::new(&input.target, input.port, input.client_session_id)
-            .with_peer(input.peer_identity.clone());
-        if let Some(flow) = self.flows.snapshot_key(&key) {
+        if let Some(flow) = self.flows.snapshot_borrowed(
+            &input.target,
+            input.port,
+            input.client_session_id,
+            input.peer_identity.as_deref(),
+        ) {
             let stale_direct = flow.outbound.direct_policy().is_some_and(|policy| {
                 !self
                     .runtime
@@ -36,12 +40,20 @@ impl UdpDispatch {
                     "direct UDP dial policy changed; rebuilding flow",
                 ));
                 self.fail_flow(&flow, Instant::now(), "udp_direct_policy_changed", &error);
-                self.flow_start_backoff.clear(&key);
+                self.flow_start_backoff.clear(&flow.key);
             } else {
                 self.forward_existing(&flow, input.payload).await?;
                 return Ok(flow.session.id);
             }
         }
+
+        let key = UdpFlowKey::new_with_metadata(
+            &input.target,
+            input.port,
+            input.client_session_id,
+            input.domain_memory.as_ref().map(|memory| &memory.source),
+        )?
+        .with_peer(input.peer_identity.clone());
 
         if let Some(retry_after) = self.flow_start_backoff.retry_after(&key, Instant::now()) {
             return Err(EngineError::AdmissionDenied {
@@ -54,7 +66,7 @@ impl UdpDispatch {
         // A new flow includes routing, DNS and all outbound preparation states.
         // Keep that state off the enclosing receive loop's stack; established
         // packets continue through the allocation-free forward path above.
-        let result = Box::pin(self.start_new_routed_flow(input)).await;
+        let result = Box::pin(self.start_new_routed_flow(input, key.clone())).await;
         match result {
             Ok(session_id) => {
                 self.flow_start_backoff.clear(&key);
@@ -69,11 +81,16 @@ impl UdpDispatch {
         }
     }
 
-    async fn start_new_routed_flow(&mut self, input: UdpPipeInput<'_>) -> Result<u64, EngineError> {
+    async fn start_new_routed_flow(
+        &mut self,
+        mut input: UdpPipeInput<'_>,
+        ingress_key: UdpFlowKey,
+    ) -> Result<u64, EngineError> {
         let runtime = self.runtime.with_current_snapshot();
-        let ingress_key = UdpFlowKey::new(&input.target, input.port, input.client_session_id)
-            .with_peer(input.peer_identity.clone());
-        let mut session = Session::new(0, input.target, input.port, Network::Udp, input.protocol);
+        let mut session = PreparedUdpSession::new(
+            Session::new(0, input.target, input.port, Network::Udp, input.protocol),
+            input.domain_memory.take(),
+        )?;
         session.inbound_peer_identity = input.peer_identity.clone();
         session.route_target = input.route_target;
         session.skip_fake_ip_restore = input.skip_fake_ip_restore;
@@ -82,20 +99,14 @@ impl UdpDispatch {
             session.target_host_source = input.sniffed_host_source;
         }
         if input.sniffed_host_source == Some(zero_core::TargetHostSource::QuicSni) {
-            let sniffed_target = session.route_target.as_ref().unwrap_or(&session.target);
-            if let zero_core::Address::Domain(domain) = sniffed_target {
-                session.sni = Some(domain.clone());
-            }
+            session.sniffed_sni(true)?;
         }
         session.transparent_target = input.transparent_target;
         if let Some(original_target) = input.transparent_original_target {
-            session.original_target = Some(original_target.clone());
-            session.direct_target = Some(original_target);
+            session.transparent_original(original_target)?;
             session.target_host_source = input.transparent_host_source;
             if input.transparent_host_source == Some(zero_core::TargetHostSource::QuicSni) {
-                if let zero_core::Address::Domain(domain) = &session.target {
-                    session.sni = Some(domain.clone());
-                }
+                session.sniffed_sni(false)?;
             }
         }
         if let Some(auth) = input.auth {
@@ -194,7 +205,7 @@ impl UdpDispatch {
                 runtime.set_session_outbound(&session, remote.as_ref());
                 self.flows.insert(
                     ingress_key,
-                    session.clone(),
+                    session.into_stored(),
                     session_handle,
                     *outbound,
                     passive_relay_selections.clone(),

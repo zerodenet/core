@@ -25,12 +25,24 @@ impl UdpIngressRuntime {
             )));
         }
 
+        let metadata = if inbound_dispatch.domain_metadata().is_some() {
+            let source = self
+                .tcp_services
+                .execution()
+                .current_source
+                .upgrade()
+                .ok_or_else(|| std::io::Error::other("Source UDP domain owner retired"))?;
+            Some(source.packet_path_memory()?.1)
+        } else {
+            None
+        };
         UdpPipe::new(dispatch)
-            .dispatch(UdpPipeInput::from_inbound_dispatch(
+            .dispatch(UdpPipeInput::from_inbound_dispatch_with_metadata(
                 inbound_dispatch,
                 auth,
                 source_addr,
-            ))
+                metadata,
+            )?)
             .await
     }
 

@@ -113,6 +113,23 @@ impl DatagramUdpResponder<Arc<UserUdpStack>> for TunUdpResponder {
             None,
         )
         .with_peer_identity(datagram.peer_identity);
+        let dispatch = if let Some(credit) = datagram.domain_metadata {
+            dispatch
+                .with_domain_metadata(credit)
+                .map_err(|(source, original, credit)| {
+                    // The actual Domain is destroyed before its rejected ticket.
+                    drop(original);
+                    drop(credit);
+                    match source {
+                        zero_traits::packet_metadata::PacketMemoryError::Capacity => {
+                            Error::Protocol("TUN Domain backing exceeds its prepaid layout")
+                        }
+                        _ => Error::Protocol("TUN Domain lost its original metadata custody"),
+                    }
+                })?
+        } else {
+            dispatch
+        };
         Ok(Some(match datagram.host_source {
             Some(source) => dispatch.with_transparent_domain(original_target, source),
             None => dispatch.with_transparent_target(),

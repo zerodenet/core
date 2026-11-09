@@ -126,7 +126,7 @@ async fn ordinary_root_device_prefix_uses_real_setup_caller_and_one_mieru_pool_f
             let mut second=open(&proxy).await;echo(&mut second).await;assert!(second.owner.original().same_original(&original));
             returned(first).await;assert!(!driver.is_joined());echo(&mut second).await;
             let mut dispatch=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch("incoming").await.unwrap();
-            let id=dispatch.dispatch(UdpPipeInput {peer_identity:None,target:Address::Ipv4([203,0,113,1]),port:443,payload:b"packet",route_target:None,sniffed_original_target:None,sniffed_host_source:None,skip_fake_ip_restore:false,protocol:ProtocolType::new("test"),auth:None,source_addr:None,client_session_id:None,transparent_target:false,transparent_original_target:None,transparent_host_source:None}).await.unwrap();
+            let id=dispatch.dispatch(UdpPipeInput {peer_identity:None,target:Address::Ipv4([203,0,113,1]),port:443,payload:b"packet",route_target:None,sniffed_original_target:None,sniffed_host_source:None,skip_fake_ip_restore:false,protocol:ProtocolType::new("test"),auth:None,source_addr:None,client_session_id:None,transparent_target:false,transparent_original_target:None,transparent_host_source:None, domain_memory: None }).await.unwrap();
             let (_,tasks,_)=dispatch.poll_sockets();let packet=tasks.join_next_with_id().await.unwrap().unwrap().unwrap();
             assert_eq!(packet.0,Address::Ipv4([203,0,113,1]));assert_eq!(packet.1,443);assert_eq!(packet.2.as_ref(),b"packet");
             crate::runtime::udp_delivery::record_chain_udp_response_parts(&proxy.udp_runtime_services(),&dispatch,packet.0,packet.1,packet.2,packet.3);

@@ -77,6 +77,7 @@ async fn ordinary_mieru_owned_udp_handoff_preserves_both_underlays_reuse_and_pay
                                 transparent_target: false,
                                 transparent_original_target: None,
                                 transparent_host_source: None,
+                                domain_memory: None,
                             })
                             .await
                             .unwrap();

@@ -12,8 +12,13 @@ impl UdpSessionFlows {
         target: &Address,
         port: u16,
     ) -> Option<u64> {
+        let lookup = super::model::ResponseLookup {
+            tag: outbound_tag,
+            target,
+            port,
+        };
         self.upstream_by_response
-            .get(&UdpUpstreamResponseKey::new(outbound_tag, target, port))
+            .get(&lookup as &dyn super::model::ResponseIdentity)
             .and_then(|key| self.flows.get(key))
             .map(|flow| flow.session.id)
             .or_else(|| self.single_tagged_upstream_flow_session_id(outbound_tag))
@@ -22,13 +27,13 @@ impl UdpSessionFlows {
     pub(super) fn index_flow(
         &mut self,
         key: &UdpFlowKey,
-        response_target: &Address,
+        session: &super::UdpFlowSession,
         outbound: &UdpFlowOutbound,
     ) {
         let index_keys = outbound.index_keys();
         if let Some(tag) = index_keys.upstream_response_tag {
             self.upstream_by_response.insert(
-                UdpUpstreamResponseKey::new(tag, response_target, key.port),
+                UdpUpstreamResponseKey::from_session(tag, session, key.port),
                 key.clone(),
             );
         }
@@ -42,9 +47,18 @@ impl UdpSessionFlows {
     ) {
         let index_keys = outbound.index_keys();
         if let Some(tag) = index_keys.upstream_response_tag {
-            let response_key = UdpUpstreamResponseKey::new(tag, response_target, key.port);
-            if self.upstream_by_response.get(&response_key) == Some(key) {
-                self.upstream_by_response.remove(&response_key);
+            let response_key = super::model::ResponseLookup {
+                tag,
+                target: response_target,
+                port: key.port,
+            };
+            if self
+                .upstream_by_response
+                .get(&response_key as &dyn super::model::ResponseIdentity)
+                == Some(key)
+            {
+                self.upstream_by_response
+                    .remove(&response_key as &dyn super::model::ResponseIdentity);
             }
         }
     }

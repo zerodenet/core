@@ -1,4 +1,4 @@
-use zero_core::{Address, Session};
+use zero_core::Address;
 use zero_engine::{FlowFailureObservation, PassiveRelaySelection, SessionHandle};
 
 use crate::runtime::udp_flow::outbound::UdpFlowOutbound;
@@ -15,12 +15,29 @@ impl UdpSessionFlows {
         port: u16,
         client_session_id: Option<u64>,
     ) -> Option<UdpFlowSnapshot> {
-        self.snapshot_key(&UdpFlowKey::new(target, port, client_session_id))
+        self.snapshot_borrowed(target, port, client_session_id, None)
     }
 
     pub(crate) fn snapshot_key(&self, key: &UdpFlowKey) -> Option<UdpFlowSnapshot> {
         self.flows
             .get_key_value(key)
+            .map(|(key, flow)| flow.snapshot(key.clone()))
+    }
+    pub(crate) fn snapshot_borrowed(
+        &self,
+        target: &Address,
+        port: u16,
+        client: Option<u64>,
+        peer: Option<&str>,
+    ) -> Option<UdpFlowSnapshot> {
+        let lookup = super::model::Lookup {
+            target,
+            port,
+            client,
+            peer,
+        };
+        self.flows
+            .get_key_value(&lookup as &dyn super::model::Identity)
             .map(|(key, flow)| flow.snapshot(key.clone()))
     }
 
@@ -35,21 +52,28 @@ impl UdpSessionFlows {
         port: u16,
         client_session_id: Option<u64>,
     ) -> Option<u64> {
+        let lookup = super::model::Lookup {
+            target,
+            port,
+            client: client_session_id,
+            peer: None,
+        };
         self.flows
-            .get(&UdpFlowKey::new(target, port, client_session_id))
+            .get(&lookup as &dyn super::model::Identity)
             .map(|flow| flow.session.id)
     }
 
     pub(crate) fn insert(
         &mut self,
         key: UdpFlowKey,
-        session: Session,
+        session: impl Into<super::UdpFlowSession>,
         handle: SessionHandle,
         outbound: UdpFlowOutbound,
         passive_relay_selections: Vec<PassiveRelaySelection>,
         rate_limiters: UdpFlowRateLimiters,
     ) {
-        self.index_flow(&key, &session.target, &outbound);
+        let session = session.into();
+        self.index_flow(&key, &session, &outbound);
         self.flows.insert(
             key,
             UdpFlow {
@@ -89,7 +113,7 @@ impl UdpSessionFlows {
     pub(crate) fn confirm_passive_health(
         &self,
         session_id: u64,
-    ) -> Option<(Session, Vec<PassiveRelaySelection>)> {
+    ) -> Option<(super::UdpFlowSession, Vec<PassiveRelaySelection>)> {
         let flow = self
             .flows
             .values()

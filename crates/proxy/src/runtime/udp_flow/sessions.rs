@@ -6,6 +6,8 @@
 mod index;
 mod lifecycle;
 mod model;
+mod session;
+pub(crate) use session::{PreparedUdpSession, UdpFlowSession};
 #[cfg(test)]
 mod tests;
 

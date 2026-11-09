@@ -91,6 +91,7 @@ pub(super) fn input(port: u16, payload: &[u8]) -> UdpPipeInput<'_> {
         transparent_target: false,
         transparent_original_target: None,
         transparent_host_source: None,
+        domain_memory: None,
     }
 }
 pub(super) async fn echo(listener: TcpListener, cipher: String, port: u16, payloads: Vec<Vec<u8>>) {

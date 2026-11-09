@@ -175,7 +175,7 @@ async fn standard_hysteria2_proxy_tcp_udp_empty_multitarget_and_packet_paths_sha
         let mut dispatch=runtime.new_dispatch("incoming").await.unwrap();
         let mut flow_bytes=HashMap::new();
         for (target,payload) in [(Address::Ipv4([203,0,113,1]),Vec::new()),(Address::Ipv4([203,0,113,1]),b"flow".to_vec()),(Address::Ipv4([203,0,113,2]),vec![7;1600])] {
-            let id=dispatch.dispatch(crate::runtime::pipe::UdpPipeInput {peer_identity:None,target:target.clone(),port:53,payload:&payload,route_target:None,sniffed_original_target:None,sniffed_host_source:None,skip_fake_ip_restore:false,protocol:ProtocolType::new("test"),auth:None,source_addr:None,client_session_id:None,transparent_target:false,transparent_original_target:None,transparent_host_source:None}).await.unwrap();
+            let id=dispatch.dispatch(crate::runtime::pipe::UdpPipeInput {peer_identity:None,target:target.clone(),port:53,payload:&payload,route_target:None,sniffed_original_target:None,sniffed_host_source:None,skip_fake_ip_restore:false,protocol:ProtocolType::new("test"),auth:None,source_addr:None,client_session_id:None,transparent_target:false,transparent_original_target:None,transparent_host_source:None, domain_memory: None }).await.unwrap();
             let (_,tasks,_)=dispatch.poll_sockets();let packet=tasks.join_next_with_id().await.unwrap().unwrap().unwrap();
             assert_eq!((&packet.0,packet.1,packet.2.as_ref()),(&target,53,payload.as_slice()));
             crate::runtime::udp_delivery::record_chain_udp_response_parts(&proxy.udp_runtime_services(),&dispatch,packet.0,packet.1,packet.2,packet.3);

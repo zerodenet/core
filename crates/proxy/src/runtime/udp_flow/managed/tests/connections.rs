@@ -96,7 +96,7 @@ async fn registered_actual_connection_forwards_without_recipe_and_release_revoke
     let target = Address::Domain("target.test".into());
     let flow = UdpFlowSnapshot {
         key: UdpFlowKey::new(&target, 53, None),
-        session: Session::new(91, target.clone(), 53, Network::Udp, ProtocolType::UNKNOWN),
+        session: Session::new(91, target.clone(), 53, Network::Udp, ProtocolType::UNKNOWN).into(),
         outbound: UdpFlowOutbound::StreamPacket {
             tag: "wire".into(),
             server: "upstream.test".into(),
