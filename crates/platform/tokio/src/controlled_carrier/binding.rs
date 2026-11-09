@@ -384,6 +384,28 @@ impl BoundAuthority {
             && matches!(&self.declaration, ResourceDeclaration::ControlledServiceDatagram { endpoint, dial, .. }
                 if endpoint == destination && dial == &binding.dial)
     }
+    // Existing cached carrier declaration only. The per-connection Service
+    // Datagram shape deliberately keeps its original no-cache authority.
+    pub(super) fn permits_cached_datagram_loan(
+        &self,
+        binding: &UpstreamBinding,
+        destination: &Destination,
+        context: &CarrierContext,
+    ) -> bool {
+        self.available()
+            && context.session.is_none()
+            && !binding.prefix.is_empty()
+            && matches!(&self.declaration,ResourceDeclaration::ControlledCarrierPool{endpoint,dial,datagram:true,..} if endpoint==destination&&dial==&binding.dial)
+    }
+    pub(super) fn permits_protocol_datagram_target(
+        &self,
+        binding: &UpstreamBinding,
+        destination: &Destination,
+        context: &CarrierContext,
+    ) -> bool {
+        self.permits_service_datagram_loan(binding, destination, context)
+            || self.permits_cached_datagram_loan(binding, destination, context)
+    }
     pub(super) fn available(&self) -> bool {
         !self.host_cancel.is_cancelled() && self.scope.resource_open()
     }
@@ -410,6 +432,7 @@ impl BoundAuthority {
         matches!(
             &self.declaration,
             ResourceDeclaration::ControlledServiceDatagram { .. }
+                | ResourceDeclaration::ControlledCarrierPool { datagram: true, .. }
         ) && self.scope.matches(tasks)
             && self.scope.resource_open()
             && self.scope.registration_open()

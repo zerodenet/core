@@ -35,6 +35,10 @@ impl ManagedPool {
         record.release_installed_pending();
         let report = record.original.retire(deadline).await?;
         self.settled.lock().unwrap().append(report);
+        if let Some(children) = &record.protocols {
+            let _returned = children.wait_returned(deadline).await?;
+            children.reclaim_returned();
+        }
         let pending = record.pending.lock().unwrap().clone();
         for original in pending {
             let report = original.retire(deadline).await?;

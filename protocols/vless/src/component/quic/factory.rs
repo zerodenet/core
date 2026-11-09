@@ -35,10 +35,19 @@ impl ComponentFactory for Factory {
                 limits: options.limits,
                 max_origins: options.origins,
             },
-            ResourceDeclaration::ControlledServiceDatagram {
-                endpoint: options.protocol.endpoint.clone(),
-                dial: options.protocol.dial.clone(),
-                max_sockets: options.origins,
+            if options.h3.is_some() {
+                ResourceDeclaration::ControlledCarrierPool {
+                    endpoint: options.protocol.endpoint.clone(),
+                    dial: options.protocol.dial.clone(),
+                    max_sockets: options.origins,
+                    datagram: true,
+                }
+            } else {
+                ResourceDeclaration::ControlledServiceDatagram {
+                    endpoint: options.protocol.endpoint.clone(),
+                    dial: options.protocol.dial.clone(),
+                    max_sockets: options.origins,
+                }
             },
         ];
         resources.extend(
@@ -70,11 +79,7 @@ impl ComponentFactory for Factory {
             task_limit: Some(n(options
                 .origins
                 .get()
-                .checked_mul(
-                    4 + zero_transport::finalmask::owned::driver_count(
-                        options.plan.owned_quic_masks(),
-                    ),
-                )
+                .checked_mul(2 + options.drivers())
                 .expect("validated task peak"))),
         }
     }
@@ -196,6 +201,12 @@ impl ResourceLifecycle for Owner {
     fn revoke(&self, reason: CloseReason) {
         self.session.revoke(reason);
         self.generation.cancel.cancel();
+        if let Some((pool, _)) = &self.generation.options.h3 {
+            pool.retire_owned(
+                self.generation.instance,
+                &self.generation.tasks.scope_identity(),
+            );
+        }
         // Neither a slot cancel nor CarrierOwner.revoke may cut off a final
         // accepted queue. Installed Root phases own those cleanup futures.
         self.generation.request_retirement();

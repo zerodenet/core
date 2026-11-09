@@ -139,6 +139,13 @@ impl Users {
             })
     }
 
+    pub(super) fn protocol_target_custody(&self, cached: bool) -> bool {
+        if cached {
+            self.driver_owned
+        } else {
+            self.transferred_owned
+        }
+    }
     pub(super) fn transferred(&self) -> bool {
         self.transferred_owned
     }

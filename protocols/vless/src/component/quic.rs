@@ -3,6 +3,7 @@ mod connect;
 mod entry;
 mod factory;
 mod options;
+mod pending;
 mod roles;
 pub use factory::Factory;
 pub use options::Options;

@@ -174,7 +174,7 @@ impl Receiver {
             .push_reserved(driver::ReceiveRow::new(
                 self.shared
                     .next
-                    .fetch_update(
+                    .try_update(
                         std::sync::atomic::Ordering::AcqRel,
                         std::sync::atomic::Ordering::Acquire,
                         |value| value.checked_add(1),

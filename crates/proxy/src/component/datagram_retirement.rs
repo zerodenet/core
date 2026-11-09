@@ -5,7 +5,7 @@ mod registration;
 pub(crate) use registration::DatagramRegistration;
 mod opening;
 mod operations;
-pub(crate) use opening::{DatagramOpening, PendingOpen};
+pub(crate) use opening::{DatagramOpening, PendingOpenWeak};
 mod poll;
 mod progress;
 mod returns;

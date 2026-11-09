@@ -8,6 +8,7 @@ pub(super) struct CarrierRecord(
     Mutex<Record>,
     zero_platform_tokio::contract::CancellationToken,
     usize,
+    std::sync::OnceLock<super::protocols::Children>,
 );
 #[derive(Default)]
 struct Record {
@@ -32,7 +33,12 @@ impl CarrierRecord {
         cancel: zero_platform_tokio::contract::CancellationToken,
         pending_limit: usize,
     ) -> Self {
-        Self(Mutex::new(Record::default()), cancel, pending_limit)
+        Self(
+            Mutex::new(Record::default()),
+            cancel,
+            pending_limit,
+            std::sync::OnceLock::new(),
+        )
     }
     fn release_installed_pending(&self) {
         let adoption = self.adoption();
@@ -83,6 +89,9 @@ impl CarrierRecord {
         // Original adoptions are released outside the record mutex. Neither
         // handoff claims native closure, driver exit or a refunded pool slot.
     }
+    pub(super) fn protocols(&self) -> Option<&super::protocols::Children> {
+        self.3.get()
+    }
     pub(super) fn pending(&self) -> Vec<CarrierAdoption> {
         self.0.lock().unwrap().pending.clone()
     }
@@ -106,6 +115,12 @@ impl CarrierRecord {
         self.0.lock().unwrap().adoption.clone()
     }
     pub(super) fn closed(&self, instance: zero_core::component::ComponentInstanceId) -> bool {
+        if self
+            .protocols()
+            .is_some_and(|children| !children.returned())
+        {
+            return false;
+        }
         let record = self.0.lock().unwrap();
         if !record.finished
             || record.registering
@@ -128,9 +143,11 @@ impl CarrierRecord {
         }
         match (&record.join, receipt.driver_exit()) {
             (None, None) => true,
-            (Some(witness), Some(exit)) => witness
-                .try_joined()
-                .is_some_and(|joined| joined.id() == exit.id() && joined.class() == exit.class()),
+            (Some(witness), Some(exit)) => witness.try_joined().is_some_and(|joined| {
+                joined.id() == exit.id()
+                    && joined.class() == exit.class()
+                    && joined.registration_released()
+            }),
             _ => false,
         }
     }
@@ -155,6 +172,7 @@ impl CarrierLease {
     pub(crate) fn pending_carriers(&self) -> PendingCarriers {
         PendingCarriers {
             record: self.record.clone(),
+            resources: self.owner.resources.clone(),
         }
     }
     pub(crate) fn adopt(
@@ -205,8 +223,20 @@ pub(crate) struct Registration {
     record: Arc<CarrierRecord>,
 }
 impl Registration {
-    pub(crate) fn registered(&self, witness: TaskJoinWitness) {
+    pub(crate) fn registered(
+        &self,
+        witness: TaskJoinWitness,
+    ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
         self.record.0.lock().unwrap().join = Some(witness);
+        if let (Some(children), Some(original)) = (self.record.protocols(), self.record.adoption())
+        {
+            if let Err(source) = children.receive_driver(&original) {
+                original.request_retirement();
+                children.request_return();
+                return Err(source);
+            }
+        }
+        Ok(())
     }
 }
 impl Drop for Registration {
@@ -225,6 +255,9 @@ impl Drop for CarrierLease {
             record.finished = true;
             record.attempted
         };
+        if let Some(children) = self.record.protocols() {
+            children.request_return();
+        }
         if !attempted {
             self.owner.release_unattempted(&self.record);
         }
@@ -232,66 +265,5 @@ impl Drop for CarrierLease {
     }
 }
 
-#[derive(Clone)]
-pub(crate) struct PendingCarriers {
-    record: Arc<CarrierRecord>,
-}
-impl PendingCarriers {
-    pub(crate) fn bind_cleanup_provider(
-        &self,
-        provider: &zero_platform_tokio::contract::network::UpstreamTransport,
-        binding: &zero_platform_tokio::contract::network::UpstreamBinding,
-    ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
-        let mut record = self.record.0.lock().unwrap();
-        if record
-            .cleanup
-            .as_ref()
-            .is_some_and(|(_, original)| original != binding)
-        {
-            return Err(zero_platform_tokio::contract::ChannelError::new(
-                zero_platform_tokio::contract::Stage::Prepare,
-                zero_platform_tokio::contract::Reason::StalePlan,
-                zero_platform_tokio::contract::Impact::Component,
-            ));
-        }
-        if record.cleanup.is_none() {
-            record.cleanup = Some((provider.clone(), binding.clone()));
-        }
-        Ok(())
-    }
-    pub(crate) fn capacity(&self) -> Option<usize> {
-        let record = self.record.0.lock().unwrap();
-        (!record.finished && record.attempted && record.adoption.is_some()).then_some(self.record.2)
-    }
-    /// Actual foreign cleanup authority is bounded by this selected prefix's
-    /// role count. It never substitutes for this pool record's root original.
-    pub(crate) fn retain_pending(
-        &self,
-        adoption: CarrierAdoption,
-    ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
-        let mut record = self.record.0.lock().unwrap();
-        if record
-            .pending
-            .iter()
-            .any(|prior| prior.same_slot(&adoption))
-        {
-            return Ok(());
-        }
-        let reason = if record.finished || !record.attempted || record.adoption.is_none() {
-            Some(zero_platform_tokio::contract::Reason::StalePlan)
-        } else if record.pending.len() >= self.record.2 {
-            Some(zero_platform_tokio::contract::Reason::Capacity)
-        } else {
-            None
-        };
-        if let Some(reason) = reason {
-            return Err(zero_platform_tokio::contract::ChannelError::new(
-                zero_platform_tokio::contract::Stage::Prepare,
-                reason,
-                zero_platform_tokio::contract::Impact::Component,
-            ));
-        }
-        record.pending.push(adoption);
-        Ok(())
-    }
-}
+mod pending;
+pub(crate) use pending::PendingCarriers;

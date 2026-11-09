@@ -11,6 +11,8 @@ mod handle;
 mod operation;
 #[path = "original_protocol/polling.rs"]
 mod polling;
+#[path = "original_protocol/receiver.rs"]
+mod receiver;
 #[path = "original_protocol/report.rs"]
 mod report;
 use tokio::{sync::Mutex as AsyncMutex, time::Instant};
@@ -41,6 +43,8 @@ pub(crate) struct Phase {
 }
 #[derive(Default)]
 struct State {
+    retirement_started: bool,
+    receiver: Option<crate::controlled_carrier::ProtocolOriginalReceiver>,
     complete: bool,
     report: CloseReport,
     first_fault: Option<Arc<ChannelError>>,
@@ -79,6 +83,10 @@ impl Phase {
         }
     }
     pub(crate) fn request(&self) {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retirement_started = true;
         self.requested.cancel();
         self.wake();
     }

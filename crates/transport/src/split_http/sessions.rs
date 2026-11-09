@@ -1,5 +1,5 @@
 //! Bounded cross-request session ownership; independent of proxy protocols.
-use super::io::Lifetime;
+use super::io::LifetimeRef;
 use bytes::Bytes;
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
@@ -34,7 +34,7 @@ pub(super) struct Session {
     ready: Notify,
     space: Notify,
     budget: Arc<Semaphore>,
-    pub(super) life: Arc<Lifetime>,
+    pub(super) life: LifetimeRef,
 }
 impl Session {
     fn new(budget: Arc<Semaphore>, max_posts: usize) -> Self {
@@ -54,7 +54,7 @@ impl Session {
             ready: Notify::new(),
             space: Notify::new(),
             budget,
-            life: Arc::new(Lifetime::default()),
+            life: LifetimeRef::default(),
         }
     }
     pub(super) fn claim_download(&self) -> io::Result<()> {

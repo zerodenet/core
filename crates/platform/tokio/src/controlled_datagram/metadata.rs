@@ -17,7 +17,9 @@ use super::*;
 pub use poller::DatagramWritePoller;
 use std::{net::SocketAddr, task::Poll};
 pub use types::*;
-pub use views::{MetadataViewClaim, MetadataViewIssuer, MetadataViewsClosedReceipt};
+pub use views::{
+    MetadataViewClaim, MetadataViewIssuer, MetadataViewsClosedReceipt, MetadataViewsRetained,
+};
 use views::{ViewKind, ViewToken, Views};
 
 /// All limits are caller-assigned. No process or protocol defaults are implied.

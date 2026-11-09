@@ -81,6 +81,27 @@ impl ComponentPlan {
                 .ok_or_else(|| {
                     invalid(Reason::Capacity, "Packet driver pending capacity overflow")
                 })?;
+            let metadata_memory = slot
+                .bound_original_budgets()
+                .ok_or_else(|| invalid(Reason::Revoked, "Packet target original Host retired"))?
+                .packet
+                .driver_metadata_view();
+            let mut metadata =
+                zero_platform_tokio::contract::component::PacketMetadataVec::default();
+            for ordinal in 0..slot.recipe.spec().resources.len() {
+                if let Some(actual) = slot.original_metadata_owner(ordinal) {
+                    metadata
+                        .try_push_with_metadata(
+                            actual,
+                            &metadata_memory,
+                            slot.recipe.spec().resources.len(),
+                        )
+                        .map_err(|(source, _)| {
+                            invalid(Reason::Capacity, "Packet target metadata capacity")
+                                .with_source(source)
+                        })?;
+                }
+            }
             targets.push(PacketDriverTarget {
                 instance,
                 role: slot.role_id(),
@@ -92,6 +113,7 @@ impl ComponentPlan {
                 },
                 originals: originals.into(),
                 packet_originals: packet_originals.into(),
+                metadata,
                 pending_capacity,
             });
         }

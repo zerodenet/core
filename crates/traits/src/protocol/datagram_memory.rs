@@ -7,6 +7,9 @@ pub struct DatagramCodecOutput {
     pub buffer: usize,
     pub range: Range<usize>,
 }
+/// Existing buffered decode outcome, including malformed-packet rejection.
+pub type DatagramCodecDecodeResult<Target, E> =
+    Result<Option<(Target, u16, DatagramCodecOutput)>, DatagramCodecBufferError<E>>;
 #[derive(Debug)]
 pub enum DatagramCodecBufferError<E> {
     Storage(PacketDeriveError),

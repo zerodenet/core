@@ -59,6 +59,11 @@ impl NativeRegistration {
         if !self.receiver_released()? {
             return Ok(false);
         }
+        // This actual caller has its own protocol-original return gate. It is
+        // not native coverage and cannot excuse an uncovered gateway below.
+        if !self.settle_protocols(deadline).await? {
+            return Ok(false);
+        }
         if let Some(settled) = self.settle_dns(deadline).await? {
             return Ok(settled);
         }
@@ -184,6 +189,7 @@ impl NativeObligations {
                     || record.dns.is_some()
                     || record.no_business_admission
                     || !record.pending_carriers.is_empty()
+                    || record.protocols.is_some()
                     || record.gateways > 0
                         && !record.uncovered_gateway
                         && !record.carrier_conflict

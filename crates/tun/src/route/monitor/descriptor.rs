@@ -55,7 +55,7 @@ impl Descriptor {
             .as_ref()
             .expect("retained close outcome")
             .as_ref()
-            .map(|()| ())
+            .copied()
             .map_err(|source| io::Error::new(source.kind(), Shared(source.clone())))
     }
     pub(super) fn is_closed(&self) -> bool {

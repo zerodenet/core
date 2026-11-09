@@ -54,7 +54,9 @@ impl ComponentFactory for Factory {
     }
 }
 pub(crate) fn eligible(input: &OutboundConfig) -> bool {
-    matches!(&input.protocol,OutboundProtocolConfig::Vless {quic:Some(_),grpc:None,split_http:None,mkcp:None,hysteria:None,testpre:0,mux_concurrency:None,xudp_concurrency:None,reverse_tag:None,reverse_sniffing:None,ws,..} if ws.as_ref().is_none_or(|ws|ws.browser_dialer.is_none()))
+    matches!(&input.protocol,OutboundProtocolConfig::Vless {quic:Some(_),grpc:None,split_http,mkcp:None,hysteria:None,testpre:0,mux_concurrency:None,xudp_concurrency:None,reverse_tag:None,reverse_sniffing:None,ws,..}
+        if ws.as_ref().is_none_or(|ws|ws.browser_dialer.is_none())
+        && split_http.as_ref().is_none_or(|http|http.browser_dialer.is_none() && http.download_settings.is_none()))
 }
 impl super::super::VlessAdapter {
     pub(crate) fn quic_options(

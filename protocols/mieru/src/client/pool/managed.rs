@@ -1,5 +1,6 @@
 //! One actual pool's explicit native owner; cache retirement never releases a budget lease.
 use super::ClientPool;
+mod protocols;
 mod record;
 use record::CarrierRecord;
 pub(crate) use record::{CarrierLease, PendingCarriers};
@@ -25,6 +26,8 @@ pub(crate) enum Ownership {
 pub(crate) struct ManagedState {
     pub(crate) instance: ComponentInstanceId,
     pub(crate) tasks: TaskRegistrar,
+    pub(crate) resources:
+        std::sync::Weak<dyn zero_platform_tokio::contract::component::ResourceAccess>,
     pub(crate) cancel: CancellationToken,
     pub(crate) scope_cancel: CancellationToken,
     pub(crate) identity: Arc<[u8]>,
@@ -37,6 +40,8 @@ pub(crate) struct ManagedState {
     changed: Notify,
 }
 pub(crate) struct ManagedBindings {
+    pub(crate) resources:
+        std::sync::Weak<dyn zero_platform_tokio::contract::component::ResourceAccess>,
     pub(crate) identity: Arc<[u8]>,
     pub(crate) carriers: Vec<ManagedCarrier>,
     pub(crate) plans: Arc<[super::profile::CarrierPlan]>,
@@ -192,6 +197,10 @@ impl ManagedState {
             if record.body_finished() {
                 if let Some(adoption) = record.adoption() {
                     complete &= adoption.retire(deadline).await?.is_complete();
+                    if let Some(children) = record.protocols() {
+                        complete &= children.wait_returned(deadline).await?;
+                        children.reclaim_returned();
+                    }
                 }
                 for pending in record.pending() {
                     complete &= pending.retire(deadline).await?.is_complete();

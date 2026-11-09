@@ -94,6 +94,7 @@ pub(super) async fn dial_tcp_candidates(
     dial_tcp_candidates_with_policy(candidates, egress, &zero_traits::DialPolicy::default()).await
 }
 
+#[cfg(test)]
 pub(super) async fn dial_tcp_candidates_with_policy(
     candidates: Vec<SocketAddr>,
     egress: &EgressInterfaceControl,

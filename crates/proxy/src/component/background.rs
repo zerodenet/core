@@ -90,6 +90,14 @@ impl BackgroundCarrier {
     }
 }
 impl UpstreamOpener for BackgroundCarrier {
+    fn validate_pending_protocol_original(
+        &self,
+        binding: &UpstreamBinding,
+        original: &zero_platform_tokio::controlled_carrier::ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        self.validate_pending_protocol(binding, original)
+    }
+
     fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
         self.declared_pending_capacity(binding).ok()
     }

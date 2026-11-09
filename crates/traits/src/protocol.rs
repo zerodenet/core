@@ -3,7 +3,9 @@ use alloc::vec::Vec;
 
 use crate::AsyncSocket;
 mod datagram_memory;
-pub use datagram_memory::{DatagramCodecBufferError, DatagramCodecOutput};
+pub use datagram_memory::{
+    DatagramCodecBufferError, DatagramCodecDecodeResult, DatagramCodecOutput,
+};
 
 // ── Inbound transport classification ─────────────────────────────────
 
@@ -554,8 +556,7 @@ pub trait DatagramCodec<Target>: Send + Sync + 'static {
         &self,
         _wire: &[u8],
         _buffers: &mut [crate::PacketBuffer],
-    ) -> Result<Option<(Target, u16, DatagramCodecOutput)>, DatagramCodecBufferError<Self::Error>>
-    {
+    ) -> DatagramCodecDecodeResult<Target, Self::Error> {
         Err(DatagramCodecBufferError::Storage(
             crate::PacketDeriveError::Unreserved,
         ))

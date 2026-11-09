@@ -4,10 +4,27 @@ use hyper_util::rt::TokioExecutor;
 pub(in crate::split_http) enum Sender {
     Xmux(super::super::xmux::request::Sender),
     Http3(super::super::http3::client::Sender),
+    OwnedHttp3(super::super::xmux::owned::request::Sender),
     Http1(hyper::client::conn::http1::SendRequest<Body>),
     Http2(hyper::client::conn::http2::SendRequest<Body>),
 }
 impl Sender {
+    pub(in crate::split_http) fn bind_logical(
+        &mut self,
+        original: super::super::xmux::owned::OwnedLogicalReturn,
+    ) -> io::Result<()> {
+        match self {
+            Self::Xmux(sender) => {
+                sender.logical = Some(original);
+                Ok(())
+            }
+            Self::OwnedHttp3(sender) => {
+                sender.bind_logical(original);
+                Ok(())
+            }
+            _ => Err(io::ErrorKind::PermissionDenied.into()),
+        }
+    }
     pub(in crate::split_http) async fn send_request(
         &mut self,
         mut request: http::Request<Body>,
@@ -15,6 +32,7 @@ impl Sender {
         match self {
             Self::Xmux(sender) => Box::pin(sender.send_request(request)).await,
             Self::Http3(sender) => sender.send_request(request).await,
+            Self::OwnedHttp3(sender) => sender.send_request(request).await,
             Self::Http1(sender) => {
                 // The reference disables H1 keepalive for streaming requests.
                 // Besides connection ownership, this prevents Go HTTP servers

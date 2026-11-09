@@ -1,9 +1,14 @@
 use super::*;
+mod buffer;
+pub use buffer::NativeReadBuffer;
+use buffer::ReadPacket;
+pub(super) mod header;
+use zero_traits::packet_metadata::PacketMetadataHeaderPromise;
 /// One prepaid workspace in the original native driver's custody. This keeps
 /// no buffer queue: the current exclusive allocation returns its credit only
 /// when its memory is released. Other originals cannot steal the next read.
 #[derive(Clone)]
-pub struct NativeReadGrant(pub(super) Arc<ReadSlot>);
+pub struct NativeReadGrant(pub(super) PacketMetadataArc<ReadSlot>);
 pub(super) struct ReadSlot {
     pub(super) root: Arc<PacketReturnTotals>,
     bytes: usize,
@@ -16,6 +21,7 @@ pub(super) struct SlotState {
     pub(super) ready: Option<credit::Credit>,
     pub(super) revoked: bool,
     envelope: Option<super::transmit::PacketTransmitEnvelope>,
+    pub(super) header: Option<PacketMetadataHeaderPromise>,
 }
 impl ReadSlot {
     pub(super) fn return_credit(&self, credit: credit::Credit) {
@@ -52,26 +58,42 @@ impl ReadSlot {
     }
 }
 impl NativeReadGrant {
-    pub(super) fn from_credit(credit: credit::Credit) -> Self {
-        Self::from_credit_with_envelope(credit, None)
-    }
-    pub(super) fn from_credit_with_envelope(
+    pub(super) fn from_prepaid_credit(
         credit: credit::Credit,
         envelope: Option<super::transmit::PacketTransmitEnvelope>,
+        mut metadata: PacketMetadataCredit,
     ) -> Self {
         assert_eq!(credit.frames, 1, "one original IO workspace");
-        Self(Arc::new(ReadSlot {
-            root: credit.root.clone(),
-            bytes: credit.bytes,
-            state: Mutex::new(SlotState {
-                ready: Some(credit),
-                revoked: false,
-                envelope,
-            }),
-            changed: Notify::new(),
-            blocking: Condvar::new(),
-            notifications: notifications::Notifications::default(),
-        }))
+        let slot_metadata = metadata
+            .split(
+                PacketMetadataArc::<ReadSlot>::layout()
+                    .unwrap_or_else(|_| unreachable!("fixed actual read-slot layout")),
+            )
+            .unwrap_or_else(|_| unreachable!("same read-slot metadata was prepaid"));
+        let slot = PacketMetadataArc::from_prepaid(
+            ReadSlot {
+                root: credit.root.clone(),
+                bytes: credit.bytes,
+                state: Mutex::new(SlotState {
+                    ready: Some(credit),
+                    revoked: false,
+                    envelope,
+                    header: None,
+                }),
+                changed: Notify::new(),
+                blocking: Condvar::new(),
+                notifications: notifications::Notifications::default(),
+            },
+            slot_metadata,
+        )
+        .unwrap_or_else(|_| unreachable!("same actual read-slot Arc metadata"));
+        let header = header::promise(&slot, metadata)
+            .unwrap_or_else(|_| unreachable!("same actual read-header metadata was prepaid"));
+        slot.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .header = Some(header);
+        Self(slot)
     }
     pub fn bytes(&self) -> usize {
         self.0.bytes
@@ -103,8 +125,18 @@ impl NativeReadGrant {
         if state.revoked {
             return Err(PacketMemoryError::Stopped);
         }
-        let credit = state.ready.take().ok_or(PacketMemoryError::Busy)?;
-        let mut packet = NativePacketCredit::new(credit, Some(Arc::downgrade(&self.0)));
+        if state.ready.is_none() {
+            return Err(PacketMemoryError::Busy);
+        }
+        let header = state
+            .header
+            .as_ref()
+            .ok_or(PacketMemoryError::Stopped)?
+            .try_lease(1)?;
+        let credit = state.ready.take().expect("same admitted read");
+        let mut packet =
+            NativePacketCredit::new(credit, Some(PacketMetadataArc::downgrade(&self.0)));
+        packet.install_header_lease(header);
         packet.reserved_envelope = state.envelope.clone();
         if let Some(envelope) = &packet.reserved_envelope {
             envelope.anchor_borrowed();
@@ -139,7 +171,12 @@ impl NativeReadGrant {
                     .state
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                if state.ready.is_some() {
+                if state.ready.is_some()
+                    && state
+                        .header
+                        .as_ref()
+                        .is_some_and(|header| header.is_available())
+                {
                     return Ok(());
                 }
                 if state.revoked {
@@ -160,9 +197,11 @@ impl NativeReadGrant {
         state.revoked = true;
         let unused = state.ready.take();
         let envelope = state.envelope.take();
+        let header = state.header.take();
         drop(state);
         drop(unused);
         drop(envelope);
+        drop(header);
         self.wake();
         self.0.root.wake();
     }
@@ -200,13 +239,27 @@ impl NativeReadGrant {
             if paused.is_some_and(|paused| paused.load(std::sync::atomic::Ordering::Acquire)) {
                 return Err(PacketMemoryError::Paused);
             }
-            if let Some(credit) = state.ready.take() {
+            if state.ready.is_some()
+                && state
+                    .header
+                    .as_ref()
+                    .is_some_and(|header| header.is_available())
+            {
+                let header = state
+                    .header
+                    .as_ref()
+                    .expect("same live read header")
+                    .try_lease(1)
+                    .unwrap_or_else(|_| unreachable!("same read-slot mutex serializes checkout"));
+                let credit = state.ready.take().expect("same original ready credit");
                 let envelope = state.envelope.clone();
                 if let Some(envelope) = &envelope {
                     envelope.anchor_borrowed();
                 }
                 drop(state);
-                let mut packet = NativePacketCredit::new(credit, Some(Arc::downgrade(&self.0)));
+                let mut packet =
+                    NativePacketCredit::new(credit, Some(PacketMetadataArc::downgrade(&self.0)));
+                packet.install_header_lease(header);
                 packet.reserved_envelope = envelope;
                 return Ok(NativeReadBuffer::from_credit(packet));
             }
@@ -219,12 +272,16 @@ impl NativeReadGrant {
     }
     /// The same IO workspace has returned; this is no native or task receipt.
     pub fn workspace_returned(&self) -> bool {
-        self.0
+        let state = self
+            .0
             .state
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .ready
-            .is_some()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.ready.is_some()
+            && state
+                .header
+                .as_ref()
+                .is_some_and(|header| header.is_available())
     }
     pub fn wake(&self) {
         // External stop/pause predicates can change without holding this mutex.
@@ -236,76 +293,5 @@ impl NativeReadGrant {
                 .unwrap_or_else(std::sync::PoisonError::into_inner),
         );
         self.0.notify();
-    }
-}
-/// The credit covers actual allocation capacity, including the unused tail.
-/// Reading/truncating does not refund the tail before its memory is released.
-pub struct NativeReadBuffer {
-    bytes: Vec<u8>,
-    credit: NativePacketCredit,
-}
-impl NativeReadBuffer {
-    pub(super) fn from_credit(credit: NativePacketCredit) -> Self {
-        Self {
-            bytes: vec![0; credit.capacity()],
-            credit,
-        }
-    }
-    pub fn as_mut_bytes(&mut self) -> &mut [u8] {
-        &mut self.bytes
-    }
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-    pub fn into_packet(mut self, length: usize) -> Result<zero_traits::PacketBuffer, Self> {
-        if length > self.bytes.len() {
-            return Err(self);
-        }
-        self.bytes.truncate(length);
-        Ok(zero_traits::PacketBuffer::from_owner(ReadPacket {
-            bytes: self.bytes,
-            _credit: self.credit,
-        }))
-    }
-}
-struct ReadPacket {
-    bytes: Vec<u8>,
-    _credit: NativePacketCredit,
-}
-impl AsRef<[u8]> for ReadPacket {
-    fn as_ref(&self) -> &[u8] {
-        &self.bytes
-    }
-}
-impl AsMut<[u8]> for ReadPacket {
-    fn as_mut(&mut self) -> &mut [u8] {
-        &mut self.bytes
-    }
-}
-impl zero_traits::PacketStorage for ReadPacket {
-    fn prepare_transmit(
-        &mut self,
-        frames: usize,
-        bytes: usize,
-    ) -> Result<(), zero_traits::PacketDeriveError> {
-        self._credit
-            .begin_transmit(frames, bytes)
-            .map_err(super::transmit::derive_error)
-    }
-    fn take_vec_allocation(&mut self) -> Option<Vec<u8>> {
-        Some(std::mem::take(&mut self.bytes))
-    }
-
-    fn try_derive_zeroed(
-        &self,
-        lengths: &[usize],
-    ) -> Result<Vec<zero_traits::PacketBuffer>, zero_traits::PacketDeriveError> {
-        self._credit.try_derive_zeroed(lengths)
-    }
-    fn derive_zeroed<'a>(&'a self, lengths: &'a [usize]) -> zero_traits::PacketDerivation<'a> {
-        self._credit.derive_zeroed(lengths)
-    }
-    fn allocation_bytes(&self) -> usize {
-        self._credit.capacity()
     }
 }

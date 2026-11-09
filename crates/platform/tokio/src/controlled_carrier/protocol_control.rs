@@ -1,4 +1,4 @@
-//! Exact noncached Service-datagram original setup, before its first I/O.
+//! Exact Service or explicitly cached Datagram original, before its first I/O.
 use super::*;
 use crate::contract::scope::{TaskJoinWitness, TaskRegistrar};
 impl CarrierGrant {
@@ -56,7 +56,7 @@ impl CarrierGrant {
 impl CarrierGrants {
     /// Store the unique inert protocol controller in this same actual Slot and
     /// Root before registering its actor or allowing any first IO. Only the
-    /// existing concrete per-connection Service Datagram declaration qualifies.
+    /// concrete Service Datagram or already cache-authorized Datagram pool qualifies.
     pub fn reserve_protocol_original(
         &self,
         tasks: &TaskRegistrar,

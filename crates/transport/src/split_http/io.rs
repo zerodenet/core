@@ -2,7 +2,7 @@
 use std::{
     io,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::Mutex,
     task::{Context, Poll},
 };
 use tokio::{
@@ -11,9 +11,14 @@ use tokio::{
     task::AbortHandle,
 };
 
+mod lifetime;
+pub(super) use lifetime::LifetimeRef;
+
 #[derive(Default)]
 pub(super) struct Lifetime {
     error: Mutex<Option<String>>,
+    #[cfg(feature = "quic")]
+    retained_error: std::sync::OnceLock<zero_traits::packet_metadata::PacketMetadataError>,
     closed: std::sync::atomic::AtomicBool,
     wake: Notify,
     accepted: std::sync::atomic::AtomicU64,
@@ -55,7 +60,20 @@ impl Lifetime {
         *self.error.lock().unwrap() = Some(error.to_string());
         self.close();
     }
+    #[cfg(feature = "quic")]
+    pub(super) fn fail_retained(&self, source: zero_traits::packet_metadata::PacketMetadataError) {
+        let _ = self.retained_error.set(source);
+        self.close();
+    }
     pub(super) fn error(&self) -> io::Result<()> {
+        #[cfg(feature = "quic")]
+        if let Some(source) = self.retained_error.get() {
+            let kind = source
+                .as_error()
+                .downcast_ref::<io::Error>()
+                .map_or(io::ErrorKind::Other, io::Error::kind);
+            return Err(io::Error::new(kind, source.clone()));
+        }
         match self.error.lock().unwrap().as_ref() {
             Some(error) => Err(io::Error::other(error.clone())),
             None => Ok(()),
@@ -74,15 +92,26 @@ impl Lifetime {
 
 pub struct XhttpStream {
     pub(super) inner: DuplexStream,
-    pub(super) life: Arc<Lifetime>,
-    pub(super) usages: Vec<Arc<Mutex<super::xmux::Usage>>>,
+    pub(super) owned_return: Option<super::xmux::owned::OwnedLogicalReturn>,
+    pub(super) life: LifetimeRef,
+    pub(super) usages: Vec<super::xmux::UsageRef>,
     pub(super) tasks: Vec<AbortHandle>,
     pub(super) drain_on_drop: bool,
+    pub(super) _owned_usage_memory: Option<zero_traits::packet_metadata::PacketMetadataCredit>,
+    pub(super) _owned_buffer: Option<zero_platform_tokio::controlled_carrier::CarrierBufferCredit>,
+}
+impl XhttpStream {
+    pub fn owned_return(&self) -> Option<super::xmux::owned::OwnedLogicalReturn> {
+        self.owned_return.clone()
+    }
 }
 impl Drop for XhttpStream {
     fn drop(&mut self) {
         if self.drain_on_drop {
             return;
+        }
+        if let Some(original) = &self.owned_return {
+            original.request_return();
         }
         self.life.close();
         for task in &self.tasks {

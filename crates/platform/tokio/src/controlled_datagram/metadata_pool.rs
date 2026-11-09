@@ -17,6 +17,8 @@ use std::{
 use zero_core::component::ComponentInstanceId;
 mod binding;
 mod completion;
+mod receiver;
+pub use receiver::MetadataDriverRetained;
 mod icmp;
 pub use completion::{MetadataPoolRegistrationObservation, MetadataPoolRegistrationReleased};
 pub use icmp::{MetadataIcmpAttempt, MetadataIcmpAuthorization, MetadataIcmpMemory};

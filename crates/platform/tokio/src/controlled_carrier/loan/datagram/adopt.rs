@@ -163,7 +163,16 @@ impl CarrierGrant {
     where
         F: FnOnce(&CarrierGrant) -> Result<Destination, ChannelError>,
     {
-        self.adopt_datagram_loan_inner(binding, endpoint, context, loan, true, |grant| {
+        // Selection validation still runs only after strong original LoanOwner
+        // installation. Existing cached pools use their original pool case;
+        // this does not turn Service Datagram into retained-driver authority.
+        let service = self
+            .slot
+            .owner
+            .upgrade()
+            .and_then(|owner| owner.state().binding.clone())
+            .is_none_or(|bound| bound.pool_kind() != Some(true));
+        self.adopt_datagram_loan_inner(binding, endpoint, context, loan, service, |grant| {
             selected(grant).map(Some)
         })
     }

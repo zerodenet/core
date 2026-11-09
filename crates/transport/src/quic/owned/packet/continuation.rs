@@ -32,6 +32,14 @@ impl PacketSegment {
     }
 }
 impl PacketIdentity {
+    #[cfg(feature = "split_http")]
+    pub(in crate::quic::owned) fn names_endpoint(&self, actual: &EndpointDrivers) -> bool {
+        self.endpoint
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .is_some_and(|bound| bound.same_owner(actual))
+    }
     pub(super) fn endpoint_bound(&self) -> bool {
         self.endpoint.lock().unwrap().is_some()
     }

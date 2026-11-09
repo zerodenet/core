@@ -54,7 +54,7 @@ impl<T> PacketMetadataVec<T> {
         // SAFETY: exact prepaid array<T>, with no initialized element yet.
         let next = unsafe { Vec::from_raw_parts(pointer, 0, capacity) };
         let mut previous = std::mem::replace(&mut self.values, next);
-        self.values.extend(previous.drain(..));
+        self.values.append(&mut previous);
         drop(previous); // actual backing free before returning its old promise
         Ok(self.credit.replace(credit))
     }

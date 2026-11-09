@@ -119,7 +119,7 @@ impl ClientConnection {
         driver
             .attach_original(&adoption)
             .map_err(io::Error::other)?;
-        registration.registered(witness);
+        registration.registered(witness).map_err(io::Error::other)?;
         let connection = Self::from_packet(opens, DriverHandle::Managed(driver));
         // The real first session was reserved before spawning this driver.
         // Taking it and publishing this same connection can now finish without

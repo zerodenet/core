@@ -54,6 +54,11 @@ struct Record {
     receiver_uncertain: Option<zero_platform_tokio::contract::scope::ScopeRetirementObservation>,
     receiver: Option<receiver::Receiver>,
     logical_datagrams: Vec<crate::component::datagram_retirement::DatagramRegistration>,
+    protocols: Option<
+        zero_traits::packet_metadata::PacketMetadataArc<
+            zero_platform_tokio::controlled_carrier::ProtocolOriginalChildren,
+        >,
+    >,
 }
 pub(crate) struct NativePermit {
     owner: NativeObligations,
@@ -125,6 +130,7 @@ impl NativeObligations {
                 receiver_uncertain: None,
                 receiver: None,
                 logical_datagrams: Vec::new(),
+                protocols: None,
             },
         );
         Ok(NativePermit {
@@ -145,6 +151,30 @@ impl NativeObligations {
         for call in calls {
             call.cancel();
         }
+        // Clone one existing finite ledger at a time; no foreign callback or
+        // wake runs under this Source's native-obligation state lock.
+        let mut previous = 0;
+        loop {
+            let next = {
+                let state = self
+                    .0
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                state
+                    .records
+                    .range((
+                        std::ops::Bound::Excluded(previous),
+                        std::ops::Bound::Unbounded,
+                    ))
+                    .next()
+                    .map(|(id, record)| (*id, record.protocols.clone()))
+            };
+            let Some((id, children)) = next else { break };
+            previous = id;
+            if let Some(children) = children {
+                children.request_return();
+            }
+        }
     }
 }
 #[derive(Clone)]
@@ -160,6 +190,7 @@ pub(crate) use dns::DnsSourceCaller;
 mod admission;
 mod logical;
 mod pending;
+mod protocols;
 mod receiver;
 mod registration;
 impl NativePermit {

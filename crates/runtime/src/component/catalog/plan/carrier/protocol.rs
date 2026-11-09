@@ -28,7 +28,7 @@ impl ComponentPlan {
                 matches!(declaration, R::ControlledMetadataCarrier { dial, .. } if dial == &original.binding().dial)
                     && slot.original_metadata_owner(ordinal).is_some_and(|actual| actual.same_owner(metadata.owner()) && actual.instance() == original.instance())
             } else if let Some(adoption) = original.adoption() {
-                matches!(declaration, R::ControlledServiceDatagram { dial, .. } if dial == &original.binding().dial)
+                matches!(declaration, R::ControlledServiceDatagram { dial, .. } | R::ControlledCarrierPool { dial, datagram: true, .. } if dial == &original.binding().dial)
                     && slot.original_carrier_owner(ordinal).is_some_and(|actual| actual.matches_adoption(adoption) && actual.instance() == original.instance() && actual.bound().is_some_and(|bound| bound.scope_identity().same_scope(original.scope_identity())))
             } else { false }
         });
@@ -57,7 +57,12 @@ impl ComponentPlan {
             for declaration in &slot.recipe.spec().resources {
                 let limit = match declaration {
                     R::ControlledMetadataCarrier { max_origins, .. } => max_origins.get(),
-                    R::ControlledServiceDatagram { max_sockets, .. } => max_sockets.get(),
+                    R::ControlledServiceDatagram { max_sockets, .. }
+                    | R::ControlledCarrierPool {
+                        max_sockets,
+                        datagram: true,
+                        ..
+                    } => max_sockets.get(),
                     _ => 0,
                 };
                 capacity = capacity.checked_add(limit).ok_or_else(|| {

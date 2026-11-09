@@ -51,6 +51,39 @@ impl CarrierLoanRetained {
         }
         false
     }
+    pub(crate) fn retains_protocol_original(&self, expected: &super::ProtocolOriginal) -> bool {
+        if self.receiver_slot().is_none() {
+            return false;
+        }
+        // Parent links are immutable sealed observations. Floyd's cursor also
+        // keeps cleanup fail-closed for any repeated original without a Vec.
+        let mut current = Some(&self.origin);
+        let mut slow = current;
+        let mut fast = current;
+        while let Some(original) = current {
+            let matches = expected.metadata().is_some_and(|expected| {
+                original
+                    .metadata()
+                    .is_some_and(|actual| actual.same_original(expected))
+            }) || expected
+                .adoption()
+                .is_some_and(|expected| original.names_adoption(expected));
+            if matches {
+                return true;
+            }
+            current = original.parent();
+            slow = slow.and_then(CarrierOrigin::parent);
+            fast = fast
+                .and_then(CarrierOrigin::parent)
+                .and_then(CarrierOrigin::parent);
+            if let (Some(slow), Some(fast)) = (slow, fast) {
+                if slow.same_original(fast) {
+                    return false;
+                }
+            }
+        }
+        false
+    }
     fn receiver_slot(&self) -> Option<Arc<Slot>> {
         let receiver = self.receiver.upgrade()?;
         let valid = {

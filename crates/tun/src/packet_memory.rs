@@ -176,10 +176,17 @@ impl PacketReturnTotals {
         if lengths.contains(&0) {
             return Err(PacketMemoryError::Capacity);
         }
+        let layout = read::header::slot_layout()?;
+        let mut metadata = self.reserve_driver_metadata(layout.repeated(lengths.len())?)?;
         let credits = self.reserve(Lane::Native, lengths)?;
         Ok(credits
             .into_iter()
-            .map(read::NativeReadGrant::from_credit)
+            .map(|credit| {
+                let paid = metadata
+                    .split(layout)
+                    .expect("same prepaid read-slot layout");
+                NativeReadGrant::from_prepaid_credit(credit, None, paid)
+            })
             .collect())
     }
     pub fn native_grant(
@@ -198,13 +205,14 @@ impl PacketReturnTotals {
         if bytes == 0 {
             return Err(PacketMemoryError::Capacity);
         }
+        let header = self.reserve_driver_metadata(NativePacketCredit::header_layout())?;
         let credit = self
             .reserve(Lane::Native, &[bytes])?
             .pop()
             .expect("one actual assembly");
-        Ok(NativeReadBuffer::from_credit(NativePacketCredit::new(
-            credit, None,
-        )))
+        let mut original = NativePacketCredit::new(credit, None);
+        original.header = Some(credit::PacketHeader::Owned(header));
+        Ok(NativeReadBuffer::from_credit(original))
     }
     fn reserve(
         self: &Arc<Self>,

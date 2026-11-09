@@ -87,7 +87,16 @@ pub(super) async fn client(
     peer: std::net::SocketAddr,
     ca: &std::path::Path,
     prefix: Option<&Source>,
+    backend: zero_config::DnsServerConfig,
+) -> (Proxy, crate::RunningProxy) {
+    client_with_mode(peer, ca, prefix, backend, None).await
+}
+pub(super) async fn client_with_mode(
+    peer: std::net::SocketAddr,
+    ca: &std::path::Path,
+    prefix: Option<&Source>,
     mut backend: zero_config::DnsServerConfig,
+    h3: Option<&str>,
 ) -> (Proxy, crate::RunningProxy) {
     let detour = if prefix.is_some() { "chain" } else { "node" };
     match &mut backend {
@@ -102,6 +111,12 @@ pub(super) async fn client(
     let mut nodes = vec![
         serde_json::json!({"tag":"node","protocol":{"type":"vless","server":"127.0.0.1","port":peer.port(),"id":ID,"quic":{"server_name":"localhost","ca_cert_path":ca}}}),
     ];
+    if let Some(mode) = h3 {
+        nodes[0]["protocol"]["split_http"] = serde_json::json!({
+            "path":"/query-original/", "mode":mode,
+            "xmux":{"max_connections":1,"max_concurrency":8}
+        });
+    }
     if let Some(prefix) = prefix {
         nodes.insert(0, serde_json::json!({"tag":"prefix","protocol":{"type":"socks5","server":"127.0.0.1","port":prefix.address.port()}}));
     }

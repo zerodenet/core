@@ -550,19 +550,39 @@ impl MuxConnectionPool {
         Fut: Future<Output = Result<MuxPoolConn, E>>,
         E: From<Error>,
     {
-        let retired = {
-            let mut entries = self.pool.lock().expect("actual protocol MUX map");
-            entries
-                .extract_if(|_, connection| {
-                    connection
-                        .original
-                        .as_ref()
-                        .is_some_and(|original| original.confirmed_closed())
-                })
-                .map(|(_, connection)| connection)
-                .collect::<Vec<_>>()
-        };
-        drop(retired);
+        {
+            let mut after = None;
+            loop {
+                let connection = {
+                    let entries = self.pool.lock().expect("actual protocol MUX map");
+                    entries
+                        .values()
+                        .filter(|actual| {
+                            after.is_none_or(|after| Arc::as_ptr(actual) as usize > after)
+                        })
+                        .min_by_key(|actual| Arc::as_ptr(actual) as usize)
+                        .cloned()
+                };
+                let Some(connection) = connection else { break };
+                after = Some(Arc::as_ptr(&connection) as usize);
+                // Actual child Root/receiver observation and any temporary
+                // final header destruction remain outside the protocol map.
+                if !connection
+                    .original
+                    .as_ref()
+                    .is_some_and(|original| original.confirmed_closed())
+                {
+                    continue;
+                }
+                let removed = {
+                    let mut entries = self.pool.lock().expect("actual protocol MUX map");
+                    entries
+                        .extract_if(|_, actual| Arc::ptr_eq(actual, &connection))
+                        .next()
+                };
+                drop(removed);
+            }
+        }
         let lookup = (self.scope.clone(), key.clone(), binding);
         let cached = {
             let pool = self.pool.lock().expect("mux pool lock poisoned");

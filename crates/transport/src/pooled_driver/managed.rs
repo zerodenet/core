@@ -70,9 +70,6 @@ impl ManagedPool {
     pub fn stream_dependency(&self) -> Option<ComponentInstanceId> {
         self.stream_dependency
     }
-    pub fn instance(&self) -> ComponentInstanceId {
-        self.instance
-    }
     pub async fn serialize(&self) -> Result<tokio::sync::MutexGuard<'_, ()>, crate::RuntimeError> {
         tokio::select! { biased;
             _ = self.cancel.cancelled() => Err(std::io::Error::other(failure(self.instance, Stage::Prepare, Reason::Revoked)).into()),
@@ -88,17 +85,6 @@ impl ManagedPool {
         self.ready.store(false, Ordering::Release);
         self.cancel.cancel();
         self.changed.notify_waiters();
-    }
-    pub fn check(&self, profile: &str) -> Result<(), crate::RuntimeError> {
-        if !self.ready() || self.options.profile.as_ref() != profile {
-            return Err(std::io::Error::other(failure(
-                self.instance,
-                Stage::Prepare,
-                Reason::StalePlan,
-            ))
-            .into());
-        }
-        Ok(())
     }
     /// Fixed resourceful library callers retain inline setup. Their original
     /// protocol driver still belongs to their actual supplied TaskScope.
@@ -194,7 +180,8 @@ impl ManagedPool {
                 view,
                 self,
                 binding.clone(),
-            );
+            )
+            .map_err(std::io::Error::other)?;
             self.records.lock().unwrap().push(record.clone());
             let opening = Opening(record.clone());
             let waiting = waiting
@@ -259,6 +246,13 @@ impl ManagedPool {
                         .map_err(std::io::Error::other)?;
                     *record.witness.lock().unwrap() = Some(witness);
                     record.registered.store(true, Ordering::Release);
+                    if let Some(children) = &record.protocols {
+                        if let Err(source) = children.receive_driver(&record.original) {
+                            record.original.request_retirement();
+                            children.request_return();
+                            return Err(std::io::Error::other(source).into());
+                        }
+                    }
                     drop(opening);
                     self.check(profile)?;
                     return Ok((connection, record));
@@ -303,10 +297,5 @@ impl ManagedPool {
         }
     }
 }
-pub struct Operation(Arc<ManagedPool>);
-impl Drop for Operation {
-    fn drop(&mut self) {
-        self.0.operations.fetch_sub(1, Ordering::AcqRel);
-        self.0.changed.notify_waiters();
-    }
-}
+mod operation;
+pub use operation::Operation;

@@ -205,7 +205,8 @@ impl BorrowRequest<'_> {
                         waiting,
                         caller,
                         provider.clone(),
-                    );
+                    )
+                    .map_err(io::Error::other)?;
                     let upstream = provider
                         .select_background_carrier_observed(
                             Some(selected_binding),

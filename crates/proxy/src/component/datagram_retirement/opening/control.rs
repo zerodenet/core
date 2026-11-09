@@ -36,7 +36,22 @@ impl DynChannelControl for Control {
                 if !complete {
                     return Ok(std::mem::take(&mut self.0.state.lock().unwrap().report));
                 }
-                self.0.state.lock().unwrap().protocol = None;
+                let returned = self.0.state.lock().unwrap().protocol.take();
+                drop(returned);
+            }
+            // The actual logical protocol view was returned above. Observe
+            // every same child receiver/global-return gate before refunding
+            // this association; this wait never certifies its caller Scope.
+            if let Some(children) = &self.0.protocols {
+                if !children.wait_returned(end).await? {
+                    let mut report = std::mem::take(&mut self.0.state.lock().unwrap().report);
+                    report.unfinished.push(
+                        zero_platform_tokio::contract::lifecycle::Unfinished::Resource(
+                            "same association protocol originals remain owned".into(),
+                        ),
+                    );
+                    return Ok(report);
+                }
             }
             let pending = self.0.state.lock().unwrap().pending.clone();
             for original in pending {

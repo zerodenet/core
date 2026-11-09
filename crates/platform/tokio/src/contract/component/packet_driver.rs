@@ -34,6 +34,7 @@ mod original;
 mod recovery;
 pub use memory::{PacketDriverSendBuffers, PacketDriverSendCopy};
 mod pending;
+mod protocols;
 mod registration;
 mod retirement;
 mod service;
@@ -86,6 +87,11 @@ struct Record {
     copies: Arc<[memory::WireCopy]>,
     allowed: Arc<[crate::controlled_carrier::CarrierOwnerRegistration]>,
     packet_originals: Arc<[CarrierOrigin]>,
+    protocol_targets: Option<(
+        Arc<[PacketDriverTarget]>,
+        zero_core::component::RoleInstanceId,
+    )>,
+    protocols: Option<crate::controlled_carrier::ProtocolOriginalChildren>,
     streams: Mutex<Vec<Arc<streams::RetainedStream>>>,
     observer: OnceLock<crate::contract::network::UpstreamTransport>,
     upstream: OnceLock<crate::contract::network::PendingCarrierObserver>,

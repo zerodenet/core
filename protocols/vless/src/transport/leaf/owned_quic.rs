@@ -6,12 +6,22 @@ pub(crate) struct OwnedQuicParts {
     pub endpoint: zero_core::request::Destination,
     pub protocol: ([u8; 16], Option<&'static str>, [u32; 4]),
     pub identity: [u8; 32],
+    pub h3: Option<(
+        zero_transport::split_http::XhttpClientPool,
+        zero_transport::profile::OwnedSplitHttpProfile,
+    )>,
 }
 impl VlessOutboundLeaf {
     pub(crate) fn plain_owned_quic_parts(&self) -> Option<OwnedQuicParts> {
         // Preserve the exact old carrier selection order. A QUIC option next
         // to an earlier real browser/H3/HY/ mKCP selection is not a QUIC call.
-        let profile = self.transport.plain_owned_quic_profile()?;
+        let (profile, h3) = match self.transport.plain_owned_quic_profile() {
+            Some(profile) => (profile, None),
+            None => {
+                let (profile, pool, http) = self.transport.owned_h3_parts()?;
+                (profile, Some((pool, http)))
+            }
+        };
         if self.preconnect.is_some() || self.protocol.has_mux() {
             return None;
         }
@@ -27,6 +37,7 @@ impl VlessOutboundLeaf {
             endpoint: zero_core::request::Destination::new(address, self.port),
             protocol: self.protocol.ordinary_parts(),
             identity: self.owned_identity,
+            h3,
         })
     }
 }

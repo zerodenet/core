@@ -174,10 +174,42 @@ impl Managed {
                 return Err(source);
             }
         };
+        let prepared_protocols = (|| {
+            Ok::<_, ChannelError>(
+                if self.options.selected_background && grant.adoption().has_original_root() {
+                    let limit = self
+                        .upstream
+                        .pending_carrier_capacity_for(&demand.binding)
+                        .ok_or_else(|| error(self.instance, Stage::Prepare, Reason::StalePlan))?;
+                    if limit == 0 {
+                        None
+                    } else {
+                        let memory = self
+                            .resources
+                            .upgrade()
+                            .ok_or_else(|| error(self.instance, Stage::Prepare, Reason::Revoked))?
+                            .packet_driver_metadata()?;
+                        Some(crate::protocol_pending::Children::new(memory, limit))
+                    }
+                } else {
+                    None
+                },
+            )
+        })();
+        let protocols = match prepared_protocols {
+            Ok(prepared) => prepared,
+            Err(source) => {
+                if let Some(total) = &total {
+                    total.refuse_unassigned()?;
+                }
+                return Err(source);
+            }
+        };
         let physical = Arc::new(Physical {
             owner: Arc::downgrade(self),
             binding: demand.binding.clone(),
             pending: Mutex::new(Vec::new()),
+            protocols,
             adoption: grant.adoption(),
             stop: grant.cancellation(),
             view: Mutex::new(None),
@@ -246,6 +278,13 @@ impl Managed {
             }
         })?;
         *physical.witness.lock().unwrap() = Some(witness);
+        if let Some(children) = &physical.protocols {
+            if let Err(source) = children.receive_driver(&physical.adoption) {
+                physical.adoption.request_retirement();
+                children.request_return();
+                return Err(source);
+            }
+        }
         Ok(client)
     }
 }

@@ -8,6 +8,10 @@ pub struct Options {
     pub(super) protocol: Protocol,
     pub(super) plan: crate::transport::OwnedVlessOutboundTransportPlan,
     pub(super) profile: crate::transport::VlessQuicClientProfile,
+    pub(super) h3: Option<(
+        zero_transport::split_http::XhttpClientPool,
+        zero_transport::profile::OwnedSplitHttpProfile,
+    )>,
     pub(super) origins: NonZeroUsize,
     pub(super) users: NonZeroUsize,
     pub(super) limits: MetadataLimits,
@@ -47,8 +51,7 @@ impl Options {
             ca_cert_path: profile.ca_cert_path.clone(),
             options: profile.tls_options.clone(),
             disable_sni: false,
-            alpn: profile
-                .alpn_protocols()
+            alpn: Self::alpn_for(&profile, parts.h3.is_some())
                 .iter()
                 .map(|v| String::from_utf8_lossy(v).into_owned())
                 .collect(),
@@ -56,7 +59,11 @@ impl Options {
         };
         let (uuid, flow, testseed) = parts.protocol;
         let mut identity = Vec::from(parts.identity);
-        identity.extend_from_slice(b"actual.vless.quic.original.v1");
+        identity.extend_from_slice(if parts.h3.is_some() {
+            b"actual.vless.h3.original.v1".as_slice()
+        } else {
+            b"actual.vless.quic.original.v1".as_slice()
+        });
         // Same actual protocol values, independent from transport pool security
         // keys. Static identity is opaque process-local metadata, never authority.
         use std::hash::{BuildHasher, Hash, Hasher};
@@ -107,6 +114,7 @@ impl Options {
             protocol,
             plan: parts.plan,
             profile,
+            h3: parts.h3,
             origins,
             users,
             limits,
@@ -114,6 +122,20 @@ impl Options {
         };
         prepared.refresh_material_identity();
         Ok(Some(prepared))
+    }
+    fn alpn_for(profile: &crate::transport::VlessQuicClientProfile, h3: bool) -> Vec<Vec<u8>> {
+        if h3 {
+            vec![b"h3".to_vec()]
+        } else {
+            profile.alpn_protocols()
+        }
+    }
+    pub(super) fn alpn(&self) -> Vec<Vec<u8>> {
+        Self::alpn_for(&self.profile, self.h3.is_some())
+    }
+    pub(super) fn drivers(&self) -> usize {
+        2 + usize::from(self.h3.is_some())
+            + zero_transport::finalmask::owned::driver_count(self.plan.owned_quic_masks())
     }
     pub fn packet_path_metadata(&self) -> (zero_core::request::Destination, bool) {
         (self.protocol.endpoint.clone(), true)

@@ -321,6 +321,13 @@ impl UpstreamOpener for Root {
     fn has_pending_carrier_observer(&self) -> bool {
         true
     }
+    fn validate_pending_protocol_original(
+        &self,
+        binding: &UpstreamBinding,
+        original: &zero_platform_tokio::controlled_carrier::ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        self.validate_protocol_child(binding, original)
+    }
     fn validate_pending_carrier(
         &self,
         binding: &UpstreamBinding,

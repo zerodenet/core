@@ -21,7 +21,7 @@ impl CarrierOwnerBinding {
             || !self.registration().matches_grant(grant)
             || !self
                 .authority
-                .permits_service_datagram_loan(binding, endpoint, call)
+                .permits_protocol_datagram_target(binding, endpoint, call)
             || !self.scope_identity().same_scope(&actor.scope_identity())
             || !matches!(identity,RequestIdentity::Service(facts)
                 if facts.origin==zero_core::request::ServiceOrigin::Runtime
@@ -92,10 +92,11 @@ impl ServiceDatagramTargetIssuer {
                 .auxiliary
                 .as_ref()
                 .is_some_and(|actual| actual.same_registration(&self.actor))
-            || !state
-                .users
-                .as_ref()
-                .is_some_and(|users| users.live() && users.transferred() && users.acquired())
+            || !state.users.as_ref().is_some_and(|users| {
+                users.live()
+                    && users.protocol_target_custody(self.bound.authority.pool_kind() == Some(true))
+                    && users.acquired()
+            })
         {
             return Err(fail());
         }
@@ -152,10 +153,11 @@ impl ServiceDatagramTargetIssuer {
                 .auxiliary
                 .as_ref()
                 .is_some_and(|actual| actual.same_registration(&self.actor))
-            || !state
-                .users
-                .as_ref()
-                .is_some_and(|users| users.live() && users.transferred() && !users.acquired())
+            || !state.users.as_ref().is_some_and(|users| {
+                users.live()
+                    && users.protocol_target_custody(self.bound.authority.pool_kind() == Some(true))
+                    && !users.acquired()
+            })
         {
             return Err(fail());
         }

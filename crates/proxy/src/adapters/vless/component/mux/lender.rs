@@ -114,6 +114,15 @@ impl Root {
     }
 }
 impl UpstreamOpener for Root {
+    fn validate_pending_protocol_original(
+        &self,
+        binding: &UpstreamBinding,
+        original: &zero_platform_tokio::controlled_carrier::ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        self.base
+            .validate_pending_protocol_original(binding, original)
+    }
+
     fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
         self.provider
             .declared_pending_capacity_with_dependency(binding, self.expected)

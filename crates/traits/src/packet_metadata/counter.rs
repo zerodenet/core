@@ -154,6 +154,39 @@ impl PacketMetadataCredit {
     pub fn layout(&self) -> PacketMetadataLayout {
         self.layout
     }
+    /// Move custody of existing same-counter units. The consumed handle is
+    /// returned, with zero units on success, so its original Waker and Arc are
+    /// destroyed by the caller outside any owner/promise lock.
+    pub fn absorb(&mut self, mut other: Self) -> Result<Self, (PacketMemoryError, Self)> {
+        if !self.same_counter(&other) {
+            return Err((PacketMemoryError::Stopped, other));
+        }
+        let combined = match self.layout.checked_add(other.layout) {
+            Ok(combined) => combined,
+            Err(error) => return Err((error, other)),
+        };
+        self.layout = combined;
+        other.layout = PacketMetadataLayout::new(0, 0);
+        Ok(other)
+    }
+    /// Split custody with a Waker already prepared outside the owner's lock.
+    /// No Waker is cloned, dropped or woken here, including rejection.
+    pub fn split_prepared(
+        &mut self,
+        layout: PacketMetadataLayout,
+        wake: Waker,
+    ) -> Result<Self, (PacketMemoryError, Waker)> {
+        if layout.allocations > self.layout.allocations || layout.bytes > self.layout.bytes {
+            return Err((PacketMemoryError::Capacity, wake));
+        }
+        self.layout.allocations -= layout.allocations;
+        self.layout.bytes -= layout.bytes;
+        Ok(Self {
+            counter: self.counter.clone(),
+            layout,
+            wake,
+        })
+    }
     /// Splits an already paid promise. It neither allocates nor refunds units.
     pub fn split(&mut self, layout: PacketMetadataLayout) -> Result<Self, PacketMemoryError> {
         if layout.allocations > self.layout.allocations || layout.bytes > self.layout.bytes {

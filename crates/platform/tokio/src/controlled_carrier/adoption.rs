@@ -23,6 +23,13 @@ pub struct CarrierClosed {
     slot: Arc<Slot>,
 }
 impl CarrierAdoption {
+    /// Immutable provenance fixed when this original was reserved. A vanished
+    /// Root never turns a hosted original into a standalone library original.
+    /// This read grants no IO, handoff, closure or admission permission.
+    pub fn has_original_root(&self) -> bool {
+        self.slot.root_bound
+    }
+
     /// Request stop only; this supplies no close/user/join receipt.
     pub fn request_retirement(&self) {
         let protocol = { self.slot.state().protocol.clone() };

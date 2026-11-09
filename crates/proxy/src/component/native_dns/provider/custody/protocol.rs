@@ -81,14 +81,28 @@ impl NativeUse {
         drop(rejected);
         outcome
     }
-    pub(in crate::component::native_dns::provider) fn protocol_originals_settled(&self) -> bool {
-        self.protocol_originals
-            .lock()
-            .expect("DNS pending protocols poisoned")
-            .iter()
-            .all(|entry| entry.original.is_settled())
+    pub(in crate::component::native_dns::provider) fn protocol_originals_returned(&self) -> bool {
+        let mut index = 0;
+        loop {
+            // A cached receiver can retain drivers and a LoanOwner. Clone only
+            // this paid token under the Query mutex; inspect/drop its receiver
+            // outside the mutex, just as in the asynchronous return path.
+            let original = self
+                .protocol_originals
+                .lock()
+                .expect("DNS pending protocols poisoned")
+                .get(index)
+                .map(|entry| entry.original.clone());
+            let Some(original) = original else {
+                return true;
+            };
+            if !original.is_returned() {
+                return false;
+            }
+            index += 1;
+        }
     }
-    pub(in crate::component::native_dns::provider) async fn settle_protocol_originals(
+    pub(in crate::component::native_dns::provider) async fn return_protocol_originals(
         &self,
         end: tokio::time::Instant,
     ) -> std::io::Result<()> {
@@ -105,12 +119,15 @@ impl NativeUse {
             let Some(original) = original else {
                 return Ok(());
             };
+            // This runs only after the actual Query LoanOwner and adoption
+            // returned their IO/views above. The sealed request is pre-delivery
+            // only: an established cached receiver keeps its physical Root.
             original.request_retirement();
-            match tokio::time::timeout_at(end, original.wait_settled_original()).await {
+            match tokio::time::timeout_at(end, original.wait_returned_original()).await {
                 Err(source) => return Err(retirement::pending_deadline(source)),
                 Ok(Err(source)) => {
                     // The sealed wait's only error is loss of its original
-                    // Root before settlement. Cache that one causal event,
+                    // Root before return or settlement. Cache that one causal event,
                     // not a new diagnostic allocation on every retry.
                     let (retained, repeated) = {
                         let entries = self
@@ -124,9 +141,9 @@ impl NativeUse {
                     drop(repeated);
                     return Err(self.receiver.accept_retained_error(retained)?);
                 }
-                Ok(Ok(())) if !original.is_settled() => {
+                Ok(Ok(())) if !original.is_returned() => {
                     return Err(retirement::pending_incomplete(
-                        "DNS protocol original lacks its actual Root settlement",
+                        "DNS protocol original lacks Root settlement or its exact cached receiver",
                     ))
                 }
                 Ok(Ok(())) => {}

@@ -1,5 +1,4 @@
-//! Only actual Envelope allocations/credit. ReadPacket and ReadSlot headers
-//! are deliberately not called paid by these concrete Envelope tests.
+//! Actual same-root Envelope, read-slot and erased storage header custody.
 use super::*;
 #[test]
 fn envelope_metadata_refusal_cannot_advance_either_tx_or_original_native_credit() {
@@ -56,7 +55,9 @@ fn original_control_reuses_its_cold_paid_envelope_and_releases_derived_promises_
     assert_eq!(
         paid,
         baseline
-            .checked_add(PacketTransmitEnvelope::layout().unwrap())
+            .checked_add(PacketTransmitEnvelope::layout(1).unwrap())
+            .unwrap()
+            .checked_add(read::header::slot_layout().unwrap())
             .unwrap()
     );
     // No new metadata unit is available after the original was admitted.
@@ -119,6 +120,8 @@ fn original_control_reuses_its_cold_paid_envelope_and_releases_derived_promises_
             bytes: 0
         }
     );
+    // The revoked original grant still owns its paid actual slot header.
+    drop(control);
     assert_eq!(root.driver_metadata().occupied, baseline);
 }
 #[test]
@@ -133,7 +136,13 @@ fn last_real_envelope_weak_header_keeps_its_metadata_credit_after_actual_data_re
     drop(packet);
     assert_eq!(root.transmit().occupied.frames, 0);
     assert!(weak.upgrade().is_none());
-    assert_eq!(root.driver_metadata().occupied, paid);
+    assert!(root.driver_metadata().occupied.bytes() < paid.bytes());
+    assert_eq!(
+        root.driver_metadata().occupied,
+        baseline
+            .checked_add(PacketMetadataArc::<Mutex<Reservation>>::layout().unwrap())
+            .unwrap()
+    );
     assert!(matches!(
         root.check_original_limits(
             root.returns().limit,

@@ -1,7 +1,15 @@
 //! HTTP client-group pooling. Logical streams own usage leases, while HTTP
 //! drivers and response bodies retain connections independently of those leases.
+mod allocations;
+use allocations::{GroupRef, Groups, UsageRef};
 mod connection;
 mod group;
+pub(in crate::split_http) mod group_body;
+mod owner;
+use owner::OwnerKey;
+pub(crate) mod owned;
+mod owned_connect;
+pub use owned_connect::OwnedXhttpContext;
 pub(super) mod prepared;
 pub(super) mod request;
 use super::{client, request::Profile, XhttpMode, XhttpStream};
@@ -20,6 +28,7 @@ pub enum XhttpCarrier {
     Http1(zero_platform_tokio::TcpRelayStream),
     Http2(zero_platform_tokio::TcpRelayStream),
     Http3(crate::quic::QuicConnection),
+    OwnedHttp3(owned::OwnedXhttp3),
 }
 pub type XhttpCarrierFactory = Arc<
     dyn Fn() -> Pin<Box<dyn Future<Output = Result<XhttpCarrier, crate::RuntimeError>> + Send>>
@@ -27,7 +36,7 @@ pub type XhttpCarrierFactory = Arc<
         + Sync,
 >;
 struct State {
-    groups: Vec<Arc<Group>>,
+    groups: Groups,
     concurrency: u32,
     connections: u32,
 }
@@ -54,7 +63,7 @@ impl XhttpClientPool {
             config,
             maintenance: std::sync::atomic::AtomicBool::new(false),
             state: Mutex::new(State {
-                groups: Vec::new(),
+                groups: Groups::default(),
                 concurrency: super::request::sample(config.max_concurrency),
                 connections: super::request::sample(config.max_connections),
             }),
@@ -62,28 +71,66 @@ impl XhttpClientPool {
     }
     /// Retire groups on reload without killing active response bodies.
     pub fn retire(&self) {
-        self.0.state.lock().unwrap().groups.clear();
+        let retired = {
+            let mut state = self.0.state.lock().unwrap();
+            state.groups.take()
+        };
+        drop(retired);
     }
-    fn select(&self, factory: XhttpCarrierFactory) -> Usage {
+    fn reap(&self) {
+        Self::reap_inner(&self.0);
+    }
+    fn reap_inner(pool: &Inner) {
+        loop {
+            let retired = {
+                let mut state = pool.state.lock().unwrap();
+                state
+                    .groups
+                    .iter()
+                    .position(|group| !group.reusable())
+                    .map(|index| state.groups.remove(index))
+            };
+            match retired {
+                Some(group) => drop(group),
+                None => break,
+            }
+        }
+    }
+    fn select(&self, owner: Option<&OwnerKey>) -> io::Result<Usage> {
+        // Reserve/refund notifications are held before the pool gate. Real
+        // Group/connection destructors remain in reap/retire's lock-free exit.
+        let _notifications = owner.map(|owner| owner.memory.notifications());
+        self.reap();
         let mut state = self.0.state.lock().unwrap();
-        state.groups.retain(|group| group.reusable());
-        let available: Vec<_> = state
-            .groups
-            .iter()
-            .filter(|group| state.concurrency == 0 || group.active() < state.concurrency as usize)
-            .cloned()
-            .collect();
-        let create = state.groups.is_empty()
-            || available.is_empty()
-            || (state.connections > 0 && state.groups.len() < state.connections as usize);
+        if let Some(owner) = owner {
+            state.groups.bind(&owner.memory)?;
+        }
+        let mut available = 0usize;
+        let mut chosen = None;
+        let mut owner_groups = 0;
+        for group in state.groups.iter() {
+            if !group.matches_owner(owner) {
+                continue;
+            }
+            owner_groups += 1;
+            if state.concurrency == 0 || group.active() < state.concurrency as usize {
+                available += 1;
+                if rand::random_range(0..available) == 0 {
+                    chosen = Some(group.clone());
+                }
+            }
+        }
+        let create = owner_groups == 0
+            || available == 0
+            || (state.connections > 0 && owner_groups < state.connections as usize);
         let group = if create {
-            let group = Arc::new(Group::new(self.0.config, factory));
-            state.groups.push(group.clone());
+            let group = GroupRef::new(self.0.config, owner.cloned())?;
+            state.groups.push(group.clone())?;
             group
         } else {
-            available[rand::random_range(0..available.len())].clone()
+            chosen.expect("same actual available group")
         };
-        Usage::new(group)
+        Ok(Usage::new(group))
     }
     pub async fn connect<P: SplitHttpTransportProfile + ?Sized>(
         &self,
@@ -110,22 +157,21 @@ impl XhttpClientPool {
                     let Some(pool) = weak.upgrade() else {
                         break;
                     };
-                    pool.state
-                        .lock()
-                        .unwrap()
-                        .groups
-                        .retain(|group| group.reusable());
+                    XhttpClientPool::reap_inner(&pool);
                 }
             });
         }
         let profile = Profile::new(config);
-        let usage = Arc::new(Mutex::new(self.select(factory.clone())));
+        let usage = UsageRef::new(self.select(None)?, None)?;
         let (mut stream, network) = client::stream_pair();
         stream.usages.push(usage.clone());
         let sender = request::Sender {
             pool: self.clone(),
             factory,
             usage,
+            owned: false,
+            owner: None,
+            logical: None,
         };
         if profile.mode == XhttpMode::StreamOne {
             if download.is_some() {
@@ -139,13 +185,16 @@ impl XhttpClientPool {
             );
         }
         let (download, download_profile) = if let Some(download) = download {
-            let usage = Arc::new(Mutex::new(download.pool.select(download.factory.clone())));
+            let usage = UsageRef::new(download.pool.select(None)?, None)?;
             stream.usages.push(usage.clone());
             (
                 request::Sender {
                     pool: download.pool.clone(),
                     factory: download.factory,
                     usage,
+                    owned: false,
+                    owner: None,
+                    logical: None,
                 },
                 Profile::new(download.config),
             )

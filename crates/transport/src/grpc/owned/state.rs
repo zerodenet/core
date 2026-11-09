@@ -25,6 +25,8 @@ pub(in crate::grpc) struct Managed {
     pub(super) instance: ComponentInstanceId,
     pub(super) options: Arc<NativePoolOptions>,
     pub(super) upstream: UpstreamTransport,
+    pub(super) resources:
+        std::sync::Weak<dyn zero_platform_tokio::contract::component::ResourceAccess>,
     pub(super) tasks: TaskRegistrar,
     pub(super) cancel: CancellationToken,
     pub(super) scope_cancel: CancellationToken,
@@ -43,6 +45,7 @@ pub(super) struct Physical {
     pub(super) owner: std::sync::Weak<Managed>,
     pub(super) binding: zero_platform_tokio::contract::network::UpstreamBinding,
     pub(super) pending: Mutex<Vec<CarrierAdoption>>,
+    pub(super) protocols: Option<crate::protocol_pending::Children>,
     pub(super) adoption: CarrierAdoption,
     pub(super) stop: CancellationToken,
     pub(super) view: Mutex<Option<CarrierUserView>>,
@@ -55,13 +58,21 @@ pub(super) struct Body(pub(super) Arc<Physical>);
 impl Drop for Body {
     fn drop(&mut self) {
         self.0.adoption.request_retirement();
-        self.0.view.lock().unwrap().take();
+        let returned = { self.0.view.lock().unwrap().take() };
+        drop(returned);
         self.0.done.store(true, Ordering::Release);
+        if let Some(children) = &self.0.protocols {
+            children.request_return();
+        }
     }
 }
 impl Physical {
     pub(super) fn closed(&self) -> bool {
-        if !self.failure_accepted()
+        if self
+            .protocols
+            .as_ref()
+            .is_some_and(|children| !children.returned())
+            || !self.failure_accepted()
             || !self.pending.lock().unwrap().is_empty()
             || self
                 .adoption
@@ -123,18 +134,21 @@ impl State {
 }
 impl Managed {
     pub(super) fn new(
-        instance: ComponentInstanceId,
+        context: &zero_platform_tokio::contract::component::BuildContext,
         options: Arc<NativePoolOptions>,
         upstream: UpstreamTransport,
-        tasks: TaskRegistrar,
         cancel: CancellationToken,
         grants: CarrierGrants,
         #[cfg(feature = "tls")] ech_resolver: Option<Arc<dyn crate::tls::ech::EchConfigResolver>>,
     ) -> Arc<Self> {
+        let instance = context.instance();
+        let tasks = context.tasks.clone();
+        let resources = Arc::downgrade(&context.resources);
         Arc::new(Self {
             instance,
             options: options.clone(),
             upstream,
+            resources,
             scope_cancel: tasks.cancellation(),
             tasks,
             cancel,
@@ -201,6 +215,10 @@ impl Managed {
                     let _ = original.try_retire()?;
                 }
                 record.release_installed_pending();
+                if let Some(children) = &record.protocols {
+                    children.request_return();
+                    children.reclaim_returned();
+                }
             }
         }
         self.harvest();
@@ -212,6 +230,10 @@ impl Managed {
             if record.can_retire() {
                 record.release_installed_pending();
                 let _ = record.adoption.retire(deadline).await?;
+                if let Some(children) = &record.protocols {
+                    let _returned = children.wait_returned(deadline).await?;
+                    children.reclaim_returned();
+                }
                 let pending = record.pending.lock().unwrap().clone();
                 for original in pending {
                     let _ = original.retire(deadline).await?;
@@ -222,15 +244,34 @@ impl Managed {
         self.harvest();
         Ok(())
     }
-    pub(super) fn harvest(&self) {
-        let records = self.records.lock().unwrap().clone();
-        for record in records {
-            record.receive_available();
-        }
+    fn next_record(&self, after: Option<usize>) -> Option<Arc<Physical>> {
+        // Existing allocation identity is only a finite traversal cursor. It
+        // does not issue an original, task, ACK or replacement authority.
         self.records
             .lock()
             .unwrap()
-            .retain(|record| !record.closed());
+            .iter()
+            .filter(|record| after.is_none_or(|after| Arc::as_ptr(record) as usize > after))
+            .min_by_key(|record| Arc::as_ptr(record) as usize)
+            .cloned()
+    }
+    pub(super) fn harvest(&self) {
+        let mut after = None;
+        while let Some(record) = self.next_record(after) {
+            after = Some(Arc::as_ptr(&record) as usize);
+            record.receive_available();
+            if !record.closed() {
+                continue;
+            }
+            let removed = {
+                let mut records = self.records.lock().unwrap();
+                records
+                    .iter()
+                    .position(|actual| Arc::ptr_eq(actual, &record))
+                    .map(|index| records.remove(index))
+            };
+            drop(removed);
+        }
         self.budget.harvest();
     }
     /// Positive old-generation settlement. Neither an expired Arc nor cancel
@@ -239,16 +280,17 @@ impl Managed {
         if !self.cancel.is_cancelled() {
             return false;
         }
-        self.records
-            .lock()
-            .unwrap()
-            .iter()
-            .all(|record| record.closed())
-            && self.budget.all_returned()
-            && {
-                let owner = self.grants.registration();
-                owner.closed().is_some_and(|closed| closed.matches(&owner))
+        let mut after = None;
+        while let Some(record) = self.next_record(after) {
+            after = Some(Arc::as_ptr(&record) as usize);
+            if !record.closed() {
+                return false;
             }
+        }
+        self.budget.all_returned() && {
+            let owner = self.grants.registration();
+            owner.closed().is_some_and(|closed| closed.matches(&owner))
+        }
     }
     pub(super) fn physical_unconfirmed(&self) -> bool {
         !self.records.lock().unwrap().is_empty()

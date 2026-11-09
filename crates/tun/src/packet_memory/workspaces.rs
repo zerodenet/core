@@ -34,13 +34,24 @@ impl PacketReturnTotals {
         };
         let native = dimensions(reads)?;
         let sending = dimensions(transmit)?;
+        let slot_layout = read::header::slot_layout()?;
+        let tx_layout = PacketTransmitEnvelope::layout(1)?;
+        let layout = slot_layout
+            .repeated(
+                reads
+                    .len()
+                    .checked_add(transmit.len())
+                    .ok_or(PacketMemoryError::Overflow)?,
+            )?
+            .checked_add(tx_layout.repeated(transmit.len())?)?;
+        let wake = std::task::Waker::from(self.clone());
         let mut state = self.state();
         for (request, lane) in [(native, state.native), (sending, state.transmit)] {
             if request.frames > lane.limit.frames || request.bytes > lane.limit.bytes {
                 return Err(PacketMemoryError::Capacity);
             }
         }
-        if state.paused {
+        if state.paused || state.metadata_pauses != 0 {
             return Err(PacketMemoryError::Paused);
         }
         for (request, lane) in [(native, state.native), (sending, state.transmit)] {
@@ -50,21 +61,51 @@ impl PacketReturnTotals {
                 return Err(PacketMemoryError::Busy);
             }
         }
+        // Every concrete Slot/header promise and control Envelope is paid for
+        // the WHOLE real peer set before any IO or first allocation begins.
+        let mut metadata = self.metadata.reserve(layout, wake)?;
         state.native.occupied.frames += native.frames;
         state.native.occupied.bytes += native.bytes;
         state.transmit.occupied.frames += sending.frames;
         state.transmit.occupied.bytes += sending.bytes;
         drop(state);
-        let grants = |lane, lengths: &[usize]| {
+        let mut grants = |lane, lengths: &[usize]| {
             lengths
                 .iter()
                 .map(|bytes| {
-                    NativeReadGrant::from_credit(credit::Credit {
-                        root: self.clone(),
-                        lane,
-                        frames: 1,
-                        bytes: *bytes,
-                    })
+                    let slot = metadata
+                        .split(slot_layout)
+                        .expect("same prepaid whole slot set");
+                    let envelope = if matches!(lane, Lane::Transmit) {
+                        Some(PacketTransmitEnvelope::with_anchor(
+                            credit::Credit {
+                                root: self.clone(),
+                                lane,
+                                frames: 0,
+                                bytes: 0,
+                            },
+                            PacketMemoryLimit {
+                                frames: 1,
+                                bytes: *bytes,
+                            },
+                            metadata
+                                .split(tx_layout)
+                                .expect("same prepaid whole control set"),
+                            true,
+                        ))
+                    } else {
+                        None
+                    };
+                    NativeReadGrant::from_prepaid_credit(
+                        credit::Credit {
+                            root: self.clone(),
+                            lane,
+                            frames: 1,
+                            bytes: *bytes,
+                        },
+                        envelope,
+                        slot,
+                    )
                 })
                 .collect()
         };
@@ -75,49 +116,4 @@ impl PacketReturnTotals {
     }
 }
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn full_peer_workspace_union_is_prepaid_without_partial_debit() {
-        let limit = PacketMemoryLimit {
-            frames: 4,
-            bytes: 1024,
-        };
-        let roots = Arc::new(PacketReturnTotals::new_with_transmit(
-            limit,
-            limit,
-            PacketMemoryLimit {
-                frames: 2,
-                bytes: 296,
-            },
-        ));
-        // Three actual control workspaces cannot fit: no early reader debit.
-        assert!(matches!(
-            roots.io_workspaces(&[128; 4], &[148; 3]),
-            Err(PacketMemoryError::Capacity)
-        ));
-        assert_eq!(roots.native().occupied.frames, 0);
-        assert_eq!(roots.transmit().occupied.frames, 0);
-        let work = roots.io_workspaces(&[128; 4], &[148; 2]).unwrap();
-        let held = work.reads[0].try_buffer().unwrap();
-        for grant in work.iter() {
-            grant.revoke();
-        }
-        assert_eq!(
-            roots.native().occupied,
-            PacketMemoryLimit {
-                frames: 1,
-                bytes: 128
-            }
-        );
-        assert_eq!(roots.transmit().occupied.frames, 0);
-        drop(work);
-        assert_eq!(
-            roots.native().occupied.bytes,
-            128,
-            "retired owner cannot refund held buffer"
-        );
-        drop(held);
-        assert_eq!(roots.native().occupied.frames, 0);
-    }
-}
+mod tests;

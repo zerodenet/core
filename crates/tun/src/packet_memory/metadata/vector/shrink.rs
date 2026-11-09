@@ -28,7 +28,7 @@ impl<T> PacketMetadataVec<T> {
         // SAFETY: same exact array<T> layout paid above, initially no initialized T.
         let next = unsafe { Vec::from_raw_parts(pointer, 0, capacity) };
         let mut previous = std::mem::replace(&mut self.values, next);
-        self.values.extend(previous.drain(..));
+        self.values.append(&mut previous);
         drop(previous);
         drop(self.credit.replace(next_credit));
         Ok(())

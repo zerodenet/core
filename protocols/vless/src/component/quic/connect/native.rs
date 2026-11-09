@@ -19,7 +19,7 @@ pub(super) fn spawn(
     call: CarrierContext,
     demand: PacketMetadataArc<super::demand::Demand>,
     index: usize,
-    ready: oneshot::Sender<Result<zero_platform_tokio::TcpRelayStream, ChannelError>>,
+    ready: oneshot::Sender<Result<super::Ready, ChannelError>>,
 ) -> Result<(), ChannelError> {
     let original = preparation.origin();
     let registration = entry::actor::RegistrationGuard::new(
@@ -46,6 +46,7 @@ pub(super) fn spawn(
         );
         let result = tokio::select! {biased;
             _=work_entry.owners.stop.cancelled()=>None,
+            _=demand.initializer_cancel.cancelled()=>None,
             result=work=>Some(result),
         };
         match result {
@@ -94,7 +95,7 @@ async fn initialize(
     call: CarrierContext,
     demand: &super::demand::Demand,
     index: usize,
-) -> Result<zero_platform_tokio::TcpRelayStream, ChannelError> {
+) -> Result<super::Ready, ChannelError> {
     let options = &generation.options;
     let candidates = demand.native(generation).await?;
     let peer = candidates
@@ -114,17 +115,20 @@ async fn initialize(
         .requires_icmp()
         .then(|| MetadataIcmpMemory::reserve(&generation.metadata_memory))
         .transpose()?;
-    let client = options
+    let mut client = options
         .protocol
         .material
         .as_ref()
         .expect("same actual QUIC material")
-        .prepare_quic(
-            generation.resolver.as_deref(),
-            &options.profile.alpn_protocols(),
-        )
+        .prepare_quic(generation.resolver.as_deref(), &options.alpn())
         .await
         .map_err(|source| error(Stage::Prepare, Reason::InvalidConfig).with_source(source))?;
+    if let Some((_, profile)) = &options.h3 {
+        zero_transport::quic::set_http_keepalive(
+            &mut client,
+            profile.options.xmux.h_keep_alive_period,
+        );
+    }
     // Installing the actual native grant and its unique rejected claim is
     // synchronous under the entry lock, before any endpoint future may suspend.
     let handle = {
@@ -158,16 +162,24 @@ async fn initialize(
             }
         };
         state.segment = Some(Segment::Native(segment));
-        let drivers =
-            2 + zero_transport::finalmask::owned::driver_count(options.plan.owned_quic_masks());
-        let (owner, receiver) = OwnedEndpointOwner::new_packet(
-            socket,
-            generation.tasks.clone(),
-            OwnedEndpointLimits {
-                drivers: n(drivers),
-                users: options.users,
-            },
-        );
+        let drivers = options.drivers();
+        let limits = OwnedEndpointLimits {
+            drivers: n(drivers),
+            users: options.users,
+        };
+        let (owner, receiver) = if options.h3.is_some() {
+            let Some(Segment::Native(segment)) = state.segment.as_mut() else {
+                unreachable!()
+            };
+            OwnedEndpointOwner::new_packet_endpoint(
+                socket,
+                segment,
+                generation.tasks.clone(),
+                limits,
+            )?
+        } else {
+            OwnedEndpointOwner::new_packet(socket, generation.tasks.clone(), limits)
+        };
         state.endpoint = Some(owner);
         state.receiver = Some(receiver);
         let State {
@@ -203,7 +215,5 @@ async fn initialize(
             return Err(source);
         }
     };
-    Ok(zero_platform_tokio::TcpRelayStream::new(
-        connection.into_bi_stream().await?,
-    ))
+    super::ready::connected(generation, entry, connection).await
 }

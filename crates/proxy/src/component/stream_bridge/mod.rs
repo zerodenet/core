@@ -24,6 +24,7 @@ pub(crate) mod datagram;
 pub(in crate::component) mod network;
 mod packet_network;
 mod pending;
+pub(crate) use pending::actual_protocol_caller;
 pub(crate) mod relay;
 mod traffic;
 pub(crate) use relay::connect as connect_relay;

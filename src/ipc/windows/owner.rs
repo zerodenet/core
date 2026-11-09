@@ -47,7 +47,7 @@ impl Originals {
         ))?;
         let ordinal = self
             .1
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |previous| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |previous| {
                 previous.checked_add(1)
             })
             .map_err(|_| io::Error::other("original pipe sequence exhausted"))?

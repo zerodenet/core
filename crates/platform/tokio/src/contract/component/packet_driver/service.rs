@@ -9,6 +9,9 @@ pub struct PacketDriverTarget {
     pub binding: UpstreamBinding,
     pub originals: Arc<[crate::controlled_carrier::CarrierOwnerRegistration]>,
     pub packet_originals: Arc<[CarrierOrigin]>,
+    pub metadata: crate::contract::component::PacketMetadataVec<
+        crate::controlled_datagram::metadata_pool::MetadataPoolRegistration,
+    >,
     pub pending_capacity: usize,
 }
 /// Actual driver authority issued by ResourceAccess. It retains neither an
@@ -84,17 +87,19 @@ impl GrantedPacketServiceCaller {
             return Err(failure(Reason::Revoked));
         }
         self.calls.collect_retired();
-        let blocked = self
-            .calls
-            .calls
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .iter()
-            .any(|record| {
-                record.caller.same_registration(&self.caller)
-                    && record.call.cancel.is_cancelled()
-                    && !record.released()
-            });
+        let mut blocked = false;
+        for index in 0..self.calls.max_calls.get() {
+            let Some(record) = self.calls.call_at(index) else {
+                break;
+            };
+            if record.caller.same_registration(&self.caller)
+                && record.call.cancel.is_cancelled()
+                && !record.released()
+            {
+                blocked = true;
+                break;
+            }
+        }
         if blocked {
             let mut pending = failure(Reason::Capacity);
             pending.delivery = DeliveryState::Unknown;
@@ -222,13 +227,16 @@ impl GrantedPacketServiceCaller {
                 used.checked_add(original.limit().get())
             })
             .ok_or_else(|| failure(Reason::Capacity))?;
-        let grant = self.calls.register(
+        let grant = self.calls.register_with_protocol_targets(
             &self.caller,
             binding.clone(),
             self.call.clone(),
-            capacity,
-            originals.into(),
-            packet_originals.into(),
+            super::registration::OriginalTargets {
+                max_pending: capacity,
+                allowed: originals.into(),
+                packet_originals: packet_originals.into(),
+                protocols: Some((self.targets.clone(), selected.role)),
+            },
         )?;
         attempt
             .records

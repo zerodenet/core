@@ -75,6 +75,10 @@ impl AcceptedTaskFailures {
             && self.0.scope.same_scope(scope)
             && self.0.memory.same_root(memory)
     }
+    /// The same installed Source's pure metadata counter; no policy/IO grant.
+    pub fn metadata_view(&self) -> &PacketDriverMetadataView {
+        &self.0.memory
+    }
     pub fn scope_identity(&self) -> TaskScopeIdentity {
         self.0.scope.clone()
     }

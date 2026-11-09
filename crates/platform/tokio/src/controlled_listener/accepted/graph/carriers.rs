@@ -140,6 +140,9 @@ impl AcceptedCaller {
 impl Users {
     pub(super) fn revoke_carriers(&self) {
         self.transfer_installed_carriers();
+        if let Some(children) = self.protocols.get() {
+            children.request_return();
+        }
         let slots: Vec<_> = self
             .state()
             .carriers
@@ -208,16 +211,23 @@ impl Users {
         drop(returned);
     }
     pub(super) fn has_carrier_caller(&self, caller: &TaskJoinWitness) -> bool {
-        self.state()
-            .carriers
-            .iter()
-            .any(|record| record.caller.same_registration(caller))
+        let carrier = {
+            self.state()
+                .carriers
+                .iter()
+                .any(|record| record.caller.same_registration(caller))
+        };
+        carrier || self.has_protocol_caller(caller)
     }
     pub(super) async fn retire_joined_carriers(&self, deadline: Instant) -> bool {
-        self.close_carrier_records(deadline, true).await
+        let carriers = self.close_carrier_records(deadline, true).await;
+        let protocols = self.close_protocols(deadline, true).await;
+        carriers && protocols
     }
     pub(super) async fn close_carriers(&self, deadline: Instant) -> bool {
-        self.close_carrier_records(deadline, false).await
+        let carriers = self.close_carrier_records(deadline, false).await;
+        let protocols = self.close_protocols(deadline, false).await;
+        carriers && protocols
     }
     async fn close_carrier_records(&self, deadline: Instant, joined_only: bool) -> bool {
         // Cancelled cleanup leaves the same originals installed. The actual

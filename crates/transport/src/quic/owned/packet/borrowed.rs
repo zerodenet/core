@@ -318,3 +318,18 @@ async fn send_packet(
         _ => io.send(&packet.bytes).await,
     }
 }
+
+#[cfg(feature = "split_http")]
+impl BorrowedPacketSegment {
+    pub(in crate::quic::owned) fn retained_receiver(
+        &self,
+        socket: &PacketSocket,
+    ) -> Option<zero_platform_tokio::controlled_carrier::CarrierDriverRetained> {
+        if !Arc::ptr_eq(&self.identity, &socket.identity) {
+            return None;
+        }
+        let actual = self.driver.as_ref()?;
+        let keeper = self.adoption.retained_driver()?;
+        keeper.driver().same_registration(actual).then_some(keeper)
+    }
+}

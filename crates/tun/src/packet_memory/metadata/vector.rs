@@ -56,10 +56,7 @@ impl<T> PacketMetadataVec<T> {
             .saturating_mul(2)
             .max(needed)
             .min(max_rows);
-        let layout = match PacketMetadataLayout::array::<T>(new_capacity) {
-            Ok(layout) => layout,
-            Err(source) => return Err(source),
-        };
+        let layout = PacketMetadataLayout::array::<T>(new_capacity)?;
         // The old live table cannot be evicted to satisfy this growth. If its
         // own old+new layouts can never fit this installed Root, return a real
         // permanent capacity error instead of an impossible Pending retry.
@@ -68,20 +65,14 @@ impl<T> PacketMetadataVec<T> {
             .as_ref()
             .map(PacketMetadataCredit::layout)
             .unwrap_or(PacketMetadataLayout::new(0, 0));
-        let peak = match old.checked_add(layout).and_then(|peak| {
+        let peak = old.checked_add(layout).and_then(|peak| {
             peak.checked_add(zero_traits::packet_metadata::PacketMetadataCounter::owned_layout())
-        }) {
-            Ok(layout) => layout,
-            Err(source) => return Err(source),
-        };
+        })?;
         let limit = memory.snapshot().limit;
         if peak.allocations() > limit.allocations() || peak.bytes() > limit.bytes() {
             return Err(PacketMemoryError::Capacity);
         }
-        let next_credit = match memory.reserve(layout) {
-            Ok(credit) => credit,
-            Err(source) => return Err(source),
-        };
+        let next_credit = memory.reserve(layout)?;
         // Box's requested array Layout is EXACTLY the one prepaid above. No
         // opaque reserve/realloc operation can create a larger reported Vec
         // capacity or hide simultaneous old/new storage from the Root.
@@ -92,7 +83,7 @@ impl<T> PacketMetadataVec<T> {
         // Vec owns that same allocation and drops only subsequently moved T.
         let next = unsafe { Vec::from_raw_parts(pointer, 0, new_capacity) };
         let mut previous = std::mem::replace(&mut self.values, next);
-        self.values.extend(previous.drain(..)); // sufficient existing capacity
+        self.values.append(&mut previous); // sufficient existing capacity
         drop(previous); // actual old allocation is free before refund
         let previous_credit = self.credit.replace(next_credit);
         drop(previous_credit);

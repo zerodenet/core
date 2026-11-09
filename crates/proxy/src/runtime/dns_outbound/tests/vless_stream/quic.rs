@@ -4,6 +4,7 @@ use zero_platform_tokio::controlled_carrier::CarrierOriginOwner;
 mod fixture;
 use fixture::*;
 mod datagram;
+mod h3_returned;
 mod pending;
 #[tokio::test]
 async fn ordinary_quic_native_and_borrowed_doh_use_the_same_real_query_and_endpoint_owners() {

@@ -3,7 +3,7 @@ use zero_platform_tokio::{
     controlled_carrier::{CarrierOriginObservation, CarrierOwnerRegistration},
     controlled_datagram::metadata_pool::{MetadataPoolOrigin, MetadataPoolRegistration},
 };
-pub(super) enum Original {
+pub(in crate::adapters::vless::component::tests::material) enum Original {
     Native(MetadataPoolRegistration, MetadataPoolOrigin),
     Borrowed(CarrierOwnerRegistration, CarrierOriginObservation),
 }

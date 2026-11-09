@@ -10,11 +10,11 @@ impl Drop for CancelWaiter {
     }
 }
 impl ProbeOwner {
-    pub(crate) async fn run<T, F, Fut>(
+    pub(crate) async fn run_with_protocol_memory<T, F, Fut>(
         self: &Arc<Self>,
         registrar: TaskRegistrar,
         credit: ProbeAdmission,
-        limit: NonZeroUsize,
+        budget: ProtocolProbeBudget,
         purpose: ServicePurpose,
         deadline: Instant,
         work: F,
@@ -30,6 +30,26 @@ impl ProbeOwner {
         ) {
             return Err(failure(Reason::InvalidConfig));
         }
+        let ProtocolProbeBudget { limit, memory } = budget;
+        let protocols = memory
+            .map(|(memory, limit)| {
+                let credit = memory
+                    .reserve(
+                        zero_traits::packet_metadata::PacketMetadataArc::<
+                            zero_platform_tokio::controlled_carrier::ProtocolOriginalChildren,
+                        >::layout()
+                        .map_err(|source| failure(Reason::Capacity).with_source(source))?,
+                    )
+                    .map_err(|source| failure(Reason::Capacity).with_source(source))?;
+                zero_traits::packet_metadata::PacketMetadataArc::from_prepaid(
+                    zero_platform_tokio::controlled_carrier::ProtocolOriginalChildren::new(
+                        memory, limit,
+                    ),
+                    credit,
+                )
+                .map_err(|(source, _, _)| failure(Reason::Capacity).with_source(source))
+            })
+            .transpose()?;
         let entry = Arc::new(Entry {
             owner: Arc::downgrade(self),
             stop: CancellationToken::new(),
@@ -40,6 +60,7 @@ impl ProbeOwner {
             deadline,
             witness: OnceLock::new(),
             pending: Mutex::new(Vec::new()),
+            protocols,
             cleanup_started: AtomicBool::new(false),
             cleanup_end: OnceLock::new(),
             cleanup: Mutex::new(None),
@@ -66,6 +87,9 @@ impl ProbeOwner {
                 if let Some(result)=result {let _=send.send(result);}
                 // Business IO errors remain T. Only ownership/native cleanup
                 // errors fail this same real task and reach its TaskMonitor.
+                // Only request return while this real actor is still running.
+                // Its Host ACK remains independently observable after it exits.
+                if let Some(children)=&running.0.protocols {children.request_return();}
                 let originals=lock(&running.0.pending).iter().map(|claim|claim.adoption.clone()).collect();
                 let end=*running.0.cleanup_end.get_or_init(||Instant::now()+std::time::Duration::from_secs(5));
                 pending::close_native(originals,end).await
@@ -95,5 +119,36 @@ impl ProbeOwner {
             }
             changed.await;
         }
+    }
+}
+
+#[cfg(test)]
+impl ProbeOwner {
+    pub(crate) async fn run<T, F, Fut>(
+        self: &Arc<Self>,
+        registrar: TaskRegistrar,
+        credit: ProbeAdmission,
+        limit: NonZeroUsize,
+        purpose: ServicePurpose,
+        deadline: Instant,
+        work: F,
+    ) -> Result<T, ChannelError>
+    where
+        T: Send + 'static,
+        F: FnOnce(ProbeCall) -> Fut + Send + 'static,
+        Fut: Future<Output = T> + Send + 'static,
+    {
+        self.run_with_protocol_memory(
+            registrar,
+            credit,
+            ProtocolProbeBudget {
+                limit,
+                memory: None,
+            },
+            purpose,
+            deadline,
+            work,
+        )
+        .await
     }
 }

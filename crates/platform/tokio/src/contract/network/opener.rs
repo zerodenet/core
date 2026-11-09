@@ -84,6 +84,20 @@ pub trait UpstreamOpener: Send + Sync {
         Err(failure)
     }
 
+    /// Validate only the actual installed owning role/provider/Scope of a
+    /// sealed child. Receiving it grants neither IO nor a different caller.
+    fn validate_pending_protocol_original(
+        &self,
+        _: &UpstreamBinding,
+        _: &crate::controlled_carrier::ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        Err(ChannelError::new(
+            Stage::Prepare,
+            Reason::Unsupported,
+            Impact::Component,
+        ))
+    }
+
     /// Resolve a selected inner Packet/Flow destination using the actual host
     /// DNS policy. It never prepares a native socket or grants a carrier.
     /// Resolve the inner numeric wire peer for one Host-issued noncached

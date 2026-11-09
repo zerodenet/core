@@ -4,38 +4,6 @@ impl PendingOpen {
     pub(crate) fn cancellation(&self) -> zero_platform_tokio::contract::CancellationToken {
         self.stop.clone()
     }
-    pub(crate) fn observer(
-        self: &Arc<Self>,
-        binding: UpstreamBinding,
-    ) -> Result<Option<PendingCarrierObserver>, ChannelError> {
-        if self.limit == 0 {
-            return Ok(None);
-        }
-        let observer = {
-            let mut state = self.state.lock().unwrap();
-            if let Some(actual) = state
-                .observers
-                .iter()
-                .find(|actual| actual.binding == binding)
-            {
-                actual.clone()
-            } else {
-                if state.observers.len() >= self.roles.len().saturating_add(1) {
-                    return Err(admission_error(Reason::Capacity));
-                }
-                let actual = Arc::new(Observer {
-                    pending: Arc::downgrade(self),
-                    binding: binding.clone(),
-                });
-                state.observers.push(actual.clone());
-                actual
-            }
-        };
-        let opener: Arc<dyn UpstreamOpener> = observer;
-        Ok(Some(
-            UpstreamTransport::new(binding, opener).pending_carrier_observer(),
-        ))
-    }
     fn valid(&self, adoption: &CarrierAdoption) -> bool {
         self.plan.upgrade().is_some_and(|plan| {
             self.roles
@@ -58,7 +26,7 @@ impl PendingOpen {
         }
         self.transfer_installed();
         let mut state = self.state.lock().unwrap();
-        if state.retired || !state.preparing {
+        if state.retired || (!state.preparing && state.protocol.is_none()) {
             return Err(admission_error(Reason::Revoked));
         }
         if state
@@ -136,6 +104,9 @@ impl PendingOpen {
         self.state.lock().unwrap().retired = true;
         self.transfer_installed();
         self.stop.cancel();
+        if let Some(children) = &self.protocols {
+            children.request_return();
+        }
         let (pending, protocol) = {
             let state = self.state.lock().unwrap();
             (state.pending.clone(), state.protocol.clone())
@@ -148,5 +119,85 @@ impl PendingOpen {
                 actual.cancel(reason);
             }
         }
+    }
+}
+
+impl PendingOpenRef {
+    pub(crate) fn observer(
+        &self,
+        binding: UpstreamBinding,
+    ) -> Result<Option<PendingCarrierObserver>, ChannelError> {
+        if self.limit == 0 {
+            return Ok(None);
+        }
+        let existing = {
+            let state = self.state.lock().unwrap();
+            state
+                .observers
+                .iter()
+                .find(|actual| actual.binding() == &binding)
+                .cloned()
+        };
+        if let Some(actual) = existing {
+            return Ok(Some(actual.pending_carrier_observer()));
+        }
+        let observer = Observer {
+            pending: self.downgrade(),
+            anchor: std::sync::OnceLock::new(),
+        };
+        let prepared = if let Some(memory) = &self.memory {
+            let credit = memory
+                .reserve(
+                    UpstreamTransport::opener_metadata_layout::<Observer>(&binding)
+                        .map_err(|source| admission_error(Reason::Capacity).with_source(source))?,
+                )
+                .map_err(|source| admission_error(Reason::Capacity).with_source(source))?;
+            let (transport, actual) = UpstreamTransport::from_prepaid_opener(
+                binding, observer, credit,
+            )
+            .map_err(|(source, _, _, _)| admission_error(Reason::Capacity).with_source(source))?;
+            assert!(
+                actual
+                    .actual()
+                    .anchor
+                    .set(transport.pending_carrier_observer())
+                    .is_ok(),
+                "one association observer"
+            );
+            drop(actual);
+            transport
+        } else {
+            let observer = Arc::new(observer);
+            let transport = UpstreamTransport::new(binding, observer.clone());
+            assert!(
+                observer
+                    .anchor
+                    .set(transport.pending_carrier_observer())
+                    .is_ok(),
+                "one standalone observer"
+            );
+            transport
+        };
+        let (chosen, result) = {
+            let mut state = self.state.lock().unwrap();
+            if state.retired {
+                return Err(admission_error(Reason::Revoked));
+            }
+            if let Some(actual) = state
+                .observers
+                .iter()
+                .find(|actual| actual.binding() == prepared.binding())
+            {
+                (actual.clone(), Ok(()))
+            } else if state.observers.len() >= self.roles.len().saturating_add(1) {
+                (prepared.clone(), Err(admission_error(Reason::Capacity)))
+            } else {
+                state.observers.push(prepared.clone());
+                (prepared.clone(), Ok(()))
+            }
+        };
+        drop(prepared);
+        result?;
+        Ok(Some(chosen.pending_carrier_observer()))
     }
 }

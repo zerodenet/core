@@ -24,6 +24,13 @@ use zero_platform_tokio::{
 mod pending;
 mod run;
 
+pub(crate) struct ProtocolProbeBudget {
+    pub(crate) limit: std::num::NonZeroUsize,
+    pub(crate) memory: Option<(
+        zero_platform_tokio::contract::component::PacketDriverMetadataView,
+        usize,
+    )>,
+}
 #[derive(Default)]
 pub(crate) struct ProbeOwner {
     entries: Mutex<Vec<Arc<Entry>>>,
@@ -37,6 +44,11 @@ struct Entry {
     deadline: Instant,
     witness: OnceLock<TaskJoinWitness>,
     pending: Mutex<Vec<pending::Claim>>,
+    protocols: Option<
+        zero_traits::packet_metadata::PacketMetadataArc<
+            zero_platform_tokio::controlled_carrier::ProtocolOriginalChildren,
+        >,
+    >,
     cleanup_started: AtomicBool,
     cleanup_end: OnceLock<Instant>,
     cleanup: Mutex<Option<BoxFuture<'static, Result<(), ChannelError>>>>,
@@ -131,9 +143,45 @@ impl ProbeCall {
     }
     pub fn cancel(&self) {
         self.0.stop.cancel();
+        if let Some(children) = &self.0.protocols {
+            children.request_return();
+        }
         if let Some(owner) = self.0.owner.upgrade() {
             owner.wake.signal();
         }
+    }
+    pub fn protocol_metadata(
+        &self,
+    ) -> Result<zero_platform_tokio::contract::component::PacketDriverMetadataView, ChannelError>
+    {
+        self.check_open()?;
+        self.0
+            .protocols
+            .as_ref()
+            .map(|children| children.metadata_view().clone())
+            .ok_or_else(|| failure(Reason::StalePlan))
+    }
+    pub fn observe_protocol_original(
+        &self,
+        original: zero_platform_tokio::controlled_carrier::ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        self.check_open()?;
+        let caller = self.witness().ok_or_else(|| failure(Reason::Revoked))?;
+        if !caller
+            .native_task_id()
+            .is_some_and(|id| Some(id) == tokio::task::try_id())
+        {
+            return Err(failure(Reason::StalePlan));
+        }
+        self.0
+            .protocols
+            .as_ref()
+            .ok_or_else(|| failure(Reason::StalePlan))?
+            .retain_for_caller(original, caller)?;
+        if let Some(owner) = self.0.owner.upgrade() {
+            owner.wake.signal();
+        }
+        Ok(())
     }
     pub fn observe_pending_carrier(&self, adoption: CarrierAdoption) -> Result<(), ChannelError> {
         self.retain(adoption)
@@ -169,11 +217,20 @@ impl ProbeOwner {
                     .map(|claim| claim.adoption.clone())
                     .collect();
                 let witness = entry.witness.get().unwrap().clone();
+                let protocols = entry.protocols.clone();
                 let end = *entry
                     .cleanup_end
                     .get_or_init(|| Instant::now() + std::time::Duration::from_secs(5));
                 cleanup = Some(Box::pin(async move {
                     let cleanup = pending::close(originals, end).await;
+                    // This continuation owns only the same child metadata
+                    // ledger, not Entry/ProbeCall or its own cleanup future.
+                    // The actor has joined; child global return may now depend
+                    // on its real independently driven Host registration ACK.
+                    let child_return = match protocols {
+                        Some(children) => children.wait_returned_original().await,
+                        None => Ok(()),
+                    };
                     // Independently observe this same original Host ACK even
                     // when native/user cleanup returned its own typed fault.
                     let accepted =
@@ -184,6 +241,7 @@ impl ProbeOwner {
                         cleanup
                             .err()
                             .into_iter()
+                            .chain(child_return.err())
                             .chain(accepted.err())
                             .map(Arc::new)
                             .collect(),
@@ -198,7 +256,12 @@ impl ProbeOwner {
                     .iter()
                     .map(|claim| claim.adoption.clone())
                     .collect();
-                if pending::settled(&originals) {
+                if pending::settled(&originals)
+                    && entry
+                        .protocols
+                        .as_ref()
+                        .is_none_or(|children| children.returned())
+                {
                     self.confirm_complete(&entry);
                 }
                 entry.changed.notify_waiters();
@@ -217,6 +280,13 @@ impl ProbeOwner {
         }
     }
     fn confirm_complete(&self, entry: &Arc<Entry>) {
+        if entry
+            .protocols
+            .as_ref()
+            .is_some_and(|children| !children.returned())
+        {
+            return;
+        }
         if !entry
             .witness
             .get()

@@ -14,6 +14,7 @@ pub struct Physical {
     pub(super) rejected_delay: std::sync::OnceLock<std::time::Duration>,
     pub(super) binding: zero_platform_tokio::contract::network::UpstreamBinding,
     pub(super) pending: Mutex<Vec<CarrierAdoption>>,
+    pub(super) protocols: Option<crate::protocol_pending::Children>,
     pub(super) original: CarrierAdoption,
     pub(super) owner: Weak<ManagedPool>,
     pub(super) opening: AtomicBool,
@@ -33,12 +34,32 @@ impl Physical {
         view: CarrierUserView,
         owner: &Arc<ManagedPool>,
         binding: zero_platform_tokio::contract::network::UpstreamBinding,
-    ) -> Arc<Self> {
-        Arc::new(Self {
+    ) -> Result<Arc<Self>, ChannelError> {
+        let protocols = if owner.options.scoped_preparation && original.has_original_root() {
+            let limit = owner
+                .upstream
+                .pending_carrier_capacity_for(&binding)
+                .or_else(|| binding.prefix.is_empty().then_some(0))
+                .ok_or_else(|| failure(owner.instance, Stage::Prepare, Reason::StalePlan))?;
+            if limit == 0 {
+                None
+            } else {
+                let memory = owner
+                    .resources
+                    .upgrade()
+                    .ok_or_else(|| failure(owner.instance, Stage::Prepare, Reason::Revoked))?
+                    .packet_driver_metadata()?;
+                Some(crate::protocol_pending::Children::new(memory, limit))
+            }
+        } else {
+            None
+        };
+        Ok(Arc::new(Self {
             driver_input: Mutex::new(None),
             rejected_delay: std::sync::OnceLock::new(),
             binding,
             pending: Mutex::new(Vec::new()),
+            protocols,
             original,
             owner: Arc::downgrade(owner),
             opening: AtomicBool::new(true),
@@ -50,7 +71,7 @@ impl Physical {
             witness: Mutex::new(None),
             received: Mutex::new(None),
             accepted: AtomicBool::new(false),
-        })
+        }))
     }
     pub fn user(self: &Arc<Self>) -> Result<PoolUse, ChannelError> {
         let owner = self
@@ -105,7 +126,11 @@ impl Physical {
         }
     }
     pub(super) fn closed(&self) -> bool {
-        if !self.pending.lock().unwrap().is_empty()
+        if self
+            .protocols
+            .as_ref()
+            .is_some_and(|children| !children.returned())
+            || !self.pending.lock().unwrap().is_empty()
             || self.opening.load(Ordering::Acquire)
             || self.users.load(Ordering::Acquire) != 0
             || self.view.lock().unwrap().is_some()
@@ -209,6 +234,9 @@ impl Drop for Opening {
             self.0.original.request_retirement();
             self.0.done.store(true, Ordering::Release);
             self.0.release_finished_view();
+            if let Some(children) = &self.0.protocols {
+                children.request_return();
+            }
         }
         if let Some(owner) = self.0.owner.upgrade() {
             owner.changed.notify_waiters();
@@ -221,6 +249,9 @@ impl Drop for Body {
         self.0.original.request_retirement();
         self.0.done.store(true, Ordering::Release);
         self.0.release_finished_view();
+        if let Some(children) = &self.0.protocols {
+            children.request_return();
+        }
         if let Some(owner) = self.0.owner.upgrade() {
             owner.changed.notify_waiters();
         }

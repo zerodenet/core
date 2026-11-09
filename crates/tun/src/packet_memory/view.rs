@@ -38,6 +38,7 @@ impl PacketMemoryView {
     /// workspace before native acquisition. This returns memory custody only;
     /// it cannot bind a socket, spawn work or replace the Host limits.
     pub fn native_workspace(&self, bytes: usize) -> Result<NativeReadGrant, PacketMemoryError> {
+        let _notifications = self.defer_notifications();
         let state = self
             .original
             .0
@@ -51,7 +52,7 @@ impl PacketMemoryView {
     }
     /// Read-only identity of the exact granting original, never a close proof.
     pub fn same_original(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.original.0, &other.original.0)
+        PacketMetadataArc::ptr_eq(&self.original.0, &other.original.0)
     }
     pub fn check_open(&self) -> Result<(), PacketMemoryError> {
         self.original.check_memory_open()
@@ -62,6 +63,7 @@ impl PacketMemoryView {
         derived_frames: usize,
         derived_bytes: usize,
     ) -> Result<PacketBuffer, PacketMemoryError> {
+        let _notifications = self.defer_notifications();
         // Seal against this original's revoke while admitting actual memory.
         // This grants no native IO, task authority or close/join observation.
         let state = self
@@ -85,6 +87,7 @@ impl PacketMemoryView {
         &self,
         lengths: &[usize],
     ) -> Result<Vec<PacketBuffer>, PacketMemoryError> {
+        let _notifications = self.defer_notifications();
         let credits = {
             let state = self
                 .original
@@ -119,6 +122,12 @@ impl PacketMemoryView {
             return Err(PacketMemoryError::Stopped);
         }
         self.original.0.root.reserve_driver_metadata(layout)
+    }
+    /// Metadata-only clone of this actual still-live grant's existing Root.
+    /// It creates no native/task authority, allocator or replacement budget.
+    pub fn driver_metadata_view(&self) -> Result<PacketDriverMetadataView, PacketMemoryError> {
+        self.original.check_memory_open()?;
+        Ok(self.original.0.root.driver_metadata_view())
     }
     pub fn driver_metadata(&self) -> PacketMetadataSnapshot {
         self.original.0.root.driver_metadata()

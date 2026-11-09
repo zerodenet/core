@@ -71,18 +71,41 @@ impl Budget {
             app: Some(app),
         })
     }
-    pub(super) fn harvest(&self) {
-        self.records
-            .lock()
-            .unwrap()
-            .retain(|record| !record.complete());
-    }
-    pub(super) fn all_returned(&self) -> bool {
+    fn next_record(&self, after: Option<usize>) -> Option<Arc<Record>> {
         self.records
             .lock()
             .unwrap()
             .iter()
-            .all(|record| record.complete())
+            .filter(|record| after.is_none_or(|after| Arc::as_ptr(record) as usize > after))
+            .min_by_key(|record| Arc::as_ptr(record) as usize)
+            .cloned()
+    }
+    pub(super) fn harvest(&self) {
+        let mut after = None;
+        while let Some(record) = self.next_record(after) {
+            after = Some(Arc::as_ptr(&record) as usize);
+            if !record.complete() {
+                continue;
+            }
+            let removed = {
+                let mut records = self.records.lock().unwrap();
+                records
+                    .iter()
+                    .position(|actual| Arc::ptr_eq(actual, &record))
+                    .map(|index| records.remove(index))
+            };
+            drop(removed);
+        }
+    }
+    pub(super) fn all_returned(&self) -> bool {
+        let mut after = None;
+        while let Some(record) = self.next_record(after) {
+            after = Some(Arc::as_ptr(&record) as usize);
+            if !record.complete() {
+                return false;
+            }
+        }
+        true
     }
     pub(super) fn retained(&self) -> usize {
         self.harvest();
@@ -91,27 +114,32 @@ impl Budget {
 }
 impl Record {
     pub(super) fn complete(&self) -> bool {
-        let state = self.state.lock().unwrap();
-        state.app.upgrade().is_none()
-            && (!state.attempted
-                || (state.read_done
-                    && state.write_done
-                    && state.read_returned
-                    && state.write_returned)
-                || state
-                    .physical
-                    .as_ref()
-                    .is_some_and(|physical| physical.closed()))
+        let (app, ready, physical) = {
+            let state = self.state.lock().unwrap();
+            (
+                state.app.clone(),
+                !state.attempted
+                    || (state.read_done
+                        && state.write_done
+                        && state.read_returned
+                        && state.write_returned),
+                state.physical.clone(),
+            )
+        };
+        app.upgrade().is_none()
+            && (ready || physical.as_ref().is_some_and(|physical| physical.closed()))
     }
     pub(super) fn returned(&self) -> bool {
-        let state = self.state.lock().unwrap();
-        state.app.upgrade().is_none()
-            && (!state.attempted
-                || (state.read_returned && state.write_returned)
-                || state
-                    .physical
-                    .as_ref()
-                    .is_some_and(|physical| physical.closed()))
+        let (app, ready, physical) = {
+            let state = self.state.lock().unwrap();
+            (
+                state.app.clone(),
+                !state.attempted || (state.read_returned && state.write_returned),
+                state.physical.clone(),
+            )
+        };
+        app.upgrade().is_none()
+            && (ready || physical.as_ref().is_some_and(|physical| physical.closed()))
     }
     pub(super) fn worker_returned(&self, read: bool) {
         {
@@ -184,3 +212,7 @@ impl Drop for Lease {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/grpc/owned/returned_reentry.rs"]
+mod returned_reentry;

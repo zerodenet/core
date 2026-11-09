@@ -3,7 +3,7 @@ mod browser;
 pub(super) mod carrier;
 use super::{
     body::{Body, ReceivedBody},
-    io::{Lifetime, XhttpStream},
+    io::{LifetimeRef, XhttpStream},
     request::Profile,
     XhttpMode,
 };
@@ -11,7 +11,7 @@ pub use browser::connect_split_http_with_browser;
 use bytes::Bytes;
 use http_body_util::BodyExt;
 use hyper_util::rt::TokioIo;
-use std::{io, sync::Arc, time::Duration};
+use std::{io, time::Duration};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use zero_traits::SplitHttpTransportProfile;
 
@@ -70,14 +70,22 @@ where
     connect_channels(upload, download, stream, network, profile).await
 }
 pub(super) fn stream_pair() -> (XhttpStream, tokio::io::DuplexStream) {
+    stream_pair_with_lifetime(LifetimeRef::default())
+}
+pub(super) fn stream_pair_with_lifetime(
+    life: LifetimeRef,
+) -> (XhttpStream, tokio::io::DuplexStream) {
     let (application, network) = tokio::io::duplex(64 * 1024);
     (
         XhttpStream {
+            owned_return: None,
+            _owned_usage_memory: None,
             inner: application,
-            life: Arc::new(Lifetime::default()),
+            life,
             tasks: Vec::new(),
             usages: Vec::new(),
             drain_on_drop: false,
+            _owned_buffer: None,
         },
         network,
     )
@@ -151,7 +159,7 @@ pub(super) async fn connect_profiles(
                         }
                     });
                     let body = Body {
-                        receiver,
+                        receiver: receiver.into(),
                         task: Some(producer.abort_handle().into()),
                         life: None,
                         progress: Some(state.clone()),

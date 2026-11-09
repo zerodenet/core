@@ -101,17 +101,25 @@ impl<A> RuntimeHost<A> {
     {
         let registrar = self.components.probe_registrar(config, direct_tag)?;
         self.probes
-            .run(
+            .run_with_protocol_memory(
                 registrar,
                 credit,
-                std::num::NonZeroUsize::new(config.runtime.effective_diagnostic_max_operations())
-                    .ok_or_else(|| {
-                    zero_platform_tokio::contract::ChannelError::new(
-                        zero_platform_tokio::contract::Stage::Prepare,
-                        zero_platform_tokio::contract::Reason::InvalidConfig,
-                        zero_platform_tokio::contract::Impact::Component,
+                crate::probe_owner::ProtocolProbeBudget {
+                    limit: std::num::NonZeroUsize::new(
+                        config.runtime.effective_diagnostic_max_operations(),
                     )
-                })?,
+                    .ok_or_else(|| {
+                        zero_platform_tokio::contract::ChannelError::new(
+                            zero_platform_tokio::contract::Stage::Prepare,
+                            zero_platform_tokio::contract::Reason::InvalidConfig,
+                            zero_platform_tokio::contract::Impact::Component,
+                        )
+                    })?,
+                    memory: Some((
+                        self.originals.packet.driver_metadata_view(),
+                        self.originals.carrier.snapshot().limit.get(),
+                    )),
+                },
                 purpose,
                 deadline,
                 work,
