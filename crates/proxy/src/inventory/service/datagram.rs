@@ -1,4 +1,4 @@
-//! The existing packet-capable DNS detour lends its standard datagram role.
+//! Installed device and metadata owners lend their actual standard datagram role.
 use super::*;
 use zero_platform_tokio::contract::component::RoleKind;
 
@@ -37,10 +37,23 @@ impl ProtocolInventory {
             return Ok(None);
         };
         let roles = &slot.recipe.spec().roles;
-        if !roles.contains(&RoleKind::Packet)
-            || !roles.contains(&RoleKind::Datagram)
-            || !components.has_device_carrier_provider(slot.role_id())
-        {
+        let device = roles.contains(&RoleKind::Packet)
+            && components.has_device_carrier_provider(slot.role_id());
+        // This installed pair owns its actual native Metadata or borrowed
+        // Datagram itself. Other Datagram roles may still require this Query
+        // to supply their control Stream/UDP originals; an observer is not IO.
+        let metadata = slot.dial == Default::default()
+            && components.has_metadata_stream_provider(slot.role_id())
+            && components.stream_dependencies_supported(slot.role_id());
+        // The logical role publishes no native resources of its own. Its
+        // installed background dependency already owns the shared physical
+        // pool, including pending/cancelled setup and the actual driver.
+        let shared = slot.dial == Default::default()
+            && slot.recipe.spec().task_limit.is_none()
+            && slot.recipe.spec().resources.is_empty()
+            && components.has_background_carrier_pool(slot.role_id())
+            && components.stream_dependencies_supported(slot.role_id());
+        if !roles.contains(&RoleKind::Datagram) || !(device || metadata || shared) {
             return Ok(None);
         }
         Ok(Some(ServiceDatagram {

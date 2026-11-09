@@ -1,5 +1,6 @@
 mod server;
 use crate::Proxy;
+pub(super) use server::session::run as forward_route;
 pub(super) use server::Server;
 use std::{
     net::SocketAddr,

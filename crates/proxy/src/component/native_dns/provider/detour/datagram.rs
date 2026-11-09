@@ -1,4 +1,4 @@
-//! The selected device lends its actual socket; DNS retains its logical owner.
+//! The selected installed provider lends its datagram; DNS retains its logical owner.
 use super::*;
 use crate::{inventory::service::ServiceDatagram, protocol_registry::TcpExecutionServices};
 use zero_core::component::{AssociationId, NetworkGeneration};
