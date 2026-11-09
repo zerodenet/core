@@ -88,7 +88,7 @@ async fn ordinary_mieru_owned_udp_handoff_preserves_both_underlays_reuse_and_pay
                         let packet = tasks.join_next_with_id().await.unwrap().unwrap().unwrap();
                         assert_eq!(packet.0, Address::Ipv4([203, 0, 113, 1]));
                         assert_eq!(packet.1, 443);
-                        assert_eq!(packet.2, payload);
+                        assert_eq!(packet.2.as_ref(), payload);
                         crate::runtime::udp_delivery::record_chain_udp_response_parts(
                             &proxy.udp_runtime_services(),
                             &dispatch,

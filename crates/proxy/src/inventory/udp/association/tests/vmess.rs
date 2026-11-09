@@ -219,7 +219,7 @@ async fn ordinary_vmess_datagram_flows_keep_separate_carriers_and_reuse_their_ow
             .unwrap()
             .unwrap();
         assert_eq!(packet.1, port);
-        assert_eq!(packet.2, payload);
+        assert_eq!(packet.2.as_ref(), payload);
         assert_eq!(packet.3, Some(*ids.last().unwrap()));
     }
     assert_eq!(ids[0], ids[2]);

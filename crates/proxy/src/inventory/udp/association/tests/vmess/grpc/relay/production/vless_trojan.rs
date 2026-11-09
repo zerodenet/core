@@ -54,7 +54,7 @@ async fn ordinary_vless_trojan_mux_prefix_loans_share_one_original_for_real_grpc
                         .unwrap();
                     let id = first.dispatch(input(53, b"borrowed")).await.unwrap();
                     let packet = response(&mut first).await;
-                    assert_eq!(packet.2, b"borrowed");
+                    assert_eq!(packet.2.as_ref(), b"borrowed");
                     crate::runtime::udp_delivery::record_chain_udp_response_parts(
                         &proxy.udp_runtime_services(),
                         &first,
@@ -140,7 +140,7 @@ async fn ordinary_vless_trojan_mux_prefix_udp_keeps_actual_pool_accounting_and_s
                     let mut total=0_u64;
                     for payload in payloads {
                         let mut packet=input(port,&payload);packet.target=Address::Ipv4([127,0,0,1]);packet.route_target=Some(Address::Domain(format!("{name}.test")));
-                        let id=dispatch.dispatch(packet).await.unwrap();let packet=response(&mut dispatch).await;assert_eq!(packet.2,payload,"{protocol}/{name}");
+                        let id=dispatch.dispatch(packet).await.unwrap();let packet=response(&mut dispatch).await;assert_eq!(packet.2.as_ref(),payload,"{protocol}/{name}");
                         crate::runtime::udp_delivery::record_chain_udp_response_parts(&proxy.udp_runtime_services(),&dispatch,packet.0,packet.1,packet.2,packet.3);
                         total+=payload.len() as u64;let active=proxy.engine().active_sessions().into_iter().find(|s|s.id==id).unwrap();
                         assert_eq!(active.outbound_tag.as_deref(),Some(if name=="legacy" {"legacy"} else {"pool"}));assert_eq!(active.outbound_tx_bytes,total);assert_eq!(active.outbound_rx_bytes,total);

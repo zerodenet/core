@@ -64,7 +64,7 @@ async fn ordinary_vmess_grpc_relay_datagram_preserves_stream_prefixes_tls_modes_
                         }
                         session_id = Some(id);
                         let packet = response(&mut dispatch).await;
-                        assert_eq!(&packet.2, payload);
+                        assert_eq!(packet.2.as_ref(), payload);
                         crate::runtime::udp_delivery::record_chain_udp_response_parts(
                             &proxy.udp_runtime_services(),
                             &dispatch,

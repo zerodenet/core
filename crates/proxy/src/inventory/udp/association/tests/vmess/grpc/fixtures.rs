@@ -196,7 +196,7 @@ pub(super) async fn start_config_mode(
 }
 pub(super) async fn response(
     dispatch: &mut crate::runtime::udp_dispatch::UdpDispatch,
-) -> (Address, u16, Vec<u8>, Option<u64>) {
+) -> (Address, u16, zero_traits::PacketBuffer, Option<u64>) {
     let (_, tasks, _) = dispatch.poll_sockets();
     timeout(Duration::from_secs(3), tasks.join_next_with_id())
         .await
@@ -263,7 +263,7 @@ pub(super) async fn exercise_datagram(proxy: Proxy, server: Server, payloads: Ve
             for payload in &payloads {
                 ids.push(dispatch.dispatch(input(53, payload)).await.unwrap());
                 let packet = response(&mut dispatch).await;
-                assert_eq!(packet.2, *payload);
+                assert_eq!(packet.2.as_ref(), payload.as_slice());
                 assert_eq!(packet.3, Some(ids[0]));
                 crate::runtime::udp_delivery::record_chain_udp_response_parts(
                     &proxy.udp_runtime_services(),

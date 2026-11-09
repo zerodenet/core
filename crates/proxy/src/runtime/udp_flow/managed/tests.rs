@@ -49,7 +49,7 @@ async fn exchange(proxy: &Proxy, payloads: &[&[u8]]) {
         let packet = tasks.join_next_with_id().await.unwrap().unwrap().unwrap();
         assert_eq!(packet.0, Address::Ipv4([203, 0, 113, 1]));
         assert_eq!(packet.1, 443);
-        assert_eq!(packet.2, *payload);
+        assert_eq!(packet.2.as_ref(), *payload);
         crate::runtime::udp_delivery::record_chain_udp_response_parts(
             &proxy.udp_runtime_services(),
             &dispatch,
@@ -231,7 +231,7 @@ async fn typed_hysteria2_connection_reopens_after_actual_logical_end_without_res
         for payload in [b"first".as_slice(),b"second".as_slice()] {
             let id=proxy.protocols.drive_component_supervision(dispatch.dispatch(input(payload))).await.unwrap();
             if let Some(original)=original_id{assert_eq!(id,original,"same logical business association survives actual pooled carrier reconstruction");}original_id=Some(id);
-            let (_,tasks,_)=dispatch.poll_sockets();let packet=tasks.join_next_with_id().await.unwrap().unwrap().unwrap();assert_eq!(packet.2,payload);
+            let (_,tasks,_)=dispatch.poll_sockets();let packet=tasks.join_next_with_id().await.unwrap().unwrap().unwrap();assert_eq!(packet.2.as_ref(),payload);
             finish.send(()).await.unwrap();closures.recv().await.unwrap();
             // The original response task observes the client's actual QUIC /
             // dispatcher EOF, not only the server's local-close notification.
