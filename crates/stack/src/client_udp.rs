@@ -12,7 +12,7 @@ mod construction;
 mod quiescence;
 mod sender;
 #[cfg(feature = "packet-memory")]
-mod transmit;
+pub(crate) mod transmit;
 use sender::SocketState;
 pub use sender::{ClientUdpCloseReceipt, ClientUdpSendError, ClientUdpSender};
 mod maintenance;

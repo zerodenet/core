@@ -21,7 +21,7 @@ pub(in crate::inbound::tun) struct SniffedTunDatagram {
     pub(in crate::inbound::tun) peer_identity: Option<std::sync::Arc<str>>,
     pub(in crate::inbound::tun) original_destination: SocketAddress,
     pub(in crate::inbound::tun) target: Address,
-    pub(in crate::inbound::tun) payload: Vec<u8>,
+    pub(in crate::inbound::tun) payload: zero_traits::PacketBuffer,
     pub(in crate::inbound::tun) host_source: Option<TargetHostSource>,
 }
 

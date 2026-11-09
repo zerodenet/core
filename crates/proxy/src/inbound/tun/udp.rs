@@ -43,7 +43,7 @@ const MAX_CONCURRENT_DNS_QUERIES: usize = 256;
 pub(super) struct TunDatagram {
     pub(super) peer_identity: Option<Arc<str>>,
     pub(super) destination: SocketAddress,
-    pub(super) payload: Vec<u8>,
+    pub(super) payload: zero_traits::PacketBuffer,
 }
 
 struct TunUdpRelay {
@@ -104,7 +104,7 @@ impl DatagramUdpResponder<Arc<UserUdpStack>> for TunUdpResponder {
         };
         self.current_destination = Some(datagram.original_destination);
         let original_target = socket_address_to_address(datagram.original_destination);
-        let dispatch = InboundUdpDispatch::new(
+        let dispatch = InboundUdpDispatch::new_with_packet(
             ProtocolType::UNKNOWN,
             datagram.target,
             datagram.original_destination.port,
