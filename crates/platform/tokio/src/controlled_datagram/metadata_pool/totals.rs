@@ -110,7 +110,7 @@ impl MetadataTotalsOriginal {
                     self.first_fault
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .get_or_insert(source);
+                        .get_or_insert(source.into());
                 }
             }
         }

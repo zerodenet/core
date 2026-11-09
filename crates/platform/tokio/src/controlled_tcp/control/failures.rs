@@ -2,7 +2,7 @@
 use super::*;
 use std::{error::Error, fmt, sync::OnceLock};
 #[derive(Default)]
-pub(super) struct CloseFailures {
+pub(in crate::controlled_tcp) struct CloseFailures {
     sources: OnceLock<TcpCloseSources>,
     canonical: OnceLock<Arc<ChannelError>>,
 }
