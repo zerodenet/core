@@ -10,6 +10,7 @@ use zero_platform_tokio::contract::{
     CancellationToken, ChannelError,
 };
 use zero_runtime::configuration::{ControlBudgetPermit, ControlCharge};
+mod handoff;
 mod retire;
 mod work;
 static ACTIVE: Mutex<Option<Arc<Attempt>>> = Mutex::new(None);
@@ -39,22 +40,26 @@ pub(super) struct Attempt {
     read_pending: AtomicBool,
     #[cfg(test)]
     panic_pending: AtomicBool,
+    #[cfg(test)]
+    fatal_decode: AtomicBool,
 }
 #[derive(Default)]
 pub(super) struct Faults {
     joined: Mutex<Vec<TaskJoined>>,
-    native: OnceLock<Arc<ChannelError>>,
+    native: Mutex<Option<Arc<ChannelError>>>,
     abandoned: Mutex<Option<Arc<io::Error>>>,
 }
 impl Faults {
     pub(super) fn native(&self, error: ChannelError) -> Arc<ChannelError> {
         // The provider canonical owns its late pure-source ledger. Re-observing
         // it must not append another wrapper on each retirement retry.
-        self.native.get_or_init(|| Arc::new(error)).clone()
+        lock(&self.native)
+            .get_or_insert_with(|| Arc::new(error))
+            .clone()
     }
     fn report(&self) -> io::Result<()> {
         let joined = lock(&self.joined).clone();
-        let native = self.native.get().cloned();
+        let native = lock(&self.native).clone();
 
         if native.is_none() && joined.iter().all(|row| row.result().is_ok()) {
             return Ok(());
@@ -127,13 +132,7 @@ impl Caller {
             // and native/view disposition is positive. Payload credits are
             // independent and remain on this same application book.
             drop(lock(&old.charge).take());
-            if !old.fault_delivered.swap(true, Ordering::AcqRel) {
-                joined?;
-                old.faults.report()?;
-            }
-            if let Some(source) = lock(&old.faults.abandoned).take() {
-                return Err(io::Error::new(source.kind(), source));
-            }
+            old.handoff(joined)?;
             let book = old.book.clone();
             let target = limits.budget_limits();
             if book.limits() != target {
@@ -168,6 +167,8 @@ impl Caller {
             read_pending: AtomicBool::new(false),
             #[cfg(test)]
             panic_pending: AtomicBool::new(false),
+            #[cfg(test)]
+            fatal_decode: AtomicBool::new(false),
         });
         let mut active = lock(&ACTIVE);
         let unchanged = match (&*active, &old) {
@@ -205,13 +206,7 @@ impl Caller {
                 .incomplete("same client originals remain retained"));
         }
         drop(lock(&self.original.charge).take());
-        self.original.fault_delivered.store(true, Ordering::Release);
-        joined?;
-        self.original.faults.report()?;
-        if let Some(source) = lock(&self.original.faults.abandoned).take() {
-            return Err(io::Error::new(source.kind(), source));
-        }
-        Ok(())
+        self.original.handoff(joined)
     }
 }
 impl Drop for Caller {

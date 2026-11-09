@@ -36,6 +36,17 @@ impl Attempt {
                 return Ok(());
             }
             let result = original.io(opening, input, events).await;
+            #[cfg(test)]
+            if original.fatal_decode.swap(false, Ordering::AcqRel) {
+                if let Err(error) = result {
+                    return Err(zero_platform_tokio::contract::ChannelError::new(
+                        zero_platform_tokio::contract::Stage::Receive,
+                        zero_platform_tokio::contract::Reason::Internal,
+                        zero_platform_tokio::contract::Impact::Component,
+                    )
+                    .with_source(error));
+                }
+            }
             if let Err(result) = reply.send(result) {
                 if let Err(error) = result {
                     lock(&original.faults.abandoned).get_or_insert_with(|| Arc::new(error));
