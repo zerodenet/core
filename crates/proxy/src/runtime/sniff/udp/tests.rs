@@ -1,11 +1,12 @@
-use std::collections::VecDeque;
 use std::time::Instant;
 
 use zero_config::RuntimeConfig;
 use zero_core::{Address, InboundUdpDispatch, ProtocolType};
 use zero_transport::quic_initial::QuicInitialSniffer;
 
-use super::{BufferedDispatch, FlowKey, PendingQuic, UdpSniffingState, MAX_QUEUED_DATAGRAMS};
+use super::{
+    FlowKey, PendingQuic, PendingRow, UdpSniffingState, MAX_PENDING_FLOWS, MAX_QUEUED_DATAGRAMS,
+};
 use crate::runtime::sniff::{SniffingPolicy, SNIFF_TIMEOUT};
 use crate::runtime::udp_ingress::UdpIngressRuntime;
 
@@ -60,9 +61,9 @@ async fn metadata_only_udp_never_starts_quic_buffering() {
 fn ready_datagrams_do_not_overtake_an_earlier_pending_sequence() {
     let policy = SniffingPolicy::new(true, &["quic".to_owned()], &[], false, false).unwrap();
     let mut state = UdpSniffingState::new(policy, runtime());
-    state.ready.insert(1, dispatch(b"second"));
+    state.push(1, None, dispatch(b"second"));
     assert!(state.pop_ready().is_none());
-    state.ready.insert(0, dispatch(b"first"));
+    state.push(0, None, dispatch(b"first"));
     assert_eq!(state.pop_ready().unwrap().payload(), b"first");
     assert_eq!(state.pop_ready().unwrap().payload(), b"second");
 }
@@ -76,19 +77,24 @@ async fn cross_target_pressure_releases_oldest_pending_without_dropping_or_reord
     state.queued_datagrams = 1;
     state.queued_bytes = first.payload().len();
     state.next_sequence = 1;
-    state.pending.insert(
-        key,
-        PendingQuic {
-            sniffer: QuicInitialSniffer::new(),
-            datagrams: VecDeque::from([BufferedDispatch {
-                sequence: 0,
-                dispatch: first,
-            }]),
-            buffered_bytes: b"first-pending".len(),
-            deadline: Instant::now() + SNIFF_TIMEOUT,
-            fake_dns_fallback: false,
-        },
-    );
+    state.push(0, Some(0), first);
+    assert!(state
+        .pending
+        .try_push(
+            PendingRow {
+                key,
+                value: PendingQuic {
+                    id: 0,
+                    sniffer: QuicInitialSniffer::new(),
+                    datagrams: 1,
+                    buffered_bytes: b"first-pending".len(),
+                    deadline: Instant::now() + SNIFF_TIMEOUT,
+                    fake_dns_fallback: false,
+                }
+            },
+            MAX_PENDING_FLOWS
+        )
+        .is_ok());
 
     for index in 1..MAX_QUEUED_DATAGRAMS {
         assert!(!state.release_for_capacity());

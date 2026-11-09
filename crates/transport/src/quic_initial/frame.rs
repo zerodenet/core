@@ -1,25 +1,49 @@
+use zero_traits::packet_metadata::PacketMemoryError;
+pub(super) enum FrameFailure {
+    Rejected,
+    Memory(PacketMemoryError),
+}
+impl From<()> for FrameFailure {
+    fn from(_: ()) -> Self {
+        Self::Rejected
+    }
+}
+impl From<PacketMemoryError> for FrameFailure {
+    fn from(value: PacketMemoryError) -> Self {
+        Self::Memory(value)
+    }
+}
 const MAX_CLIENT_HELLO_LENGTH: usize = 65_535;
 
 #[derive(Default)]
 pub(super) struct CryptoReassembler {
-    bytes: Vec<u8>,
-    present: Vec<bool>,
+    bytes: super::storage::Rows<u8>,
+    present: super::storage::Rows<bool>,
 }
 
 impl CryptoReassembler {
-    fn insert(&mut self, offset: usize, data: &[u8]) -> Result<(), ()> {
+    pub(super) fn source(
+        memory: zero_platform_tokio::contract::component::PacketDriverMetadataView,
+    ) -> Self {
+        Self {
+            bytes: super::storage::Rows::source(memory.clone()),
+            present: super::storage::Rows::source(memory),
+        }
+    }
+    fn insert(&mut self, offset: usize, data: &[u8]) -> Result<(), FrameFailure> {
         let end = offset.checked_add(data.len()).ok_or(())?;
         if end > MAX_CLIENT_HELLO_LENGTH + 4 {
-            return Err(());
+            return Err(().into());
         }
-        if self.bytes.len() < end {
-            self.bytes.resize(end, 0);
-            self.present.resize(end, false);
-        }
+        // Each growth can independently refuse. A prior byte growth must
+        // not skip a still-missing presence array on the exact retry.
+        self.bytes.resize(end, 0, MAX_CLIENT_HELLO_LENGTH + 4)?;
+        self.present
+            .resize(end, false, MAX_CLIENT_HELLO_LENGTH + 4)?;
         for (index, byte) in data.iter().copied().enumerate() {
             let position = offset + index;
             if self.present[position] && self.bytes[position] != byte {
-                return Err(());
+                return Err(().into());
             }
             self.bytes[position] = byte;
             self.present[position] = true;
@@ -27,7 +51,7 @@ impl CryptoReassembler {
         Ok(())
     }
 
-    pub(super) fn client_hello(&self) -> Result<Option<Vec<u8>>, ()> {
+    pub(super) fn client_hello_ref(&self) -> Result<Option<&[u8]>, ()> {
         if self.present.len() < 4 || !self.present[..4].iter().all(|present| *present) {
             return Ok(None);
         }
@@ -44,7 +68,11 @@ impl CryptoReassembler {
         if self.present.len() < end || !self.present[..end].iter().all(|present| *present) {
             return Ok(None);
         }
-        Ok(Some(self.bytes[..end].to_vec()))
+        Ok(Some(&self.bytes[..end]))
+    }
+    pub(super) fn client_hello(&self) -> Result<Option<Vec<u8>>, ()> {
+        self.client_hello_ref()
+            .map(|hello| hello.map(<[u8]>::to_vec))
     }
 }
 
@@ -52,6 +80,12 @@ pub(super) fn collect_crypto_frames(
     plaintext: &[u8],
     crypto: &mut CryptoReassembler,
 ) -> Result<(), ()> {
+    collect_crypto_frames_prepaid(plaintext, crypto).map_err(|_| ())
+}
+pub(super) fn collect_crypto_frames_prepaid(
+    plaintext: &[u8],
+    crypto: &mut CryptoReassembler,
+) -> Result<(), FrameFailure> {
     let mut offset = 0;
     while offset < plaintext.len() {
         let frame_type = read_varint(plaintext, &mut offset)?;
@@ -70,7 +104,7 @@ pub(super) fn collect_crypto_frames(
                 offset = end;
             }
             0x1c => skip_connection_close(plaintext, &mut offset)?,
-            _ => return Err(()),
+            _ => return Err(().into()),
         }
     }
     Ok(())

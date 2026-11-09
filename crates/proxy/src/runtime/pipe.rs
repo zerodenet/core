@@ -13,4 +13,4 @@ mod udp;
 pub(crate) use contract::KernelPipe;
 pub(crate) use tcp::{TcpPipe, TcpPipeInput};
 #[cfg(feature = "udp-runtime")]
-pub(crate) use udp::{UdpPipe, UdpPipeInput};
+pub(crate) use udp::{UdpDomainMemory, UdpPipe, UdpPipeInput};

@@ -47,6 +47,7 @@ pub(super) struct TunDatagram {
 }
 
 struct TunUdpRelay {
+    memory: zero_platform_tokio::contract::component::PacketDriverMetadataView,
     source: SocketAddress,
     receiver: mpsc::Receiver<TunDatagram>,
 }
@@ -80,7 +81,7 @@ impl InboundDatagramUdpRelay<Arc<UserUdpStack>> for TunUdpRelay {
                 receiver: self.receiver,
                 current_destination: None,
                 session_destinations: HashMap::new(),
-                quic_sniffer: TunQuicSniffer::default(),
+                quic_sniffer: TunQuicSniffer::with_metadata(self.memory),
             },
             None,
         )
@@ -112,6 +113,23 @@ impl DatagramUdpResponder<Arc<UserUdpStack>> for TunUdpResponder {
             None,
         )
         .with_peer_identity(datagram.peer_identity);
+        let dispatch = if let Some(credit) = datagram.domain_metadata {
+            dispatch
+                .with_domain_metadata(credit)
+                .map_err(|(source, original, credit)| {
+                    // The actual Domain is destroyed before its rejected ticket.
+                    drop(original);
+                    drop(credit);
+                    match source {
+                        zero_traits::packet_metadata::PacketMemoryError::Capacity => {
+                            Error::Protocol("TUN Domain backing exceeds its prepaid layout")
+                        }
+                        _ => Error::Protocol("TUN Domain lost its original metadata custody"),
+                    }
+                })?
+        } else {
+            dispatch
+        };
         Ok(Some(match datagram.host_source {
             Some(source) => dispatch.with_transparent_domain(original_target, source),
             None => dispatch.with_transparent_target(),
@@ -266,10 +284,18 @@ fn spawn_association(
         let stop = runtime
             .peer_resources()
             .map(|context| context.binding().cancellation());
+        let memory = match runtime.inspection_metadata() {
+            Ok(memory) => memory,
+            Err(source_error) => return (source, id, Err(source_error)),
+        };
         let relay = crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
             runtime,
             stack,
-            TunUdpRelay { source, receiver },
+            TunUdpRelay {
+                source,
+                receiver,
+                memory,
+            },
             &inbound_tag,
             true,
         );

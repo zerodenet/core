@@ -18,7 +18,44 @@ fn rfc_9001_client_keys_and_header_mask_match() {
 
 #[test]
 fn decrypts_rfc_9001_client_initial_and_reassembles_client_hello() {
-    let packet = decode(concat!(
+    let packet = initial_packet();
+    assert_eq!(packet.len(), 1_200);
+
+    let mut sniffer = QuicInitialSniffer::new();
+    let QuicInitialOutcome::ClientHello(client_hello) = sniffer.ingest(&packet) else {
+        panic!("RFC client Initial did not produce a ClientHello");
+    };
+    assert_eq!(client_hello.len(), 241);
+    assert!(client_hello
+        .windows(b"example.com".len())
+        .any(|window| window == b"example.com"));
+}
+
+fn decode(input: &str) -> Vec<u8> {
+    assert_eq!(input.len() % 2, 0);
+    input
+        .as_bytes()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| {
+            let high = digit(pair[0]);
+            let low = digit(pair[1]);
+            (high << 4) | low
+        })
+        .collect()
+}
+
+fn digit(value: u8) -> u8 {
+    match value {
+        b'0'..=b'9' => value - b'0',
+        b'a'..=b'f' => value - b'a' + 10,
+        _ => panic!("invalid hex digit"),
+    }
+}
+
+pub(super) fn initial_packet() -> Vec<u8> {
+    decode(concat!(
         "c000000001088394c8f03e5157080000449e7b9aec34d1b1c98dd7689fb8ec11",
         "d242b123dc9bd8bab936b47d92ec356c0bab7df5976d27cd449f63300099f399",
         "1c260ec4c60d17b31f8429157bb35a1282a643a8d2262cad67500cadb8e7378c",
@@ -57,38 +94,5 @@ fn decrypts_rfc_9001_client_initial_and_reassembles_client_hello() {
         "056df31bd267b6b90a079831aaf579be0a39013137aac6d404f518cfd4684064",
         "7e78bfe706ca4cf5e9c5453e9f7cfd2b8b4c8d169a44e55c88d4a9a7f9474241",
         "e221af44860018ab0856972e194cd934"
-    ));
-    assert_eq!(packet.len(), 1_200);
-
-    let mut sniffer = QuicInitialSniffer::new();
-    let QuicInitialOutcome::ClientHello(client_hello) = sniffer.ingest(&packet) else {
-        panic!("RFC client Initial did not produce a ClientHello");
-    };
-    assert_eq!(client_hello.len(), 241);
-    assert!(client_hello
-        .windows(b"example.com".len())
-        .any(|window| window == b"example.com"));
-}
-
-fn decode(input: &str) -> Vec<u8> {
-    assert_eq!(input.len() % 2, 0);
-    input
-        .as_bytes()
-        .as_chunks::<2>()
-        .0
-        .iter()
-        .map(|pair| {
-            let high = digit(pair[0]);
-            let low = digit(pair[1]);
-            (high << 4) | low
-        })
-        .collect()
-}
-
-fn digit(value: u8) -> u8 {
-    match value {
-        b'0'..=b'9' => value - b'0',
-        b'a'..=b'f' => value - b'a' + 10,
-        _ => panic!("invalid hex digit"),
-    }
+    ))
 }

@@ -1,60 +1,124 @@
-use std::collections::{HashMap, VecDeque};
+use crate::inbound::tun::udp::TunDatagram;
+use crate::runtime::sniff::udp::{queue::Packets, rows::Rows};
 use std::time::{Duration, Instant};
-
 use tokio::sync::mpsc;
 use zero_core::{Address, TargetHostSource};
 use zero_traits::SocketAddress;
-use zero_transport::quic_initial::{
-    looks_like_client_initial, QuicInitialOutcome, QuicInitialSniffer,
-};
-
-use super::{normalize_sniffed_domain, sniff_tls_handshake, SniffOutcome};
-use crate::inbound::tun::udp::TunDatagram;
-
+use zero_transport::quic_initial::QuicInitialSniffer;
+mod observe;
+mod output;
+use output::Held;
 const QUIC_SNIFF_TIMEOUT: Duration = Duration::from_millis(200);
 const MAX_PENDING_DESTINATIONS: usize = 32;
 const MAX_DECIDED_DESTINATIONS: usize = 64;
 const MAX_BUFFERED_DATAGRAMS: usize = 8;
 const MAX_BUFFERED_BYTES: usize = 64 * 1024;
-
+// Existing finite census: each pending destination resolves on its ninth
+// original, plus the current receive. This is an array bound, not a new pool.
+const MAX_QUEUE_ROWS: usize = MAX_PENDING_DESTINATIONS * (MAX_BUFFERED_DATAGRAMS + 1) + 1;
 pub(in crate::inbound::tun) struct SniffedTunDatagram {
     pub(in crate::inbound::tun) peer_identity: Option<std::sync::Arc<str>>,
     pub(in crate::inbound::tun) original_destination: SocketAddress,
     pub(in crate::inbound::tun) target: Address,
     pub(in crate::inbound::tun) payload: zero_traits::PacketBuffer,
     pub(in crate::inbound::tun) host_source: Option<TargetHostSource>,
+    // Data is declared first; this exact String ticket travels into Core last.
+    pub(in crate::inbound::tun) domain_metadata:
+        Option<zero_traits::packet_metadata::PacketMetadataCredit>,
 }
-
 struct PendingQuic {
+    destination: SocketAddress,
+    id: u64,
     sniffer: QuicInitialSniffer,
-    datagrams: VecDeque<TunDatagram>,
+    datagrams: usize,
     buffered_bytes: usize,
     deadline: Instant,
 }
-
-#[derive(Clone)]
+struct Decided {
+    destination: SocketAddress,
+    value: Decision,
+}
+#[derive(Clone, Copy)]
 enum Decision {
-    Domain(String),
+    Domain(crate::runtime::sniff::inline::InlineName),
     Fallback,
 }
-
-#[derive(Default)]
 pub(in crate::inbound::tun) struct TunQuicSniffer {
-    pending: HashMap<SocketAddress, PendingQuic>,
-    decisions: HashMap<SocketAddress, Decision>,
-    ready: VecDeque<SniffedTunDatagram>,
+    memory: Option<zero_platform_tokio::contract::component::PacketDriverMetadataView>,
+    pending: Rows<PendingQuic>,
+    decisions: Rows<Decided>,
+    packets: Packets<Held>,
+    next_sequence: u64,
+    output_pressure: Option<zero_traits::packet_metadata::PacketMemoryError>,
 }
-
 impl TunQuicSniffer {
+    pub(in crate::inbound::tun) fn with_metadata(
+        memory: zero_platform_tokio::contract::component::PacketDriverMetadataView,
+    ) -> Self {
+        Self::from_memory(Some(memory))
+    }
+    fn from_memory(
+        memory: Option<zero_platform_tokio::contract::component::PacketDriverMetadataView>,
+    ) -> Self {
+        Self {
+            pending: Rows::new(memory.as_ref()),
+            decisions: Rows::new(memory.as_ref()),
+            packets: Packets::new(memory.as_ref(), MAX_QUEUE_ROWS),
+            memory,
+            next_sequence: 0,
+            output_pressure: None,
+        }
+    }
     pub(in crate::inbound::tun) async fn next(
         &mut self,
         receiver: &mut mpsc::Receiver<TunDatagram>,
     ) -> Option<SniffedTunDatagram> {
         loop {
-            if let Some(datagram) = self.ready.pop_front() {
-                return Some(datagram);
+            if let Some(held) = self.packets.ready_mut() {
+                match held.prepare(self.memory.as_ref()) {
+                    Ok(()) => {
+                        self.output_pressure = None;
+                        return self.packets.pop_ready().map(Held::into_ready);
+                    }
+                    Err(source) => {
+                        self.output_pressure = Some(source);
+                        tracing::trace!(%source,"same TUN known Domain awaits its original Root");
+                    }
+                }
             }
-
+            if self.output_pressure.is_some() {
+                let memory = self
+                    .memory
+                    .as_ref()
+                    .expect("actual Root admission refused")
+                    .clone();
+                let changed = memory.changed_since(memory.snapshot());
+                tokio::pin!(changed);
+                let ready = std::future::poll_fn(|cx| {
+                    use std::future::Future;
+                    std::task::Poll::Ready(changed.as_mut().poll(cx).is_ready())
+                })
+                .await;
+                if let Some(held) = self.packets.ready_mut() {
+                    if held.prepare(Some(&memory)).is_ok() {
+                        self.output_pressure = None;
+                        continue;
+                    }
+                }
+                if !ready {
+                    changed.await;
+                }
+                continue;
+            }
+            if self.packets.row_pressure() {
+                if let Some(deadline) = self.next_deadline() {
+                    self.packets.wait_capacity(deadline.into()).await;
+                    self.flush_expired(Instant::now());
+                } else {
+                    self.packets.release_all();
+                }
+                continue;
+            }
             let received = if let Some(deadline) = self.next_deadline() {
                 match tokio::time::timeout_at(deadline.into(), receiver.recv()).await {
                     Ok(received) => received,
@@ -66,128 +130,62 @@ impl TunQuicSniffer {
             } else {
                 receiver.recv().await
             };
-            let datagram = received?;
-            self.observe(datagram);
-        }
-    }
-
-    fn observe(&mut self, datagram: TunDatagram) {
-        let destination = datagram.destination;
-        if let Some(decision) = self.decisions.get(&destination).cloned() {
-            self.ready.push_back(apply_decision(datagram, decision));
-            return;
-        }
-        if !self.pending.contains_key(&destination)
-            && (!quic_sniff_port(destination.port) || !looks_like_client_initial(&datagram.payload))
-        {
-            self.ready
-                .push_back(apply_decision(datagram, Decision::Fallback));
-            return;
-        }
-        if !self.pending.contains_key(&destination)
-            && self.pending.len() >= MAX_PENDING_DESTINATIONS
-        {
-            self.ready
-                .push_back(apply_decision(datagram, Decision::Fallback));
-            return;
-        }
-
-        let pending = self
-            .pending
-            .entry(destination)
-            .or_insert_with(|| PendingQuic {
-                sniffer: QuicInitialSniffer::new(),
-                datagrams: VecDeque::new(),
-                buffered_bytes: 0,
-                deadline: Instant::now() + QUIC_SNIFF_TIMEOUT,
-            });
-        pending.buffered_bytes = pending
-            .buffered_bytes
-            .saturating_add(datagram.payload.len());
-        let outcome = pending.sniffer.ingest(&datagram.payload);
-        pending.datagrams.push_back(datagram);
-        if pending.datagrams.len() > MAX_BUFFERED_DATAGRAMS
-            || pending.buffered_bytes > MAX_BUFFERED_BYTES
-        {
-            self.resolve(destination, Decision::Fallback);
-            return;
-        }
-        match outcome {
-            QuicInitialOutcome::Pending => {}
-            QuicInitialOutcome::ClientHello(client_hello) => {
-                let decision = match sniff_tls_handshake(&client_hello) {
-                    Ok(SniffOutcome::Domain { domain, .. }) => normalize_sniffed_domain(domain)
-                        .map_or(Decision::Fallback, Decision::Domain),
-                    Ok(SniffOutcome::EncryptedClientHello | SniffOutcome::None) | Err(_) => {
-                        Decision::Fallback
+            match received {
+                Some(datagram) => self.observe(datagram).await,
+                None => {
+                    // No next input can extend a partial Initial. Return every
+                    // already admitted original through its existing fallback.
+                    self.packets.release_all();
+                    self.pending.clear();
+                    if self.packets.ready_mut().is_none() {
+                        return None;
                     }
-                };
-                self.resolve(destination, decision);
-            }
-            QuicInitialOutcome::NotInitial | QuicInitialOutcome::Rejected => {
-                self.resolve(destination, Decision::Fallback);
+                    continue;
+                }
             }
         }
     }
-
-    fn resolve(&mut self, destination: SocketAddress, decision: Decision) {
-        let Some(mut pending) = self.pending.remove(&destination) else {
-            return;
-        };
-        if self.decisions.len() < MAX_DECIDED_DESTINATIONS {
-            self.decisions.insert(destination, decision.clone());
-        }
-        while let Some(datagram) = pending.datagrams.pop_front() {
-            self.ready
-                .push_back(apply_decision(datagram, decision.clone()));
-        }
+    fn push(&mut self, sequence: u64, pending: Option<u64>, datagram: Held) {
+        self.packets.push(sequence, pending, datagram);
     }
-
+    fn resolve(&mut self, index: usize, decision: Decision) {
+        let pending = self.pending.remove(index);
+        self.packets.release(pending.id, |mut actual| {
+            actual.name = match decision {
+                Decision::Domain(name) => Some(name),
+                Decision::Fallback => None,
+            };
+            actual
+        });
+        let _ = self.decisions.try_push(
+            Decided {
+                destination: pending.destination,
+                value: decision,
+            },
+            MAX_DECIDED_DESTINATIONS,
+        );
+    }
     fn flush_expired(&mut self, now: Instant) {
-        let expired = self
+        while let Some(index) = self
             .pending
             .iter()
-            .filter_map(|(destination, pending)| (pending.deadline <= now).then_some(*destination))
-            .collect::<Vec<_>>();
-        for destination in expired {
-            self.resolve(destination, Decision::Fallback);
+            .position(|pending| pending.deadline <= now)
+        {
+            self.resolve(index, Decision::Fallback);
         }
     }
-
     fn next_deadline(&self) -> Option<Instant> {
-        self.pending.values().map(|pending| pending.deadline).min()
+        self.pending.iter().map(|pending| pending.deadline).min()
     }
 }
-
+#[cfg(test)]
+impl Default for TunQuicSniffer {
+    fn default() -> Self {
+        Self::from_memory(None)
+    }
+}
 fn quic_sniff_port(port: u16) -> bool {
     matches!(port, 443 | 8443)
-}
-
-fn apply_decision(datagram: TunDatagram, decision: Decision) -> SniffedTunDatagram {
-    let original_destination = datagram.destination;
-    match decision {
-        Decision::Domain(domain) => SniffedTunDatagram {
-            peer_identity: datagram.peer_identity,
-            original_destination,
-            target: Address::Domain(domain),
-            payload: datagram.payload,
-            host_source: Some(TargetHostSource::QuicSni),
-        },
-        Decision::Fallback => SniffedTunDatagram {
-            peer_identity: datagram.peer_identity,
-            original_destination,
-            target: socket_address_to_address(original_destination),
-            payload: datagram.payload,
-            host_source: None,
-        },
-    }
-}
-
-fn socket_address_to_address(address: SocketAddress) -> Address {
-    match address.ip {
-        zero_traits::IpAddress::V4(ip) => Address::Ipv4(ip),
-        zero_traits::IpAddress::V6(ip) => Address::Ipv6(ip),
-    }
 }
 
 #[cfg(test)]

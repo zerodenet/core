@@ -1,17 +1,20 @@
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 
-use zero_core::{Address, Session};
+use zero_core::Address;
 use zero_engine::PassiveRelaySelection;
 use zero_engine::{CompletedSessionRecord, FlowFailureObservation, SessionHandle, SessionOutcome};
 
 use crate::runtime::udp_flow::outbound::UdpFlowOutbound;
 use crate::runtime::udp_flow::rate_limit::UdpFlowRateLimiters;
 use crate::runtime::udp_flow::snapshot::UdpFlowSnapshot;
+mod key;
+use key::KeyTarget;
+pub(super) use key::{Identity, Lookup, ResponseIdentity, ResponseLookup};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct UdpFlowKey {
-    pub(super) target: Address,
+    target: KeyTarget,
     pub(super) port: u16,
     /// Per-client-session isolation key.
     ///
@@ -30,7 +33,7 @@ impl UdpFlowKey {
     }
     pub(crate) fn new(target: &Address, port: u16, client_session_id: Option<u64>) -> Self {
         Self {
-            target: target.clone(),
+            target: KeyTarget::Existing(target.clone()),
             port,
             client_session_id,
             peer_identity: None,
@@ -41,15 +44,19 @@ impl UdpFlowKey {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct UdpUpstreamResponseKey {
     outbound_tag: String,
-    target: Address,
+    target: KeyTarget,
     port: u16,
 }
 
 impl UdpUpstreamResponseKey {
-    pub(super) fn new(outbound_tag: &str, target: &Address, port: u16) -> Self {
+    pub(super) fn from_session(
+        outbound_tag: &str,
+        session: &super::UdpFlowSession,
+        port: u16,
+    ) -> Self {
         Self {
             outbound_tag: outbound_tag.to_owned(),
-            target: target.clone(),
+            target: KeyTarget::from_session(session),
             port,
         }
     }
@@ -71,7 +78,7 @@ pub(crate) struct UdpSessionFlows {
 
 #[derive(Debug)]
 pub(super) struct UdpFlow {
-    pub(super) session: Session,
+    pub(super) session: super::UdpFlowSession,
     pub(super) handle: SessionHandle,
     pub(super) outbound: UdpFlowOutbound,
     pub(super) passive_relay_selections: Vec<PassiveRelaySelection>,

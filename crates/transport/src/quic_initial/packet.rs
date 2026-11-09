@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+mod source;
+pub(super) use source::{fill_source_initial, SourceFailure};
 
 use super::crypto::InitialKeys;
 use super::frame::read_varint;

@@ -50,7 +50,7 @@ fn state() -> RegisteredUdpState {
 fn flow(id: u64, managed: ManagedUdpFlowRef, target: Address, port: u16) -> UdpFlowSnapshot {
     UdpFlowSnapshot {
         key: UdpFlowKey::new(&target, port, None),
-        session: Session::new(id, target, port, Network::Udp, ProtocolType::UNKNOWN),
+        session: Session::new(id, target, port, Network::Udp, ProtocolType::UNKNOWN).into(),
         outbound: UdpFlowOutbound::LogicalStreamPacket {
             tag: "standard".into(),
             managed,

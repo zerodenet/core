@@ -89,7 +89,10 @@ async fn source_queue_association_sniffer_and_core_pipe_move_one_actual_paid_pay
         })
         .await
         .unwrap();
-    let datagram = TunQuicSniffer::default().next(&mut receiver).await.unwrap();
+    let datagram = TunQuicSniffer::with_metadata(root.driver_metadata_view())
+        .next(&mut receiver)
+        .await
+        .unwrap();
     assert_eq!(datagram.payload.as_ptr(), original_address);
     let dispatch = zero_core::InboundUdpDispatch::new_with_packet(
         zero_core::ProtocolType::UNKNOWN,

@@ -5,6 +5,8 @@ use zero_engine::EngineError;
 use crate::runtime::udp_dispatch::UdpDispatch;
 
 use super::contract::KernelPipe;
+mod domain;
+pub(crate) use domain::UdpDomainMemory;
 
 /// Input for one UDP packet dispatch within an inbound UDP association.
 pub(crate) struct UdpPipeInput<'a> {
@@ -29,6 +31,7 @@ pub(crate) struct UdpPipeInput<'a> {
     pub(crate) transparent_target: bool,
     pub(crate) transparent_original_target: Option<Address>,
     pub(crate) transparent_host_source: Option<TargetHostSource>,
+    pub(crate) domain_memory: Option<UdpDomainMemory>,
 }
 
 /// UDP datagram pipe.
@@ -53,12 +56,24 @@ impl KernelPipe for UdpPipe<'_> {
 }
 
 impl<'a> UdpPipeInput<'a> {
+    #[cfg(test)]
     pub(crate) fn from_inbound_dispatch(
         dispatch: &'a InboundUdpDispatch,
         auth: Option<&'a SessionAuth>,
         source_addr: Option<SocketAddr>,
     ) -> Self {
-        Self {
+        Self::from_inbound_dispatch_with_metadata(dispatch, auth, source_addr, None)
+            .expect("independent fixture has no protected Source domain")
+    }
+    pub(crate) fn from_inbound_dispatch_with_metadata(
+        dispatch: &'a InboundUdpDispatch,
+        auth: Option<&'a SessionAuth>,
+        source_addr: Option<SocketAddr>,
+        metadata: Option<zero_platform_tokio::contract::component::PacketDriverMetadataView>,
+    ) -> Result<Self, EngineError> {
+        // Every actual String copy below is admitted before its construction.
+        let domain_memory = UdpDomainMemory::prepare(dispatch, metadata)?;
+        Ok(Self {
             peer_identity: dispatch.peer_identity().cloned(),
             target: dispatch.target().clone(),
             route_target: dispatch.route_target().cloned(),
@@ -74,6 +89,7 @@ impl<'a> UdpPipeInput<'a> {
             transparent_target: dispatch.transparent_target(),
             transparent_original_target: dispatch.transparent_original_target().cloned(),
             transparent_host_source: dispatch.transparent_host_source(),
-        }
+            domain_memory,
+        })
     }
 }

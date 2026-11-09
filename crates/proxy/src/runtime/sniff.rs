@@ -2,6 +2,7 @@ use std::net::IpAddr;
 
 use regex::Regex;
 use zero_core::{Address, InboundMuxTcpRelay, Session, TargetHostSource};
+pub(crate) mod inline;
 
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) mod udp;
@@ -433,43 +434,8 @@ fn strip_http_port(authority: &str) -> Option<&str> {
 }
 
 fn parse_client_hello(client_hello: &[u8]) -> Option<(Option<String>, bool)> {
-    let mut offset = 34;
-    let session_id_length = take_u8(client_hello, &mut offset)? as usize;
-    take(client_hello, &mut offset, session_id_length)?;
-    let cipher_suites_length = take_u16(client_hello, &mut offset)? as usize;
-    take(client_hello, &mut offset, cipher_suites_length)?;
-    let compression_methods_length = take_u8(client_hello, &mut offset)? as usize;
-    take(client_hello, &mut offset, compression_methods_length)?;
-    if offset == client_hello.len() {
-        return Some((None, false));
-    }
-    let extensions_length = take_u16(client_hello, &mut offset)? as usize;
-    let extensions = take(client_hello, &mut offset, extensions_length)?;
-    let mut extension_offset = 0;
-    let mut sni = None;
-    let mut ech = false;
-    while extension_offset + 4 <= extensions.len() {
-        let kind = u16::from_be_bytes([
-            extensions[extension_offset],
-            extensions[extension_offset + 1],
-        ]);
-        let length = u16::from_be_bytes([
-            extensions[extension_offset + 2],
-            extensions[extension_offset + 3],
-        ]) as usize;
-        extension_offset += 4;
-        let extension = extensions.get(extension_offset..extension_offset + length)?;
-        if kind == 0 && extension.len() >= 5 && extension[2] == 0 {
-            let name_length = u16::from_be_bytes([extension[3], extension[4]]) as usize;
-            sni = std::str::from_utf8(extension.get(5..5 + name_length)?)
-                .ok()
-                .map(ToOwned::to_owned);
-        } else if kind == 0xfe0d {
-            ech = true;
-        }
-        extension_offset += length;
-    }
-    Some((sni, ech))
+    let (name, ech) = inline::parse_client_hello_ref(client_hello)?;
+    Some((name.map(str::to_owned), ech))
 }
 
 pub(crate) fn normalize_sniffed_domain(domain: String) -> Option<String> {

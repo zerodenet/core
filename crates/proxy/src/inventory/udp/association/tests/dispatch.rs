@@ -54,6 +54,7 @@ fn input(port: u16, payload: &[u8]) -> UdpPipeInput<'_> {
         transparent_target: false,
         transparent_original_target: None,
         transparent_host_source: None,
+        domain_memory: None,
     }
 }
 

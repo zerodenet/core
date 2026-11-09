@@ -30,6 +30,20 @@ pub(crate) async fn run_protocol_mux_udp_relay<R>(
 {
     let inbound_tag = inbound_tag.as_str();
     let mux_session_id = relay.mux_session_id();
+    let sniffing = match sniffing
+        .map(|policy| {
+            crate::runtime::sniff::udp::UdpSniffingState::try_new(policy, runtime.clone())
+        })
+        .transpose()
+    {
+        Ok(sniffing) => sniffing,
+        Err(source) => {
+            warn!(inbound_tag, protocol, mux_session_id, error=%source,
+                "actual UDP inspector has no live original Host memory owner");
+            let _ = relay.end_inbound_stream();
+            return;
+        }
+    };
     let auth = relay.auth().cloned();
     let termination_probe = relay.termination_probe();
     let continuity_key = relay.continuity_key().cloned();
@@ -135,12 +149,9 @@ pub(crate) async fn run_protocol_mux_udp_relay<R>(
         "mux udp sub-stream started"
     );
 
-    let sniffing_runtime = runtime.clone();
     let handler = MuxPacketSessionUdpHandler {
         relay,
-        sniffing: sniffing.map(|policy| {
-            crate::runtime::sniff::udp::UdpSniffingState::new(policy, sniffing_runtime)
-        }),
+        sniffing,
         relay_ended: false,
         deferred_failure: None,
     };
@@ -226,7 +237,7 @@ async fn run_non_reconnectable_relay<R>(
     inbound_tag: &str,
     protocol: &'static str,
     auth: Option<zero_core::SessionAuth>,
-    sniffing: Option<crate::runtime::sniff::SniffingPolicy>,
+    sniffing: Option<crate::runtime::sniff::udp::UdpSniffingState>,
 ) where
     R: InboundMuxUdpRelay,
 {
@@ -239,12 +250,9 @@ async fn run_non_reconnectable_relay<R>(
         "mux udp sub-stream started"
     );
 
-    let sniffing_runtime = runtime.clone();
     let handler = MuxPacketSessionUdpHandler {
         relay,
-        sniffing: sniffing.map(|policy| {
-            crate::runtime::sniff::udp::UdpSniffingState::new(policy, sniffing_runtime)
-        }),
+        sniffing,
         relay_ended: false,
         deferred_failure: None,
     };

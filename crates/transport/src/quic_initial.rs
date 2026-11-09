@@ -6,6 +6,9 @@
 mod crypto;
 mod frame;
 mod packet;
+mod source;
+mod storage;
+pub use source::QuicInitialObservation;
 
 use std::collections::HashMap;
 
@@ -34,6 +37,7 @@ pub enum QuicInitialOutcome {
 pub struct QuicInitialSniffer {
     crypto: CryptoReassembler,
     largest_packet_numbers: HashMap<Vec<u8>, u64>,
+    source: Option<source::SourceOwner>,
 }
 
 impl QuicInitialSniffer {
