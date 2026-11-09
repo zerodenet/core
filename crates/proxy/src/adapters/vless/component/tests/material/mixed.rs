@@ -1,5 +1,7 @@
 //! Ordinary installed mixed/independent-download clients, with real wire IO.
+#[path = "mixed/originals.rs"]
 mod originals;
+#[path = "mixed/peer.rs"]
 mod peer;
 use super::fixture::{self, Running};
 use super::h3::wire::Exchange;

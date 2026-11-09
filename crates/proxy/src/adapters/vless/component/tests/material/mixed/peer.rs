@@ -1,5 +1,6 @@
 //! Explicit independent-library peer: three real wire versions, one registry.
 //! It supplies no Kernel grant, Source witness, NativeClosed or Scope ACK.
+#[path = "peer/forwarding.rs"]
 mod forwarding;
 use super::*;
 use std::sync::Arc;
