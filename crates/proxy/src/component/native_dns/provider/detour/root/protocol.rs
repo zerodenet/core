@@ -65,7 +65,9 @@ impl Root {
         if !selected {
             return Err(fail());
         }
-        plan.authorize_carrier_prefix(original.instance(), &original.binding().prefix)?;
+        // The actual BackgroundCarrier already authorized acquisition before
+        // issuing this sealed value. Receiving its metadata grants no I/O and
+        // must not allocate/register a second copy of that dependency graph.
         let ceiling = plan.protocol_original_capacity(&self.roles)?;
         let entry = self
             .query_entry
