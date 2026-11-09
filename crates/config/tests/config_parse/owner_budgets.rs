@@ -16,7 +16,13 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 85] = [
+    let fields: [BudgetField; 86] = [
+        (
+            "dns_wire_total_max_buffered_bytes",
+            RuntimeOptionsConfig::effective_dns_wire_total_max_buffered_bytes,
+            16 * 1024 * 1024,
+            1_073_741_824,
+        ),
         (
             "raw_ip_max_tcp_connections",
             RuntimeOptionsConfig::effective_raw_ip_max_tcp_connections,

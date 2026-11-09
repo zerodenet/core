@@ -458,6 +458,15 @@ pub trait ResourceAccess: Send + Sync {
     fn carrier_buffer_budget(&self) -> Option<crate::controlled_carrier::CarrierBufferBudget> {
         None
     }
+    /// The actual same Host DNS wire backing counter. No allocation/IO is
+    /// granted by observing it; Kernel DNS must not replace a missing source
+    /// with an independent library budget. Wire headers keep their own book.
+    fn dns_wire_buffer_budget(
+        &self,
+    ) -> Option<std::sync::Arc<zero_traits::packet_metadata::PacketMetadataCounter>> {
+        None
+    }
+
     /// Seal one actual direct resource dependency before borrowing its existing
     /// stream. Default-deny; metadata IDs alone do not authorize a loan.
     fn dependency_stream_loan_issuer(

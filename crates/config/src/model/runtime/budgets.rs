@@ -266,6 +266,11 @@ impl RuntimeOptionsConfig {
     pub fn effective_quic_max_queue_packets(&self) -> usize {
         self.quic_max_queue_packets.unwrap_or(256)
     }
+    pub fn effective_dns_wire_total_max_buffered_bytes(&self) -> usize {
+        self.dns_wire_total_max_buffered_bytes
+            .unwrap_or(16 * 1024 * 1024)
+    }
+
     pub fn effective_quic_total_max_buffered_bytes(&self) -> usize {
         self.quic_total_max_buffered_bytes
             .unwrap_or(64 * 1024 * 1024)

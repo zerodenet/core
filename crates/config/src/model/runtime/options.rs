@@ -98,6 +98,11 @@ pub struct RuntimeOptionsConfig {
     /// in the same carrier root. Default64MiB; pending/retiring storage counts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quic_total_max_buffered_bytes: Option<usize>,
+    /// Actual owned DNS query/response wire backing bytes across this Host,
+    /// including cached/shared and returned-but-live answers. Default16MiB,
+    /// on demand; independent of QUIC buffers and Scope/native-close receipts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dns_wire_total_max_buffered_bytes: Option<usize>,
     /// Per-file bound for component-owned file snapshots. Omission keeps the legacy exported config shape; production readers use 8 MiB by default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_read_max_bytes: Option<usize>,

@@ -849,6 +849,11 @@ fn validate_runtime(
             runtime.effective_quic_total_max_buffered_bytes(),
             1_073_741_824,
         ),
+        (
+            "dns_wire_total_max_buffered_bytes",
+            runtime.effective_dns_wire_total_max_buffered_bytes(),
+            1_073_741_824,
+        ),
     ] {
         if !(1..=maximum).contains(&limit) {
             return Err(ConfigError::InvalidRuntime(format!(
