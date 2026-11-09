@@ -37,6 +37,7 @@ impl HostResources {
         }
         self.bounds.revoke();
         self.reads.revoke();
+        self.logical_workspaces.revoke();
         // Persist each original receipt before the first cancellation point.
         // The same native owner retains Unknown and original failure sources.
         let icmp_result = self

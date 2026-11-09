@@ -14,6 +14,7 @@ pub(in crate::component) enum DeclaredResourceKind {
     ControlledDirectCarrier,
     ControlledPacketDevice,
     PacketDatagramReads,
+    LogicalPacketWorkspaces,
     ControlledNodeStream,
     ControlledNodeCarrier,
     NativeIcmp,
@@ -65,6 +66,7 @@ pub(super) enum CoverageBinding {
     RootDatagram,
     PacketDevice,
     PacketReads,
+    LogicalWorkspaces,
     BoundDatagram,
     Icmp,
     File(PathBuf),
@@ -81,6 +83,7 @@ impl CoverageBinding {
         Ok(match declaration {
             ResourceDeclaration::ControlledPacketDevice { .. } => Self::PacketDevice,
             ResourceDeclaration::PacketDatagramReads { .. } => Self::PacketReads,
+            ResourceDeclaration::LogicalPacketWorkspaces { .. } => Self::LogicalWorkspaces,
             ResourceDeclaration::ControlledOutboundDatagram { .. } => Self::RootDatagram,
             ResourceDeclaration::ControlledCarrierPool { .. }
             | ResourceDeclaration::ControlledAssociationPool { .. } => {
@@ -170,6 +173,7 @@ impl CoverageBinding {
             Self::RootDatagram => (DeclaredResourceKind::ControlledOutboundDatagram, None),
             Self::PacketDevice => (DeclaredResourceKind::ControlledPacketDevice, None),
             Self::PacketReads => (DeclaredResourceKind::PacketDatagramReads, None),
+            Self::LogicalWorkspaces => (DeclaredResourceKind::LogicalPacketWorkspaces, None),
             Self::BoundDatagram => (DeclaredResourceKind::BoundOutboundDatagram, None),
             Self::Journal => (DeclaredResourceKind::ControlledJournal, None),
             Self::File(path) => (
@@ -347,7 +351,11 @@ impl evidence::HostIoEvidence {
                     }
                 }
                 DeclarationProvider::PacketReads(index)
-                    if declaration.kind == DeclaredResourceKind::PacketDatagramReads =>
+                    if matches!(
+                        declaration.kind,
+                        DeclaredResourceKind::PacketDatagramReads
+                            | DeclaredResourceKind::LogicalPacketWorkspaces
+                    ) =>
                 {
                     match (self.reads.get(index), reads.get_mut(index)) {
                         (Some(owner), Some(seen)) if !*seen && owner.ordinal == ordinal => {

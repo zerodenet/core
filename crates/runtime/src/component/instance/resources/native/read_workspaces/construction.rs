@@ -117,6 +117,8 @@ impl HostPacketReadReservation {
             #[cfg(feature = "raw-ip-runtime")]
             supplemental,
             state: Mutex::new(ReadState::default()),
+            #[cfg(feature = "raw-ip-runtime")]
+            _description_credit: None,
         }))
     }
 }

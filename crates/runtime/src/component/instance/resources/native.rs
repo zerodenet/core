@@ -39,6 +39,7 @@ pub struct HostResources {
     bounds: bound_datagram::BoundDeclarations,
     packets: Vec<packet_device::PacketDeviceOwner>,
     reads: read_workspaces::ReadDeclarations,
+    logical_workspaces: logical_workspaces::LogicalWorkspaces,
     journals: journal::Journals,
     declared_failures: Arc<failures::DeclaredReceiver>,
     protocol_failures: Arc<failures::DeclaredReceiver>,
@@ -133,6 +134,7 @@ mod process;
 mod protocol;
 mod root_datagram;
 pub use listener::HostDatagramListenerOwner;
+mod logical_workspaces;
 mod read_workspaces;
 mod shutdown;
 mod sockets;
@@ -372,6 +374,39 @@ impl ResourceAccess for HostResources {
         self.registered_dependency_stream_issuer(dependency, endpoint, binding, grant)
     }
 
+    #[cfg(feature = "raw-ip-runtime")]
+    fn take_logical_packet_workspaces(
+        &self,
+        ordinal: usize,
+        driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<
+        zero_platform_tokio::contract::component::GrantedLogicalPacketWorkspaces,
+        ChannelError,
+    > {
+        self.require_start()?;
+        self.logical_workspaces.take(ordinal, driver)
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    fn register_software_packet_source_driver(
+        &self,
+        driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<
+        zero_platform_tokio::controlled_carrier::LogicalPacketProviderRegistration,
+        ChannelError,
+    > {
+        self.register_software_packet_source_drivers(std::slice::from_ref(driver))
+    }
+    #[cfg(feature = "raw-ip-runtime")]
+    fn register_software_packet_source_drivers(
+        &self,
+        drivers: &[zero_platform_tokio::contract::scope::TaskJoinWitness],
+    ) -> Result<
+        zero_platform_tokio::controlled_carrier::LogicalPacketProviderRegistration,
+        ChannelError,
+    > {
+        self.require_start()?;
+        self.logical_workspaces.register(self, drivers)
+    }
     fn prepare_logical_packet_source(
         &self,
         source: &zero_platform_tokio::controlled_carrier::LogicalPacketProviderRegistration,
