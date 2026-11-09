@@ -18,6 +18,43 @@ pub(crate) struct ControlTask {
 struct State {
     task: Option<tokio::task::JoinHandle<io::Result<()>>>,
     result: Option<Result<(), Arc<io::Error>>>,
+    delivered: Option<Arc<DeliveredFailure>>,
+    native: tokio::task::Id,
+}
+// One bounded diagnostic cell for this exact original execution. Its Weak
+// preserves source identity while allowing the accepted payload to be freed.
+struct DeliveredFailure {
+    source: std::sync::Weak<io::Error>,
+    kind: io::ErrorKind,
+    native: tokio::task::Id,
+}
+#[derive(Clone)]
+struct FailureTransferred(Arc<DeliveredFailure>);
+impl std::fmt::Debug for FailureTransferred {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ControlTaskFailureTransferred")
+            .field("native_task", &self.0.native)
+            .field("kind", &self.0.kind)
+            .finish()
+    }
+}
+impl std::fmt::Display for FailureTransferred {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "original control task {} failed; its error payload was already handed to its receiver",
+            self.0.native
+        )
+    }
+}
+impl std::error::Error for FailureTransferred {}
+impl DeliveredFailure {
+    fn observed(self: &Arc<Self>) -> io::Error {
+        match self.source.upgrade() {
+            Some(actual) => io::Error::new(self.kind, actual),
+            None => io::Error::new(self.kind, FailureTransferred(self.clone())),
+        }
+    }
 }
 pub(crate) struct ControlTaskStart<'a> {
     owner: &'a ControlTask,
@@ -67,6 +104,50 @@ impl ControlTask {
             .err()
             .cloned()
     }
+    /// The actual joined failure is already strongly held by this exact
+    /// receiver. Retire only its local payload copy. Keep the original failure
+    /// fact/identity forever in this ended slot; no IO or Scope fact changes.
+    pub(crate) fn release_joined_failure(&self, received: &io::Error) -> bool {
+        let Some(state) = self.state.get() else {
+            return false;
+        };
+        let Ok(mut state) = state.try_lock() else {
+            return false;
+        };
+        if state.task.is_some() {
+            return false;
+        }
+        if let Some(delivered) = &state.delivered {
+            return received.get_ref().is_some_and(|source| {
+                source
+                    .downcast_ref::<Arc<io::Error>>()
+                    .is_some_and(|actual| {
+                        std::sync::Weak::ptr_eq(&delivered.source, &Arc::downgrade(actual))
+                    })
+                    || source
+                        .downcast_ref::<FailureTransferred>()
+                        .is_some_and(|actual| Arc::ptr_eq(delivered, &actual.0))
+            });
+        }
+        let Some(actual) = received
+            .get_ref()
+            .and_then(|source| source.downcast_ref::<Arc<io::Error>>())
+        else {
+            return false;
+        };
+        if !matches!(state.result.as_ref(),Some(Err(source)) if Arc::ptr_eq(source,actual)) {
+            return false;
+        }
+        state.delivered = Some(Arc::new(DeliveredFailure {
+            source: Arc::downgrade(actual),
+            kind: actual.kind(),
+            native: state.native,
+        }));
+        let original = state.result.take();
+        drop(state);
+        drop(original);
+        true
+    }
     pub(crate) fn close_admission(&self) {
         // Only explicit shutdown fences a cold task slot. Observation cannot
         // revoke a startup that has not yet registered its original.
@@ -92,6 +173,9 @@ impl ControlTask {
             .expect("actual task installed before publication")
             .lock()
             .await;
+        if let Some(delivered) = &state.delivered {
+            return Err(delivered.observed());
+        }
         if state.result.is_none() {
             let joined = state
                 .task
@@ -117,12 +201,15 @@ impl ControlTask {
 impl ControlTaskStart<'_> {
     // Unique reservation, no await and no fallible mutex admission after spawn.
     pub(crate) fn install(mut self, task: tokio::task::JoinHandle<io::Result<()>>) {
+        let native = task.id();
         assert!(
             self.owner
                 .state
                 .set(tokio::sync::Mutex::new(State {
                     task: Some(task),
-                    result: None
+                    result: None,
+                    delivered: None,
+                    native,
                 }))
                 .is_ok(),
             "unique original task reservation"
