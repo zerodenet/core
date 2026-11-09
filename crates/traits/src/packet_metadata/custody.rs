@@ -121,3 +121,50 @@ impl<T> Drop for PacketMetadataWeak<T> {
         release(self.allocation.take(), self.credit.take());
     }
 }
+
+/// The same prepaid diagnostic allocation, erased without a new Box or Arc.
+/// Raw strong/weak handles cannot escape this custody wrapper.
+pub struct PacketMetadataError {
+    allocation: Option<Arc<dyn core::error::Error + Send + Sync>>,
+    credit: Option<Arc<PacketMetadataCredit>>,
+}
+impl<T: core::error::Error + Send + Sync + 'static> PacketMetadataArc<T> {
+    pub fn into_error(mut self) -> PacketMetadataError {
+        PacketMetadataError {
+            allocation: self
+                .allocation
+                .take()
+                .map(|value| value as Arc<dyn core::error::Error + Send + Sync>),
+            credit: self.credit.take(),
+        }
+    }
+}
+impl PacketMetadataError {
+    pub fn as_error(&self) -> &(dyn core::error::Error + 'static) {
+        self.allocation.as_deref().unwrap()
+    }
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(
+            self.allocation.as_ref().unwrap(),
+            other.allocation.as_ref().unwrap(),
+        )
+    }
+}
+impl Clone for PacketMetadataError {
+    fn clone(&self) -> Self {
+        Self {
+            allocation: self.allocation.clone(),
+            credit: self.credit.clone(),
+        }
+    }
+}
+impl Drop for PacketMetadataError {
+    fn drop(&mut self) {
+        release(self.allocation.take(), self.credit.take());
+    }
+}
+impl fmt::Debug for PacketMetadataError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("PacketMetadataError(original)")
+    }
+}

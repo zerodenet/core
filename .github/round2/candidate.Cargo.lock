@@ -3699,6 +3699,7 @@ dependencies = [
  "aes 0.8.4",
  "async-trait",
  "crc32fast",
+ "futures-util",
  "md5",
  "rand 0.9.5",
  "ring",
@@ -4240,6 +4241,7 @@ version = "0.0.3-dev.202610162206"
 dependencies = [
  "thiserror 1.0.69",
  "zero-core",
+ "zero-traits",
 ]
 
 [[package]]

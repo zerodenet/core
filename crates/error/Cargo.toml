@@ -10,3 +10,4 @@ homepage.workspace = true
 [dependencies]
 thiserror.workspace = true
 zero-core = { path = "../core" }
+zero-traits = { path = "../traits" }

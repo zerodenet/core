@@ -10,7 +10,7 @@ use core::{
 mod counter;
 mod custody;
 pub use counter::{PacketMetadataCounter, PacketMetadataCredit};
-pub use custody::{PacketMetadataArc, PacketMetadataWeak};
+pub use custody::{PacketMetadataArc, PacketMetadataError, PacketMetadataWeak};
 
 /// Permanent Capacity differs from temporary Busy. Runtime owners separately
 /// apply their existing pause/revocation fences before admitting allocation.

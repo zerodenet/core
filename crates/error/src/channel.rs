@@ -2,6 +2,8 @@ use std::{error::Error, fmt, sync::Arc};
 
 mod cleanup_receipt;
 pub use cleanup_receipt::CleanupFailureReceipt;
+mod retained;
+pub use retained::{RetainedError, WeakRetainedError};
 
 pub use zero_core::channel::{
     CloseReason, DeliveryState, Impact, Reason, RetryClass, SendReceipt, Stage,
@@ -28,13 +30,15 @@ pub struct ChannelError {
 /// Both variants preserve the same diagnostic source shape as before.
 enum Source {
     Owned(Box<dyn Error + Send + Sync>),
-    Retained(Arc<ChannelError>),
+    Retained(RetainedError),
+    Metadata(zero_traits::packet_metadata::PacketMetadataError),
 }
 impl Source {
     fn as_error(&self) -> &(dyn Error + 'static) {
         match self {
             Self::Owned(source) => source.as_ref(),
-            Self::Retained(source) => source,
+            Self::Retained(source) => source.as_error(),
+            Self::Metadata(source) => source.as_error(),
         }
     }
 }
@@ -43,6 +47,7 @@ impl fmt::Debug for Source {
         match self {
             Self::Owned(source) => fmt::Debug::fmt(source, formatter),
             Self::Retained(source) => fmt::Debug::fmt(source, formatter),
+            Self::Metadata(source) => fmt::Debug::fmt(source, formatter),
         }
     }
 }
@@ -81,7 +86,8 @@ impl ChannelError {
 
     /// Preserve the same actual cause and all structured decision/delivery
     /// fields. The original source Arc remains diagnostic and strongly owned.
-    pub fn retained(source: Arc<Self>) -> Self {
+    pub fn retained(source: impl Into<RetainedError>) -> Self {
+        let source = source.into();
         let mut error = Self::new(source.stage, source.reason, source.impact);
         error.component = source.component;
         error.session = source.session;
@@ -96,9 +102,23 @@ impl ChannelError {
     /// only, never a cleanup-delivery ACK or permission to release resources.
     pub fn retained_source(&self) -> Option<&Arc<Self>> {
         match self.source.as_ref() {
+            Some(Source::Retained(source)) => source.library_arc(),
+            _ => None,
+        }
+    }
+    /// Observe the same sealed source, including its still-charged weak header.
+    pub fn retained_diagnostic(&self) -> Option<&RetainedError> {
+        match self.source.as_ref() {
             Some(Source::Retained(source)) => Some(source),
             _ => None,
         }
+    }
+    pub fn with_metadata_source(
+        mut self,
+        source: zero_traits::packet_metadata::PacketMetadataError,
+    ) -> Self {
+        self.source = Some(Source::Metadata(source));
+        self
     }
     pub fn retry_permitted(&self) -> bool {
         self.retry.permits(self.delivery)

@@ -14,6 +14,7 @@ default = ["runtime"]
 runtime = [
     "validation",
     "dep:async-trait",
+    "dep:futures-util",
     "dep:rand",
     "dep:ring",
     "dep:md5",
@@ -27,6 +28,7 @@ runtime = [
 validation = []
 
 [dependencies]
+futures-util = { version = "0.3", optional = true }
 async-trait = { version = "0.1", optional = true }
 rand = { version = "0.9", optional = true }
 ring = { version = "0.17", optional = true }
