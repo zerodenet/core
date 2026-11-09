@@ -100,7 +100,7 @@ async fn ordinary_vmess_datagram_dispatch_preserves_framing_empty_packets_and_fl
                 (
                     Address::Ipv4([203, 0, 113, 9]),
                     53,
-                    payload.clone(),
+                    payload.clone().into(),
                     Some(ids[0])
                 )
             );
@@ -113,7 +113,7 @@ async fn ordinary_vmess_datagram_dispatch_preserves_framing_empty_packets_and_fl
                 payload,
                 id,
             );
-            assert_eq!(response.payload.as_slice(), payloads[ids.len() - 1]);
+            assert_eq!(response.payload.as_ref(), payloads[ids.len() - 1]);
         }
         assert!(ids.iter().all(|id| *id == ids[0]));
         assert_eq!(
