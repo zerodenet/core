@@ -93,7 +93,7 @@ impl ComponentPlan {
                                 Reason::StalePlan,
                                 "resource failure differs from its actual retained archive row",
                             )
-                            .with_source(failure.clone()));
+                            .with_source(Arc::new(plan::PlanFailure::resource(failure.clone()))));
                         }
                     }
                     let complete = report.is_complete();
