@@ -84,6 +84,7 @@ impl Provider {
         let entry = Arc::new(custody::NativeUse {
             receiver: self.cleanup_receiver(),
             pending_report: Mutex::default(),
+            protocol_originals: Mutex::default(),
             task: caller.clone(),
             cancel: cancel.clone(),
             original: grant.adoption(),
@@ -91,7 +92,11 @@ impl Provider {
             logical: Default::default(),
             capacity: Mutex::new(Some(capacity)),
         });
-        self.users.lock().expect("DNS users poisoned").push(entry);
+        self.users
+            .lock()
+            .expect("DNS users poisoned")
+            .push(entry.clone());
+        root.bind_query_entry(&entry)?;
         let attempt = async {
             let loan = crate::runtime::tcp_dispatch::service::connect_carrier_datagram(
                 execution,

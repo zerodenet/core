@@ -156,6 +156,7 @@ impl Provider {
             .push(Arc::new(custody::NativeUse {
                 receiver: self.cleanup_receiver(),
                 pending_report: Mutex::default(),
+                protocol_originals: Mutex::default(),
                 task: caller,
                 cancel,
                 original: grant.adoption(),

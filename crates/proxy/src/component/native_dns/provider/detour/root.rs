@@ -10,8 +10,10 @@ mod direct;
 mod pending;
 #[cfg(any(target_os = "linux", windows))]
 mod process;
+mod protocol;
 pub(super) struct Root {
     receiver: super::super::failure::Receiver,
+    query_entry: std::sync::OnceLock<std::sync::Weak<custody::NativeUse>>,
     native: Option<ResolvingCarrierOpener>,
     binding: UpstreamBinding,
     endpoint: Destination,
@@ -51,6 +53,7 @@ impl Root {
     ) -> Result<Self, ChannelError> {
         Ok(Self {
             receiver,
+            query_entry: std::sync::OnceLock::new(),
             native: Some(ResolvingCarrierOpener::new(
                 grants.registration().instance(),
                 binding.clone(),
@@ -171,6 +174,19 @@ impl DynChannelControl for Control {
     }
 }
 impl UpstreamOpener for Root {
+    fn protocol_original_observer(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::network::PendingCarrierObserver> {
+        self.waiting.get().cloned()
+    }
+    fn retain_protocol_original(
+        &self,
+        binding: &UpstreamBinding,
+        original: zero_platform_tokio::controlled_carrier::ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        self.retain_query_protocol(binding, original)
+    }
+
     fn open_controlled_stream_loan(
         &self,
         binding: &UpstreamBinding,
@@ -456,6 +472,7 @@ impl UpstreamOpener for Root {
                 let entry = Arc::new(custody::NativeUse {
                     receiver: self.receiver.clone(),
                     pending_report: Mutex::default(),
+                    protocol_originals: Mutex::default(),
                     task: self.caller.clone(),
                     cancel: self.cancel.clone(),
                     original: grant.adoption(),
