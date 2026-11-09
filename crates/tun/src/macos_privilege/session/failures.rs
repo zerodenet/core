@@ -35,6 +35,18 @@ impl Failures {
         }
     }
     pub(super) fn retain(&self, epoch: usize, phase: Phase, source: io::Error) -> bool {
+        // The same source's already accepted delivery is not a new phase.
+        // Storing it here would make payload -> Retained(payload) a strong
+        // self-cycle. Inspect only this concrete private wrapper and exact
+        // payload identity; foreign retained errors are still original causes.
+        if source
+            .get_ref()
+            .and_then(|source| source.downcast_ref::<Retained>())
+            .and_then(|source| source.0.as_error().downcast_ref::<Failures>())
+            .is_some_and(|source| std::ptr::eq(source, self))
+        {
+            return false;
+        }
         assert!(epoch < 2, "actual fixed helper epoch census");
         // Each index names the same real close actor, which itself caches its
         // single syscall outcome. A retry cannot introduce a different actor.
