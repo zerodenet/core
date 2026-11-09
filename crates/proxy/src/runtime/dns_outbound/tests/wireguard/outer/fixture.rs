@@ -1,6 +1,5 @@
 //! One actual software Source and its separately owned real SOCKS callee.
 use super::*;
-use base64::Engine as _;
 use zero_platform_tokio::{
     contract::scope::TaskJoinWitness,
     controlled_carrier::{CarrierOriginObservation, CarrierOwnerRegistration},
