@@ -87,3 +87,52 @@ async fn original_work_panic_and_actual_child_join_fault_are_both_retained_after
         .unwrap()
         .is_panic());
 }
+
+#[cfg(windows)]
+#[tokio::test]
+async fn windows_server_unwind_keeps_actual_peer_join_error_after_both_raw_tasks_return() {
+    let original = Arc::new(());
+    let weak = Arc::downgrade(&original);
+    let server = tokio::spawn(async move {
+        async fn original_work(original: Arc<()>) -> io::Result<()> {
+            std::panic::panic_any(original)
+        }
+        let work = catch_work(original_work(original)).await;
+        async fn original_peer() {
+            panic!("same actual IPC peer task")
+        }
+        let peer = tokio::spawn(original_peer());
+        let id = peer.id();
+        let actual = peer.await.unwrap_err();
+        assert!(actual.is_panic() && actual.id() == id);
+        // This is the same Windows production terminal branch after original
+        // joins. Neither pure error observation issues a native/Scope receipt.
+        let result = crate::ipc::windows::finish_server_work(work, vec![io::Error::other(actual)]);
+        (id, result)
+    });
+    let (id, result) = server.await.unwrap();
+    let returned = result.unwrap_err();
+    let pair = returned
+        .get_ref()
+        .unwrap()
+        .downcast_ref::<PanicCleanup>()
+        .unwrap();
+    {
+        let payload = pair.payload.lock().unwrap();
+        let original = payload.downcast_ref::<Arc<()>>().unwrap();
+        assert!(Arc::ptr_eq(original, &weak.upgrade().unwrap()));
+    }
+    assert_eq!(pair.cleanup.len(), 1);
+    let actual = pair.cleanup[0]
+        .get_ref()
+        .unwrap()
+        .downcast_ref::<tokio::task::JoinError>()
+        .unwrap();
+    assert!(actual.is_panic() && actual.id() == id);
+    assert!(
+        weak.upgrade().is_some(),
+        "only the returned pure error now holds the original panic payload"
+    );
+    drop(returned);
+    assert!(weak.upgrade().is_none());
+}

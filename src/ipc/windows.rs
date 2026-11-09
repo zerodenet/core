@@ -259,13 +259,27 @@ async fn run_server(
     if let Err(error) = native {
         failures.push(error);
     }
-    match work {
-        Ok(Err(error)) => failures.push(error),
-        Ok(Ok(())) => {}
-        Err(payload) => std::panic::resume_unwind(payload),
-    }
     info!(pipe=%path.display(),"ipc server stopped");
-    owner::finish(failures)
+    finish_server_work(work, failures)
+}
+
+/// Every actual peer/std worker/native cleanup has already been consumed.
+/// A caught server panic must not discard the raw peer JoinSet's only result.
+pub(super) fn finish_server_work(
+    work: Result<io::Result<()>, Box<dyn std::any::Any + Send>>,
+    mut failures: Vec<io::Error>,
+) -> io::Result<()> {
+    // Preserve existing nonpanic error order; only the competing panic path
+    // now uses the same immutable payload pair as HTTP, commands and gRPC.
+    let work = match work {
+        Ok(Err(error)) => {
+            failures.push(error);
+            Ok(Ok(()))
+        }
+        Ok(Ok(())) => Ok(Ok(())),
+        Err(payload) => Err(payload),
+    };
+    super::owner::finish_caught(work, failures.into_iter().map(Err))
 }
 
 #[cfg(test)]
