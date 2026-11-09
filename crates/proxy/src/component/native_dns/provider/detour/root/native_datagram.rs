@@ -3,7 +3,7 @@ use super::*;
 use crate::component::stream_bridge::network::NodeOpener;
 use zero_platform_tokio::controlled_carrier::{CarrierAdoption, CarrierCandidates};
 impl Root {
-    pub(super) fn with_native_datagram(
+    pub(in crate::component::native_dns::provider::detour) fn with_native_datagram(
         mut self,
         instance: zero_core::component::ComponentInstanceId,
         ordinal: usize,
