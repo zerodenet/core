@@ -62,7 +62,7 @@ impl MacosHelperOwner {
             Err(source) if epoch.local_tool.reusable() => Err(QueryFailure::Closed(source)),
             Err(source) => {
                 self.0.retain(index, Phase::ToolProgress, source);
-                Err(QueryFailure::Original(io::Error::other(
+                Err(QueryFailure::Original(failures::retained(
                     self.0.failures.clone().into_error(),
                 )))
             }

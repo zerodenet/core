@@ -69,6 +69,15 @@ impl MacosHelperOwner {
         let borrowed = unsafe { ManuallyDrop::new(File::from_raw_fd(fd)) };
         if let Err(source) = fs2::FileExt::try_lock_exclusive(&*borrowed) {
             if let Err(close) = slot.original.as_mut().unwrap().close_once() {
+                self.0.failures.retain(
+                    0,
+                    if ipv6 {
+                        Phase::RouteLockAcquireV6
+                    } else {
+                        Phase::RouteLockAcquireV4
+                    },
+                    source,
+                );
                 self.0.retain_file_failure(family, close);
                 return Err(failures::retained(self.0.failures.clone().into_error()));
             }

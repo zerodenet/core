@@ -83,6 +83,13 @@ impl MacosHelperOwner {
         };
         let closed = epoch.local_file.as_mut().unwrap().close_once();
         if let Err(source) = closed {
+            // This original cannot be reused, so this one actual operation's
+            // cause has its own fixed paid phase, independent of close errno.
+            if let Err(operation) = result {
+                self.0
+                    .failures
+                    .retain(index, Phase::RouteTransientOperation, operation);
+            }
             self.0.failures.retain(index, Phase::RouteTransient, source);
             return Err(failures::retained(self.0.failures.clone().into_error()));
         }

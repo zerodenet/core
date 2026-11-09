@@ -21,9 +21,12 @@ pub(super) enum Phase {
     RouteTransient,
     RouteUnlockV4,
     RouteUnlockV6,
+    RouteTransientOperation,
+    RouteLockAcquireV4,
+    RouteLockAcquireV6,
 }
 pub(super) struct Failures {
-    slots: [OnceLock<io::Error>; 28],
+    slots: [OnceLock<io::Error>; 32],
 }
 impl Failures {
     pub(super) fn new() -> Self {
@@ -42,8 +45,12 @@ impl Failures {
             20 + phase - 10
         } else if phase == Phase::RouteTransient as usize {
             24 + epoch
-        } else {
+        } else if phase < Phase::RouteTransientOperation as usize {
             26 + phase - Phase::RouteUnlockV4 as usize
+        } else if phase == Phase::RouteTransientOperation as usize {
+            28 + epoch
+        } else {
+            30 + phase - Phase::RouteLockAcquireV4 as usize
         };
         let _ = self.slots[slot].set(source);
     }
@@ -100,3 +107,7 @@ impl std::error::Error for Retained {
         Some(self.0.as_error())
     }
 }
+
+#[cfg(test)]
+#[path = "failures/tests.rs"]
+mod tests;
