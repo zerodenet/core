@@ -1,7 +1,7 @@
 use super::*;
 use crate::contract::scope::{HostedScope, TaskClass, TaskScope};
 use std::{
-    future::{Future, poll_fn},
+    future::{poll_fn, Future},
     num::NonZeroUsize,
     task::Poll,
 };
@@ -62,11 +62,9 @@ async fn cold_software_custody_shares_total_and_refunds_only_after_actual_scope_
             .reserve_original_totals(&first_scope.registrar().downgrade(), &root)
             .unwrap();
         assert_eq!(root.snapshot().charged, 1);
-        assert!(
-            second
-                .reserve_original_totals(&second_scope.registrar().downgrade(), &root)
-                .is_err()
-        );
+        assert!(second
+            .reserve_original_totals(&second_scope.registrar().downgrade(), &root)
+            .is_err());
         first_scope.begin_shutdown();
         let joined = first_scope.next_receipt().await.unwrap();
         joined.result().unwrap();

@@ -3,8 +3,8 @@ use std::{
     io,
     pin::Pin,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc, Mutex,
     },
     task::{Context, Poll},
 };

@@ -1,7 +1,7 @@
 //! Concrete builtin Packet original; metadata alone has no constructor.
 //! The optional native backend introduces no configurable device/origin SPI.
 use super::*;
-use crate::contract::{CancellationToken, component::PacketDeviceIdentity};
+use crate::contract::{component::PacketDeviceIdentity, CancellationToken};
 struct ActualPacket {
     device: PacketDeviceIdentity,
     native: NativePacket,

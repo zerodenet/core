@@ -31,16 +31,14 @@ fn transmit(destination: SocketAddr, contents: &[u8]) -> MetadataTransmit<'_> {
 }
 async fn send(tx: &MetadataDatagramTx, message: &MetadataTransmit<'_>) -> MetadataSendOutcome {
     let mut poller = tx.create_write_poller().unwrap();
-    poll_fn(|cx| {
-        loop {
-            match poller.poll_writable(cx) {
-                Poll::Pending => return Poll::Pending,
-                Poll::Ready(result) => result.unwrap(),
-            }
-            match tx.try_send(message) {
-                Err(error) if error.kind() == std_io::ErrorKind::WouldBlock => continue,
-                result => return Poll::Ready(result.unwrap()),
-            }
+    poll_fn(|cx| loop {
+        match poller.poll_writable(cx) {
+            Poll::Pending => return Poll::Pending,
+            Poll::Ready(result) => result.unwrap(),
+        }
+        match tx.try_send(message) {
+            Err(error) if error.kind() == std_io::ErrorKind::WouldBlock => continue,
+            result => return Poll::Ready(result.unwrap()),
         }
     })
     .await

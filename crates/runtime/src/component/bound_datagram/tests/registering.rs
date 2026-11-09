@@ -2,7 +2,7 @@
 use super::retirement::{declaration, instance, request};
 use super::*;
 use std::{
-    future::{Future, poll_fn},
+    future::{poll_fn, Future},
     task::Poll,
 };
 use zero_platform_tokio::controlled_carrier::CarrierOriginalTotals;

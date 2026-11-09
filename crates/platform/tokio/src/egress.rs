@@ -690,8 +690,8 @@ fn bind_socket_to_index(
     index: u32,
 ) -> io::Result<()> {
     use windows_sys::Win32::Networking::WinSock::{
-        IP_UNICAST_IF, IPPROTO_IP, IPPROTO_IPV6, IPV6_UNICAST_IF, SOCKET_ERROR, WSAGetLastError,
-        setsockopt,
+        setsockopt, WSAGetLastError, IPPROTO_IP, IPPROTO_IPV6, IPV6_UNICAST_IF, IP_UNICAST_IF,
+        SOCKET_ERROR,
     };
     let (level, option, value) = if ipv6 {
         (IPPROTO_IPV6, IPV6_UNICAST_IF, index)
@@ -729,7 +729,7 @@ pub(crate) fn datagram_bind_address(
 fn windows_source_address(peer: SocketAddr, interface_index: u32) -> io::Result<SocketAddr> {
     use windows_sys::Win32::NetworkManagement::IpHelper::{GetBestRoute2, MIB_IPFORWARD_ROW2};
     use windows_sys::Win32::Networking::WinSock::{
-        AF_INET, AF_INET6, IN_ADDR, IN_ADDR_0, IN6_ADDR, IN6_ADDR_0, SOCKADDR_IN, SOCKADDR_IN6,
+        AF_INET, AF_INET6, IN6_ADDR, IN6_ADDR_0, IN_ADDR, IN_ADDR_0, SOCKADDR_IN, SOCKADDR_IN6,
         SOCKADDR_IN6_0, SOCKADDR_INET,
     };
 

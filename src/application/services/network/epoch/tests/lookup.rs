@@ -12,8 +12,8 @@ async fn cancelled_lookup_keeps_actual_blocking_join_capacity_until_the_original
         struct Release(Arc<(Mutex<bool>, Condvar)>);
         impl Drop for Release {
             fn drop(&mut self) {
-                *self.0.0.lock().unwrap() = true;
-                self.0.1.notify_all();
+                *self.0 .0.lock().unwrap() = true;
+                self.0 .1.notify_all();
             }
         }
         let release = Release(gate.clone());
@@ -46,12 +46,10 @@ async fn cancelled_lookup_keeps_actual_blocking_join_capacity_until_the_original
             .await
             .unwrap_err();
         assert_eq!(denied.kind(), io::ErrorKind::WouldBlock);
-        assert!(
-            epoch
-                .retire(Instant::now() + std::time::Duration::from_millis(20))
-                .await
-                .is_err()
-        );
+        assert!(epoch
+            .retire(Instant::now() + std::time::Duration::from_millis(20))
+            .await
+            .is_err());
         assert!(!witness.is_joined());
         assert!(!epoch.closed());
         assert_eq!(epoch.lookups.lock().unwrap().len(), 1);
@@ -74,11 +72,9 @@ async fn real_lookup_is_registered_on_the_same_epoch_scope_and_does_not_create_a
         _ = epoch.drive() => panic!("lookup Scope stopped before its actual join"),
     };
     assert!(!values.is_empty());
-    assert!(
-        values
-            .iter()
-            .all(|value| value.ip().is_loopback() && value.port() == 443)
-    );
+    assert!(values
+        .iter()
+        .all(|value| value.ip().is_loopback() && value.port() == 443));
     assert!(epoch.lookups.lock().unwrap().is_empty());
     epoch.retire(end()).await.unwrap();
     assert!(epoch.closed());
@@ -86,8 +82,8 @@ async fn real_lookup_is_registered_on_the_same_epoch_scope_and_does_not_create_a
 
 #[cfg(feature = "event-dispatcher")]
 #[tokio::test]
-async fn physically_retired_epoch_fault_retains_original_task_sources_and_allows_a_new_same_endpoint_generation()
- {
+async fn physically_retired_epoch_fault_retains_original_task_sources_and_allows_a_new_same_endpoint_generation(
+) {
     let network = super::super::super::ApplicationEventSinkTcpDialer::for_test(
         EgressInterfaceControl::default(),
     );
@@ -212,17 +208,16 @@ async fn changed_event_limits_wait_for_original_scope_and_use_checked_resource_g
         "network epoch is not a resource generation"
     );
     assert_eq!(current.limits, next);
-    assert!(
-        !old.registrar
-            .scope_identity()
-            .same_scope(&current.registrar.scope_identity())
-    );
+    assert!(!old
+        .registrar
+        .scope_identity()
+        .same_scope(&current.registrar.scope_identity()));
     network.retire_generation(end()).await.unwrap();
 }
 
 #[tokio::test]
-async fn event_native_global_total_and_local_capacity_keep_the_same_actual_original_until_return_and_join()
- {
+async fn event_native_global_total_and_local_capacity_keep_the_same_actual_original_until_return_and_join(
+) {
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         let network = super::super::super::ApplicationEventSinkTcpDialer::for_test(EgressInterfaceControl::default());
         network.originals.install_after_retirement(NonZeroUsize::new(1).unwrap()).unwrap();

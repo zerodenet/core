@@ -2,7 +2,7 @@
 //! NativeDnsProvider and never fall back to this library connector.
 use std::{fmt, future::Future, io, net::SocketAddr, pin::Pin, sync::Arc};
 use tokio::time::Instant;
-use zero_platform_tokio::contract::{CancellationToken, context::with_deadline};
+use zero_platform_tokio::contract::{context::with_deadline, CancellationToken};
 
 pub type DnsOutboundConnectFuture =
     Pin<Box<dyn Future<Output = io::Result<zero_platform_tokio::TcpRelayStream>> + Send + 'static>>;

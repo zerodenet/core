@@ -7,8 +7,8 @@ use crate::{
 use zero_core::component::{ComponentId, ComponentInstanceId, ResourceGeneration};
 #[tokio::test]
 #[ignore = "actual native loopback ICMP access required"]
-async fn icmp_source_total_refunds_each_real_probe_only_after_native_unique_view_and_same_registration_ack()
- {
+async fn icmp_source_total_refunds_each_real_probe_only_after_native_unique_view_and_same_registration_ack(
+) {
     let _serial = LIVE.lock().await;
     let root = CarrierOriginalTotals::new(NonZeroUsize::new(1).unwrap());
     let mut scope =

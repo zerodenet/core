@@ -113,11 +113,9 @@ async fn exact_failed_udp_bind_refunds_only_matching_native_before_same_scope_re
         1,
         "successful publication retains actual Scope debt"
     );
-    assert!(
-        scope
-            .shutdown(tokio::time::Instant::now() + Duration::from_secs(3))
-            .await
-            .is_complete()
-    );
+    assert!(scope
+        .shutdown(tokio::time::Instant::now() + Duration::from_secs(3))
+        .await
+        .is_complete());
     assert_eq!(root.snapshot().charged, 0);
 }

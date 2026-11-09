@@ -1,9 +1,9 @@
 use super::*;
 use crate::contract::{
-    ChannelError, CloseReason, DeliveryState, Impact, Reason, Stage,
     lifecycle::{ChannelControl, CloseReport, Unfinished},
+    ChannelError, CloseReason, DeliveryState, Impact, Reason, Stage,
 };
-use tokio::time::{Duration, Instant, sleep_until};
+use tokio::time::{sleep_until, Duration, Instant};
 
 /// Owns confirmation for the original listener only, never its accepted sockets.
 /// Tokio deregistration failures consume the handle with an unconfirmed native

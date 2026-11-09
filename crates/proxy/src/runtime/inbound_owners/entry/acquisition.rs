@@ -170,10 +170,17 @@ impl InboundOwner {
     pub(in crate::runtime) async fn pause_packet_main_if_idle(
         &self,
         deadline: Instant,
-    ) -> Result<Option<zero_platform_tokio::contract::packet::PacketSourceMainPaused>, EngineError> {
-        if self.terminal().is_some() { return Ok(None); }
+    ) -> Result<Option<zero_platform_tokio::contract::packet::PacketSourceMainPaused>, EngineError>
+    {
+        if self.terminal().is_some() {
+            return Ok(None);
+        }
         match self.packet_pause.get() {
-            Some(packet) => packet.pause_main(deadline).await.map(Some).map_err(|source| std::io::Error::other(source).into()),
+            Some(packet) => packet
+                .pause_main(deadline)
+                .await
+                .map(Some)
+                .map_err(|source| std::io::Error::other(source).into()),
             None => Ok(None),
         }
     }
@@ -182,11 +189,21 @@ impl InboundOwner {
         &self,
         main: zero_platform_tokio::contract::packet::PacketSourceMainPaused,
     ) -> Result<AcquisitionPause, EngineError> {
-        if !self.packet_pause.get().is_some_and(|original| main.matches(original)) {
-            return Err(io::Error::other("Packet Main pause belongs to another actual Source").into());
+        if !self
+            .packet_pause
+            .get()
+            .is_some_and(|original| main.matches(original))
+        {
+            return Err(
+                io::Error::other("Packet Main pause belongs to another actual Source").into(),
+            );
         }
         let packet = main.finish().await.map_err(io::Error::other)?;
-        Ok(AcquisitionPause { acquisition: self.acquisition.clone(), request: None, packet: Some(packet) })
+        Ok(AcquisitionPause {
+            acquisition: self.acquisition.clone(),
+            request: None,
+            packet: Some(packet),
+        })
     }
     pub(in crate::runtime) async fn pause_acquisition_if_idle(
         &self,

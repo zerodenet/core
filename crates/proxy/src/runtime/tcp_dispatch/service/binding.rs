@@ -27,7 +27,7 @@ impl DnsCarrierBinding for NativeDnsBinding {
         Ok(())
     }
     fn revoked(&self) -> DnsBindingRevokedFuture<'_> {
-        use futures_util::{StreamExt, stream::FuturesUnordered};
+        use futures_util::{stream::FuturesUnordered, StreamExt};
         Box::pin(async move {
             if let Err(error) = self.check_current() {
                 return error;

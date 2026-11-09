@@ -169,16 +169,14 @@ async fn known_no_native_failure_retains_the_pending_original_driver_and_cancell
         failed(original.open(witness.clone()).await).reason,
         Reason::Revoked
     );
-    assert!(
-        original
-            .state
-            .lock()
-            .unwrap()
-            .driver
-            .as_ref()
-            .unwrap()
-            .same_registration(&witness)
-    );
+    assert!(original
+        .state
+        .lock()
+        .unwrap()
+        .driver
+        .as_ref()
+        .unwrap()
+        .same_registration(&witness));
     let mut closing = Box::pin(original.shutdown(deadline()));
     std::future::poll_fn(|cx| {
         assert!(closing.as_mut().poll(cx).is_pending());
@@ -261,12 +259,10 @@ async fn actual_tun_pending_read_joins_original_driver_before_matching_duplicate
         .await
         .unwrap_or_else(|error| panic!("actual dedicated TUN: {error}"));
     let provider = grant.original.clone();
-    assert!(
-        original
-            .original_registration()
-            .unwrap()
-            .same_owner(&provider)
-    );
+    assert!(original
+        .original_registration()
+        .unwrap()
+        .same_owner(&provider));
     assert!(provider.device().same_provider(&grant.identity));
     assert!(provider.driver().same_registration(&witness));
     let origin =
@@ -300,13 +296,11 @@ async fn actual_tun_pending_read_joins_original_driver_before_matching_duplicate
     assert!(native.matches(&origin));
     assert!(native.had_native_acquisition());
     assert!(provider.closed().unwrap().matches(&provider));
-    assert!(
-        provider
-            .native()
-            .closed()
-            .unwrap()
-            .matches(provider.native())
-    );
+    assert!(provider
+        .native()
+        .closed()
+        .unwrap()
+        .matches(provider.native()));
     assert!(provider.driver().is_joined());
     assert!(actual.next_receipt().await.is_none());
     assert!(actual.is_drained());

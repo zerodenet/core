@@ -1,11 +1,11 @@
 //! Exact SOCKS wire peer: its BND domain differs from the literal TCP endpoint.
 use super::*;
-use zero_core::Address;
 use std::net::SocketAddr;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, UdpSocket},
 };
+use zero_core::Address;
 
 pub(super) struct Peer {
     pub(super) node: zero_config::OutboundConfig,

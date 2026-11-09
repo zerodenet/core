@@ -1,5 +1,5 @@
 //! Unique view over the original packet controller retained by the carrier owner.
-use super::{CarrierDriver, slot::Slot};
+use super::{slot::Slot, CarrierDriver};
 use crate::controlled_datagram::ControlledDatagramSocket;
 use std::{io, net::SocketAddr, sync::Arc};
 

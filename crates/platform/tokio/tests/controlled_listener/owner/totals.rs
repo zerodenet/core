@@ -99,13 +99,11 @@ async fn source_listener_keeps_unique_view_after_actual_scope_is_drained() {
     let view = original
         .bind_listener("127.0.0.1:0".parse().unwrap())
         .unwrap();
-    assert!(
-        original
-            .wait_closed(deadline())
-            .await
-            .unwrap()
-            .is_complete()
-    );
+    assert!(original
+        .wait_closed(deadline())
+        .await
+        .unwrap()
+        .is_complete());
     scope.begin_shutdown();
     assert!(scope.is_drained());
     assert_eq!(
@@ -117,8 +115,8 @@ async fn source_listener_keeps_unique_view_after_actual_scope_is_drained() {
     assert_eq!(roots.snapshot().charged, 0);
 }
 #[tokio::test]
-async fn failed_listener_attempt_explicit_native_close_preserves_n1_retry_without_scope_fabrication()
- {
+async fn failed_listener_attempt_explicit_native_close_preserves_n1_retry_without_scope_fabrication(
+) {
     let roots = CarrierOriginalTotals::new(NonZeroUsize::new(1).unwrap());
     let mut scope = TaskScope::suspended_hosted(tokio::runtime::Handle::current(), None);
     scope.enable_registration().unwrap();
@@ -145,13 +143,11 @@ async fn failed_listener_attempt_explicit_native_close_preserves_n1_retry_withou
     let view = original.bind_listener(address).unwrap();
     assert_eq!(roots.snapshot().charged, 1);
     assert_eq!(original.remaining_bind_attempts(), 0);
-    assert!(
-        original
-            .wait_closed(deadline())
-            .await
-            .unwrap()
-            .is_complete()
-    );
+    assert!(original
+        .wait_closed(deadline())
+        .await
+        .unwrap()
+        .is_complete());
     assert_eq!(original.confirmed_close_count(), 2);
     drop(view);
     assert_eq!(

@@ -102,7 +102,7 @@ impl ServiceBinding {
         Ok(())
     }
     pub(crate) async fn revoked(&self) -> ChannelError {
-        use futures_util::{StreamExt, stream::FuturesUnordered};
+        use futures_util::{stream::FuturesUnordered, StreamExt};
         let mut revoked: FuturesUnordered<_> = self
             .hops
             .iter()

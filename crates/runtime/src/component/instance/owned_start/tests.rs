@@ -1,7 +1,7 @@
 use super::*;
 use crate::component::{
+    catalog::{supervision::testing::TestContext, ComponentCatalog},
     ComponentRecipe,
-    catalog::{ComponentCatalog, supervision::testing::TestContext},
 };
 use shadowsocks::{
     component::PluginFactory,
@@ -127,16 +127,15 @@ async fn actual_host_finishes_same_process_initialization_after_its_first_borrow
     assert!(closed.is_complete(), "{closed:?}");
     assert_eq!(roots.process.snapshot().charged_jobs, 0);
     assert!(endpoint.closed().unwrap().matches(&endpoint));
-    assert!(
-        slot.live
-            .get()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .resources
-            .io_evidence()
-            .physical_confirmed()
-    );
+    assert!(slot
+        .live
+        .get()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .resources
+        .io_evidence()
+        .physical_confirmed());
 }
 #[tokio::test]
 async fn actual_shutdown_drains_retained_process_start_before_owner_lock_and_native_tree_close() {
@@ -164,21 +163,20 @@ async fn actual_shutdown_drains_retained_process_start_before_owner_lock_and_nat
     assert!(Arc::ptr_eq(&original, &observed));
     assert!(!slot.can_reuse() && !slot.has_started());
     assert_eq!(fixture.starts(), 1);
-    assert!(
-        slot.live
-            .get()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .resources
-            .io_evidence()
-            .physical_confirmed()
-    );
+    assert!(slot
+        .live
+        .get()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .resources
+        .io_evidence()
+        .physical_confirmed());
 }
 
 #[tokio::test]
-async fn actual_full_process_book_refuses_only_cold_caller_and_same_slot_starts_after_original_retirement()
- {
+async fn actual_full_process_book_refuses_only_cold_caller_and_same_slot_starts_after_original_retirement(
+) {
     let first = Fixture::with_id(ComponentId(861));
     let next = Fixture::with_id(ComponentId(862));
     let host = TestContext::new([first.slot.as_ref(), next.slot.as_ref()]);
@@ -226,8 +224,8 @@ async fn actual_full_process_book_refuses_only_cold_caller_and_same_slot_starts_
 }
 
 #[tokio::test]
-async fn unpolled_original_initializer_keeps_its_paid_declaration_after_borrower_drop_until_actual_revoke()
- {
+async fn unpolled_original_initializer_keeps_its_paid_declaration_after_borrower_drop_until_actual_revoke(
+) {
     let fixture = Fixture::cold();
     let host = TestContext::new([fixture.slot.as_ref()]);
     let roots = fixture.slot.bound_original_budgets().unwrap();

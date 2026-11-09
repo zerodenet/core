@@ -1,13 +1,13 @@
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::sync::{
-    Arc,
     atomic::{AtomicBool, Ordering},
+    Arc,
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::UnixStream,
     sync::Notify,
-    time::{Duration, timeout},
+    time::{timeout, Duration},
 };
 use zero_api::RawResponse;
 use zero_config::RuntimeConfig;

@@ -1,5 +1,5 @@
-use zero_platform_tokio::TokioDatagramSocket;
 use super::*;
+use zero_platform_tokio::TokioDatagramSocket;
 pub(crate) struct DirectRawIpWireCarrier {
     original: tokio::sync::RwLock<Option<TokioDatagramSocket>>,
     close: std::sync::Mutex<Option<Result<(), Arc<io::Error>>>>,

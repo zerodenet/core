@@ -1,14 +1,14 @@
 use super::*;
 use crate::{
-    ControlledTcpListener, ControlledTcpListenerOwner,
     contract::component::ResourceDeclaration,
     controlled_datagram::{ControlledDatagramOwner, ControlledDatagramSocket},
+    ControlledTcpListener, ControlledTcpListenerOwner,
 };
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     num::NonZeroUsize,
 };
-use zero_core::{Address, request::Destination};
+use zero_core::{request::Destination, Address};
 pub(super) struct Reservations {
     tcp: ControlledTcpListenerOwner,
     tcp_view: Option<ControlledTcpListener>,

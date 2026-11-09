@@ -49,14 +49,12 @@ async fn process_endpoint_pending_probe_retains_original_until_native_close_and_
                         .await
                     {
                         Ok(mut probe) => {
-                            assert!(
-                                probe
-                                    .close(deadline)
-                                    .await
-                                    .unwrap()
-                                    .unwrap()
-                                    .matches(&probe)
-                            );
+                            assert!(probe
+                                .close(deadline)
+                                .await
+                                .unwrap()
+                                .unwrap()
+                                .matches(&probe));
                             break;
                         }
                         Err(error) => {

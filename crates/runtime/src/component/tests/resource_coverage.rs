@@ -1,6 +1,6 @@
 use super::*;
 use std::{num::NonZeroUsize, time::Duration};
-use zero_core::{Address, request::Destination};
+use zero_core::{request::Destination, Address};
 use zero_platform_tokio::contract::component::{DeviceOwnership, ResourceAccess};
 fn one() -> NonZeroUsize {
     NonZeroUsize::new(1).unwrap()
@@ -160,12 +160,11 @@ async fn canonical_file_tcp_udp_entries_follow_original_ordinals_and_real_closur
     let closed = grants.io_evidence();
     assert!(closed.admission_closed && closed.physical_confirmed());
     assert!(tcp.local_addr().is_err());
-    assert!(
-        udp.tx
-            .send_to_addr(b"closed", "127.0.0.1:9".parse().unwrap())
-            .await
-            .is_err()
-    );
+    assert!(udp
+        .tx
+        .send_to_addr(b"closed", "127.0.0.1:9".parse().unwrap())
+        .await
+        .is_err());
     // Hold both actual replacements through the remainder of the assertions.
     // Rebinding supplements the owner's syscall receipt; it cannot mint one.
     let _tcp_rebound = rebound(|| std::net::TcpListener::bind(address)).await;

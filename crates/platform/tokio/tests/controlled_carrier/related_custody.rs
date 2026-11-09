@@ -119,13 +119,11 @@ async fn only_the_stored_actual_pair_controller_retains_parent_cleanup() {
         assert_eq!(peer.recv_from(&mut bytes).await.unwrap().0, 8);
         drop(tcp);
         drop(tcp_view);
-        assert!(
-            !receiving
-                .retire(Instant::now() + Duration::from_millis(5))
-                .await
-                .unwrap()
-                .is_complete()
-        );
+        assert!(!receiving
+            .retire(Instant::now() + Duration::from_millis(5))
+            .await
+            .unwrap()
+            .is_complete());
         assert!(parent.closed().is_none() && child.closed().is_none());
         drop(io);
         assert!(receiving.retire(deadline()).await.unwrap().is_complete());

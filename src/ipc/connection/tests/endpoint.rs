@@ -2,7 +2,7 @@ mod statistics;
 mod support;
 
 use serde_json::json;
-use support::{Fixture, Ipc, PausedReconciler, applied, conditional, state};
+use support::{applied, conditional, state, Fixture, Ipc, PausedReconciler};
 use tokio::net::UdpSocket;
 
 #[tokio::test]
@@ -120,13 +120,11 @@ async fn ipc_endpoint_bind_failure_reports_rollback_and_restores_stopped_intent(
         .await;
     assert!(!response.ok);
     assert_eq!(response.error.as_ref().unwrap().code, "internal");
-    assert!(
-        response
-            .error
-            .unwrap()
-            .message
-            .contains("restored previous")
-    );
+    assert!(response
+        .error
+        .unwrap()
+        .message
+        .contains("restored previous"));
     let restored = ipc.endpoint().await;
     assert_eq!(restored["intent_revision"], stopped["intent_revision"]);
     assert_eq!(restored["enabled"], false);
@@ -217,8 +215,8 @@ async fn ipc_live_outbound_contraction_preserves_resource_and_checks_stale_inten
     let directions =
         json!({"endpoint_id":"endpoint:ipc-test","directions":{"inbound":true,"outbound":false}});
     assert_eq!(
-        original["supported"]["operation_capabilities"]["set_directions"]["live_direction_contraction"]
-            ["outbound"],
+        original["supported"]["operation_capabilities"]["set_directions"]
+            ["live_direction_contraction"]["outbound"],
         true
     );
     let narrowed = applied(

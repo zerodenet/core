@@ -2,7 +2,7 @@
 use super::{
     business_demand::AdmittedBusinessDemand,
     direct_bridge::Invocation,
-    instance::{ComponentSlot, invalid},
+    instance::{invalid, ComponentSlot},
 };
 use std::sync::{Arc, Weak};
 use tokio::time::Instant;
@@ -10,7 +10,7 @@ use zero_core::{component::SessionId, request::Destination};
 use zero_engine::Engine;
 use zero_platform_tokio::{
     contract::{
-        CancellationToken, ChannelError, Reason, context::RequestIdentity, network::UpstreamBinding,
+        context::RequestIdentity, network::UpstreamBinding, CancellationToken, ChannelError, Reason,
     },
     controlled_carrier::{CarrierBusinessDemand, CarrierBusinessGrant, CarrierGrant},
 };

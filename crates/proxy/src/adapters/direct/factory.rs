@@ -67,8 +67,10 @@ impl DirectOptions {
     ) -> Self {
         if let (Some(control), Some(runtime)) = (&mut self.control, runtime) {
             // RuntimeConfig was validated before this cold producer runs.
-            control.max_sockets = NonZeroUsize::new(runtime.effective_direct_max_originals()).unwrap();
-            control.max_refresh_tasks = NonZeroUsize::new(runtime.effective_direct_max_tasks()).unwrap();
+            control.max_sockets =
+                NonZeroUsize::new(runtime.effective_direct_max_originals()).unwrap();
+            control.max_refresh_tasks =
+                NonZeroUsize::new(runtime.effective_direct_max_tasks()).unwrap();
         }
         self
     }

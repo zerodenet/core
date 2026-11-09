@@ -1,7 +1,10 @@
 //! Lazy initialization of this one concrete Host control duty.
 use super::*;
 impl EmbeddedCommandOwner {
-    pub(super) async fn ensure(self: &Arc<Self>, limit: usize) -> Result<TaskRegistrar, ChannelError> {
+    pub(super) async fn ensure(
+        self: &Arc<Self>,
+        limit: usize,
+    ) -> Result<TaskRegistrar, ChannelError> {
         let _serial = self.serial.lock().await;
         self.validate_limit(limit)
             .map_err(|e| fault(Reason::Capacity).with_source(e))?;

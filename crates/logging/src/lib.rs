@@ -19,7 +19,10 @@ mod rotation_tests;
 
 mod owned;
 mod scoped;
-pub use owned::{IoFailure, IoPhase, LoggingBudgetCandidate, LoggingFailure, LoggingHandle, LoggingUsage, ScopedTracing};
+pub use owned::{
+    IoFailure, IoPhase, LoggingBudgetCandidate, LoggingFailure, LoggingHandle, LoggingUsage,
+    ScopedTracing,
+};
 
 // ── public API ────────────────────────────────────────────────────────
 

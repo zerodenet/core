@@ -127,7 +127,8 @@ impl super::super::VlessAdapter {
             )
             .map_err(|source| ConfigError::InvalidRuntime(source.to_string()))?;
         let tls = zero_traits::ClientTlsProfile::tls_options(quic.as_ref());
-        let ech = tls.ech
+        let ech = tls
+            .ech
             .source()
             .map_err(|source| ConfigError::InvalidOutbound(source.into()))?;
         if zero_core::address::parse_ip_literal(server).is_none()

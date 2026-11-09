@@ -14,8 +14,7 @@ use zero_core::{
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::{
     datagram::{recv, send, DatagramLimits, DatagramRequest, DatagramRx, DatagramTx},
-    ChannelError,
-    CloseReason, Impact, Reason, Stage,
+    ChannelError, CloseReason, Impact, Reason, Stage,
 };
 pub(super) struct DatagramConnection {
     tx: Mutex<Pin<Box<dyn DatagramTx>>>,

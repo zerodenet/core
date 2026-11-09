@@ -8,12 +8,12 @@ use zero_platform_tokio::{
         scope::TaskScopeIdentity,
     },
     controlled_datagram::{
-        DatagramOwnerReport,
         metadata::{
-            MetadataDatagramControl, MetadataLimits, MetadataOwner,
             source_totals::{MetadataSourceTotals, MetadataSourceUsers},
             users::MetadataUsersClosedReceipt,
+            MetadataDatagramControl, MetadataLimits, MetadataOwner,
         },
+        DatagramOwnerReport,
     },
 };
 mod acquisition;

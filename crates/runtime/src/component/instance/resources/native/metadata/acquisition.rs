@@ -1,6 +1,6 @@
 use super::*;
 use zero_platform_tokio::controlled_datagram::{
-    AcquisitionOutcome, metadata::GrantedMetadataDatagram,
+    metadata::GrantedMetadataDatagram, AcquisitionOutcome,
 };
 impl HostResources {
     pub(in crate::component::instance::resources::native) fn bind_metadata(

@@ -214,7 +214,10 @@ impl PacketSourcePause {
             state.serial
         };
         #[cfg(test)]
-        eprintln!("actual Packet pause MAIN requested: instance={:?} request={request}", self.instance);
+        eprintln!(
+            "actual Packet pause MAIN requested: instance={:?} request={request}",
+            self.instance
+        );
         let guard = PacketSourcePaused {
             original: self.clone(),
             request,
@@ -243,7 +246,12 @@ impl PacketSourcePause {
                 }
                 #[cfg(test)]
                 {
-                    let actual = (state.acquiring, state.acknowledged, state.checkpoints_requested, state.wire_requested);
+                    let actual = (
+                        state.acquiring,
+                        state.acknowledged,
+                        state.checkpoints_requested,
+                        state.wire_requested,
+                    );
                     if observed != Some(actual) {
                         eprintln!("actual Packet pause waiting: instance={:?} request={request} wire={wire} acquiring={} acknowledgements={:?} checkpoints_requested={} wire_requested={}", self.instance, actual.0, actual.1, actual.2, actual.3);
                         observed = Some(actual);

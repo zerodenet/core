@@ -67,13 +67,11 @@ impl NativeGrpcStream {
                 }
             }));
         }
-        let result = std::task::ready!(
-            failure
-                .as_mut()
-                .expect("native gRPC driver failure")
-                .as_mut()
-                .poll(cx)
-        );
+        let result = std::task::ready!(failure
+            .as_mut()
+            .expect("native gRPC driver failure")
+            .as_mut()
+            .poll(cx));
         *failure = None;
         Poll::Ready(result)
     }

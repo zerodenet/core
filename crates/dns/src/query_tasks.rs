@@ -5,10 +5,10 @@ use std::{
     num::NonZeroUsize,
     sync::{Arc, Mutex, OnceLock},
 };
-use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, oneshot};
+use tokio::sync::{oneshot, Notify, OwnedSemaphorePermit, Semaphore};
 use zero_platform_tokio::contract::{
-    CancellationToken, ChannelError,
     scope::{TaskClass, TaskId, TaskJoinWitness, TaskRegistrar, WeakTaskRegistrar},
+    CancellationToken, ChannelError,
 };
 
 tokio::task_local! {

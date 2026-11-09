@@ -1,8 +1,8 @@
 //! A real failed task and held native view remain distinct across cleanup retries.
 use super::*;
 #[tokio::test]
-async fn repeated_retirement_retains_each_actual_task_fault_once_while_the_native_view_is_still_held()
- {
+async fn repeated_retirement_retains_each_actual_task_fault_once_while_the_native_view_is_still_held(
+) {
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         let epoch = epoch(
             EgressInterfaceControl::default().generation(),
@@ -53,13 +53,11 @@ async fn repeated_retirement_retains_each_actual_task_fault_once_while_the_nativ
         assert!(epoch.closed());
         let closed = native.adoption.closed().unwrap();
         assert!(closed.matches(&native.adoption) && closed.had_native_acquisition());
-        assert!(
-            native
-                .adoption
-                .users_closed()
-                .unwrap()
-                .matches(&native.adoption)
-        );
+        assert!(native
+            .adoption
+            .users_closed()
+            .unwrap()
+            .matches(&native.adoption));
         assert_eq!(peer.read(&mut [0; 1]).await.unwrap(), 0);
         assert_eq!(epoch.task_reports.lock().unwrap().len(), 1);
         let mut source = Some(&fault as &(dyn std::error::Error + 'static));

@@ -37,7 +37,10 @@ impl<T> Options<T> {
         self.preparation_jobs = true;
         self
     }
-    pub(crate) fn with_cleanup_network(mut self, network: Arc<crate::component::background::BackgroundNetwork>) -> Self {
+    pub(crate) fn with_cleanup_network(
+        mut self,
+        network: Arc<crate::component::background::BackgroundNetwork>,
+    ) -> Self {
         self.cleanup_network = Some(network);
         self
     }

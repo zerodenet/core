@@ -9,7 +9,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use windows_sys::Win32::{
-    Globalization::{CSTR_EQUAL, CSTR_LESS_THAN, CompareStringOrdinal},
+    Globalization::{CompareStringOrdinal, CSTR_EQUAL, CSTR_LESS_THAN},
     Storage::FileSystem::{GetFileAttributesW, GetFullPathNameW, INVALID_FILE_ATTRIBUTES},
     System::SystemInformation::{GetSystemDirectoryW, GetWindowsDirectoryW},
 };

@@ -1,9 +1,7 @@
 use super::*;
 use zero_core::{request::Destination, Address};
 use zero_platform_tokio::{
-    contract::{
-        network::{CarrierContext, UpstreamBinding, UpstreamOpener},
-    },
+    contract::network::{CarrierContext, UpstreamBinding, UpstreamOpener},
     controlled_carrier::{CarrierCandidates, NativeCarrierOpener},
 };
 

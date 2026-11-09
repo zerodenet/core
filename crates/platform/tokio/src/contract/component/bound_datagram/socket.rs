@@ -1,8 +1,8 @@
 use super::super::super::{DeliveryState, Impact, Reason, Stage};
 use super::*;
 use crate::{
-    EgressInterface,
     controlled_datagram::{DatagramCloseReceipt, DatagramReservationId},
+    EgressInterface,
 };
 use std::{
     future::poll_fn,

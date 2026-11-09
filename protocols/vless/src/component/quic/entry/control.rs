@@ -7,8 +7,7 @@ use std::{
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use zero_platform_tokio::contract::{
     lifecycle::{ChannelControl, CloseReport, DynChannelControl},
-    BoxFuture,
-    CloseReason,
+    BoxFuture, CloseReason,
 };
 pub(in crate::component::quic) struct ProtocolControl(pub PacketMetadataArc<Owners>);
 impl DynChannelControl for ProtocolControl {

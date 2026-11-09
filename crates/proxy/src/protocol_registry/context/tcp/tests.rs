@@ -46,15 +46,19 @@ async fn a_failed_actual_catalog_result_cannot_select_legacy_tcp_preparation() {
 #[cfg(feature = "tls-ech-runtime")]
 #[tokio::test]
 async fn independent_services_borrow_the_same_actual_host_ech_cache_owner() {
-    let config=zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap();
-    let proxy=crate::Proxy::new(config.clone()).unwrap();
-    let source=proxy.current_service_source().upgrade().unwrap();
-    let first=source.runtime_services().unwrap().upstream().ech_resolver();
-    let second=source.runtime_services().unwrap().upstream().ech_resolver();
-    let ordinary=proxy.tcp_runtime_services().upstream().ech_resolver();
-    assert!(Arc::ptr_eq(&first,&second));
-    assert!(Arc::ptr_eq(&first,&ordinary));
-    let other=crate::Proxy::new(config).unwrap();
-    let unrelated=other.tcp_runtime_services().upstream().ech_resolver();
-    assert!(!Arc::ptr_eq(&first,&unrelated),"different actual hosts cannot share this cache owner");
+    let config =
+        zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap();
+    let proxy = crate::Proxy::new(config.clone()).unwrap();
+    let source = proxy.current_service_source().upgrade().unwrap();
+    let first = source.runtime_services().unwrap().upstream().ech_resolver();
+    let second = source.runtime_services().unwrap().upstream().ech_resolver();
+    let ordinary = proxy.tcp_runtime_services().upstream().ech_resolver();
+    assert!(Arc::ptr_eq(&first, &second));
+    assert!(Arc::ptr_eq(&first, &ordinary));
+    let other = crate::Proxy::new(config).unwrap();
+    let unrelated = other.tcp_runtime_services().upstream().ech_resolver();
+    assert!(
+        !Arc::ptr_eq(&first, &unrelated),
+        "different actual hosts cannot share this cache owner"
+    );
 }

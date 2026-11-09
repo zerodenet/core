@@ -3,12 +3,12 @@ use super::*;
 use std::{io, num::NonZeroUsize};
 use zero_platform_tokio::{
     contract::{
-        DeliveryState, RetryClass, Stage,
         lifecycle::{CloseReport, Unfinished},
+        DeliveryState, RetryClass, Stage,
     },
     controlled_datagram::{
-        AcquisitionOutcome, ControlledDatagramOwner, DatagramOwnerReport,
-        listener::ControlledDatagramListenerControl,
+        listener::ControlledDatagramListenerControl, AcquisitionOutcome, ControlledDatagramOwner,
+        DatagramOwnerReport,
     },
 };
 

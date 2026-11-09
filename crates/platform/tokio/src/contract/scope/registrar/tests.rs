@@ -111,11 +111,9 @@ async fn weak_registration_cannot_bypass_suspended_hosted_start_or_receipt_credi
         })
         .unwrap();
     observed.await.unwrap();
-    assert!(
-        owner
-            .poll_exit(&mut Context::from_waker(Waker::noop()))
-            .is_pending()
-    );
+    assert!(owner
+        .poll_exit(&mut Context::from_waker(Waker::noop()))
+        .is_pending());
     assert!(!witness.is_joined());
     assert_eq!(
         weak.spawn(TaskClass::Critical, async { Ok(()) }),
@@ -255,11 +253,9 @@ async fn capacity_observation_keeps_real_pending_and_joined_unacknowledged_sourc
         .unwrap();
     pending.await.unwrap();
     assert!(!witness.is_joined());
-    assert!(
-        tasks
-            .check_capacity(std::num::NonZeroUsize::new(1).unwrap())
-            .is_ok()
-    );
+    assert!(tasks
+        .check_capacity(std::num::NonZeroUsize::new(1).unwrap())
+        .is_ok());
     assert_eq!(
         tasks.check_capacity(std::num::NonZeroUsize::new(2).unwrap()),
         Err(SpawnError::Capacity)
@@ -273,11 +269,9 @@ async fn capacity_observation_keeps_real_pending_and_joined_unacknowledged_sourc
         Err(SpawnError::Capacity)
     );
     scope.acknowledge(&receipt).unwrap();
-    assert!(
-        tasks
-            .check_capacity(std::num::NonZeroUsize::new(2).unwrap())
-            .is_ok()
-    );
+    assert!(tasks
+        .check_capacity(std::num::NonZeroUsize::new(2).unwrap())
+        .is_ok());
     scope.begin_shutdown();
     assert!(scope.next_receipt().await.is_none());
 }

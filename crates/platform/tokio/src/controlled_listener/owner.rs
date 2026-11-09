@@ -1,9 +1,9 @@
 //! Install this owner before calling bind; no native work occurs in `new`.
 use super::*;
 use crate::contract::{
-    ChannelError, CloseReason, DeliveryState, Impact, Reason, RetryClass, Stage,
     component::ResourceDeclaration,
     lifecycle::{ChannelControl, CloseReport},
+    ChannelError, CloseReason, DeliveryState, Impact, Reason, RetryClass, Stage,
 };
 use std::{net::IpAddr, num::NonZeroUsize};
 use tokio::time::Instant;
