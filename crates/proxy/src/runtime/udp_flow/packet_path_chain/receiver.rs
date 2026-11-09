@@ -144,7 +144,7 @@ impl Receiver {
         let error_layout = RetainedError::metadata_layout().map_err(memory_failure)?;
         let total = layout.checked_add(error_layout).map_err(memory_failure)?;
         let mut credit = self.memory.reserve(total).map_err(memory_failure)?;
-        let error_credit = credit.split_off(error_layout).map_err(memory_failure)?;
+        let error_credit = credit.split(error_layout).map_err(memory_failure)?;
         let source = PacketMetadataArc::from_prepaid(
             PathFailure {
                 original: std::sync::OnceLock::new(),
