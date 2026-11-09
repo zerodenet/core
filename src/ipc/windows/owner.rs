@@ -74,7 +74,18 @@ impl Originals {
         }
     }
     pub(super) fn request_stop(&self) {
-        for entry in lock(&self.0).iter() {
+        // An original may synchronously wake an external IO waiter. Retain
+        // only this one actual entry before leaving the registration lock.
+        let last = self.1.load(Ordering::Acquire);
+        let mut cursor = 0;
+        loop {
+            let next = lock(&self.0)
+                .iter()
+                .filter(|entry| entry.ordinal > cursor && entry.ordinal <= last)
+                .min_by_key(|entry| entry.ordinal)
+                .cloned();
+            let Some(entry) = next else { break };
+            cursor = entry.ordinal;
             entry.original.request_stop();
         }
     }
@@ -173,3 +184,7 @@ impl std::error::Error for ScopeFault {
         self.0.failed_tasks.first().map(|failed| &failed.error as _)
     }
 }
+
+#[cfg(test)]
+#[path = "owner/stop.rs"]
+mod stop;
