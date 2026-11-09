@@ -120,6 +120,10 @@ impl DeclaredReceiver {
                 node = retained.as_ref();
             } else if let Some(retained) = source.downcast_ref::<ChannelError>() {
                 node = retained;
+            } else if let Some(retained) = source.downcast_ref::<RetainedError>() {
+                // The sealed forwarding owner is another concrete diagnostic
+                // form. Inspect its exact cause without arbitrary source walks.
+                node = retained.as_ref();
             } else {
                 return false;
             }

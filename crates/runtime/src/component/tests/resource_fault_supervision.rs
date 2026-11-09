@@ -91,12 +91,18 @@ async fn original_fault_blocks_reuse_without_fake_task_and_actual_close_allows_f
     );
     assert!(!old.can_reuse());
     assert!(!old.has_started());
+    assert_eq!(root.carrier.snapshot().charged, 1);
+    assert!(!grant.native_closed());
     let rejected = host.drive(old.start(end)).await.unwrap_err();
     let same = rejected
         .retained_source()
         .expect("exact canonical resource fault Arc");
     assert!(std::ptr::eq(same.as_ref(), fault.source.as_ref()));
-    assert_eq!(root.carrier.snapshot().charged, 1);
+    // The actual inline Host scan has now received the fault and retired this
+    // taskless original. Its matching native receipt, not the failed restart,
+    // permits the Root refund; the same fault still survives into shutdown.
+    assert!(grant.native_closed());
+    assert_eq!(root.carrier.snapshot().charged, 0);
     let report = host.drive(old.shutdown(end)).await.unwrap();
     assert!(report.is_complete());
     assert!(grant.native_closed());
