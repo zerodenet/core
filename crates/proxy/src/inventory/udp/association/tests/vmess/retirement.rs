@@ -52,7 +52,7 @@ async fn ordinary_vmess_datagram_host_reclaims_last_original_without_stopping_ad
         {
             let (_, tasks, _) = dispatch.poll_sockets();
             let packet = tasks.join_next_with_id().await.unwrap().unwrap().unwrap();
-            assert_eq!(packet.2, b"retire");
+            assert_eq!(packet.2.as_ref(), b"retire");
         }
         let retired = proxy.tcp_runtime_services().execution().retired_datagrams();
         // Fill only real admission reservations, not sockets or dummy controls.

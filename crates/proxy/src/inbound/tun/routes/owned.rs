@@ -1,5 +1,7 @@
 //! Two original route responsibilities in the same System TUN Source Scope.
+mod memory;
 mod monitor;
+pub(in crate::inbound::tun) use memory::{copy_addresses, copy_key, copy_prefixes};
 mod native;
 mod worker;
 use super::*;
@@ -16,9 +18,10 @@ use zero_platform_tokio::contract::{
     scope::{TaskClass, TaskJoinWitness, TaskRegistrar},
     CancellationToken, ChannelError, CloseReason, Impact, Reason, Stage,
 };
+use zero_tun::packet_memory::{PacketMetadataArc, PacketMetadataCredit, PacketMetadataLayout};
 type SourceError = Arc<io::Error>;
 #[derive(Clone)]
-pub(in crate::inbound::tun) struct OwnedRoutes(Arc<Shared>);
+pub(in crate::inbound::tun) struct OwnedRoutes(zero_tun::packet_memory::PacketMetadataArc<Shared>);
 struct Shared {
     proxy: Proxy,
     metadata: Arc<crate::inbound::tun::source::SystemTunSourceState>,
@@ -52,28 +55,6 @@ enum Job {
     Close,
 }
 impl OwnedRoutes {
-    pub(in crate::inbound::tun) fn new(
-        proxy: Proxy,
-        spec: RouteRuntimeSpec,
-        metadata: Arc<crate::inbound::tun::source::SystemTunSourceState>,
-        cancel: CancellationToken,
-    ) -> Self {
-        let (jobs, received) = mpsc::channel(1);
-        Self(Arc::new(Shared {
-            proxy,
-            metadata,
-            native: Mutex::new(native::Native::new(spec)),
-            observed: Mutex::default(),
-            changed: Notify::new(),
-            cancel,
-            closing: AtomicBool::new(false),
-            jobs,
-            received: Mutex::new(Some(received)),
-            monitor_io: tokio::sync::Mutex::new(RouteChangeMonitor::prepare()),
-            worker: OnceLock::new(),
-            monitor: OnceLock::new(),
-        }))
-    }
     pub(in crate::inbound::tun) fn resource(&self) -> Box<dyn DynResourceLifecycle> {
         erase_lifecycle(self.clone())
     }
@@ -286,3 +267,7 @@ impl std::error::Error for SharedError {
         Some(self.0.as_ref())
     }
 }
+
+#[cfg(test)]
+#[path = "owned/tests/metadata.rs"]
+mod metadata_tests;

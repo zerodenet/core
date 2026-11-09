@@ -1,7 +1,7 @@
 //! The original route-monitor task drives the single retained SDK job lane.
 use super::*;
 pub(super) async fn run(
-    original: Arc<Shared>,
+    original: PacketMetadataArc<Shared>,
     recovery: mpsc::Receiver<oneshot::Sender<Result<(), String>>>,
 ) -> Result<(), ChannelError> {
     let result = run_inner(&original, recovery).await;
@@ -10,7 +10,7 @@ pub(super) async fn run(
     result
 }
 async fn run_inner(
-    original: &Arc<Shared>,
+    original: &PacketMetadataArc<Shared>,
     mut recovery: mpsc::Receiver<oneshot::Sender<Result<(), String>>>,
 ) -> Result<(), ChannelError> {
     let interface = tokio::select! { biased;

@@ -132,3 +132,6 @@ async fn ordinary_cached_datagrams_keep_one_original_for_reordered_targets_empty
         let joined=driver.try_joined().expect("actual original receive driver joined");assert!(driver.matches_joined(&joined));assert!(joined.registration_released());
     }).await.unwrap();
 }
+
+#[path = "ordinary/packet_chain.rs"]
+mod packet_chain;

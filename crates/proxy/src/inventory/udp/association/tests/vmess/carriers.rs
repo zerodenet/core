@@ -65,7 +65,7 @@ async fn ordinary_vmess_datagram_preserves_tls_ws_early_data_and_wss_carriers() 
             .unwrap()
             .unwrap()
             .unwrap();
-        assert_eq!(packet.2, b"carrier");
+        assert_eq!(packet.2.as_ref(), b"carrier");
         assert_eq!(
             proxy
                 .engine()

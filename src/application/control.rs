@@ -68,13 +68,11 @@ pub async fn execute(command: Command, client: &Caller) -> Result<(), Box<dyn Er
             config_path,
             socket_path,
         } => {
-            let raw = zero_runtime::configuration::ConfigurationSource::read_initial_document(
-                &config_path,
-            )?;
-            let config = client.raw_json(&raw)?;
+            let raw = client.read_document(&config_path)?;
+            let config = client.raw_json(raw.as_ref())?;
             #[derive(serde::Serialize)]
             struct Params<'a> {
-                config: &'a serde_json::value::RawValue,
+                config: &'a crate::ipc::client::RawInput<'a>,
             }
             send_command(
                 client,

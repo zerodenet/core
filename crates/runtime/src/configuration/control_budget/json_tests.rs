@@ -34,3 +34,26 @@ fn malformed_escaped_prefix_and_measurement_workspace_are_bounded_before_parsing
     );
     assert_eq!(book.usage().request_bytes, 0);
 }
+
+#[test]
+fn actual_response_measurement_uses_only_its_same_response_byte_dimension() {
+    let book = book();
+    let mut limits = book.limits();
+    limits.messages.request_bytes_total = 1;
+    book.prepare(limits).unwrap().commit().unwrap();
+    let raw = br#"{"key":[1,2,3]}"#;
+    assert!(
+        control_json_response_storage_bound(raw, &book, ControlJsonStorage::Value).unwrap()
+            > raw.len()
+    );
+    assert_eq!(book.usage().request_bytes, 0);
+    assert_eq!(book.usage().response_bytes, 0);
+    let mut limits = book.limits();
+    limits.messages.response_bytes_total = 1;
+    book.prepare(limits).unwrap().commit().unwrap();
+    assert!(
+        matches!(control_json_response_storage_bound(raw,&book,ControlJsonStorage::Value),Err(ref e) if e.kind()==io::ErrorKind::WouldBlock)
+    );
+    assert_eq!(book.usage().request_bytes, 0);
+    assert_eq!(book.usage().response_bytes, 0);
+}

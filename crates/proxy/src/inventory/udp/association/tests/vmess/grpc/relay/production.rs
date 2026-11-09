@@ -47,7 +47,7 @@ async fn ordinary_vmess_grpc_mux_prefix_uses_one_hosted_original_for_two_real_h2
                     .unwrap();
                 let id = first.dispatch(input(53, b"ordinary")).await.unwrap();
                 let packet = response(&mut first).await;
-                assert_eq!(packet.2, b"ordinary");
+                assert_eq!(packet.2.as_ref(), b"ordinary");
                 crate::runtime::udp_delivery::record_chain_udp_response_parts(
                     &proxy.udp_runtime_services(),
                     &first,
@@ -144,7 +144,7 @@ async fn ordinary_vmess_grpc_mux_prefix_compat_udp_uses_actual_pool_without_bloc
                     let snapshot=proxy.engine().active_sessions().into_iter().find(|s|s.id==id).unwrap();
                     assert_eq!(snapshot.outbound_tag.as_deref(),Some(tag));
 
-                    let packet=response(&mut dispatch).await;assert_eq!(packet.2,payload);
+                    let packet=response(&mut dispatch).await;assert_eq!(packet.2.as_ref(),payload);
                     crate::runtime::udp_delivery::record_chain_udp_response_parts(&proxy.udp_runtime_services(),&dispatch,packet.0,packet.1,packet.2,packet.3);
                     let session=proxy.engine().active_sessions().into_iter().find(|s|s.id==id).unwrap();
                     sent+=payload.len() as u64+9;received+=payload.len() as u64;

@@ -17,7 +17,7 @@ pub fn control_json_storage_bound(
     book: &Arc<ControlBudget>,
     kind: ControlJsonStorage,
 ) -> io::Result<usize> {
-    estimate::measure(raw, book, kind)
+    estimate::measure(raw, book, kind, false)
 }
 pub fn control_json_decoder_workspace(raw: &[u8]) -> io::Result<usize> {
     estimate::scratch(raw)
@@ -32,3 +32,13 @@ pub fn control_json_map_bound(entries: usize) -> io::Result<usize> {
 #[cfg(test)]
 #[path = "json_tests.rs"]
 mod tests;
+
+/// Same pure measurement for an actual response owner. The temporary parser
+/// workspace is prepaid only from this book's ResponseBytes dimension.
+pub fn control_json_response_storage_bound(
+    raw: &[u8],
+    book: &Arc<ControlBudget>,
+    kind: ControlJsonStorage,
+) -> io::Result<usize> {
+    estimate::measure(raw, book, kind, true)
+}

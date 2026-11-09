@@ -3,8 +3,9 @@ use super::*;
 use zero_tun::{RouteInstallRequest, SystemLeakGuard, SystemRouteGuard};
 pub(super) struct Native {
     pub spec: RouteRuntimeSpec,
-    families: Vec<Family>,
+    families: Families,
     leak: Option<SystemLeakGuard>,
+    _inputs: zero_tun::packet_memory::PacketMetadataCredit,
 }
 struct Family {
     original: Option<SystemRouteGuard>,
@@ -20,20 +21,68 @@ pub(in crate::inbound::tun) struct Snapshot {
     pub changed: bool,
 }
 impl Native {
-    pub fn new(spec: RouteRuntimeSpec) -> Self {
-        let families = spec
-            .addresses
-            .iter()
-            .map(|_| Family {
+    pub(super) fn families_layout(
+        count: usize,
+    ) -> Result<
+        zero_tun::packet_memory::PacketMetadataLayout,
+        zero_tun::packet_memory::PacketMemoryError,
+    > {
+        zero_tun::packet_memory::PacketMetadataLayout::array::<Family>(count)
+    }
+    pub(super) fn from_prepaid(
+        spec: RouteRuntimeSpec,
+        credit: zero_tun::packet_memory::PacketMetadataCredit,
+        inputs: zero_tun::packet_memory::PacketMetadataCredit,
+    ) -> Result<Self, ChannelError> {
+        let expected = Self::families_layout(spec.addresses.len()).map_err(|source| {
+            error(Reason::Capacity, "route family layout overflow").with_source(source)
+        })?;
+        if credit.layout() != expected {
+            return Err(error(Reason::Internal, "route family credit mismatch"));
+        }
+        let actual = zero_tun::packet_memory::PacketMetadataLayout::array::<(IpAddr, IpAddr)>(
+            spec.addresses.capacity(),
+        )
+        .and_then(|layout| {
+            layout.checked_add(zero_tun::packet_memory::PacketMetadataLayout::array::<
+                ipnet::IpNet,
+            >(spec.include_cidrs.capacity())?)
+        })
+        .and_then(|layout| {
+            layout.checked_add(zero_tun::packet_memory::PacketMetadataLayout::array::<
+                ipnet::IpNet,
+            >(spec.exclude_cidrs.capacity())?)
+        })
+        .and_then(|layout| {
+            layout.checked_add(zero_tun::packet_memory::PacketMetadataLayout::array::<u8>(
+                spec.recovery_key.capacity(),
+            )?)
+        })
+        .map_err(|source| {
+            error(Reason::Capacity, "actual route input layout overflow").with_source(source)
+        })?;
+        if inputs.layout() != actual || spec.tun_name.capacity() != 0 {
+            return Err(error(
+                Reason::Internal,
+                "route input allocations do not match their prepaid layout",
+            ));
+        }
+        let mut families = Box::<[Family]>::new_uninit_slice(spec.addresses.len());
+        for family in &mut families {
+            family.write(Family {
                 original: None,
                 installed: false,
-            })
-            .collect();
-        Self {
-            spec,
-            families,
-            leak: None,
+            });
         }
+        Ok(Self {
+            spec,
+            families: Families {
+                values: unsafe { families.assume_init() },
+                _credit: credit,
+            },
+            leak: None,
+            _inputs: inputs,
+        })
     }
     pub fn install(
         &mut self,
@@ -55,7 +104,7 @@ impl Native {
             .spec
             .strict_route
             .then(|| strict_route_socket_mark(&self.spec.recovery_key));
-        for ((address, netmask), slot) in self.spec.addresses.iter().zip(&mut self.families) {
+        for ((address, netmask), slot) in self.spec.addresses.iter().zip(self.families.iter_mut()) {
             let result = if slot.installed {
                 slot.original
                     .as_mut()
@@ -205,5 +254,22 @@ impl std::fmt::Display for NativeCloseFailures {
 impl std::error::Error for NativeCloseFailures {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         self.0.first().map(|source| source as _)
+    }
+}
+
+// Concrete array owner; actual Box deallocates BEFORE its exact layout refunds.
+struct Families {
+    values: Box<[Family]>,
+    _credit: zero_tun::packet_memory::PacketMetadataCredit,
+}
+impl std::ops::Deref for Families {
+    type Target = [Family];
+    fn deref(&self) -> &[Family] {
+        &self.values
+    }
+}
+impl std::ops::DerefMut for Families {
+    fn deref_mut(&mut self) -> &mut [Family] {
+        &mut self.values
     }
 }

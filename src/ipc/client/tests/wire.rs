@@ -117,3 +117,112 @@ async fn unterminated_escape_scratch_stays_paid_with_its_actual_decode_error() {
     drop(error);
     assert_eq!(book.usage().response_bytes, 0);
 }
+
+#[tokio::test]
+async fn actual_magic_subtrees_use_original_value_semantics_without_reinterpreting_sorted_keys() {
+    for raw in [
+        r#"{"$serde_json::private::RawValue":"[1,{\"b\":2,\"a\":1}]"}"#,
+        r#"{"result":{"$serde_json::private::RawValue":"{\"health\":{}}"},"ok":true}"#,
+        r#"{"ordinary":0,"$serde_json::private::RawValue":"not JSON"}"#,
+        r#"[{"x":1},{"$serde_json::private::RawValue":"[true,false]"}]"#,
+    ] {
+        let book = new_book(65536);
+        let reply = reply(raw.as_bytes(), book.clone()).await;
+        let original: serde_json::Value = serde_json::from_str(raw).unwrap();
+        for pretty in [false, true] {
+            let mut out = Vec::new();
+            reply.test_write(&mut out, pretty).unwrap();
+            let expected = if pretty {
+                serde_json::to_vec_pretty(&original).unwrap()
+            } else {
+                serde_json::to_vec(&original).unwrap()
+            };
+            assert_eq!(out, expected);
+        }
+        drop(reply);
+        assert_eq!(book.usage().response_bytes, 0);
+    }
+}
+#[tokio::test]
+async fn typed_response_ignores_unknown_root_value_fields_but_validates_its_actual_value_fields() {
+    for raw in [
+        r#"{"ok":true,"ignored":1e999,"result":{"health":{}}}"#,
+        r#"{"ok":true,"ignored":{"$serde_json::private::RawValue":"bad"},"id":null}"#,
+    ] {
+        let book = new_book(65536);
+        let frame = frames::Frame::read(&mut raw.as_bytes(), &book)
+            .await
+            .unwrap()
+            .unwrap();
+        let old: crate::ipc::protocol::IpcResponse = serde_json::from_str(raw).unwrap();
+        let actual = Reply::new_response(frame, book.clone()).unwrap();
+        assert_eq!(actual.header().unwrap().ok, old.ok);
+        drop(actual);
+        assert_eq!(book.usage().response_bytes, 0);
+    }
+    let book = new_book(65536);
+    let raw = br#"{"ok":true,"result":{"$serde_json::private::RawValue":"bad"}}"#;
+    assert!(serde_json::from_slice::<crate::ipc::protocol::IpcResponse>(raw).is_err());
+    let frame = frames::Frame::read(&mut &raw[..], &book)
+        .await
+        .unwrap()
+        .unwrap();
+    let error = Reply::new_response(frame, book.clone()).err().unwrap();
+    assert!(book.usage().response_bytes > 0);
+    drop(error);
+    assert_eq!(book.usage().response_bytes, 0);
+}
+
+#[tokio::test]
+async fn magic_tun_projection_retains_the_original_query_response_from_value_pass() {
+    let status = zero_api::TunStatusSnapshot {
+        running: true,
+        name: Some("same original".into()),
+        addresses: vec!["10.0.0.1/24".into()],
+        ..Default::default()
+    };
+    let inner = serde_json::to_string(&serde_json::json!({"tun_status":status})).unwrap();
+    let wire = serde_json::json!({"ok":true,"result":{"$serde_json::private::RawValue":inner}})
+        .to_string();
+    let old: crate::ipc::protocol::IpcResponse = serde_json::from_str(&wire).unwrap();
+    let expected = serde_json::from_value::<zero_api::QueryResponse>(old.result.unwrap()).unwrap();
+    let zero_api::QueryResponse::TunStatus(expected) = expected else {
+        panic!("actual original TUN response")
+    };
+    let book = new_book(65536);
+    let frame = frames::Frame::read(&mut wire.as_bytes(), &book)
+        .await
+        .unwrap()
+        .unwrap();
+    let reply = Reply::new_response(frame, book.clone()).unwrap();
+    let actual = reply.tun_status().unwrap();
+    assert_eq!(*actual, expected);
+    drop(reply);
+    assert!(book.usage().response_bytes > 0);
+    drop(actual);
+    assert_eq!(book.usage().response_bytes, 0);
+}
+
+#[test]
+fn reload_raw_input_preserves_old_owned_value_canonical_wire_before_any_dial() {
+    let book = new_book(65536);
+    for raw in [
+        r#"{"z":1e2,"a":2,"a":3}"#,
+        r#"{"$serde_json::private::RawValue":"{\"route\":{\"final\":{\"type\":\"direct\"}}}"}"#,
+        r#"{"ordinary":0,"$serde_json::private::RawValue":"not JSON"}"#,
+    ] {
+        let original: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let actual = crate::ipc::client::RawInput::new(raw, &book).unwrap();
+        assert_eq!(
+            serde_json::to_string(&actual).unwrap(),
+            serde_json::to_string(&original).unwrap()
+        );
+        assert!(book.usage().request_bytes > 0);
+        drop(actual);
+        assert_eq!(book.usage().request_bytes, 0);
+    }
+    let invalid = r#"{"$serde_json::private::RawValue":"bad"}"#;
+    assert!(serde_json::from_str::<serde_json::Value>(invalid).is_err());
+    assert!(crate::ipc::client::RawInput::new(invalid, &book).is_err());
+    assert_eq!(book.usage().request_bytes, 0);
+}

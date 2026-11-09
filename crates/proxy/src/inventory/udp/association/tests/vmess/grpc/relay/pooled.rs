@@ -49,7 +49,7 @@ async fn ordinary_vmess_grpc_mixed_relay_reuses_real_shadowsocks_replay_scope_an
                         .unwrap();
                     let id = flow.dispatch(input(53, b"mixed")).await.unwrap();
                     let packet = response(&mut flow).await;
-                    assert_eq!(packet.2, b"mixed");
+                    assert_eq!(packet.2.as_ref(), b"mixed");
                     crate::runtime::udp_delivery::record_chain_udp_response_parts(
                         &proxy.udp_runtime_services(),
                         &flow,
@@ -127,7 +127,7 @@ async fn hosted_vmess_grpc_pooled_relay_real_mux_loans_share_original_and_preser
                         .unwrap();
                     let id = first.dispatch(input(53, b"pooled")).await.unwrap();
                     let packet = response(&mut first).await;
-                    assert_eq!(packet.2, b"pooled");
+                    assert_eq!(packet.2.as_ref(), b"pooled");
                     crate::runtime::udp_delivery::record_chain_udp_response_parts(
                         &proxy.udp_runtime_services(),
                         &first,

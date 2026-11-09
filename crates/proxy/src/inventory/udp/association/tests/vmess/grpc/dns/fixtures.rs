@@ -159,7 +159,7 @@ pub(super) async fn open(
     packet.client_session_id = Some(identity);
     dispatch.dispatch(packet).await.unwrap();
     let packet = response(&mut dispatch).await;
-    assert_eq!(packet.2, payload);
+    assert_eq!(packet.2.as_ref(), payload);
     crate::runtime::udp_delivery::record_chain_udp_response_parts(
         &proxy.udp_runtime_services(),
         &dispatch,
