@@ -38,6 +38,11 @@ impl MacosHelperAccess {
 }
 impl MacosHelperOwner {
     fn query(&self, query: tool::Query) -> Result<Output, QueryFailure> {
+        if !self.0.io_allowed() {
+            return Err(QueryFailure::Original(io::Error::from(
+                io::ErrorKind::Interrupted,
+            )));
+        }
         let _notifications = self.0.memory.defer_notifications();
         let index = self.0.current.load(Ordering::Acquire);
         let mut epoch = self.0.epochs[index]
@@ -65,64 +70,7 @@ impl MacosHelperOwner {
         }
     }
     fn resolv_conf(&self) -> io::Result<Vec<u8>> {
-        let _notifications = self.0.memory.defer_notifications();
-        let index = self.0.current.load(Ordering::Acquire);
-        let mut epoch = self.0.epochs[index]
-            .lock()
-            .unwrap_or_else(|source| source.into_inner());
-        if epoch
-            .local_file
-            .as_ref()
-            .is_some_and(|original| !original.closed())
-        {
-            return Err(io::Error::other(
-                "same local metadata file has no close receipt",
-            ));
-        }
-        let fd = unsafe {
-            libc::open(
-                c"/etc/resolv.conf".as_ptr(),
-                libc::O_RDONLY | libc::O_CLOEXEC,
-            )
-        };
-        if fd < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        epoch.local_file = Some(Original::new(fd, epoch.id)); // before the first read
-        let result = (|| {
-            let mut output = Vec::new();
-            loop {
-                let mut bytes = [0u8; 4096];
-                let count = unsafe { libc::read(fd, bytes.as_mut_ptr().cast(), bytes.len()) };
-                if count == 0 {
-                    return Ok(output);
-                }
-                if count < 0 {
-                    let source = io::Error::last_os_error();
-                    if source.kind() == io::ErrorKind::Interrupted {
-                        continue;
-                    }
-                    return Err(source);
-                }
-                if output
-                    .len()
-                    .checked_add(count as usize)
-                    .is_none_or(|len| len > self.0.output_limit)
-                {
-                    return Err(io::Error::other(
-                        "system DNS file exceeds actual file-read allowance",
-                    ));
-                }
-                output.extend_from_slice(&bytes[..count as usize]);
-            }
-        })();
-        // Always attempt the one original close, even if reading failed.
-        let close = epoch.local_file.as_mut().unwrap().close_once();
-        if let Err(source) = close {
-            self.0.retain(index, Phase::ToolClose, source);
-            return Err(io::Error::other(self.0.failures.clone().into_error()));
-        }
-        result
+        self.read_file(std::path::Path::new("/etc/resolv.conf"))
     }
 }
 fn require_servers(servers: Vec<IpAddr>) -> io::Result<Vec<IpAddr>> {

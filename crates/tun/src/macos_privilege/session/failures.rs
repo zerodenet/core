@@ -16,9 +16,14 @@ pub(super) enum Phase {
     AuthorizationOutput,
     WakeRead,
     WakeWrite,
+    RouteLockV4,
+    RouteLockV6,
+    RouteTransient,
+    RouteUnlockV4,
+    RouteUnlockV6,
 }
 pub(super) struct Failures {
-    slots: [OnceLock<io::Error>; 22],
+    slots: [OnceLock<io::Error>; 28],
 }
 impl Failures {
     pub(super) fn new() -> Self {
@@ -33,8 +38,12 @@ impl Failures {
         let phase = phase as usize;
         let slot = if phase < 10 {
             epoch * 10 + phase
-        } else {
+        } else if phase < Phase::RouteTransient as usize {
             20 + phase - 10
+        } else if phase == Phase::RouteTransient as usize {
+            24 + epoch
+        } else {
+            26 + phase - Phase::RouteUnlockV4 as usize
         };
         let _ = self.slots[slot].set(source);
     }
@@ -71,5 +80,23 @@ impl std::error::Error for Failures {
             .iter()
             .find_map(OnceLock::get)
             .map(|source| source as _)
+    }
+}
+
+/// A std IO boundary preserves the exact paid error allocation and header.
+/// The no_std metadata owner stays opaque; no format/copy/new error Arc.
+pub(super) fn retained(source: zero_traits::packet_metadata::PacketMetadataError) -> io::Error {
+    io::Error::other(Retained(source))
+}
+#[derive(Debug)]
+struct Retained(zero_traits::packet_metadata::PacketMetadataError);
+impl fmt::Display for Retained {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self.0.as_error(), f)
+    }
+}
+impl std::error::Error for Retained {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.0.as_error())
     }
 }

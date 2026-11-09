@@ -32,6 +32,7 @@ impl MacosHelperOwner {
                     && !self.0.route_held.load(Ordering::Acquire))
             {
                 if ready && !self.0.stopped.load(Ordering::Acquire) {
+                    self.0.stopped.store(true, Ordering::Release);
                     self.0.retain(
                         0,
                         Phase::Shutdown,
@@ -85,7 +86,21 @@ impl MacosHelperOwner {
         let result = loop {
             let result = self.finish_initial();
             self.0.close_actor_wake();
-            if self.0.require_closed().is_ok() {
+            // The initial actor must be able to join before the SAME route
+            // duty can restore routes through epoch one. Its live journal
+            // locks are Source debt, never this actor's own completion gate.
+            if self.0.epochs[0]
+                .lock()
+                .unwrap_or_else(|source| source.into_inner())
+                .require_closed()
+                .is_ok()
+                && self
+                    .0
+                    .wake_io
+                    .lock()
+                    .unwrap_or_else(|source| source.into_inner())
+                    .closed()
+            {
                 break result;
             }
             if let Err(source) = result {
@@ -97,7 +112,7 @@ impl MacosHelperOwner {
             self.wait_original_progress(0);
         };
         match self.failure() {
-            Some(source) => Err(io::Error::other(source)),
+            Some(source) => Err(failures::retained(source)),
             None => result,
         }
     }
@@ -196,7 +211,7 @@ impl MacosHelperOwner {
         }
         self.0.finish_epoch(index, &mut epoch)?;
         match self.failure() {
-            Some(source) => Err(io::Error::other(source)),
+            Some(source) => Err(failures::retained(source)),
             None => Ok(()),
         }
     }

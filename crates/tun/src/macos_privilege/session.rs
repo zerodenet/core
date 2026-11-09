@@ -15,18 +15,23 @@ use std::{
     },
 };
 mod access;
+pub use access::MacosHelperContext;
 mod authorization;
 pub(super) use access::current;
 mod cleanup;
 mod connection;
 mod creation;
 mod failures;
+mod files;
+pub(crate) use files::{
+    journal_lock, journal_read, journal_write, MacosRouteFileAccess, MacosRouteLock,
+};
 mod growth;
 mod native;
 mod progress;
 mod query;
 mod retire;
-pub(super) use query::{route_query, route_table};
+pub(crate) use query::{route_query, route_table};
 mod rpc;
 mod wake;
 use failures::{Failures, Phase};
@@ -40,6 +45,7 @@ pub struct MacosHelperLease {
 }
 struct Session {
     epochs: [Mutex<Epoch>; 2],
+    files: Mutex<files::Files>,
     current: AtomicUsize,
     stopped: AtomicBool,
     route_held: AtomicBool,
@@ -150,6 +156,7 @@ impl MacosHelperOwner {
         let [first, second] = epochs;
         let session = Session {
             epochs: [first.unwrap(), second.unwrap()],
+            files: Mutex::default(),
             current: AtomicUsize::new(0),
             stopped: AtomicBool::new(false),
             route_held: AtomicBool::new(false),
@@ -183,6 +190,9 @@ impl MacosHelperOwner {
         self.0.notify();
     }
     pub fn lease_routes(&self) -> io::Result<MacosHelperLease> {
+        if self.0.stopped.load(Ordering::Acquire) {
+            return Err(io::Error::from(io::ErrorKind::Interrupted));
+        }
         if self.0.route_held.swap(true, Ordering::AcqRel) {
             return Err(io::Error::other(
                 "same Source already has its route helper lease",

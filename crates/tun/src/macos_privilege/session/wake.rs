@@ -56,7 +56,11 @@ impl Wake {
             .map(Original::fd)
     }
     pub(super) fn signal(&self) {
-        if !self.enabled {
+        if !self.enabled
+            || self.ends[0]
+                .as_ref()
+                .is_none_or(|original| !original.usable())
+        {
             return;
         }
         let Some(fd) = self.ends[1]

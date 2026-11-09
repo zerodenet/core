@@ -1,9 +1,15 @@
 //! Only a weak observation crosses the actual provider/Source handoff.
 use super::*;
 use std::{cell::RefCell, process::Output};
-thread_local! {static CURRENT:RefCell<Option<MacosHelperOwner>>=const{RefCell::new(None)};}
+#[derive(Clone)]
+struct Entered {
+    owner: MacosHelperOwner,
+    cleanup: bool,
+}
+thread_local! {static CURRENT:RefCell<Option<Entered>>=const{RefCell::new(None)};}
 pub struct MacosHelperContext {
-    previous: Option<MacosHelperOwner>,
+    previous: Option<Entered>,
+    _thread: std::marker::PhantomData<std::rc::Rc<()>>,
 }
 impl MacosHelperAccess {
     pub fn lease_routes(&self) -> io::Result<MacosHelperLease> {
@@ -29,30 +35,43 @@ impl MacosHelperAccess {
         })?)
         .require_closed()
     }
-    pub fn prepare_cleanup(&self) -> io::Result<MacosHelperContext> {
+    fn prepare_cleanup(&self) -> io::Result<MacosHelperContext> {
         let owner = MacosHelperOwner(
             self.0
                 .upgrade()
                 .ok_or_else(|| io::Error::other("actual helper owner expired"))?,
         );
         owner.0.prepare_cleanup()?;
-        owner.enter()
+        owner.enter_mode(true)
     }
 }
 impl MacosHelperOwner {
     pub fn enter(&self) -> io::Result<MacosHelperContext> {
+        self.enter_mode(false)
+    }
+    pub(super) fn enter_mode(&self, cleanup: bool) -> io::Result<MacosHelperContext> {
         CURRENT.with(|slot| {
             let mut slot = slot.borrow_mut();
             if slot
                 .as_ref()
-                .is_some_and(|current| !current.same_owner(self))
+                .is_some_and(|current| !current.owner.same_owner(self))
             {
                 return Err(io::Error::other(
                     "helper context belongs to another actual native owner",
                 ));
             }
-            let previous = slot.replace(self.clone());
-            Ok(MacosHelperContext { previous })
+            let cleanup = cleanup || slot.as_ref().is_some_and(|current| current.cleanup);
+            if self.0.stopped.load(Ordering::Acquire) && !cleanup {
+                return Err(io::Error::from(io::ErrorKind::Interrupted));
+            }
+            let previous = slot.replace(Entered {
+                owner: self.clone(),
+                cleanup,
+            });
+            Ok(MacosHelperContext {
+                previous,
+                _thread: std::marker::PhantomData,
+            })
         })
     }
     pub(in crate::macos_privilege) fn output(
@@ -61,6 +80,9 @@ impl MacosHelperOwner {
         arguments: &[String],
         input: Option<&str>,
     ) -> io::Result<Output> {
+        if !self.0.io_allowed() {
+            return Err(io::Error::from(io::ErrorKind::Interrupted));
+        }
         let _notifications = self.0.memory.defer_notifications();
         self.0.prepare_actor_wake()?;
         let index = self.0.current.load(Ordering::Acquire);
@@ -104,7 +126,7 @@ impl MacosHelperOwner {
         epoch.rpc.begin(&request, Some(nonce))?;
         if let Err(source) = epoch.drive_rpc() {
             self.0.retain(index, Phase::ToolProgress, source);
-            return Err(io::Error::other(self.0.failures.clone().into_error()));
+            return Err(failures::retained(self.0.failures.clone().into_error()));
         }
         let response = epoch.rpc.take_response()?;
         Ok(Output {
@@ -124,22 +146,25 @@ impl Drop for MacosHelperContext {
     }
 }
 impl MacosHelperLease {
-    /// Epoch one belongs to this SAME actual route duty, since the initial
-    /// helper actor has already joined/ACKed before its creation was allowed.
-    /// Keep this body alive through its own helper's original close receipts.
+    /// The original route duty owns its own cleanup epoch. With no dedicated
+    /// initial helper task (borrowed/Descriptor or UID0), this includes epoch
+    /// zero: no other actor can retire its tools/control/transfer originals.
     pub fn finish_cleanup(&self) -> io::Result<()> {
-        if self.owner.0.current.load(Ordering::Acquire) == 0 {
+        let index = self.owner.0.current.load(Ordering::Acquire);
+        self.owner.0.close_returned_route_files();
+        if index == 0 && self.owner.0.dedicated_worker {
+            // Only the actually installed initial helper actor owns this one.
             return Ok(());
         }
         loop {
-            let result = self.owner.finish_registered_epoch(1);
+            let result = self.owner.finish_registered_epoch(index);
             if self.owner.require_closed().is_ok() {
                 return result;
             }
             if let Err(source) = result {
-                self.owner.0.retain(1, Phase::Shutdown, source);
+                self.owner.0.retain(index, Phase::Shutdown, source);
             }
-            self.owner.wait_original_progress(1);
+            self.owner.wait_original_progress(index);
         }
     }
     pub fn require_closed(&self) -> io::Result<()> {
@@ -153,5 +178,18 @@ impl MacosHelperLease {
     }
 }
 pub(in crate::macos_privilege) fn current() -> Option<MacosHelperOwner> {
-    CURRENT.with(|slot| slot.borrow().clone())
+    CURRENT.with(|slot| slot.borrow().as_ref().map(|current| current.owner.clone()))
+}
+
+impl Session {
+    pub(super) fn io_allowed(&self) -> bool {
+        if !self.stopped.load(Ordering::Acquire) {
+            return true;
+        }
+        CURRENT.with(|slot| {
+            slot.borrow().as_ref().is_some_and(|current| {
+                std::ptr::eq(current.owner.0.as_ref(), self) && current.cleanup
+            })
+        })
+    }
 }
