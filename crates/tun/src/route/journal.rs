@@ -22,89 +22,23 @@ pub(super) struct RouteJournal {
     pub(super) path: PathBuf,
     #[serde(skip)]
     pub(super) _lease: Option<RouteLease>,
+    #[cfg(target_os = "macos")]
+    #[serde(skip)]
+    pub(super) source: Option<crate::macos_privilege::MacosRouteFileAccess>,
 }
 
-#[derive(Debug)]
-pub(super) struct RouteLease {
-    journal_path: PathBuf,
-    owner_path: PathBuf,
-    _lock: std::fs::File,
-}
-
-impl RouteLease {
-    pub(super) fn acquire(recovery_key: &str, ipv6: bool) -> io::Result<Self> {
-        let journal_path = route_journal_path(recovery_key, ipv6)?;
-        let lock_path = route_family_lock_path(ipv6)?;
-        Self::acquire_paths(journal_path, lock_path, recovery_key)
-    }
-
-    #[cfg(test)]
-    pub(super) fn acquire_at(journal_path: PathBuf, tun_name: &str) -> io::Result<Self> {
-        let lock_path = journal_path.with_extension("lock");
-        Self::acquire_paths(journal_path, lock_path, tun_name)
-    }
-
-    pub(super) fn acquire_paths(
-        journal_path: PathBuf,
-        lock_path: PathBuf,
-        owner: &str,
-    ) -> io::Result<Self> {
-        let owner_path = lock_owner_path(&lock_path);
-        let lock = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(&lock_path)?;
-        fs2::FileExt::try_lock_exclusive(&lock).map_err(|error| {
-            let active_owner = std::fs::read_to_string(&owner_path)
-                .ok()
-                .map(|owner| owner.trim().to_owned())
-                .filter(|owner| !owner.is_empty())
-                .unwrap_or_else(|| "unknown".to_owned());
-            io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                format!(
-                    "TUN route transaction for `{owner}` conflicts with active owner `{active_owner}` (`{}`): {error}",
-                    lock_path.display()
-                ),
-            )
-        })?;
-        persist_lock_owner(&owner_path, owner)?;
-        Ok(Self {
-            journal_path,
-            owner_path,
-            _lock: lock,
-        })
-    }
-}
-
-impl Drop for RouteLease {
-    fn drop(&mut self) {
-        match std::fs::remove_file(&self.owner_path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => tracing::warn!(
-                path = %self.owner_path.display(),
-                error = %error,
-                "failed to remove TUN route lease owner metadata"
-            ),
-        }
-        // A forked child or duplicated descriptor can outlive this owner. Release
-        // the shared file lock explicitly instead of waiting for its last close.
-        if let Err(error) = fs2::FileExt::unlock(&self._lock) {
-            tracing::warn!(error = %error, "failed to unlock TUN route lease");
-        }
-    }
-}
-
+mod lease;
+pub(super) use lease::RouteLease;
+mod material;
 #[cfg(test)]
 mod tests;
 
 impl RouteJournal {
     pub(super) fn load(lease: &RouteLease, ipv6: bool) -> io::Result<Option<Self>> {
+        #[cfg(target_os = "macos")]
+        let _context = lease.context()?;
         let path = lease.journal_path.clone();
-        let raw = match std::fs::read(&path) {
+        let raw = match material::read(&path) {
             Ok(raw) => raw,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error),
@@ -129,6 +63,10 @@ impl RouteJournal {
         }
         journal.path = path;
         journal._lease = None;
+        #[cfg(target_os = "macos")]
+        {
+            journal.source = lease.source();
+        }
         Ok(Some(journal))
     }
 
@@ -150,6 +88,8 @@ impl RouteJournal {
             installed: Vec::new(),
             scoped_bypass: false,
             path: lease.journal_path.clone(),
+            #[cfg(target_os = "macos")]
+            source: lease.source(),
             _lease: Some(lease),
         })
     }
@@ -244,9 +184,11 @@ impl RouteJournal {
     }
 
     fn persist(&self) -> io::Result<()> {
+        #[cfg(target_os = "macos")]
+        let _context = self.cleanup_context()?;
         let encoded = serde_json::to_vec(self).map_err(io::Error::other)?;
         let temporary = self.path.with_extension("json.tmp");
-        std::fs::write(&temporary, encoded)?;
+        material::write(&temporary, &encoded)?;
         #[cfg(windows)]
         if self.path.exists() {
             std::fs::remove_file(&self.path)?;
@@ -255,6 +197,8 @@ impl RouteJournal {
     }
 
     fn clear(&self) -> io::Result<()> {
+        #[cfg(target_os = "macos")]
+        let _context = self.cleanup_context()?;
         match std::fs::remove_file(&self.path) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -303,7 +247,7 @@ fn lock_owner_path(lock_path: &Path) -> PathBuf {
 }
 
 fn persist_lock_owner(owner_path: &Path, owner: &str) -> io::Result<()> {
-    std::fs::write(owner_path, safe_recovery_key(owner))
+    material::write(owner_path, safe_recovery_key(owner).as_bytes())
 }
 
 pub(super) fn route_state_root() -> io::Result<PathBuf> {

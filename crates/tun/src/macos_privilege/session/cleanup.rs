@@ -2,6 +2,9 @@
 use super::*;
 impl Session {
     pub(super) fn require_closed(&self) -> io::Result<()> {
+        if !self.route_files_closed() {
+            return Err(io::Error::from(io::ErrorKind::WouldBlock));
+        }
         if !self.wake_io.try_lock().is_ok_and(|wake| wake.closed()) {
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
         }
@@ -9,19 +12,7 @@ impl Session {
             let epoch = original
                 .try_lock()
                 .map_err(|_| io::Error::from(io::ErrorKind::WouldBlock))?;
-            epoch.transfer.require_closed()?;
-            if !epoch.native.closed()
-                || !epoch.tools.closed()
-                || !epoch.local_tool.reusable()
-                || epoch
-                    .local_file
-                    .as_ref()
-                    .is_some_and(|original| !original.closed())
-            {
-                return Err(io::Error::other(
-                    "same helper/tool original has no complete close receipt",
-                ));
-            }
+            epoch.require_closed()?;
         }
         Ok(())
     }
@@ -102,7 +93,7 @@ impl Session {
         }
         if let Some(original) = epoch.local_file.as_mut() {
             if let Err(source) = original.close_once() {
-                self.retain(index, Phase::ToolClose, source);
+                self.retain(index, Phase::RouteTransient, source);
             }
         }
         if let Err(source) = epoch.native.helper.close_event() {
@@ -114,9 +105,33 @@ impl Session {
         if let Err(source) = epoch.native.wait_authorization() {
             self.retain(index, Phase::Authorization, source);
         }
+        self.close_returned_route_files();
         if !epoch.native.closed() || !epoch.tools.closed() {
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
         }
         epoch.transfer.require_closed()
     }
 }
+
+impl Epoch {
+    /// Only this actual duty's originals. Whole Source closure separately
+    /// includes both epochs, live route locks and the initial stop pipe.
+    pub(super) fn require_closed(&self) -> io::Result<()> {
+        self.transfer.require_closed()?;
+        if !self.native.closed()
+            || !self.tools.closed()
+            || !self.local_tool.reusable()
+            || self
+                .local_file
+                .as_ref()
+                .is_some_and(|original| !original.closed())
+        {
+            return Err(io::Error::from(io::ErrorKind::WouldBlock));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+#[path = "cleanup/tests.rs"]
+mod tests;

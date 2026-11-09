@@ -129,7 +129,12 @@ impl SystemRouteGuard {
     /// A failed cleanup leaves the exact original and unclosed entries usable
     /// by the same owner; callers remove their slot only after this succeeds.
     pub fn close_retained(&mut self) -> io::Result<()> {
-        self.cleanup()
+        if self.journal.owned_closed() {
+            return Ok(());
+        }
+        let _context = self.journal.cleanup_context()?;
+        self.cleanup()?;
+        self.journal.close_owned()
     }
 
     fn add(&self, prefix: &str) -> io::Result<()> {

@@ -6,11 +6,6 @@ impl MacosHelperOwner {
     /// this actor join independently of the long-lived route worker.
     pub fn wait_initial(&self) -> io::Result<()> {
         loop {
-            let wait = self
-                .0
-                .wait
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
             let (ready, event) = {
                 let mut epoch = self.0.epochs[0].try_lock().ok();
                 match epoch.as_mut() {
@@ -32,13 +27,13 @@ impl MacosHelperOwner {
                     && !self.0.route_held.load(Ordering::Acquire))
             {
                 if ready && !self.0.stopped.load(Ordering::Acquire) {
+                    self.0.stopped.store(true, Ordering::Release);
                     self.0.retain(
                         0,
                         Phase::Shutdown,
                         io::Error::other("actual helper exited before Source requested stop"),
                     );
                 }
-                drop(wait);
                 break;
             }
             let wake = self
@@ -48,7 +43,6 @@ impl MacosHelperOwner {
                 .unwrap_or_else(|error| error.into_inner())
                 .fd();
             if let (Some(event), Some(wake)) = (event, wake) {
-                drop(wait);
                 let mut fds = [
                     libc::pollfd {
                         fd: event,
@@ -74,18 +68,27 @@ impl MacosHelperOwner {
                     .unwrap_or_else(|error| error.into_inner())
                     .drain();
             } else {
-                drop(
-                    self.0
-                        .wake
-                        .wait(wait)
-                        .unwrap_or_else(|error| error.into_inner()),
-                );
+                self.0.wait_signal(true);
             }
         }
         let result = loop {
             let result = self.finish_initial();
             self.0.close_actor_wake();
-            if self.0.require_closed().is_ok() {
+            // The initial actor must be able to join before the SAME route
+            // duty can restore routes through epoch one. Its live journal
+            // locks are Source debt, never this actor's own completion gate.
+            if self.0.epochs[0]
+                .lock()
+                .unwrap_or_else(|source| source.into_inner())
+                .require_closed()
+                .is_ok()
+                && self
+                    .0
+                    .wake_io
+                    .lock()
+                    .unwrap_or_else(|source| source.into_inner())
+                    .closed()
+            {
                 break result;
             }
             if let Err(source) = result {
@@ -94,10 +97,10 @@ impl MacosHelperOwner {
             // The same registered body owns the late close continuation.
             // A failed observer cannot strand it in an exited task or invent
             // another cleanup task/worker just to obtain a later receipt.
-            self.wait_original_progress(0);
+            self.wait_original_progress(0, true);
         };
         match self.failure() {
-            Some(source) => Err(io::Error::other(source)),
+            Some(source) => Err(failures::retained(source)),
             None => result,
         }
     }
@@ -196,7 +199,7 @@ impl MacosHelperOwner {
         }
         self.0.finish_epoch(index, &mut epoch)?;
         match self.failure() {
-            Some(source) => Err(io::Error::other(source)),
+            Some(source) => Err(failures::retained(source)),
             None => Ok(()),
         }
     }

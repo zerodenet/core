@@ -73,3 +73,73 @@ async fn actual_helper_graph_n1_requires_the_original_scope_join_and_host_ack_be
     })
     .unwrap();
 }
+
+#[tokio::test]
+async fn actual_non_dedicated_route_duty_closes_its_local_query_before_same_source_job_join_and_ack(
+) {
+    let root = ProcessBudget::new(ProcessBudgetLimits {
+        max_jobs: 1,
+        max_jobs_per_instance: 1,
+    })
+    .unwrap();
+    let memory_root = Arc::new(zero_tun::packet_memory::PacketReturnTotals::default());
+    let read = memory_root.native_grant(64).unwrap();
+    let memory = read.memory_view().unwrap();
+    let mut scope =
+        TaskScope::suspended_hosted(tokio::runtime::Handle::current(), NonZeroUsize::new(1));
+    let tasks = scope.registrar();
+    let instance = ComponentInstanceId {
+        component: ComponentId(41),
+        generation: ResourceGeneration(1),
+    };
+    let identity = PacketDeviceIdentity::new(instance, tasks.scope_identity());
+    let owner = zero_tun::AdoptedTunOwner::new();
+    let access = owner
+        .prepare_macos_helper(&memory, 65536, false, 65536)
+        .unwrap();
+    root.reserve_macos_tun_helper(
+        &identity,
+        0,
+        owner.clone(),
+        &tasks.downgrade(),
+        &memory_root.driver_metadata_view(),
+    )
+    .unwrap();
+    scope.enable_registration().unwrap();
+    let lease = access.lease_routes().unwrap();
+    let (ready, entered) = tokio::sync::oneshot::channel();
+    let (finish, finished) = std::sync::mpsc::sync_channel(1);
+    let actual_owner = owner.clone();
+    let (_, actual) = tasks
+        .spawn_blocking_tracked(TaskClass::Critical, move || {
+            let context = lease.enter().unwrap();
+            // The same non-dedicated route duty runs the real fixed scutil query.
+            // DNS availability is independent of its actual Child/pipe retirement.
+            let query = access.system_dns_servers();
+            ready.send(()).unwrap();
+            finished.recv().unwrap();
+            actual_owner.stop_macos_helper();
+            lease.finish_cleanup().unwrap();
+            lease.require_closed().unwrap();
+            drop(query);
+            drop(context);
+            drop(lease);
+            Ok(())
+        })
+        .unwrap();
+    entered.await.unwrap();
+    assert_eq!(root.snapshot().charged_jobs, 1);
+    assert!(actual.try_joined().is_none());
+    scope.begin_shutdown();
+    finish.send(()).unwrap();
+    let receipt = scope.next_receipt().await.unwrap();
+    assert!(actual.matches_joined(receipt.joined()));
+    assert!(owner.macos_helper_closed());
+    assert_eq!(root.snapshot().charged_jobs, 1);
+    let deferred = scope.defer_callbacks();
+    scope.acknowledge(&receipt).unwrap();
+    assert_eq!(root.snapshot().charged_jobs, 1);
+    drop(deferred);
+    assert!(actual.try_joined().unwrap().registration_released());
+    assert_eq!(root.snapshot().charged_jobs, 0);
+}
