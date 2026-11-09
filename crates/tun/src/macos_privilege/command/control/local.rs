@@ -84,7 +84,7 @@ impl CommandControl {
         }
         Ok(())
     }
-    fn signal_local(&self) {
+    pub(super) fn signal_local(&self) {
         let mut local = self
             .local
             .lock()

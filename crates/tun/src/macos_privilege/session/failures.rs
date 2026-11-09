@@ -110,7 +110,7 @@ impl fmt::Display for Failures {
                 .enumerate()
                 .filter(|(_, control)| control.any_fault())
             {
-                write!(f, "; helper epoch {epoch} {control}")?;
+                write!(f, "; helper epoch {epoch} {}", &**control)?;
             }
         }
         Ok(())

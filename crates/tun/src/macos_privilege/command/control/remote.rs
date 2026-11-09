@@ -86,7 +86,7 @@ impl CommandControl {
         remote.exit = 0;
         Ok(())
     }
-    fn signal_remote(&self) {
+    pub(super) fn signal_remote(&self) {
         let mut remote = self
             .remote
             .lock()
