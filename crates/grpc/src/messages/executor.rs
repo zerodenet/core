@@ -53,13 +53,18 @@ where
                         // Hyper has dropped the disconnected response handler.
                         held.command.stop_business();
                         let operation = held.command.drain().await;
-                        if let Err(payload) = work {
-                            std::panic::resume_unwind(payload);
-                        }
-                        operation.map_err(|source| {
-                            ChannelError::new(Stage::Close, Reason::Io, Impact::Session)
-                                .with_source(source)
-                        })
+                        let panicked = work.is_err();
+                        super::super::tasks::finish_caught(work.map(|()| Ok(())), [operation])
+                            .map_err(|source| {
+                                // A competing cleanup fault must not turn an actual
+                                // work panic into an ordinary peer-disconnect error.
+                                let (reason, impact) = if panicked {
+                                    (Reason::Internal, Impact::Component)
+                                } else {
+                                    (Reason::Io, Impact::Session)
+                                };
+                                ChannelError::new(Stage::Close, reason, impact).with_source(source)
+                            })
                     })
                     .await?;
                 Ok(())
