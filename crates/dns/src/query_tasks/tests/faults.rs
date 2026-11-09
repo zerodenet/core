@@ -12,6 +12,8 @@ use tokio::{runtime::Handle, sync::Barrier, time::Instant};
 use zero_platform_tokio::contract::scope::TaskScope;
 #[path = "faults/ack.rs"]
 mod ack;
+#[path = "faults/late_ack.rs"]
+mod late_ack;
 #[tokio::test]
 async fn ordinary_resolution_errors_do_not_accumulate_but_original_worker_faults_are_finite_and_retained_after_host_ack(
 ) {
