@@ -197,6 +197,9 @@ impl Proxy {
         preparation::install_original_limit(&protocols, &config.runtime)?;
         preparation::install_control_limit(&protocols, &config.runtime)?;
         preparation::install_dns_wire(&protocols, &node_network, &config.runtime)?;
+        engine
+            .configuration_source()
+            .bind_persistence_budget(&protocols.runtime_host().control_budget())?;
         protocols.validate_config(&config)?;
         protocols.validate_dial_environment(&config)?;
         protocols.validate_components(config.clone())?;

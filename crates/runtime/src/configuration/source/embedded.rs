@@ -36,13 +36,42 @@ impl ConfigurationSource {
     where
         E: Error + From<io::Error> + Send + Sync + 'static,
     {
+        self.commit_embedded_from(&config.runtime, config, persist, identity, install)
+    }
+    pub fn commit_embedded_from<E>(
+        self: &Arc<Self>,
+        previous: &zero_config::RuntimeOptionsConfig,
+        config: &RuntimeConfig,
+        persist: bool,
+        identity: &str,
+        install: impl FnOnce() -> Result<(), E>,
+    ) -> Result<(), E>
+    where
+        E: Error + From<io::Error> + Send + Sync + 'static,
+    {
+        let _notifications = self.defer_persistence_notifications();
+        let memory = if persist {
+            Some(
+                self.embedded_memory(previous, &config.runtime)
+                    .map_err(E::from)?,
+            )
+        } else {
+            None
+        };
         super::super::startup::with_source(self.clone(), || {
             self.ensure_resource_io_available().map_err(E::from)?;
             let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
             self.ensure_state_available(&mut state)
                 .map_err(|error| E::from(io::Error::from(error)))?;
             if persist {
-                if let Err(original) = self.persist_ready_locked(config, identity, &mut state) {
+                if let Err(original) = self.persist_ready_locked(
+                    config,
+                    identity,
+                    &mut state,
+                    memory
+                        .as_ref()
+                        .expect("persistent branch owns Source memory"),
+                ) {
                     let disposition = original.disposition;
                     let original = io::Error::from(original);
                     if disposition != SourceDisposition::Unknown {

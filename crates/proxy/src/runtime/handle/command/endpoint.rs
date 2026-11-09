@@ -182,6 +182,7 @@ impl ProxyHandle {
                 .scan_components(&component_config, tokio::time::Instant::now() + TIMEOUT)
                 .await
                 .map_err(|error| ApiError::new(ApiErrorCode::Internal, error.to_string()))?;
+            let source_notifications = self.proxy.engine.configuration_source().defer_persistence_notifications();
             self.proxy
                 .host
                 .apply()
@@ -190,13 +191,16 @@ impl ProxyHandle {
                         self.proxy
                             .engine
                             .configuration_source()
-                            .persist_ready(
+                            .persist_ready_with_budget(
                                 &component_config,
                                 &format!(
                                     "{}:endpoint:{}",
                                     self.proxy.engine.core_instance_id(),
                                     candidate.config_revision()
                                 ),
+                                &self.proxy.host.control_budget(),
+                                None,
+                                previous.config().runtime.effective_file_read_max_bytes(),
                             )
                             .map_err(|error| {
                                 format!("endpoint source persistence failed: {error}")
@@ -222,6 +226,7 @@ impl ProxyHandle {
                     Ok(())
                 })
                 .map_err(|message| ApiError::new(ApiErrorCode::Internal, message))?;
+            drop(source_notifications);
             #[cfg(feature = "raw-ip-runtime")]
             self.proxy.protocols.finish_device_publication(&component_config).await
                 .map_err(|error| ApiError::new(ApiErrorCode::Internal, format!("endpoint committed; device completion remains owned: {error}")))?;

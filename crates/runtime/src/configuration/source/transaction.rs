@@ -14,9 +14,12 @@ pub(super) struct RecoveryRecord {
 }
 pub(super) struct PendingSource {
     pub record: RecoveryRecord,
-    previous: Option<Vec<u8>>,
+    previous: Option<super::memory::Bytes>,
+    file_max: usize,
     permissions: Option<std::fs::Permissions>,
     pub disposition: SourceDisposition,
+    // Record Strings and previous backing must die before their own credits.
+    _record_credit: Option<super::super::ControlBudgetPermit>,
 }
 impl PendingSource {
     pub fn prepare(
@@ -24,12 +27,22 @@ impl PendingSource {
         candidate: &[u8],
         identity: &str,
         owner: &super::super::io::ConfigurationIo,
+        memory: &super::memory::Memory<'_>,
     ) -> io::Result<Self> {
-        let previous = read_optional(path, owner)?;
+        let previous = memory.previous(path, owner, candidate.len())?;
         let permissions = std::fs::metadata(path)
             .ok()
             .map(|metadata| metadata.permissions());
-        Ok(Self {
+        let file_max = memory.previous_max.max(memory.output_max);
+        if identity.len() > memory.previous_max.min(memory.output_max) / 2 {
+            return Err(super::memory::too_large());
+        }
+        let held = candidate
+            .len()
+            .checked_add(previous.as_ref().map_or(0, |bytes| bytes.len()))
+            .ok_or_else(super::memory::too_large)?;
+        let record_credit = memory.ticket(super::memory::record_storage(identity)?, held)?;
+        let pending = Self {
             record: RecoveryRecord {
                 schema: 1,
                 attempt: format!(
@@ -47,14 +60,27 @@ impl PendingSource {
                 compensation_identity: identity.into(),
             },
             previous,
+            file_max,
             permissions,
             disposition: SourceDisposition::Unchanged,
-        })
+            _record_credit: record_credit,
+        };
+        let mut encoded = super::memory::Count(0);
+        serde_json::to_writer(&mut encoded, &pending.record).map_err(io::Error::other)?;
+        // "ready" may later become the nine-byte "committed"/"persisted".
+        if encoded
+            .0
+            .checked_add(4)
+            .is_none_or(|size| size > memory.previous_max.min(memory.output_max))
+        {
+            return Err(super::memory::too_large());
+        }
+        Ok(pending)
     }
     fn record(&self, path: &Path, owner: &super::super::io::ConfigurationIo) -> io::Result<()> {
-        atomic_write(
+        atomic_write_record(
             &sidecar(path, ".zero-recovery"),
-            &serde_json::to_vec(&self.record).map_err(io::Error::other)?,
+            &self.record,
             self.permissions.clone(),
             owner,
         )
@@ -134,8 +160,7 @@ impl PendingSource {
     ) -> io::Result<()> {
         self.disposition = SourceDisposition::Unknown;
         owner.ensure_available()?;
-        let actual = read_optional(path, owner)?;
-        let actual_digest = actual.as_ref().map(|bytes| digest(bytes));
+        let actual_digest = digest_optional(path, owner, self.file_max)?;
         if actual_digest != self.record.old_digest {
             if actual_digest.as_ref() != Some(&self.record.candidate_digest) {
                 return Err(io::Error::new(
@@ -153,9 +178,7 @@ impl PendingSource {
         } else {
             sync_parent(path, owner)?;
         }
-        let restored = read_optional(path, owner)?
-            .as_ref()
-            .map(|bytes| digest(bytes));
+        let restored = digest_optional(path, owner, self.file_max)?;
         if restored != self.record.old_digest {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,

@@ -33,18 +33,30 @@ impl ProxyHandle {
         if let Some(wire) = wire {
             wire.policy().seal().map_err(|error| error.to_string())?;
         }
+        let source_notifications = self
+            .proxy
+            .engine
+            .configuration_source()
+            .defer_persistence_notifications();
         let committed = self.proxy.host.apply().commit(|| {
             if persist {
                 self.proxy
                     .engine
                     .configuration_source()
-                    .persist_ready(
+                    .persist_ready_with_budget(
                         &component_config,
                         &format!(
                             "{}:{}",
                             self.proxy.engine.core_instance_id(),
                             self.proxy.engine.config_revision()
                         ),
+                        &self.proxy.host.control_budget(),
+                        control.as_ref(),
+                        self.proxy
+                            .engine
+                            .config()
+                            .runtime
+                            .effective_file_read_max_bytes(),
                     )
                     .map_err(|error| format!("configuration persistence failed: {error}"))?;
             }
@@ -76,6 +88,7 @@ impl ProxyHandle {
             }
             Ok(())
         });
+        drop(source_notifications);
         // Even a later enclosing finalization error cannot discard a positively
         // published metadata obligation. Wakes/restart occur outside both the
         // actual catalog/device guards and the Host's short commit gate.

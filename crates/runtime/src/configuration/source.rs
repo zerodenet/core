@@ -8,9 +8,11 @@ pub use quota::QuotaStorage;
 pub use snapshot::ConfigurationSnapshotReader;
 mod embedded;
 mod files;
+mod memory;
 mod model;
 mod observation;
 mod persistence;
+pub use memory::SourcePersistenceNotifications;
 mod transaction;
 pub use cache::{RuleSetCacheDownload, MAX_RULE_SET_CACHE_BYTES};
 pub use model::{SourceDisposition, SourcePersistError, SourceWriteObservation};
@@ -35,6 +37,7 @@ pub struct ConfigurationSource {
     cache: cache::CacheState,
     pub(super) io: super::io::ConfigurationIo,
     quota: quota::QuotaSlot,
+    persistence_book: std::sync::OnceLock<std::sync::Weak<super::ControlBudget>>,
 }
 impl std::fmt::Debug for ConfigurationSource {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -52,6 +55,7 @@ impl ConfigurationSource {
             io: super::io::ConfigurationIo::default(),
             cache: Default::default(),
             quota: Default::default(),
+            persistence_book: Default::default(),
         }
     }
     pub fn path(&self) -> Option<&Path> {
@@ -90,10 +94,12 @@ impl ConfigurationSource {
         source.verify_initial_recovery(path)
     }
     fn verify_recovery_owned(&self, path: &Path) -> io::Result<()> {
-        let Some(raw) = files::read_recovery(path, &self.io)? else {
+        let Some(limit) = self.recovery_limit(path)? else {
             return Ok(());
         };
-        let record: RecoveryRecord = serde_json::from_slice(&raw).map_err(io::Error::other)?;
+        let Some(record) = files::recovery_record(path, &self.io, limit)? else {
+            return Ok(());
+        };
         if record.schema != 1
             || !record.persistent
             || !matches!(
@@ -110,9 +116,7 @@ impl ConfigurationSource {
         if record.completed_phase == "committed" {
             return Ok(());
         }
-        let actual = files::read_optional(path, &self.io)?
-            .as_ref()
-            .map(|bytes| files::digest(bytes));
+        let actual = files::digest_optional(path, &self.io, limit)?;
         if actual.as_ref() != Some(&record.candidate_digest) && actual != record.old_digest {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -133,18 +137,15 @@ impl ConfigurationSource {
         };
         self.verify_recovery_owned(path)?;
         let record_path = files::sidecar(path, ".zero-recovery");
-        let Some(raw) = files::read_recovery(path, &self.io)? else {
+        let Some(limit) = self.recovery_limit(path)? else {
             return Ok(());
         };
-        let mut record: RecoveryRecord = serde_json::from_slice(&raw).map_err(io::Error::other)?;
+        let Some(mut record) = files::recovery_record(path, &self.io, limit)? else {
+            return Ok(());
+        };
         record.completed_phase = "committed".into();
         let permissions = std::fs::metadata(path)?.permissions();
-        files::atomic_write(
-            &record_path,
-            &serde_json::to_vec(&record).map_err(io::Error::other)?,
-            Some(permissions),
-            &self.io,
-        )?;
+        files::atomic_write_record(&record_path, &record, Some(permissions), &self.io)?;
         files::remove_sidecars(path, &self.io)
     }
 }

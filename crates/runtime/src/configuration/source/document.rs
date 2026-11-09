@@ -39,6 +39,46 @@ impl ConfigurationSource {
         })?
     }
 
+    pub(super) fn recovery_limit(&self, path: &Path) -> io::Result<Option<usize>> {
+        match std::fs::metadata(files::sidecar(path, ".zero-recovery")) {
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+                ) =>
+            {
+                return Ok(None)
+            }
+            Err(error) => return Err(error),
+            Ok(_) => {}
+        }
+        // Recovery precedes RuntimeConfig acceptance. Derive only its existing
+        // neutral IO budget fact on the same original inode, not a default cap
+        // that would reject an explicitly larger valid deployment.
+        match self.io.with_file(
+            || std::fs::File::open(path),
+            |file| {
+                let captured = file.metadata()?.len();
+                probe::read(
+                    &mut std::io::Read::take(&mut *file, captured),
+                    probe::Dialect::Config,
+                )
+                .map(|facts| facts.file)
+            },
+        ) {
+            Ok(limit) => Ok(Some(limit)),
+            Err(error)
+                if error.kind() == io::ErrorKind::NotFound
+                    && self.io.ensure_available().is_ok() =>
+            {
+                Ok(Some(
+                    zero_config::RuntimeOptionsConfig::default().effective_file_read_max_bytes(),
+                ))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     fn read_configuration_owned(&self, path: &Path) -> Result<RuntimeConfig, ConfigError> {
         let raw = input::read(self, path, probe::Dialect::Config)
             .map_err(|source| {

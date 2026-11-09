@@ -57,10 +57,13 @@ impl Engine {
         // snapshot, including its original selector state. It is distinct from
         // publishing a hidden host candidate against the still-committed state.
         let config = snapshot.config().clone();
-        self.config_source
-            .commit_embedded(&config, persist, "engine-only-restore", || {
-                self.install_prepared_snapshot(snapshot, false)
-            })?;
+        self.config_source.commit_embedded_from(
+            &self.config().runtime,
+            &config,
+            persist,
+            "engine-only-restore",
+            || self.install_prepared_snapshot(snapshot, false),
+        )?;
         self.traffic
             .reconcile(&self.config(), self.config_revision());
         self.notify_reload();
@@ -82,15 +85,20 @@ impl Engine {
         )?;
         let snapshot = self.prepare_configuration_snapshot(prepared)?;
         let config = snapshot.config().clone();
-        self.config_source
-            .commit_embedded(&config, persist, "engine-only-apply", || {
+        self.config_source.commit_embedded_from(
+            &self.config().runtime,
+            &config,
+            persist,
+            "engine-only-apply",
+            || {
                 self.publish_prepared_snapshot(snapshot)?;
                 self.notify_reload();
                 if commit_revision {
                     self.commit_config_change();
                 }
                 Ok::<(), EngineError>(())
-            })
+            },
+        )
     }
 
     /// Existing embedded staging entry point. Proxy transactions instead retain

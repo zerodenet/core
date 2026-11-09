@@ -6,6 +6,8 @@ use std::{
 };
 
 mod candidate;
+mod source_memory;
+pub(in crate::configuration) use source_memory::SourceNotifications;
 mod capacity;
 mod custody;
 pub use custody::ControlCommandCustody;
@@ -56,6 +58,7 @@ pub struct ControlBudget(
     Mutex<State>,
     Arc<tokio::sync::Notify>,
     Arc<crate::EmbeddedCommandOwner>,
+    source_memory::Notifications,
 );
 /// Each live permit is retained by the actual original, not by a waiter. Its
 /// owner releases it only after matching native close / real worker and queue
@@ -106,6 +109,7 @@ impl ControlBudget {
             }),
             Arc::new(tokio::sync::Notify::new()),
             commands.clone(),
+            Default::default(),
         ));
         commands.bind_book(&owner);
         owner
@@ -248,7 +252,7 @@ impl ControlBudget {
         state.limits = limits;
         state.closed = false;
         drop(state);
-        self.1.notify_waiters();
+        self.notify_capacity();
         Ok(())
     }
     pub fn close_admission(&self) {
@@ -256,7 +260,7 @@ impl ControlBudget {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .closed = true;
-        self.1.notify_waiters();
+        self.notify_capacity();
     }
     pub fn confirm_released(&self) -> io::Result<()> {
         let state = self
@@ -297,7 +301,7 @@ impl Drop for ControlBudgetPermit {
             connection::close(&mut state, connection);
         }
         drop(state);
-        self.owner.1.notify_waiters();
+        self.owner.notify_capacity();
     }
 }
 #[cfg(test)]

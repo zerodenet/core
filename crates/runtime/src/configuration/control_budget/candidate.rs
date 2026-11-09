@@ -45,7 +45,7 @@ impl ControlBudgetCandidate {
         if let Some(pause) = scope_pause {
             pause.release();
         }
-        owner.1.notify_waiters();
+        owner.notify_capacity();
         Ok(())
     }
     pub async fn retire_command_scope(&self, end: tokio::time::Instant) -> io::Result<()> {
@@ -178,7 +178,7 @@ impl ControlBudgetCandidate {
         if let Some(pause) = pause {
             pause.release();
         }
-        owner.1.notify_waiters();
+        owner.notify_capacity();
         Ok(())
     }
     pub fn commit(&self) -> io::Result<()> {

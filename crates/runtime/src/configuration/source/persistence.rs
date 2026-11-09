@@ -2,13 +2,18 @@
 use super::*;
 
 impl ConfigurationSource {
-    fn ensure_commit_io_available(&self) -> Result<(), SourcePersistError> {
+    pub(super) fn ensure_commit_io_available(&self) -> Result<(), SourcePersistError> {
         super::super::startup::confirm_closed()
             .map_err(|error| SourcePersistError::new(SourceDisposition::Unknown, error))?;
         self.ensure_resource_io_available()
             .map_err(|error| SourcePersistError::new(SourceDisposition::Unknown, error))
     }
     pub fn ensure_available(&self) -> Result<(), SourcePersistError> {
+        let book = self
+            .persistence_book
+            .get()
+            .and_then(std::sync::Weak::upgrade);
+        let _notifications = book.as_ref().map(|book| book.defer_source_notifications());
         self.ensure_commit_io_available()?;
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         self.ensure_state_available(&mut state)
@@ -50,13 +55,17 @@ impl ConfigurationSource {
     ) -> Result<(), SourcePersistError> {
         self.ensure_commit_io_available()?;
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-        self.persist_ready_locked(config, identity, &mut state)
+        let memory = self
+            .embedded_memory(&config.runtime, &config.runtime)
+            .map_err(|error| SourcePersistError::new(SourceDisposition::Unchanged, error))?;
+        self.persist_ready_locked(config, identity, &mut state, &memory)
     }
     pub(super) fn persist_ready_locked(
         &self,
         config: &RuntimeConfig,
         identity: &str,
         state: &mut SourceState,
+        memory: &memory::Memory<'_>,
     ) -> Result<(), SourcePersistError> {
         let Some(path) = self.path() else {
             return Ok(());
@@ -67,12 +76,10 @@ impl ConfigurationSource {
                 io::Error::other("another actual source attempt is still retained"),
             ));
         }
-        let prepared = serde_json::to_vec_pretty(config)
-            .map_err(io::Error::other)
-            .and_then(|candidate| {
-                PendingSource::prepare(path, &candidate, identity, &self.io)
-                    .map(|pending| (candidate, pending))
-            });
+        let prepared = memory.pretty(config).and_then(|candidate| {
+            PendingSource::prepare(path, &candidate, identity, &self.io, memory)
+                .map(|pending| (candidate, pending))
+        });
         let result = match prepared {
             Ok((candidate, pending)) => {
                 state.pending = Some(pending);
@@ -120,6 +127,11 @@ impl ConfigurationSource {
         result
     }
     pub fn rollback_pending(&self) -> Result<(), SourcePersistError> {
+        let book = self
+            .persistence_book
+            .get()
+            .and_then(std::sync::Weak::upgrade);
+        let _notifications = book.as_ref().map(|book| book.defer_source_notifications());
         self.ensure_commit_io_available()?;
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         self.rollback_pending_locked(&mut state)
@@ -158,6 +170,11 @@ impl ConfigurationSource {
         cleanup.map_err(|error| SourcePersistError::new(disposition, error))
     }
     pub fn finalize_committed(&self) -> Result<(), SourcePersistError> {
+        let book = self
+            .persistence_book
+            .get()
+            .and_then(std::sync::Weak::upgrade);
+        let _notifications = book.as_ref().map(|book| book.defer_source_notifications());
         self.ensure_commit_io_available()?;
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         self.finalize_committed_locked(&mut state)

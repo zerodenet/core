@@ -154,7 +154,7 @@ impl Drop for ControlConnectionPermit {
                 .expect("same Root command or RPC returned once");
         }
         drop(state);
-        self.connection.owner.1.notify_waiters();
+        self.connection.owner.notify_capacity();
     }
 }
 
