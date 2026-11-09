@@ -179,7 +179,8 @@ async fn actual_reassembled_native_reply_moves_to_client_queue_without_a_second_
         ip: "203.0.113.9".parse().unwrap(),
         port: 53,
     };
-    let stack = ClientUdpStack::new(vec![local], sender, 1500, None).unwrap();
+    let stack = ClientUdpStack::new_with_queue(vec![local], sender, 1500, None, Default::default())
+        .unwrap();
     let mut socket = stack.bind(local).unwrap();
     socket.send_to(b"query", remote).await.unwrap();
     drop(output.recv().await.unwrap());
