@@ -138,6 +138,7 @@ impl Shared {
             };
             (unknown, old_retry, unused_error, state.closed)
         };
+        self.capture_close_sources();
         drop((unknown, old_retry, unused_error));
         if confirmed {
             let observer = self
@@ -151,6 +152,8 @@ impl Shared {
         }
     }
 }
+pub(super) mod failures;
+pub use failures::TcpCloseSources;
 mod ready;
 impl ChannelControl for ControlledTcpControl {
     fn cancel(&self, _: CloseReason) {
@@ -161,6 +164,9 @@ impl ChannelControl for ControlledTcpControl {
         loop {
             match self.shared.close_action(deadline) {
                 CloseAction::Closed => {
+                    if let Some(fault) = self.shared.unreceived_close_fault() {
+                        return Err(fault);
+                    }
                     let mut report = CloseReport::default();
                     if !self.reported {
                         report.closed_io.push(self.shared.label.clone());
@@ -175,10 +181,7 @@ impl ChannelControl for ControlledTcpControl {
                     })
                 }
                 CloseAction::Fault(source) => {
-                    let mut error = ChannelError::new(Stage::Close, Reason::Io, Impact::Session)
-                        .with_source(source);
-                    error.delivery = DeliveryState::Unknown;
-                    return Err(error);
+                    return Err(self.shared.close_fault(source));
                 }
                 CloseAction::Original(socket) => {
                     self.shared.close_returned(socket.close().map(|()| true))

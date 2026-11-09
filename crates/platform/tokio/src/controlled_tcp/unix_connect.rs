@@ -191,6 +191,7 @@ impl PendingUnixConnect {
             observer: Mutex::new(None),
             observations: Arc::new(observation::Capture::default()),
             wakes: IoRelays::new(),
+            close_failures: Default::default(),
         });
         Ok((
             Self {
@@ -257,6 +258,7 @@ impl PendingUnixAccept {
             observer: Mutex::new(None),
             observations: Arc::new(observation::Capture::default()),
             wakes: IoRelays::new(),
+            close_failures: Default::default(),
         });
         let pending = PendingUnixConnect {
             waiter: shared.wakes.write.waiter(),

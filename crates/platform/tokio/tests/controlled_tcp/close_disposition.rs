@@ -41,11 +41,14 @@ async fn panic_after_taking_original_close_retains_same_unknown_source_without_f
             .await
             .unwrap_err();
         assert_eq!(failure.delivery, DeliveryState::Unknown);
-        let observed = std::error::Error::source(&failure)
+        let sources = control.close_sources().unwrap();
+        assert!(Arc::ptr_eq(sources.unknown().unwrap(), &original));
+        let canonical = failure.retained_source().unwrap();
+        assert!(canonical
+            .cleanup_failure_receipt()
             .unwrap()
-            .downcast_ref::<Arc<io::Error>>()
-            .unwrap();
-        assert!(Arc::ptr_eq(observed, &original));
+            .acknowledge_retained(canonical));
+        // Local ownership acceptance still grants no native close proof.
         assert!(!shared.state().closed);
         assert!(!control.reported);
     }
@@ -77,4 +80,43 @@ async fn ready_native_close_uses_the_same_original_without_inventing_a_request_d
     assert!(observer.observe().unwrap().closed);
     assert!(control.try_close_once().unwrap().closed_io.is_empty());
     drop(view);
+}
+
+#[tokio::test]
+async fn native_close_keeps_late_original_fault_until_same_receiver_accepts_it() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let (socket, peer) = tokio::join!(
+        TokioSocket::connect_addr(listener.local_addr().unwrap()),
+        listener.accept()
+    );
+    let (view, mut control) =
+        ControlledTcpStream::new(socket.unwrap(), Default::default()).unwrap();
+    let mut peer = peer.unwrap().0;
+    let observer = control.close_observer();
+    // Concrete OS errors injected at this original ledger's storage boundary;
+    // actual native disposition is obtained independently below.
+    let first = Arc::new(std::fs::File::open("/zero-no-such-original-tcp-close-file").unwrap_err());
+    {
+        control.shared.state().error = Some(first.clone());
+    }
+    let one = control.try_close_once().unwrap_err();
+    let canonical = one.retained_source().unwrap().clone();
+    let sources = control.close_sources().unwrap();
+    assert!(Arc::ptr_eq(sources.native().unwrap(), &first));
+    // Release only the injected storage gate, retain that same original source.
+    control.shared.state().error = None;
+    let two = control.try_close_once().unwrap_err();
+    assert!(Arc::ptr_eq(two.retained_source().unwrap(), &canonical));
+    assert!(observer.observe().unwrap().closed);
+    assert!(!control.reported);
+    assert_eq!(peer.read(&mut [0]).await.unwrap(), 0);
+    assert!(canonical
+        .cleanup_failure_receipt()
+        .unwrap()
+        .acknowledge_retained(&canonical));
+    assert_eq!(control.try_close_once().unwrap().closed_io.len(), 1);
+    assert!(control.try_close_once().unwrap().closed_io.is_empty());
+    drop(view);
+    drop(control);
+    assert!(Arc::ptr_eq(sources.native().unwrap(), &first));
 }

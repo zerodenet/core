@@ -12,7 +12,7 @@ impl ControlledTcpControl {
             CloseAction::Retry(source) => self
                 .shared
                 .close_returned(TokioSocket::retry_close(&source)),
-            CloseAction::Fault(source) => return Err(failure(source)),
+            CloseAction::Fault(source) => return Err(self.shared.close_fault(source)),
             CloseAction::Unfinished => {
                 return Ok(CloseReport {
                     unfinished: vec![Unfinished::Io(self.shared.label.clone())],
@@ -29,6 +29,9 @@ impl ControlledTcpControl {
             )
         };
         if closed {
+            if let Some(fault) = self.shared.unreceived_close_fault() {
+                return Err(fault);
+            }
             let mut report = CloseReport::default();
             if !self.reported {
                 self.reported = true;
@@ -36,7 +39,7 @@ impl ControlledTcpControl {
             }
             Ok(report)
         } else if let Some(fault) = fault {
-            Err(failure(fault))
+            Err(self.shared.close_fault(fault))
         } else {
             Ok(CloseReport {
                 unfinished: vec![Unfinished::Io(self.shared.label.clone())],
@@ -44,10 +47,4 @@ impl ControlledTcpControl {
             })
         }
     }
-}
-fn failure(source: Arc<io::Error>) -> ChannelError {
-    let mut error =
-        ChannelError::new(Stage::Close, Reason::Io, Impact::Session).with_source(source);
-    error.delivery = DeliveryState::Unknown;
-    error
 }

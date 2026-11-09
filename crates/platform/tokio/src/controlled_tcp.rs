@@ -17,7 +17,7 @@ use crate::TokioSocket;
 #[cfg(any(unix, windows))]
 pub use connect::PendingTcpConnect;
 pub(crate) use control::ControlledTcpCloseObserver;
-pub use control::ControlledTcpControl;
+pub use control::{ControlledTcpControl, TcpCloseSources};
 use relay::{IoRelays, StateGuard, WaitTarget};
 use socket::Socket;
 use std::{
@@ -55,6 +55,7 @@ struct Shared {
     observer: Mutex<Option<Arc<dyn zero_traits::IoObserver>>>,
     observations: Arc<observation::Capture>,
     wakes: IoRelays,
+    close_failures: control::failures::CloseFailures,
 }
 
 impl Shared {
@@ -166,6 +167,7 @@ impl ControlledTcpStream {
             observer: Mutex::new(observer),
             observations,
             wakes: IoRelays::new(),
+            close_failures: Default::default(),
         });
         (
             Self::from_shared(shared.clone()),
