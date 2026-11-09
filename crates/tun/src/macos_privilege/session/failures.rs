@@ -34,7 +34,7 @@ impl Failures {
             slots: std::array::from_fn(|_| OnceLock::new()),
         }
     }
-    pub(super) fn retain(&self, epoch: usize, phase: Phase, source: io::Error) {
+    pub(super) fn retain(&self, epoch: usize, phase: Phase, source: io::Error) -> bool {
         assert!(epoch < 2, "actual fixed helper epoch census");
         // Each index names the same real close actor, which itself caches its
         // single syscall outcome. A retry cannot introduce a different actor.
@@ -52,7 +52,7 @@ impl Failures {
         } else {
             30 + phase - Phase::RouteLockAcquireV4 as usize
         };
-        let _ = self.slots[slot].set(source);
+        self.slots[slot].set(source).is_ok()
     }
     pub(super) fn any(&self) -> bool {
         self.slots.iter().any(|source| source.get().is_some())

@@ -113,11 +113,33 @@ impl Session {
         Ok(())
     }
     pub(super) fn notify(&self) {
+        let mut pending = self
+            .wait
+            .lock()
+            .unwrap_or_else(|source| source.into_inner());
+        // One pending bit for each EXISTING actual duty. Publish under the
+        // same mutex used by wait, so notify-before-arm is not lost. No task,
+        // queue, callback allocation or wraparound generation is introduced.
+        pending.duties = [true, true];
         self.wake_io
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(|source| source.into_inner())
             .signal();
         self.wake.notify_all();
+    }
+    pub(super) fn wait_signal(&self, initial: bool) {
+        let index = usize::from(!initial);
+        let mut pending = self
+            .wait
+            .lock()
+            .unwrap_or_else(|source| source.into_inner());
+        while !pending.duties[index] {
+            pending = self
+                .wake
+                .wait(pending)
+                .unwrap_or_else(|source| source.into_inner());
+        }
+        pending.duties[index] = false;
     }
     pub(super) fn close_actor_wake(&self) {
         let sources = self
@@ -140,3 +162,20 @@ impl Session {
         }
     }
 }
+
+#[derive(Default)]
+pub(super) struct PendingSignals {
+    duties: [bool; 2],
+}
+/// Declared before the actual epoch guard. Every normal IO return (including
+/// errors/unwind) first releases that guard, then wakes the existing observer
+/// that may have found it busy. Close polling itself does not self-notify.
+pub(super) struct EpochProgress<'a>(pub(super) &'a Session);
+impl Drop for EpochProgress<'_> {
+    fn drop(&mut self) {
+        self.0.notify();
+    }
+}
+#[cfg(test)]
+#[path = "wake/tests.rs"]
+mod tests;

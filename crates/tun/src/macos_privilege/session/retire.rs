@@ -6,11 +6,6 @@ impl MacosHelperOwner {
     /// this actor join independently of the long-lived route worker.
     pub fn wait_initial(&self) -> io::Result<()> {
         loop {
-            let wait = self
-                .0
-                .wait
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
             let (ready, event) = {
                 let mut epoch = self.0.epochs[0].try_lock().ok();
                 match epoch.as_mut() {
@@ -39,7 +34,6 @@ impl MacosHelperOwner {
                         io::Error::other("actual helper exited before Source requested stop"),
                     );
                 }
-                drop(wait);
                 break;
             }
             let wake = self
@@ -49,7 +43,6 @@ impl MacosHelperOwner {
                 .unwrap_or_else(|error| error.into_inner())
                 .fd();
             if let (Some(event), Some(wake)) = (event, wake) {
-                drop(wait);
                 let mut fds = [
                     libc::pollfd {
                         fd: event,
@@ -75,12 +68,7 @@ impl MacosHelperOwner {
                     .unwrap_or_else(|error| error.into_inner())
                     .drain();
             } else {
-                drop(
-                    self.0
-                        .wake
-                        .wait(wait)
-                        .unwrap_or_else(|error| error.into_inner()),
-                );
+                self.0.wait_signal(true);
             }
         }
         let result = loop {
@@ -109,7 +97,7 @@ impl MacosHelperOwner {
             // The same registered body owns the late close continuation.
             // A failed observer cannot strand it in an exited task or invent
             // another cleanup task/worker just to obtain a later receipt.
-            self.wait_original_progress(0);
+            self.wait_original_progress(0, true);
         };
         match self.failure() {
             Some(source) => Err(failures::retained(source)),

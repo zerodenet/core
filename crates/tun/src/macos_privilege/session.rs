@@ -53,7 +53,7 @@ struct Session {
     wake: Condvar,
     wake_io: Mutex<wake::Wake>,
     dedicated_worker: bool,
-    wait: Mutex<()>,
+    wait: Mutex<wake::PendingSignals>,
     failures: PacketMetadataArc<Failures>,
     output_limit: usize,
     memory: PacketMemoryView,
@@ -164,7 +164,7 @@ impl MacosHelperOwner {
             wake: Condvar::new(),
             wake_io: Mutex::new(wake::Wake::new()),
             dedicated_worker,
-            wait: Mutex::new(()),
+            wait: Mutex::new(wake::PendingSignals::default()),
             failures: faults,
             output_limit,
             memory: memory.clone(),
@@ -223,7 +223,8 @@ impl Drop for MacosHelperLease {
 }
 impl Session {
     fn retain(&self, epoch: usize, phase: Phase, source: io::Error) {
-        self.failures.retain(epoch, phase, source);
-        self.notify();
+        if self.failures.retain(epoch, phase, source) {
+            self.notify();
+        }
     }
 }

@@ -1,7 +1,7 @@
 //! Passive original-event wait for the existing initial helper duty.
 use super::*;
 impl MacosHelperOwner {
-    pub(super) fn wait_original_progress(&self, index: usize) {
+    pub(super) fn wait_original_progress(&self, index: usize, initial: bool) {
         let mut fds = {
             let epoch = self.0.epochs[index]
                 .lock()
@@ -30,17 +30,7 @@ impl MacosHelperOwner {
             })
         };
         if fds.iter().all(|fd| fd.fd < 0) {
-            let wait = self
-                .0
-                .wait
-                .lock()
-                .unwrap_or_else(|source| source.into_inner());
-            drop(
-                self.0
-                    .wake
-                    .wait(wait)
-                    .unwrap_or_else(|source| source.into_inner()),
-            );
+            self.0.wait_signal(initial);
             return;
         }
         loop {

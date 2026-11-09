@@ -53,6 +53,7 @@ impl MacosHelperOwner {
             return Err(io::Error::from(io::ErrorKind::Interrupted));
         }
         let _notifications = self.0.memory.defer_notifications();
+        let _progress = wake::EpochProgress(&self.0);
         let path = native_path(path)?;
         let index = self.0.current.load(Ordering::Acquire);
         let mut epoch = self.0.epochs[index]
