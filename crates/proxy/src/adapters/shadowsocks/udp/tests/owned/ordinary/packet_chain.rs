@@ -1,0 +1,80 @@
+//! Ordinary admitted SOCKS Source -> SOCKS Datagram carrier -> original SS
+//! codec. Peers use the real existing codecs; native/Scope proof comes only
+//! from the actual product owners, independently of peer EOF/socket Drop.
+use super::*;
+use tokio::net::TcpListener;
+use zero_core::Network;
+
+#[tokio::test]
+async fn ordinary_packet_chain_returns_real_dynamic_bnd_originals_and_survives_first_business_end()
+{
+    timeout(Duration::from_secs(25),async {
+        let listener=TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let physical=UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let bnd=physical.local_addr().unwrap();
+        let config=zero_config::RuntimeConfig::parse(&serde_json::json!({
+            "inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],
+            "outbounds":[
+                {"tag":"carrier","protocol":{"type":"socks5","server":"127.0.0.1","port":listener.local_addr().unwrap().port()}},
+                {"tag":"ss","protocol":{"type":"shadowsocks","server":"127.0.0.1","port":9876,"cipher":"aes-128-gcm","password":"actual-packet-chain"}}
+            ],
+            "outbound_groups":[{"tag":"chain","type":"relay","proxies":["carrier","ss"]}],
+            "route":{"final":{"type":"route","outbound":"chain"}}
+        }).to_string()).unwrap();
+        let codec=crate::adapters::shadowsocks::udp::transport_leaf(&Default::default(),"ss",&config.outbounds[1].protocol).unwrap().udp_packet_path_plan().unwrap().carrier_codec();
+        let peer=tokio::spawn(async move {
+            let (tcp,_)=listener.accept().await.unwrap();
+            let mut control=zero_platform_tokio::TokioSocket::new(tcp);
+            assert!(matches!(socks5::Socks5Inbound.accept_command(&mut control).await.unwrap(),socks5::Socks5Request::UdpAssociate(_)));
+            socks5::Socks5Inbound.send_success_response_with_bound(&mut control,&Address::Ipv4([127,0,0,1]),bnd.port()).await.unwrap();
+            let mut control=control.into_inner().unwrap();
+            let wire=socks5::udp::Socks5InboundUdpCodec;
+            let mut buffer=[0u8;65536];
+            let mut original_sender=None;
+            for (target,expected) in [(1,b"first".as_slice()),(2,b"".as_slice()),(2,b"still-live".as_slice())] {
+                let (size,sender)=physical.recv_from(&mut buffer).await.unwrap();
+                if let Some(original)=original_sender {assert_eq!(sender,original);}original_sender=Some(sender);
+                let outer=wire.decode_request(&buffer[..size]).unwrap();
+                assert_eq!(outer.port(),9876);
+                let (address,port,payload)=codec.decode(outer.payload()).unwrap();
+                assert_eq!(address,Address::Ipv4([203,0,113,target]));assert_eq!(port,53);assert_eq!(payload,expected);
+                let response=codec.encode(&address,port,expected).unwrap();
+                let response=wire.encode_response_to_client(outer.target(),outer.port(),&response).unwrap();
+                physical.send_to(&response,sender).await.unwrap();
+            }
+            let mut tail=Vec::new();control.read_to_end(&mut tail).await.unwrap();assert!(tail.is_empty());control.shutdown().await.unwrap();
+        });
+        let proxy=Proxy::new(config).unwrap();
+        let registry=proxy.system_tun_source_registry();let running=proxy.spawn();
+        let incoming=loop {if let Some(owner)=registry.owner("entry") {break owner;}tokio::task::yield_now().await;};
+        incoming.wait_ready().await.unwrap();
+        let handle=crate::ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()),proxy.clone());
+        handle.apply_runtime_config_and_wait((*proxy.engine().config()).clone(),Duration::from_secs(5)).await.unwrap();
+        let endpoint=*incoming.original_listener_address.get().unwrap();
+        let (control,socket,relay)=associate(endpoint).await;
+        send(&socket,relay,1,b"first").await;receive(&socket,1,b"first").await;
+        send(&socket,relay,2,b"").await;receive(&socket,2,b"").await;
+        let plan=proxy.tcp_runtime_services().components.clone().unwrap();
+        let carrier=plan.configured("carrier").unwrap().original_carrier_owner(0).unwrap();
+        let observations=carrier.observe().unwrap();
+        assert_eq!(observations.slots().len(),2,"dynamic SOCKS BND retains its actual TCP control and UDP original");
+        let originals=observations.slots().iter().map(|slot|{
+            assert!(slot.native().is_some());slot.original().clone()
+        }).collect::<Vec<_>>();
+        let sessions=proxy.engine().active_sessions();
+        let first=sessions.iter().find(|session|session.network==Network::Udp&&session.target==Address::Ipv4([203,0,113,1])).expect("first actual business").id;
+        let second=sessions.iter().find(|session|session.network==Network::Udp&&session.target==Address::Ipv4([203,0,113,2])).expect("second actual business").id;
+        assert_ne!(first,second);
+        proxy.engine().track_session(first).finish(zero_engine::SessionOutcome::DirectRelayed).unwrap();
+        send(&socket,relay,2,b"still-live").await;receive(&socket,2,b"still-live").await;
+        let same=carrier.observe().unwrap();assert_eq!(same.slots().len(),2);
+        for original in &originals {assert!(same.slots().iter().any(|slot|original.same_original(slot.original())));assert!(original.closed().is_none());}
+        assert!(proxy.engine().active_sessions().iter().any(|session|session.id==second));
+        drop(socket);drop(control);
+        running.shutdown().await.unwrap();peer.await.unwrap();
+        for original in originals {let closed=original.closed().expect("actual native provider close, not peer EOF");assert!(original.matches_closed(&closed));assert!(closed.had_native_acquisition());}
+        assert!(carrier.closed().unwrap().matches(&carrier));assert!(carrier.users_closed().unwrap().matches(&carrier));
+        let terminal=incoming.terminal().expect("actual Source joins and native cleanup before publication");
+        assert_eq!(terminal.identity(),incoming.identity());assert!(terminal.joined_tasks()>=2);assert!(terminal.task_failures().is_empty());
+    }).await.unwrap();
+}
