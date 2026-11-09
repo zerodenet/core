@@ -18,19 +18,23 @@ pub(super) fn destination(inbound: &InboundConfig) -> Result<Destination, Engine
         inbound.listen.port,
     ))
 }
-pub(super) fn spec(inbound: &InboundConfig) -> ComponentSpec {
+pub(super) fn spec_with_limits(
+    inbound: &InboundConfig,
+    limits: crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits,
+) -> Result<ComponentSpec, EngineError> {
     let destination = destination(inbound).expect("validated literal endpoint");
-    ComponentSpec {
+    let mut identity = super::inbound_protocol_identity(&inbound.protocol)
+        .expect("serializable protocol")
+        .to_vec();
+    for value in limits.wire_values() {
+        identity.extend_from_slice(&(value as u64).to_le_bytes());
+    }
+    Ok(ComponentSpec {
         owner: ResourceOwner::Component,
         roles: vec![RoleKind::Inbound],
         dependencies: vec![],
-        static_identity: super::inbound_protocol_identity(&inbound.protocol)
-            .expect("serializable protocol")
-            .to_vec()
-            .into(),
-        task_limit: NonZeroUsize::new(
-            crate::runtime::inbound_operation::raw_ip::PacketSourceContext::internal_task_limit(),
-        ),
+        static_identity: identity.into(),
+        task_limit: NonZeroUsize::new(limits.task_limit(false).map_err(std::io::Error::other)?),
         resources: vec![
             ResourceDeclaration::DatagramListener {
                 accepted: None,
@@ -39,7 +43,7 @@ pub(super) fn spec(inbound: &InboundConfig) -> ComponentSpec {
                 max_pending_sends: NonZeroUsize::new(1).unwrap(),
             },
             ResourceDeclaration::NativeIcmp {
-                max_sockets: NonZeroUsize::new(64).unwrap(),
+                max_sockets: NonZeroUsize::new(limits.icmp).unwrap(),
             },
             ResourceDeclaration::PacketDatagramReads {
                 datagram: 0,
@@ -48,7 +52,7 @@ pub(super) fn spec(inbound: &InboundConfig) -> ComponentSpec {
                 supplemental: Default::default(),
             },
         ],
-    }
+    })
 }
 pub(super) fn cold_bind(options: Options) -> Result<PreparedInboundBind, EngineError> {
     destination(&options.inbound)?;

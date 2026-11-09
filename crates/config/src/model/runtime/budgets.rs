@@ -2,6 +2,30 @@
 use super::*;
 
 impl RuntimeOptionsConfig {
+    pub fn effective_raw_ip_max_tcp_connections(&self) -> usize {
+        self.raw_ip_max_tcp_connections.unwrap_or(4096)
+    }
+    pub fn effective_raw_ip_max_udp_associations(&self) -> usize {
+        self.raw_ip_max_udp_associations.unwrap_or(1024)
+    }
+    pub fn effective_raw_ip_max_dns_queries(&self) -> usize {
+        self.raw_ip_max_dns_queries.unwrap_or(256)
+    }
+    pub fn effective_raw_ip_max_icmp_probes(&self) -> usize {
+        self.raw_ip_max_icmp_probes.unwrap_or(64)
+    }
+    pub fn effective_system_tun_max_tcp_dns_connections(&self) -> usize {
+        self.system_tun_max_tcp_dns_connections.unwrap_or(256)
+    }
+    pub fn effective_packet_return_max_routes(&self) -> usize {
+        self.packet_return_max_routes.unwrap_or(1024)
+    }
+    pub fn effective_packet_return_max_conversations(&self) -> usize {
+        self.packet_return_max_conversations.unwrap_or(8192)
+    }
+    pub fn effective_packet_return_max_observations(&self) -> usize {
+        self.packet_return_max_observations.unwrap_or(4096)
+    }
     pub fn effective_packet_windows_ring_capacity(&self) -> usize {
         self.packet_windows_ring_capacity
             .unwrap_or(64 * 1024 * 1024)

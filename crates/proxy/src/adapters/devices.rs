@@ -286,13 +286,14 @@ impl Devices {
         &self,
         inbound: zero_config::InboundConfig,
         source_dir: Option<&std::path::Path>,
+        candidate: Option<&zero_config::RuntimeConfig>,
     ) -> Result<Option<crate::protocol_registry::PreparedInboundBind>, zero_engine::EngineError>
     {
         #[cfg(feature = "wireguard")]
         if let Some(adapter) = &self.wireguard {
-            return adapter.prepare_inbound_bind(inbound, source_dir);
+            return adapter.prepare_inbound_bind(inbound, source_dir, candidate);
         }
-        let _ = (inbound, source_dir);
+        let _ = (inbound, source_dir, candidate);
         Ok(None)
     }
     pub(crate) fn inbound_requires_restart(&self, inbound: &zero_config::InboundConfig) -> bool {

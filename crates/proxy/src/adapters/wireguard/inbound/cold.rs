@@ -30,17 +30,19 @@ pub(crate) struct Options {
     pub(in crate::adapters::wireguard) recovery: Arc<dyn crate::protocol_registry::InboundRecovery>,
 }
 impl Options {
-    pub(in crate::adapters::wireguard) fn new(
+    pub(in crate::adapters::wireguard) fn new_with_limits(
         inbound: &InboundConfig,
         live: Arc<LiveInboundDevice>,
         binding: Binding,
         pending: super::super::PendingEndpointMap,
+        limits: crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits,
     ) -> Result<Self, EngineError> {
         let recovery = Arc::new(super::recovery::Recovery::new(
             inbound,
             live.clone(),
             binding.clone(),
             pending,
+            limits,
         )?);
         // Validate cold protocol input without mutating the current crypto owner.
         prepare_device(inbound)?;
@@ -70,7 +72,7 @@ impl Options {
                 None => None, // original explicit pre-canonical library owner
             },
         };
-        let mut spec = super::super::controlled_bind::spec(inbound);
+        let mut spec = super::super::controlled_bind::spec_with_limits(inbound, limits)?;
         if outer_tasks != 0 {
             // These are the old original reader and original N=1 reconnect
             // futures per configured endpoint. No additional worker or marker

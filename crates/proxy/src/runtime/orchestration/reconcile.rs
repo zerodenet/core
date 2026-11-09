@@ -44,6 +44,9 @@ impl OrchestrationState {
             let next = new_snapshot.config();
             let requested = proxy.has_tun_packet_budget_recovery()
                 || budget_barrier::packet_budget_changed(old, next)
+                || budget_barrier::raw_source_work_changed(old, next)
+                || old.runtime.effective_system_tun_max_tcp_dns_connections()
+                    != next.runtime.effective_system_tun_max_tcp_dns_connections()
                 || budget_barrier::windows_ring_budget_changed(old, next)
                 || budget_barrier::carrier_budget_changed(old, next)
                 || old.runtime.system_tun_task_limit != next.runtime.system_tun_task_limit
@@ -308,7 +311,11 @@ impl OrchestrationState {
         #[cfg(feature = "raw-ip-runtime")]
         {
             let packet =
-                budget_barrier::packet_budget_changed(self.applied_snapshot.config(), &new_config);
+                budget_barrier::packet_budget_changed(self.applied_snapshot.config(), &new_config)
+                    || budget_barrier::raw_source_work_changed(
+                        self.applied_snapshot.config(),
+                        &new_config,
+                    );
             let ring = budget_barrier::windows_ring_budget_changed(
                 self.applied_snapshot.config(),
                 &new_config,

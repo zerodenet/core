@@ -147,6 +147,10 @@ pub struct PacketMetadataCredit {
     wake: Waker,
 }
 impl PacketMetadataCredit {
+    /// Only identity of the actual paid counter; not IO or policy authority.
+    pub fn same_counter(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.counter, &other.counter)
+    }
     pub fn layout(&self) -> PacketMetadataLayout {
         self.layout
     }

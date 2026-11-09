@@ -51,6 +51,9 @@ struct Resource {
     cleanup_failures: zero_platform_tokio::contract::lifecycle::ResourceCleanupFailures,
 }
 pub(crate) struct InboundOwner {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) raw_source_limits:
+        OnceLock<crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits>,
     main_launch: Mutex<Option<zero_platform_tokio::contract::scope::TaskLaunch>>,
     #[cfg(feature = "raw-ip-runtime")]
     pub(super) packet_pause:
@@ -299,6 +302,8 @@ impl InboundOwner {
             .reserve_launch(TaskClass::Critical)
             .map_err(|source| std::io::Error::new(std::io::ErrorKind::WouldBlock, source))?;
         Ok(Self {
+            #[cfg(feature = "raw-ip-runtime")]
+            raw_source_limits: OnceLock::new(),
             main_launch: Mutex::new(Some(main_launch)),
             #[cfg(feature = "raw-ip-runtime")]
             packet_pause: Arc::default(),
@@ -600,5 +605,14 @@ impl InboundTaskAccess {
             ));
         }
         Ok(checkpoint)
+    }
+}
+
+#[cfg(all(test, feature = "raw-ip-runtime"))]
+impl InboundOwner {
+    pub(crate) fn test_raw_source_limits(
+        &self,
+    ) -> Option<crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits> {
+        self.raw_source_limits.get().copied()
     }
 }

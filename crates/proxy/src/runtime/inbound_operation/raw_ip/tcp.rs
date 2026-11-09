@@ -11,11 +11,10 @@ use zero_engine::EngineError;
 use zero_stack::UserTcpStack;
 use zero_traits::{IpAddress, SocketAddress, TcpStack};
 
-pub(super) const MAX_CONNECTIONS: usize = 4096;
-
 /// The existing DNS consumer plus this actual Source's input admission. The
 /// standalone stack fixture deliberately has no Source/native-wire identity.
 pub(super) struct TcpSourceTasks {
+    limits: super::RawIpSourceLimits,
     dns: Option<crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks<Result<(), io::Error>>>,
     input: SourceInput,
 }
@@ -30,10 +29,12 @@ impl TcpSourceTasks {
             crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks<Result<(), io::Error>>,
         >,
         admission: Arc<zero_platform_tokio::contract::packet::PacketSourcePause>,
+        limits: super::RawIpSourceLimits,
     ) -> Self {
         Self {
             dns,
             input: SourceInput::Hosted(admission),
+            limits,
         }
     }
     #[cfg(test)]
@@ -41,6 +42,7 @@ impl TcpSourceTasks {
         Self {
             dns: None,
             input: SourceInput::ExplicitStackFixture,
+            limits: super::RawIpSourceLimits::default(),
         }
     }
 }
@@ -102,7 +104,7 @@ pub(super) async fn accept(
             let tasks = dns_tasks.as_mut().ok_or_else(|| {
                 std::io::Error::other("actual device DNS task set was not declared")
             })?;
-            if tasks.len() >= crate::inbound::tun::MAX_TCP_DNS_CONNECTIONS {
+            if tasks.len() >= source_tasks.limits.tcp_dns {
                 tracing::warn!(
                     active_dns_connections = tasks.len(),
                     "rejecting TUN DNS TCP connection at the concurrency limit"
@@ -121,7 +123,7 @@ pub(super) async fn accept(
             }
             continue;
         }
-        if group.occupied() >= MAX_CONNECTIONS {
+        if group.occupied() >= source_tasks.limits.tcp {
             continue;
         }
         let mut native = match native

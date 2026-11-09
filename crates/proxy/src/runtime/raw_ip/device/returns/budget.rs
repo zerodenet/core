@@ -5,7 +5,7 @@ mod derived;
 mod transmit;
 
 #[derive(Clone)]
-pub(super) struct ReturnBudget(Arc<Inner>);
+pub(super) struct ReturnBudget(zero_tun::packet_memory::PacketMetadataArc<Inner>);
 struct Inner {
     limits: (usize, usize),
     occupied: Mutex<(usize, usize)>,
@@ -44,12 +44,34 @@ impl ReturnBudget {
         bytes: usize,
         totals: Arc<PacketReturnTotals>,
     ) -> Self {
-        Self(Arc::new(Inner {
-            limits: (frames, bytes),
-            occupied: Mutex::new((0, 0)),
-            totals,
-            changed: tokio::sync::Notify::new(),
-        }))
+        Self::try_with_totals(frames, bytes, totals)
+            .expect("explicit library owner metadata fits its Root")
+    }
+    pub(super) fn try_with_totals(
+        frames: usize,
+        bytes: usize,
+        totals: Arc<PacketReturnTotals>,
+    ) -> std::io::Result<Self> {
+        use zero_tun::packet_memory::PacketMetadataArc;
+        let layout = PacketMetadataArc::<Inner>::layout().map_err(std::io::Error::other)?;
+        let credit = totals
+            .driver_metadata_view()
+            .reserve(layout)
+            .map_err(std::io::Error::other)?;
+        PacketMetadataArc::from_prepaid(
+            Inner {
+                limits: (frames, bytes),
+                occupied: Mutex::new((0, 0)),
+                totals,
+                changed: tokio::sync::Notify::new(),
+            },
+            credit,
+        )
+        .map(Self)
+        .map_err(|(source, _, _)| std::io::Error::other(source))
+    }
+    pub(super) fn metadata(&self) -> zero_tun::packet_memory::PacketDriverMetadataView {
+        self.0.totals.driver_metadata_view()
     }
     pub(super) fn retain(&self, packet: PacketBuffer) -> Result<PacketBuffer, PacketBuffer> {
         let bytes = packet.allocation_bytes();

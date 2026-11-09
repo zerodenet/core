@@ -1,6 +1,7 @@
 //! Same Source table allocation, not a second census or resource scheduler.
 //! Moving/removing a row does not refund its still-allocated table capacity.
 use super::*;
+mod shrink;
 use std::ops::{Deref, DerefMut};
 
 pub struct PacketMetadataVec<T> {

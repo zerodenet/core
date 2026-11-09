@@ -24,6 +24,7 @@ fn passive_restore_and_port_move_keep_the_actual_crypto_owner_and_finite_declara
         live.clone(),
         Binding::Standalone,
         adapter.pending_endpoints.clone(),
+        crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits::default(),
     )
     .unwrap();
     let original_incarnation = live.incarnation();
@@ -70,6 +71,7 @@ fn restore_requires_ready_same_crypto_candidate_and_rejects_another_actual_owner
         live.clone(),
         Binding::Standalone,
         adapter.pending_endpoints.clone(),
+        crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits::default(),
     )
     .unwrap();
     let pending = Arc::new(super::super::super::lifecycle::PendingLinkedEndpoint::new(
@@ -105,6 +107,7 @@ fn restore_requires_ready_same_crypto_candidate_and_rejects_another_actual_owner
         adapter.passive_inbound_live(&inbound).unwrap(),
         Binding::Ready(link),
         adapter.pending_endpoints.clone(),
+        crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits::default(),
     )
     .unwrap();
     assert!(recovery.prepare_restore(inbound, None).is_err());
@@ -138,7 +141,7 @@ async fn original_udp_pending_join_and_publication_precede_same_crypto_restore()
     let original_incarnation = live.incarnation();
     let owners = Arc::new(InboundOwnerRegistry::default());
     let prepared = adapter
-        .prepare_inbound_bind(inbound.clone(), None)
+        .prepare_inbound_bind(inbound.clone(), None, None)
         .unwrap()
         .unwrap();
     let (shutdown, _) = watch::channel(false);
@@ -264,6 +267,7 @@ fn capsule_uses_current_actual_private_identity_after_an_accepted_hot_update() {
         live.clone(),
         Binding::Standalone,
         adapter.pending_endpoints.clone(),
+        crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits::default(),
     )
     .unwrap();
     let mut accepted = inbound.clone();
@@ -289,4 +293,47 @@ fn capsule_uses_current_actual_private_identity_after_an_accepted_hot_update() {
         &live
     ));
     assert_eq!(adapter.inbound_devices.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn actual_candidate_work_limits_redeclare_original_scope_without_tun_only_identity_change() {
+    use crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits;
+    let adapter = super::super::super::WireguardAdapter::default();
+    let input = config();
+    let live = adapter.passive_inbound_live(&input).unwrap();
+    let incarnation = live.incarnation();
+    let capsule = Recovery::new(
+        &input,
+        live.clone(),
+        Binding::Standalone,
+        adapter.pending_endpoints.clone(),
+        RawIpSourceLimits::default(),
+    )
+    .unwrap();
+    let mut candidate = RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap();
+    candidate.runtime.raw_ip_max_tcp_connections = Some(2);
+    candidate.runtime.raw_ip_max_udp_associations = Some(3);
+    candidate.runtime.raw_ip_max_dns_queries = Some(4);
+    candidate.runtime.raw_ip_max_icmp_probes = Some(5);
+    let limits = RawIpSourceLimits::from_runtime(&candidate.runtime).unwrap();
+    let prepared = capsule
+        .prepare_in_config(input.clone(), &candidate, false)
+        .unwrap()
+        .unwrap();
+    assert!(
+        matches!(prepared.resources()[1],ResourceDeclaration::NativeIcmp{max_sockets}if max_sockets.get()==5)
+    );
+    let spec = prepared.into_recipe().spec().clone();
+    assert_eq!(
+        spec.task_limit.unwrap().get(),
+        limits.task_limit(false).unwrap()
+    );
+    candidate.runtime.system_tun_max_tcp_dns_connections = Some(1);
+    let tun_only = capsule
+        .prepare_in_config(input, &candidate, false)
+        .unwrap()
+        .unwrap()
+        .into_recipe();
+    assert_eq!(spec.static_identity, tun_only.spec().static_identity);
+    assert_eq!(incarnation, live.incarnation());
 }

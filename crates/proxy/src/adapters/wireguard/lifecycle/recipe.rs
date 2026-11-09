@@ -45,6 +45,7 @@ pub(super) struct LinkedEndpointRecipe {
     static_identity: Arc<[u8]>,
     source_total_limit: Option<usize>,
     source_worker_limit: Option<usize>,
+    source_work_limits: Option<[usize; 4]>,
     reuse: Option<std::sync::Weak<LinkedStackOptions>>,
     dependencies: Vec<ComponentId>,
 }
@@ -117,6 +118,21 @@ impl LinkedEndpointRecipe {
         }
         if let Some(outer) = &settings.outer {
             outer.hash(&mut hash);
+        }
+        let source_work_limits = resources
+            .and_then(|actual| actual.candidate())
+            .map(|candidate| {
+                crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits::from_runtime(
+                    &candidate.runtime,
+                )
+            })
+            .transpose()
+            .map_err(std::io::Error::other)?
+            .map(|limits| limits.wire_values());
+        if let Some(limits) = source_work_limits {
+            for value in limits {
+                hash.update((value as u64).to_le_bytes());
+            }
         }
         hash.update(settings.identity);
         hash.update(settings.network_generation.0.to_le_bytes());
@@ -218,6 +234,7 @@ impl LinkedEndpointRecipe {
             source_total_limit: resources
                 .and_then(|resources| resources.candidate())
                 .map(|candidate| candidate.runtime.effective_carrier_max_total_originals()),
+            source_work_limits,
             source_worker_limit: resources
                 .and_then(|resources| resources.candidate())
                 .map(|candidate| candidate.runtime.effective_component_total_max_tasks()),

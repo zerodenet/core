@@ -25,6 +25,7 @@ struct FailureBackoff {
 }
 
 pub(super) struct AssociationRegistry {
+    max_active: usize,
     active: HashMap<SocketAddress, Association>,
     recent_starts: VecDeque<Instant>,
     failures: HashMap<SocketAddress, FailureBackoff>,
@@ -48,8 +49,13 @@ pub(super) enum AdmissionRejection {
 }
 
 impl AssociationRegistry {
+    #[cfg(test)]
     pub(super) fn new() -> Self {
+        Self::with_limit(MAX_ACTIVE_ASSOCIATIONS)
+    }
+    pub(super) fn with_limit(max_active: usize) -> Self {
         Self {
+            max_active,
             active: HashMap::new(),
             recent_starts: VecDeque::new(),
             failures: HashMap::new(),
@@ -78,7 +84,7 @@ impl AssociationRegistry {
                 return Err(AdmissionRejection::Backoff(failure.retry_at - now));
             }
         }
-        if self.active.len() >= MAX_ACTIVE_ASSOCIATIONS {
+        if self.active.len() >= self.max_active {
             return Err(AdmissionRejection::ActiveLimit);
         }
         while self.recent_starts.front().is_some_and(|started| {

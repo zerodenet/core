@@ -19,7 +19,11 @@ pub(super) async fn apply_candidate(
     } = candidate;
     let prepared = runtime_factory
         .owners()
-        .prepare_recovery_bind(inbound.clone(), source_dir, runtime_factory.is_restoring())?
+        .prepare_recovery_bind_in_config(
+            inbound.clone(),
+            &runtime_factory.config_handle(),
+            runtime_factory.is_restoring(),
+        )?
         .or(prepared);
     let inbound = &inbound;
     let (shutdown_tx, _) = watch::channel(false);

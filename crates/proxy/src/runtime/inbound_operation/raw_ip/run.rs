@@ -188,6 +188,7 @@ pub(in crate::runtime) async fn run(
                     .packet_source_admission()
                     .await
                     .map_err(std::io::Error::other)?,
+                children.limits,
             ),
         ))
         .map_err(std::io::Error::other)?;
@@ -232,6 +233,7 @@ pub(in crate::runtime) async fn run(
         shutdown.clone(),
         children.echoes.clone(),
         children.icmp.clone(),
+        children.limits.icmp,
     );
     let packet_roles = children.packet_roles.clone();
     let mut closing_packet_roles: Option<

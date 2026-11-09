@@ -314,12 +314,15 @@ async fn expired_conversation_cannot_override_the_current_return_route_between_s
         .register_observed(local, 1, old.into(), None, Some(key))
         .unwrap();
     let (current, mut current_packets) = mpsc::channel::<Vec<u8>>(1);
+    old_packets.close(); // Actual receiver closure, not age, permits replacement.
     routes.register(local, 1, current.into()).unwrap();
     routes
         .conversations
         .lock()
         .unwrap()
-        .get_mut(&key)
+        .iter_mut()
+        .find(|(actual, _)| *actual == key)
+        .map(|(_, value)| value)
         .unwrap()
         .touched = Instant::now() - Duration::from_secs(601);
     let reply = packet::build_udp(remote, local, 53, 40000, b"reply");
@@ -327,3 +330,6 @@ async fn expired_conversation_cannot_override_the_current_return_route_between_s
     assert!(current_packets.try_recv().is_ok());
     assert!(old_packets.try_recv().is_err());
 }
+
+#[path = "tests/work_limits.rs"]
+mod work_limits;

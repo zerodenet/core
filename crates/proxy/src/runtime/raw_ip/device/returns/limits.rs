@@ -1,10 +1,49 @@
 //! Concrete Host policy observation and explicit standalone library policy.
 use super::*;
 impl PacketReturns {
-    pub(crate) fn with_limits(
-        mut self,
+    pub(crate) fn new_for_options(
         options: &crate::runtime::raw_ip::RawIpStackOptions,
+        hosted: bool,
+        drop_observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> std::io::Result<Self> {
+        if hosted {
+            Self::check_host_policy(options)?;
+        } else {
+            Self::install_library_policy(options)?;
+        }
+        let rows = [
+            options.packet_return_max_routes,
+            options.packet_return_max_conversations,
+            options.packet_return_max_observations,
+        ];
+        if rows.into_iter().any(|value| !(1..=65536).contains(&value)) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid actual return row bounds",
+            ));
+        }
+        Ok(Self {
+            budget: budget::ReturnBudget::try_with_totals(
+                options.packet_return_max_frames,
+                options.packet_return_max_bytes,
+                options.packet_return_totals.clone(),
+            )?,
+            row_limits: ReturnRowLimits {
+                routes: rows[0],
+                conversations: rows[1],
+                observations: rows[2],
+            },
+            drop_observer,
+            receive_incomplete: Default::default(),
+            routes: Default::default(),
+            observations: Default::default(),
+            conversations: Default::default(),
+            translated: Default::default(),
+        })
+    }
+    fn install_library_policy(
+        options: &crate::runtime::raw_ip::RawIpStackOptions,
+    ) -> std::io::Result<()> {
         // Explicit standalone library construction owns this Root policy.
         use zero_tun::packet_memory::PacketMemoryLimit;
         options
@@ -28,17 +67,11 @@ impl PacketReturns {
                 ),
             )
             .map_err(std::io::Error::other)?;
-        self.budget = budget::ReturnBudget::with_totals(
-            options.packet_return_max_frames,
-            options.packet_return_max_bytes,
-            options.packet_return_totals.clone(),
-        );
-        Ok(self)
+        Ok(())
     }
-    pub(crate) fn with_host_limits(
-        mut self,
+    fn check_host_policy(
         options: &crate::runtime::raw_ip::RawIpStackOptions,
-    ) -> std::io::Result<Self> {
+    ) -> std::io::Result<()> {
         use zero_tun::packet_memory::PacketMemoryLimit;
         let expected = [
             PacketMemoryLimit {
@@ -68,11 +101,6 @@ impl PacketReturns {
                 "Host has not installed this accepted packet memory policy",
             ));
         }
-        self.budget = budget::ReturnBudget::with_totals(
-            options.packet_return_max_frames,
-            options.packet_return_max_bytes,
-            options.packet_return_totals.clone(),
-        );
-        Ok(self)
+        Ok(())
     }
 }

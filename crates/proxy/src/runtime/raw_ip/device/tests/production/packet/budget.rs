@@ -4,6 +4,13 @@ use zero_api::CommandService;
 
 #[tokio::test]
 async fn ordinary_packet_budget_waits_for_real_route_close_then_replaces_native_source() {
+    exercise_source_budget(false).await;
+}
+#[tokio::test]
+async fn ordinary_raw_work_and_return_rows_preserve_active_route_then_rebuild_exact_native_scope() {
+    exercise_source_budget(true).await;
+}
+async fn exercise_source_budget(work_rows: bool) {
     let (remote, remote_task) = peer::echo_peer().await;
     let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let config = config(remote, socket.local_addr().unwrap());
@@ -30,7 +37,17 @@ async fn ordinary_packet_budget_waits_for_real_route_close_then_replaces_native_
         client::Client::from_original(socket, *old.original_listener_address.get().unwrap());
     client.echo(b"active-route-blocks-policy-eviction").await;
     let mut changed = config.clone();
-    changed.runtime.packet_return_max_frames = Some(128);
+    if work_rows {
+        changed.runtime.raw_ip_max_tcp_connections = Some(1);
+        changed.runtime.raw_ip_max_udp_associations = Some(1);
+        changed.runtime.raw_ip_max_dns_queries = Some(1);
+        changed.runtime.raw_ip_max_icmp_probes = Some(1);
+        changed.runtime.packet_return_max_routes = Some(1);
+        changed.runtime.packet_return_max_conversations = Some(1);
+        changed.runtime.packet_return_max_observations = Some(1);
+    } else {
+        changed.runtime.packet_return_max_frames = Some(128);
+    }
     assert!(handle
         .apply_runtime_config_and_wait(changed.clone(), Duration::from_secs(5))
         .await
@@ -72,6 +89,12 @@ async fn ordinary_packet_budget_waits_for_real_route_close_then_replaces_native_
     let current = proxy.inbound_owners.owner(&input.tag).unwrap();
     current.wait_ready().await.unwrap();
     assert!(!Arc::ptr_eq(&old, &current));
+    if work_rows {
+        assert_eq!(
+            current.test_raw_source_limits().unwrap().wire_values(),
+            [1; 4]
+        );
+    }
     assert!(old_main.is_joined());
     assert!(old_main.try_joined().unwrap().registration_released());
     assert!(original.driver().is_joined());

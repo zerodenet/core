@@ -12,6 +12,7 @@ pub(super) struct Recovery {
     live: Arc<LiveInboundDevice>,
     original: Binding,
     pending: PendingEndpointMap,
+    limits: crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits,
 }
 impl Recovery {
     pub(super) fn new(
@@ -19,6 +20,7 @@ impl Recovery {
         live: Arc<LiveInboundDevice>,
         original: Binding,
         pending: PendingEndpointMap,
+        limits: crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits,
     ) -> Result<Self, EngineError> {
         let state = Self {
             tag: inbound.tag.clone(),
@@ -26,6 +28,7 @@ impl Recovery {
             live,
             original,
             pending,
+            limits,
         };
         if !state.matches_private_identity(inbound)? {
             return Err(invalid(
@@ -96,13 +99,39 @@ impl Recovery {
         &self,
         inbound: &InboundConfig,
         restore: bool,
+        limits: crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits,
     ) -> Result<PreparedInboundBind, EngineError> {
         let binding = self.select(inbound, restore)?;
-        let operation = Options::new(inbound, self.live.clone(), binding, self.pending.clone())?;
+        let operation = Options::new_with_limits(
+            inbound,
+            self.live.clone(),
+            binding,
+            self.pending.clone(),
+            limits,
+        )?;
         super::super::controlled_bind::cold_bind(operation)
     }
 }
 impl InboundRecovery for Recovery {
+    fn prepare_in_config(
+        &self,
+        inbound: InboundConfig,
+        config: &zero_config::RuntimeConfig,
+        restore: bool,
+    ) -> Result<Option<PreparedInboundBind>, EngineError> {
+        if inbound.tag != self.tag || !self.matches_private_identity(&inbound)? {
+            return Ok(None);
+        }
+        if restore && inbound.listen != self.listen {
+            return Err(invalid("recovery listener changed"));
+        }
+        let limits = crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits::from_runtime(
+            &config.runtime,
+        )
+        .map_err(std::io::Error::other)?;
+        self.prepare(&inbound, restore, limits).map(Some)
+    }
+
     fn prepare_restore(
         &self,
         inbound: InboundConfig,
@@ -116,7 +145,7 @@ impl InboundRecovery for Recovery {
                 "WireGuard recovery differs from the original private identity or listener",
             ));
         }
-        self.prepare(&inbound, true)
+        self.prepare(&inbound, true, self.limits)
     }
     fn prepare_replacement(
         &self,
@@ -126,7 +155,7 @@ impl InboundRecovery for Recovery {
         if inbound.tag != self.tag || !self.matches_private_identity(&inbound)? {
             return Ok(None);
         }
-        self.prepare(&inbound, false).map(Some)
+        self.prepare(&inbound, false, self.limits).map(Some)
     }
 }
 

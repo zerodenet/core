@@ -65,6 +65,7 @@ impl Fixture {
             shutdown,
             echo_tasks.clone(),
             None,
+            64,
         );
         Self {
             pins: route.packet_statistics_pins(),

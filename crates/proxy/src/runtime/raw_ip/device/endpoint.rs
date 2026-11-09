@@ -97,12 +97,11 @@ impl SharedRawIpDevice {
         options: super::super::RawIpStackOptions,
         task: Arc<super::workers::DeviceWorkers>,
     ) -> Result<Arc<Self>, EngineError> {
-        let returns = PacketReturns::default();
-        let returns = Arc::new(if task.requires_packet_memory() {
-            returns.with_host_limits(&options)?
-        } else {
-            returns.with_limits(&options)?
-        });
+        let returns = Arc::new(PacketReturns::new_for_options(
+            &options,
+            task.requires_packet_memory(),
+            None,
+        )?);
         let (outbound, raw_packets) =
             mpsc::channel::<zero_stack::packet_output::ObservedPacket>(128);
         let (forwarded_packets, forwarded_rx) = mpsc::channel(128);

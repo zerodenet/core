@@ -25,6 +25,7 @@ pub(in crate::adapters::wireguard) struct LinkedStackOptions {
     pub(super) spec: ComponentSpec,
     source_total_limit: Option<usize>,
     source_worker_limit: Option<usize>,
+    source_work_limits: Option<[usize; 4]>,
     tag: String,
     map: super::super::PendingEndpointMap,
     pub(super) pending: Arc<PendingLinkedEndpoint>,
@@ -72,6 +73,7 @@ impl LinkedStackOptions {
             },
             source_total_limit: recipe.source_total_limit,
             source_worker_limit: recipe.source_worker_limit,
+            source_work_limits: recipe.source_work_limits,
             tag: recipe.tag.clone(),
             map: recipe
                 .map
@@ -117,6 +119,18 @@ impl LinkedStackOptions {
             .candidate()
             .map(|candidate| candidate.runtime.effective_component_total_max_tasks());
         if self.source_worker_limit.is_none() || self.source_worker_limit != workers {
+            return false;
+        }
+        let work = resources
+            .candidate()
+            .and_then(|candidate| {
+                crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits::from_runtime(
+                    &candidate.runtime,
+                )
+                .ok()
+            })
+            .map(|limits| limits.wire_values());
+        if self.source_work_limits.is_none() || self.source_work_limits != work {
             return false;
         }
         let scope = self.scope.lock().unwrap_or_else(|e| e.into_inner()).clone();

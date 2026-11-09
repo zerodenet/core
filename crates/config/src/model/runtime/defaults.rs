@@ -4,6 +4,14 @@ use super::*;
 impl Default for RuntimeOptionsConfig {
     fn default() -> Self {
         Self {
+            raw_ip_max_tcp_connections: None,
+            raw_ip_max_udp_associations: None,
+            raw_ip_max_dns_queries: None,
+            raw_ip_max_icmp_probes: None,
+            system_tun_max_tcp_dns_connections: None,
+            packet_return_max_routes: None,
+            packet_return_max_conversations: None,
+            packet_return_max_observations: None,
             packet_windows_ring_capacity: None,
             packet_windows_ring_total_max_bytes: None,
             inbound_max_accepted_sockets: None,

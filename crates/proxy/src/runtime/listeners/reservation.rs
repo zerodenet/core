@@ -14,17 +14,17 @@ pub(super) async fn bind_inbound_with_retry(
     inbound: &InboundConfig,
     shutdown: tokio::sync::watch::Sender<bool>,
 ) -> Result<PendingInbound, EngineError> {
-    let prepared =
-        match runtime_factory
-            .owners()
-            .prepare_recovery_bind(inbound.clone(), source_dir, true)?
-        {
-            Some(prepared) => Some(prepared),
-            None => protocols.prepare_inbound_bind_in_config(
-                runtime_factory.listener_config(inbound),
-                &runtime_factory.config_handle(),
-            )?,
-        };
+    let prepared = match runtime_factory.owners().prepare_recovery_bind_in_config(
+        inbound.clone(),
+        &runtime_factory.config_handle(),
+        true,
+    )? {
+        Some(prepared) => Some(prepared),
+        None => protocols.prepare_inbound_bind_in_config(
+            runtime_factory.listener_config(inbound),
+            &runtime_factory.config_handle(),
+        )?,
+    };
     super::bind::bind_prepared_listener(
         protocols,
         runtime_factory,

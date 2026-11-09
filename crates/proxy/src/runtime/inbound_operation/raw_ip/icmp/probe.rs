@@ -23,6 +23,7 @@ pub(super) async fn owned(
     grant: Option<HostIcmpProbeGrant>,
     caller: Option<zero_platform_tokio::contract::scope::TaskJoinWitness>,
     prepared: Option<prepaid::Prepared>,
+    max_probes: usize,
 ) -> std::io::Result<Option<zero_traits::PacketBuffer>> {
     let grant = grant.ok_or_else(|| {
         std::io::Error::new(
@@ -68,9 +69,9 @@ pub(super) async fn owned(
                     "ICMP close receipt differs from the original probe",
                 ));
             }
-            Err(error) if error.reason == Reason::Capacity && close_attempts < MAX_ECHO_PROBES => {
+            Err(error) if error.reason == Reason::Capacity && close_attempts < max_probes => {
                 // Busy means no close attempt touched the FD. Keep this exact
-                // view and charged slot. At most the existing 64 concurrent
+                // view and charged slot. At most this actual Source concurrent
                 // probe bound is retried; exhaustion returns the actual error
                 // and leaves the original charged for resource shutdown.
                 tokio::task::yield_now().await;

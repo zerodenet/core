@@ -84,8 +84,12 @@ impl WireguardAdapter {
         }
         let generation = generation
             .ok_or_else(|| invalid("plain linked device graph requires its actual host network"))?;
-        let options = crate::runtime::raw_ip::RawIpStackOptions::from_config(
+        let options = crate::runtime::raw_ip::RawIpStackOptions::from_config_with_packet_root(
             &config.runtime.network.udp_receive_queue,
+            self.packet_return_totals
+                .get()
+                .ok_or_else(|| invalid("WireGuard assembly has no original Kernel packet Root"))?
+                .clone(),
         )
         .with_packet_wire_memory(
             zero_stack::packet_output::memory::PacketWireMemory::PaddedEnvelope {
@@ -113,6 +117,7 @@ impl WireguardAdapter {
                 .runtime
                 .effective_packet_driver_metadata_total_max_bytes(),
         )
+        .with_packet_return_rows(&config.runtime)
         .with_packet_return_limits(
             config.runtime.effective_packet_return_max_frames(),
             config.runtime.effective_packet_return_max_bytes(),

@@ -279,8 +279,9 @@ impl ProtocolInventory {
             traffic: services.engine().clone(),
             direct_packet_device: config.runtime.network.direct_packet_device.clone(),
             mtu: config.runtime.network.mtu,
-            stack_options: crate::runtime::raw_ip::RawIpStackOptions::from_config(
+            stack_options: crate::runtime::raw_ip::RawIpStackOptions::from_config_with_packet_root(
                 &config.runtime.network.udp_receive_queue,
+                self.devices.packet_return_totals.clone(),
             )
             .with_packet_native_read_limits(
                 config
@@ -302,6 +303,7 @@ impl ProtocolInventory {
                     .runtime
                     .effective_packet_driver_metadata_total_max_bytes(),
             )
+            .with_packet_return_rows(&config.runtime)
             .with_packet_return_limits(
                 config.runtime.effective_packet_return_max_frames(),
                 config.runtime.effective_packet_return_max_bytes(),

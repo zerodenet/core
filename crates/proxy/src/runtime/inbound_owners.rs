@@ -82,6 +82,15 @@ pub(crate) struct InboundInstallContext {
     protocols: ProtocolInventory,
 }
 impl InboundInstallContext {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(crate) fn raw_source_limits(
+        &self,
+    ) -> Result<crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits, EngineError> {
+        self.entry.raw_source_limits.get().copied().ok_or_else(|| {
+            std::io::Error::other("actual packet Source omitted cold work bounds").into()
+        })
+    }
+
     #[cfg(feature = "managed-datagram-runtime")]
     #[cfg(test)]
     pub(crate) fn peer_tasks(&self) -> Arc<InboundPeerTasks> {
@@ -192,6 +201,11 @@ impl InboundOwnerRegistry {
                 .component_tasks
                 .clone(),
         )?);
+        #[cfg(feature = "raw-ip-runtime")]
+        entry
+            .raw_source_limits
+            .set(crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits::default())
+            .expect("one explicit primitive Source bound");
         if listener {
             entry.begin_listener_installation();
         }

@@ -111,6 +111,23 @@ impl InboundOwnerRegistry {
         source_dir: Option<&std::path::Path>,
         restore: bool,
     ) -> Result<Option<PreparedInboundBind>, EngineError> {
+        self.prepare_recovery_bind_inner(inbound, source_dir, restore, None)
+    }
+    pub(crate) fn prepare_recovery_bind_in_config(
+        &self,
+        inbound: InboundConfig,
+        config: &RuntimeConfig,
+        restore: bool,
+    ) -> Result<Option<PreparedInboundBind>, EngineError> {
+        self.prepare_recovery_bind_inner(inbound, config.source_dir(), restore, Some(config))
+    }
+    fn prepare_recovery_bind_inner(
+        &self,
+        inbound: InboundConfig,
+        source_dir: Option<&std::path::Path>,
+        restore: bool,
+        config: Option<&RuntimeConfig>,
+    ) -> Result<Option<PreparedInboundBind>, EngineError> {
         let states = self
             .retained_states
             .lock()
@@ -139,6 +156,9 @@ impl InboundOwnerRegistry {
         // Equal inbound fields do not imply equal external dependencies. The
         // accepted candidate may unlink/relink an outbound while preserving
         // this listener's private identity and address.
+        if let Some(config) = config {
+            return state.prepare_in_config(inbound, config, restore);
+        }
         if restore {
             state.prepare_restore(inbound, source_dir).map(Some)
         } else {

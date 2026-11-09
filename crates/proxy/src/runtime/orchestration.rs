@@ -12,10 +12,12 @@ mod lifecycle;
 mod logging;
 mod pending_dns;
 mod reconcile;
-#[cfg(feature = "raw-ip-runtime")]
-pub(in crate::runtime) use reconcile::budget_barrier::packet_budget_changed;
 pub(in crate::runtime) use reconcile::budget_barrier::{
     carrier_budget_changed, source_total_resources, ss_source_budget_changed,
+};
+#[cfg(feature = "raw-ip-runtime")]
+pub(in crate::runtime) use reconcile::budget_barrier::{
+    packet_budget_changed, raw_source_work_changed,
 };
 mod startup;
 mod state;

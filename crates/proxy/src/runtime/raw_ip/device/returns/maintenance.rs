@@ -1,49 +1,86 @@
-//! Reclaim expired execution/observation state and oversized table storage.
+//! Age schedules ONLY closed pure metadata. Open originals remain deliverable.
 use super::*;
-
-fn reclaim<K: Eq + std::hash::Hash, V>(table: &mut HashMap<K, V>) {
-    // Maintenance only: avoid rehashing on packet receipt or every removal.
-    // Hysteresis retains room for ordinary churn, releasing burst capacity.
+fn reclaim<T>(
+    table: &mut PacketMetadataVec<T>,
+    memory: &zero_tun::packet_memory::PacketDriverMetadataView,
+) {
     if table.capacity() > table.len().saturating_mul(4).max(16) {
-        table.shrink_to(table.len());
+        let _ = table.try_shrink_to_fit_with_metadata(memory);
     }
 }
-
 impl PacketReturns {
     pub(crate) fn clear(&self) {
         let _notifications = self.budget.defer_notifications();
-        *self.conversations.lock().unwrap_or_else(|e| e.into_inner()) = HashMap::new();
-        *self.observations.lock().unwrap_or_else(|e| e.into_inner()) = HashMap::new();
-        self.translated
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
-        *self.routes.lock().unwrap_or_else(|e| e.into_inner()) = HashMap::new();
+        let conversations =
+            { std::mem::take(&mut *self.conversations.lock().unwrap_or_else(|e| e.into_inner())) };
+        let observations =
+            { std::mem::take(&mut *self.observations.lock().unwrap_or_else(|e| e.into_inner())) };
+        let routes =
+            { std::mem::take(&mut *self.routes.lock().unwrap_or_else(|e| e.into_inner())) };
+        let translated =
+            { std::mem::take(&mut *self.translated.lock().unwrap_or_else(|e| e.into_inner())) };
+        drop((conversations, observations, routes, translated));
     }
-
     pub(crate) fn expire(&self) {
         let _notifications = self.budget.defer_notifications();
         let now = Instant::now();
-        {
-            let mut routes = self.routes.lock().unwrap_or_else(|e| e.into_inner());
-            // Do not remove a closed but unexpired return: it must still consume
-            // and count late replies instead of admitting them as new ingress.
-            routes.retain(|_, r| now.duration_since(r.touched) < IDLE_TIMEOUT);
-            reclaim(&mut routes);
+        for _ in 0..self.row_limits.routes {
+            let old = {
+                let mut rows = self.routes.lock().unwrap_or_else(|e| e.into_inner());
+                let index = rows.iter().position(|(_, row)| {
+                    row.replies.is_closed() && now.duration_since(row.touched) >= IDLE_TIMEOUT
+                });
+                index.map(|index| rows.remove(index))
+            };
+            match old {
+                Some(old) => drop(old),
+                None => break,
+            }
         }
-        {
-            let mut conversations = self.conversations.lock().unwrap_or_else(|e| e.into_inner());
-            conversations.retain(|_, c| now.duration_since(c.touched) < Duration::from_secs(600));
-            reclaim(&mut conversations);
+        for _ in 0..self.row_limits.conversations {
+            let old = {
+                let mut rows = self.conversations.lock().unwrap_or_else(|e| e.into_inner());
+                let index = rows.iter().position(|(_, row)| {
+                    row.replies.is_closed()
+                        && now.duration_since(row.touched) >= Duration::from_secs(600)
+                });
+                index.map(|index| rows.remove(index))
+            };
+            match old {
+                Some(old) => drop(old),
+                None => break,
+            }
         }
-        {
-            let mut observations = self.observations.lock().unwrap_or_else(|e| e.into_inner());
-            observations.retain(|_, o| now.duration_since(o.touched) < IDLE_TIMEOUT);
-            reclaim(&mut observations);
+        for _ in 0..self.row_limits.observations {
+            let old = {
+                let mut rows = self.observations.lock().unwrap_or_else(|e| e.into_inner());
+                let index = rows.iter().position(|(_, row)| {
+                    row.replies.is_closed() && now.duration_since(row.touched) >= IDLE_TIMEOUT
+                });
+                index.map(|index| rows.remove(index))
+            };
+            match old {
+                Some(old) => drop(old),
+                None => break,
+            }
         }
+        let memory = self.budget.metadata();
+        reclaim(
+            &mut self.routes.lock().unwrap_or_else(|e| e.into_inner()),
+            &memory,
+        );
+        reclaim(
+            &mut self.conversations.lock().unwrap_or_else(|e| e.into_inner()),
+            &memory,
+        );
+        reclaim(
+            &mut self.observations.lock().unwrap_or_else(|e| e.into_inner()),
+            &memory,
+        );
+        // Existing translated echo protocol TTL is distinct from a live return lease.
         self.translated
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .expire(now, |r| r.replies.is_closed());
+            .expire(now, |row| row.replies.is_closed());
     }
 }

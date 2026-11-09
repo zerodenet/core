@@ -28,6 +28,7 @@ pub(crate) struct IcmpEchoRelay {
     responses: zero_stack::packet_output::PacketSender,
     route: InboundRouteRuntimeFactory,
     slots: Arc<Semaphore>,
+    max_probes: usize,
     shutdown: watch::Receiver<bool>,
     tasks: Option<crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks<()>>,
     native: Option<crate::component::instance::HostIcmpProbeGrant>,
@@ -38,6 +39,7 @@ impl IcmpEchoRelay {
         packet::parse_icmp_echo_request(packet).is_some()
     }
 
+    #[cfg(test)]
     pub(crate) fn new(
         responses: zero_stack::packet_output::PacketSender,
         route: InboundRouteRuntimeFactory,
@@ -46,6 +48,7 @@ impl IcmpEchoRelay {
         Self {
             responses,
             route,
+            max_probes: MAX_ECHO_PROBES,
             slots: Arc::new(Semaphore::new(MAX_ECHO_PROBES)),
             shutdown,
             tasks: None,
@@ -59,11 +62,17 @@ impl IcmpEchoRelay {
         shutdown: watch::Receiver<bool>,
         tasks: crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks<()>,
         native: Option<crate::component::instance::HostIcmpProbeGrant>,
+        max_probes: usize,
     ) -> Self {
-        let mut relay = Self::new(responses, route, shutdown);
-        relay.tasks = Some(tasks);
-        relay.native = native;
-        relay
+        Self {
+            responses,
+            route,
+            slots: Arc::new(Semaphore::new(max_probes)),
+            max_probes,
+            shutdown,
+            tasks: Some(tasks),
+            native,
+        }
     }
 
     /// One actual Source-owned packet; all echo memory is prepaid before the
@@ -113,10 +122,11 @@ impl IcmpEchoRelay {
         let responses = self.responses.clone();
         let mut shutdown = self.shutdown.clone();
         let native = self.native.clone();
+        let max_probes = self.max_probes;
         let _=tasks.spawn_with_witness(move |caller|async move {
             let _permit=permit;
             let result=tokio::select! {
-                result=probe::owned(&packet,mtu,egress.as_ref(),native,Some(caller),Some(prepared))=>result,
+                result=probe::owned(&packet,mtu,egress.as_ref(),native,Some(caller),Some(prepared),max_probes)=>result,
                 _=shutdown.changed()=>return,
             };
             match result {

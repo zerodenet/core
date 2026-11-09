@@ -4,6 +4,19 @@ use zero_config::InboundConfig;
 use zero_engine::EngineError;
 
 pub(crate) trait InboundRecovery: Send + Sync {
+    fn prepare_in_config(
+        &self,
+        inbound: InboundConfig,
+        config: &zero_config::RuntimeConfig,
+        restore: bool,
+    ) -> Result<Option<PreparedInboundBind>, EngineError> {
+        if restore {
+            self.prepare_restore(inbound, config.source_dir()).map(Some)
+        } else {
+            self.prepare_replacement(inbound, config.source_dir())
+        }
+    }
+
     /// Called only after the host confirmed the exact old instance's task,
     /// native I/O and user obligations. The result is cold and grants no I/O.
     fn prepare_restore(

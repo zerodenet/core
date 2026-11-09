@@ -384,6 +384,46 @@ fn validate_runtime(
             "runtime.udp_direct_max_sockets must be between 1 and 4096".into(),
         ));
     }
+    if !(1..=65536).contains(&runtime.effective_raw_ip_max_tcp_connections()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.raw_ip_max_tcp_connections must be between 1 and 65536".into(),
+        ));
+    }
+    if !(1..=65536).contains(&runtime.effective_raw_ip_max_udp_associations()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.raw_ip_max_udp_associations must be between 1 and 65536".into(),
+        ));
+    }
+    if !(1..=65536).contains(&runtime.effective_raw_ip_max_dns_queries()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.raw_ip_max_dns_queries must be between 1 and 65536".into(),
+        ));
+    }
+    if !(1..=65536).contains(&runtime.effective_raw_ip_max_icmp_probes()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.raw_ip_max_icmp_probes must be between 1 and 65536".into(),
+        ));
+    }
+    if !(1..=65536).contains(&runtime.effective_system_tun_max_tcp_dns_connections()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.system_tun_max_tcp_dns_connections must be between 1 and 65536".into(),
+        ));
+    }
+    if !(1..=65536).contains(&runtime.effective_packet_return_max_routes()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.packet_return_max_routes must be between 1 and 65536".into(),
+        ));
+    }
+    if !(1..=65536).contains(&runtime.effective_packet_return_max_conversations()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.packet_return_max_conversations must be between 1 and 65536".into(),
+        ));
+    }
+    if !(1..=65536).contains(&runtime.effective_packet_return_max_observations()) {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.packet_return_max_observations must be between 1 and 65536".into(),
+        ));
+    }
     if !(1..=65536).contains(&runtime.effective_packet_return_max_frames()) {
         return Err(ConfigError::InvalidRuntime(
             "runtime.packet_return_max_frames must be between 1 and 65536".into(),

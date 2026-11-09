@@ -125,7 +125,10 @@ pub(in crate::runtime) fn ss_budget_changed(old: &RuntimeConfig, next: &RuntimeC
         return true;
     }
     #[cfg(feature = "raw-ip-runtime")]
-    if packet_budget_changed(old, next) || windows_ring_budget_changed(old, next) {
+    if packet_budget_changed(old, next)
+        || raw_source_work_changed(old, next)
+        || windows_ring_budget_changed(old, next)
+    {
         return true;
     }
     false
@@ -147,8 +150,14 @@ pub(in crate::runtime) fn ss_source_budget_changed(
 
 #[cfg(feature = "raw-ip-runtime")]
 pub(in crate::runtime) fn packet_budget_changed(old: &RuntimeConfig, next: &RuntimeConfig) -> bool {
-    old.runtime.effective_packet_return_max_frames()
-        != next.runtime.effective_packet_return_max_frames()
+    old.runtime.effective_packet_return_max_routes()
+        != next.runtime.effective_packet_return_max_routes()
+        || old.runtime.effective_packet_return_max_conversations()
+            != next.runtime.effective_packet_return_max_conversations()
+        || old.runtime.effective_packet_return_max_observations()
+            != next.runtime.effective_packet_return_max_observations()
+        || old.runtime.effective_packet_return_max_frames()
+            != next.runtime.effective_packet_return_max_frames()
         || old.runtime.effective_packet_return_max_bytes()
             != next.runtime.effective_packet_return_max_bytes()
         || old.runtime.effective_packet_return_total_max_frames()
@@ -175,6 +184,19 @@ pub(in crate::runtime) fn packet_budget_changed(old: &RuntimeConfig, next: &Runt
             != next
                 .runtime
                 .effective_packet_driver_metadata_total_max_bytes()
+}
+#[cfg(feature = "raw-ip-runtime")]
+pub(in crate::runtime) fn raw_source_work_changed(
+    old: &RuntimeConfig,
+    next: &RuntimeConfig,
+) -> bool {
+    use crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits;
+    RawIpSourceLimits::from_runtime(&old.runtime)
+        .map(|actual| actual.wire_values())
+        .ok()
+        != RawIpSourceLimits::from_runtime(&next.runtime)
+            .map(|actual| actual.wire_values())
+            .ok()
 }
 pub(in crate::runtime) fn windows_ring_budget_changed(
     old: &RuntimeConfig,
@@ -217,6 +239,8 @@ pub(super) async fn pause_sources<'a>(
     let packet_changed = packet_budget_changed(previous, next) || network_restart;
     #[cfg(feature = "raw-ip-runtime")]
     let ring_changed = windows_ring_budget_changed(previous, next);
+    #[cfg(feature = "raw-ip-runtime")]
+    let work_changed = raw_source_work_changed(previous, next);
     #[cfg(not(feature = "raw-ip-runtime"))]
     let _ = next;
     let carrier_changed = carrier_budget_changed(previous, next) || network_restart;
@@ -229,6 +253,7 @@ pub(super) async fn pause_sources<'a>(
         };
         let needed = carrier_changed
             || input.protocol.protocol_name() == "shadowsocks"
+                && ss_source_budget_changed(previous, next)
             || changed_sources.contains(&input.tag)
             || source_local_budget_changed(input, previous, next)
             || inbound_work_source_changed(input, previous, next)
@@ -236,7 +261,7 @@ pub(super) async fn pause_sources<'a>(
             || crate::adapters::metadata::h3_source_budget_changed(input, previous, next);
         #[cfg(feature = "raw-ip-runtime")]
         let needed = needed
-            || packet_changed && original.has_packet_source_pause()
+            || (packet_changed || work_changed) && original.has_packet_source_custody()
             || ring_changed && original.requested_ring_source()?;
         if !needed {
             continue;

@@ -16,7 +16,55 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 77] = [
+    let fields: [BudgetField; 85] = [
+        (
+            "raw_ip_max_tcp_connections",
+            RuntimeOptionsConfig::effective_raw_ip_max_tcp_connections,
+            4096,
+            65536,
+        ),
+        (
+            "raw_ip_max_udp_associations",
+            RuntimeOptionsConfig::effective_raw_ip_max_udp_associations,
+            1024,
+            65536,
+        ),
+        (
+            "raw_ip_max_dns_queries",
+            RuntimeOptionsConfig::effective_raw_ip_max_dns_queries,
+            256,
+            65536,
+        ),
+        (
+            "raw_ip_max_icmp_probes",
+            RuntimeOptionsConfig::effective_raw_ip_max_icmp_probes,
+            64,
+            65536,
+        ),
+        (
+            "system_tun_max_tcp_dns_connections",
+            RuntimeOptionsConfig::effective_system_tun_max_tcp_dns_connections,
+            256,
+            65536,
+        ),
+        (
+            "packet_return_max_routes",
+            RuntimeOptionsConfig::effective_packet_return_max_routes,
+            1024,
+            65536,
+        ),
+        (
+            "packet_return_max_conversations",
+            RuntimeOptionsConfig::effective_packet_return_max_conversations,
+            8192,
+            65536,
+        ),
+        (
+            "packet_return_max_observations",
+            RuntimeOptionsConfig::effective_packet_return_max_observations,
+            4096,
+            65536,
+        ),
         (
             "packet_route_max_routes",
             RuntimeOptionsConfig::effective_packet_route_max_routes,

@@ -18,8 +18,10 @@ impl PacketReturns {
             .routes
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .get(&destination)
-            .filter(|route| route.touched.elapsed() < IDLE_TIMEOUT)
+            .iter()
+            .find(|(actual, _)| *actual == destination)
+            .map(|(_, value)| value)
+            .filter(|route| (!route.replies.is_closed() || route.touched.elapsed() < IDLE_TIMEOUT))
             .map(|route| route.replies.clone());
         let Some(replies) = replies else {
             return Ok(Some(original));
@@ -29,8 +31,12 @@ impl PacketReturns {
             self.observations
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
-                .get(&key)
-                .filter(|entry| entry.touched.elapsed() < IDLE_TIMEOUT)
+                .iter()
+                .find(|(actual, _)| *actual == key)
+                .map(|(_, value)| value)
+                .filter(|entry| {
+                    (!entry.replies.is_closed() || entry.touched.elapsed() < IDLE_TIMEOUT)
+                })
                 .and_then(|entry| entry.observer.clone())
         });
         let replies = key
@@ -38,8 +44,13 @@ impl PacketReturns {
                 self.conversations
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
-                    .get(&key)
-                    .filter(|entry| entry.touched.elapsed() < Duration::from_secs(600))
+                    .iter()
+                    .find(|(actual, _)| *actual == key)
+                    .map(|(_, value)| value)
+                    .filter(|entry| {
+                        (!entry.replies.is_closed()
+                            || entry.touched.elapsed() < Duration::from_secs(600))
+                    })
                     .map(|entry| entry.replies.clone())
             })
             .unwrap_or(replies);
@@ -83,8 +94,10 @@ impl PacketReturns {
             .routes
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .get(&destination)
-            .filter(|route| route.touched.elapsed() < IDLE_TIMEOUT)
+            .iter()
+            .find(|(actual, _)| *actual == destination)
+            .map(|(_, value)| value)
+            .filter(|route| (!route.replies.is_closed() || route.touched.elapsed() < IDLE_TIMEOUT))
             .map(|route| route.replies.clone());
         let Some(replies) = replies else {
             return Err(packet);
@@ -94,8 +107,13 @@ impl PacketReturns {
             self.observations
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .get(&key)
-                .filter(|observation| observation.touched.elapsed() < IDLE_TIMEOUT)
+                .iter()
+                .find(|(actual, _)| *actual == key)
+                .map(|(_, value)| value)
+                .filter(|observation| {
+                    (!observation.replies.is_closed()
+                        || observation.touched.elapsed() < IDLE_TIMEOUT)
+                })
                 .and_then(|observation| observation.observer.clone())
         });
         let observer = observation;
@@ -104,8 +122,12 @@ impl PacketReturns {
                 self.conversations
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
-                    .get(&key)
-                    .filter(|c| c.touched.elapsed() < Duration::from_secs(600))
+                    .iter()
+                    .find(|(actual, _)| *actual == key)
+                    .map(|(_, value)| value)
+                    .filter(|c| {
+                        (!c.replies.is_closed() || c.touched.elapsed() < Duration::from_secs(600))
+                    })
                     .map(|c| c.replies.clone())
             })
             .unwrap_or(replies);

@@ -162,12 +162,11 @@ impl SharedRawIpDevice {
                 (input.carrier.clone(), Some(input))
             }
         };
-        let returns = PacketReturns::with_drop_observer(Some(Arc::new(options.traffic.clone())));
-        let returns = Arc::new(if task.requires_packet_memory() {
-            returns.with_host_limits(&options)?
-        } else {
-            returns.with_limits(&options)?
-        });
+        let returns = Arc::new(PacketReturns::new_for_options(
+            &options,
+            task.requires_packet_memory(),
+            Some(Arc::new(options.traffic.clone())),
+        )?);
         let traffic = options.traffic.clone();
         let (outbound, raw_packets) =
             mpsc::channel::<zero_stack::packet_output::ObservedPacket>(128);

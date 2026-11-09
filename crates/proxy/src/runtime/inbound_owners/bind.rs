@@ -43,6 +43,21 @@ impl InboundOwnerRegistry {
             prepared = prepared
                 .with_actual_dependencies(protocols.source_dependency_instances(config, input)?)?;
         }
+        #[cfg(feature = "raw-ip-runtime")]
+        let raw_source_limits = prepared
+            .resources()
+            .iter()
+            .any(|resource| {
+                matches!(resource,
+            zero_platform_tokio::contract::component::ResourceDeclaration::PacketDatagramReads{..})
+            })
+            .then(|| {
+                crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits::from_runtime(
+                    &config.runtime,
+                )
+            })
+            .transpose()
+            .map_err(std::io::Error::other)?;
         let dependencies = prepared.actual_dependencies();
         let accepted_slots = prepared
             .accepted_tcp_slots()
@@ -93,6 +108,13 @@ impl InboundOwnerRegistry {
             .requested_ring_source_class
             .set(requested_ring)
             .map_err(|_| io("actual Source SDK declaration class already installed"))?;
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(actual) = raw_source_limits {
+            owner
+                .raw_source_limits
+                .set(actual)
+                .map_err(|_| io("actual Source work bounds already installed"))?;
+        }
         owner
             .source_dependencies
             .set(dependencies)

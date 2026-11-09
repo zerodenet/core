@@ -1,7 +1,6 @@
 //! Bounded reverse delivery for packets forwarded through a shared device.
 
 use std::{
-    collections::HashMap,
     io,
     net::IpAddr,
     sync::{Arc, Mutex},
@@ -13,6 +12,7 @@ pub(crate) use budget::PacketReturnTotals;
 mod delivery;
 mod limits;
 mod maintenance;
+mod prune;
 mod registration;
 mod tcp_fence;
 mod translated;
@@ -20,6 +20,7 @@ pub(in crate::runtime::raw_ip::device) use tcp_fence::TcpReturnFence;
 
 use tokio::sync::mpsc;
 use zero_stack::packet;
+use zero_tun::packet_memory::PacketMetadataVec;
 
 const MAX_RETURN_ROUTES: usize = 1_024;
 const MAX_OBSERVATIONS: usize = 4_096;
@@ -28,19 +29,35 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 #[derive(Default)]
 pub(crate) struct PacketReturns {
     budget: budget::ReturnBudget,
+    row_limits: ReturnRowLimits,
     receive_incomplete: std::sync::atomic::AtomicBool,
-    routes: Mutex<HashMap<IpAddr, ReturnRoute>>,
+    routes: Mutex<PacketMetadataVec<(IpAddr, ReturnRoute)>>,
     drop_observer: Option<Arc<dyn zero_traits::IoObserver>>,
-    observations: Mutex<HashMap<packet::PacketConversationKey, ReturnObservation>>,
-    conversations: Mutex<HashMap<packet::PacketConversationKey, ReturnConversation>>,
+    observations: Mutex<PacketMetadataVec<(packet::PacketConversationKey, ReturnObservation)>>,
+    conversations: Mutex<PacketMetadataVec<(packet::PacketConversationKey, ReturnConversation)>>,
     translated: Mutex<zero_stack::echo_translation::EchoTranslation<TranslatedReturn>>,
 }
 
+struct ReturnRowLimits {
+    routes: usize,
+    conversations: usize,
+    observations: usize,
+}
+impl Default for ReturnRowLimits {
+    fn default() -> Self {
+        Self {
+            routes: MAX_RETURN_ROUTES,
+            conversations: 8192,
+            observations: MAX_OBSERVATIONS,
+        }
+    }
+}
 struct ReturnConversation {
     replies: zero_stack::packet_output::PacketSender,
     touched: Instant,
 }
 struct ReturnObservation {
+    replies: zero_stack::packet_output::PacketSender,
     observer: Option<Arc<dyn zero_traits::IoObserver>>,
     touched: Instant,
 }
@@ -107,18 +124,23 @@ impl PacketReturns {
             .receive_incomplete
             .swap(true, std::sync::atomic::Ordering::AcqRel)
         {
-            for observation in self
-                .observations
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .values()
-            {
-                if let Some(observer) = &observation.observer {
+            // New records also observe receive_incomplete. No snapshot table:
+            // borrow one exact observer, unlock, then execute its callback.
+            for index in 0..self.row_limits.observations {
+                let observer = {
+                    let rows = self.observations.lock().unwrap_or_else(|e| e.into_inner());
+                    let Some((_, row)) = rows.get(index) else {
+                        break;
+                    };
+                    row.observer.clone()
+                };
+                if let Some(observer) = observer {
                     observer.receive_coverage_lost();
                 }
             }
         }
     }
+    #[cfg(test)]
     pub(crate) fn with_drop_observer(
         drop_observer: Option<Arc<dyn zero_traits::IoObserver>>,
     ) -> Self {

@@ -11,7 +11,20 @@ pub(super) async fn run_inner(
 ) -> Result<(), EngineError> {
     let mut buffer = vec![0_u8; 65_535];
     let mut next_id = 1_u64;
-    let mut associations = AssociationRegistry::new();
+    #[cfg(feature = "raw-ip-runtime")]
+    let (max_associations, max_dns) = owned.as_ref().map_or(
+        (
+            association::MAX_ACTIVE_ASSOCIATIONS,
+            MAX_CONCURRENT_DNS_QUERIES,
+        ),
+        |actual| (actual.max_associations, actual.max_dns),
+    );
+    #[cfg(not(feature = "raw-ip-runtime"))]
+    let (max_associations, max_dns) = (
+        association::MAX_ACTIVE_ASSOCIATIONS,
+        MAX_CONCURRENT_DNS_QUERIES,
+    );
+    let mut associations = AssociationRegistry::with_limit(max_associations);
     let mut legacy_tasks = JoinSet::new();
     let mut legacy_dns = JoinSet::new();
     #[cfg(feature = "raw-ip-runtime")]
@@ -71,7 +84,7 @@ pub(super) async fn run_inner(
                 if dns_hijack && destination.port == 53 {
                     dns_hijacked_queries.fetch_add(1, Ordering::Relaxed);
                     let now = Instant::now();
-                    if dns_tasks.len() >= MAX_CONCURRENT_DNS_QUERIES {
+                    if dns_tasks.len() >= max_dns {
                         if pressure_log_due(&mut last_dns_pressure_log, now) {
                             tracing::warn!(
                                 ?source,
@@ -152,7 +165,7 @@ pub(super) async fn run_inner(
                     Delivery::Delivered => {}
                     Delivery::Missing(datagram) => {
                         #[cfg(feature = "raw-ip-runtime")]
-                        if owned.is_some() && tasks.len() >= association::MAX_ACTIVE_ASSOCIATIONS {
+                        if owned.is_some() && tasks.len() >= max_associations {
                             log_pressure_drop(&mut associations, now, source, datagram.destination,
                                 AdmissionRejection::ActiveLimit,
                                 stack.send_unreachable(&datagram.payload, source, datagram.destination));

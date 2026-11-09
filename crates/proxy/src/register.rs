@@ -695,7 +695,9 @@ pub(crate) fn compiled_registries_with_network(
             .register_with_resources(
                 adapter.descriptor(),
                 crate::adapters::wireguard::inbound::cold::Factory,
-                move |input, _| Ok(inbound_adapter.inbound_options(input)?),
+                move |input, resources| {
+                    Ok(inbound_adapter.inbound_options(input, resources.candidate())?)
+                },
             )
             .expect("unique standard WireGuard inbound registration");
         let outbound_adapter = adapter.clone();

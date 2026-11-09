@@ -95,10 +95,11 @@ pub(super) fn reserve(
     let (stop, _) = watch::channel(false);
     let lease = proxy
         .inbound_owners
-        .reserve_system_tun(
+        .reserve_system_tun_in_config(
             &proxy.protocols,
             ComponentRecipe::from_validated(Arc::new(SystemTunSourceFactory), options),
             stop,
+            proxy.engine().config().as_ref(),
         )
         .unwrap();
     (lease, metadata)
@@ -219,4 +220,33 @@ async fn system_tun_small_total_accepts_real_pending_children_and_refunds_only_a
     assert_eq!(receipt.terminal().joined_tasks(), 3);
     assert_eq!(receipt.terminal().closed_io_receipts(), 0);
     registry.release_closed(receipt, |_| Ok(())).unwrap();
+}
+
+#[tokio::test]
+async fn system_tun_candidate_work_uses_fifth_bound_without_acquiring_native_device() {
+    let proxy=Proxy::new(zero_config::RuntimeConfig::parse(r#"{"runtime":{"raw_ip_max_tcp_connections":2,"raw_ip_max_udp_associations":3,"raw_ip_max_dns_queries":4,"raw_ip_max_icmp_probes":5,"system_tun_max_tcp_dns_connections":6},"route":{"final":{"type":"direct"}}}"#).unwrap()).unwrap();
+    let (lease, metadata) = reserve(&proxy);
+    let limits = lease.owner().test_raw_source_limits().unwrap();
+    assert_eq!(limits.values(), [2, 3, 4, 5, 6]);
+    assert_eq!(
+        limits.task_limit(true).unwrap() - limits.task_limit(false).unwrap(),
+        6 + usize::from(cfg!(windows))
+    );
+    assert!(metadata.original().is_none());
+    assert!(!lease.owner().is_ready());
+    drop(lease);
+    let receipt = proxy
+        .inbound_owners
+        .confirm_shutdown(
+            crate::runtime::inbound_owners::system_tun::SYSTEM_TUN_OWNER,
+            tokio::time::Instant::now() + Duration::from_secs(5),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(receipt.terminal().closed_io_receipts(), 0);
+    proxy
+        .inbound_owners
+        .release_closed(receipt, |_| Ok(()))
+        .unwrap();
 }

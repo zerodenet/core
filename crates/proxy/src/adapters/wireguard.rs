@@ -81,6 +81,7 @@ impl WireguardAdapter {
     pub(crate) fn inbound_options(
         &self,
         inbound: &InboundConfig,
+        candidate: Option<&zero_config::RuntimeConfig>,
     ) -> Result<inbound::cold::Options, zero_platform_tokio::contract::ChannelError> {
         let prepare = || -> Result<_, EngineError> {
             controlled_bind::destination(inbound)?;
@@ -92,11 +93,20 @@ impl WireguardAdapter {
                     .map(inbound::cold::Binding::Pending)
                     .unwrap_or(inbound::cold::Binding::Standalone),
             };
-            inbound::cold::Options::new(
+            inbound::cold::Options::new_with_limits(
                 inbound,
                 self.passive_inbound_live(inbound)?,
                 binding,
                 self.pending_endpoints.clone(),
+                candidate
+                    .map(|actual| {
+                        crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits::from_runtime(
+                            &actual.runtime,
+                        )
+                    })
+                    .transpose()
+                    .map_err(std::io::Error::other)?
+                    .unwrap_or_default(),
             )
         };
         prepare().map_err(|source| {
@@ -159,6 +169,7 @@ impl WireguardAdapter {
         &self,
         inbound: InboundConfig,
         linked: Option<Arc<inbound::LinkedEndpoint>>,
+        limits: crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits,
     ) -> Result<crate::protocol_registry::PreparedInboundBind, EngineError> {
         let binding = match linked {
             Some(linked) => inbound::cold::Binding::Ready(linked),
@@ -178,11 +189,12 @@ impl WireguardAdapter {
                 "WireGuard cold linked dependency has another private identity owner",
             ));
         }
-        controlled_bind::cold_bind(inbound::cold::Options::new(
+        controlled_bind::cold_bind(inbound::cold::Options::new_with_limits(
             &inbound,
             live,
             binding,
             self.pending_endpoints.clone(),
+            limits,
         )?)
     }
 
@@ -332,12 +344,23 @@ impl WireguardAdapter {
         &self,
         inbound: InboundConfig,
         _source_dir: Option<&std::path::Path>,
+        candidate: Option<&zero_config::RuntimeConfig>,
     ) -> Result<Option<crate::protocol_registry::PreparedInboundBind>, EngineError> {
         if !matches!(inbound.protocol, InboundProtocolConfig::Wireguard { .. }) {
             return Ok(None);
         }
         let linked = self.linked_endpoint(&inbound.tag, &inbound.listen);
-        self.prepare_wireguard_listener(inbound, linked).map(Some)
+        let limits = candidate
+            .map(|actual| {
+                crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits::from_runtime(
+                    &actual.runtime,
+                )
+            })
+            .transpose()
+            .map_err(std::io::Error::other)?
+            .unwrap_or_default();
+        self.prepare_wireguard_listener(inbound, linked, limits)
+            .map(Some)
     }
 }
 

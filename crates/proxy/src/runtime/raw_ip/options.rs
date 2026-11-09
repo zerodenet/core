@@ -11,6 +11,9 @@ pub(crate) struct RawIpStackOptions {
     pub(crate) packet_return_totals: std::sync::Arc<super::PacketReturnTotals>,
     pub(crate) packet_return_total_max_frames: usize,
     pub(crate) packet_return_total_max_bytes: usize,
+    pub(crate) packet_return_max_routes: usize,
+    pub(crate) packet_return_max_conversations: usize,
+    pub(crate) packet_return_max_observations: usize,
     pub(crate) packet_return_max_frames: usize,
     pub(crate) packet_return_max_bytes: usize,
     pub(crate) packet_native_read_total_max_frames: usize,
@@ -23,6 +26,12 @@ pub(crate) struct RawIpStackOptions {
 }
 impl RawIpStackOptions {
     pub(crate) fn from_config(config: &zero_config::UdpReceiveQueueConfig) -> Self {
+        Self::from_config_with_packet_root(config, Default::default())
+    }
+    pub(crate) fn from_config_with_packet_root(
+        config: &zero_config::UdpReceiveQueueConfig,
+        root: std::sync::Arc<super::PacketReturnTotals>,
+    ) -> Self {
         Self {
             packet_wire_memory: None,
             packet_memory_view: None,
@@ -31,9 +40,12 @@ impl RawIpStackOptions {
                 max_payload_bytes: config.max_payload_bytes,
                 max_stack_payload_bytes: config.max_stack_payload_bytes,
             },
-            packet_return_totals: Default::default(),
+            packet_return_totals: root,
             packet_return_total_max_frames: 1024,
             packet_return_total_max_bytes: 64 * 1024 * 1024,
+            packet_return_max_routes: 1024,
+            packet_return_max_conversations: 8192,
+            packet_return_max_observations: 4096,
             packet_return_max_frames: 256,
             packet_return_max_bytes: 16 * 1024 * 1024,
             packet_native_read_total_max_frames: 256,
@@ -102,6 +114,15 @@ impl RawIpStackOptions {
         self.packet_driver_metadata_total_max_bytes = bytes;
         self
     }
+    pub(crate) fn with_packet_return_rows(
+        mut self,
+        runtime: &zero_config::RuntimeOptionsConfig,
+    ) -> Self {
+        self.packet_return_max_routes = runtime.effective_packet_return_max_routes();
+        self.packet_return_max_conversations = runtime.effective_packet_return_max_conversations();
+        self.packet_return_max_observations = runtime.effective_packet_return_max_observations();
+        self
+    }
     pub(crate) fn with_packet_return_limits(mut self, frames: usize, bytes: usize) -> Self {
         self.packet_return_max_frames = frames;
         self.packet_return_max_bytes = bytes;
@@ -138,6 +159,9 @@ impl RawIpStackOptions {
         for value in [
             self.packet_return_total_max_frames,
             self.packet_return_total_max_bytes,
+            self.packet_return_max_routes,
+            self.packet_return_max_conversations,
+            self.packet_return_max_observations,
             self.packet_return_max_frames,
             self.packet_return_max_bytes,
             self.packet_native_read_total_max_frames,

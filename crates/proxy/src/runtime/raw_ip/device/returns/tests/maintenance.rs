@@ -28,11 +28,18 @@ async fn expired_burst_storage_is_reclaimed_without_removing_live_return_or_obse
     for n in 0..512u16 {
         let local = IpAddr::V4(std::net::Ipv4Addr::new(10, 0, (n >> 8) as u8, n as u8));
         let request = packet::build_udp(local, remote, 40000, 53, b"request");
+        let actual_sender = if n == 0 {
+            sender.clone()
+        } else {
+            let (original, mut receiver) = mpsc::channel::<Vec<u8>>(2);
+            receiver.close();
+            original.into()
+        };
         routes
             .register_observed(
                 local,
                 1,
-                sender.clone(),
+                actual_sender,
                 Some(observer.clone()),
                 packet::packet_conversation_key(&request),
             )
@@ -44,23 +51,21 @@ async fn expired_burst_storage_is_reclaimed_without_removing_live_return_or_obse
             .unwrap();
     let peak = routes.conversations.lock().unwrap().capacity();
     for (ip, route) in routes.routes.lock().unwrap().iter_mut() {
-        if *ip != live {
-            route.touched = now - Duration::from_secs(601);
-        }
+        let _ = ip;
+        route.touched = now - Duration::from_secs(601);
     }
     for (key, conversation) in routes.conversations.lock().unwrap().iter_mut() {
-        if *key != live_key {
-            conversation.touched = now - Duration::from_secs(601);
-        }
+        let _ = key;
+        conversation.touched = now - Duration::from_secs(601);
     }
     for (key, observation) in routes.observations.lock().unwrap().iter_mut() {
-        if *key != live_key {
-            observation.touched = now - Duration::from_secs(601);
-        }
+        let _ = key;
+        observation.touched = now - Duration::from_secs(601);
     }
     routes.expire();
     assert_eq!(routes.routes.lock().unwrap().len(), 1);
     assert_eq!(routes.conversations.lock().unwrap().len(), 1);
+    assert!(routes.conversations.lock().unwrap()[0].0 == live_key);
     assert_eq!(routes.observations.lock().unwrap().len(), 1);
     assert!(routes.routes.lock().unwrap().capacity() < peak / 4);
     assert!(routes.conversations.lock().unwrap().capacity() < peak / 4);

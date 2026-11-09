@@ -4,6 +4,8 @@
 mod children;
 mod icmp;
 mod lifecycle;
+mod limits;
+pub(crate) use limits::RawIpSourceLimits;
 pub(crate) mod native_obligations;
 mod observation;
 mod outer;
@@ -201,7 +203,7 @@ impl PacketSourceContext {
     pub(crate) fn prepare_device_source(
         context: &crate::runtime::inbound_owners::InboundInstallContext,
     ) -> Result<PreparedDevicePacketSource, EngineError> {
-        let mut children = children::RawIpChildren::device();
+        let mut children = children::RawIpChildren::device(context.raw_source_limits()?);
         children.install(context)?;
         Ok(PreparedDevicePacketSource {
             instance: context.owner().identity(),
@@ -210,29 +212,17 @@ impl PacketSourceContext {
         })
     }
 
-    pub(crate) const MAX_ICMP_PROBES: usize = icmp::MAX_ECHO_PROBES;
+    #[cfg(test)]
     pub(crate) fn device_task_limit() -> usize {
-        Self::internal_task_limit()
-            + crate::inbound::tun::MAX_TCP_DNS_CONNECTIONS
-            + usize::from(cfg!(target_os = "windows")) // actual same-Scope SDK reader
-    }
-    pub(crate) fn internal_task_limit() -> usize {
-        // Each existing TCP/UDP caller may own one already-existing metadata
-        // blocking worker. Same Scope, actual registration and separate ACK;
-        // protocol group limits are unchanged, and no worker is pre-spawned.
-        tcp::MAX_CONNECTIONS * 2
-            + crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_ASSOCIATIONS * 2
-            + crate::inbound::tun::udp::OwnedTunUdpTasks::MAX_DNS
-            + zero_stack::UserTcpStack::BACKGROUND_TASK_LIMIT
-            + Self::MAX_ICMP_PROBES
-            + 2 // actual TCP accept and UDP dispatch loops
-            + 1 // original native wire driver
+        RawIpSourceLimits::default()
+            .task_limit(true)
+            .expect("default Source task composition")
     }
     pub(in crate::runtime) fn install(
         context: &crate::runtime::inbound_owners::InboundInstallContext,
         original: zero_platform_tokio::controlled_datagram::listener::DatagramListenerIdentity,
     ) -> Result<Self, EngineError> {
-        let mut children = children::RawIpChildren::new();
+        let mut children = children::RawIpChildren::new(context.raw_source_limits()?);
         children.install(context)?;
         Ok(Self {
             original: PacketSourceOriginal::Listener(original),

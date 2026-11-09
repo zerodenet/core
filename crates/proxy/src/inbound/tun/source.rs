@@ -101,9 +101,16 @@ impl SystemTunSourceOptions {
         {
             return Err(error(Stage::Prepare, Reason::InvalidConfig));
         }
+        let work_limits =
+            crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits::from_runtime(
+                &runtime.runtime,
+            )?;
         use sha2::{Digest, Sha256};
         let mut identity = Sha256::new();
         identity.update(b"zero.system-tun.source.v1");
+        for value in work_limits.values() {
+            identity.update((value as u64).to_le_bytes());
+        }
         identity.update(format!(
             "{resource_name:?}{binding:?}{addresses:?}{mtu:?}{tag:?}{scope_task_limit:?}"
         ));
@@ -139,7 +146,7 @@ impl SystemTunSourceOptions {
                         binding,
                     },
                     ResourceDeclaration::NativeIcmp {
-                        max_sockets: NonZeroUsize::new(64).unwrap(),
+                        max_sockets: NonZeroUsize::new(work_limits.icmp).unwrap(),
                     },
                 ],
             },

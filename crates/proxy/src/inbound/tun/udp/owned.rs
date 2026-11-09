@@ -7,6 +7,8 @@ use crate::runtime::{
 type AssociationExit = (SocketAddress, u64, Result<(), EngineError>);
 #[derive(Clone)]
 pub(crate) struct OwnedTunUdpTasks {
+    pub(super) max_associations: usize,
+    pub(super) max_dns: usize,
     pub(super) native:
         crate::runtime::inbound_operation::raw_ip::native_obligations::NativeObligations,
     pub(super) scope: Arc<std::sync::OnceLock<super::scoped::AssociationScope>>,
@@ -40,27 +42,29 @@ impl OwnedTunUdpTasks {
             && self.completed.capacity() == self.completed.max_capacity()
     }
 
-    pub(crate) const MAX_ASSOCIATIONS: usize = association::MAX_ACTIVE_ASSOCIATIONS;
-    pub(crate) const MAX_DNS: usize = MAX_CONCURRENT_DNS_QUERIES;
     pub(crate) fn new(
         native: crate::runtime::inbound_operation::raw_ip::native_obligations::NativeObligations,
+        max_associations: usize,
+        max_dns: usize,
     ) -> Self {
-        let (completed, receiver) = mpsc::channel(Self::MAX_ASSOCIATIONS);
+        let (completed, receiver) = mpsc::channel(max_associations);
         Self {
+            max_associations,
+            max_dns,
             native,
             scope: Arc::new(std::sync::OnceLock::new()),
             completed,
             receiver: Arc::new(tokio::sync::Mutex::new(receiver)),
             dns: ScopedSourceTasks::new(
                 "raw-IP UDP DNS queries joined",
-                MAX_CONCURRENT_DNS_QUERIES,
+                max_dns,
                 zero_platform_tokio::contract::scope::TaskClass::Auxiliary,
             ),
         }
     }
     pub(crate) fn install(&self, context: &InboundInstallContext) -> Result<(), EngineError> {
         let group =
-            context.child_tasks(std::num::NonZeroUsize::new(Self::MAX_ASSOCIATIONS).unwrap())?;
+            context.child_tasks(std::num::NonZeroUsize::new(self.max_associations).unwrap())?;
         self.scope
             .set(super::scoped::AssociationScope {
                 group,

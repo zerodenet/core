@@ -3,6 +3,22 @@ use super::*;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuntimeOptionsConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_ip_max_tcp_connections: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_ip_max_udp_associations: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_ip_max_dns_queries: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_ip_max_icmp_probes: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_tun_max_tcp_dns_connections: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_return_max_routes: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_return_max_conversations: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packet_return_max_observations: Option<usize>,
     /// Bytes requested from Wintun for each actual newly owned SDK Session.
     /// Default64MiB, unchanged; this is neither SDK mapping size nor RSS.
     #[serde(default, skip_serializing_if = "Option::is_none")]

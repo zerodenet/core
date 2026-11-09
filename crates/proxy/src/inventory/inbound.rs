@@ -28,7 +28,10 @@ impl ProtocolInventory {
         source_dir: Option<&std::path::Path>,
         candidate: Option<&zero_config::RuntimeConfig>,
     ) -> Result<Option<crate::protocol_registry::PreparedInboundBind>, EngineError> {
-        if let Some(prepared) = self.devices.prepare_inbound(inbound.clone(), source_dir)? {
+        if let Some(prepared) =
+            self.devices
+                .prepare_inbound(inbound.clone(), source_dir, candidate)?
+        {
             return Ok(Some(prepared));
         }
         if self

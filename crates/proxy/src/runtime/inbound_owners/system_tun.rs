@@ -23,11 +23,39 @@ pub(crate) struct SystemTunLease {
 impl InboundOwnerRegistry {
     /// Called under the existing TUN operation/configuration transaction lock.
     /// Installation is durable before any device factory can acquire an IO.
+    #[cfg(test)]
     pub(crate) fn reserve_system_tun(
         &self,
         protocols: &ProtocolInventory,
         recipe: ComponentRecipe,
         shutdown: watch::Sender<bool>,
+    ) -> Result<SystemTunLease, EngineError> {
+        self.reserve_system_tun_with_limits(
+            protocols,
+            recipe,
+            shutdown,
+            crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits::default(),
+        )
+    }
+    pub(crate) fn reserve_system_tun_in_config(
+        &self,
+        protocols: &ProtocolInventory,
+        recipe: ComponentRecipe,
+        shutdown: watch::Sender<bool>,
+        config: &zero_config::RuntimeConfig,
+    ) -> Result<SystemTunLease, EngineError> {
+        let limits = crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits::from_runtime(
+            &config.runtime,
+        )
+        .map_err(std::io::Error::other)?;
+        self.reserve_system_tun_with_limits(protocols, recipe, shutdown, limits)
+    }
+    fn reserve_system_tun_with_limits(
+        &self,
+        protocols: &ProtocolInventory,
+        recipe: ComponentRecipe,
+        shutdown: watch::Sender<bool>,
+        limits: crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits,
     ) -> Result<SystemTunLease, EngineError> {
         let spec = recipe.spec();
         if spec.roles != [RoleKind::Inbound]
@@ -75,6 +103,10 @@ impl InboundOwnerRegistry {
                 .clone(),
         )?;
         owner.shared_scope_children = true;
+        owner
+            .raw_source_limits
+            .set(limits)
+            .map_err(|_| std::io::Error::other("System TUN work bounds already installed"))?;
         owner
             .requested_ring_source_class
             .set(

@@ -188,3 +188,26 @@ fn neutral_growth_pays_old_and_new_and_old_packet_entry_keeps_revocation_fence()
     revoked.try_reserve_one_with_metadata(&host, 1).unwrap();
     assert_eq!(revoked.push_reserved(same), Ok(()));
 }
+
+#[test]
+fn actual_paid_array_maintenance_frees_old_capacity_only_after_paid_move() {
+    let root = std::sync::Arc::new(PacketReturnTotals::default());
+    let view = root.driver_metadata_view();
+    let baseline = view.snapshot().occupied;
+    let mut table = PacketMetadataVec::<[u8; 32]>::default();
+    for n in 0..8u8 {
+        table
+            .try_push_with_metadata([n; 32], &view, 8)
+            .ok()
+            .unwrap();
+    }
+    let peak = view.snapshot().occupied;
+    table.retain(|row| row[0] == 0);
+    assert_eq!(view.snapshot().occupied, peak);
+    table.try_shrink_to_fit_with_metadata(&view).unwrap();
+    assert_eq!(table.capacity(), 1);
+    assert_eq!(table[0], [0; 32]);
+    assert_eq!(view.snapshot().occupied.bytes(), baseline.bytes() + 32);
+    drop(table);
+    assert_eq!(view.snapshot().occupied, baseline);
+}

@@ -87,7 +87,11 @@ pub(super) fn prepare(
         let dependencies_changed = runtime_factory.source_dependencies_changed(inbound)?;
         #[cfg(feature = "raw-ip-runtime")]
         let packet_source_changed =
-            crate::runtime::orchestration::packet_budget_changed(&previous_config, config)
+            (crate::runtime::orchestration::packet_budget_changed(&previous_config, config)
+                || crate::runtime::orchestration::raw_source_work_changed(
+                    &previous_config,
+                    config,
+                ))
                 && runtime_factory
                     .owners()
                     .owner(&inbound.tag)

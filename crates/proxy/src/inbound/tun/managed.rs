@@ -59,9 +59,14 @@ impl Proxy {
             .map(|address| (address.address, address.netmask))
             .collect::<Vec<_>>();
         let actual_tasks =
-            crate::runtime::inbound_operation::raw_ip::PacketSourceContext::device_task_limit()
-                .checked_add(1 + if start.options.auto_route { 2 } else { 0 })
-                .ok_or_else(|| io::Error::other("System TUN actual task ceiling overflow"))?;
+            crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits::from_runtime(
+                &config.runtime,
+            )
+            .map_err(io::Error::other)?
+            .task_limit(true)
+            .map_err(io::Error::other)?
+            .checked_add(1 + if start.options.auto_route { 2 } else { 0 })
+            .ok_or_else(|| io::Error::other("System TUN actual task ceiling overflow"))?;
         let limit = NonZeroUsize::new(config.runtime.effective_system_tun_task_limit(actual_tasks))
             .ok_or_else(|| io::Error::other("System TUN task ceiling must be positive"))?;
         let native_io = statistics::TunTraffic::prepare(self.engine(), &start.tag);
@@ -87,7 +92,12 @@ impl Proxy {
         );
         let registry = self.system_tun_source_registry();
         let (shutdown, shutdown_rx) = tokio::sync::watch::channel(false);
-        let lease = registry.reserve_system_tun(&self.protocols, recipe, shutdown.clone())?;
+        let lease = registry.reserve_system_tun_in_config(
+            &self.protocols,
+            recipe,
+            shutdown.clone(),
+            &config,
+        )?;
         let original = lease.owner();
         let routes = start.options.auto_route.then(|| {
             routes::owned::OwnedRoutes::new(

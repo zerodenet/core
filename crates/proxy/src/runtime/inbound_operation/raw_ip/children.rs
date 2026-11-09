@@ -6,6 +6,7 @@ use crate::runtime::raw_ip::tasks::scoped::ScopedSourceTasks;
 use zero_platform_tokio::contract::scope::TaskClass;
 
 pub(super) struct RawIpChildren {
+    pub(super) limits: RawIpSourceLimits,
     pub(super) packet_roles: crate::runtime::packet_route::PacketRoleSessions,
     pub(super) native: super::native_obligations::NativeObligations,
     pub(super) icmp: Option<crate::component::instance::HostIcmpProbeGrant>,
@@ -18,13 +19,11 @@ pub(super) struct RawIpChildren {
     pub(super) tcp_dns: Option<ScopedSourceTasks<Result<(), std::io::Error>>>,
 }
 impl RawIpChildren {
-    pub(super) fn new() -> Self {
-        let native = super::native_obligations::NativeObligations::new(
-            super::tcp::MAX_CONNECTIONS,
-            OwnedTunUdpTasks::MAX_ASSOCIATIONS,
-            OwnedTunUdpTasks::MAX_DNS,
-        );
+    pub(super) fn new(limits: RawIpSourceLimits) -> Self {
+        let native =
+            super::native_obligations::NativeObligations::new(limits.tcp, limits.udp, limits.dns);
         Self {
+            limits,
             packet_roles: Default::default(),
             native: native.clone(),
             tcp_dns: None,
@@ -32,7 +31,7 @@ impl RawIpChildren {
             drivers: ScopedSourceTasks::new("raw-IP stack drivers joined", 2, TaskClass::Critical),
             connections: None,
             host: None,
-            udp: OwnedTunUdpTasks::new(native),
+            udp: OwnedTunUdpTasks::new(native, limits.udp, limits.dns),
             stack_workers: ScopedSourceTasks::new(
                 "raw-IP TCP retransmission and control workers joined",
                 zero_stack::UserTcpStack::BACKGROUND_TASK_LIMIT,
@@ -40,16 +39,16 @@ impl RawIpChildren {
             ),
             echoes: ScopedSourceTasks::new(
                 "raw-IP ICMP probes joined",
-                PacketSourceContext::MAX_ICMP_PROBES,
+                limits.icmp,
                 TaskClass::Auxiliary,
             ),
         }
     }
-    pub(super) fn device() -> Self {
-        let mut children = Self::new();
+    pub(super) fn device(limits: RawIpSourceLimits) -> Self {
+        let mut children = Self::new(limits);
         children.tcp_dns = Some(ScopedSourceTasks::new(
             "System TUN TCP DNS connections joined",
-            crate::inbound::tun::MAX_TCP_DNS_CONNECTIONS,
+            limits.tcp_dns,
             TaskClass::Auxiliary,
         ));
         children
@@ -78,10 +77,8 @@ impl RawIpChildren {
             .map_err(std::io::Error::other)?;
         context.register_after_scope(self.native.resource())?;
         context.register_after_scope(self.stack_workers.resource())?;
-        self.connections = Some(
-            context
-                .child_tasks(std::num::NonZeroUsize::new(super::tcp::MAX_CONNECTIONS).unwrap())?,
-        );
+        self.connections =
+            Some(context.child_tasks(std::num::NonZeroUsize::new(self.limits.tcp).unwrap())?);
         self.host = Some(context.tasks());
         self.udp.install(context)?;
         context.register_after_scope(self.echoes.resource())?;
