@@ -1,5 +1,6 @@
 use super::IdleConnection;
 use std::{
+    future::Future,
     io,
     pin::Pin,
     task::{Context, Poll},
