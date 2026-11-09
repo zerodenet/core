@@ -212,7 +212,7 @@ async fn serve_inner(
         return;
     }
     if request.path == "/" && !request.websocket {
-        let _ = write_response(&mut stream, 200, "text/html; charset=utf-8", &page).await;
+        let _ = write_response(&mut stream, 200, "text/html; charset=utf-8", page).await;
         return;
     }
     if request.token.as_deref() != Some(token.as_str())

@@ -200,13 +200,15 @@ impl ManagedPool {
             let actual_candidates = candidates.clone();
             let operation = move |caller| {
                 owner.prepare_original(
-                    original,
-                    selected,
-                    context,
-                    grant,
-                    waiting,
-                    caller,
-                    actual_candidates,
+                    super::opening::OriginalOpening {
+                        physical: original,
+                        binding: selected,
+                        call: context,
+                        grant,
+                        waiting,
+                        caller,
+                        candidates: actual_candidates,
+                    },
                     actual_prepare,
                 )
             };

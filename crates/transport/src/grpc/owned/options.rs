@@ -183,6 +183,9 @@ impl NativePoolOptions {
 
 /// One complete cold recipe per actual pool, without a history or authority to
 /// start it. Its checked process-local ID cannot alias a different pool/recipe.
+#[cfg(feature = "tls")]
+type ColdMaterials = std::sync::Mutex<std::collections::HashMap<Vec<u8>, (Weak<CaFile>, u64)>>;
+
 pub(in crate::grpc) struct Recipe {
     settings: NativePoolSettings,
     carriers: NonZeroUsize,
@@ -191,7 +194,7 @@ pub(in crate::grpc) struct Recipe {
     #[cfg(feature = "tls")]
     materials: std::sync::Mutex<Vec<(ComponentInstanceId, Weak<CaFile>, u64)>>,
     #[cfg(feature = "tls")]
-    cold_materials: std::sync::Mutex<std::collections::HashMap<Vec<u8>, (Weak<CaFile>, u64)>>,
+    cold_materials: ColdMaterials,
 }
 
 #[derive(Clone)]

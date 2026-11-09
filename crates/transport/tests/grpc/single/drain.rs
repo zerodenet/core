@@ -50,7 +50,7 @@ async fn graceful_connection_end_drains_the_same_large_hunk_worker_before_client
                 }
                 drop(sender);
                 connection.graceful_shutdown();
-                while let Some(incoming) = connection.accept().await {
+                if let Some(incoming) = connection.accept().await {
                     let _ = incoming.unwrap();
                     panic!("no second request is part of this original connection");
                 }

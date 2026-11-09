@@ -12,6 +12,15 @@ use zero_platform_tokio::{
     },
     controlled_carrier::{CarrierDriver, CarrierGrant, CarrierIo},
 };
+pub(super) struct OriginalOpening {
+    pub(super) physical: Arc<Physical>,
+    pub(super) binding: UpstreamBinding,
+    pub(super) call: CarrierContext,
+    pub(super) grant: CarrierGrant,
+    pub(super) waiting: Option<PendingCarrierObserver>,
+    pub(super) caller: Option<TaskJoinWitness>,
+    pub(super) candidates: Option<Arc<super::candidates::Candidates>>,
+}
 impl ManagedPool {
     pub(super) fn publish_prepared_driver(
         &self,
@@ -51,13 +60,7 @@ impl ManagedPool {
 
     pub(super) async fn prepare_original<C, F, Fut>(
         self: Arc<Self>,
-        physical: Arc<Physical>,
-        binding: UpstreamBinding,
-        call: CarrierContext,
-        grant: CarrierGrant,
-        waiting: Option<PendingCarrierObserver>,
-        caller: Option<TaskJoinWitness>,
-        candidates: Option<Arc<super::candidates::Candidates>>,
+        opening: OriginalOpening,
         prepare: Arc<Mutex<Option<F>>>,
     ) -> Result<CarrierDriver<(C, Driver)>, ChannelError>
     where
@@ -65,6 +68,7 @@ impl ManagedPool {
         F: FnOnce(CarrierIo) -> Fut + Send + 'static,
         Fut: Future<Output = Result<(C, Driver), crate::RuntimeError>> + Send + 'static,
     {
+        let OriginalOpening { physical, binding, call, grant, waiting, caller, candidates } = opening;
         let physical_call = CarrierContext {
             session: None,
             deadline: call.deadline,

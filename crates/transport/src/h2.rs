@@ -336,6 +336,8 @@ impl AsyncWrite for RelayStream {
 pub struct H2Stream {
     inner: Inner,
 }
+// Keep the actual inline client in the owning stream, without a new IO box.
+#[allow(clippy::large_enum_variant)]
 enum Inner {
     Client(client::Inline),
     Relay(RelayStream),

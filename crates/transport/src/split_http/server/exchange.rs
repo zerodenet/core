@@ -177,7 +177,7 @@ where
     let life = session
         .as_ref()
         .map(|s| s.life.clone())
-        .unwrap_or_else(|| LifetimeRef::default());
+        .unwrap_or_else(LifetimeRef::default);
     let mut admission = UploadGuard {
         life: life.clone(),
         complete: false,

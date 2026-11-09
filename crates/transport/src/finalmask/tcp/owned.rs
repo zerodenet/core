@@ -19,6 +19,9 @@ pub struct OwnedMasks {
     stages: Vec<Stage>,
     _headers: PacketMetadataCredit,
 }
+// The exact inline array is prepaid before IO. Boxing this variant would add
+// another allocation and another cancellation-time custody obligation.
+#[allow(clippy::large_enum_variant)]
 enum Stage {
     Custom(CarrierBufferCredit),
     Transform(memory::Prepared),
