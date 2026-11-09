@@ -64,6 +64,7 @@ impl PendingTcpConnect {
             observer: Mutex::new(observer),
             observations,
             wakes: super::IoRelays::new(),
+            close_failures: Default::default(),
         });
         // The same original native owner is installed before external code.
         // No native/state lock is held during the real boundary callback.
