@@ -7,7 +7,12 @@ use std::{
     os::unix::net::UnixStream,
 };
 mod child;
-pub(super) use child::{run, ChildOriginal};
+pub(super) use child::{run, run_query, ChildOriginal};
+pub(in crate::macos_privilege) enum Query {
+    Route(Vec<String>),
+    RouteTable(bool),
+    SystemDns,
+}
 mod progress;
 
 pub(super) struct Supervisor {

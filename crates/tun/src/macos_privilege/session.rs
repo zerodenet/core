@@ -22,6 +22,8 @@ mod connection;
 mod creation;
 mod failures;
 mod native;
+mod query;
+pub(super) use query::{route_query, route_table};
 mod rpc;
 mod wake;
 use failures::{Failures, Phase};
@@ -57,6 +59,7 @@ struct Epoch {
     create_attempted: bool,
     shutdown_started: bool,
     local_tool: tool::ChildOriginal,
+    local_file: Option<Original>,
     _peer_request: crate::packet_memory::PacketMetadataCredit,
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -132,6 +135,7 @@ impl MacosHelperOwner {
                 create_attempted: false,
                 shutdown_started: false,
                 local_tool: tool::ChildOriginal::new(),
+                local_file: None,
                 _peer_request: credit.split(request_layout).map_err(io::Error::other)?,
             }));
         }

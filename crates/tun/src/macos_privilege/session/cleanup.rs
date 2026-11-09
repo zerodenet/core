@@ -10,7 +10,14 @@ impl Session {
                 .try_lock()
                 .map_err(|_| io::Error::from(io::ErrorKind::WouldBlock))?;
             epoch.transfer.require_closed()?;
-            if !epoch.native.closed() || !epoch.tools.closed() || !epoch.local_tool.reusable() {
+            if !epoch.native.closed()
+                || !epoch.tools.closed()
+                || !epoch.local_tool.reusable()
+                || epoch
+                    .local_file
+                    .as_ref()
+                    .is_some_and(|original| !original.closed())
+            {
                 return Err(io::Error::other(
                     "same helper/tool original has no complete close receipt",
                 ));
@@ -23,8 +30,8 @@ impl Session {
             return Ok(());
         }
         let mut old = self.epochs[0]
-            .try_lock()
-            .map_err(|_| io::Error::from(io::ErrorKind::WouldBlock))?;
+            .lock()
+            .unwrap_or_else(|source| source.into_inner());
         if !old.native.attempted || unsafe { libc::geteuid() } == 0 {
             return Ok(());
         }
@@ -88,6 +95,14 @@ impl Session {
         }
         if let Err(source) = epoch.tools.close() {
             self.retain(index, Phase::ToolClose, source);
+        }
+        if let Err(source) = epoch.local_tool.finish_local(self.output_limit) {
+            self.retain(index, Phase::ToolClose, source);
+        }
+        if let Some(original) = epoch.local_file.as_mut() {
+            if let Err(source) = original.close_once() {
+                self.retain(index, Phase::ToolClose, source);
+            }
         }
         if let Err(source) = epoch.native.helper.close_event() {
             self.retain(index, Phase::Event, source);

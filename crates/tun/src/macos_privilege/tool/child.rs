@@ -29,6 +29,23 @@ impl ChildOriginal {
         }
         failure.map_or(Ok(()), Err)
     }
+    pub(in crate::macos_privilege) fn finish_local(
+        &mut self,
+        output_limit: usize,
+    ) -> io::Result<()> {
+        if self.child.is_none() || self.reusable() {
+            return Ok(());
+        }
+        // Same Child/pipes, no new command or guessed process-tree receipt.
+        // This fixed local query has no input to reconstruct after interruption.
+        let output = self.collect(&[], output_limit);
+        let closed = self.close_pipes();
+        let waited = self.wait();
+        drop(output?);
+        closed?;
+        waited?;
+        Ok(())
+    }
     pub(in crate::macos_privilege) fn reaped(&self) -> bool {
         self.waited.is_some()
     }
@@ -56,17 +73,29 @@ pub(in crate::macos_privilege) fn run(
     supervisor: Option<(RawFd, u64)>,
     output_limit: usize,
 ) -> io::Result<Output> {
+    let executable = match program {
+        HelperProgram::Ifconfig => "/sbin/ifconfig",
+        HelperProgram::Route => "/sbin/route",
+        HelperProgram::Pfctl => "/sbin/pfctl",
+    };
+    run_fixed(slot, executable, arguments, input, supervisor, output_limit)
+}
+/// Private fixed executable projection. The only callers are the closed
+/// privileged enum above and local metadata queries below; never arbitrary IO.
+fn run_fixed(
+    slot: &mut ChildOriginal,
+    executable: &'static str,
+    arguments: &[String],
+    input: Option<&str>,
+    supervisor: Option<(RawFd, u64)>,
+    output_limit: usize,
+) -> io::Result<Output> {
     if !slot.reusable() {
         return Err(io::Error::other(
             "previous fixed tool originals are not retired",
         ));
     }
     *slot = ChildOriginal::new();
-    let executable = match program {
-        HelperProgram::Ifconfig => "/sbin/ifconfig",
-        HelperProgram::Route => "/sbin/route",
-        HelperProgram::Pfctl => "/sbin/pfctl",
-    };
     let mut command = Command::new(executable);
     command
         .args(arguments)
@@ -108,4 +137,24 @@ pub(in crate::macos_privilege) fn run(
         stdout,
         stderr,
     })
+}
+
+pub(in crate::macos_privilege) fn run_query(
+    slot: &mut ChildOriginal,
+    query: super::Query,
+    output_limit: usize,
+) -> io::Result<Output> {
+    let (executable, arguments) = match query {
+        super::Query::Route(arguments) => ("/sbin/route", arguments),
+        super::Query::RouteTable(ipv6) => (
+            "/usr/sbin/netstat",
+            vec![
+                "-rnW".into(),
+                "-f".into(),
+                if ipv6 { "inet6" } else { "inet" }.into(),
+            ],
+        ),
+        super::Query::SystemDns => ("/usr/sbin/scutil", vec!["--dns".into()]),
+    };
+    run_fixed(slot, executable, &arguments, None, None, output_limit)
 }
