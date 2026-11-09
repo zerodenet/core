@@ -58,7 +58,7 @@ fn explicit_late_file_budget_keeps_a_legal_document_above_the_old_default_loadab
     // No protocol-private fact is inspected. This is valid configuration data;
     // the actual file limit appears after the long value, before any read cap.
     let raw =
-        format!(r#"{{"runtime":{{"log":{{"level":"{level}"}},"file_read_max_bytes":16777216}}}}"#);
+        format!(r#"{{"route":{{"final":{{"type":"direct"}}}},"runtime":{{"log":{{"level":"{level}"}},"file_read_max_bytes":16777216}}}}"#);
     let expected =
         RuntimeConfig::parse_with_source_dir(&raw, Some(directory.path().to_path_buf())).unwrap();
     std::fs::write(&path, &raw).unwrap();
@@ -102,7 +102,7 @@ fn initial_input_bounds_and_invalid_facts_close_the_actual_file_before_next_atte
         }
         error => panic!("UTF-8 must remain the original read boundary: {error}"),
     }
-    std::fs::write(&path, r#"{"runtime":{"file_read_max_bytes":null}}"#).unwrap();
+    std::fs::write(&path, r#"{"route":{"final":{"type":"direct"}},"runtime":{"file_read_max_bytes":null}}"#).unwrap();
     source.load_initial_configuration(&path).unwrap();
     assert_eq!(source.io.original_observation(), (6, 6, false, false));
     source.confirm_original_io_closed().unwrap();
