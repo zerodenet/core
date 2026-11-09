@@ -10,7 +10,10 @@ mod layout;
 use layout::{add, array};
 pub(super) use layout::{map, scratch, typed_array};
 struct Measure<'a> {
-    book: &'a Arc<ControlBudget>,
+    book: Option<&'a Arc<ControlBudget>>,
+    initial_limit: usize,
+    initial_live: usize,
+    initial_peak: usize,
     bytes: usize,
     failure: Option<io::Error>,
     mode: ControlJsonStorage,
@@ -41,25 +44,45 @@ impl Measure<'_> {
     fn text(&mut self, bytes: &[u8]) {
         let work = scratch(bytes)
             .and_then(|n| add(n, bytes.len()))
-            .and_then(|n| add(n, 4096))
-            .and_then(|n| {
-                self.book.reserve(if self.response {
-                    ControlCharge::ResponseBytes(n)
-                } else {
-                    ControlCharge::RequestBytes(n)
-                })
-            });
-        let _workspace = match work {
-            Ok(value) => value,
+            .and_then(|n| add(n, 4096));
+        let required = match work {
+            Ok(n) => n,
             Err(error) => {
                 self.failure = Some(error);
                 return;
             }
         };
+        let _workspace = if let Some(book) = self.book {
+            match book.reserve(if self.response {
+                ControlCharge::ResponseBytes(required)
+            } else {
+                ControlCharge::RequestBytes(required)
+            }) {
+                Ok(value) => Some(value),
+                Err(error) => {
+                    self.failure = Some(error);
+                    return;
+                }
+            }
+        } else {
+            let live = match add(self.initial_live, required) {
+                Ok(n) if n <= self.initial_limit => n,
+                _ => {
+                    self.failure = Some(capacity());
+                    return;
+                }
+            };
+            self.initial_live = live;
+            self.initial_peak = self.initial_peak.max(live);
+            None
+        };
         let mut parser = serde_json::Deserializer::from_slice(bytes);
         // The real decoder still decides result/error. Keep a partial-prefix
         // storage envelope even for malformed embedded magic-token JSON.
         let _ = serde::Deserializer::deserialize_any(&mut parser, Node(self));
+        if self.book.is_none() {
+            self.initial_live -= required;
+        }
     }
 }
 struct Node<'a, 'b>(&'a mut Measure<'b>);
@@ -215,7 +238,10 @@ pub fn measure(
     response: bool,
 ) -> io::Result<usize> {
     let mut m = Measure {
-        book,
+        book: Some(book),
+        initial_limit: 0,
+        initial_live: 0,
+        initial_peak: 0,
         bytes: 0,
         failure: None,
         mode,
@@ -229,4 +255,30 @@ pub fn measure(
 }
 fn content_cell() -> usize {
     std::mem::size_of::<(Vec<()>, u64, u8)>()
+}
+
+/// One cold Source projection before a Host exists. A finite synchronous
+/// operation checks its already-read document's explicit request envelope;
+/// this creates no ControlBudget, reservation, decoder result or second Host.
+pub(in crate::configuration) fn initial_storage(raw: &[u8], maximum: usize) -> io::Result<usize> {
+    let mut m = Measure {
+        book: None,
+        initial_limit: maximum,
+        initial_live: 0,
+        initial_peak: 0,
+        bytes: 0,
+        failure: None,
+        mode: ControlJsonStorage::Value,
+        response: false,
+    };
+    m.text(raw);
+    if let Some(error) = m.failure {
+        return Err(error);
+    }
+    let held = add(m.bytes, m.initial_peak)?;
+    if held > maximum {
+        Err(capacity())
+    } else {
+        Ok(held)
+    }
 }

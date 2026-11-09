@@ -133,3 +133,6 @@ fn actual_preparation_file_snapshot_is_bounded_and_returns_only_after_original_c
         .unwrap()
         .is_empty());
 }
+
+#[path = "configuration_document/initial.rs"]
+mod initial;

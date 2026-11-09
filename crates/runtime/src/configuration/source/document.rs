@@ -2,6 +2,9 @@
 use super::*;
 use std::sync::Arc;
 use zero_config::ConfigError;
+mod input;
+mod log;
+mod probe;
 
 fn read_error(path: &Path, source: io::Error) -> ConfigError {
     ConfigError::ReadConfig {
@@ -37,10 +40,17 @@ impl ConfigurationSource {
     }
 
     fn read_configuration_owned(&self, path: &Path) -> Result<RuntimeConfig, ConfigError> {
-        let raw = self
-            .io
-            .read_text(path)
-            .map_err(|source| read_error(path, source))?;
+        let raw = input::read(self, path, probe::Dialect::Config)
+            .map_err(|source| {
+                if probe::is_unknown(&source) {
+                    // An indeterminate malformed budget fact is never permission
+                    // for an unbounded read or a guessed smaller legal limit.
+                    ConfigError::ParseConfig(serde_json::Error::io(source))
+                } else {
+                    read_error(path, source)
+                }
+            })?
+            .0;
         // Parsing only starts once the original document FD has a matching
         // native-close receipt. Preserve the public document path semantics.
         RuntimeConfig::parse_with_source_dir(&raw, path.parent().map(Path::to_path_buf))
@@ -81,8 +91,22 @@ impl ConfigurationSource {
         })?
     }
 
-    /// Cold raw document readers (early logging and CLI submission) retain
-    /// their own parse/fallback behavior. An unconfirmed original remains in
+    /// The process's original early logging input. Whole-document Value
+    /// construction is unnecessary; only an actual selected log/magic subtree
+    /// is materialized, under this same document's configured cold envelope.
+    pub fn read_initial_log_config(
+        path: impl AsRef<Path>,
+    ) -> io::Result<Option<zero_config::LogConfig>> {
+        let source = Arc::new(Self::default());
+        let (raw, facts) = super::super::startup::with_source(source.clone(), || {
+            input::read(&source, path.as_ref(), probe::Dialect::Value)
+        })??;
+        log::decode(&raw, facts.request)
+    }
+
+    /// Genuine standalone raw readers retain their own parse behavior.
+    /// The process early logger uses read_initial_log_config; CLI submission
+    /// uses its explicit actual client frame/total Source snapshot instead. An unconfirmed original remains in
     /// the same finite startup slot and blocks later preparation/submission.
     pub fn read_initial_document(path: impl AsRef<Path>) -> io::Result<String> {
         let source = Arc::new(Self::default());

@@ -42,3 +42,7 @@ pub fn control_json_response_storage_bound(
 ) -> io::Result<usize> {
     estimate::measure(raw, book, kind, true)
 }
+
+// Concrete initial Source projection only; normal control callers retain the
+// original charged measurement entrypoints above.
+pub(in crate::configuration) use estimate::initial_storage;
