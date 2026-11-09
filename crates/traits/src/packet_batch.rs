@@ -110,7 +110,7 @@ enum IterValues {
     One(Option<PacketBuffer>),
     Array {
         values: IntoIter<PacketBuffer>,
-        _lease: PacketMetadataHeaderLease,
+        _lease: Option<PacketMetadataHeaderLease>,
     },
 }
 impl IntoIterator for PacketBatch {
