@@ -6,6 +6,7 @@ pub(crate) struct ServiceDatagram {
     pub(crate) slot: Arc<ComponentSlot>,
     pub(crate) tag: Option<String>,
     pub(crate) direct: bool,
+    pub(crate) device: bool,
     pub(crate) native: Option<(usize, zero_core::request::Destination)>,
 }
 impl ProtocolInventory {
@@ -33,6 +34,7 @@ impl ProtocolInventory {
                 tag: node.tag,
                 native: None,
                 direct: true,
+                device: false,
             }));
         }
         let ResolvedOutbound::Single(zero_engine::ResolvedLeafOutbound::Proxy { identity }) =
@@ -119,6 +121,7 @@ impl ProtocolInventory {
             tag: Some(outbound.tag.clone()),
             native,
             direct: false,
+            device,
         }))
     }
 }

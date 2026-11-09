@@ -42,23 +42,8 @@ impl Provider {
             prefix: vec![],
             ..binding.clone()
         };
-        let grants = self
-            .roots
-            .iter()
-            .find(|(root, _)| {
-                root.datagram && root.endpoint == destination(peer) && root.dial == binding.dial
-            })
-            .map(|(_, grants)| grants)
-            .or_else(|| {
-                (binding.dial == Default::default())
-                    .then(|| {
-                        self.peers
-                            .iter()
-                            .find(|(address, packet, _)| *address == peer && *packet)
-                            .map(|(_, _, grants)| grants)
-                    })
-                    .flatten()
-            })
+        let (grants, logical) = self
+            .query_root_grants(&destination(peer), &binding.dial, true, node.device)
             .ok_or_else(|| {
                 std::io::Error::other("DNS Datagram actual endpoint/dial was not declared")
             })?;
@@ -135,9 +120,12 @@ impl Provider {
             let origin = loan.owner.original().clone();
             // Install the real donor controller before validation or another
             // await. Any rejection still leaves cleanup in this query ledger.
-            let io = grant
-                .adopt_datagram_loan(&binding, destination(peer), &call, loan)
-                .map_err(std::io::Error::other)?;
+            let io = if logical {
+                grant.adopt_service_datagram_loan(&binding, destination(peer), &call, loan)
+            } else {
+                grant.adopt_datagram_loan(&binding, destination(peer), &call, loan)
+            }
+            .map_err(std::io::Error::other)?;
             self.release_installed_pending(&caller);
             plan.validate_carrier_origin(role, &origin)
                 .map_err(std::io::Error::other)?;

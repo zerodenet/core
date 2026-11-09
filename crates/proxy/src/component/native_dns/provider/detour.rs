@@ -7,6 +7,7 @@ use crate::{
 use zero_platform_tokio::contract::network::UpstreamTransport;
 mod borrowed;
 mod datagram;
+mod grants;
 enum Detour {
     Stream(StreamLoan, Arc<dyn zero_dns::DnsCarrierBinding>),
     Datagram(DatagramLoan),
@@ -147,27 +148,19 @@ impl Provider {
         };
         let mut last = None;
         for nodes in branches {
-            let binding = UpstreamBinding {
-                prefix: nodes.iter().map(|node| node.slot.role_id()).collect(),
-                dial: Default::default(),
-                network_generation: zero_core::component::NetworkGeneration(
-                    self.egress.generation(),
-                ),
-            };
-            let capture = ServiceBinding::new(
+            let device_root = components.has_device_carrier_provider(nodes[0].slot.role_id());
+            let binding = grants::stream_binding(
                 &nodes,
-                destination(peer),
+                zero_core::component::NetworkGeneration(self.egress.generation()),
+                device_root,
+            );
+            let receipt = grants::selected_binding(
+                &nodes,
+                peer,
                 binding.network_generation,
-                execution.upstream().network_updates(),
-            )
-            .map_err(std::io::Error::other)?;
-            let selected = selections
-                .chosen(&capture.tags())
-                .ok_or_else(|| std::io::Error::other("DNS detour selected branch is ambiguous"))?;
-            let receipt = Arc::new(NativeDnsBinding {
-                carrier: capture,
-                selections: selected,
-            }) as Arc<dyn zero_dns::DnsCarrierBinding>;
+                &execution,
+                &selections,
+            )?;
             let call = CarrierContext {
                 session: None,
                 deadline: Some(end),
@@ -179,20 +172,8 @@ impl Provider {
                 .unwrap_or_else(|| destination(peer));
             let dial = &nodes[0].dial;
             let root_grants = self
-                .roots
-                .iter()
-                .find(|(root, _)| !root.datagram && root.endpoint == endpoint && root.dial == *dial)
-                .map(|(_, grants)| grants)
-                .or_else(|| {
-                    self.peers
-                        .iter()
-                        .find(|(address, packet, _)| {
-                            !packet
-                                && destination(*address) == endpoint
-                                && *dial == Default::default()
-                        })
-                        .map(|(_, _, grants)| grants)
-                })
+                .query_root_grants(&endpoint, dial, false, device_root)
+                .map(|(grants, _)| grants)
                 .ok_or_else(|| {
                     std::io::Error::new(
                         std::io::ErrorKind::PermissionDenied,
@@ -211,14 +192,7 @@ impl Provider {
             // A device Stream consumes its existing virtual socket/provider.
             // This only removes native dial authority: actual role/provider
             // admission remains with the current ComponentPlan and selection.
-            let device_root = nodes[0].endpoint.is_none()
-                && nodes[0].role != zero_platform_tokio::contract::dns::DnsQueryRole::Direct
-                && nodes[0]
-                    .slot
-                    .recipe
-                    .spec()
-                    .roles
-                    .contains(&zero_platform_tokio::contract::component::RoleKind::Packet);
+            // Device admission above is the actual installed provider, not an enum guess.
             let root = root::Root::new(
                 network,
                 endpoint,
@@ -253,9 +227,8 @@ impl Provider {
             components
                 .authorize_carrier_prefix(self.instance, &binding.prefix)
                 .map_err(std::io::Error::other)?;
-            // The physical original already belongs to this DNS owner. Only
-            // borrow the current admission fence; do not manufacture another
-            // carrier slot around its own retained stream.
+            // Borrow this actual Query admission; no replacement executor or
+            // native acquisition is supplied by a logical device owner.
             let epoch = self.admit(&caller, &cancel, end, 1).await?;
             drop(epoch);
             let mut retry = false;
@@ -264,9 +237,8 @@ impl Provider {
                 if components.has_carrier_provider(last.slot.role_id())
                     || components.has_device_carrier_provider(last.slot.role_id())
                 {
-                    // Device Stream roles lend their existing virtual socket.
-                    // Their actual Bound/Listener original is not a native TCP
-                    // pool; the observer-only DNS root must never invent one.
+                    // Keep the device's real virtual socket and observer-only
+                    // Root; it cannot invent a native TCP provider.
                     let loan = self
                         .borrow_detour(
                             &execution,
@@ -276,6 +248,7 @@ impl Provider {
                             &call,
                             caller.clone(),
                             root.clone(),
+                            device_root.then(|| self.logical_query_grants(peer, &binding.dial, false)).flatten(),
                         )
                         .await
                         .inspect_err(|source| {

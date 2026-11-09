@@ -3,6 +3,7 @@ use super::*;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::{sync::Arc, time::Duration};
 use zero_platform_tokio::controlled_carrier::CarrierOrigin;
+mod nondefault;
 mod peer;
 fn end() -> tokio::time::Instant {
     tokio::time::Instant::now() + Duration::from_secs(3)
@@ -40,9 +41,18 @@ async fn start_server_mode(
 }
 async fn start_server_with_business(
     peer: &peer::Peer,
+    backend: zero_config::DnsServerConfig,
+    linked: bool,
+    business: bool,
+) -> (Proxy, crate::RunningProxy) {
+    start_server_with_source(peer, backend, linked, business, None).await
+}
+async fn start_server_with_source(
+    peer: &peer::Peer,
     mut backend: zero_config::DnsServerConfig,
     linked: bool,
     business: bool,
+    source: Option<&str>,
 ) -> (Proxy, crate::RunningProxy) {
     match &mut backend {
         zero_config::DnsServerConfig::Udp { host, detour, .. }
@@ -59,6 +69,10 @@ async fn start_server_with_business(
         "outbounds":[{"tag":"wg","protocol":{"type":"wireguard","private_key":STANDARD.encode([121;32]),"addresses":["10.0.0.1/32"],"inbound_tag":"wg-source","peers":[{"public_key":peer::public(122),"endpoint":peer.address.to_string(),"allowed_ips":["0.0.0.0/0"]}]}}],
         "route":{"final":{"type":"direct"}}
     });
+    if let Some(source) = source {
+        document["outbounds"][0]["dial"] =
+            serde_json::json!({"source_ip": source, "address_family":"only_ipv4"});
+    }
     if !linked {
         document.as_object_mut().unwrap().remove("inbounds");
         document["outbounds"][0]["protocol"]
