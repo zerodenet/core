@@ -65,7 +65,7 @@ impl Session {
             .map_err(|_| io::Error::other("concurrent helper recovery epoch"))?;
         Ok(())
     }
-    fn finish_epoch(&self, index: usize, epoch: &mut Epoch) -> io::Result<()> {
+    pub(super) fn finish_epoch(&self, index: usize, epoch: &mut Epoch) -> io::Result<()> {
         let exited = match epoch.native.observe_exit() {
             Ok(exited) => exited,
             Err(source) => {

@@ -7,7 +7,10 @@ pub(super) struct Wake {
 }
 impl Wake {
     pub(super) fn new() -> Self {
-        Self { ends: [None, None] }
+        Self {
+            ends: [None, None],
+            enabled: false,
+        }
     }
     pub(super) fn prepare(&mut self, id: u64) -> io::Result<()> {
         if self.ends[0].is_some() {

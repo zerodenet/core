@@ -124,6 +124,27 @@ impl Drop for MacosHelperContext {
     }
 }
 impl MacosHelperLease {
+    /// Epoch one belongs to this SAME actual route duty, since the initial
+    /// helper actor has already joined/ACKed before its creation was allowed.
+    /// Keep this body alive through its own helper's original close receipts.
+    pub fn finish_cleanup(&self) -> io::Result<()> {
+        if self.owner.0.current.load(Ordering::Acquire) == 0 {
+            return Ok(());
+        }
+        loop {
+            let result = self.owner.finish_registered_epoch(1);
+            if self.owner.require_closed().is_ok() {
+                return result;
+            }
+            if let Err(source) = result {
+                self.owner.0.retain(1, Phase::Shutdown, source);
+            }
+            self.owner.wait_original_progress(1);
+        }
+    }
+    pub fn require_closed(&self) -> io::Result<()> {
+        self.owner.require_closed()
+    }
     pub fn enter(&self) -> io::Result<MacosHelperContext> {
         self.owner.enter()
     }

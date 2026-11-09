@@ -94,7 +94,7 @@ impl MacosHelperOwner {
             // The same registered body owns the late close continuation.
             // A failed observer cannot strand it in an exited task or invent
             // another cleanup task/worker just to obtain a later receipt.
-            self.wait_original_progress();
+            self.wait_original_progress(0);
         };
         match self.failure() {
             Some(source) => Err(io::Error::other(source)),
@@ -102,8 +102,11 @@ impl MacosHelperOwner {
         }
     }
     fn finish_initial(&self) -> io::Result<()> {
+        self.finish_registered_epoch(0)
+    }
+    pub(super) fn finish_registered_epoch(&self, index: usize) -> io::Result<()> {
         let _notifications = self.0.memory.defer_notifications();
-        let mut epoch = self.0.epochs[0]
+        let mut epoch = self.0.epochs[index]
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         if epoch.native.child.is_some() && epoch.native.control.is_none() && !epoch.native.cancelled
@@ -116,7 +119,7 @@ impl MacosHelperOwner {
                 match epoch.connect() {
                     Ok(()) => break,
                     Err(source) => {
-                        self.0.retain(0, Phase::Shutdown, source);
+                        self.0.retain(index, Phase::Shutdown, source);
                         if epoch.native.cancelled {
                             break;
                         }
@@ -158,18 +161,18 @@ impl MacosHelperOwner {
                 match epoch.drive_rpc().and_then(|()| epoch.rpc.take_response()) {
                     Ok(response) => drop(response),
                     Err(source) => {
-                        self.0.retain(0, Phase::ToolProgress, source);
+                        self.0.retain(index, Phase::ToolProgress, source);
                         // Stop reading a reply that cannot fit its actual
                         // revoked/full storage. Closing this exact control
                         // requests helper exit; the independent tool event,
                         // transfer and actual helper NOTE_EXIT still must seal.
                         if let Err(source) = epoch.native.close_control() {
-                            self.0.retain(0, Phase::Control, source);
+                            self.0.retain(index, Phase::Control, source);
                         }
                         while !epoch.native.observe_exit()? {
                             epoch.wait_io(libc::POLLIN)?;
                         }
-                        return self.0.finish_epoch(0, &mut epoch);
+                        return self.0.finish_epoch(index, &mut epoch);
                     }
                 }
             }
@@ -185,13 +188,13 @@ impl MacosHelperOwner {
                 }
             }
             if let Err(source) = epoch.native.close_control() {
-                self.0.retain(0, Phase::Control, source);
+                self.0.retain(index, Phase::Control, source);
             }
             while !epoch.native.observe_exit()? {
                 epoch.wait_io(libc::POLLIN)?;
             }
         }
-        self.0.finish_epoch(0, &mut epoch)?;
+        self.0.finish_epoch(index, &mut epoch)?;
         match self.failure() {
             Some(source) => Err(io::Error::other(source)),
             None => Ok(()),
