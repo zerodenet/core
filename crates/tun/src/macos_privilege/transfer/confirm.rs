@@ -9,7 +9,11 @@ pub(super) struct Progress {
     complete: bool,
 }
 impl Transfer {
-    pub(super) fn confirm(&self, stream: &mut UnixStream, fd: RawFd) -> io::Result<()> {
+    pub(in crate::macos_privilege) fn confirm(
+        &self,
+        stream: &mut UnixStream,
+        fd: RawFd,
+    ) -> io::Result<()> {
         if self.received.get() != Some(&fd) {
             return Err(io::Error::other(
                 "actual parent owner has not retained this descriptor",

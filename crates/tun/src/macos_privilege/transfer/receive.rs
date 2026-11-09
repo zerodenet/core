@@ -1,7 +1,7 @@
 //! Every actually delivered descriptor is retained before checking its frame.
 use super::*;
 impl Transfer {
-    pub(super) fn receive_fd(&self, socket: RawFd) -> io::Result<RawFd> {
+    pub(in crate::macos_privilege) fn receive_fd(&self, socket: RawFd) -> io::Result<RawFd> {
         self.enter_receive();
         let mut marker = [0_u8];
         let mut iovec = libc::iovec {
@@ -15,12 +15,20 @@ impl Transfer {
         message.msg_iovlen = 1;
         message.msg_control = aligned.as_mut_ptr().cast();
         message.msg_controllen = space as _;
-        let count = unsafe { libc::recvmsg(socket, &mut message, 0) };
-        if count < 0 {
+        let count = loop {
+            let count = unsafe { libc::recvmsg(socket, &mut message, 0) };
+            if count >= 0 {
+                break count;
+            }
             let source = io::Error::last_os_error();
-            self.capture_received(&[])?;
+            if source.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            if source.kind() != io::ErrorKind::WouldBlock {
+                self.capture_received(&[])?;
+            }
             return Err(source);
-        }
+        };
         let mut descriptors = [-1; 2];
         let mut delivered = 0;
         let header = unsafe { libc::CMSG_FIRSTHDR(&message) };
