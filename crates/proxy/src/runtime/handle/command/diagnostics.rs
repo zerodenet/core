@@ -1,9 +1,9 @@
 mod maintenance;
 mod resolution;
 use crate::runtime::outbound_probe::{OutboundProbeRequest, OutboundProbeRuntime};
-use crate::runtime::route_runtime::route_trace_for_session;
+use crate::runtime::route_runtime::route_trace_for_target;
 use tracing::info;
-use zero_core::{Network, ProtocolType, Session};
+use zero_core::Network;
 use zero_dns::DnsQueryRole;
 use zero_traits::{DnsResolver, IpAddress};
 

@@ -158,16 +158,27 @@ pub(crate) async fn route_trace_for_session(
     services: &TcpRuntimeServices,
     session: &Session,
 ) -> RouteTrace {
-    let engine = services.engine();
-    let snapshot = services.snapshot();
-    let route_target = session.effective_route_target();
-    let evaluation = engine.evaluate_route_in_snapshot(
-        snapshot,
-        route_target,
+    route_trace_for_target(
+        services,
+        session.effective_route_target(),
         session.sni.as_deref(),
         session.inbound_tag.as_deref(),
-        &[],
-    );
+    )
+    .await
+}
+
+/// Read-only route facts. Diagnostic requests have no business SessionId or
+/// transport acquisition; real ingress still projects its own original Session.
+pub(crate) async fn route_trace_for_target(
+    services: &TcpRuntimeServices,
+    route_target: &Address,
+    sni: Option<&str>,
+    inbound_tag: Option<&str>,
+) -> RouteTrace {
+    let engine = services.engine();
+    let snapshot = services.snapshot();
+    let evaluation =
+        engine.evaluate_route_in_snapshot(snapshot, route_target, sni, inbound_tag, &[]);
     let mut trace = evaluation.trace;
     if evaluation.needs_resolution {
         if let Address::Domain(domain) = route_target {
@@ -176,8 +187,8 @@ pub(crate) async fn route_trace_for_session(
                 trace = engine.route_trace_in_snapshot_with_inbound_and_resolved_ips(
                     snapshot,
                     route_target,
-                    session.sni.as_deref(),
-                    session.inbound_tag.as_deref(),
+                    sni,
+                    inbound_tag,
                     &resolved_ips,
                 );
             }
