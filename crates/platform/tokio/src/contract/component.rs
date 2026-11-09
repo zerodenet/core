@@ -256,6 +256,12 @@ pub enum ResourceDeclaration {
         /// payload storage or worker task is implicitly allocated by this bound.
         max_pending_sends: NonZeroUsize,
     },
+    /// Pure same-Host software Packet workspaces. No UDP/provider/native right.
+    LogicalPacketWorkspaces {
+        workspaces: [NonZeroUsize; 2],
+        control_workspace: Option<NonZeroUsize>,
+        supplemental: PacketSupplementalMemory,
+    },
     /// Two concrete read/decode allocations for the referenced original UDP
     /// descriptor in this same spec; no native I/O or tasks are granted here.
     PacketDatagramReads {
@@ -340,6 +346,16 @@ pub struct ComponentSpec {
 pub struct GrantedPacketSourceDriver {
     pub origin: crate::controlled_datagram::provider::NativeDatagramOrigin,
     pub checkpoint: super::packet::PacketSourceCheckpoint,
+}
+/// Unique transfer of already-paid memory, including the original paid arrays.
+/// `receive` includes the two `reads` as its first entries; no storage is copied.
+#[cfg(feature = "native-packet-origin")]
+pub struct GrantedLogicalPacketWorkspaces {
+    pub reads: [zero_tun::packet_memory::NativeReadGrant; 2],
+    pub control: Option<zero_tun::packet_memory::NativeReadGrant>,
+    pub receive: zero_tun::packet_memory::PacketReadBatch,
+    pub transmit_copy: Option<zero_tun::packet_memory::NativeReadGrant>,
+    pub transmit_target: Option<zero_tun::packet_memory::NativeReadGrant>,
 }
 pub struct GrantedDatagramListener {
     pub rx: crate::controlled_datagram::listener::ControlledDatagramListenerRx,
@@ -511,6 +527,20 @@ pub trait ResourceAccess: Send + Sync {
             super::Impact::Component,
         ))
     }
+    /// Consume only the cold-paid declaration for this actual registered actor.
+    /// These are memory promises, never native IO or a close receipt.
+    #[cfg(feature = "native-packet-origin")]
+    fn take_logical_packet_workspaces(
+        &self,
+        _ordinal: usize,
+        _driver: &TaskJoinWitness,
+    ) -> Result<GrantedLogicalPacketWorkspaces, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
+        ))
+    }
     fn take_packet_datagram_reads(
         &self,
         _datagram: usize,
@@ -588,6 +618,18 @@ pub trait ResourceAccess: Send + Sync {
             super::Stage::Prepare,
             super::Reason::Unsupported,
             crate::contract::Impact::Component,
+        ))
+    }
+    /// The complete registered wire set; no representative may stand for peers.
+    /// The existing singular Source entry keeps its separate real provider path.
+    fn register_software_packet_source_drivers(
+        &self,
+        _drivers: &[TaskJoinWitness],
+    ) -> Result<crate::controlled_carrier::LogicalPacketProviderRegistration, BuildError> {
+        Err(super::ChannelError::new(
+            super::Stage::Prepare,
+            super::Reason::Unsupported,
+            super::Impact::Component,
         ))
     }
     fn prepare_logical_packet_source(

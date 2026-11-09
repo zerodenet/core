@@ -7,9 +7,9 @@ use zero_tun::packet_memory::{
 mod flags;
 pub(super) use flags::ReceivedFlags;
 pub(super) struct OriginalSupplemental {
-    receive: PacketReadBatch,
-    copy: Option<NativeReadGrant>,
-    target: Option<NativeReadGrant>,
+    pub(super) receive: PacketReadBatch,
+    pub(super) copy: Option<NativeReadGrant>,
+    pub(super) target: Option<NativeReadGrant>,
 }
 impl OriginalSupplemental {
     pub(super) fn revoke(&self) {

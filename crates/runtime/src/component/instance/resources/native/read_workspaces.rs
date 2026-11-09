@@ -1,6 +1,8 @@
 //! Concrete read allocations for one original declared UDP descriptor.
 mod construction;
 mod declarations;
+#[cfg(feature = "raw-ip-runtime")]
+mod software;
 pub use construction::{
     packet_datagram_control_spec, packet_datagram_read_spec, packet_datagram_supplemental_spec,
 };
@@ -26,6 +28,8 @@ pub struct HostPacketReadReservation {
     #[cfg(feature = "raw-ip-runtime")]
     supplemental: zero_platform_tokio::contract::component::PacketSupplementalMemory,
     state: Mutex<ReadState>,
+    #[cfg(feature = "raw-ip-runtime")]
+    _description_credit: Option<zero_tun::packet_memory::PacketMetadataCredit>,
 }
 #[derive(Default)]
 struct ReadState {

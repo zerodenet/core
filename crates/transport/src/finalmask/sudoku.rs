@@ -22,26 +22,7 @@ pub struct Profile {
 }
 impl Profile {
     pub fn new(settings: &Settings) -> io::Result<Self> {
-        let mut patterns = settings.custom_tables.clone();
-        if patterns.is_empty() {
-            patterns.push(String::new());
-        }
-        if matches!(
-            settings.ascii.trim().to_ascii_lowercase().as_str(),
-            "ascii" | "prefer_ascii"
-        ) {
-            patterns = vec![String::new()];
-        }
-        let mut normalized = Vec::new();
-        for pattern in patterns {
-            let p = pattern.trim().to_ascii_lowercase().replace(' ', "");
-            if !normalized.contains(&p) {
-                normalized.push(p);
-            }
-        }
-        if normalized.len() > 64 {
-            return Err(invalid("too many Sudoku tables"));
-        }
+        let normalized = normalize(settings)?;
         let tables = normalized
             .iter()
             .map(|p| {
@@ -156,3 +137,47 @@ fn invalid(message: &'static str) -> io::Error {
 #[cfg(test)]
 #[path = "../../tests/finalmask/sudoku.rs"]
 mod tests;
+
+fn normalize(settings: &Settings) -> io::Result<Vec<String>> {
+    let mut patterns = settings.custom_tables.clone();
+    if patterns.is_empty() {
+        patterns.push(String::new());
+    }
+    if matches!(
+        settings.ascii.trim().to_ascii_lowercase().as_str(),
+        "ascii" | "prefer_ascii"
+    ) {
+        patterns = vec![String::new()];
+    }
+    let mut normalized = Vec::new();
+    for pattern in patterns {
+        let p = pattern.trim().to_ascii_lowercase().replace(' ', "");
+        if !normalized.contains(&p) {
+            normalized.push(p);
+        }
+    }
+    if normalized.len() > 64 {
+        return Err(invalid("too many Sudoku tables"));
+    }
+    Ok(normalized)
+}
+pub(crate) fn owned_material_bound(settings: &Settings) -> io::Result<usize> {
+    table::material_bound(normalize(settings)?.len())
+}
+pub(crate) fn normalization_bound(settings: &Settings) -> io::Result<usize> {
+    let bytes = settings
+        .custom_tables
+        .iter()
+        .try_fold(0usize, |sum, value| sum.checked_add(value.len()))
+        .ok_or(io::ErrorKind::InvalidInput)?;
+    let headers = settings
+        .custom_tables
+        .len()
+        .checked_mul(4 * std::mem::size_of::<String>())
+        .ok_or(io::ErrorKind::InvalidInput)?;
+    bytes
+        .checked_mul(4)
+        .and_then(|v| v.checked_add(headers))
+        .and_then(|v| v.checked_add(256))
+        .ok_or_else(|| io::ErrorKind::InvalidInput.into())
+}

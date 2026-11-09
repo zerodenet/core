@@ -69,7 +69,8 @@ impl HostResources {
         let journals = self.journals.evidence();
         sticky_faults.extend(self.journals.faults());
         let roots = self.roots.evidence(self.component);
-        let reads = self.reads.evidence();
+        let mut reads = self.reads.evidence();
+        reads.extend(self.logical_workspaces.evidence());
         sticky_faults.extend(roots.iter().filter_map(|entry| entry.first_fault.clone()));
         let carriers = self.carriers.evidence();
         let metadata = self.metadata.evidence(self.component);
@@ -109,7 +110,11 @@ impl HostResources {
             .enumerate()
             .map(|(ordinal, binding)| {
                 let mut proof = binding.observe(ordinal, &files, &native);
-                if matches!(binding, super::coverage::CoverageBinding::PacketReads) {
+                if matches!(
+                    binding,
+                    super::coverage::CoverageBinding::PacketReads
+                        | super::coverage::CoverageBinding::LogicalWorkspaces
+                ) {
                     proof.provider = reads
                         .iter()
                         .position(|read| read.ordinal == ordinal)

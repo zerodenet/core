@@ -35,7 +35,7 @@ impl PreparedMasks {
         book: CarrierBufferBudget,
         metadata: PacketDriverMetadataView,
     ) -> io::Result<Self> {
-        validate(masks)?;
+        crate::finalmask::udp::validate_owned(masks, &book)?;
         let mut stages = Vec::new();
         let mut start = 0;
         while start < masks.len() {
@@ -72,7 +72,7 @@ impl PreparedMasks {
                         .iter()
                         .position(|m| matches!(m, Mask::Xdns { .. } | Mask::Xicmp { .. }))
                         .map_or(masks.len(), |count| start + count);
-                    let mut codec = Codec::new(&masks[start..end], server)?;
+                    let mut codec = Codec::new_owned(&masks[start..end], server, &book)?;
                     let peak = codec.working_peak(65536)?;
                     let memory = Memory::prepare(book.clone(), metadata.clone(), peak, peak)?;
                     codec.install_memory(memory.clone())?;

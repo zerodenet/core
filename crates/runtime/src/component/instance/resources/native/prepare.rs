@@ -56,6 +56,13 @@ impl HostResources {
             identity.clone(),
             originals.clone(),
         )?;
+        let logical_workspaces = logical_workspaces::LogicalWorkspaces::new(
+            component,
+            declarations,
+            identity.clone(),
+            original_tasks.as_ref(),
+            &originals,
+        )?;
         let bounds = bound_datagram::BoundDeclarations::new(
             component,
             declarations,
@@ -284,6 +291,7 @@ impl HostResources {
                     files.declare(component, path, *max_bytes)?
                 }
                 ResourceDeclaration::ControlledJournal { .. }
+                | ResourceDeclaration::LogicalPacketWorkspaces { .. }
                 | ResourceDeclaration::PacketDatagramReads { .. }
                 | ResourceDeclaration::BoundOutboundDatagram { .. }
                 | ResourceDeclaration::ControlledOutboundDatagram { .. }
@@ -339,6 +347,7 @@ impl HostResources {
             roots,
             bounds,
             reads,
+            logical_workspaces,
             packets,
             journals,
             declared_failures: Arc::default(),
