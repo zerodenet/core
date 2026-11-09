@@ -38,7 +38,7 @@ struct ReadState {
     #[cfg(feature = "raw-ip-runtime")]
     supplemental: Option<supplemental::OriginalSupplemental>,
     #[cfg(feature = "raw-ip-runtime")]
-    received: Vec<bool>,
+    received: supplemental::ReceivedFlags,
     driver: Option<TaskJoinWitness>,
 }
 impl HostPacketReadReservation {
@@ -84,8 +84,8 @@ impl HostPacketReadReservation {
         #[cfg(feature = "raw-ip-runtime")]
         {
             if state.grants.is_none() {
-                let (grants, supplemental) = self.allocate_original_workspaces()?;
-                state.received = vec![false; self.supplemental.receive_workspaces.len()];
+                let (grants, supplemental, received) = self.allocate_original_workspaces()?;
+                state.received = received;
                 state.supplemental = Some(supplemental);
                 state.grants = Some(grants);
             }
@@ -168,7 +168,11 @@ impl HostPacketReadReservation {
         let grants = state.grants.take();
         #[cfg(feature = "raw-ip-runtime")]
         let supplemental = state.supplemental.take();
+        #[cfg(feature = "raw-ip-runtime")]
+        let received = std::mem::take(&mut state.received);
         drop(state);
+        #[cfg(feature = "raw-ip-runtime")]
+        drop(received);
         #[cfg(feature = "raw-ip-runtime")]
         if let Some(supplemental) = supplemental {
             supplemental.revoke();

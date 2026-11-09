@@ -1,15 +1,19 @@
 //! Actual pre-bind receive workers and this wire's separate pending TX copy.
 use super::*;
-use zero_tun::packet_memory::{NativeReadGrant, PacketDatagramWorkspaces};
+use zero_tun::packet_memory::{
+    NativeReadGrant, PacketDatagramWorkspaces, PacketMetadataCredit, PacketMetadataLayout,
+    PacketReadBatch,
+};
+mod flags;
+pub(super) use flags::ReceivedFlags;
 pub(super) struct OriginalSupplemental {
-    receive: Vec<NativeReadGrant>,
+    receive: PacketReadBatch,
     copy: Option<NativeReadGrant>,
     target: Option<NativeReadGrant>,
 }
 impl OriginalSupplemental {
     pub(super) fn revoke(&self) {
-        for grant in self
-            .receive
+        for grant in self.receive[2..]
             .iter()
             .chain(self.copy.iter())
             .chain(self.target.iter())
@@ -21,26 +25,57 @@ impl OriginalSupplemental {
 impl HostPacketReadReservation {
     pub(super) fn allocate_original_workspaces(
         &self,
-    ) -> Result<(PacketDatagramWorkspaces, OriginalSupplemental), ChannelError> {
-        let receive = self
+    ) -> Result<
+        (
+            PacketDatagramWorkspaces,
+            OriginalSupplemental,
+            ReceivedFlags,
+        ),
+        ChannelError,
+    > {
+        let count = self
             .lengths
-            .iter()
-            .chain(self.supplemental.receive_workspaces.iter())
-            .map(|length| length.get())
-            .collect::<Vec<_>>();
-        let transmit = self
+            .len()
+            .checked_add(self.supplemental.receive_workspaces.len())
+            .ok_or_else(|| self.denied())?;
+        let receive_layout = PacketMetadataLayout::array::<usize>(count)
+            .map_err(|source| self.denied().with_source(source))?;
+        let receive_metadata = self
+            .roots
+            .packet
+            .reserve_driver_metadata(receive_layout)
+            .map_err(|source| self.denied().with_source(source))?;
+        let mut receive = Box::<[usize]>::new_uninit_slice(count);
+        for (target, value) in receive.iter_mut().zip(
+            self.lengths
+                .iter()
+                .chain(self.supplemental.receive_workspaces.iter()),
+        ) {
+            target.write(value.get());
+        }
+        let receive = unsafe { receive.assume_init() };
+        let mut transmit = [0; 3];
+        let mut sending = 0;
+        for length in self
             .control
             .iter()
             .chain(self.supplemental.transmit_copy.iter())
             .chain(self.supplemental.transmit_target.iter())
-            .map(|length| length.get())
-            .collect::<Vec<_>>();
+        {
+            transmit[sending] = length.get();
+            sending += 1;
+        }
+        let received = ReceivedFlags::prepare(
+            &self.roots.packet,
+            self.supplemental.receive_workspaces.len(),
+        )
+        .map_err(|source| self.denied().with_source(source))?;
         // One transaction before the original descriptor's first native bind.
         // Either every actual buffer promise is paid or none can escape.
         let grants = self
             .roots
             .packet
-            .io_workspaces(&receive, &transmit)
+            .owned_io_workspaces(&receive, &transmit[..sending])
             .map_err(|source| {
                 let mut failure = error(
                     self.instance.component,
@@ -50,29 +85,27 @@ impl HostPacketReadReservation {
                 failure.delivery = zero_platform_tokio::contract::DeliveryState::NotSubmitted;
                 failure.with_source(source)
             })?;
-        let mut reads = grants.reads.into_iter();
-        let mut transmit = grants.transmit.into_iter();
+        drop(receive); // actual transient declaration array frees first
+        drop(receive_metadata);
+        let mut transmit = grants.transmit.iter();
         let original = PacketDatagramWorkspaces {
-            reads: [
-                reads.next().expect("declared read0"),
-                reads.next().expect("declared read1"),
-            ],
+            reads: [grants.reads[0].clone(), grants.reads[1].clone()],
             control: self
                 .control
-                .map(|_| transmit.next().expect("declared control")),
+                .map(|_| transmit.next().expect("declared control").clone()),
         };
         let supplemental = OriginalSupplemental {
-            receive: reads.collect(),
+            receive: grants.reads,
             copy: self
                 .supplemental
                 .transmit_copy
-                .map(|_| transmit.next().expect("declared wire copy")),
+                .map(|_| transmit.next().expect("declared wire copy").clone()),
             target: self
                 .supplemental
                 .transmit_target
-                .map(|_| transmit.next().expect("declared target backing")),
+                .map(|_| transmit.next().expect("declared target backing").clone()),
         };
-        Ok((original, supplemental))
+        Ok((original, supplemental, received))
     }
     /// Unique transfer to an existing declared reader, not a new IO/Task grant.
     pub fn take_supplemental_receive(
@@ -92,7 +125,7 @@ impl HostPacketReadReservation {
         let grant = state
             .supplemental
             .as_ref()
-            .and_then(|original| original.receive.get(reader))
+            .and_then(|original| original.receive.get(reader + 2))
             .cloned()
             .ok_or_else(|| self.denied())?;
         state.received[reader] = true;

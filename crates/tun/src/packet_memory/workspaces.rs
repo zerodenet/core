@@ -1,6 +1,8 @@
 //! A finite original IO allocation set, reserved before any native attempt.
 //! This is the same Root's byte/frame accounting, never IO or task authority.
 use super::*;
+mod owned;
+pub use owned::{PacketIoOwnedWorkspaces, PacketReadBatch};
 #[derive(Clone)]
 pub struct PacketIoWorkspaces {
     pub reads: Vec<NativeReadGrant>,

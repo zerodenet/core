@@ -17,7 +17,7 @@ mod datagram;
 mod received;
 mod workspaces;
 pub use datagram::PacketDatagramWorkspaces;
-pub use workspaces::PacketIoWorkspaces;
+pub use workspaces::{PacketIoOwnedWorkspaces, PacketIoWorkspaces, PacketReadBatch};
 mod limits;
 mod read;
 mod transmit;
