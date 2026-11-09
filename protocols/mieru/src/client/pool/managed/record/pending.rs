@@ -24,7 +24,10 @@ impl PendingCarriers {
             let _ = self
                 .record
                 .3
-                .set(super::protocols::Children::new(memory, self.record.2));
+                .set(crate::client::pool::managed::protocols::Children::new(
+                    memory,
+                    self.record.2,
+                ));
         }
         Ok(())
     }
@@ -47,7 +50,7 @@ impl PendingCarriers {
             && driver.native_task_id().is_some_and(|id| Some(id) == native))
         .then(|| driver.clone())
     }
-    pub(crate) fn protocols(&self) -> Option<&super::protocols::Children> {
+    pub(crate) fn protocols(&self) -> Option<&crate::client::pool::managed::protocols::Children> {
         self.record.protocols()
     }
 
