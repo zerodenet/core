@@ -1,6 +1,6 @@
 //! This is the original blocking SDK worker, not a wrapper joining another task.
 use super::*;
-pub(super) fn run(original: Arc<Shared>) -> Result<(), ChannelError> {
+pub(super) fn run(original: PacketMetadataArc<Shared>) -> Result<(), ChannelError> {
     let mut received = original
         .received
         .lock()

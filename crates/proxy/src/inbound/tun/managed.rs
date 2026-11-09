@@ -104,6 +104,23 @@ impl Proxy {
             Arc::new(source::SystemTunSourceFactory),
             source.clone(),
         );
+        // Known concrete owning layouts are admitted before registry/Scope
+        // mutation and before cloning their new heap-backed route inputs.
+        let mut route_credit = if start.options.auto_route {
+            let memory = self
+                .protocols
+                .runtime_host()
+                .original_budgets()
+                .packet
+                .driver_metadata_view();
+            Some(
+                memory
+                    .reserve(routes::owned::OwnedRoutes::layout(&start).map_err(io::Error::other)?)
+                    .map_err(io::Error::other)?,
+            )
+        } else {
+            None
+        };
         let registry = self.system_tun_source_registry();
         let (shutdown, shutdown_rx) = tokio::sync::watch::channel(false);
         let lease = registry.reserve_system_tun_in_config(
@@ -113,24 +130,30 @@ impl Proxy {
             &config,
         )?;
         let original = lease.owner();
-        let routes = start.options.auto_route.then(|| {
-            routes::owned::OwnedRoutes::new(
-                self.clone(),
-                routes::RouteRuntimeSpec {
-                    id,
-                    tun_name: String::new(),
-                    recovery_key: start.tag.clone(),
-                    primary_ipv6: start.addresses[0].address.is_ipv6(),
-                    addresses: start.route_addresses.clone(),
-                    include_cidrs: start.options.include_cidrs.clone(),
-                    exclude_cidrs: start.options.exclude_cidrs.clone(),
-                    dns_hijack: start.options.dns_hijack,
-                    strict_route: start.options.strict_route,
-                },
-                metadata.clone(),
-                original.task_access().cancellation().child_token(),
+        let routes = if start.options.auto_route {
+            Some(
+                routes::owned::OwnedRoutes::from_prepaid(
+                    self.clone(),
+                    routes::RouteRuntimeSpec {
+                        id,
+                        tun_name: String::new(),
+                        recovery_key: routes::owned::copy_key(&start.tag),
+                        primary_ipv6: start.addresses[0].address.is_ipv6(),
+                        addresses: routes::owned::copy_addresses(&start.route_addresses),
+                        include_cidrs: routes::owned::copy_prefixes(&start.options.include_cidrs),
+                        exclude_cidrs: routes::owned::copy_prefixes(&start.options.exclude_cidrs),
+                        dns_hijack: start.options.dns_hijack,
+                        strict_route: start.options.strict_route,
+                    },
+                    metadata.clone(),
+                    original.task_access().cancellation().child_token(),
+                    route_credit.take().expect("same prepaid auto-route source"),
+                )
+                .map_err(io::Error::other)?,
             )
-        });
+        } else {
+            None
+        };
         if let Some(routes) = &routes {
             lease.register_after_scope(routes.resource())?;
         }
