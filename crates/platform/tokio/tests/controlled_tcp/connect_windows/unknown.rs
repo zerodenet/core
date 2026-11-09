@@ -41,6 +41,7 @@ async fn windows_consumed_registration_unknown_retains_source_identity_and_never
         observer: Mutex::new(None),
         observations: Arc::new(crate::controlled_tcp::observation::Capture::default()),
         wakes: crate::controlled_tcp::IoRelays::new(),
+        close_failures: Default::default(),
     });
     // The unknown marker remains available if conversion unwinds while the
     // state lock is held. This is a synthetic poison-policy check only.
