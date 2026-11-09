@@ -4,26 +4,33 @@ use std::sync::atomic::Ordering;
 use zero_platform_tokio::contract::ChannelError;
 impl ManagedPool {
     pub(super) fn harvest(&self) {
-        let records = self.records.lock().unwrap().clone();
-        for record in records {
+        let mut after = None;
+        loop {
+            let record = {
+                let records = self.records.lock().unwrap();
+                records
+                    .iter()
+                    .filter(|record| {
+                        after.is_none_or(|after| std::sync::Arc::as_ptr(record) as usize > after)
+                    })
+                    .min_by_key(|record| std::sync::Arc::as_ptr(record) as usize)
+                    .cloned()
+            };
+            let Some(record) = record else { break };
+            after = Some(std::sync::Arc::as_ptr(&record) as usize);
             record.receive_available();
-        }
-        let removed = {
-            let mut records = self.records.lock().unwrap();
-            let mut removed = Vec::new();
-            let mut index = 0;
-            while index < records.len() {
-                if records[index].closed() {
-                    removed.push(records.remove(index));
-                } else {
-                    index += 1;
-                }
+            if !record.closed() {
+                continue;
             }
-            removed
-        };
-        // The final Arc can own protocol/native state. Never drop it while the
-        // actual pool census mutex is held.
-        drop(removed);
+            let removed = {
+                let mut records = self.records.lock().unwrap();
+                records
+                    .iter()
+                    .position(|actual| std::sync::Arc::ptr_eq(actual, &record))
+                    .map(|index| records.remove(index))
+            };
+            drop(removed);
+        }
     }
     pub(super) fn reap_ready(&self) -> Result<(), ChannelError> {
         let records = self.records.lock().unwrap().clone();

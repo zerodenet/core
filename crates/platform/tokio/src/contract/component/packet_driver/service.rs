@@ -87,17 +87,19 @@ impl GrantedPacketServiceCaller {
             return Err(failure(Reason::Revoked));
         }
         self.calls.collect_retired();
-        let blocked = self
-            .calls
-            .calls
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .iter()
-            .any(|record| {
-                record.caller.same_registration(&self.caller)
-                    && record.call.cancel.is_cancelled()
-                    && !record.released()
-            });
+        let mut blocked = false;
+        for index in 0..self.calls.max_calls.get() {
+            let Some(record) = self.calls.call_at(index) else {
+                break;
+            };
+            if record.caller.same_registration(&self.caller)
+                && record.call.cancel.is_cancelled()
+                && !record.released()
+            {
+                blocked = true;
+                break;
+            }
+        }
         if blocked {
             let mut pending = failure(Reason::Capacity);
             pending.delivery = DeliveryState::Unknown;

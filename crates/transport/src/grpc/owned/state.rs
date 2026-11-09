@@ -244,15 +244,34 @@ impl Managed {
         self.harvest();
         Ok(())
     }
-    pub(super) fn harvest(&self) {
-        let records = self.records.lock().unwrap().clone();
-        for record in records {
-            record.receive_available();
-        }
+    fn next_record(&self, after: Option<usize>) -> Option<Arc<Physical>> {
+        // Existing allocation identity is only a finite traversal cursor. It
+        // does not issue an original, task, ACK or replacement authority.
         self.records
             .lock()
             .unwrap()
-            .retain(|record| !record.closed());
+            .iter()
+            .filter(|record| after.is_none_or(|after| Arc::as_ptr(record) as usize > after))
+            .min_by_key(|record| Arc::as_ptr(record) as usize)
+            .cloned()
+    }
+    pub(super) fn harvest(&self) {
+        let mut after = None;
+        while let Some(record) = self.next_record(after) {
+            after = Some(Arc::as_ptr(&record) as usize);
+            record.receive_available();
+            if !record.closed() {
+                continue;
+            }
+            let removed = {
+                let mut records = self.records.lock().unwrap();
+                records
+                    .iter()
+                    .position(|actual| Arc::ptr_eq(actual, &record))
+                    .map(|index| records.remove(index))
+            };
+            drop(removed);
+        }
         self.budget.harvest();
     }
     /// Positive old-generation settlement. Neither an expired Arc nor cancel
@@ -261,16 +280,17 @@ impl Managed {
         if !self.cancel.is_cancelled() {
             return false;
         }
-        self.records
-            .lock()
-            .unwrap()
-            .iter()
-            .all(|record| record.closed())
-            && self.budget.all_returned()
-            && {
-                let owner = self.grants.registration();
-                owner.closed().is_some_and(|closed| closed.matches(&owner))
+        let mut after = None;
+        while let Some(record) = self.next_record(after) {
+            after = Some(Arc::as_ptr(&record) as usize);
+            if !record.closed() {
+                return false;
             }
+        }
+        self.budget.all_returned() && {
+            let owner = self.grants.registration();
+            owner.closed().is_some_and(|closed| closed.matches(&owner))
+        }
     }
     pub(super) fn physical_unconfirmed(&self) -> bool {
         !self.records.lock().unwrap().is_empty()
