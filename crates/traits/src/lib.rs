@@ -29,13 +29,13 @@ use alloc::{sync::Arc, vec::Vec};
 use core::sync::atomic::{AtomicU8, Ordering};
 pub use protocol::{
     BrowserDialerSettings, ClientTlsProfile, DatagramCodec, DatagramCodecBufferError,
-    DatagramCodecDecodeResult, DatagramCodecOutput, DeferredTcpTunnelProtocol,
-    GrpcTransportProfile, H2TransportProfile, HttpUpgradeTransportProfile, InboundFallbackProfile,
-    ProtocolCapabilityDescriptor, ProtocolCapabilityLevel, ProtocolCapabilityState,
-    ProtocolMetadata, ProtocolNetworkCapability, ServerTlsProfile, SplitHttpTransportProfile,
-    StreamMuxTransportHints, TcpSessionProtocol, TcpTunnelProtocol, UdpDatagramFraming,
-    UdpPacketFraming, UdpPacketPath, UdpPacketStreamFraming, UdpPacketTunnelProtocol,
-    UdpRelayProtocol, WebSocketTransportProfile,
+    DatagramCodecBufferLayout, DatagramCodecDecodeResult, DatagramCodecOutput,
+    DeferredTcpTunnelProtocol, GrpcTransportProfile, H2TransportProfile,
+    HttpUpgradeTransportProfile, InboundFallbackProfile, ProtocolCapabilityDescriptor,
+    ProtocolCapabilityLevel, ProtocolCapabilityState, ProtocolMetadata, ProtocolNetworkCapability,
+    ServerTlsProfile, SplitHttpTransportProfile, StreamMuxTransportHints, TcpSessionProtocol,
+    TcpTunnelProtocol, UdpDatagramFraming, UdpPacketFraming, UdpPacketPath, UdpPacketStreamFraming,
+    UdpPacketTunnelProtocol, UdpRelayProtocol, WebSocketTransportProfile,
 };
 pub use protocol::{InboundTransport, TransportKind};
 

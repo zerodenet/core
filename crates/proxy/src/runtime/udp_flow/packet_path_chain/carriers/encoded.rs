@@ -134,7 +134,7 @@ impl PacketPathCarrier for Encoded {
         let own = self
             .source
             .codec
-            .encode_buffer_lengths(target, port, payload_len)
+            .encode_buffer_layout(target, port, payload_len)
             .map_err(codec_error)?;
         // All existing built-ins use one final buffer or an intermediate and
         // final pair; this finite table is not an allocator/plugin callback.
@@ -157,7 +157,7 @@ impl PacketPathCarrier for Encoded {
         let own = self
             .source
             .codec
-            .encode_buffer_lengths(target, port, payload.len())
+            .encode_buffer_layout(target, port, payload.len())
             .map_err(codec_error)?;
         if own.is_empty() || own.len() > 2 || own.len() > buffers.len() {
             return Err(layout_error());
@@ -167,7 +167,7 @@ impl PacketPathCarrier for Encoded {
         // Pure recomputation with actual output lengths can only narrow bounds.
         if local
             .iter()
-            .zip(&own)
+            .zip(own.iter())
             .any(|(buffer, needed)| buffer.len() < *needed)
         {
             return Err(layout_error());

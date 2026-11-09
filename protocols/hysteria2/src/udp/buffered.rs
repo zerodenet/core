@@ -1,10 +1,10 @@
 //! Existing unfragmented flow codec; storage is admitted by its actual caller.
 use super::{Address, Error, Hysteria2DatagramCodec};
-use alloc::{string::String, vec, vec::Vec};
+use alloc::string::String;
 use core::fmt::{self, Write};
 use zero_traits::{
-    DatagramCodecBufferError as Failure, DatagramCodecOutput as Output, PacketBuffer,
-    PacketDeriveError,
+    DatagramCodecBufferError as Failure, DatagramCodecBufferLayout as Layout,
+    DatagramCodecOutput as Output, PacketBuffer, PacketDeriveError,
 };
 type Result<T> = core::result::Result<T, Failure<Error>>;
 fn invalid() -> Failure<Error> {
@@ -60,7 +60,7 @@ impl Hysteria2DatagramCodec {
         target: &Address,
         port: u16,
         payload: usize,
-    ) -> Result<Vec<usize>> {
+    ) -> Result<Layout> {
         let mut text = Authority {
             bytes: None,
             length: 0,
@@ -71,10 +71,10 @@ impl Hysteria2DatagramCodec {
             .checked_add(8 + width(text.length)?)
             .and_then(|n| n.checked_add(payload))
             .ok_or_else(overflow)?;
-        Ok(vec![text.length, wire])
+        Ok(Layout::Two([text.length, wire]))
     }
-    pub(super) fn decoded_lengths(&self, wire: usize) -> Result<Vec<usize>> {
-        Ok(vec![wire, wire])
+    pub(super) fn decoded_lengths(&self, wire: usize) -> Result<Layout> {
+        Ok(Layout::Two([wire, wire]))
     }
     pub(super) fn encode_reserved(
         &self,

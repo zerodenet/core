@@ -1,9 +1,8 @@
 //! Existing Mieru flow framing using only caller-admitted fixed storage.
 use super::*;
-use alloc::vec;
 use zero_traits::{
-    DatagramCodecBufferError as Failure, DatagramCodecOutput as Output, PacketBuffer,
-    PacketDeriveError,
+    DatagramCodecBufferError as Failure, DatagramCodecBufferLayout as Layout,
+    DatagramCodecOutput as Output, PacketBuffer, PacketDeriveError,
 };
 type Result<T> = core::result::Result<T, Failure<Error>>;
 fn invalid() -> Failure<Error> {
@@ -16,7 +15,7 @@ fn check(buffers: &[PacketBuffer], lengths: &[usize]) -> Result<()> {
     Ok(())
 }
 impl MieruUdpFlowCodec {
-    pub(super) fn encoded_lengths(&self, target: &Address, payload: usize) -> Result<Vec<usize>> {
+    pub(super) fn encoded_lengths(&self, target: &Address, payload: usize) -> Result<Layout> {
         let address = match target {
             Address::Ipv4(_) => 5,
             Address::Ipv6(_) => 17,
@@ -29,10 +28,10 @@ impl MieruUdpFlowCodec {
         if packet > u16::MAX as usize {
             return Err(invalid());
         }
-        Ok(vec![packet + 4])
+        Ok(Layout::One([packet + 4]))
     }
-    pub(super) fn decoded_lengths(&self, wire: usize) -> Result<Vec<usize>> {
-        Ok(vec![wire, 255])
+    pub(super) fn decoded_lengths(&self, wire: usize) -> Result<Layout> {
+        Ok(Layout::Two([wire, 255]))
     }
     pub(super) fn encode_reserved(
         &self,
@@ -143,10 +142,31 @@ impl DatagramCodec<Address> for MieruUdpFlowCodec {
     fn encode_buffer_lengths(
         &self,
         target: &Address,
-        _port: u16,
+        port: u16,
         payload_len: usize,
     ) -> core::result::Result<Vec<usize>, zero_traits::DatagramCodecBufferError<Error>> {
+        self.encode_buffer_layout(target, port, payload_len)
+            .map(|layout| layout.to_vec())
+    }
+    fn encode_buffer_layout(
+        &self,
+        target: &Address,
+        _port: u16,
+        payload_len: usize,
+    ) -> core::result::Result<
+        zero_traits::DatagramCodecBufferLayout,
+        zero_traits::DatagramCodecBufferError<Error>,
+    > {
         self.encoded_lengths(target, payload_len)
+    }
+    fn decode_buffer_layout(
+        &self,
+        wire_len: usize,
+    ) -> core::result::Result<
+        zero_traits::DatagramCodecBufferLayout,
+        zero_traits::DatagramCodecBufferError<Error>,
+    > {
+        self.decoded_lengths(wire_len)
     }
     fn encode_buffered(
         &self,
@@ -164,7 +184,8 @@ impl DatagramCodec<Address> for MieruUdpFlowCodec {
         &self,
         wire_len: usize,
     ) -> core::result::Result<Vec<usize>, zero_traits::DatagramCodecBufferError<Error>> {
-        self.decoded_lengths(wire_len)
+        self.decode_buffer_layout(wire_len)
+            .map(|layout| layout.to_vec())
     }
     fn decode_buffered(
         &self,

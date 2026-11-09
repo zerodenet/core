@@ -71,7 +71,7 @@ impl PacketCodecReceiveMemory {
                 return Err(invalid());
             }
             let lengths = codec
-                .decode_buffer_lengths(length)
+                .decode_buffer_layout(length)
                 .map_err(std::io::Error::other)?;
             let grants = self.buffers.as_slice();
             if lengths.len() != grants.len()

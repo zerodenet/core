@@ -126,6 +126,13 @@ fn all_existing_ss_udp_methods_use_fixed_workspaces_and_keep_authenticated_clone
                 let lengths = codec
                     .encode_buffer_lengths(&target, 53, payload.len())
                     .unwrap();
+                assert_eq!(
+                    codec
+                        .encode_buffer_layout(&target, 53, payload.len())
+                        .unwrap()
+                        .as_ref(),
+                    lengths.as_slice()
+                );
                 for short in 0..lengths.len() {
                     let mut undersized = lengths.clone();
                     undersized[short] -= 1;
@@ -144,6 +151,10 @@ fn all_existing_ss_udp_methods_use_fixed_workspaces_and_keep_authenticated_clone
                 let wire = &storage[output.buffer][output.range];
                 let response = response(&codec, &password, &target, &payload, wire);
                 let lengths = codec.decode_buffer_lengths(response.len()).unwrap();
+                assert_eq!(
+                    codec.decode_buffer_layout(response.len()).unwrap().as_ref(),
+                    lengths.as_slice()
+                );
                 for short in 0..lengths.len() {
                     let mut undersized = lengths.clone();
                     undersized[short] -= 1;

@@ -15,6 +15,13 @@ fn original_mieru_associate_framing_has_fixed_workspace_interoperability() {
             let lengths = codec
                 .encode_buffer_lengths(&target, 65535, payload.len())
                 .unwrap();
+            assert_eq!(
+                codec
+                    .encode_buffer_layout(&target, 65535, payload.len())
+                    .unwrap()
+                    .as_ref(),
+                lengths.as_slice()
+            );
             let mut bad = lengths.clone();
             bad[0] -= 1;
             assert!(matches!(
@@ -28,6 +35,10 @@ fn original_mieru_associate_framing_has_fixed_workspace_interoperability() {
             let wire = &buffers[output.buffer][output.range];
             assert_eq!(wire, codec.encode(&target, 65535, &payload).unwrap());
             let lengths = codec.decode_buffer_lengths(wire.len()).unwrap();
+            assert_eq!(
+                codec.decode_buffer_layout(wire.len()).unwrap().as_ref(),
+                lengths.as_slice()
+            );
             for short in 0..lengths.len() {
                 let mut bad = lengths.clone();
                 bad[short] -= 1;

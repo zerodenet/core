@@ -1506,7 +1506,28 @@ impl DatagramCodec<Address> for Hysteria2DatagramCodec {
         port: u16,
         payload_len: usize,
     ) -> Result<Vec<usize>, zero_traits::DatagramCodecBufferError<Error>> {
+        self.encode_buffer_layout(target, port, payload_len)
+            .map(|layout| layout.to_vec())
+    }
+    fn encode_buffer_layout(
+        &self,
+        target: &Address,
+        port: u16,
+        payload_len: usize,
+    ) -> core::result::Result<
+        zero_traits::DatagramCodecBufferLayout,
+        zero_traits::DatagramCodecBufferError<Error>,
+    > {
         self.encoded_lengths(target, port, payload_len)
+    }
+    fn decode_buffer_layout(
+        &self,
+        wire_len: usize,
+    ) -> core::result::Result<
+        zero_traits::DatagramCodecBufferLayout,
+        zero_traits::DatagramCodecBufferError<Error>,
+    > {
+        self.decoded_lengths(wire_len)
     }
     fn encode_buffered(
         &self,
@@ -1522,7 +1543,8 @@ impl DatagramCodec<Address> for Hysteria2DatagramCodec {
         &self,
         wire_len: usize,
     ) -> Result<Vec<usize>, zero_traits::DatagramCodecBufferError<Error>> {
-        self.decoded_lengths(wire_len)
+        self.decode_buffer_layout(wire_len)
+            .map(|layout| layout.to_vec())
     }
     fn decode_buffered(
         &self,

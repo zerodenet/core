@@ -3,8 +3,8 @@ use super::ShadowsocksDatagramCodec;
 use crate::shared;
 use zero_core::{Address, Error};
 use zero_traits::{
-    DatagramCodecBufferError as Failure, DatagramCodecOutput as Output, PacketBuffer,
-    PacketDeriveError,
+    DatagramCodecBufferError as Failure, DatagramCodecBufferLayout as Layout,
+    DatagramCodecOutput as Output, PacketBuffer, PacketDeriveError,
 };
 mod address;
 mod ordinary;
@@ -29,7 +29,7 @@ fn check(buffers: &[PacketBuffer], lengths: &[usize]) -> Result<()> {
     Ok(())
 }
 impl ShadowsocksDatagramCodec {
-    pub(super) fn encoded_lengths(&self, target: &Address, payload: usize) -> Result<Vec<usize>> {
+    pub(super) fn encoded_lengths(&self, target: &Address, payload: usize) -> Result<Layout> {
         let target = add(address::encoded_length(target).map_err(protocol)?, 2)?;
         let data = add(target, payload)?;
         #[cfg(feature = "blake3")]
@@ -50,25 +50,25 @@ impl ShadowsocksDatagramCodec {
                         .ok_or_else(overflow)?,
                 )?
             };
-            return Ok(vec![
+            return Ok(Layout::Two([
                 plain,
                 add(add(prefix, plain)?, self.cipher.tag_len())?,
-            ]);
+            ]));
         }
         let tag = if self.cipher.is_stream() {
             0
         } else {
             self.cipher.tag_len()
         };
-        Ok(vec![
+        Ok(Layout::Two([
             data,
             add(add(self.cipher.udp_salt_len(), data)?, tag)?,
-        ])
+        ]))
     }
-    pub(super) fn decoded_lengths(&self, wire: usize) -> Result<Vec<usize>> {
+    pub(super) fn decoded_lengths(&self, wire: usize) -> Result<Layout> {
         // A returned Domain owns its admitted allocation. Its original storage
         // owner remains among the caller's retained output workspaces.
-        Ok(vec![wire, 255])
+        Ok(Layout::Two([wire, 255]))
     }
     pub(super) fn encode_reserved(
         &self,

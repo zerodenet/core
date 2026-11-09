@@ -4,7 +4,8 @@ use alloc::vec::Vec;
 use crate::AsyncSocket;
 mod datagram_memory;
 pub use datagram_memory::{
-    DatagramCodecBufferError, DatagramCodecDecodeResult, DatagramCodecOutput,
+    DatagramCodecBufferError, DatagramCodecBufferLayout, DatagramCodecDecodeResult,
+    DatagramCodecOutput,
 };
 
 // ── Inbound transport classification ─────────────────────────────────
@@ -517,6 +518,26 @@ pub trait DatagramCodec<Target>: Send + Sync + 'static {
 
     fn decode(&self, data: &[u8]) -> Option<(Target, u16, Vec<u8>)>;
 
+    /// Pure fixed dimensions for the admitted Kernel codec path. Built-in
+    /// codecs return the same bounds as their independent-library Vec method.
+    fn encode_buffer_layout(
+        &self,
+        _target: &Target,
+        _port: u16,
+        _payload_len: usize,
+    ) -> Result<DatagramCodecBufferLayout, DatagramCodecBufferError<Self::Error>> {
+        Err(DatagramCodecBufferError::Storage(
+            crate::PacketDeriveError::Unreserved,
+        ))
+    }
+    fn decode_buffer_layout(
+        &self,
+        _wire_len: usize,
+    ) -> Result<DatagramCodecBufferLayout, DatagramCodecBufferError<Self::Error>> {
+        Err(DatagramCodecBufferError::Storage(
+            crate::PacketDeriveError::Unreserved,
+        ))
+    }
     /// Pure upper bounds for every actual intermediate and final allocation.
     /// No counter/replay/RNG state or native/IO permission may change here.
     fn encode_buffer_lengths(

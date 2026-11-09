@@ -201,12 +201,8 @@ impl BusinessMemory {
         port: u16,
         payload: &[u8],
     ) -> Result<PacketBuffer, EngineError> {
-        let _shape = self
-            .metadata
-            .reserve(PacketMetadataLayout::array::<usize>(2).map_err(std::io::Error::other)?)
-            .map_err(std::io::Error::other)?;
         let lengths = codec
-            .encode_buffer_lengths(target, port, payload.len())
+            .encode_buffer_layout(target, port, payload.len())
             .map_err(std::io::Error::other)?;
         let (mut buffers, header) = self.storage(&lengths)?;
         let output = codec
@@ -219,12 +215,8 @@ impl BusinessMemory {
         codec: &dyn DatagramCodec<Address, Error = zero_core::Error>,
         wire: &[u8],
     ) -> Result<Option<(Address, u16, PacketBuffer)>, EngineError> {
-        let _shape = self
-            .metadata
-            .reserve(PacketMetadataLayout::array::<usize>(2).map_err(std::io::Error::other)?)
-            .map_err(std::io::Error::other)?;
         let lengths = codec
-            .decode_buffer_lengths(wire.len())
+            .decode_buffer_layout(wire.len())
             .map_err(std::io::Error::other)?;
         let (mut buffers, header) = self.storage(&lengths)?;
         let Some((target, port, output)) = codec

@@ -248,12 +248,12 @@ impl OuterPathRecipe {
             per_peer.push(NonZeroUsize::new(65536).unwrap()); // actual codec receive scratch
             let lengths = source
                 .codec
-                .decode_buffer_lengths(65536)
+                .decode_buffer_layout(65536)
                 .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
             if lengths.is_empty() || lengths.len() > 2 {
                 return Err(invalid("actual codec has an invalid fixed workspace count"));
             }
-            for length in lengths {
+            for &length in lengths.iter() {
                 per_peer.push(
                     NonZeroUsize::new(length)
                         .ok_or_else(|| invalid("actual codec has zero-sized workspace"))?,
@@ -288,13 +288,14 @@ impl OuterPathRecipe {
             .map(|source| {
                 let lengths = source
                     .codec
-                    .decode_buffer_lengths(65536)
+                    .decode_buffer_layout(65536)
                     .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
                 if lengths.is_empty() || lengths.len() > 2 {
                     return Err(invalid("actual fixed codec workspace count changed"));
                 }
                 lengths
-                    .into_iter()
+                    .iter()
+                    .copied()
                     .map(|length| {
                         std::num::NonZeroUsize::new(length)
                             .ok_or_else(|| invalid("zero-sized actual codec workspace"))
