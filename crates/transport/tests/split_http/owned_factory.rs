@@ -98,7 +98,21 @@ async fn original_factory_future_box_is_destroyed_before_its_exact_metadata_refu
 
 #[tokio::test]
 async fn actual_root_refusal_drops_unpolled_factory_work_without_allocating_its_box() {
-    let root = Arc::new(zero_tun::packet_memory::PacketReturnTotals::default());
+    // This assertion describes permanent policy capacity, not a temporarily
+    // full otherwise-large book (which correctly reports WouldBlock).
+    let one = zero_tun::packet_memory::PacketMemoryLimit {
+        frames: 1,
+        bytes: 1,
+    };
+    let root = Arc::new(
+        zero_tun::packet_memory::PacketReturnTotals::new_with_metadata(
+            one,
+            one,
+            one,
+            zero_traits::packet_metadata::PacketMetadataCounter::owned_layout(),
+        )
+        .unwrap(),
+    );
     let memory = root.driver_metadata_view();
     let snapshot = memory.snapshot();
     let remaining = PacketMetadataLayout::new(
