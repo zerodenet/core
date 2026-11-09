@@ -246,60 +246,6 @@ async fn masked_xicmp_same_native_provider_is_start_fenced_and_closes_actual_ori
     .unwrap();
 }
 
-struct Tap {
-    native: Arc<crate::component::instance::HostResources>,
-    address: Arc<std::sync::OnceLock<std::net::SocketAddr>>,
-}
-impl ResourceAccess for Tap {
-    fn listen_metadata_datagram(
-        &self,
-        request: MetadataDatagramRequest,
-    ) -> zero_platform_tokio::contract::BoxFuture<'_, Result<GrantedMetadataListener, BuildError>>
-    {
-        Box::pin(async move {
-            let grant = self.native.listen_metadata_datagram(request).await?;
-            self.address.set(grant.tx.local_addr().unwrap()).unwrap();
-            Ok(grant)
-        })
-    }
-    fn confirm_metadata_users(
-        &self,
-        ordinal: usize,
-        receipt:&zero_platform_tokio::controlled_datagram::metadata::users::MetadataUsersClosedReceipt,
-        tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
-    ) -> Result<(), BuildError> {
-        self.native.confirm_metadata_users(ordinal, receipt, tasks)
-    }
-    fn read_file(
-        &self,
-        path: std::path::PathBuf,
-        max: usize,
-    ) -> zero_platform_tokio::contract::BoxFuture<'_, Result<Vec<u8>, BuildError>> {
-        self.native.read_file(path, max)
-    }
-    fn listen_tcp(
-        &self,
-        address: Destination,
-    ) -> zero_platform_tokio::contract::BoxFuture<
-        '_,
-        Result<zero_platform_tokio::ControlledTcpListener, BuildError>,
-    > {
-        self.native.listen_tcp(address)
-    }
-    fn listen_datagram(
-        &self,
-        address: Destination,
-    ) -> zero_platform_tokio::contract::BoxFuture<'_, Result<GrantedDatagramListener, BuildError>>
-    {
-        self.native.listen_datagram(address)
-    }
-    fn open_device(
-        &self,
-        key: Arc<str>,
-    ) -> zero_platform_tokio::contract::BoxFuture<
-        '_,
-        Result<zero_platform_tokio::contract::packet::BoxPacketSession, BuildError>,
-    > {
-        self.native.open_device(key)
-    }
-}
+#[path = "mask_ownership/tap.rs"]
+mod tap;
+use tap::Tap;

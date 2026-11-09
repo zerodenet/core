@@ -114,7 +114,7 @@ async fn actual_host_metadata_icmp_native_closes_before_its_exact_metadata_host_
             let joined = query.try_joined();
             let actual = joined.as_ref().map(|joined| joined.result());
             let mut causes = Vec::new();
-            if let Some(Err(source)) = actual {
+            if let Some(Err(ref source)) = actual {
                 let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(source.as_ref());
                 while let Some(original) = cause {
                     causes.push(original.to_string());
