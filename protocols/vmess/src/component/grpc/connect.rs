@@ -164,6 +164,7 @@ impl Managed {
                 adoption: grant.adoption(),
                 capacity: Mutex::new(Some(capacity)),
                 witness: Mutex::new(None),
+                exit_changed: tokio::sync::Notify::new(),
                 received: Mutex::new(None),
                 accepted: AtomicBool::new(false),
                 // The caller's retained adoption retires this very original.

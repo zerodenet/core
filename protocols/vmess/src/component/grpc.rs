@@ -27,3 +27,7 @@ mod tests;
 #[cfg(test)]
 #[path = "../../tests/component/grpc_node_options.rs"]
 mod node_options_tests;
+
+#[cfg(test)]
+#[path = "../../tests/component/grpc_reception.rs"]
+mod reception_tests;

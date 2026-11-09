@@ -34,6 +34,7 @@ pub(super) struct Record {
     pub(super) adoption: CarrierAdoption,
     pub(super) capacity: Mutex<Option<tokio::sync::OwnedSemaphorePermit>>,
     pub(super) witness: Mutex<Option<TaskJoinWitness>>,
+    pub(super) exit_changed: tokio::sync::Notify,
     pub(super) received: Mutex<Option<TaskJoined>>,
     pub(super) accepted: AtomicBool,
     pub(super) stop: CancellationToken,
@@ -48,6 +49,7 @@ pub(super) struct Opening(pub(super) Arc<Record>, pub(super) std::sync::Weak<Man
 impl Drop for Opening {
     fn drop(&mut self) {
         self.0.opening.store(false, Ordering::Release);
+        self.0.exit_changed.notify_waiters();
         if !self.0.published.load(Ordering::Acquire) {
             self.0.stop.cancel();
             self.0.adoption.request_retirement();
