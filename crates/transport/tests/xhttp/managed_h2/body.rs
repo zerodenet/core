@@ -52,7 +52,7 @@ async fn delegate_rejection_wakes_an_already_pending_response_body_with_the_same
         pending_once(reading.as_mut()).await;
         let (keep_upload_pending, receiver) = tokio::sync::mpsc::channel(1);
         let upload = Body {
-            receiver,
+            receiver: receiver.into(),
             task: None,
             life: None,
             progress: None,

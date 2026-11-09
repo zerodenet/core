@@ -34,9 +34,36 @@ impl DynChannelControl for UnstartedControl {
 }
 struct Canonical(OnceLock<PendingCarrierObserver>);
 impl UpstreamOpener for Canonical {
+    // This exact canonical observer has no IO authority. The original Root
+    // produces KnownNoNative only from its real unstarted preparation ledger.
+    fn open_stream(
+        &self,
+        _: &UpstreamBinding,
+        _: Destination,
+        _: zero_platform_tokio::contract::network::CarrierContext,
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::contract::stream::BoxStream, ChannelError>> {
+        Box::pin(async { Err(no_io_authority()) })
+    }
+    fn open_datagram(
+        &self,
+        _: &UpstreamBinding,
+        _: zero_platform_tokio::contract::datagram::DatagramRequest,
+        _: zero_platform_tokio::contract::network::CarrierContext,
+    ) -> BoxFuture<
+        '_,
+        Result<zero_platform_tokio::contract::datagram::BoxDatagramSession, ChannelError>,
+    > {
+        Box::pin(async { Err(no_io_authority()) })
+    }
     fn protocol_original_observer(&self) -> Option<PendingCarrierObserver> {
         self.0.get().cloned()
     }
+}
+fn no_io_authority() -> ChannelError {
+    use zero_platform_tokio::contract::{DeliveryState, Impact, Reason, Stage};
+    let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+    error.delivery = DeliveryState::NotSubmitted;
+    error
 }
 struct Reenter {
     book: Weak<Budget>,
