@@ -117,6 +117,7 @@ impl Default for RuntimeOptionsConfig {
             event_subscriber_total_max_storage_bytes: None,
             latency_test_url: None,
             principal_quota_state_path: None,
+            principal_quota_total_max_storage_bytes: None,
             network: NetworkOptionsConfig::default(),
             udp: UdpPolicyConfig::default(),
             log: LogConfig::default(),

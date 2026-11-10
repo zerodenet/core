@@ -14,7 +14,14 @@ use tracing::{error, info};
 use zero_core::SessionAuth;
 
 use crate::EngineError;
-use zero_runtime::configuration::{ConfigurationSource, QuotaStorage};
+use zero_runtime::configuration::{
+    ConfigurationSource, OwnedQuotaStorage, QuotaMemoryBudget, QuotaMemoryCredit, QuotaStorage,
+};
+use zero_traits::packet_metadata::PacketMetadataLayout;
+mod memory;
+mod read;
+mod snapshot;
+use memory::{BookOwner, Current};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 struct QuotaKey {
@@ -27,12 +34,18 @@ struct QuotaKey {
 struct QuotaState {
     remaining_bytes: u64,
     references: usize,
+    _key: Option<QuotaMemoryCredit>,
 }
 
 #[derive(Debug, Default)]
 struct QuotaBook {
-    current: HashMap<String, QuotaKey>,
+    current: HashMap<String, Current>,
     states: HashMap<QuotaKey, QuotaState>,
+    memory: Option<QuotaMemoryBudget>,
+    persistent: bool,
+    current_storage: Option<QuotaMemoryCredit>,
+    state_storage: Option<QuotaMemoryCredit>,
+    promise: memory::Promise,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -80,7 +93,7 @@ enum PersistenceMessage {
 }
 
 struct QuotaPersistence {
-    storage: Arc<QuotaStorage>,
+    storage: OwnedQuotaStorage,
     source: Arc<ConfigurationSource>,
     sender: SyncSender<PersistenceMessage>,
     worker: Arc<Mutex<Worker>>,
@@ -160,7 +173,7 @@ fn retained(error: &Arc<io::Error>) -> io::Error {
 
 #[derive(Debug)]
 pub(crate) struct PrincipalQuotaRegistry {
-    inner: Arc<Mutex<QuotaBook>>,
+    inner: BookOwner,
     persistence: Option<Arc<QuotaPersistence>>,
     stopping: AtomicBool,
 }
@@ -168,7 +181,7 @@ pub(crate) struct PrincipalQuotaRegistry {
 impl Default for PrincipalQuotaRegistry {
     fn default() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(QuotaBook::default())),
+            inner: BookOwner::Library(Arc::new(Mutex::new(QuotaBook::default()))),
             persistence: None,
             stopping: AtomicBool::new(false),
         }
@@ -180,15 +193,34 @@ impl PrincipalQuotaRegistry {
         state_path: Option<PathBuf>,
         source: Arc<ConfigurationSource>,
     ) -> io::Result<Self> {
+        Self::open_with_runtime(
+            state_path,
+            source,
+            &zero_config::RuntimeOptionsConfig::default(),
+        )
+    }
+    pub(crate) fn open_with_runtime(
+        state_path: Option<PathBuf>,
+        source: Arc<ConfigurationSource>,
+        runtime: &zero_config::RuntimeOptionsConfig,
+    ) -> io::Result<Self> {
+        let memory = source.configure_initial_quota_memory(runtime)?;
         let Some(state_path) = state_path else {
-            return Ok(Self::default());
+            return Ok(Self {
+                inner: BookOwner::paid(memory::new_book(&memory, false)?, &memory)?,
+                persistence: None,
+                stopping: AtomicBool::new(false),
+            });
         };
-        let storage = source.open_quota_storage(state_path)?;
-        let book = match read_book(&storage) {
+        let storage = source.open_owned_quota_storage(state_path, &memory)?;
+        let book = match read_book(&storage, &memory) {
             Ok(book) => book,
             Err(error) => return finish_cleanup(Err(error), storage.close_lease()),
         };
-        let inner = Arc::new(Mutex::new(book));
+        let inner = match BookOwner::paid(book, &memory) {
+            Ok(value) => value,
+            Err(error) => return finish_cleanup(Err(error), storage.close_lease()),
+        };
         let persistence =
             match QuotaPersistence::spawn(storage.clone(), source.clone(), inner.clone()) {
                 Ok(owner) => Arc::new(owner),
@@ -267,6 +299,16 @@ impl PrincipalQuotaRegistry {
                 .ok_or_else(|| EngineError::AdmissionDenied {
                     reason: "quota-limited session has no principal identity".to_owned(),
                 })?;
+        let memory = self
+            .inner
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .memory
+            .clone();
+        let key_credit = memory
+            .as_ref()
+            .map(|memory| memory.reserve(memory::key_storage(principal_key.len(), 1)?))
+            .transpose()?;
         let key = QuotaKey {
             principal_key: principal_key.to_owned(),
             policy_revision: auth.policy_revision,
@@ -278,19 +320,86 @@ impl PrincipalQuotaRegistry {
                 reason: "principal quota persistence is stopping".to_owned(),
             });
         }
-        let changed = book.current.get(principal_key) != Some(&key);
+        let changed = book.current.get(principal_key).map(|current| &current.key) != Some(&key);
+        let new_current = !book.current.contains_key(principal_key);
+        let new_state = !book.states.contains_key(&key);
+        let strings = if changed {
+            memory
+                .as_ref()
+                .map(|memory| memory.reserve(memory::key_storage(principal_key.len(), 2)?))
+                .transpose()?
+        } else {
+            None
+        };
+        let state_string = if new_state {
+            memory
+                .as_ref()
+                .map(|memory| memory.reserve(memory::key_storage(principal_key.len(), 1)?))
+                .transpose()?
+        } else {
+            None
+        };
+        let promise_layout = if new_current && book.persistent {
+            memory::snapshot_layout(&key)?
+        } else {
+            PacketMetadataLayout::new(0, 0)
+        };
+        let promise_credit = book
+            .promise
+            .prepare_delta(memory.as_ref(), promise_layout)?;
+        let QuotaBook {
+            current,
+            states,
+            current_storage,
+            state_storage,
+            ..
+        } = &mut *book;
+        let old_current_storage = memory::grow(
+            current,
+            current_storage,
+            memory.as_ref(),
+            usize::from(new_current),
+        )?;
+        let old_state_storage = memory::grow(
+            states,
+            state_storage,
+            memory.as_ref(),
+            usize::from(new_state),
+        )?;
+        let unused_promise = book.promise.add(promise_layout, promise_credit);
         if changed {
-            book.current.insert(principal_key.to_owned(), key.clone());
+            let promise = book
+                .current
+                .get(principal_key)
+                .map_or(promise_layout, |current| current.promise);
+            book.current.insert(
+                principal_key.to_owned(),
+                Current {
+                    key: key.clone(),
+                    promise,
+                    _strings: strings,
+                },
+            );
             book.states.retain(|candidate, state| {
                 candidate.principal_key != principal_key
                     || candidate == &key
                     || state.references > 0
             });
         }
-        let state = book.states.entry(key.clone()).or_insert(QuotaState {
-            remaining_bytes: initial_bytes,
-            references: 0,
-        });
+        if new_state {
+            book.states.insert(
+                key.clone(),
+                QuotaState {
+                    remaining_bytes: initial_bytes,
+                    references: 0,
+                    _key: state_string,
+                },
+            );
+        }
+        let state = book
+            .states
+            .get_mut(&key)
+            .expect("quota state admitted above");
         if state.remaining_bytes == 0 {
             return Err(EngineError::AdmissionDenied {
                 reason: format!("principal `{principal_key}` exhausted its traffic quota"),
@@ -298,6 +407,9 @@ impl PrincipalQuotaRegistry {
         }
         state.references += 1;
         drop(book);
+        drop(old_current_storage);
+        drop(old_state_storage);
+        drop(unused_promise);
         if changed {
             self.mark_dirty();
         }
@@ -305,15 +417,20 @@ impl PrincipalQuotaRegistry {
             registry: self.inner.clone(),
             persistence: self.persistence.clone(),
             key,
+            _key_credit: key_credit,
         }))
     }
 
     pub(crate) fn forget(&self, principal_key: &str) {
         let mut book = self.inner.lock().unwrap_or_else(|error| error.into_inner());
-        book.current.remove(principal_key);
+        if let Some(current) = book.current.remove(principal_key) {
+            book.promise.remove(current.promise);
+        }
         book.states
             .retain(|key, state| key.principal_key != principal_key || state.references > 0);
+        let unused = book.promise.trim();
         drop(book);
+        drop(unused);
         self.mark_dirty();
     }
 
@@ -349,9 +466,10 @@ impl Drop for PrincipalQuotaRegistry {
 
 #[derive(Debug)]
 pub(crate) struct PrincipalQuotaRegistration {
-    registry: Arc<Mutex<QuotaBook>>,
+    registry: BookOwner,
     persistence: Option<Arc<QuotaPersistence>>,
     key: QuotaKey,
+    _key_credit: Option<QuotaMemoryCredit>,
 }
 
 impl PrincipalQuotaRegistration {
@@ -381,7 +499,11 @@ impl Drop for PrincipalQuotaRegistration {
             .registry
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        let is_current = book.current.get(&self.key.principal_key) == Some(&self.key);
+        let is_current = book
+            .current
+            .get(&self.key.principal_key)
+            .map(|current| &current.key)
+            == Some(&self.key);
         let Some(state) = book.states.get_mut(&self.key) else {
             return;
         };
@@ -394,9 +516,9 @@ impl Drop for PrincipalQuotaRegistration {
 
 impl QuotaPersistence {
     fn spawn(
-        storage: Arc<QuotaStorage>,
+        storage: OwnedQuotaStorage,
         source: Arc<ConfigurationSource>,
-        book: Arc<Mutex<QuotaBook>>,
+        book: BookOwner,
     ) -> io::Result<Self> {
         let (sender, receiver) = mpsc::sync_channel(1);
         let last_error = Arc::new(Mutex::new(None));
@@ -415,9 +537,8 @@ impl QuotaPersistence {
                         }
                     }
                 }
-                let result = serde_json::to_vec(&snapshot_book(&book))
-                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
-                    .and_then(|bytes| worker_storage.replace(&bytes));
+                let result = snapshot::encode(&book)
+                    .and_then(|frame| worker_storage.replace(&frame.bytes));
                 match result {
                     Ok(()) => *worker_error.lock().unwrap_or_else(|error| error.into_inner()) = None,
                     Err(error) => {
@@ -508,40 +629,49 @@ fn mark_sender_dirty(sender: Option<&SyncSender<PersistenceMessage>>) {
     }
 }
 
-fn snapshot_book(book: &Arc<Mutex<QuotaBook>>) -> PersistedQuotaBook {
-    let book = book.lock().unwrap_or_else(|error| error.into_inner());
-    let balances = book
-        .current
-        .values()
-        .filter_map(|key| {
-            book.states.get(key).map(|state| PersistedQuotaBalance {
-                key: key.clone(),
-                remaining_bytes: state.remaining_bytes,
-            })
-        })
-        .collect();
-    PersistedQuotaBook {
-        version: 1,
-        balances,
-    }
-}
-
-fn read_book(storage: &QuotaStorage) -> io::Result<QuotaBook> {
-    let Some(persisted) = storage.read_with(|reader| decode_persisted_book(reader))? else {
-        return Ok(QuotaBook::default());
+fn read_book(storage: &QuotaStorage, memory: &QuotaMemoryBudget) -> io::Result<QuotaBook> {
+    let decoded = storage.read_seekable_with(|reader| read::decode(reader, memory))?;
+    let mut book = memory::new_book(memory, true)?;
+    let Some(decoded) = decoded else {
+        return Ok(book);
     };
-    let mut book = QuotaBook::default();
-    for balance in persisted.balances {
-        book.current
-            .insert(balance.key.principal_key.clone(), balance.key.clone());
+    for balance in &decoded.value.balances {
+        let length = balance.key.principal_key.len();
+        let current_strings = memory.reserve(memory::key_storage(length, 2)?)?;
+        let state_string = memory.reserve(memory::key_storage(length, 1)?)?;
+        let promise = memory::snapshot_layout(&balance.key)?;
+        let promise_credit = book.promise.prepare_delta(Some(memory), promise)?;
+        let old_current = memory::grow(
+            &mut book.current,
+            &mut book.current_storage,
+            Some(memory),
+            1,
+        )?;
+        let old_states = memory::grow(&mut book.states, &mut book.state_storage, Some(memory), 1)?;
+        drop(old_current);
+        drop(old_states);
+        let empty = book.promise.add(promise, promise_credit);
+        drop(empty);
+        book.current.insert(
+            balance.key.principal_key.clone(),
+            Current {
+                key: balance.key.clone(),
+                promise,
+                _strings: Some(current_strings),
+            },
+        );
         book.states.insert(
-            balance.key,
+            balance.key.clone(),
             QuotaState {
                 remaining_bytes: balance.remaining_bytes,
                 references: 0,
+                _key: Some(state_string),
             },
         );
     }
+    // Includes the actual original typed DTO and serde/duplicate workspace.
+    // Only after all final maps/promises exist can their separate credit return.
+    drop(decoded);
     Ok(book)
 }
 
@@ -572,37 +702,51 @@ pub fn inspect_principal_quota_state_with_source(
                 .join(path)
         }
     };
-    let (bytes, decoded) =
-        match source.read_quota_snapshot(&path, |reader| decode_persisted_book(reader)) {
-            Ok(snapshot) => snapshot,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return Some(PrincipalQuotaStateReport {
-                    format: "zero.engine.principal-quota.v1",
-                    path: path.display().to_string(),
-                    status: PrincipalQuotaStateStatus::Missing,
-                    bytes: 0,
-                    balances: None,
-                    error: None,
-                });
-            }
-            Err(error) => {
-                return Some(PrincipalQuotaStateReport {
-                    format: "zero.engine.principal-quota.v1",
-                    path: path.display().to_string(),
-                    status: PrincipalQuotaStateStatus::Incompatible,
-                    bytes: 0,
-                    balances: None,
-                    error: Some(format!("read failed: {error}")),
-                });
-            }
-        };
+    let memory = match source.quota_memory(&config.runtime) {
+        Ok(memory) => memory,
+        Err(error) => {
+            return Some(PrincipalQuotaStateReport {
+                format: "zero.engine.principal-quota.v1",
+                path: path.display().to_string(),
+                status: PrincipalQuotaStateStatus::Incompatible,
+                bytes: 0,
+                balances: None,
+                error: Some(format!("quota storage unavailable: {error}")),
+            })
+        }
+    };
+    let (bytes, decoded) = match source
+        .inspect_seekable_file_snapshot(&path, |_length, reader| read::decode(reader, &memory))
+    {
+        Ok(snapshot) => snapshot,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Some(PrincipalQuotaStateReport {
+                format: "zero.engine.principal-quota.v1",
+                path: path.display().to_string(),
+                status: PrincipalQuotaStateStatus::Missing,
+                bytes: 0,
+                balances: None,
+                error: None,
+            });
+        }
+        Err(error) => {
+            return Some(PrincipalQuotaStateReport {
+                format: "zero.engine.principal-quota.v1",
+                path: path.display().to_string(),
+                status: PrincipalQuotaStateStatus::Incompatible,
+                bytes: 0,
+                balances: None,
+                error: Some(format!("read failed: {error}")),
+            });
+        }
+    };
     match decoded {
         Ok(book) => Some(PrincipalQuotaStateReport {
             format: "zero.engine.principal-quota.v1",
             path: path.display().to_string(),
             status: PrincipalQuotaStateStatus::Ready,
             bytes,
-            balances: Some(book.balances.len() as u64),
+            balances: Some(book.value.balances.len() as u64),
             error: None,
         }),
         Err(error) => Some(PrincipalQuotaStateReport {

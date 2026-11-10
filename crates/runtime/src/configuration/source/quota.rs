@@ -1,8 +1,14 @@
 //! Durable quota bytes belong to the same deployment source; the Engine owns
 //! accounting and its actual persistence worker, never an original file handle.
 mod lock_error;
+mod memory;
+mod owned;
+mod execution;
 mod worker;
 use super::*;
+pub use memory::{QuotaMemoryBudget, QuotaMemoryCredit};
+pub use owned::{OwnedQuotaStorage, WeakQuotaStorage};
+pub use execution::QuotaWriterFailure;
 use std::{
     fs::{OpenOptions, TryLockError},
     sync::{Arc, Weak},
@@ -10,12 +16,17 @@ use std::{
 use zero_platform_tokio::file::{OriginalFile, OriginalFileClosed};
 
 #[derive(Default)]
-pub(super) struct QuotaSlot(Mutex<Option<Arc<QuotaStorage>>>);
+pub(super) struct QuotaSlot {
+    current: Mutex<Option<owned::StorageEntry>>,
+    memory: Mutex<Option<QuotaMemoryBudget>>,
+    tasks: std::sync::OnceLock<Arc<zero_platform_tokio::contract::scope::TaskRegistrationBudget>>,
+}
 pub struct QuotaStorage {
     source: Weak<ConfigurationSource>,
     path: PathBuf,
     lease: Mutex<Lease>,
     worker: worker::WorkerReceiver,
+    execution: execution::Execution,
 }
 #[derive(Default)]
 struct Lease {
@@ -125,12 +136,18 @@ impl ConfigurationSource {
         self: &Arc<Self>,
         path: impl Into<PathBuf>,
     ) -> io::Result<Arc<QuotaStorage>> {
+        if self.persistence_book.get().is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Kernel quota storage requires its Source-owned prepaid controller",
+            ));
+        }
         let path = path.into();
         super::super::startup::with_source(self.clone(), || {
             self.ensure_resource_io_available()?;
             let mut slot = self
                 .quota
-                .0
+                .current
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(previous) = slot.as_ref() {
@@ -144,8 +161,9 @@ impl ConfigurationSource {
                 path,
                 lease: Mutex::new(Lease::default()),
                 worker: Default::default(),
+                execution: Default::default(),
             });
-            *slot = Some(storage.clone());
+            *slot = Some(owned::StorageEntry::Library(storage.clone()));
             drop(slot);
             storage.acquire()?;
             Ok(storage)
@@ -154,7 +172,7 @@ impl ConfigurationSource {
     pub(in crate::configuration) fn quota_io_available(&self) -> io::Result<()> {
         let storage = self
             .quota
-            .0
+            .current
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
@@ -168,7 +186,7 @@ impl ConfigurationSource {
     pub fn confirm_quota_storage_closed(&self) -> io::Result<()> {
         let storage = self
             .quota
-            .0
+            .current
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
@@ -320,6 +338,23 @@ impl QuotaStorage {
         }
         result
     }
+    fn ensure_writer_lease(&self) -> io::Result<()> {
+        self.ensure_known()?;
+        let acquired = self.lease.lock().unwrap_or_else(std::sync::PoisonError::into_inner).acquired;
+        if acquired { return Ok(()); }
+        let source = self.source.upgrade().ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "quota original Source retired"))?;
+        source.ensure_resource_io_available()?;
+        // Only the same real scoped body reopens after the genuine old worker
+        // joined and closed its matching lease. No new controller is created.
+        self.acquire()
+    }
+    fn original_io_status(&self) -> io::Result<()> {
+        self.ensure_known()?;
+        self.source.upgrade().ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "quota original Source retired"))?.io.ensure_available()
+    }
+    fn retained_lease_failure(&self) -> Option<Arc<io::Error>> {
+        self.lease.lock().unwrap_or_else(std::sync::PoisonError::into_inner).fault.clone()
+    }
     pub fn read(&self) -> io::Result<Option<Vec<u8>>> {
         self.with_source(|source| files::read_optional(&self.path, &source.io))
     }
@@ -334,6 +369,35 @@ impl QuotaStorage {
                 || std::fs::File::open(&self.path),
                 |original| {
                     let mut reader = std::io::BufReader::new(original);
+                    decode(&mut reader)
+                },
+            );
+            match result {
+                Err(error)
+                    if error.kind() == io::ErrorKind::NotFound
+                        && source.io.ensure_available().is_ok() =>
+                {
+                    Ok(None)
+                }
+                result => result.map(Some),
+            }
+        })
+    }
+
+    /// A bounded read/seek borrow of this same inode and original writer lease.
+    /// The Engine measures concrete decoding storage, rewinds, and still uses
+    /// the authoritative serde decoder. No file length cap is imposed here.
+    pub fn read_seekable_with<T>(
+        &self,
+        decode: impl FnOnce(&mut super::snapshot::ConfigurationSnapshotReader<'_>) -> io::Result<T>,
+    ) -> io::Result<Option<T>> {
+        self.with_source(|source| {
+            let result = source.io.with_file(
+                || std::fs::File::open(&self.path),
+                |original| {
+                    let length = original.metadata()?.len();
+                    let mut reader =
+                        super::snapshot::ConfigurationSnapshotReader::new(original, length);
                     decode(&mut reader)
                 },
             );

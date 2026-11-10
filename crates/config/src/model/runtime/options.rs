@@ -372,6 +372,10 @@ pub struct RuntimeOptionsConfig {
     /// Relative paths resolve beside the runtime config.
     #[serde(default)]
     pub principal_quota_state_path: Option<String>,
+    /// Live quota maps, key and snapshot/encoded backing plus actual task/fault
+    /// metadata in the same Source. Streaming input whitespace is not storage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub principal_quota_total_max_storage_bytes: Option<usize>,
     #[serde(default)]
     pub network: NetworkOptionsConfig,
     #[serde(default)]

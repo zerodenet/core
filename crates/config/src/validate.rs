@@ -357,6 +357,17 @@ fn validate_runtime(
             "runtime.principal_quota_state_path must not be empty".to_owned(),
         ));
     }
+    if runtime.effective_principal_quota_total_max_storage_bytes() == 0
+        || std::alloc::Layout::array::<u8>(
+            runtime.effective_principal_quota_total_max_storage_bytes(),
+        )
+        .is_err()
+    {
+        return Err(ConfigError::InvalidRuntime(
+            "runtime.principal_quota_total_max_storage_bytes must be positive and representable"
+                .into(),
+        ));
+    }
     if runtime.udp_upstream_idle_timeout_seconds == 0 {
         return Err(ConfigError::InvalidRuntime(
             "`runtime.udp_upstream_idle_timeout_seconds` must be greater than 0".to_owned(),

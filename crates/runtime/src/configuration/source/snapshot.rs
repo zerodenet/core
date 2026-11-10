@@ -12,6 +12,15 @@ pub struct ConfigurationSnapshotReader<'a> {
     length: u64,
     position: u64,
 }
+impl<'a> ConfigurationSnapshotReader<'a> {
+    pub(super) fn new(original: &'a mut OriginalFile, length: u64) -> Self {
+        Self {
+            original,
+            length,
+            position: 0,
+        }
+    }
+}
 impl Read for ConfigurationSnapshotReader<'_> {
     fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
         let count = self

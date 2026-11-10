@@ -11,6 +11,8 @@ pub struct HostOriginalBudgets {
     /// One concrete DNS wire allocation book in this same Host. A pure
     /// counter, not a resolver, resource pool, task Scope or IO authority.
     pub dns_wire: Arc<zero_traits::packet_metadata::PacketMetadataCounter>,
+    pub(crate) quota_memory:
+        std::sync::OnceLock<Arc<zero_traits::packet_metadata::PacketMetadataCounter>>,
     #[cfg(any(target_os = "linux", target_os = "macos", windows))]
     pub process: std::sync::Arc<zero_platform_tokio::owned_process::ProcessBudget>,
     /// Same pure memory Root even when native packet IO is not compiled.
@@ -27,6 +29,7 @@ impl HostOriginalBudgets {
     pub fn with_packet_root(packet: Arc<zero_tun::packet_memory::PacketReturnTotals>) -> Self {
         Self {
             carrier_wake: Arc::default(),
+            quota_memory: Default::default(),
             carrier: Arc::default(),
             component_tasks: Arc::default(),
             dns_wire: zero_traits::packet_metadata::PacketMetadataCounter::new_owned(

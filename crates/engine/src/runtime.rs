@@ -189,9 +189,10 @@ impl Engine {
                         .join(path)
                 }
             });
-        let principal_quotas = Arc::new(PrincipalQuotaRegistry::open(
+        let principal_quotas = Arc::new(PrincipalQuotaRegistry::open_with_runtime(
             principal_quota_state_path,
             source.clone(),
+            &config.runtime,
         )?);
         let stats = EngineStats::shared();
         let packet_route_limit = config.runtime.effective_packet_route_max_routes();

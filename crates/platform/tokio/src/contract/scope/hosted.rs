@@ -24,6 +24,15 @@ impl fmt::Debug for HostedExitReceipt {
     }
 }
 impl HostedExitReceipt {
+    /// Pure storage liability for the actual one-at-a-time offer allocation.
+    /// This does not offer, join, accept or acknowledge a task receipt.
+    pub fn offer_header_layout() -> Result<
+        zero_traits::packet_metadata::PacketMetadataLayout,
+        zero_traits::packet_metadata::PacketMemoryError,
+    > {
+        zero_traits::packet_metadata::PacketMetadataLayout::arc::<()>()
+    }
+
     pub fn id(&self) -> TaskId {
         self.joined.id()
     }
