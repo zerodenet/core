@@ -23,6 +23,7 @@ impl OwnedRoutes {
         }
         PacketMetadataArc::<Shared>::layout()
             .and_then(|layout| layout.checked_add(spec))
+            .and_then(|layout| layout.checked_add(diagnostics::RouteDiagnostics::layout()?))
             .and_then(|layout| {
                 layout.checked_add(native::Native::families_layout(
                     start.route_addresses.len(),
@@ -51,6 +52,14 @@ impl OwnedRoutes {
         let shared_credit = credit.split(owner).map_err(|source| {
             error(Reason::Internal, "route owner was not prepaid").with_source(source)
         })?;
+        let diagnostic_credit = credit
+            .split(diagnostics::RouteDiagnostics::layout().map_err(|source| {
+                error(Reason::Capacity, "route diagnostic layout overflow").with_source(source)
+            })?)
+            .map_err(|source| {
+                error(Reason::Internal, "route diagnostics were not prepaid").with_source(source)
+            })?;
+        let diagnostics = diagnostics::RouteDiagnostics::from_prepaid(diagnostic_credit)?;
         let (jobs, received) = mpsc::channel(1);
         // The credit above was reserved by this same Proxy's real Host before
         // its route inputs were copied. Carry that Root through the native SDK.
@@ -69,6 +78,7 @@ impl OwnedRoutes {
                     family_credit,
                     credit,
                     native_memory,
+                    diagnostics,
                 )?),
                 observed: Mutex::default(),
                 changed: Notify::new(),

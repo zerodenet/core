@@ -1,4 +1,5 @@
 //! Two original route responsibilities in the same System TUN Source Scope.
+mod diagnostics;
 mod memory;
 mod monitor;
 pub(in crate::inbound::tun) use memory::{copy_addresses, copy_key, copy_prefixes};
@@ -196,6 +197,12 @@ impl ResourceLifecycle for OwnedRoutes {
         deadline: tokio::time::Instant,
     ) -> Result<CloseReport, ChannelError> {
         self.revoke(CloseReason::Shutdown);
+        let diagnostics = self
+            .0
+            .native
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .diagnostics();
         if self.0.worker.get().is_none() {
             // No SDK job is submitted until its real worker witness is retained.
             // Close the same genuinely unused originals; the host still owes
@@ -225,6 +232,12 @@ impl ResourceLifecycle for OwnedRoutes {
                 .await
                 .is_err()
             {
+                // The real Source receiver can accept this exact stable fault
+                // while native cleanup remains pending. Its acknowledgement
+                // grants no native, driver, registration or replacement proof.
+                if let Some(source) = diagnostics.unaccepted_failure() {
+                    return Err(source);
+                }
                 return Ok(CloseReport {
                     unfinished: vec![Unfinished::Resource(
                         "same System TUN route responsibilities have not joined".into(),
@@ -232,6 +245,9 @@ impl ResourceLifecycle for OwnedRoutes {
                     ..Default::default()
                 });
             }
+        }
+        if let Some(source) = diagnostics.unaccepted_failure() {
+            return Err(source);
         }
         if self
             .0

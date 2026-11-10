@@ -1,15 +1,17 @@
 //! Native route originals stay in this same state throughout failed SDK work.
 use super::*;
-use zero_tun::{RouteInstallRequest, SystemLeakGuard, SystemRouteGuard};
+use zero_tun::{RouteFileOriginals, RouteInstallRequest, SystemLeakGuard, SystemRouteGuard};
 pub(super) struct Native {
     pub spec: RouteRuntimeSpec,
     families: Families,
     leak: Option<SystemLeakGuard>,
     memory: zero_tun::packet_memory::PacketDriverMetadataView,
     _inputs: zero_tun::packet_memory::PacketMetadataCredit,
+    diagnostics: super::diagnostics::RouteDiagnostics,
 }
 struct Family {
     original: Option<SystemRouteGuard>,
+    files: RouteFileOriginals,
     installed: bool,
 }
 #[derive(Clone)]
@@ -35,6 +37,7 @@ impl Native {
         credit: zero_tun::packet_memory::PacketMetadataCredit,
         inputs: zero_tun::packet_memory::PacketMetadataCredit,
         memory: zero_tun::packet_memory::PacketDriverMetadataView,
+        diagnostics: super::diagnostics::RouteDiagnostics,
     ) -> Result<Self, ChannelError> {
         let expected = Self::families_layout(spec.addresses.len()).map_err(|source| {
             error(Reason::Capacity, "route family layout overflow").with_source(source)
@@ -73,6 +76,7 @@ impl Native {
         for family in &mut families {
             family.write(Family {
                 original: None,
+                files: RouteFileOriginals::new(diagnostics.files().clone()),
                 installed: false,
             });
         }
@@ -85,7 +89,11 @@ impl Native {
             leak: None,
             memory,
             _inputs: inputs,
+            diagnostics,
         })
+    }
+    pub(super) fn diagnostics(&self) -> super::diagnostics::RouteDiagnostics {
+        self.diagnostics.clone()
     }
     pub fn install(
         &mut self,
@@ -120,13 +128,17 @@ impl Native {
                     original.close_retained()?;
                     slot.original.take();
                 }
+                // An earlier failure may precede guard construction. Retire
+                // that exact staged lease/FD before another acquisition.
+                slot.files.retire_pending()?;
                 let captured = zero_tun::capture_route_prefixes_with_exclusions(
                     *address,
                     &self.spec.include_cidrs,
                     &self.spec.exclude_cidrs,
                 );
-                SystemRouteGuard::install_retained_with_egress(
+                SystemRouteGuard::install_retained_with_files(
                     &mut slot.original,
+                    &mut slot.files,
                     RouteInstallRequest {
                         tun_name: &self.spec.tun_name,
                         recovery_key: &self.spec.recovery_key,
@@ -232,6 +244,21 @@ impl Native {
                         failures.push(error);
                     }
                 }
+            }
+        }
+        for slot in self.families.iter_mut().rev() {
+            // A failed guard retains its own lease. Independent pending files
+            // from before guard construction still have their actual owner.
+            if let Err(source) = slot.files.retire_pending() {
+                failures.push(source);
+            }
+            if slot.files.has_pending() {
+                // Custody is only a negative gate. Empty never substitutes
+                // for the guard's positive close, Scope joins or Host ACK.
+                failures.push(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "same staged route File originals remain owned",
+                ));
             }
         }
         if failures.is_empty() {

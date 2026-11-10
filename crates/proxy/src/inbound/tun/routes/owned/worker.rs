@@ -27,6 +27,13 @@ pub(super) fn run(original: PacketMetadataArc<Shared>) -> Result<(), ChannelErro
     let mut helper_context = Some(helper.enter().map_err(|source| {
         error(Reason::Io, "same Source helper context failed").with_source(source)
     })?);
+    // Clone only the already paid pure diagnostic payload. This cannot pin
+    // native IO or create work, and outlives every concrete Native lock below.
+    let diagnostics = original
+        .native
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .diagnostics();
     let mut fault = None;
     while !original.closing.load(Ordering::Acquire) {
         let Some(job) = received.blocking_recv() else {
@@ -49,6 +56,7 @@ pub(super) fn run(original: PacketMetadataArc<Shared>) -> Result<(), ChannelErro
                 });
                 if let Err(source) = &result {
                     fault.get_or_insert_with(|| source.clone());
+                    diagnostics.record_operation(source.clone());
                 }
                 original
                     .observed
@@ -90,6 +98,7 @@ pub(super) fn run(original: PacketMetadataArc<Shared>) -> Result<(), ChannelErro
                 };
                 if let Err(source) = &result {
                     fault.get_or_insert_with(|| source.clone());
+                    diagnostics.record_operation(source.clone());
                 }
                 let _ = completed.send(result);
             }
@@ -183,7 +192,9 @@ pub(super) fn run(original: PacketMetadataArc<Shared>) -> Result<(), ChannelErro
                 break;
             }
             Err(source) => {
-                close_fault.get_or_insert_with(|| Arc::new(source));
+                let source = Arc::new(source);
+                diagnostics.record_cleanup(source.clone());
+                close_fault.get_or_insert(source);
                 // Failed cleanup keeps this actual worker and native originals
                 // alive. Shutdown deadlines report unfinished without aborting
                 // its SDK command or replacing the controller.
@@ -202,20 +213,7 @@ pub(super) fn run(original: PacketMetadataArc<Shared>) -> Result<(), ChannelErro
         .unwrap_or_else(|error| error.into_inner())
         .physically_closed = true;
     original.changed.notify_waiters();
-    let failures = fault
-        .into_iter()
-        .chain(close_fault)
-        .map(|source| io::Error::other(SharedError(source)))
-        .collect::<Vec<_>>();
-    if failures.is_empty() {
-        Ok(())
-    } else {
-        Err(error(
-            Reason::Io,
-            "original route worker retained its actual failures",
-        )
-        .with_source(CleanupFailures(failures)))
-    }
+    diagnostics.finish_worker(fault, close_fault)
 }
 fn prepare(
     config: &zero_config::RuntimeConfig,
