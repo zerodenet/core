@@ -98,7 +98,8 @@ impl ResourceLifecycle for Owner {
                 .spawn(TaskClass::Critical, async move {
                     *state.native_task.lock().unwrap() = Some(tokio::task::id());
                     gate.read_u8().await.unwrap();
-                    if let Some(payload) = state.panic_payload.lock().unwrap().take() {
+                    let payload = state.panic_payload.lock().unwrap().take();
+                    if let Some(payload) = payload {
                         std::panic::panic_any(payload);
                     }
                     panic!("actual retained component critical failure");
