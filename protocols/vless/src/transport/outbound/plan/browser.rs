@@ -1,4 +1,5 @@
 use super::*;
+use std::sync::Arc;
 
 impl OwnedVlessOutboundTransportPlan {
     pub(in crate::transport) fn owned_browser_provider(

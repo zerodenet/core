@@ -475,4 +475,3 @@ impl ProtocolRelayTwoStreamUdpFlowLeaf for VlessOutboundLeaf {
 }
 
 mod owned_browser;
-pub(crate) use owned_browser::OwnedBrowserParts;

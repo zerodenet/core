@@ -21,7 +21,7 @@ pub use inbound::{
     PreparedVlessInboundListenerRequest, VlessInboundBindPlan, VlessInboundListenerRequest,
     VlessInboundStreamMetadata, VlessInboundTransportStreams,
 };
-pub(crate) use leaf::{OwnedBrowserParts, OwnedQuicParts};
+pub(crate) use leaf::OwnedQuicParts;
 pub use leaf::{VlessOutboundLeaf, VlessReverseBridge};
 pub use managed_udp::{VlessManagedUdpConnectorFlow, VlessManagedUdpFlowResume};
 pub use options::{

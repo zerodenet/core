@@ -1,5 +1,6 @@
 //! Same accepted browser recipe, without a second parse, session or pool.
 use super::*;
+use std::sync::Arc;
 pub(crate) struct OwnedBrowserParts {
     pub plan: OwnedVlessOutboundTransportPlan,
     pub provider: Arc<crate::transport::BrowserProviderOptions>,

@@ -6,7 +6,7 @@ use zero_platform_tokio::{
     },
     controlled_carrier::loan::LoanOwner,
 };
-pub(super) enum Logical {
+pub(in crate::component::browser) enum Logical {
     Loan(LoanOwner),
     Driver(zero_platform_tokio::controlled_carrier::CarrierAdoption),
 }

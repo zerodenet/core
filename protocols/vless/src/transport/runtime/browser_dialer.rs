@@ -1,4 +1,5 @@
 mod owned;
+use owned::Active;
 pub use owned::{ProviderFactory, ProviderOptions};
 use std::{
     collections::HashMap,

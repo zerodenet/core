@@ -1,10 +1,11 @@
 //! Exact live provider value; no Weak expiry becomes an original-close fact.
 use super::*;
+use zero_platform_tokio::contract::CancellationToken;
 pub struct Active {
     pub(in crate::transport) instance: ComponentInstanceId,
     pub(in crate::transport) scope: TaskScopeIdentity,
     dialer: BrowserDialer,
-    pub(super) cancel: tokio_util::sync::CancellationToken,
+    pub(super) cancel: CancellationToken,
     pub(super) ready: AtomicBool,
 }
 impl Active {
@@ -12,7 +13,7 @@ impl Active {
         instance: ComponentInstanceId,
         scope: TaskScopeIdentity,
         dialer: BrowserDialer,
-        cancel: tokio_util::sync::CancellationToken,
+        cancel: CancellationToken,
     ) -> Self {
         Self {
             instance,

@@ -26,7 +26,7 @@ async fn original_delivery_cancel_destroys_unique_body_outside_gate_and_keeps_la
         let baseline = memory.snapshot().occupied;
         let (sender, mut receiver, weak) = prepare::<Original>(&memory).unwrap();
         let destroyed = Arc::new(AtomicBool::new(false));
-        assert!(memory.snapshot().occupied > baseline);
+        assert_additional_headers(memory.snapshot().occupied, baseline);
         assert!(sender
             .send(Original {
                 owner: weak.clone(),
@@ -41,10 +41,7 @@ async fn original_delivery_cancel_destroys_unique_body_outside_gate_and_keeps_la
         );
         drop(receiver);
         assert!(weak.upgrade().is_none());
-        assert!(
-            memory.snapshot().occupied > baseline,
-            "closed external weak still retains its actual allocated header"
-        );
+        assert_additional_headers(memory.snapshot().occupied, baseline);
         drop(weak);
         assert_eq!(memory.snapshot().occupied, baseline);
     })
@@ -72,4 +69,15 @@ async fn original_delivery_refused_receiver_returns_same_unique_body_without_rep
     assert!(weak.upgrade().is_none());
     drop(weak);
     assert_eq!(memory.snapshot().occupied, baseline);
+}
+
+fn assert_additional_headers(actual: PacketMetadataLayout, baseline: PacketMetadataLayout) {
+    assert!(
+        actual.allocations() > baseline.allocations(),
+        "actual allocation count remains charged"
+    );
+    assert!(
+        actual.bytes() > baseline.bytes(),
+        "actual allocated header bytes remain charged"
+    );
 }
