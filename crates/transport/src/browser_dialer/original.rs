@@ -13,6 +13,23 @@ use zero_platform_tokio::{
 #[derive(Clone)]
 pub struct BrowserOriginal(pub(super) PacketMetadataArc<Peer>);
 impl BrowserOriginal {
+    pub fn carrier_origin(&self) -> zero_platform_tokio::controlled_carrier::CarrierOrigin {
+        zero_platform_tokio::controlled_carrier::CarrierOrigin::from_accepted(
+            self.0.lineage.clone(),
+        )
+    }
+    pub fn protocol_original(
+        &self,
+        upstream: &zero_platform_tokio::contract::network::UpstreamTransport,
+    ) -> Result<Option<zero_platform_tokio::controlled_carrier::ProtocolOriginal>, ChannelError>
+    {
+        self.0.lineage.protocol_original(upstream)
+    }
+    /// The actual accepted Source row has independently left the global book.
+    /// A local provider receipt alone is not this positive result.
+    pub fn is_settled(&self) -> bool {
+        self.0.lineage.is_settled()
+    }
     pub fn request_stop(&self) {
         self.0.cancel.cancel();
     }
@@ -47,11 +64,13 @@ impl BrowserOriginal {
 impl Peer {
     pub(super) fn new(
         original: AcceptedTcpClaim,
+        lineage: zero_platform_tokio::AcceptedTcpCarrierOrigin,
         parent: PacketMetadataWeak<Peers>,
         cancel: CancellationToken,
     ) -> Self {
         Self {
             original,
+            lineage,
             parent,
             cancel,
             task: OnceLock::new(),

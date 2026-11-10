@@ -8,6 +8,7 @@ use super::{
     XhttpMode,
 };
 pub use browser::connect_split_http_with_browser;
+pub use browser::{BrowserXhttpDriver, BrowserXhttpGetReady, PreparedBrowserXhttp};
 use bytes::Bytes;
 use http_body_util::BodyExt;
 use hyper_util::rt::TokioIo;

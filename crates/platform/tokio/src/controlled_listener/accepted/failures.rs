@@ -32,6 +32,29 @@ impl AcceptedTaskFailures {
         tasks: &TaskRegistrar,
         memory: &PacketDriverMetadataView,
     ) -> Result<Self, ChannelError> {
+        Self::prepare_scope(instance, tasks.scope_identity(), memory)
+    }
+    /// Only the actual weak registrar supplies this Source's Scope identity.
+    /// This is pure paid failure custody, never spawning or ACK authority.
+    pub fn prepare_weak(
+        instance: ComponentInstanceId,
+        tasks: &crate::contract::scope::WeakTaskRegistrar,
+        memory: &PacketDriverMetadataView,
+    ) -> Result<Self, ChannelError> {
+        if tasks.retirement_observation().is_none() {
+            return Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::Revoked,
+                Impact::Component,
+            ));
+        }
+        Self::prepare_scope(instance, tasks.scope_identity(), memory)
+    }
+    fn prepare_scope(
+        instance: ComponentInstanceId,
+        scope: TaskScopeIdentity,
+        memory: &PacketDriverMetadataView,
+    ) -> Result<Self, ChannelError> {
         let _notifications = memory.notifications();
         let book_layout = PacketMetadataArc::<Original>::layout().map_err(capacity)?;
         let header_layout = liability::HeaderLiability::layout().map_err(capacity)?;
@@ -55,7 +78,7 @@ impl AcceptedTaskFailures {
         let actual = PacketMetadataArc::from_prepaid(
             Original {
                 instance,
-                scope: tasks.scope_identity(),
+                scope,
                 memory: memory.clone(),
                 rows: Mutex::new(rows),
                 changed: tokio::sync::Notify::new(),

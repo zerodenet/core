@@ -1,6 +1,56 @@
 use super::*;
+use std::sync::Arc;
 
 impl OwnedVlessOutboundTransportPlan {
+    pub(in crate::transport) fn owned_browser_provider(
+        &self,
+    ) -> Result<Option<Arc<crate::transport::BrowserProviderOptions>>, RuntimeError> {
+        let Some(access) = &self.browser_dialer else {
+            return Ok(None);
+        };
+        self.validate_browser_dialer()?;
+        Ok(Some(Arc::new(
+            crate::transport::BrowserProviderOptions::new(access.clone())
+                .map_err(std::io::Error::other)?,
+        )))
+    }
+    pub(crate) fn browser_websocket(
+        &self,
+    ) -> Option<(
+        &zero_transport::profile::OwnedWebSocketProfile,
+        &str,
+        u16,
+        bool,
+    )> {
+        self.browser_ws.then(|| {
+            (
+                self.transport.ws.as_ref().expect("accepted WS profile"),
+                self.server(),
+                self.port(),
+                self.transport.tls.is_some(),
+            )
+        })
+    }
+    pub(crate) fn browser_http(
+        &self,
+    ) -> Option<(
+        &zero_transport::profile::OwnedSplitHttpProfile,
+        &str,
+        u16,
+        bool,
+    )> {
+        self.browser_xhttp.then(|| {
+            (
+                self.transport
+                    .split_http
+                    .as_ref()
+                    .expect("accepted XHTTP profile"),
+                self.server(),
+                self.port(),
+                self.transport.tls.is_some(),
+            )
+        })
+    }
     pub(super) async fn open_browser_carrier(&self) -> Result<TcpRelayStream, RuntimeError> {
         let access = self.browser_dialer.as_ref().ok_or_else(|| {
             std::io::Error::new(

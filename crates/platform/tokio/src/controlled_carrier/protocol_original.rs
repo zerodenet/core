@@ -13,12 +13,13 @@ pub struct ProtocolOriginal {
     scope: TaskScopeIdentity,
     binding: Arc<UpstreamBinding>,
     observer: PendingCarrierObserver,
-    retirement: CarrierProtocolRetirement,
+    retirement: Option<CarrierProtocolRetirement>,
 }
 #[derive(Clone)]
 enum Original {
     Metadata(MetadataPoolOrigin),
     Carrier(CarrierAdoption),
+    Accepted(crate::controlled_listener::accepted::AcceptedTcpCarrierOrigin),
 }
 impl ProtocolOriginal {
     pub(crate) fn metadata_original(
@@ -33,7 +34,7 @@ impl ProtocolOriginal {
             scope,
             binding,
             observer,
-            retirement,
+            retirement: Some(retirement),
         }
     }
     pub(crate) fn carrier_original(
@@ -48,11 +49,12 @@ impl ProtocolOriginal {
             scope,
             binding,
             observer,
-            retirement,
+            retirement: Some(retirement),
         }
     }
     pub fn instance(&self) -> ComponentInstanceId {
         match &self.original {
+            Original::Accepted(original) => original.instance(),
             Original::Metadata(original) => original.instance(),
             Original::Carrier(original) => original.instance(),
         }
@@ -62,6 +64,27 @@ impl ProtocolOriginal {
     }
     pub fn binding(&self) -> &UpstreamBinding {
         &self.binding
+    }
+    pub(crate) fn accepted_original(
+        original: crate::controlled_listener::accepted::AcceptedTcpCarrierOrigin,
+        binding: Arc<UpstreamBinding>,
+        observer: PendingCarrierObserver,
+    ) -> Self {
+        Self {
+            scope: original.scope_identity().clone(),
+            original: Original::Accepted(original),
+            binding,
+            observer,
+            retirement: None,
+        }
+    }
+    pub fn accepted(
+        &self,
+    ) -> Option<&crate::controlled_listener::accepted::AcceptedTcpCarrierOrigin> {
+        match &self.original {
+            Original::Accepted(original) => Some(original),
+            _ => None,
+        }
     }
     pub fn metadata(&self) -> Option<&MetadataPoolOrigin> {
         match &self.original {
@@ -77,6 +100,7 @@ impl ProtocolOriginal {
     }
     pub fn same_original(&self, other: &Self) -> bool {
         match (&self.original, &other.original) {
+            (Original::Accepted(a), Original::Accepted(b)) => a.same_original(b),
             (Original::Metadata(a), Original::Metadata(b)) => a.same_original(b),
             (Original::Carrier(a), Original::Carrier(b)) => a.same_slot(b),
             _ => false,
@@ -88,25 +112,61 @@ impl ProtocolOriginal {
     /// Only the actual Root's original removal writes this flag, after native,
     /// logical users, original outcome/fault reception and every real Host ACK.
     pub fn is_settled(&self) -> bool {
-        self.retirement.is_settled()
+        match &self.original {
+            Original::Accepted(original) => original.is_settled(),
+            _ => self
+                .retirement
+                .as_ref()
+                .is_some_and(CarrierProtocolRetirement::is_settled),
+        }
     }
     pub fn request_retirement(&self) {
-        self.retirement.request_pre_delivery_retirement();
+        match &self.original {
+            Original::Accepted(original) => original.request_retirement(),
+            _ => {
+                if let Some(retirement) = &self.retirement {
+                    retirement.request_pre_delivery_retirement();
+                }
+            }
+        }
     }
     /// A separate actual cached receiver handoff never changes global settled.
     pub fn receiver(&self) -> Option<ProtocolOriginalReceiver> {
-        self.retirement
-            .receiver()
-            .filter(|receiver| receiver.names(self))
+        let receiver = match &self.original {
+            Original::Accepted(original) => original.receiver(),
+            _ => self
+                .retirement
+                .as_ref()
+                .and_then(CarrierProtocolRetirement::receiver),
+        };
+        receiver.filter(|receiver| receiver.names(self))
     }
     pub fn is_returned(&self) -> bool {
         self.is_settled() || self.receiver().is_some()
     }
     pub async fn wait_returned_original(&self) -> Result<(), ChannelError> {
-        self.retirement.wait_returned_original().await
+        match &self.original {
+            Original::Accepted(original) => original.wait_returned_original().await,
+            _ => {
+                self.retirement
+                    .as_ref()
+                    .expect("ordinary protocol has its actual phase")
+                    .wait_returned_original()
+                    .await
+            }
+        }
     }
     pub async fn wait_settled_original(&self) -> Result<(), ChannelError> {
-        self.retirement.wait_settled_original().await
+        match &self.original {
+            Original::Accepted(original) => original.wait_settled_original().await,
+            _ => {
+                self.retirement
+                    .as_ref()
+                    .expect("ordinary protocol has its actual phase")
+                    .wait_settled_original()
+                    .await
+            }
+        }
     }
 }
 impl std::fmt::Debug for ProtocolOriginal {

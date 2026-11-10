@@ -4,7 +4,6 @@ use std::{ops::Deref, sync::Arc};
 #[derive(Clone)]
 pub(in crate::split_http) enum LifetimeRef {
     Library(Arc<Lifetime>),
-    #[cfg(feature = "quic")]
     Hosted(zero_traits::packet_metadata::PacketMetadataArc<Lifetime>),
 }
 impl Default for LifetimeRef {
@@ -17,7 +16,6 @@ impl Deref for LifetimeRef {
     fn deref(&self) -> &Lifetime {
         match self {
             Self::Library(original) => original,
-            #[cfg(feature = "quic")]
             Self::Hosted(original) => original,
         }
     }
@@ -26,7 +24,6 @@ impl LifetimeRef {
     pub(in crate::split_http) fn as_ptr(&self) -> *const Lifetime {
         &**self
     }
-    #[cfg(feature = "quic")]
     pub(in crate::split_http) fn prepare(
         memory: &zero_platform_tokio::contract::component::PacketDriverMetadataView,
     ) -> std::io::Result<Self> {

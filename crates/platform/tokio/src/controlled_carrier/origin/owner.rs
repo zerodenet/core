@@ -7,6 +7,7 @@ use crate::controlled_datagram::metadata_pool::{
 #[derive(Clone, Copy)]
 pub enum CarrierOriginOwner<'a> {
     Carrier(&'a CarrierOwnerRegistration),
+    Accepted(&'a crate::controlled_listener::accepted::AcceptedTcpCarrierOrigin),
     Packet(&'a PacketProviderRegistration),
     LogicalPacket(&'a LogicalPacketProviderRegistration),
     Listener(&'a crate::controlled_datagram::listener::origin::ListenerProviderRegistration),
@@ -17,6 +18,7 @@ pub struct CarrierOriginOwnerClosed(OwnerClosed);
 #[derive(Clone)]
 enum OwnerClosed {
     Carrier(super::super::CarrierOwnerClosed),
+    Accepted(crate::controlled_listener::accepted::AcceptedTcpClosed),
     Packet(PacketProviderClosed),
     Listener(crate::controlled_datagram::listener::origin::ListenerProviderClosed),
     Metadata(MetadataPoolOwnerClosed),
@@ -55,6 +57,7 @@ impl<'a> From<&'a LogicalPacketProviderRegistration> for CarrierOriginOwner<'a> 
 impl<'a> CarrierOriginOwner<'a> {
     pub fn instance(self) -> ComponentInstanceId {
         match self {
+            Self::Accepted(owner) => owner.instance(),
             Self::Carrier(owner) => owner.instance(),
             Self::Packet(owner) => owner.instance(),
             Self::LogicalPacket(owner) => owner.instance(),
@@ -64,6 +67,7 @@ impl<'a> CarrierOriginOwner<'a> {
     }
     pub fn limit(self) -> std::num::NonZeroUsize {
         match self {
+            Self::Accepted(owner) => owner.limit(),
             Self::Carrier(owner) => owner.limit(),
             Self::Packet(owner) => owner.limit(),
             Self::LogicalPacket(owner) => owner.limit(),
@@ -73,6 +77,7 @@ impl<'a> CarrierOriginOwner<'a> {
     }
     pub fn same_owner(self, other: impl Into<Self>) -> bool {
         match (self, other.into()) {
+            (Self::Accepted(a), Self::Accepted(b)) => a.same_original(b),
             (Self::Carrier(a), Self::Carrier(b)) => a.same_owner(b),
             (Self::Packet(a), Self::Packet(b)) => a.same_owner(b),
             (Self::LogicalPacket(a), Self::LogicalPacket(b)) => a.same_owner(b),
@@ -83,6 +88,9 @@ impl<'a> CarrierOriginOwner<'a> {
     }
     pub fn closed(self) -> Option<CarrierOriginOwnerClosed> {
         match self {
+            Self::Accepted(owner) => owner
+                .closed()
+                .map(|closed| CarrierOriginOwnerClosed(OwnerClosed::Accepted(closed))),
             Self::LogicalPacket(_) => None,
             Self::Packet(owner) => owner
                 .closed()
@@ -101,15 +109,20 @@ impl<'a> CarrierOriginOwner<'a> {
     pub fn users_closed(self) -> Option<CarrierOriginUsersClosed> {
         match self {
             Self::Carrier(owner) => owner.users_closed().map(CarrierOriginUsersClosed),
-            Self::Packet(_) | Self::LogicalPacket(_) | Self::Listener(_) | Self::Metadata(_) => {
-                None
-            }
+            Self::Accepted(_)
+            | Self::Packet(_)
+            | Self::LogicalPacket(_)
+            | Self::Listener(_)
+            | Self::Metadata(_) => None,
         }
     }
 }
 impl CarrierOriginOwnerClosed {
     pub fn matches<'a>(&self, owner: impl Into<CarrierOriginOwner<'a>>) -> bool {
         match (&self.0, owner.into()) {
+            (OwnerClosed::Accepted(closed), CarrierOriginOwner::Accepted(owner)) => {
+                owner.matches_closed(closed)
+            }
             (OwnerClosed::Packet(closed), CarrierOriginOwner::Packet(owner)) => {
                 closed.matches(owner)
             }

@@ -81,6 +81,22 @@ impl HostResources {
             .find(|owner| owner.ordinal == ordinal)?
             .original_registration()
     }
+    pub(in crate::component) fn original_accepted_receiver(
+        &self,
+        destination: &Destination,
+    ) -> Option<zero_platform_tokio::AcceptedTcpTaskReceiver> {
+        let address = sockets::literal(self.component, destination).ok()?;
+        let owner = {
+            self.state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .tcp
+                .get(&address)
+                .cloned()?
+        };
+        let native = owner.try_lock().ok()?;
+        native.native.accepted_task_receiver()
+    }
     /// The actual source borrows this same ICMP provider; no second pool.
     pub fn icmp_probe_grant(&self) -> Option<super::icmp::HostIcmpProbeGrant> {
         self.icmp.as_ref().map(|owner| owner.grant())
@@ -360,6 +376,19 @@ impl ResourceAccess for HostResources {
         &self,
     ) -> Option<zero_platform_tokio::controlled_carrier::CarrierBufferBudget> {
         Some(self.originals.carrier.buffer_budget())
+    }
+    fn accepted_dependency_stream_loan_issuer(
+        &self,
+        dependency: zero_core::component::ComponentInstanceId,
+        source: &zero_platform_tokio::AcceptedTcpCarrierOrigin,
+        endpoint: &Destination,
+        binding: &zero_platform_tokio::contract::network::UpstreamBinding,
+        grant: &zero_platform_tokio::controlled_carrier::CarrierGrant,
+    ) -> Result<
+        zero_platform_tokio::controlled_carrier::loan::CarrierDependencyLoanIssuer,
+        ChannelError,
+    > {
+        self.registered_accepted_stream_issuer(dependency, source, endpoint, binding, grant)
     }
     fn dependency_stream_loan_issuer(
         &self,

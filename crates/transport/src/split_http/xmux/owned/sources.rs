@@ -3,9 +3,35 @@
 use super::*;
 use std::sync::OnceLock;
 use zero_traits::packet_metadata::{PacketMetadataCredit, PacketMetadataError};
-pub(super) struct RequestCauses {
+pub(in crate::split_http) struct RequestCauses {
     slots: [OnceLock<PacketMetadataError>; 2],
     memory: [std::sync::Mutex<Option<PacketMetadataCredit>>; 2],
+}
+
+impl std::fmt::Debug for RequestCauses {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("XhttpDirectionCauses")
+            .field("download", &self.get(0).is_some())
+            .field("upload", &self.get(1).is_some())
+            .finish()
+    }
+}
+impl std::fmt::Display for RequestCauses {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (index, name) in ["download", "upload"].into_iter().enumerate() {
+            if let Some(source) = self.get(index) {
+                write!(f, "xhttp {name}: {}; ", source.as_error())?;
+            }
+        }
+        Ok(())
+    }
+}
+impl std::error::Error for RequestCauses {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.get(0)
+            .or_else(|| self.get(1))
+            .map(|error| error.as_error())
+    }
 }
 impl RequestCauses {
     pub fn prepare(memory: &PacketDriverMetadataView) -> io::Result<PacketMetadataArc<Self>> {

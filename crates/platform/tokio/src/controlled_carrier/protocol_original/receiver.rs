@@ -19,6 +19,7 @@ enum Receiver {
 #[derive(Clone)]
 enum LoanChild {
     Metadata(MetadataPoolOrigin),
+    Accepted(crate::controlled_listener::accepted::AcceptedTcpCarrierOrigin),
     Carrier {
         slot: std::sync::Weak<super::super::slot::Slot>,
         instance: ComponentInstanceId,
@@ -27,6 +28,7 @@ enum LoanChild {
 impl LoanChild {
     fn new(original: &Original) -> Self {
         match original {
+            Original::Accepted(original) => Self::Accepted(original.clone()),
             Original::Metadata(original) => Self::Metadata(original.clone()),
             Original::Carrier(original) => Self::Carrier {
                 slot: Arc::downgrade(&original.slot),
@@ -36,12 +38,14 @@ impl LoanChild {
     }
     fn instance(&self) -> ComponentInstanceId {
         match self {
+            Self::Accepted(original) => original.instance(),
             Self::Metadata(original) => original.instance(),
             Self::Carrier { instance, .. } => *instance,
         }
     }
     fn names(&self, original: &Original) -> bool {
         match (self, original) {
+            (Self::Accepted(a), Original::Accepted(b)) => a.same_original(b),
             (Self::Metadata(a), Original::Metadata(b)) => a.same_original(b),
             (Self::Carrier { slot, .. }, Original::Carrier(b)) => {
                 slot.ptr_eq(&Arc::downgrade(&b.slot))
@@ -51,6 +55,20 @@ impl LoanChild {
     }
 }
 impl ProtocolOriginalReceiver {
+    pub(crate) fn accepted_loan(
+        original: crate::controlled_listener::accepted::AcceptedTcpCarrierOrigin,
+        loan: super::super::CarrierLoanRetained,
+        keeper: CarrierDriverRetained,
+    ) -> Self {
+        Self {
+            protocol: keeper.driver().clone(),
+            original: Receiver::Loan {
+                child: LoanChild::Accepted(original),
+                keeper,
+                _loan: loan,
+            },
+        }
+    }
     pub(crate) fn metadata(
         original: crate::controlled_datagram::metadata_pool::MetadataDriverRetained,
     ) -> Self {
@@ -112,8 +130,15 @@ impl ProtocolOriginalReceiver {
 /// claim and original driver graph. Confirm only after releasing the owning
 /// Entry gate: publication wakes the original Root/caller.
 pub struct ProtocolReceiverPrepared {
-    phase: std::sync::Weak<crate::original_protocol::Phase>,
+    publication: Publication,
     receiver: ProtocolOriginalReceiver,
+}
+enum Publication {
+    Phase(std::sync::Weak<crate::original_protocol::Phase>),
+    Accepted {
+        original: crate::controlled_listener::accepted::AcceptedTcpCarrierOrigin,
+        proof: crate::controlled_carrier::AcceptedLoanReceiver,
+    },
 }
 impl ProtocolReceiverPrepared {
     pub(crate) fn new(
@@ -121,12 +146,19 @@ impl ProtocolReceiverPrepared {
         receiver: ProtocolOriginalReceiver,
     ) -> Self {
         Self {
-            phase: Arc::downgrade(phase),
+            publication: Publication::Phase(Arc::downgrade(phase)),
             receiver,
         }
     }
     pub fn confirm(self) -> Result<ProtocolOriginalReceiver, ChannelError> {
-        let phase = self.phase.upgrade().ok_or_else(|| {
+        let phase = match self.publication {
+            Publication::Phase(phase) => phase,
+            Publication::Accepted { original, proof } => {
+                original.install_receiver(proof)?;
+                return Ok(self.receiver);
+            }
+        };
+        let phase = phase.upgrade().ok_or_else(|| {
             ChannelError::new(
                 crate::contract::Stage::Prepare,
                 crate::contract::Reason::Revoked,
@@ -168,11 +200,25 @@ impl ProtocolOriginal {
             original: Receiver::Loan {
                 child: LoanChild::new(&self.original),
                 keeper: keeper.clone(),
-                _loan: loan,
+                _loan: loan.clone(),
             },
             protocol: keeper.driver().clone(),
         };
-        let phase = self.retirement.original_phase().ok_or_else(fail)?;
+        if let Original::Accepted(original) = &self.original {
+            let proof = loan.accepted_receiver(original, keeper).ok_or_else(fail)?;
+            return Ok(ProtocolReceiverPrepared {
+                publication: Publication::Accepted {
+                    original: original.clone(),
+                    proof,
+                },
+                receiver,
+            });
+        }
+        let phase = self
+            .retirement
+            .as_ref()
+            .and_then(CarrierProtocolRetirement::original_phase)
+            .ok_or_else(fail)?;
         Ok(ProtocolReceiverPrepared::new(&phase, receiver))
     }
 }

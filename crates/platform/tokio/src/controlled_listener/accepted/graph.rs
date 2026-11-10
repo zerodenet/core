@@ -26,7 +26,7 @@ mod process;
 mod spawn;
 pub use caller::{AcceptedCaller, AcceptedOrigin};
 pub(crate) use inbound::PendingTcp;
-pub use receiver::AcceptedTcpTaskReceiver;
+pub use receiver::{AcceptedTcpCarrierOrigin, AcceptedTcpTaskReceiver};
 
 #[derive(Clone)]
 pub(super) struct Authority {
@@ -40,6 +40,14 @@ impl Authority {
         self.scope.same_scope(scope)
     }
 
+    pub(super) fn from_weak(registrar: &WeakTaskRegistrar, max_tasks: NonZeroUsize) -> Self {
+        Self {
+            scope: registrar.scope_identity(),
+            registrar: registrar.clone(),
+            max_tasks,
+            max_resources: 0,
+        }
+    }
     pub(super) fn new(registrar: &TaskRegistrar, max_tasks: NonZeroUsize) -> Self {
         Self {
             scope: registrar.scope_identity(),

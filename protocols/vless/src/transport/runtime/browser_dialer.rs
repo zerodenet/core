@@ -1,8 +1,11 @@
+mod owned;
+use owned::Active;
+pub use owned::{ProviderFactory, ProviderOptions};
 use std::{
     collections::HashMap,
     io,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     },
     time::Duration,
@@ -22,10 +25,15 @@ struct Entry {
     server: tokio::sync::Mutex<Option<BrowserDialerServer>>,
     active: Mutex<Option<BrowserDialer>>,
     retired: AtomicBool,
+    owned: Mutex<Option<zero_traits::packet_metadata::PacketMetadataWeak<Active>>>,
+    hosted: AtomicBool,
+    // Accepted immutable recipes keep their exact entry available for a real
+    // recovery build; they retain no listener or compiled provider.
+    recipes: AtomicUsize,
 }
 
 #[derive(Clone)]
-pub(in crate::transport) struct Access(Arc<Entry>);
+pub(in crate::transport) struct Access(Arc<Entry>, std::sync::Weak<State>);
 
 impl std::fmt::Debug for Registry {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -58,19 +66,35 @@ impl Registry {
                         server: tokio::sync::Mutex::new(None),
                         active: Mutex::new(None),
                         retired: AtomicBool::new(false),
+                        owned: Mutex::new(None),
+                        hosted: AtomicBool::new(false),
+                        recipes: AtomicUsize::new(0),
                     })
                 })
                 .clone(),
+            Arc::downgrade(&self.0),
         )
     }
 
     pub(super) fn retire(&self) {
-        let mut entries = self
-            .0
-            .entries
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        for entry in entries.drain().map(|(_, entry)| entry) {
+        // A Kernel provider is owned/revoked by its actual Host component.
+        // This library registry neither closes that provider nor replaces its
+        // real Native/user/Scope/ACK receipts during another pool refresh.
+        loop {
+            let removed = {
+                let mut entries = self
+                    .0
+                    .entries
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                entries
+                    .extract_if(|_, entry| {
+                        !entry.hosted.load(Ordering::Acquire)
+                            && entry.recipes.load(Ordering::Acquire) == 0
+                    })
+                    .next()
+            };
+            let Some((_, entry)) = removed else { break };
             entry.retire();
         }
     }
@@ -85,7 +109,9 @@ impl Drop for State {
             .drain()
             .map(|(_, entry)| entry)
         {
-            entry.retire();
+            if !entry.hosted.load(Ordering::Acquire) {
+                entry.retire();
+            }
         }
     }
 }
@@ -95,7 +121,38 @@ impl Access {
         if self.0.retired.load(Ordering::Acquire) {
             return Err(retired_error());
         }
+        // An explicit library view can share the actual installed provider,
+        // but cannot create another listener after the Host takes ownership.
+        if self.0.hosted.load(Ordering::Acquire) {
+            let original = {
+                self.0
+                    .owned
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone()
+            };
+            return original
+                .and_then(|original| original.upgrade())
+                .ok_or_else(retired_error)?
+                .dialer()
+                .map_err(io::Error::other);
+        }
         let mut server = self.0.server.lock().await;
+        if self.0.hosted.load(Ordering::Acquire) {
+            drop(server);
+            let original = {
+                self.0
+                    .owned
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone()
+            };
+            return original
+                .and_then(|original| original.upgrade())
+                .ok_or_else(retired_error)?
+                .dialer()
+                .map_err(io::Error::other);
+        }
         if self.0.retired.load(Ordering::Acquire) {
             return Err(retired_error());
         }

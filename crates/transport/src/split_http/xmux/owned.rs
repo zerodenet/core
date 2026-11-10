@@ -5,11 +5,13 @@ pub use carrier::{OwnedXhttp3, PendingXhttp3, PreparedXhttp3};
 mod ledger;
 mod logical;
 pub use logical::OwnedLogicalReturn;
+pub(in crate::split_http) use logical::WorkReturn;
 pub(in crate::split_http) mod pipe;
 pub(in crate::split_http) mod request;
 mod session;
 pub(in crate::split_http) use session::PreparedLogical;
 mod sources;
+pub(in crate::split_http) use sources::RequestCauses;
 mod tcp;
 use ledger::{Ledger, PaidFuture};
 use std::{

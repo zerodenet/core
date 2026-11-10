@@ -29,4 +29,7 @@ pub use options::{
     VlessOutboundOptionsRef, VlessQuicBindOptionsRef, VlessQuicClientOptionsRef,
     VlessRealityClientOptionsRef, VlessRealityServerOptionsRef, VlessXhttpDownloadOptionsRef,
 };
+pub use runtime::browser_dialer::{
+    ProviderFactory as BrowserProviderFactory, ProviderOptions as BrowserProviderOptions,
+};
 pub use runtime::VlessTransportRuntime;

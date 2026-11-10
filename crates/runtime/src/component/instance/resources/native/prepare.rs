@@ -209,19 +209,47 @@ impl HostResources {
                     max_bind_attempts,
                     accepted,
                 } => {
-                    if accepted.is_some() {
-                        return Err(error(
-                            component,
-                            Reason::Unsupported,
-                            "accepted TCP authority requires the actual host handler Scope provider",
-                        ));
-                    }
                     let address = sockets::literal(component, destination)?;
-                    let mut native = zero_platform_tokio::ControlledTcpListenerOwner::new(
-                        declaration,
-                        *max_bind_attempts,
-                        cancel.clone(),
-                    )?;
+                    let mut native = if let Some(limits) = accepted {
+                        let (instance, scope) = identity.as_ref().ok_or_else(|| {
+                            error(
+                                component,
+                                Reason::Unsupported,
+                                "accepted authority requires the actual Host instance",
+                            )
+                        })?;
+                        let tasks = original_tasks.as_ref().ok_or_else(|| {
+                            error(
+                                component,
+                                Reason::Unsupported,
+                                "accepted authority requires its actual Host registrar",
+                            )
+                        })?;
+                        if !tasks.scope_identity().same_scope(scope) {
+                            return Err(error(
+                                component,
+                                Reason::StalePlan,
+                                "accepted registrar differs from the actual Host Scope",
+                            ));
+                        }
+                        let mut native = zero_platform_tokio::ControlledTcpListenerOwner::new_with_accepted_graph_weak(
+                            declaration, *max_bind_attempts, cancel.clone(), limits.max_sockets,
+                            limits.max_tasks_per_socket, tasks,
+                        )?;
+                        let failures = zero_platform_tokio::AcceptedTaskFailures::prepare_weak(
+                            *instance,
+                            tasks,
+                            &originals.packet.driver_metadata_view(),
+                        )?;
+                        native.bind_task_failure_receiver(&failures)?;
+                        native
+                    } else {
+                        zero_platform_tokio::ControlledTcpListenerOwner::new(
+                            declaration,
+                            *max_bind_attempts,
+                            cancel.clone(),
+                        )?
+                    };
                     if let Some((instance, _)) = &identity {
                         if let Some(tasks) = &original_tasks {
                             let scope = tasks.retirement_observation().ok_or_else(|| {

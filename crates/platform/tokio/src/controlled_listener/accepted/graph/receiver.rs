@@ -1,6 +1,8 @@
 //! The owning receiver retains the real receipt before local error delivery.
+mod origin;
 use super::*;
 use crate::contract::scope::{TaskClass, TaskJoined};
+pub use origin::AcceptedTcpCarrierOrigin;
 
 /// Weak access to the same listener's bounded entry table. No second task map,
 /// scope owner, task joiner, or permission to fabricate TaskJoined is created.

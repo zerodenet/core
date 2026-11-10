@@ -79,3 +79,6 @@ mod h3;
 
 #[path = "material/mixed.rs"]
 mod mixed;
+
+#[path = "material/browser.rs"]
+mod browser;

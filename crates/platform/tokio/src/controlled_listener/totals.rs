@@ -229,3 +229,69 @@ impl Reservation {
         self.root.release_source_if_settled(&self.original);
     }
 }
+
+/// Strong custody of the SAME existing Source original, with a weak Root.
+/// Holding Root here would create Root -> parent protocol ledger -> token ->
+/// Root for managed callers. An expired weak Root is never a returned fact.
+#[derive(Clone)]
+pub(crate) struct RegisteredSourceOriginal {
+    root: Weak<CarrierOriginalTotals>,
+    original: Arc<dyn SourceCustody>,
+}
+impl SettledSourceReturn {
+    pub(crate) fn observe_registered(&self) -> Result<RegisteredSourceOriginal, ChannelError> {
+        let root = self
+            .root
+            .upgrade()
+            .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component))?;
+        let original = self
+            .original
+            .upgrade()
+            .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component))?;
+        if !root.has_source_original(&original) && !original.was_root_returned() {
+            return Err(ChannelError::new(
+                Stage::Prepare,
+                Reason::StalePlan,
+                Impact::Component,
+            ));
+        }
+        Ok(RegisteredSourceOriginal {
+            root: Arc::downgrade(&root),
+            original,
+        })
+    }
+}
+impl RegisteredSourceOriginal {
+    pub(crate) fn same_root(&self, root: &Arc<CarrierOriginalTotals>) -> bool {
+        self.root.ptr_eq(&Arc::downgrade(root))
+    }
+    pub(crate) fn same_original(&self, other: &Self) -> bool {
+        Weak::ptr_eq(&self.root, &other.root) && Arc::ptr_eq(&self.original, &other.original)
+    }
+    pub(crate) fn is_settled(&self) -> bool {
+        self.original.was_root_returned()
+    }
+    pub(crate) async fn wait_settled(&self) -> Result<(), ChannelError> {
+        let notify = self.original.root_return_notifications().ok_or_else(|| {
+            ChannelError::new(Stage::Close, Reason::Unsupported, Impact::Component)
+        })?;
+        loop {
+            let changed = notify.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if self.is_settled() {
+                return Ok(());
+            }
+            // Upgrade/drop before awaiting; no actual operation future or
+            // notification owns a strong Root backedge across Pending.
+            if self.root.upgrade().is_none() {
+                return Err(ChannelError::new(
+                    Stage::Close,
+                    Reason::Revoked,
+                    Impact::Component,
+                ));
+            }
+            changed.await;
+        }
+    }
+}

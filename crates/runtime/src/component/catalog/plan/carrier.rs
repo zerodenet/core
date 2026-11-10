@@ -184,6 +184,7 @@ impl ComponentPlan {
             if process::paired_endpoint(slot.recipe.spec())
                 || metadata::installed(slot)
                 || cached::installed(slot)
+                || accepted_stream_dependency(&selected, slot)
             {
                 pending.extend(slot.dependency_instances());
                 continue;
@@ -292,6 +293,7 @@ impl ComponentPlan {
                     |(ordinal, _)| match origin.owner() {
                         // A software original can match only the exact source
                         // installed above, never a declared native provider.
+                        zero_platform_tokio::controlled_carrier::CarrierOriginOwner::Accepted(actual) => slot.original_accepted_receiver(ordinal).is_some_and(|receiver| actual.matches_receiver(&receiver)),
                         zero_platform_tokio::controlled_carrier::CarrierOriginOwner::LogicalPacket(_) => false,
                         zero_platform_tokio::controlled_carrier::CarrierOriginOwner::Packet(
                             actual,
@@ -360,4 +362,55 @@ fn node_stream_declarations(
         service_ordinal,
         capacity,
     ))
+}
+
+/// Read-only classification of this installed Stream owner's direct Source.
+/// The per-loan issuer still checks the actual dependency receiver/Host fence,
+/// original Endpoint/binding and current grant; this predicate grants no IO.
+fn accepted_stream_dependency(selected: &Arc<ComponentSlot>, source: &Arc<ComponentSlot>) -> bool {
+    use zero_platform_tokio::contract::component::ResourceDeclaration as R;
+    if !cached::installed(selected)
+        || !selected
+            .dependency_instances()
+            .contains(&source.instance_id())
+        || !source.recipe.spec().roles.is_empty()
+        || !source.recipe.spec().dependencies.is_empty()
+    {
+        return false;
+    }
+    let [R::TcpListener {
+        accepted: Some(limits),
+        max_bind_attempts,
+        ..
+    }] = source.recipe.spec().resources.as_slice()
+    else {
+        return false;
+    };
+    if max_bind_attempts.get() != 1 || limits.max_resources_per_socket != 0 {
+        return false;
+    }
+    let Some(tasks) = limits
+        .max_sockets
+        .get()
+        .checked_mul(limits.max_tasks_per_socket.get())
+        .and_then(|n| n.checked_add(1))
+    else {
+        return false;
+    };
+    if !source
+        .recipe
+        .spec()
+        .task_limit
+        .is_some_and(|actual| actual.get() == tasks)
+    {
+        return false;
+    }
+    let Some(receiver) = source.original_accepted_receiver(0) else {
+        return false;
+    };
+    let Some(failures) = receiver.task_failures() else {
+        return false;
+    };
+    failures.instance() == source.instance_id()
+        && source.matches_live_scope(&failures.scope_identity())
 }

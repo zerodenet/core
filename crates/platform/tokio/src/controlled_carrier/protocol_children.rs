@@ -251,6 +251,26 @@ impl ProtocolOriginalChildren {
     }
     /// Only the real Root/holder runs this wait. No observer timer is installed
     /// in the cleanup; losing an observer cannot abandon any retained child.
+    /// Native-owning cleanup needs actual global removal, even if another
+    /// legitimate receiver historically accepted this child for logical return.
+    /// Every original remains the same Root's operation; no cleanup is created.
+    pub async fn wait_settled_original(&self) -> Result<(), ChannelError> {
+        let mut after = None;
+        while let Some(record) = self.next_record(after) {
+            record.original.request_retirement();
+            after = Some(record.ordinal);
+        }
+        let mut after = None;
+        while let Some(record) = self.next_record(after) {
+            if let Err(source) = record.original.wait_settled_original().await {
+                let (retained, repeated) = record.receive(source);
+                drop(repeated);
+                return Err(ChannelError::retained(retained));
+            }
+            after = Some(record.ordinal);
+        }
+        Ok(())
+    }
     pub async fn wait_returned_original(&self) -> Result<(), ChannelError> {
         self.request_return();
         let mut after = None;

@@ -33,6 +33,12 @@ impl Running {
     }
 }
 pub(super) async fn start(document: serde_json::Value, tag: &str) -> Running {
+    start_inner(document, tag, false).await
+}
+pub(super) async fn start_owned(document: serde_json::Value, tag: &str) -> Running {
+    start_inner(document, tag, true).await
+}
+async fn start_inner(document: serde_json::Value, tag: &str, native: bool) -> Running {
     static TRACE: std::sync::Once = std::sync::Once::new();
     TRACE.call_once(|| {
         // This linked transport is not built with cfg(test). Keep its actual
@@ -43,7 +49,12 @@ pub(super) async fn start(document: serde_json::Value, tag: &str) -> Running {
             .try_init();
     });
     let config = zero_config::RuntimeConfig::parse(&document.to_string()).unwrap();
-    let proxy = Proxy::new(config.clone()).unwrap();
+    let proxy = if native {
+        Proxy::from_engine_with_background(zero_engine::Engine::new(config.clone()).unwrap(), true)
+            .unwrap()
+    } else {
+        Proxy::new(config.clone()).unwrap()
+    };
     let registry = proxy.system_tun_source_registry();
     let running = proxy.spawn();
     let original = timeout(Duration::from_secs(5), async {

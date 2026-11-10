@@ -17,7 +17,6 @@ pub(super) use lifetime::LifetimeRef;
 #[derive(Default)]
 pub(super) struct Lifetime {
     error: Mutex<Option<String>>,
-    #[cfg(feature = "quic")]
     retained_error: std::sync::OnceLock<zero_traits::packet_metadata::PacketMetadataError>,
     closed: std::sync::atomic::AtomicBool,
     wake: Notify,
@@ -60,13 +59,11 @@ impl Lifetime {
         *self.error.lock().unwrap() = Some(error.to_string());
         self.close();
     }
-    #[cfg(feature = "quic")]
     pub(super) fn fail_retained(&self, source: zero_traits::packet_metadata::PacketMetadataError) {
         let _ = self.retained_error.set(source);
         self.close();
     }
     pub(super) fn error(&self) -> io::Result<()> {
-        #[cfg(feature = "quic")]
         if let Some(source) = self.retained_error.get() {
             return Err(super::xmux::owned::request::original_io(source.clone()));
         }

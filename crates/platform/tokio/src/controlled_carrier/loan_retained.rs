@@ -61,7 +61,11 @@ impl CarrierLoanRetained {
         let mut slow = current;
         let mut fast = current;
         while let Some(original) = current {
-            let matches = expected.metadata().is_some_and(|expected| {
+            let matches = expected.accepted().is_some_and(|expected| {
+                original
+                    .accepted()
+                    .is_some_and(|actual| actual.same_original(expected))
+            }) || expected.metadata().is_some_and(|expected| {
                 original
                     .metadata()
                     .is_some_and(|actual| actual.same_original(expected))
@@ -143,3 +147,6 @@ impl CarrierLoanRetained {
         false
     }
 }
+
+mod accepted;
+pub(crate) use accepted::AcceptedLoanReceiver;
