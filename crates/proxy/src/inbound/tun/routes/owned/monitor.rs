@@ -234,3 +234,12 @@ fn publish(original: &Shared, snapshot: &Snapshot, trigger: ReconcileTrigger) {
         }
     }
 }
+
+fn acknowledge_recovery(
+    acknowledgement: &mut Option<oneshot::Sender<Result<(), String>>>,
+    result: Result<(), String>,
+) {
+    if let Some(reply) = acknowledgement.take() {
+        let _ = reply.send(result);
+    }
+}
