@@ -60,12 +60,16 @@ impl RouteJournal {
             .map(|source| source.context())
             .transpose()
     }
+}
+impl RouteJournal {
     pub(in crate::route) fn owned_closed(&self) -> bool {
-        self._lease.as_ref().is_some_and(RouteLease::owned_closed)
+        self._lease
+            .as_ref()
+            .is_some_and(RouteLease::physically_closed)
     }
     pub(in crate::route) fn close_owned(&mut self) -> io::Result<()> {
         match self._lease.as_mut() {
-            Some(lease) => lease.close_owned(),
+            Some(lease) => lease.close_retained(),
             None => Ok(()),
         }
     }
@@ -73,3 +77,32 @@ impl RouteJournal {
 
 #[cfg(test)]
 mod tests;
+
+pub(super) fn read_from(
+    path: &Path,
+    memory: Option<&crate::packet_memory::PacketDriverMetadataView>,
+    original: Option<&crate::route::file_originals::RouteFileIo>,
+) -> io::Result<Bytes> {
+    #[cfg(target_os = "macos")]
+    if let Some(result) = crate::macos_privilege::journal_read(path) {
+        return result.map(Bytes::Owned);
+    }
+    if let Some(original) = original {
+        return original.read(path).map(Bytes::Owned);
+    }
+    read(path, memory)
+}
+pub(super) fn write_from(
+    path: &Path,
+    bytes: &[u8],
+    original: Option<&crate::route::file_originals::RouteFileIo>,
+) -> io::Result<()> {
+    #[cfg(target_os = "macos")]
+    if let Some(result) = crate::macos_privilege::journal_write(path, bytes) {
+        return result;
+    }
+    if let Some(original) = original {
+        return original.write(path, bytes);
+    }
+    write(path, bytes)
+}

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::RouteInterface;
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub(super) struct RouteJournal {
     pub(super) tun_name: String,
     pub(super) ipv6: bool,
@@ -22,6 +22,9 @@ pub(super) struct RouteJournal {
     pub(super) path: PathBuf,
     #[serde(skip)]
     pub(super) _lease: Option<RouteLease>,
+    #[serde(skip)]
+    pub(super) file_io:
+        Option<crate::packet_memory::PacketMetadataArc<crate::route::file_originals::RouteFileIo>>,
     #[cfg(target_os = "macos")]
     #[serde(skip)]
     pub(super) source: Option<crate::macos_privilege::MacosRouteFileAccess>,
@@ -31,6 +34,19 @@ pub(super) struct RouteJournal {
     pub(super) _removed_routes: usize,
     #[serde(skip)]
     pub(super) _removed_exclusions: usize,
+}
+
+impl std::fmt::Debug for RouteJournal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RouteJournal")
+            .field("tun_name", &self.tun_name)
+            .field("ipv6", &self.ipv6)
+            .field("installed", &self.installed)
+            .field("excluded", &self.excluded)
+            .field("lease", &self._lease)
+            .field("transient", &self.file_io.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 mod gateway;
@@ -52,7 +68,11 @@ impl RouteJournal {
         let _context = lease.context()?;
         let path = &lease.journal_path;
         let memory = lease.metadata();
-        let raw = match material::read(path, memory.as_ref()) {
+        let raw = match material::read_from(
+            path,
+            memory.as_ref(),
+            lease.file_io.as_ref().map(|io| &**io),
+        ) {
             Ok(raw) => raw,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error),
@@ -85,6 +105,7 @@ impl RouteJournal {
         }
         journal.path = journal._metadata.path(path).map_err(io::Error::other)?;
         journal._lease = None;
+        journal.file_io = lease.file_io.clone();
         #[cfg(target_os = "macos")]
         {
             journal.source = lease.source();
@@ -120,7 +141,7 @@ impl RouteJournal {
         let _context = self.cleanup_context()?;
         let encoded = material::encode(self, self._metadata.view())?;
         let temporary = self.path.with_extension("json.tmp");
-        material::write(&temporary, &encoded)?;
+        material::write_from(&temporary, &encoded, self.file_io.as_ref().map(|io| &**io))?;
         #[cfg(windows)]
         if self.path.exists() {
             std::fs::remove_file(&self.path)?;

@@ -25,7 +25,8 @@ mod creation;
 mod failures;
 mod files;
 pub(crate) use files::{
-    journal_encode, journal_lock, journal_read, journal_write, MacosRouteFileAccess, MacosRouteLock,
+    has_owned_context, journal_encode, journal_lock, journal_lock_retained, journal_read,
+    journal_write, MacosRouteFileAccess, MacosRouteLock,
 };
 mod growth;
 mod native;

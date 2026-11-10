@@ -77,6 +77,89 @@ impl SystemRouteGuard {
         guard.audit_routes()?;
         Ok(())
     }
+    pub fn install_retained_with_files(
+        original: &mut Option<Self>,
+        files: &mut crate::route::RouteFileOriginals,
+        request: crate::route::RouteInstallRequest<'_>,
+        publish_egress: impl FnOnce(&FamilyEgressState) -> io::Result<()>,
+    ) -> io::Result<()> {
+        if original.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "previous route original still requires confirmed cleanup",
+            ));
+        }
+        let crate::route::RouteInstallRequest {
+            tun_name,
+            recovery_key,
+            address,
+            netmask,
+            captured,
+            excluded,
+            metadata,
+        } = request;
+        let ipv6 = address.is_ipv6();
+        let memory = metadata.ok_or_else(|| {
+            io::Error::other("Kernel retained route File requires its actual Source metadata Root")
+        })?;
+        RouteLease::acquire_retained(files, recovery_key, address.is_ipv6(), memory)?;
+        let lease = files
+            .pending
+            .as_ref()
+            .expect("same pending route File original");
+        let selected = select_physical_egress(ipv6, tun_name)?;
+        let egress = selected.carrier;
+        let gateway = selected.gateway;
+        let tun_gateway = match address {
+            IpAddr::V4(address) => Some(crate::macos::ipv4_peer(address, netmask)?.to_string()),
+            IpAddr::V6(_) => None,
+        };
+        let mut journal = RouteJournal::prepare_borrowed(
+            lease,
+            tun_name,
+            ipv6,
+            0,
+            &egress,
+            gateway.as_deref().map(crate::route::journal::Gateway::Text),
+        )?;
+        let connected = exclusions::connected_networks(tun_name)?;
+        let desired_exclusions = family_exclusions_for_egress(excluded, ipv6, &selected.family)
+            .into_iter()
+            .filter(|peer| {
+                exclusions::requires_host_bypass(*peer, captured, &connected)
+                    && !exclusions::has_native_route(*peer, captured, tun_name)
+            })
+            .collect::<Vec<_>>();
+        journal._lease = files.pending.take();
+        *original = Some(Self {
+            egress,
+            family_egress: selected.family,
+            tun_name: tun_name.to_owned(),
+            ipv6,
+            gateway,
+            tun_gateway,
+            excluded: desired_exclusions.clone(),
+            captured: captured.to_vec(),
+            journal,
+            stale: None,
+            recovered: false,
+        });
+        let guard = original.as_mut().expect("same installed route original");
+        guard.recover_stale()?;
+        publish_egress(&guard.family_egress)?;
+        guard.install_scoped_bypass()?;
+        for peer in desired_exclusions {
+            guard.install_exclusion(peer)?;
+        }
+        for prefix in captured {
+            let prefix = prefix.to_string();
+            let _ = guard.remove(&prefix);
+            guard.journal.record_route(&prefix)?;
+            guard.add(&prefix)?;
+        }
+        guard.audit_routes()?;
+        Ok(())
+    }
     pub(super) fn recover_stale(&mut self) -> io::Result<()> {
         if self.recovered {
             return Ok(());

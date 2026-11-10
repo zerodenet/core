@@ -65,6 +65,78 @@ impl SystemRouteGuard {
         guard.audit_routes()?;
         Ok(())
     }
+    pub fn install_retained_with_files(
+        original: &mut Option<Self>,
+        files: &mut crate::route::RouteFileOriginals,
+        request: crate::route::RouteInstallRequest<'_>,
+        publish_egress: impl FnOnce(&FamilyEgressState) -> io::Result<()>,
+    ) -> io::Result<()> {
+        if original.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "previous route original still requires confirmed cleanup",
+            ));
+        }
+        let crate::route::RouteInstallRequest {
+            tun_name,
+            recovery_key,
+            address,
+            netmask: _,
+            captured,
+            excluded,
+            metadata,
+        } = request;
+        let memory = metadata.ok_or_else(|| {
+            io::Error::other("Kernel retained route File requires its actual Source metadata Root")
+        })?;
+        RouteLease::acquire_retained(files, recovery_key, address.is_ipv6(), memory)?;
+        let lease = files
+            .pending
+            .as_ref()
+            .expect("same pending route File original");
+        let tun_index = interface_by_name(tun_name)?;
+        let ipv6 = address.is_ipv6();
+        let selected = select_physical_egress(ipv6, tun_index)?;
+        let egress = selected.carrier;
+        let gateway = selected.gateway;
+        let desired_exclusions = family_exclusions_for_egress(excluded, ipv6, &selected.family);
+        let mut journal = RouteJournal::prepare_borrowed(
+            lease,
+            tun_name,
+            address.is_ipv6(),
+            tun_index,
+            &egress,
+            Some(crate::route::journal::Gateway::Address(gateway)),
+        )?;
+        let tun_gateway = synthetic_tun_gateway(address)?;
+        journal._lease = files.pending.take();
+        *original = Some(Self {
+            egress,
+            family_egress: selected.family,
+            ipv6,
+            gateway,
+            tun_gateway,
+            tun_index,
+            excluded: desired_exclusions.clone(),
+            journal,
+            stale: None,
+            recovered: false,
+        });
+        let guard = original.as_mut().expect("same installed route original");
+        guard.recover_stale()?;
+        publish_egress(&guard.family_egress)?;
+        for peer in desired_exclusions {
+            guard.install_exclusion(peer)?;
+        }
+        for prefix in captured {
+            let prefix = prefix.to_string();
+            guard.remove(&prefix)?;
+            guard.journal.record_route(&prefix)?;
+            guard.add(&prefix)?;
+        }
+        guard.audit_routes()?;
+        Ok(())
+    }
     pub(super) fn recover_stale(&mut self) -> io::Result<()> {
         if self.recovered {
             return Ok(());

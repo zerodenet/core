@@ -1,15 +1,37 @@
 //! Existing file responsibility and the actual Source's owned lock.
 use super::*;
-#[derive(Debug)]
+mod retained;
 pub(in crate::route) struct RouteLease {
     pub(super) journal_path: PathBuf,
     owner_path: PathBuf,
     pub(super) _lock: Lock,
     metadata: Option<crate::packet_memory::PacketDriverMetadataView>,
+    pub(in crate::route) file_io:
+        Option<crate::packet_memory::PacketMetadataArc<crate::route::file_originals::RouteFileIo>>,
+    failures: Option<(
+        crate::route::RouteFileFaults,
+        crate::packet_memory::PacketMetadataArc<crate::route::file_originals::Attempt>,
+    )>,
+    owner_attempted: bool,
+    owner_retired: bool,
+    close_reported: bool,
+}
+impl std::fmt::Debug for RouteLease {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RouteLease")
+            .field("journal_path", &self.journal_path)
+            .field("lock", &self._lock)
+            .field("transient", &self.file_io.is_some())
+            .field("fault_delivery", &self.failures.is_some())
+            .finish_non_exhaustive()
+    }
 }
 #[derive(Debug)]
 pub(super) enum Lock {
     Existing(std::fs::File),
+    Retained(crate::route::file_originals::TrackedFile),
+    #[cfg(target_os = "macos")]
+    PendingOwned(Option<crate::macos_privilege::MacosRouteLock>),
     #[cfg(target_os = "macos")]
     Owned(crate::macos_privilege::MacosRouteLock),
 }
@@ -64,6 +86,11 @@ impl RouteLease {
                 owner_path,
                 _lock: Lock::Owned(lock),
                 metadata,
+                file_io: None,
+                failures: None,
+                owner_attempted: false,
+                owner_retired: false,
+                close_reported: false,
             });
         }
         // The existing non-Mac and independent file path. A metadata view
@@ -83,6 +110,11 @@ impl RouteLease {
             owner_path,
             _lock: Lock::Existing(lock),
             metadata,
+            file_io: None,
+            failures: None,
+            owner_attempted: false,
+            owner_retired: false,
+            close_reported: false,
         })
     }
     /// Only a view of this same actual Source Root, without policy/IO rights.
@@ -95,28 +127,13 @@ impl RouteLease {
     pub(super) fn source(&self) -> Option<crate::macos_privilege::MacosRouteFileAccess> {
         match &self._lock {
             Lock::Owned(lock) => Some(lock.access()),
-            Lock::Existing(_) => None,
+            Lock::Existing(_) | Lock::Retained(_) => None,
+            Lock::PendingOwned(lock) => lock.as_ref().map(|lock| lock.access()),
         }
     }
     #[cfg(target_os = "macos")]
     pub(super) fn context(&self) -> io::Result<Option<crate::MacosHelperContext>> {
         self.source().map(|source| source.context()).transpose()
-    }
-    #[cfg(target_os = "macos")]
-    pub(super) fn owned_closed(&self) -> bool {
-        matches!(&self._lock, Lock::Owned(lock) if lock.is_closed())
-    }
-    #[cfg(target_os = "macos")]
-    pub(super) fn close_owned(&mut self) -> io::Result<()> {
-        let Lock::Owned(lock) = &mut self._lock else {
-            return Ok(());
-        };
-        if lock.is_closed() {
-            return Ok(());
-        }
-        let _context = lock.context()?;
-        remove_owner(&self.owner_path)?;
-        lock.close_retained()
     }
 }
 impl Drop for RouteLease {
@@ -131,7 +148,8 @@ impl Drop for RouteLease {
                 }
             }
             #[cfg(target_os = "macos")]
-            Lock::Owned(_) => {}
+            Lock::Owned(_) | Lock::PendingOwned(_) => {}
+            Lock::Retained(_) => {}
         }
         // Owned Drop only returns the lease. Its same Session keeps the actual
         // FD until its original duty consumes explicit close, including errors.
@@ -142,6 +160,13 @@ impl Lock {
     pub(super) fn try_clone(&self) -> io::Result<std::fs::File> {
         match self {
             Self::Existing(lock) => lock.try_clone(),
+            Self::Retained(_) => Err(io::Error::other(
+                "Kernel route lock cannot duplicate its original",
+            )),
+            #[cfg(target_os = "macos")]
+            Self::PendingOwned(_) => Err(io::Error::other(
+                "Kernel pending lock cannot duplicate its original",
+            )),
             #[cfg(target_os = "macos")]
             Self::Owned(_) => Err(io::Error::other(
                 "Kernel route lock cannot duplicate its original",

@@ -1,14 +1,14 @@
 use super::*;
 pub(in crate::route) enum Gateway<'a> {
     Text(&'a str),
-    #[cfg(any(windows, test))]
+    #[cfg(windows)]
     Address(IpAddr),
 }
 impl Gateway<'_> {
     pub(super) fn copy(self, owner: &mut metadata::Owner) -> io::Result<String> {
         match self {
             Self::Text(value) => owner.string(value).map_err(io::Error::other),
-            #[cfg(any(windows, test))]
+            #[cfg(windows)]
             Self::Address(address) => {
                 struct Text {
                     bytes: [u8; 45],
