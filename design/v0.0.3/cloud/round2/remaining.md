@@ -1,3 +1,5 @@
+当前云端保存入口：[全部现存源码交接，WIP未获资格](handoff-20261110.md)。包含尚缺模块的quota草稿；先按交接清单静态收口，再排必要编译。
+
 最新接续见[2026-11-10 00:15 检查点](checkpoints/20261110-0015.md)。五域仍继续，未交付最终资格；以下旧日期段落均是历史，旧环境遗失的原始证据没有恢复，也不追认新候选资格。
 
 当前完整实际调用者集合按职责域冻结：[A DNS Query/pool/provider](evidence/a-dns-callers-20261109.md)、[B 出站13个执行族](evidence/b-callers-20261109.md)、[C Packet/设备10个入口](evidence/c-callers-20261109.md)、[控制/G8](evidence/a-control-caller-20261109.md)。B→A 真实原件消费继续配对；不能据一个协议分支完成或保留 gate 关闭该域。
