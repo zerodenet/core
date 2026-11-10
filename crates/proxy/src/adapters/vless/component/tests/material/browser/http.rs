@@ -195,6 +195,12 @@ fn capture(client: &Running) -> Actual {
     let services = client.proxy.tcp_runtime_services();
     let plan = services.components.as_ref().unwrap();
     let node = plan.configured("node").unwrap();
+    assert!(plan.has_cached_stream_provider(node.role_id()));
+    assert!(plan.has_carrier_provider(node.role_id()));
+    assert!(
+        plan.stream_dependencies_supported(node.role_id()),
+        "same installed Source is an actual supported Stream dependency"
+    );
     assert_eq!(node.recipe.spec().task_limit.unwrap().get(), 2);
     let owner = node.original_carrier_owner(0).unwrap();
     assert_eq!(owner.limit().get(), 1);

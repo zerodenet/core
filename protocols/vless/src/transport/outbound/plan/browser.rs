@@ -10,7 +10,8 @@ impl OwnedVlessOutboundTransportPlan {
         };
         self.validate_browser_dialer()?;
         Ok(Some(Arc::new(
-            crate::transport::BrowserProviderOptions::new(access.clone())?,
+            crate::transport::BrowserProviderOptions::new(access.clone())
+                .map_err(std::io::Error::other)?,
         )))
     }
     pub(crate) fn browser_websocket(
