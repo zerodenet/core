@@ -9,7 +9,7 @@ pub struct PreparedComponentStart<'a> {
     catalog: &'a ComponentCatalog,
     config: Arc<RuntimeConfig>,
     plan: Arc<ComponentPlan>,
-    _transition: tokio::sync::MutexGuard<'a, ()>,
+    _transition: failure_receiver::ConfigurationTransition<'a>,
 }
 impl PreparedComponentStart<'_> {
     pub fn plan(&self) -> &Arc<ComponentPlan> {
@@ -227,9 +227,9 @@ impl ComponentCatalog {
             &Arc<replacement::DeclaredComponentTerminal>,
         ) -> Result<(), ChannelError>,
     ) -> Result<PreparedComponentStart<'a>, ChannelError> {
-        let _transition = tokio::time::timeout_at(deadline, self.transition.lock())
-            .await
-            .map_err(|_| invalid(Reason::Timeout, "component transition remains owned"))?;
+        let _transition = self
+            .configuration_transition(deadline, "component transition remains owned")
+            .await?;
         self.finish_maintenance(deadline).await?;
         let previous_replacement = self
             .state

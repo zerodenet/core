@@ -18,6 +18,7 @@ use zero_platform_tokio::{
 };
 
 pub(super) struct State {
+    pub(super) panic_payload: Mutex<Option<Box<dyn std::any::Any + Send>>>,
     pub(super) address: Option<SocketAddr>,
     native: Mutex<Option<(ControlledTcpListener, ControlledTcpListenerControl)>>,
     pub(super) peer: Mutex<Option<DuplexStream>>,
@@ -97,6 +98,9 @@ impl ResourceLifecycle for Owner {
                 .spawn(TaskClass::Critical, async move {
                     *state.native_task.lock().unwrap() = Some(tokio::task::id());
                     gate.read_u8().await.unwrap();
+                    if let Some(payload) = state.panic_payload.lock().unwrap().take() {
+                        std::panic::panic_any(payload);
+                    }
                     panic!("actual retained component critical failure");
                 })
                 .unwrap();
@@ -169,6 +173,7 @@ async fn slot(
         (None, None)
     };
     let state = Arc::new(State {
+        panic_payload: Mutex::new(None),
         address,
         native: Mutex::new(native),
         peer: Mutex::new(None),

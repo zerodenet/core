@@ -94,8 +94,7 @@ impl Owner {
     }
 }
 impl ApplyOwner {
-    #[cfg(test)]
-    pub(crate) fn component_retirement(
+    pub(crate) fn current_component_retirement(
         &self,
     ) -> Option<Arc<crate::component::catalog::replacement::DeclaredComponentTerminal>> {
         self.component_retirement
@@ -113,8 +112,9 @@ impl ApplyOwner {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .replace(terminal);
-        // An old diagnostic source can have an arbitrary destructor. Its
-        // original I/O is already confirmed closed; destroy it outside gates.
+        // The serial ConfigurationTransition pins the prior closed terminal
+        // until after its gate releases. This extra Arc's destruction cannot
+        // run that previous original's final destructor here.
         drop(previous);
     }
 
