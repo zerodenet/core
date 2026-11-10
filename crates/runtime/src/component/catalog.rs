@@ -15,7 +15,8 @@ mod plan;
 mod process_accounting_tests;
 mod quiescence;
 pub use quiescence::ReplacementUsersPause;
-mod replacement;
+mod failure_receiver;
+pub(crate) mod replacement;
 pub use replacement::packet_source::PacketSourceRetirement;
 mod restoration;
 mod retirement;
@@ -112,6 +113,7 @@ impl Current {
     }
 }
 pub struct ComponentCatalog {
+    configuration_owner: OnceLock<std::sync::Weak<crate::apply_owner::ApplyOwner>>,
     node_dns_source: Arc<OnceLock<Arc<dyn zero_platform_tokio::contract::dns::DnsService>>>,
     factories: OnceLock<ComponentRegistry<OutboundConfig>>,
     originals: OnceLock<Arc<crate::HostOriginalBudgets>>,
@@ -128,6 +130,7 @@ pub struct ComponentCatalog {
 impl Default for ComponentCatalog {
     fn default() -> Self {
         Self {
+            configuration_owner: OnceLock::new(),
             node_dns_source: Arc::default(),
             factories: OnceLock::new(),
             originals: OnceLock::new(),

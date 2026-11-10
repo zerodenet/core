@@ -14,7 +14,7 @@ struct Part {
 /// Complete slot reports include lifecycle, transferred-user, task and original
 /// provider proof. A missing or Unknown native proof never seals this terminal.
 #[derive(Debug)]
-pub(super) struct DeclaredComponentTerminal {
+pub(crate) struct DeclaredComponentTerminal {
     instances: Box<[ComponentInstanceId]>,
     failures: Box<[Arc<plan::PlanFailure>]>,
 }

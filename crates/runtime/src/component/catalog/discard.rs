@@ -88,9 +88,7 @@ impl ComponentCatalog {
         };
         if let Some(pending) = &replacement {
             Self::finish_replacement(pending, deadline, |terminal| {
-                terminal
-                    .failure()
-                    .map_or(Ok(()), |failure| Err(failure.retained()))
+                self.receive_declared_terminal(terminal)
             })
             .await?;
         }

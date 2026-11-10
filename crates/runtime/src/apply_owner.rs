@@ -25,6 +25,12 @@ pub use observation::{
 
 #[derive(Default)]
 pub struct ApplyOwner {
+    // Only fully closed declared component outcomes, not live resources or a
+    // second task owner. Keep the original typed terminal in this real Host's
+    // existing configuration supervisor after the old plan can be released.
+    component_retirement: std::sync::Mutex<
+        Option<Arc<crate::component::catalog::replacement::DeclaredComponentTerminal>>,
+    >,
     closing: AtomicBool,
     completed: AtomicBool,
     changed: Notify,
@@ -88,6 +94,30 @@ impl Owner {
     }
 }
 impl ApplyOwner {
+    #[cfg(test)]
+    pub(crate) fn component_retirement(
+        &self,
+    ) -> Option<Arc<crate::component::catalog::replacement::DeclaredComponentTerminal>> {
+        self.component_retirement
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    pub(crate) fn retain_component_retirement(
+        &self,
+        terminal: Arc<crate::component::catalog::replacement::DeclaredComponentTerminal>,
+    ) {
+        let previous = self
+            .component_retirement
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .replace(terminal);
+        // An old diagnostic source can have an arbitrary destructor. Its
+        // original I/O is already confirmed closed; destroy it outside gates.
+        drop(previous);
+    }
+
     pub fn is_closing(&self) -> bool {
         self.closing.load(Ordering::Acquire)
     }
