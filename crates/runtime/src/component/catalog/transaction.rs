@@ -9,7 +9,7 @@ pub struct PreparedComponentStart<'a> {
     catalog: &'a ComponentCatalog,
     config: Arc<RuntimeConfig>,
     plan: Arc<ComponentPlan>,
-    _transition: tokio::sync::MutexGuard<'a, ()>,
+    _transition: failure_receiver::ConfigurationTransition<'a>,
 }
 impl PreparedComponentStart<'_> {
     pub fn plan(&self) -> &Arc<ComponentPlan> {
@@ -109,9 +109,7 @@ impl PreparedComponentStart<'_> {
         // faults stay reported; never-built first-pass slots prove NoAcquisition
         // through their normal cleanup instead of a manufactured close token.
         ComponentCatalog::finish_replacement(&replacement, deadline, |terminal| {
-            terminal
-                .failure()
-                .map_or(Ok(()), |failure| Err(failure.retained()))
+            self.catalog.receive_declared_terminal(terminal)
         })
         .await?;
         Ok(plan)
@@ -163,28 +161,29 @@ impl ComponentCatalog {
     pub fn stop_business(&self) {
         self.admission.stop_business();
     }
-    /// Retain the actual candidate before its first start suspension. Without
-    /// an actual typed supervisor handoff, task faults remain sticky here.
+    /// Retain the actual candidate before its first start suspension. The same
+    /// Host configuration supervisor receives fully closed typed faults; an
+    /// unattached standalone catalog keeps their publication pending.
     pub async fn start(
         &self,
         config: Arc<RuntimeConfig>,
         deadline: tokio::time::Instant,
     ) -> Result<(), ChannelError> {
         self.start_reported(config, deadline, |terminal| {
-            terminal
-                .failure()
-                .map_or(Ok(()), |failure| Err(failure.retained()))
+            self.receive_declared_terminal(terminal)
         })
         .await
     }
 
-    /// Explicit typed handoff seam. Production `start` conservatively refuses
-    /// to consume a failure until its real caller supplies a supervisor owner.
+    /// Explicit typed handoff seam for the actual owner and focused fixtures.
+    /// Production uses the same RuntimeHost's configuration supervisor.
     pub(super) async fn start_reported(
         &self,
         config: Arc<RuntimeConfig>,
         deadline: tokio::time::Instant,
-        mut publish: impl FnMut(&replacement::DeclaredComponentTerminal) -> Result<(), ChannelError>,
+        mut publish: impl FnMut(
+            &Arc<replacement::DeclaredComponentTerminal>,
+        ) -> Result<(), ChannelError>,
     ) -> Result<(), ChannelError> {
         self.drive_supervised(self.start_reported_inner(config, deadline, &mut publish))
             .await
@@ -201,10 +200,8 @@ impl ComponentCatalog {
         self.drive_supervised(self.prepare_start_inner(
             config,
             deadline,
-            |terminal: &replacement::DeclaredComponentTerminal| {
-                terminal
-                    .failure()
-                    .map_or(Ok(()), |failure| Err(failure.retained()))
+            |terminal: &Arc<replacement::DeclaredComponentTerminal>| {
+                self.receive_declared_terminal(terminal)
             },
         ))
         .await
@@ -213,7 +210,9 @@ impl ComponentCatalog {
         &self,
         config: Arc<RuntimeConfig>,
         deadline: tokio::time::Instant,
-        publish: &mut impl FnMut(&replacement::DeclaredComponentTerminal) -> Result<(), ChannelError>,
+        publish: &mut impl FnMut(
+            &Arc<replacement::DeclaredComponentTerminal>,
+        ) -> Result<(), ChannelError>,
     ) -> Result<(), ChannelError> {
         self.prepare_start_inner(config, deadline, publish)
             .await?
@@ -224,11 +223,13 @@ impl ComponentCatalog {
         &'a self,
         config: Arc<RuntimeConfig>,
         deadline: tokio::time::Instant,
-        mut publish: impl FnMut(&replacement::DeclaredComponentTerminal) -> Result<(), ChannelError>,
+        mut publish: impl FnMut(
+            &Arc<replacement::DeclaredComponentTerminal>,
+        ) -> Result<(), ChannelError>,
     ) -> Result<PreparedComponentStart<'a>, ChannelError> {
-        let _transition = tokio::time::timeout_at(deadline, self.transition.lock())
-            .await
-            .map_err(|_| invalid(Reason::Timeout, "component transition remains owned"))?;
+        let _transition = self
+            .configuration_transition(deadline, "component transition remains owned")
+            .await?;
         self.finish_maintenance(deadline).await?;
         let previous_replacement = self
             .state
@@ -310,7 +311,7 @@ impl ComponentCatalog {
     pub(super) async fn finish_replacement(
         pending: &replacement::Replacement,
         deadline: tokio::time::Instant,
-        publish: impl FnOnce(&replacement::DeclaredComponentTerminal) -> Result<(), ChannelError>,
+        publish: impl FnOnce(&Arc<replacement::DeclaredComponentTerminal>) -> Result<(), ChannelError>,
     ) -> Result<(), ChannelError> {
         if pending.released() {
             return Ok(());

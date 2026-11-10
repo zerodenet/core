@@ -45,7 +45,7 @@ impl Replacement {
     pub(in crate::component::catalog) fn release(
         &self,
         receipt: DeclaredCloseReceipt,
-        publish: impl FnOnce(&DeclaredComponentTerminal) -> Result<(), ChannelError>,
+        publish: impl FnOnce(&Arc<DeclaredComponentTerminal>) -> Result<(), ChannelError>,
     ) -> Result<Option<ChannelError>, ChannelError> {
         if receipt.0.instances().len() != self.order.len()
             || !self

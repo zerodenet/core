@@ -9,6 +9,8 @@ use zero_core::component::ResourceGeneration;
 use zero_platform_tokio::contract::lifecycle::TaskClass;
 #[path = "replacement/generations.rs"]
 mod generations;
+#[path = "replacement/host_receiver.rs"]
+mod host_receiver;
 #[path = "replacement/native.rs"]
 mod native;
 #[path = "replacement/publication.rs"]
@@ -106,7 +108,7 @@ async fn cancelled_task_retirement_keeps_the_same_batch_real_scope_and_original_
         catalog.state.lock().unwrap().replacement.as_ref().unwrap()
     ));
     drop(gate.peer.lock().unwrap().take());
-    // Production has no real publication hook yet: completion cannot erase the fault.
+    // This standalone catalog has no Host owner: completion cannot erase the fault.
     for _ in 0..2 {
         let error = catalog.start(target.clone(), deadline()).await.unwrap_err();
         assert!(Arc::ptr_eq(original_failure(&error), &failure));

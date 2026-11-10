@@ -32,14 +32,9 @@ impl ComponentCatalog {
         config: &Arc<RuntimeConfig>,
         deadline: tokio::time::Instant,
     ) -> Result<(), ChannelError> {
-        let _transition = tokio::time::timeout_at(deadline, self.transition.lock())
-            .await
-            .map_err(|_| {
-                invalid(
-                    Reason::Timeout,
-                    "candidate cleanup transition remains owned",
-                )
-            })?;
+        let _transition = self
+            .configuration_transition(deadline, "candidate cleanup transition remains owned")
+            .await?;
         let (plans, keep, replacement) = {
             let state = self.state.lock().expect("component catalog poisoned");
             if state.maintenance {
@@ -88,9 +83,7 @@ impl ComponentCatalog {
         };
         if let Some(pending) = &replacement {
             Self::finish_replacement(pending, deadline, |terminal| {
-                terminal
-                    .failure()
-                    .map_or(Ok(()), |failure| Err(failure.retained()))
+                self.receive_declared_terminal(terminal)
             })
             .await?;
         }

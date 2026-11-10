@@ -38,6 +38,8 @@ impl<A> RuntimeHost<A> {
         let embedded_commands = control_budget.command_owner();
         let probes = Arc::new(crate::probe_owner::ProbeOwner::default());
         let components = ComponentCatalog::with_factories(factories);
+        let apply = Arc::new(ApplyOwner::default());
+        components.attach_configuration_owner(Arc::downgrade(&apply));
         components.attach_embedded_commands(Arc::downgrade(&embedded_commands));
         components.attach_probe_owner(Arc::downgrade(&probes));
         components.bind_original_budgets(originals.clone());
@@ -47,7 +49,7 @@ impl<A> RuntimeHost<A> {
             probes,
             embedded_commands,
             control_budget,
-            apply: Arc::default(),
+            apply,
             apply_lock: Arc::default(),
             reload_ack: Mutex::default(),
         }

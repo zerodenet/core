@@ -185,12 +185,12 @@ impl SystemRouteGuard {
     fn cleanup(&mut self) -> io::Result<()> {
         self.recover_stale()?;
         let ipv6 = self.ipv6;
-        let tun_name = self.tun_name.clone();
-        let egress_name = self.egress.name().to_owned();
-        let gateway = self.gateway.clone();
+        let tun_name = &self.tun_name;
+        let egress_name = self.egress.name();
+        let gateway = self.gateway.as_deref();
         self.journal.cleanup(
-            |prefix| remove_route(ipv6, &tun_name, prefix),
-            |peer| remove_exclusion(ipv6, &egress_name, gateway.as_deref(), peer),
+            |prefix| remove_route(ipv6, tun_name, prefix),
+            |peer| remove_exclusion(ipv6, egress_name, gateway, peer),
         )
     }
 }
@@ -286,13 +286,16 @@ fn add_exclusion(
 }
 
 fn cleanup_stale_routes(journal: &mut RouteJournal) -> io::Result<()> {
-    let ipv6 = journal.ipv6;
-    let stale_tun = journal.tun_name.clone();
-    let stale_egress = journal.egress.name().to_owned();
-    let stale_gateway = journal.gateway.clone();
-    journal.cleanup(
-        |prefix| remove_route(ipv6, &stale_tun, prefix),
-        |peer| remove_exclusion(ipv6, &stale_egress, stale_gateway.as_deref(), peer),
+    journal.cleanup_record(
+        |record, prefix| remove_route(record.ipv6, &record.tun_name, prefix),
+        |record, peer| {
+            remove_exclusion(
+                record.ipv6,
+                record.egress.name(),
+                record.gateway.as_deref(),
+                peer,
+            )
+        },
     )
 }
 

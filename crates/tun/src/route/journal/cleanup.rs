@@ -6,6 +6,18 @@ impl RouteJournal {
         mut remove_route: impl FnMut(&str) -> io::Result<()>,
         mut remove_exclusion: impl FnMut(IpAddr) -> io::Result<()>,
     ) -> io::Result<()> {
+        self.cleanup_record(
+            |_, prefix| remove_route(prefix),
+            |_, peer| remove_exclusion(peer),
+        )
+    }
+    /// Only read the original journal's scalar data for each existing callback;
+    /// this is not another resource/provider or permission-bearing context.
+    pub(in crate::route) fn cleanup_record(
+        &mut self,
+        mut remove_route: impl FnMut(&RouteJournal, &str) -> io::Result<()>,
+        mut remove_exclusion: impl FnMut(&RouteJournal, IpAddr) -> io::Result<()>,
+    ) -> io::Result<()> {
         let mut first_error = None;
         // The prefix remains in its one actual allocated table. The processed
         // suffix partitions failures then successes, preserving every original
@@ -13,7 +25,7 @@ impl RouteJournal {
         let mut cursor = self.installed.len();
         while cursor != 0 {
             cursor -= 1;
-            match remove_route(&self.installed[cursor]) {
+            match remove_route(self, &self.installed[cursor]) {
                 Ok(()) => {
                     let end = self.installed.len() - self._removed_routes;
                     self.installed[cursor..end].rotate_left(1);
@@ -45,7 +57,7 @@ impl RouteJournal {
         let mut cursor = self.excluded.len();
         while cursor != 0 {
             cursor -= 1;
-            match remove_exclusion(self.excluded[cursor]) {
+            match remove_exclusion(self, self.excluded[cursor]) {
                 Ok(()) => {
                     let end = self.excluded.len() - self._removed_exclusions;
                     self.excluded[cursor..end].rotate_left(1);
@@ -80,3 +92,6 @@ impl RouteJournal {
         first_error.map_or(Ok(()), Err)
     }
 }
+
+#[cfg(test)]
+mod tests;

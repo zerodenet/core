@@ -220,11 +220,11 @@ impl SystemRouteGuard {
     fn cleanup(&mut self) -> io::Result<()> {
         self.recover_stale()?;
         let ipv6 = self.ipv6;
-        let gateway = self.gateway.clone();
         let bypass = self.remove_owned_scoped_bypass();
+        let gateway = self.gateway.as_deref();
         let routes = self.journal.cleanup(
             |prefix| remove_route(ipv6, prefix),
-            |peer| remove_exclusion(ipv6, gateway.as_deref(), peer),
+            |peer| remove_exclusion(ipv6, gateway, peer),
         );
         combine_cleanup_errors(bypass, routes)
     }
@@ -354,10 +354,9 @@ fn cleanup_stale_routes(journal: &mut RouteJournal) -> io::Result<()> {
     } else {
         Ok(())
     };
-    let stale_gateway = journal.gateway.clone();
-    let routes = journal.cleanup(
-        |prefix| remove_route(ipv6, prefix),
-        |peer| remove_exclusion(ipv6, stale_gateway.as_deref(), peer),
+    let routes = journal.cleanup_record(
+        |_, prefix| remove_route(ipv6, prefix),
+        |record, peer| remove_exclusion(ipv6, record.gateway.as_deref(), peer),
     );
     combine_cleanup_errors(bypass, routes)
 }
