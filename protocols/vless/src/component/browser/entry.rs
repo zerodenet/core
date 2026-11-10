@@ -15,7 +15,6 @@ pub(super) enum Ready {
     Failed(zero_platform_tokio::contract::RetainedError),
 }
 pub(super) struct Entry {
-    pub ordinal: u64,
     pub diagnostics: super::diagnostics::Diagnostics,
     pub stop: CancellationToken,
     pub scope: TaskScopeIdentity,
@@ -37,7 +36,6 @@ pub(super) struct Entry {
 pub(super) struct Control(pub PacketMetadataArc<Entry>);
 impl Entry {
     pub fn new(
-        ordinal: u64,
         diagnostics: super::diagnostics::Diagnostics,
         tasks: WeakTaskRegistrar,
         stop: CancellationToken,
@@ -46,7 +44,6 @@ impl Entry {
         result: zero_traits::packet_metadata::PacketMetadataWeak<super::delivery::Owner>,
     ) -> Self {
         Self {
-            ordinal,
             diagnostics,
             scope: tasks.scope_identity(),
             tasks,

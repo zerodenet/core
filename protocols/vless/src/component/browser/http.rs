@@ -113,7 +113,6 @@ impl Shared {
         let (begin, mut input, _) = delivery::prepare::<TaskJoinWitness>(&shared.memory)?;
         let original = PacketMetadataArc::from_prepaid(
             entry::Entry::new(
-                position.ordinal,
                 diagnostics,
                 shared.tasks.downgrade(),
                 shared.cancel.child_token(),
