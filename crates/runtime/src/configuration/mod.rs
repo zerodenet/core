@@ -18,9 +18,10 @@ mod startup;
 pub use compile::{DnsConfigPreparation, RuntimeConfigPreparation};
 pub use notifications::{ConfigurationReconcileChanges, ConfigurationReconcileNotifications};
 pub use source::{
-    ConfigurationSnapshotReader, ConfigurationSource, QuotaStorage, RuleSetCacheDownload,
-    SourceDisposition, SourcePersistError, SourcePersistenceNotifications, SourceWriteObservation,
-    SourceWriteView, MAX_RULE_SET_CACHE_BYTES,
+    ConfigurationSnapshotReader, ConfigurationSource, OwnedQuotaStorage, QuotaMemoryBudget,
+    QuotaMemoryCredit, QuotaStorage, RuleSetCacheDownload, SourceDisposition, SourcePersistError,
+    SourcePersistenceNotifications, SourceWriteObservation, SourceWriteView, WeakQuotaStorage,
+    MAX_RULE_SET_CACHE_BYTES,
 };
 use std::sync::Arc;
 use zero_config::{ConfigError, RuntimeConfig};

@@ -34,7 +34,7 @@ impl TaskJoinWitness {
     /// Failure returns both original handles for that same bounded retirement
     /// responsibility; success reports allocation destruction only, never IO,
     /// native closure, task exit, local failure acceptance or Host ACK.
-    pub(crate) fn try_retire_success_headers(
+    pub fn try_retire_success_headers(
         mut witness: Self,
         mut joined: TaskJoined,
     ) -> Result<(), (Self, TaskJoined)> {

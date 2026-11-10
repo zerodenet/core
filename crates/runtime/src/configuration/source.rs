@@ -4,7 +4,9 @@ mod cache;
 mod document;
 mod quota;
 mod snapshot;
-pub use quota::QuotaStorage;
+pub use quota::{
+    OwnedQuotaStorage, QuotaMemoryBudget, QuotaMemoryCredit, QuotaStorage, WeakQuotaStorage,
+};
 pub use snapshot::ConfigurationSnapshotReader;
 mod embedded;
 mod files;

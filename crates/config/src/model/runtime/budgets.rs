@@ -311,6 +311,11 @@ impl RuntimeOptionsConfig {
         self.native_mux_max_carriers.unwrap_or(4)
     }
 
+    pub fn effective_principal_quota_total_max_storage_bytes(&self) -> usize {
+        self.principal_quota_total_max_storage_bytes
+            .unwrap_or(16 * 1024 * 1024)
+    }
+
     pub fn effective_file_read_max_bytes(&self) -> usize {
         self.file_read_max_bytes.unwrap_or(8 * 1024 * 1024)
     }
