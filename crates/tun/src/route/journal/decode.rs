@@ -193,6 +193,7 @@ pub(super) fn decode(
         scoped_bypass: parts.scoped_bypass,
         path: Default::default(),
         _lease: None,
+        file_io: None,
         #[cfg(target_os = "macos")]
         source: None,
         _metadata: owner,

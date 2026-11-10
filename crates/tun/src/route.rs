@@ -4,7 +4,9 @@ use std::net::IpAddr;
 use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 
+mod file_originals;
 mod journal;
+pub use file_originals::{RouteFileFaults, RouteFileOriginals};
 mod leak;
 #[cfg(target_os = "linux")]
 mod linux;
@@ -29,8 +31,8 @@ pub struct RouteInstallRequest<'a> {
     pub captured: &'a [IpNet],
     pub excluded: &'a [IpAddr],
     /// The standard Kernel Source supplies its existing metadata Root.
-    /// Independent callers can explicitly supply None. Remaining legacy Kernel
-    /// convenience callers still need migration; None does not qualify them.
+    /// Independent callers can explicitly supply None; the retained Kernel
+    /// file provider requires the actual same-Source metadata Root.
     pub metadata: Option<&'a crate::packet_memory::PacketDriverMetadataView>,
 }
 

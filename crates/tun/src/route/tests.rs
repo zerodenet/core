@@ -102,6 +102,7 @@ fn journal(path: std::path::PathBuf) -> RouteJournal {
         scoped_bypass: false,
         path,
         _lease: None,
+        file_io: None,
         #[cfg(target_os = "macos")]
         source: None,
         _metadata: Default::default(),

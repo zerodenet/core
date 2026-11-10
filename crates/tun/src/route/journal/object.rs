@@ -27,6 +27,19 @@ impl RouteJournal {
         egress: &RouteInterface,
         gateway: Option<Gateway<'_>>,
     ) -> io::Result<Self> {
+        let mut journal =
+            Self::prepare_borrowed(&lease, tun_name, ipv6, tun_index, egress, gateway)?;
+        journal._lease = Some(lease);
+        Ok(journal)
+    }
+    pub(in crate::route) fn prepare_borrowed(
+        lease: &RouteLease,
+        tun_name: &str,
+        ipv6: bool,
+        tun_index: u32,
+        egress: &RouteInterface,
+        gateway: Option<Gateway<'_>>,
+    ) -> io::Result<Self> {
         let mut owner = metadata::Owner::new(lease.metadata());
         let tun_name = owner.string(tun_name).map_err(io::Error::other)?;
         let egress_name = owner.string(egress.name()).map_err(io::Error::other)?;
@@ -47,7 +60,8 @@ impl RouteJournal {
             path,
             #[cfg(target_os = "macos")]
             source: lease.source(),
-            _lease: Some(lease),
+            _lease: None,
+            file_io: lease.file_io.clone(),
             _metadata: owner,
             _removed_routes: 0,
             _removed_exclusions: 0,

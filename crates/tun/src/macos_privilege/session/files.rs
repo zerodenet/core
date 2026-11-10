@@ -1,6 +1,7 @@
 //! The same Source's two family lock originals, never a file-owner registry.
 use super::*;
 use std::{fs::File, mem::ManuallyDrop, os::fd::FromRawFd, path::Path};
+mod acquire;
 mod encoding;
 mod transient;
 #[derive(Default)]
@@ -24,72 +25,6 @@ impl std::fmt::Debug for MacosRouteLock {
         f.debug_struct("MacosRouteLock")
             .field("family", &self.family)
             .finish_non_exhaustive()
-    }
-}
-impl MacosHelperOwner {
-    pub(super) fn acquire_route_lock(&self, path: &Path, ipv6: bool) -> io::Result<MacosRouteLock> {
-        if self.0.stopped.load(Ordering::Acquire) {
-            return Err(io::Error::from(io::ErrorKind::Interrupted));
-        }
-        let _notifications = self.0.memory.defer_notifications();
-        let path = transient::native_path(path)?;
-        let mut files = self
-            .0
-            .files
-            .lock()
-            .unwrap_or_else(|source| source.into_inner());
-        let family = usize::from(ipv6);
-        let slot = &mut files.locks[family];
-        if slot.held
-            || slot
-                .original
-                .as_ref()
-                .is_some_and(|original| !original.closed())
-        {
-            return Err(io::Error::other(
-                "same family file original still owes its close",
-            ));
-        }
-        let serial = slot
-            .serial
-            .checked_add(1)
-            .ok_or_else(|| io::Error::other("route file original identity exhausted"))?;
-        let fd = unsafe {
-            libc::open(
-                path.value().as_ptr(),
-                libc::O_CREAT | libc::O_RDWR | libc::O_CLOEXEC,
-                0o600,
-            )
-        };
-        if fd < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        slot.original = Some(Original::new(fd, serial));
-        slot.serial = serial; // before flock
-        slot.unlock = None;
-        let borrowed = unsafe { ManuallyDrop::new(File::from_raw_fd(fd)) };
-        if let Err(source) = fs2::FileExt::try_lock_exclusive(&*borrowed) {
-            if let Err(close) = slot.original.as_mut().unwrap().close_once() {
-                self.0.failures.retain(
-                    0,
-                    if ipv6 {
-                        Phase::RouteLockAcquireV6
-                    } else {
-                        Phase::RouteLockAcquireV4
-                    },
-                    source,
-                );
-                self.0.retain_file_failure(family, close);
-                return Err(failures::retained(self.0.failures.clone().into_error()));
-            }
-            return Err(source);
-        }
-        slot.held = true;
-        Ok(MacosRouteLock {
-            owner: PacketMetadataArc::downgrade(&self.0),
-            family,
-            serial,
-        })
     }
 }
 #[derive(Clone)]
@@ -152,7 +87,7 @@ impl MacosRouteLock {
                 .get(self.family)
                 .is_some_and(|slot| {
                     slot.serial == self.serial
-                        && slot.original.as_ref().is_some_and(Original::closed)
+                        && slot.original.as_ref().is_none_or(Original::closed)
                 })
         })
     }
@@ -283,6 +218,17 @@ impl Session {
 }
 pub(crate) fn journal_lock(path: &Path, ipv6: bool) -> Option<io::Result<MacosRouteLock>> {
     current().map(|owner| owner.acquire_route_lock(path, ipv6))
+}
+/// Same current Source only; metadata cannot create or select a helper.
+pub(crate) fn has_owned_context() -> bool {
+    current().is_some()
+}
+pub(crate) fn journal_lock_retained(
+    path: &Path,
+    ipv6: bool,
+    original: &mut Option<MacosRouteLock>,
+) -> Option<io::Result<()>> {
+    current().map(|owner| owner.acquire_route_lock_retained(path, ipv6, original))
 }
 pub(crate) fn journal_read(
     path: &Path,
