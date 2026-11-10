@@ -267,9 +267,9 @@ fn cleanup_stale_routes(journal: &mut RouteJournal) -> io::Result<()> {
                 format!("parse TUN route recovery gateway: {error}"),
             )
         })?;
-    journal.cleanup(
-        |prefix| remove_route(tun_index, prefix),
-        |peer| remove_exclusion(egress_index, gateway, peer),
+    journal.cleanup_record(
+        |_, prefix| remove_route(tun_index, prefix),
+        |_, peer| remove_exclusion(egress_index, gateway, peer),
     )
 }
 
