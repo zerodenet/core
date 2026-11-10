@@ -1,5 +1,6 @@
 //! Cold ordinary Stream selection; every excluded style retains its actual owner.
 //! H2/HTTPUpgrade retain their inline connection inside the same original loan.
+mod browser;
 pub(crate) mod grpc;
 mod material;
 pub(crate) mod mux;

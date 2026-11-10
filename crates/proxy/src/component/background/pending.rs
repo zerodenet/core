@@ -108,6 +108,23 @@ impl BackgroundCarrier {
         let plan = services.components.as_ref().map_err(|source| {
             invalid(Reason::StalePlan, "protocol pending plan retired").with_source(source.clone())
         })?;
+        // A Browser control Source is an exact direct dependency of this
+        // actual owning role, rather than another physical prefix role. This
+        // observes metadata only; admission/IO still uses the sealed issuer.
+        if original.accepted().is_some() && original.binding().prefix == binding.prefix {
+            if let Some(owning) = plan
+                .component(self.instance.component)
+                .filter(|owning| owning.instance_id() == self.instance)
+            {
+                if owning.dependency_instances().contains(&original.instance())
+                    && plan
+                        .validate_protocol_original(owning.role_id(), original)
+                        .is_ok()
+                {
+                    return Ok(());
+                }
+            }
+        }
         if binding.prefix.iter().enumerate().any(|(index, role)| {
             original.binding().prefix == binding.prefix[..index]
                 && plan.validate_protocol_original(*role, original).is_ok()

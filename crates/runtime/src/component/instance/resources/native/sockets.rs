@@ -103,3 +103,6 @@ impl HostResources {
 }
 mod udp;
 pub(super) use udp::DatagramGrant;
+
+#[cfg(test)]
+mod accepted_tests;

@@ -21,12 +21,15 @@ pub use inbound::{
     PreparedVlessInboundListenerRequest, VlessInboundBindPlan, VlessInboundListenerRequest,
     VlessInboundStreamMetadata, VlessInboundTransportStreams,
 };
-pub(crate) use leaf::OwnedQuicParts;
+pub(crate) use leaf::{OwnedBrowserParts, OwnedQuicParts};
 pub use leaf::{VlessOutboundLeaf, VlessReverseBridge};
 pub use managed_udp::{VlessManagedUdpConnectorFlow, VlessManagedUdpFlowResume};
 pub use options::{
     VlessInboundOptionsRef, VlessInboundUserRef, VlessOutboundBuildOptionsRef,
     VlessOutboundOptionsRef, VlessQuicBindOptionsRef, VlessQuicClientOptionsRef,
     VlessRealityClientOptionsRef, VlessRealityServerOptionsRef, VlessXhttpDownloadOptionsRef,
+};
+pub use runtime::browser_dialer::{
+    ProviderFactory as BrowserProviderFactory, ProviderOptions as BrowserProviderOptions,
 };
 pub use runtime::VlessTransportRuntime;

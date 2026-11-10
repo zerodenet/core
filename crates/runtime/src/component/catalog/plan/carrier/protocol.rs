@@ -17,7 +17,29 @@ impl ComponentPlan {
         };
         // This contract is the installed per-call owning role, not permission
         // to retire an anonymous shared pool through a mere dependency path.
-        let slot = self.role_slot(role).ok_or_else(fail)?;
+        let owning = self.role_slot(role).ok_or_else(fail)?;
+        // Browser control sockets belong to the actual roleless provider,
+        // which is a direct canonical dependency of this owning role. This
+        // branch still requires its exact installed receiver below; a numeric
+        // dependency, listener declaration or equal Scope cannot issue it.
+        let slot = if original.accepted().is_some() && owning.instance_id() != original.instance() {
+            if !owning
+                .recipe
+                .spec()
+                .dependencies
+                .contains(&original.instance().component)
+            {
+                return Err(fail());
+            }
+            self.order
+                .iter()
+                .find(|slot| {
+                    slot.instance_id() == original.instance() && slot.recipe.spec().roles.is_empty()
+                })
+                .ok_or_else(fail)?
+        } else {
+            &owning
+        };
         if slot.instance_id() != original.instance()
             || !slot.matches_scope_identity(Some(original.scope_identity()))
         {
@@ -31,6 +53,9 @@ impl ComponentPlan {
                 (matches!(declaration, R::ControlledServiceDatagram { dial, .. } | R::ControlledCarrierPool { dial, datagram: true, .. } if dial == &original.binding().dial)
                     || cached::installed(&slot) && matches!(declaration,R::ControlledCarrierPool {dial,datagram:false,..} if dial==&original.binding().dial))
                     && slot.original_carrier_owner(ordinal).is_some_and(|actual| actual.matches_adoption(adoption) && actual.instance() == original.instance() && actual.bound().is_some_and(|bound| bound.scope_identity().same_scope(original.scope_identity())))
+            } else if let Some(accepted) = original.accepted() {
+                matches!(declaration, R::TcpListener { accepted: Some(_), .. })
+                    && slot.original_accepted_receiver(ordinal).is_some_and(|receiver| accepted.matches_receiver(&receiver))
             } else { false }
         });
         if matched {
@@ -55,6 +80,39 @@ impl ComponentPlan {
             let slot = self
                 .role_slot(*role)
                 .ok_or_else(|| invalid(Reason::StalePlan, "pending owning role changed"))?;
+            for dependency in &slot.recipe.spec().dependencies {
+                if roles[..index].iter().any(|previous| {
+                    self.role_slot(*previous).is_some_and(|previous| {
+                        previous.recipe.spec().dependencies.contains(dependency)
+                    })
+                }) {
+                    continue;
+                }
+                let Some(provider) = self.order.iter().find(|provider| {
+                    provider.instance_id().component == *dependency
+                        && provider.recipe.spec().roles.is_empty()
+                }) else {
+                    continue;
+                };
+                for (ordinal, declaration) in provider.recipe.spec().resources.iter().enumerate() {
+                    if let R::TcpListener {
+                        accepted: Some(limits),
+                        ..
+                    } = declaration
+                    {
+                        if provider.original_accepted_receiver(ordinal).is_some() {
+                            capacity = capacity.checked_add(limits.max_sockets.get()).ok_or_else(
+                                || {
+                                    invalid(
+                                        Reason::Capacity,
+                                        "pending accepted original capacity overflow",
+                                    )
+                                },
+                            )?;
+                        }
+                    }
+                }
+            }
             for declaration in &slot.recipe.spec().resources {
                 let limit = match declaration {
                     R::ControlledMetadataCarrier { max_origins, .. } => max_origins.get(),

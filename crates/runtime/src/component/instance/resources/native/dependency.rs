@@ -81,3 +81,74 @@ impl HostResources {
         )
     }
 }
+
+impl HostResources {
+    pub(super) fn registered_accepted_stream_issuer(
+        &self,
+        dependency: ComponentInstanceId,
+        source: &zero_platform_tokio::AcceptedTcpCarrierOrigin,
+        endpoint: &Destination,
+        binding: &UpstreamBinding,
+        grant: &CarrierGrant,
+    ) -> Result<CarrierDependencyLoanIssuer, ChannelError> {
+        if self.cancel.is_cancelled()
+            || self.instance != Some(grant.instance())
+            || source.instance() != dependency
+            || !source.belongs_to_root(&self.originals.carrier)
+        {
+            return Err(self.denied());
+        }
+        let donor = self
+            .dependency_slots
+            .get()
+            .into_iter()
+            .flat_map(|slots| slots.iter())
+            .filter_map(std::sync::Weak::upgrade)
+            .find(|slot| slot.instance_id() == dependency)
+            .ok_or_else(|| self.denied())?;
+        donor.check_dependency_loan_start()?;
+        if !donor.matches_scope_identity(Some(source.scope_identity())) {
+            return Err(self.denied());
+        }
+        let mut receiver = None;
+        for (ordinal, declaration) in donor.recipe.spec().resources.iter().enumerate() {
+            if !matches!(
+                declaration,
+                ResourceDeclaration::TcpListener {
+                    accepted: Some(_),
+                    ..
+                }
+            ) {
+                continue;
+            }
+            if let Some(actual) = donor
+                .original_accepted_receiver(ordinal)
+                .filter(|receiver| source.matches_receiver(receiver))
+            {
+                if receiver.is_some() {
+                    return Err(self.denied());
+                }
+                receiver = Some(actual);
+            }
+        }
+        let receiver = receiver.ok_or_else(|| self.denied())?;
+        let bound = self.carriers.registered_dependency_receiver(grant)?;
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.closed || state.start_deadline.is_some() {
+            return Err(self.denied());
+        }
+        drop(state);
+        bound.accepted_dependency_stream_loan_issuer(
+            self.carriers.host_fence()?,
+            grant,
+            source,
+            receiver,
+            &self.originals.carrier,
+            endpoint,
+            binding,
+        )
+    }
+}

@@ -473,3 +473,6 @@ impl ProtocolRelayTwoStreamUdpFlowLeaf for VlessOutboundLeaf {
         VlessOutboundLeaf::relay_two_stream_udp_resume(self)
     }
 }
+
+mod owned_browser;
+pub(crate) use owned_browser::OwnedBrowserParts;

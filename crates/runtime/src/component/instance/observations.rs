@@ -76,3 +76,27 @@ impl ComponentSlot {
             .original_metadata_owner(ordinal)
     }
 }
+
+impl ComponentSlot {
+    /// Observe the exact installed Accepted Source declaration. The weak
+    /// receiver grants no accept, task registration, IO, return or Scope ACK.
+    pub fn original_accepted_receiver(
+        &self,
+        ordinal: usize,
+    ) -> Option<zero_platform_tokio::AcceptedTcpTaskReceiver> {
+        let zero_platform_tokio::contract::component::ResourceDeclaration::TcpListener {
+            destination,
+            accepted: Some(_),
+            ..
+        } = self.recipe.spec().resources.get(ordinal)?
+        else {
+            return None;
+        };
+        self.live
+            .get()?
+            .as_ref()
+            .ok()?
+            .resources
+            .original_accepted_receiver(destination)
+    }
+}

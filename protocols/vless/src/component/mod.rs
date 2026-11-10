@@ -1,4 +1,5 @@
 //! Protocol-owned ordinary VLESS Stream roles over a constrained real carrier.
+pub mod browser;
 mod carrier;
 mod connect;
 mod datagram;

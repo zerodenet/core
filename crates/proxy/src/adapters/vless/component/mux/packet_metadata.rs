@@ -17,6 +17,9 @@ pub(crate) fn declare_packet_path(
         Options::Grpc(options) => options.packet_path_metadata(),
         Options::Quic(options) => options.inner.packet_path_metadata(),
         Options::Xhttp(options) => options.inner.packet_path_metadata(),
+        // Browser has no accepted relay-prefix executor. Preserve that actual
+        // library grammar; the Datagram role alone cannot create Associated.
+        Options::Browser(options) => (options.inner.endpoint().clone(), false),
     };
     let description = Factory.describe(options);
     // The old whole VLESS packet path supported Base and Associated. A missing

@@ -292,6 +292,7 @@ impl ComponentPlan {
                     |(ordinal, _)| match origin.owner() {
                         // A software original can match only the exact source
                         // installed above, never a declared native provider.
+                        zero_platform_tokio::controlled_carrier::CarrierOriginOwner::Accepted(actual) => slot.original_accepted_receiver(ordinal).is_some_and(|receiver| actual.matches_receiver(&receiver)),
                         zero_platform_tokio::controlled_carrier::CarrierOriginOwner::LogicalPacket(_) => false,
                         zero_platform_tokio::controlled_carrier::CarrierOriginOwner::Packet(
                             actual,

@@ -25,6 +25,7 @@ pub(crate) enum Options {
     Grpc(Arc<::vless::component::grpc::StreamOptions>),
     Quic(Arc<super::quic::Options>),
     Xhttp(Arc<super::xhttp::Options>),
+    Browser(Arc<super::browser::Options>),
 }
 impl Options {
     pub(crate) fn bind_node_dns(&mut self, dependency: zero_core::component::ComponentId) {
@@ -49,6 +50,7 @@ impl ComponentFactory for Factory {
             Options::Grpc(options) => ::vless::component::grpc::StreamFactory.describe(options),
             Options::Quic(options) => super::quic::Factory.describe(options),
             Options::Xhttp(options) => super::xhttp::Factory.describe(options),
+            Options::Browser(options) => super::browser::Factory.describe(options),
         }
     }
     fn build(
@@ -69,6 +71,7 @@ impl ComponentFactory for Factory {
             }
             Options::Quic(options) => super::quic::Factory.build(options.clone(), context),
             Options::Xhttp(options) => super::xhttp::Factory.build(options.clone(), context),
+            Options::Browser(options) => super::browser::Factory.build(options.clone(), context),
         }
     }
 }
@@ -97,6 +100,7 @@ pub(crate) fn eligible(input: &OutboundConfig) -> bool {
         || grpc_eligible(input)
         || super::quic::eligible(input)
         || super::xhttp::eligible(input)
+        || super::browser::eligible(input)
     {
         return true;
     }
@@ -161,6 +165,9 @@ impl VlessAdapter {
         limit: NonZeroUsize,
         stream_only: bool,
     ) -> Result<Options, RegistrationError> {
+        if super::browser::eligible(input) {
+            return self.browser_options(input, resources, factory.network.clone());
+        }
         if super::xhttp::eligible(input) {
             return self.xhttp_options(input, resources, factory.network.clone());
         }
