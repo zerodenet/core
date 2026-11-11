@@ -16,13 +16,13 @@ use zero_platform_tokio::contract::{
     },
     ChannelError, DeliveryState, Reason, Stage,
 };
-mod business;
 mod carrier;
 mod datagram;
 mod error;
 pub mod inbound;
 pub mod listener;
 mod options;
+mod owned;
 mod owner;
 mod socket;
 pub use options::Options;
@@ -124,11 +124,10 @@ impl StreamOutbound for Outbound {
                         )
                         .with_source(source)
                 })?;
-        if session.is_some()
-            && self.carriers.is_some()
-            && context.upstream.has_tracked_business_caller()
+        if self.carriers.is_some()
+            && (session.is_none() || context.upstream.has_tracked_business_caller())
         {
-            return self.connect_business(request, context, session).await;
+            return self.connect_owned(request, context, session).await;
         }
         let carrier = CarrierContext {
             session,

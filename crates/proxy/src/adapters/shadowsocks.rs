@@ -16,13 +16,12 @@ mod inbound_component;
 #[cfg(feature = "shadowsocks")]
 mod tcp;
 #[cfg(feature = "shadowsocks")]
-mod tcp_owned;
-#[cfg(feature = "shadowsocks")]
 pub(crate) mod udp;
 
 #[cfg(feature = "shadowsocks")]
 #[derive(Debug)]
 pub(crate) struct ShadowsocksAdapter {
+    pub(crate) native_host: bool,
     inbound_profiles: ShadowsocksInboundProfileStore,
     outbound_state: ::shadowsocks::transport::ShadowsocksTransportState,
 }
@@ -39,6 +38,7 @@ impl Default for ShadowsocksAdapter {
         let bloom = ::shadowsocks::shared::LegacyReplayBudget::new(Some(64 * 1024 * 1024))
             .expect("positive legacy Bloom bitmap byte policy");
         Self {
+            native_host: false,
             inbound_profiles: ShadowsocksInboundProfileStore::with_security_budgets(
                 budget.clone(),
                 udp.clone(),
@@ -187,10 +187,39 @@ impl ShadowsocksAdapter {
         &self,
         input: OutboundLeafInput<'a>,
     ) -> Option<OutboundLeafClaim<'a>> {
-        let OutboundLeafInput::Proxy { outbound, .. } = input else {
+        let OutboundLeafInput::Proxy {
+            config, outbound, ..
+        } = input
+        else {
             return None;
         };
+        // Plugins keep their explicit process compatibility responsibility.
+        // Native core TCP and UDP already share this adapter's real replay and
+        // association owners; do not expose another ordinary UDP executor.
+        let standard = self.native_host
+            && matches!(
+                &outbound.protocol,
+                OutboundProtocolConfig::Shadowsocks { plugin: None, .. }
+            )
+            && !crate::adapters::mux_prefix::used_by_relay(config, outbound.tag());
+        if standard && !crate::adapters::mux_prefix::used_by_outer_udp(config, outbound.tag()) {
+            return None;
+        }
         let leaf = transport_leaf(&self.outbound_state, outbound.tag(), &outbound.protocol)?;
+        if standard {
+            return self
+                .udp_packet_path_operation(leaf)
+                .map(|packet_path| OutboundLeafClaim {
+                    tcp_path: TcpPathCategory::Session,
+                    tcp: None,
+                    tcp_relay: None,
+                    udp: None,
+                    udp_relay: None,
+                    #[cfg(feature = "raw-ip-runtime")]
+                    packet: None,
+                    packet_path: Some(packet_path),
+                });
+        }
         let tcp = std::sync::Arc::new(
             crate::runtime::tcp_dispatch::operation::SocketTcpOperation {
                 handshake: leaf.clone(),
@@ -198,20 +227,14 @@ impl ShadowsocksAdapter {
         );
         Some(OutboundLeafClaim {
             tcp_path: TcpPathCategory::Session,
-            tcp: Some(Ok(if component::native_input(outbound) {
-                std::sync::Arc::new(tcp_owned::Connect {
-                    tag: leaf.tag().into(),
-                    server: leaf.server().into(),
-                    port: leaf.port(),
-                })
+            // Native roots are selected from the actual installed role; only
+            // unqualified plugin paths retain the compatibility connector.
+            tcp: (!component::native_input(outbound)).then(|| {
+                Ok(tcp.clone()
                     as std::sync::Arc<
                         dyn crate::runtime::tcp_dispatch::operation::PreparedTcpConnectOperation,
-                    >
-            } else {
-                // Targets lacking a concrete whole-process provider retain the
-                // existing caller; a failed migrated role never falls back here.
-                tcp.clone()
-            })),
+                    >)
+            }),
             tcp_relay: Some(Ok(tcp)),
             udp: Some(self.udp_flow_operation(leaf.clone())),
             udp_relay: None,

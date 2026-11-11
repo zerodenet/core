@@ -1,9 +1,8 @@
 //! Shared cold qualification of an actual root MUX used by a gRPC relay.
-use zero_config::{OutboundConfig, RuntimeConfig};
 #[cfg(feature = "vmess")]
-use zero_config::{OutboundGroupKind, OutboundProtocolConfig};
-#[cfg(feature = "vmess")]
-fn contains(config: &RuntimeConfig, name: &str, tag: &str, depth: usize) -> bool {
+use zero_config::OutboundProtocolConfig;
+use zero_config::{OutboundConfig, OutboundGroupKind, RuntimeConfig};
+pub(crate) fn contains(config: &RuntimeConfig, name: &str, tag: &str, depth: usize) -> bool {
     name == tag
         || (depth <= config.outbound_groups.len()
             && config
@@ -17,6 +16,26 @@ fn contains(config: &RuntimeConfig, name: &str, tag: &str, depth: usize) -> bool
                         .iter()
                         .any(|child| contains(config, child, tag, depth + 1))
                 }))
+}
+/// All relay aliases matter, including currently unselected choices. A
+/// stateless role used by an unmigrated persistent consumer must still retain
+/// its existing inline executor until that consumer can transfer the prefix.
+pub(crate) fn used_by_relay(config: &RuntimeConfig, tag: &str) -> bool {
+    config.outbound_groups.iter().any(|group| {
+        matches!(&group.group, OutboundGroupKind::Relay { proxies }
+            if proxies.iter().any(|name| contains(config, name, tag, 0)))
+    })
+}
+/// Device consumers still need their cold packet-format projection. Qualified
+/// Sources consume only those facts through their actual host; the executable
+/// legacy outer-UDP edge remains TEMP-WG-OUTER-UDP-01. This graph fact grants
+/// neither a legacy fallback nor evidence of native closure.
+pub(crate) fn used_by_outer_udp(config: &RuntimeConfig, tag: &str) -> bool {
+    config.outbounds.iter().any(|node| {
+        matches!(&node.protocol, zero_config::OutboundProtocolConfig::Wireguard {
+            outer_udp_proxy: Some(target), ..
+        } if contains(config, target, tag, 0))
+    })
 }
 pub(crate) fn qualified(
     input: &OutboundConfig,
@@ -102,3 +121,7 @@ pub(crate) fn qualified(
         true
     }
 }
+
+#[cfg(test)]
+#[path = "mux_prefix/tests.rs"]
+mod tests;

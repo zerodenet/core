@@ -12,6 +12,8 @@ use super::super::ProxyHandle;
 use super::runtime::with_current_runtime;
 
 mod target;
+#[cfg(test)]
+mod tests;
 pub(super) use target::execute_diagnostics_probe_target;
 
 fn probe_target_endpoint(
@@ -43,19 +45,15 @@ fn probe_target_endpoint(
     let Some(leaf) = leaf else {
         return Ok(None);
     };
-    let runtime = proxy
+    proxy
         .protocols
-        .claim_outbound_leaf(snapshot.config().as_ref(), leaf.clone())
+        .outbound_endpoint(snapshot, leaf)
         .map_err(|error| {
             zero_api::ApiError::new(
                 zero_api::ApiErrorCode::InvalidArgument,
-                format!("failed to claim probe target `{target_tag}`: {error}"),
+                format!("failed to inspect probe target `{target_tag}`: {error}"),
             )
-        })?
-        .runtime();
-    Ok(runtime
-        .endpoint
-        .map(|endpoint| (endpoint.server, endpoint.port)))
+        })
 }
 
 fn ip_address_string(address: IpAddress) -> String {

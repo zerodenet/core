@@ -4,10 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, SyncSender, TryRecvError, TrySendError};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
@@ -87,48 +84,10 @@ impl PrincipalQuotaStateReport {
 }
 
 #[derive(Debug)]
-enum PersistenceMessage {
-    Dirty,
-    Shutdown,
-}
-
 struct QuotaPersistence {
     storage: OwnedQuotaStorage,
     source: Arc<ConfigurationSource>,
-    sender: SyncSender<PersistenceMessage>,
-    worker: Arc<Mutex<Worker>>,
-    last_error: Arc<Mutex<Option<Arc<io::Error>>>>,
 }
-struct Worker {
-    original: Option<JoinHandle<io::Result<()>>>,
-    joined: Option<Result<(), Arc<io::Error>>>,
-}
-impl std::fmt::Debug for QuotaPersistence {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fmt.debug_struct("QuotaPersistence")
-            .field("storage", &self.storage)
-            .finish_non_exhaustive()
-    }
-}
-struct WorkerPanic(Mutex<Box<dyn std::any::Any + Send>>);
-impl std::fmt::Debug for WorkerPanic {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fmt.debug_struct("QuotaWorkerPanic").finish_non_exhaustive()
-    }
-}
-impl std::fmt::Display for WorkerPanic {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let payload = self.0.lock().unwrap_or_else(|error| error.into_inner());
-        if let Some(message) = payload.downcast_ref::<String>() {
-            write!(fmt, "quota worker panicked: {message}")
-        } else if let Some(message) = payload.downcast_ref::<&str>() {
-            write!(fmt, "quota worker panicked: {message}")
-        } else {
-            fmt.write_str("quota worker panicked (original payload retained)")
-        }
-    }
-}
-impl std::error::Error for WorkerPanic {}
 #[derive(Debug)]
 struct CleanupFailure {
     work: io::Error,
@@ -155,22 +114,6 @@ fn finish_cleanup<T>(work: io::Result<T>, cleanup: io::Result<()>) -> io::Result
         (Err(work), Err(cleanup)) => Err(io::Error::other(CleanupFailure { work, cleanup })),
     }
 }
-#[derive(Debug)]
-struct RetainedQuotaError(Arc<io::Error>);
-impl std::fmt::Display for RetainedQuotaError {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(fmt)
-    }
-}
-impl std::error::Error for RetainedQuotaError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(self.0.as_ref())
-    }
-}
-fn retained(error: &Arc<io::Error>) -> io::Error {
-    io::Error::new(error.kind(), RetainedQuotaError(error.clone()))
-}
-
 #[derive(Debug)]
 pub(crate) struct PrincipalQuotaRegistry {
     inner: BookOwner,
@@ -238,7 +181,7 @@ impl PrincipalQuotaRegistry {
     pub(crate) fn shutdown(&self) -> io::Result<()> {
         self.shutdown_received(true)
     }
-    fn shutdown_received(&self, reported: bool) -> io::Result<()> {
+    fn fence_shutdown(&self) -> io::Result<()> {
         let book = self.inner.lock().unwrap_or_else(|error| error.into_inner());
         self.stopping.store(true, Ordering::Release);
         if book.states.values().any(|state| state.references != 0) {
@@ -247,10 +190,22 @@ impl PrincipalQuotaRegistry {
                 "principal quota registrations are still active",
             ));
         }
-        drop(book);
+        Ok(())
+    }
+
+    fn shutdown_received(&self, reported: bool) -> io::Result<()> {
+        self.fence_shutdown()?;
         self.persistence
             .as_ref()
             .map_or(Ok(()), |owner| owner.shutdown(reported))
+    }
+
+    pub(crate) async fn shutdown_async(&self) -> io::Result<()> {
+        self.fence_shutdown()?;
+        match &self.persistence {
+            Some(owner) => owner.storage.shutdown_writer_async().await,
+            None => Ok(()),
+        }
     }
 
     pub(crate) fn retirement_complete(&self) -> bool {
@@ -266,13 +221,7 @@ impl PrincipalQuotaRegistry {
             return false;
         }
         self.persistence.as_ref().is_none_or(|owner| {
-            let worker = owner
-                .worker
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            let joined = worker.original.is_none() && worker.joined.is_some();
-            drop(worker);
-            joined
+            owner.storage.writer_retirement_complete()
                 && owner.source.confirm_quota_storage_closed().is_ok()
                 && owner.source.confirm_original_io_closed().is_ok()
         })
@@ -441,14 +390,9 @@ impl PrincipalQuotaRegistry {
     }
 
     fn persistence_error(&self) -> Option<String> {
-        self.persistence.as_ref().and_then(|persistence| {
-            persistence
-                .last_error
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .as_ref()
-                .map(ToString::to_string)
-        })
+        self.persistence
+            .as_ref()
+            .and_then(|owner| owner.storage.writer_error().map(|error| error.to_string()))
     }
 }
 
@@ -520,112 +464,39 @@ impl QuotaPersistence {
         source: Arc<ConfigurationSource>,
         book: BookOwner,
     ) -> io::Result<Self> {
-        let (sender, receiver) = mpsc::sync_channel(1);
-        let last_error = Arc::new(Mutex::new(None));
-        let worker_error = last_error.clone();
-        let worker_storage = storage.clone();
-        let worker = std::thread::Builder::new().name("zero-quota-state".to_owned()).spawn(move || {
-            while let Ok(message) = receiver.recv() {
-                let mut shutdown = matches!(message, PersistenceMessage::Shutdown);
-                if !shutdown {
-                    std::thread::sleep(Duration::from_millis(50));
-                    loop {
-                        match receiver.try_recv() {
-                            Ok(PersistenceMessage::Dirty) => {}
-                            Ok(PersistenceMessage::Shutdown) => shutdown = true,
-                            Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
-                        }
-                    }
-                }
-                let result = snapshot::encode(&book)
-                    .and_then(|frame| worker_storage.replace(&frame.bytes));
-                match result {
-                    Ok(()) => *worker_error.lock().unwrap_or_else(|error| error.into_inner()) = None,
-                    Err(error) => {
-                        let error = Arc::new(error);
-                        error!(path = %worker_storage.path().display(), %error, "failed to persist principal quota state");
-                        *worker_error.lock().unwrap_or_else(|error| error.into_inner()) = Some(error.clone());
-                        if shutdown { return Err(retained(&error)); }
-                    }
-                }
-                if shutdown { break; }
-            }
-            Ok(())
+        let original = storage.downgrade();
+        // Retain the one accounting book for the final accepted flush. It owns
+        // only domain memory; the callback has no strong Source/IO/Scope edge.
+        storage.prepare_writer(move || {
+            let storage = original.upgrade().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotConnected, "quota storage retired")
+            })?;
+            snapshot::encode(&book).and_then(|frame| storage.replace(&frame.bytes))
         })?;
-        let owner = Self {
-            storage,
-            source,
-            sender,
-            worker: Arc::new(Mutex::new(Worker {
-                original: Some(worker),
-                joined: None,
-            })),
-            last_error,
-        };
-        // The channel cannot request any persistence work before this owner
-        // returns. Install its actual std handle before even a logger callback.
+        let owner = Self { storage, source };
         info!(path = %owner.storage.path().display(), "principal quota recovery enabled");
         Ok(owner)
     }
     fn mark_dirty(&self) {
-        mark_sender_dirty(Some(&self.sender));
+        if let Err(error) = self.storage.mark_writer_dirty() {
+            error!(%error, "quota writer could not accept dirty state");
+        }
     }
     fn shutdown(&self, reported: bool) -> io::Result<()> {
-        let mut state = self
-            .worker
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        if state.joined.is_none() {
-            // Only this actual owner can consume the original std thread.
-            let _ = self.sender.send(PersistenceMessage::Shutdown);
-            let joined = state
-                .original
-                .take()
-                .expect("quota original worker is retained until joined")
-                .join();
-            state.joined = Some(match joined {
-                Ok(result) => result.map_err(Arc::new),
-                Err(payload) => Err(Arc::new(io::Error::other(WorkerPanic(Mutex::new(payload))))),
-            });
-        }
-        let joined = state
-            .joined
-            .as_ref()
-            .expect("actual worker joined")
-            .as_ref()
-            .map(|_| ())
-            .map_err(retained);
-        // This same actual joined result has a concrete Source receiver even
-        // when the last registration, rather than a live Registry, drops us.
-        // The diagnostic handoff is neither a worker join nor a native receipt.
-        let handoff = match state.joined.as_ref().expect("actual worker joined") {
-            Ok(()) => Ok(()),
-            Err(original) => self
-                .storage
-                .receive_worker_failure(original.clone(), reported),
-        };
-        // Even a failed worker has exited; its original native lease can now
-        // close. Keep both the typed worker result and matching close failure.
-        let cleanup = self.storage.close_lease();
-        if cleanup.is_err() {
+        let result = self.storage.shutdown_writer(reported);
+        if !reported && result.is_err() && !self.storage.writer_retirement_complete() {
             self.source.retain_quota_cleanup();
         }
-        finish_cleanup(finish_cleanup(joined, handoff), cleanup)
+        result
     }
 }
 impl Drop for QuotaPersistence {
     fn drop(&mut self) {
         if let Err(error) = self.shutdown(false) {
-            error!(%error, "quota fallback cleanup failed");
+            if error.kind() != io::ErrorKind::WouldBlock {
+                error!(%error, "quota fallback cleanup failed");
+            }
         }
-    }
-}
-
-fn mark_sender_dirty(sender: Option<&SyncSender<PersistenceMessage>>) {
-    let Some(sender) = sender else { return };
-    match sender.try_send(PersistenceMessage::Dirty) {
-        Ok(()) | Err(TrySendError::Full(_)) => {}
-        Err(TrySendError::Disconnected(_)) => {}
     }
 }
 

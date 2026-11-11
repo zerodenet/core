@@ -88,7 +88,8 @@ impl PrefixOpener {
             let slot = self
                 .datagram_slot
                 .as_ref()
-                .ok_or_else(|| self.interrupted(&carrier, Reason::Unsupported))?;
+                .ok_or_else(|| self.interrupted(&carrier, Reason::Unsupported))?
+                .slot()?;
             if binding.prefix.last() != Some(&slot.role_id()) {
                 return Err(self.interrupted(&carrier, Reason::StalePlan));
             }

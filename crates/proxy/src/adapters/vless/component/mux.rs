@@ -109,6 +109,7 @@ pub(crate) fn eligible(input: &OutboundConfig) -> bool {
         mux_concurrency,
         xudp_concurrency,
         flow,
+        encryption,
         ..
     } = &mut ordinary.protocol
     else {
@@ -118,7 +119,8 @@ pub(crate) fn eligible(input: &OutboundConfig) -> bool {
     if xudp_concurrency.take().is_some_and(|x| Some(x) != mux) {
         return false;
     }
-    if mux.is_none() || flow.is_some() {
+    if mux.is_none() || flow.is_some() || encryption.as_deref().is_some_and(|value| value != "none")
+    {
         return false;
     }
     super::owned_input(&ordinary)

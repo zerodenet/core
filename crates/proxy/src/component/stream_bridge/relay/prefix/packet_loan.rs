@@ -91,12 +91,16 @@ impl PrefixOpener {
             error.delivery = DeliveryState::NotSubmitted;
             return Err(error);
         }
-        let slot = self.datagram_slot.as_ref().ok_or_else(|| {
-            invalid(
-                Reason::Unsupported,
-                "selected role has no controlled Datagram borrowing capability",
-            )
-        })?;
+        let slot = self
+            .datagram_slot
+            .as_ref()
+            .ok_or_else(|| {
+                invalid(
+                    Reason::Unsupported,
+                    "selected role has no controlled Datagram borrowing capability",
+                )
+            })?
+            .slot()?;
         let deadline = call
             .deadline
             .unwrap_or_else(|| tokio::time::Instant::now() + std::time::Duration::from_secs(5));

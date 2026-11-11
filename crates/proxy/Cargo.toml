@@ -140,6 +140,7 @@ zero-stack = { path = "../stack" }
 zero-transport = { path = "../transport" }
 
 [dev-dependencies]
+zero-platform-tokio = { path = "../platform/tokio", features = ["test-support"] }
 zero-router = { path = "../router" }
 zero-runtime = { path = "../runtime", features = ["test-support"] }
 bytes = "1"

@@ -218,6 +218,8 @@ mod direct_budgets;
 mod source_limits;
 
 #[cfg(all(feature = "vless", feature = "hysteria2"))]
+mod inbound_receipts;
+#[cfg(all(feature = "vless", feature = "hysteria2"))]
 mod inbound_targets;
 
 #[cfg(all(feature = "wireguard", feature = "udp-runtime"))]

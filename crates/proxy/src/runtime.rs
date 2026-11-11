@@ -199,6 +199,9 @@ impl Proxy {
         preparation::install_dns_wire(&protocols, &node_network, &config.runtime)?;
         engine
             .configuration_source()
+            .adopt_quota_memory(&protocols.runtime_host().original_budgets())?;
+        engine
+            .configuration_source()
             .bind_persistence_budget(&protocols.runtime_host().control_budget())?;
         protocols.validate_config(&config)?;
         protocols.validate_dial_environment(&config)?;
@@ -505,9 +508,23 @@ impl Proxy {
     where
         F: Future<Output = ()> + Send,
     {
-        orchestration::run_until(self, shutdown)
-            .await
-            .map_err(inbound_owners::preserve_io_kind)
+        // Erase only the existing orchestration future. Keep downstream Send
+        // proofs from expanding its generic shutdown graph through Source's
+        // inline driver; execution still uses the same original owner.
+        let operation: zero_platform_tokio::contract::BoxFuture<'_, Result<(), EngineError>> =
+            Box::pin(orchestration::run_until(self, async {
+                tokio::select! {
+                    _ = shutdown => {},
+                    _ = self.engine.configuration_source().wait_quota_writer_failure() => {},
+                }
+            }));
+        let driven: zero_platform_tokio::contract::BoxFuture<'_, Result<(), EngineError>> =
+            Box::pin(
+                self.engine
+                    .configuration_source()
+                    .drive_quota_writer(operation),
+            );
+        driven.await.map_err(inbound_owners::preserve_io_kind)
     }
 
     pub async fn probe_outbound_single(

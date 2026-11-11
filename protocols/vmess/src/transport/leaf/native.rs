@@ -96,7 +96,8 @@ impl VmessOutboundLeaf {
             context.upstream.observed_pending_carrier(),
         ));
         let leaf = self.clone();
-        self.mux_pool
+        let mut opened = self
+            .mux_pool
             .open_native_udp(key, concurrency, binding, call, move |raw| async move {
                 let io = zero_transport::TcpRelayStream::new(
                     zero_transport::pooled_driver::ExclusiveIo::new(raw),
@@ -105,6 +106,9 @@ impl VmessOutboundLeaf {
                     .open_native_mux_carrier(io, leaf.mux_pool.native_instance()?)
                     .await
             })
-            .await
+            .await?;
+        opened.io.observer = context.observer.clone();
+        opened.io.session = context.session_identity().map_err(std::io::Error::other)?;
+        Ok(opened)
     }
 }

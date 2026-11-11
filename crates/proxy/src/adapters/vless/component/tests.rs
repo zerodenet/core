@@ -182,3 +182,43 @@ fn ordinary_mux_prefix_registration_requires_qualified_root_and_complete_protoco
 #[cfg(feature = "socks5")]
 #[path = "tests/material.rs"]
 mod material;
+
+#[test]
+fn ordinary_encryption_uses_standard_roles_without_promoting_unmigrated_pool_profiles() {
+    use base64::Engine;
+    let server = ::vless::encryption::EncryptionServer::new(
+        ::vless::encryption::config::EncryptionConfig::server(&format!(
+            "mlkem768x25519plus.native.600s.100-35-35.{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([7; 32]),
+        ))
+        .unwrap()
+        .unwrap(),
+    )
+    .unwrap();
+    let profile = format!(
+        "mlkem768x25519plus.native.0rtt.100-35-35.{}",
+        server
+            .public_keys()
+            .iter()
+            .map(|key| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(key))
+            .collect::<Vec<_>>()
+            .join("."),
+    );
+    let ordinary = input(&format!(
+        ", \"encryption\":{}",
+        serde_json::to_string(&profile).unwrap()
+    ));
+    assert!(native_input(&ordinary));
+    assert!(component_options(&ordinary).is_ok());
+    for extra in [
+        r#", "grpc":{"service_names":["native/Tun"]}"#,
+        r#", "mux_concurrency":2,"xudp_concurrency":2"#,
+    ] {
+        let pooled = input(&format!(
+            ", \"encryption\":{}{extra}",
+            serde_json::to_string(&profile).unwrap()
+        ));
+        assert!(!grpc::eligible(&pooled));
+        assert!(!mux::eligible(&pooled));
+    }
+}

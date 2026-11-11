@@ -46,12 +46,25 @@ impl Write for Fixed<'_> {
 }
 pub(super) fn encoded_row_bound(key: &QuotaKey) -> io::Result<usize> {
     #[derive(Serialize)]
-    struct Borrowed<'a> { key: &'a QuotaKey, remaining_bytes: u64 }
+    struct Borrowed<'a> {
+        key: &'a QuotaKey,
+        remaining_bytes: u64,
+    }
     // Existing key/revision/initial fields never change in this row. Only the
     // remaining scalar changes; u64::MAX gives its exact largest digit count.
     let mut count = Count(0);
-    serde_json::to_writer(&mut count, &Borrowed { key, remaining_bytes: u64::MAX }).map_err(io::Error::other)?;
-    count.0.checked_add(1).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "quota row envelope overflow"))
+    serde_json::to_writer(
+        &mut count,
+        &Borrowed {
+            key,
+            remaining_bytes: u64::MAX,
+        },
+    )
+    .map_err(io::Error::other)?;
+    count
+        .0
+        .checked_add(1)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "quota row envelope overflow"))
 }
 pub(super) fn encode(book: &BookOwner) -> io::Result<Frame> {
     // The promise is declared before data for every allocation/error path.

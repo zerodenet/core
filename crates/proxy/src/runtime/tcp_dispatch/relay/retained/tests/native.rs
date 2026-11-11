@@ -20,7 +20,8 @@ fn prefix(proxy: &Proxy) -> PreparedTcpRelayPrefix {
         .unwrap()
         .configured("first")
         .unwrap();
-    prefix.first.execution = PreparedTcpCandidateExecution::Native(slot);
+    prefix.first.execution =
+        PreparedTcpCandidateExecution::Native(crate::inventory::StreamRoleRef::new(&slot));
     // A service Stream prefix deliberately has no Datagram grant. This does
     // not qualify or change the production legacy associated-UDP preparation.
     #[cfg(feature = "udp-runtime")]

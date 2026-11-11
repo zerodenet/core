@@ -89,7 +89,14 @@ fn failed_contending_lease_closes_its_actual_original_and_keeps_snapshot_loading
         second.open_quota_storage(&path).unwrap_err().kind(),
         io::ErrorKind::WouldBlock
     );
-    let rejected = second.quota.0.lock().unwrap().as_ref().unwrap().clone();
+    let rejected = second
+        .quota
+        .current
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .clone();
     let lease = rejected.lease.lock().unwrap();
     assert!(lease
         .original
@@ -106,6 +113,20 @@ fn failed_contending_lease_closes_its_actual_original_and_keeps_snapshot_loading
 
 #[test]
 fn interrupted_quota_operation_retains_the_same_native_lease_and_fences_new_preparation() {
+    const CHILD: &str = "ZERO_QUOTA_UNKNOWN_ORIGINAL_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        // Unknown intentionally fences every Source in this process. Keep the
+        // actual panic/retirement assertions isolated from healthy parallel
+        // kernels rather than weakening the production fence or its fixture.
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg(std::thread::current().name().unwrap())
+            .args(["--exact", "--test-threads=1"])
+            .env(CHILD, "1")
+            .status()
+            .unwrap();
+        assert!(result.success());
+        return;
+    }
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("quota.json");
     let source = Arc::new(ConfigurationSource::default());

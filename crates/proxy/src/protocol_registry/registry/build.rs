@@ -65,7 +65,7 @@ impl ProtocolRegistry {
         #[cfg(not(feature = "udp-runtime"))]
         let _ = (pure_datagram_formatter, pure_packet_carrier);
         assert!(
-            self.inbounds.has_factory(adapter.name()),
+            !adapter.has_inbound() || self.inbounds.has_factory(adapter.name()),
             "standard inbound requires its actual component factory"
         );
         self.push_registered_entry(super::RegisteredProtocolEntry {

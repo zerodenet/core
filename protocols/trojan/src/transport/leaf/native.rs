@@ -95,7 +95,8 @@ impl TrojanOutboundLeaf {
             context.upstream.observed_pending_carrier(),
         ));
         let leaf = self.clone();
-        self.mux_pool
+        let mut opened = self
+            .mux_pool
             .open_native_udp(key, concurrency, binding, call, move |raw| async move {
                 let io = zero_transport::TcpRelayStream::new(
                     zero_transport::pooled_driver::ExclusiveIo::new(raw),
@@ -104,6 +105,9 @@ impl TrojanOutboundLeaf {
                     .open_owned_relay_with_profile(io, leaf.protocol.owned_tls_profile())
                     .await
             })
-            .await
+            .await?;
+        opened.io.observer = context.observer.clone();
+        opened.io.session = context.session_identity().map_err(std::io::Error::other)?;
+        Ok(opened)
     }
 }

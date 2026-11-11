@@ -19,8 +19,9 @@ pub(crate) fn eligible(input: &OutboundConfig) -> bool {
             mux_concurrency: None,
             xudp_concurrency: None,
             grpc: Some(_),
+            encryption,
             ..
-        }
+        } if encryption.as_deref().is_none_or(|value| value == "none")
     ) {
         return false;
     }

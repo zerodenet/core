@@ -313,6 +313,15 @@ impl Engine {
         self.principal_quotas.shutdown()
     }
 
+    /// Hosted persistence progresses and acknowledges its actual blocking task.
+    pub fn shutdown_principal_quota_state_async(
+        &self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::io::Result<()>> + Send + '_>> {
+        // Qualify Send in the owning crate once. Proxy/application futures
+        // retain a pointer rather than exporting the entire writer state.
+        Box::pin(self.principal_quotas.shutdown_async())
+    }
+
     /// Actual registration return, persistence worker join and original-file
     /// closure, independent of a retained terminal persistence failure.
     pub fn principal_quota_retirement_complete(&self) -> bool {

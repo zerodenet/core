@@ -1,5 +1,6 @@
 //! The whole ordinary Source cap set, not scalar counters or a new executor.
-use super::inbound_work_limits::{closed, owner, socks};
+use super::inbound_receipts::{closed, owner};
+use super::inbound_work_limits::socks;
 use crate::{Proxy, ProxyHandle};
 use std::{
     future::{poll_fn, Future},

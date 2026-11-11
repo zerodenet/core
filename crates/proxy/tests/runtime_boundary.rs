@@ -2434,7 +2434,6 @@ fn inventory_udp_dispatch_keeps_relay_choreography_outside_candidate_root() {
     assert!(!dispatch.contains("dispatch_tcp_relay_prefix"));
     assert!(!dispatch.contains("prepare_udp_packet_path_pair"));
     assert!(!dispatch.contains("prepare_udp_leaf_candidate("));
-    assert!(!dispatch.contains("prepare_udp_relay_chain("));
     assert!(!dispatch.contains("UdpPacketRef"));
     assert!(!dispatch.contains("ResolvedLeafOutbound"));
     assert!(!dispatch.contains("enum UdpCandidate"));
@@ -2463,7 +2462,6 @@ fn inventory_tcp_dispatch_selects_standard_nodes_without_a_whole_chain_claim() {
     assert!(!selection.contains(".await"));
     assert!(!selection.contains(".execute("));
     assert!(!selection.contains("&Proxy"));
-    assert!(!dispatch.contains("ResolvedLeafOutbound"));
     assert!(!dispatch.contains(".outbound_leaf_runtime("));
 }
 
@@ -2542,7 +2540,6 @@ fn inventory_udp_relay_prepares_continuation_without_opening_carriers() {
     let relay = read(&proxy_src().join("inventory/udp/relay.rs"));
     assert!(relay.contains("PreparedUdpRelayChain::FinalHop"));
     assert!(relay.contains("PreparedUdpRelayChain::TwoStream"));
-    assert!(relay.contains("prepare_claimed_udp_relay_chain<'a>("));
     assert!(relay.contains("final_hop.into_udp_relay()"));
     assert!(!relay.contains("dispatch_prepared_tcp_relay_carrier("));
     assert!(!relay.contains(".await"));
@@ -2550,29 +2547,30 @@ fn inventory_udp_relay_prepares_continuation_without_opening_carriers() {
 }
 
 #[test]
-fn inventory_relay_modules_only_prepare_claimed_chains() {
-    for relative in ["inventory/tcp/relay.rs", "inventory/udp/relay.rs"] {
-        let relay = read(&proxy_src().join(relative));
-        assert!(
-            !relay.contains("ResolvedLeafOutbound"),
-            "{relative} should not carry raw engine leaf types after the inventory claim boundary"
-        );
-        assert!(
-            !relay.contains("claim_outbound_leaf("),
-            "{relative} should prepare already claimed leaves instead of reclaiming raw outbounds"
-        );
-    }
-    let tcp_relay = read(&proxy_src().join("inventory/tcp/relay.rs"));
-    for forbidden in [
-        "dispatch_prepared_tcp_candidate(",
-        ".into_relay_stream()",
-        "current_prepared.execute(",
-        "stage: \"relay_last\"",
+fn inventory_relay_preparation_keeps_carrier_execution_in_runtime() {
+    for relative in [
+        "inventory/tcp/relay.rs",
+        "inventory/tcp/selection.rs",
+        "inventory/udp/relay.rs",
     ] {
-        assert!(
-            !tcp_relay.contains(forbidden),
-            "inventory tcp relay must not execute prepared relay chains via `{forbidden}`"
-        );
+        let relay = read(&proxy_src().join(relative));
+        for forbidden in [
+            "use crate::runtime::Proxy",
+            "&Proxy",
+            ".await",
+            ".execute(",
+            "tokio::spawn",
+            "TcpStream::connect(",
+            "UdpSocket::bind(",
+            "dispatch_prepared_tcp_candidate(",
+            "dispatch_prepared_tcp_relay_carrier(",
+            "resolve_route_decision(",
+        ] {
+            assert!(
+                !relay.contains(forbidden),
+                "{relative} must leave runtime execution outside cold preparation: {forbidden}"
+            );
+        }
     }
 }
 
@@ -2597,12 +2595,10 @@ fn udp_two_stream_transport_bridge_uses_carrier_only_relay_prefix() {
     let relay = read(&proxy_src().join("inventory/udp/relay.rs"));
     let runtime = read(&proxy_src().join("runtime/udp_dispatch/relay.rs"));
     let udp = read(&proxy_src().join("runtime/udp_dispatch/operation/transport/relay.rs"));
-    assert!(relay.contains("prepare_claimed_tcp_relay_chain("));
     assert!(!relay.contains("dispatch_prepared_tcp_relay_carrier("));
     assert!(runtime.contains("dispatch_prepared_tcp_relay_carrier(post_prefix)"));
     assert!(runtime.contains("dispatch_prepared_tcp_relay_carrier(get_prefix)"));
     assert!(udp.contains("fn bind_two_stream("));
-    assert!(!relay.contains("prepare_tcp_relay_chain(&chain)"));
     assert!(!udp.contains("prepare_claimed_tcp_relay_chain("));
     assert!(!udp.contains("dispatch_prepared_tcp_relay_carrier(post_prepared)"));
     assert!(!udp.contains("dispatch_prepared_tcp_relay_carrier(get_prepared)"));
@@ -4407,14 +4403,11 @@ fn outbound_execution_state_machines_live_in_runtime_dispatch() {
 }
 
 #[test]
-fn inventory_runtime_delegates_leaf_claim_logic_to_registry() {
+fn inventory_runtime_delegates_compatibility_claims_without_a_whole_chain_wrapper() {
     let runtime = read(&proxy_src().join("inventory/runtime.rs"));
-    assert!(runtime.contains("struct ClaimedInventoryLeaf"));
-    assert!(runtime.contains("mod relay;"));
-    assert!(runtime.contains("pub(crate) use relay::ClaimedRelayChain;"));
-    let relay = read(&proxy_src().join("inventory/runtime/relay.rs"));
-    assert!(relay.contains("struct ClaimedRelayChain"));
-    assert!(runtime.contains("fn claim_relay_chain<'a, E, F, G>("));
+    assert!(!runtime.contains("ClaimedRelayChain"));
+    assert!(!runtime.contains("fn claim_relay_chain"));
+    assert!(!proxy_src().join("inventory/runtime/relay.rs").exists());
     assert!(!runtime.contains("enum ClaimedResolvedOutbound"));
     assert!(!runtime.contains("fn claim_tcp_outbound"));
     assert!(!runtime.contains("fn claim_udp_outbound"));
@@ -4540,8 +4533,8 @@ fn transport_adapters_share_existing_tcp_executors_without_claimers() {
         "adapters/vmess.rs",
         "adapters/trojan.rs",
     ] {
-        let source = read(&proxy_src().join(relative));
-        assert!(source.contains("super::tcp::transport_operations("));
+        let source = read_module(&proxy_src().join(relative));
+        assert!(source.contains("crate::adapters::tcp::transport_operations("));
         assert!(!source.contains("let tcp_runtime ="));
     }
 }

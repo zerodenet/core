@@ -51,7 +51,12 @@ pub(crate) async fn connect(
     let normalize = |error: ChannelError| {
         let failed = error
             .component
-            .and_then(|id| prepared.nodes.iter().find(|node| node.slot.id == id))
+            .and_then(|id| {
+                prepared
+                    .nodes
+                    .iter()
+                    .find(|node| node.slot.instance().component == id)
+            })
             .unwrap_or(first);
         let mut failure = super::failure_optional("relay_last", error, failed.endpoint.as_ref());
         failure.error = crate::transport::establishment::EstablishmentFailure::wrap(
@@ -71,23 +76,34 @@ pub(crate) async fn connect(
             "native relay requires explicit request identity",
         ))
     })?;
+    // A cached route cannot retain protocol factories/private pools. Acquire
+    // every exact generation together for this execution before any role start
+    // or carrier acquisition; a vanished middle owner is a terminal failure.
+    let slots = prepared
+        .nodes
+        .iter()
+        .map(|node| {
+            node.slot.slot().map_err(|mut source| {
+                source.session = source.session.or(invocation.identity.session());
+                normalize(source)
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let first_slot = &slots[0];
     let start_deadline = invocation
         .deadline
         .unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(5));
     // Resolve every actual role before acquiring even the first carrier. A
     // revoked middle role cannot accidentally escape through a legacy claim.
     let mut roles = Vec::with_capacity(prepared.nodes.len());
-    for node in &prepared.nodes {
-        roles.push(
-            node.slot
-                .stream(start_deadline)
-                .await
-                .map_err(|mut error| {
-                    error.component.get_or_insert(node.slot.id);
-                    error.session = error.session.or(invocation.identity.session());
-                    normalize(error)
-                })?,
-        );
+    for (node, slot) in prepared.nodes.iter().zip(&slots) {
+        roles.push(slot.stream(start_deadline).await.map_err(|mut error| {
+            error
+                .component
+                .get_or_insert(node.slot.instance().component);
+            error.session = error.session.or(invocation.identity.session());
+            normalize(error)
+        })?);
     }
     let generation = NetworkGeneration(services.upstream().network_generation());
     let binding = UpstreamBinding {
@@ -98,11 +114,7 @@ pub(crate) async fn connect(
     let waiting = super::pending::PendingCaller::new(
         services,
         &invocation,
-        prepared
-            .nodes
-            .iter()
-            .map(|node| node.slot.role_id())
-            .collect(),
+        slots.iter().map(|slot| slot.role_id()).collect(),
         binding.clone(),
     )
     .map_err(normalize)?;
@@ -117,7 +129,7 @@ pub(crate) async fn connect(
                 .with_business(
                     crate::component::business_carrier::BusinessCarrierRequest::new(
                         services.engine(),
-                        &first.slot,
+                        first_slot,
                         &invocation,
                     )
                     .map_err(normalize)?,
@@ -141,19 +153,19 @@ pub(crate) async fn connect(
                         .with_source(source.clone()),
                 )
             })?;
-            if first.slot.recipe.spec().resources.iter().any(|resource|matches!(resource,
+            if first_slot.recipe.spec().resources.iter().any(|resource|matches!(resource,
                 zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier { .. })) {
                 let target=prepared.nodes.get(1).and_then(|node|node.endpoint.as_ref()).ok_or_else(||normalize(invalid(Reason::StalePlan,"Direct root has no next-hop endpoint")))?;
                 let (root,upstream)=crate::component::direct_bridge::background::Root::transport(
-                    &first.slot,Arc::downgrade(plan),services.upstream_observed(&first.tag),destination(target),binding,
+                    first_slot,Arc::downgrade(plan),services.upstream_observed(&first.tag),destination(target),binding,
                     crate::component::direct_bridge::background::Caller {
-                        business:crate::component::business_carrier::BusinessCarrierRequest::new(services.engine(),&first.slot,&invocation).map_err(normalize)?,
+                        business:crate::component::business_carrier::BusinessCarrierRequest::new(services.engine(),first_slot,&invocation).map_err(normalize)?,
                         call:None,waiting:waiting.as_ref().map(super::pending::PendingCaller::observer),
                     },
                 ).map_err(normalize)?;
                 (Some(RootEvidence::Direct(root)),upstream)
             } else {
-            if !plan.has_device_carrier_provider(first.slot.role_id()) {
+            if !plan.has_device_carrier_provider(first_slot.role_id()) {
                 return Err(normalize(invalid(
                     Reason::Revoked,
                     "Packet relay original source is not ready",
@@ -161,7 +173,7 @@ pub(crate) async fn connect(
             }
             (
                 None,
-                super::packet_network::business_transport(services, &first.slot, binding)
+                super::packet_network::business_transport(services, first_slot, binding)
                     .map_err(normalize)?,
             )
             }
@@ -169,12 +181,12 @@ pub(crate) async fn connect(
     };
     let cancel = invocation.cancellation();
     let mut prefix = Vec::with_capacity(prepared.nodes.len());
-    for (index, (node, role)) in prepared.nodes.iter().zip(roles).enumerate() {
+    for (index, ((node, slot), role)) in prepared.nodes.iter().zip(&slots).zip(roles).enumerate() {
         let context = OpenContext {
             identity: invocation.identity.clone(),
             deadline: invocation.deadline,
             cancel: cancel.clone(),
-            observer: if index == 0 && node.endpoint.is_none() && !node.slot.recipe.spec().resources.iter().any(|resource|matches!(resource,zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier {..})) {
+            observer: if index == 0 && node.endpoint.is_none() && !slot.recipe.spec().resources.iter().any(|resource|matches!(resource,zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier {..})) {
                 Some(Arc::new(super::packet_network::PacketObserver {
                     engine: services.engine().clone(),
                     tag: node.tag.clone(),
@@ -233,7 +245,7 @@ pub(crate) async fn connect(
                 "a non-root relay node cannot omit its network endpoint",
             ))
         })?;
-        prefix.push(node.slot.role_id());
+        prefix.push(slot.role_id());
         let binding = UpstreamBinding {
             prefix: prefix.clone(),
             dial: next.dial.clone(),
@@ -245,13 +257,13 @@ pub(crate) async fn connect(
             .map_err(|source| normalize(crate::component::instance::retained(source.clone())))?;
         let business = crate::component::business_carrier::BusinessCarrierRequest::new(
             services.engine(),
-            &next.slot,
+            &slots[index + 1],
             &invocation,
         )
         .map_err(normalize)?
         .map(|request| request.with_prefix(&binding.prefix));
         if business.is_some() {
-            plan.authorize_carrier_prefix(next.slot.instance_id(), &binding.prefix)
+            plan.authorize_carrier_prefix(slots[index + 1].instance_id(), &binding.prefix)
                 .map_err(normalize)?;
         }
         upstream = UpstreamTransport::new(
@@ -261,7 +273,7 @@ pub(crate) async fn connect(
                 role,
                 business,
                 plan: Some(Arc::downgrade(plan)),
-                datagram_slot: Some(node.slot.clone()),
+                datagram_slot: Some(crate::inventory::StreamRoleRef::new(slot)),
                 context,
                 expected_binding: binding,
                 expected_endpoint: destination(next_endpoint),

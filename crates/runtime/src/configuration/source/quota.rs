@@ -1,14 +1,14 @@
 //! Durable quota bytes belong to the same deployment source; the Engine owns
-//! accounting and its actual persistence worker, never an original file handle.
+//! accounting; this Source owns the sole persistence worker and native files.
+mod execution;
 mod lock_error;
 mod memory;
 mod owned;
-mod execution;
 mod worker;
 use super::*;
+pub use execution::QuotaWriterFailure;
 pub use memory::{QuotaMemoryBudget, QuotaMemoryCredit};
 pub use owned::{OwnedQuotaStorage, WeakQuotaStorage};
-pub use execution::QuotaWriterFailure;
 use std::{
     fs::{OpenOptions, TryLockError},
     sync::{Arc, Weak},
@@ -152,6 +152,12 @@ impl ConfigurationSource {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(previous) = slot.as_ref() {
                 previous.confirm_closed()?;
+                if !previous.execution.retired() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "previous quota writer remains owned",
+                    ));
+                }
                 if let Some(failure) = previous.report_worker_failure() {
                     return Err(failure);
                 }
@@ -340,9 +346,17 @@ impl QuotaStorage {
     }
     fn ensure_writer_lease(&self) -> io::Result<()> {
         self.ensure_known()?;
-        let acquired = self.lease.lock().unwrap_or_else(std::sync::PoisonError::into_inner).acquired;
-        if acquired { return Ok(()); }
-        let source = self.source.upgrade().ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "quota original Source retired"))?;
+        let acquired = self
+            .lease
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .acquired;
+        if acquired {
+            return Ok(());
+        }
+        let source = self.source.upgrade().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::NotConnected, "quota original Source retired")
+        })?;
         source.ensure_resource_io_available()?;
         // Only the same real scoped body reopens after the genuine old worker
         // joined and closed its matching lease. No new controller is created.
@@ -350,10 +364,20 @@ impl QuotaStorage {
     }
     fn original_io_status(&self) -> io::Result<()> {
         self.ensure_known()?;
-        self.source.upgrade().ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "quota original Source retired"))?.io.ensure_available()
+        self.source
+            .upgrade()
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotConnected, "quota original Source retired")
+            })?
+            .io
+            .ensure_available()
     }
     fn retained_lease_failure(&self) -> Option<Arc<io::Error>> {
-        self.lease.lock().unwrap_or_else(std::sync::PoisonError::into_inner).fault.clone()
+        self.lease
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .fault
+            .clone()
     }
     pub fn read(&self) -> io::Result<Option<Vec<u8>>> {
         self.with_source(|source| files::read_optional(&self.path, &source.io))

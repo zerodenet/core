@@ -364,7 +364,9 @@ pub(crate) fn compiled_registries_with_network(
     #[cfg(feature = "shadowsocks")]
     {
         use crate::adapters::shadowsocks::ShadowsocksAdapter;
-        let adapter = Arc::new(ShadowsocksAdapter::default());
+        let mut adapter = ShadowsocksAdapter::default();
+        adapter.native_host = node_network.is_some();
+        let adapter = Arc::new(adapter);
         let inbound_adapter = adapter.clone();
         registry
             .inbounds
@@ -632,7 +634,9 @@ pub(crate) fn compiled_registries_with_network(
     #[cfg(feature = "mieru")]
     {
         use crate::adapters::mieru::MieruAdapter;
-        let adapter = Arc::new(MieruAdapter::default());
+        let mut adapter = MieruAdapter::default();
+        adapter.native_host = node_network.is_some();
+        let adapter = Arc::new(adapter);
         registry
             .inbounds
             .register_with_resources(

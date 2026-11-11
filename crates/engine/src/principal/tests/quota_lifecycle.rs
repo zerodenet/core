@@ -65,10 +65,7 @@ fn explicit_shutdown_joins_original_worker_before_matching_native_lease_close() 
     registry.shutdown().unwrap();
     assert!(registry.retirement_complete());
     let owner = registry.persistence.as_ref().unwrap();
-    let worker = owner.worker.lock().unwrap();
-    assert!(worker.original.is_none());
-    assert!(matches!(worker.joined, Some(Ok(()))));
-    drop(worker);
+    assert!(owner.storage.writer_retirement_complete());
     source.confirm_quota_storage_closed().unwrap();
     source.confirm_original_io_closed().unwrap();
     let reopened =
@@ -95,7 +92,6 @@ fn last_registration_returns_real_worker_fault_to_same_source_before_a_fresh_nat
     let source = Arc::new(ConfigurationSource::default());
     let registry = PrincipalQuotaRegistry::open(Some(path.clone()), source.clone()).unwrap();
     let owner = registry.persistence.as_ref().unwrap();
-    let actual_worker = owner.worker.clone();
     let storage = owner.storage.clone();
     let book = registry.inner.clone();
     // The actual old snapshot is absent. Its real final rename must fail at
@@ -116,16 +112,8 @@ fn last_registration_returns_real_worker_fault_to_same_source_before_a_fresh_nat
         90
     );
     drop(registration); // Last original owner drives std.join, then lock close.
-    let worker = actual_worker.lock().unwrap();
-    assert!(worker.original.is_none());
-    let original = worker
-        .joined
-        .as_ref()
-        .unwrap()
-        .as_ref()
-        .unwrap_err()
-        .clone();
-    drop(worker);
+    assert!(storage.writer_retirement_complete());
+    let original = storage.retained_worker_failure().unwrap();
     assert!(Arc::ptr_eq(
         &storage.retained_worker_failure().unwrap(),
         &original
@@ -161,10 +149,12 @@ fn last_registration_returns_real_worker_fault_to_same_source_before_a_fresh_nat
     source.confirm_quota_storage_closed().unwrap();
     std::fs::remove_dir(&path).unwrap();
     let fresh = PrincipalQuotaRegistry::open(Some(path), source.clone()).unwrap();
-    assert!(!Arc::ptr_eq(
-        &fresh.persistence.as_ref().unwrap().storage,
-        &storage
-    ));
+    assert!(!fresh
+        .persistence
+        .as_ref()
+        .unwrap()
+        .storage
+        .same_original(&storage));
     fresh.shutdown().unwrap();
     source.confirm_quota_storage_closed().unwrap();
     assert!(
@@ -195,4 +185,39 @@ fn explicitly_received_worker_fault_is_not_unreported_again_by_later_fallback_dr
         std::error::Error::source(&original).is_some(),
         "the explicitly received typed original survives recovery"
     );
+}
+
+#[tokio::test]
+async fn hosted_quota_full_storage_reserve_does_not_block_accepted_final_flush_and_original_close()
+{
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("quota.json");
+    let source = Arc::new(ConfigurationSource::default());
+    let registry = PrincipalQuotaRegistry::open(Some(path.clone()), source.clone()).unwrap();
+    let registration = registry.acquire(Some(&auth())).unwrap().unwrap();
+    registration.consume(23);
+    drop(registration);
+    let roots = zero_runtime::HostOriginalBudgets::default();
+    let memory = source.quota_memory(&Default::default()).unwrap();
+    let snapshot = memory.snapshot();
+    let pressure = memory
+        .reserve(PacketMetadataLayout::new(
+            1,
+            snapshot.limit.bytes() - snapshot.occupied.bytes(),
+        ))
+        .unwrap();
+    assert_eq!(memory.snapshot().occupied.bytes(), snapshot.limit.bytes());
+    source.adopt_quota_memory(&roots).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), registry.shutdown_async())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(registry.retirement_complete());
+    assert_eq!(roots.component_tasks.usage().charged, 0);
+    source.confirm_quota_storage_closed().unwrap();
+    source.confirm_original_io_closed().unwrap();
+    let persisted: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(persisted["balances"][0]["remaining_bytes"], 77);
+    drop(pressure);
 }

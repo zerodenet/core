@@ -74,6 +74,35 @@ async fn run_with_logging(
     let source = std::sync::Arc::new(zero_runtime::configuration::ConfigurationSource::new(
         config_path,
     ));
+    let result = source
+        .drive_quota_writer(run_with_source(
+            source.clone(),
+            config_path,
+            status_listen,
+            control_socket,
+            ipc_hook_socket,
+            parent_lifetime_stdin,
+            logging,
+        ))
+        .await;
+    let quota = source.finish_quota_writer_shutdown().await;
+    let mut failures = RunFailures::default();
+    if let Err(error) = result {
+        failures.error("application", error);
+    }
+    failures.result("quota final retirement", quota);
+    failures.finish()
+}
+
+async fn run_with_source(
+    source: std::sync::Arc<zero_runtime::configuration::ConfigurationSource>,
+    config_path: &str,
+    status_listen: Option<&str>,
+    control_socket: Option<&str>,
+    ipc_hook_socket: Option<&str>,
+    parent_lifetime_stdin: bool,
+    logging: Option<zero_logging::LoggingHandle>,
+) -> Result<(), Box<dyn Error>> {
     let (config, preparation) =
         rule_set_fetch::load_initial_configuration(source.clone(), config_path).await?;
     let prepared = zero_runtime::configuration::PreparedConfiguration::prepare_startup(
@@ -152,7 +181,7 @@ async fn run_with_logging(
         let controls = services.shutdown_control().await;
         let monitor = services.shutdown_status_monitor().await;
         let dispatcher = services.shutdown_dispatcher().await;
-        let quota = engine.shutdown_principal_quota_state();
+        let quota = engine.shutdown_principal_quota_state_async().await;
         let parent = services.shutdown_parent_input().await;
         if services.control_retirement_complete()
             && services.service_retirement_complete().await
@@ -222,7 +251,7 @@ async fn run_with_logging(
 
     let dispatcher_shutdown = services.shutdown_dispatcher().await;
     let control_shutdown = services.shutdown_control().await;
-    let quota_shutdown = engine.shutdown_principal_quota_state();
+    let quota_shutdown = engine.shutdown_principal_quota_state_async().await;
 
     if services.parent_input_retirement_complete()
         && services.control_retirement_complete()

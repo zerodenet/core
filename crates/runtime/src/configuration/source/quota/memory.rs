@@ -207,15 +207,36 @@ impl ConfigurationSource {
     /// The genuinely standalone Engine constructor is an explicit source
     /// configuration owner. Kernel changes must instead use the accepted
     /// publication candidate; a readonly allocator/inspector cannot grow it.
-    pub fn configure_initial_quota_memory(&self, runtime: &zero_config::RuntimeOptionsConfig) -> io::Result<QuotaMemoryBudget> {
+    pub fn configure_initial_quota_memory(
+        &self,
+        runtime: &zero_config::RuntimeOptionsConfig,
+    ) -> io::Result<QuotaMemoryBudget> {
         let memory = self.quota_memory(runtime)?;
-        if memory.snapshot().limit == limits(runtime)? { return Ok(memory); }
+        if memory.snapshot().limit == limits(runtime)? {
+            return Ok(memory);
+        }
         if self.persistence_book.get().is_some() {
-            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "Kernel quota limit requires its accepted Source publication candidate"));
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Kernel quota limit requires its accepted Source publication candidate",
+            ));
         }
         {
-            let storage = self.quota.current.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
-            if let Some(storage) = storage { storage.confirm_closed()?; }
+            let storage = self
+                .quota
+                .current
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone();
+            if let Some(storage) = storage {
+                storage.confirm_closed()?;
+                if !storage.execution.retired() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "previous quota writer remains owned",
+                    ));
+                }
+            }
         }
         if let Some(candidate) = memory.prepare(limits(runtime)?)? {
             candidate.seal().map_err(memory_error)?;
@@ -240,14 +261,54 @@ impl ConfigurationSource {
         if !Arc::ptr_eq(counter, &memory.0.counter) {
             return Err(io::Error::other("foreign quota Source counter"));
         }
-        let tasks = self.quota.tasks.get_or_init(|| roots.component_tasks.clone());
-        if !Arc::ptr_eq(tasks, &roots.component_tasks) { return Err(io::Error::new(io::ErrorKind::PermissionDenied, "foreign quota Host task budget")); }
-        let storage = self.quota.current.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        let tasks = self
+            .quota
+            .tasks
+            .get_or_init(|| roots.component_tasks.clone());
+        if !Arc::ptr_eq(tasks, &roots.component_tasks) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "foreign quota Host task budget",
+            ));
+        }
+        let storage = self
+            .quota
+            .current
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         if let Some(owned::StorageEntry::Owned(storage)) = storage {
             storage.execution.bind_kernel(tasks.clone())?;
         }
         Ok(())
     }
+    pub fn validate_quota_memory_publication(
+        &self,
+        runtime: &zero_config::RuntimeOptionsConfig,
+        candidate: Option<&PacketMetadataLimitCandidate>,
+    ) -> io::Result<()> {
+        let memory = self
+            .quota
+            .memory
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        let target = limits(runtime)?;
+        match (memory, candidate) {
+            (Some(memory), Some(candidate))
+                if candidate.same_counter(&memory.0.counter) && candidate.target() == target =>
+            {
+                candidate.validate_publication().map_err(memory_error)
+            }
+            (Some(memory), None) if memory.snapshot().limit == target => Ok(()),
+            (None, None) => Ok(()),
+            _ => Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "quota publication lacks this Source's exact target candidate",
+            )),
+        }
+    }
+
     pub fn prepare_quota_memory(
         &self,
         runtime: &zero_config::RuntimeOptionsConfig,

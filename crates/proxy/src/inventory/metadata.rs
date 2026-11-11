@@ -5,6 +5,36 @@ use zero_engine::EngineError;
 use super::ProtocolInventory;
 
 impl ProtocolInventory {
+    /// Public endpoint facts only. Metadata consumers must not construct a
+    /// protocol claim, parse private material or enter its connection pool.
+    pub(crate) fn outbound_endpoint(
+        &self,
+        snapshot: &zero_engine::EngineRuntimeSnapshot,
+        leaf: &zero_engine::ResolvedLeafOutbound<'_>,
+    ) -> Result<Option<(String, u16)>, EngineError> {
+        let zero_engine::ResolvedLeafOutbound::Proxy { identity } = leaf else {
+            return Ok(None);
+        };
+        let outbound = snapshot
+            .config()
+            .outbounds
+            .get(identity.config_index())
+            .ok_or_else(|| EngineError::InvalidPlan {
+                message: "resolved endpoint is outside the accepted configuration".into(),
+            })?;
+        if let Some((reason, endpoint)) =
+            zero_engine::EndpointAdmission::from_snapshot(snapshot).outbound_denial(outbound.tag())
+        {
+            return Err(EngineError::InvalidPlan {
+                message: format!("{reason}: {endpoint}"),
+            });
+        }
+        Ok(outbound
+            .protocol
+            .endpoint()
+            .map(|(host, port)| (host.to_owned(), port)))
+    }
+
     pub fn supported_inbounds(&self) -> Vec<&'static str> {
         self.registry.inbound_names()
     }

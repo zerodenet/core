@@ -156,14 +156,16 @@ impl InboundRouteRuntimeFactory {
         else {
             return crate::inventory::PacketRouteTarget::Unsupported;
         };
+        let plan = services.protocols().current_components(snapshot.config());
         let prepared = services.protocols().prepare_packet_route_target_admitted(
             snapshot.config(),
             resolved,
             protocol,
             trace.route_mode,
             &zero_engine::EndpointAdmission::from_snapshot(&snapshot),
+            plan.as_deref(),
         );
-        let Some(plan) = services.protocols().current_components(snapshot.config()) else {
+        let Some(plan) = plan else {
             return prepared;
         };
         fn bind(

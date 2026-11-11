@@ -249,6 +249,8 @@ impl Half {
             flow: protocol.1,
             testseed: protocol.2,
             reality: prepared_reality,
+            // The enclosing owned transport plan applies Encryption once.
+            encryption: None,
             tls,
             ws: None,
             grpc: None,

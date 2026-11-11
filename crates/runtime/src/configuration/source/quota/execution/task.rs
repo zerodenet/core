@@ -26,9 +26,13 @@ impl Slot {
         let headers = PacketMetadataArc::<Headers>::layout().map_err(io::Error::other)?;
         let liability = TaskJoinWitness::task_failure_header_layout()
             .and_then(|layout| layout.checked_add(HostedExitReceipt::offer_header_layout()?))
-
             .map_err(io::Error::other)?;
-        let liability = liability.checked_add(PacketMetadataLayout::arc::<super::Gate>().map_err(io::Error::other)?).and_then(|layout| layout.checked_add(PacketMetadataLayout::arc::<super::standard::Signal>()?)).map_err(io::Error::other)?;
+        let liability = liability
+            .checked_add(PacketMetadataLayout::arc::<super::Gate>().map_err(io::Error::other)?)
+            .and_then(|layout| {
+                layout.checked_add(PacketMetadataLayout::arc::<super::standard::Signal>()?)
+            })
+            .map_err(io::Error::other)?;
         let layout = source
             .checked_add(headers)
             .and_then(|layout| layout.checked_add(liability))

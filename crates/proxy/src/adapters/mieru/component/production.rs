@@ -11,30 +11,43 @@ pub(crate) fn production_selected(candidate: Option<&RuntimeConfig>) -> bool {
         };
         let mut contains_pool = false;
         let mut all_standard = true;
-        let mut packet_prefix = None;
+        let mut prefix = None;
         let mut packet_carriers = true;
         for name in proxies {
             let (pool, standard) = inspect(config, name, &mut vec![]).unwrap_or((false, false));
             contains_pool |= pool;
             all_standard &= standard;
-            match packet_tail(config, name, packet_prefix, &mut vec![]) {
-                Some(donor) => packet_prefix = Some(donor),
+            match packet_tail(config, name, prefix, &mut vec![]) {
+                Some(tail) => prefix = Some(tail),
                 None => {
                     packet_carriers = false;
-                    packet_prefix = Some(false);
+                    prefix = Some(Tail::UNMIGRATED);
                 }
             }
         }
         // Mixed relay preparation keeps every shorter prefix in compatibility
         // when any selected hop lacks an ordinary role. A persistent pool may
         // not reinterpret that one-use prefix as its own native root.
-        // Every legal UDP consumer of this public Relay must also stay on the
-        // same executor. The current standard per-flow relay can consume a
-        // background-owned Mieru final Datagram. A final SOCKS5/ordinary role
-        // still falls through its legacy continuation, even when its TCP Stream
-        // is native; that continuation may not redial this Managed prefix.
-        !contains_pool || (all_standard && packet_carriers && packet_prefix == Some(true))
+        // The last hop consumes business traffic, it need not provide a packet
+        // carrier to another pool. In particular, a non-root SOCKS5 has never
+        // supported UDP relay: preserving that rejection must not leave the
+        // whole shared pool on the compatibility executor. Only an
+        // actual UDP-underlay receiver below requires its donor's DatagramLoan.
+        !contains_pool
+            || (all_standard && packet_carriers && prefix.is_some_and(|tail| tail.business))
     })
+}
+
+#[derive(Clone, Copy)]
+struct Tail {
+    donor: bool,
+    business: bool,
+}
+impl Tail {
+    const UNMIGRATED: Self = Self {
+        donor: false,
+        business: false,
+    };
 }
 
 /// A packet-underlay pool needs a real DatagramLoan from its immediately
@@ -43,29 +56,40 @@ pub(crate) fn production_selected(candidate: Option<&RuntimeConfig>) -> bool {
 fn packet_tail(
     config: &RuntimeConfig,
     name: &str,
-    previous: Option<bool>,
+    previous: Option<Tail>,
     stack: &mut Vec<String>,
-) -> Option<bool> {
+) -> Option<Tail> {
     if let Some(node) = config.outbounds.iter().find(|node| node.tag == name) {
         return match &node.protocol {
             OutboundProtocolConfig::Mieru { transport, .. } => {
-                if *transport == zero_config::MieruTransport::Udp && previous == Some(false) {
+                if *transport == zero_config::MieruTransport::Udp
+                    && previous.is_some_and(|tail| !tail.donor)
+                {
                     None
                 } else {
-                    Some(true)
+                    Some(Tail {
+                        donor: true,
+                        business: true,
+                    })
                 }
             }
             // The root SOCKS association now transfers the real TCP+negotiated
             // UDP originals in one sealed LoanOwner. A non-root SOCKS packet
             // capability never existed and remains unqualified here.
-            OutboundProtocolConfig::Socks5 { .. } => Some(previous.is_none()),
+            OutboundProtocolConfig::Socks5 { .. } => Some(Tail {
+                donor: previous.is_none(),
+                business: true,
+            }),
             #[cfg(feature = "wireguard")]
             OutboundProtocolConfig::Wireguard {
                 inbound_tag: Some(_),
                 outer_udp_proxy: None,
                 ..
-            } => previous.is_none().then_some(true),
-            _ => Some(false),
+            } => previous.is_none().then_some(Tail {
+                donor: true,
+                business: true,
+            }),
+            _ => Some(Tail::UNMIGRATED),
         };
     }
     if stack.iter().any(|active| active == name) {
@@ -85,9 +109,14 @@ fn packet_tail(
             previous
         }
         _ => {
-            let mut every_tail = true;
+            let mut every_tail = Tail {
+                donor: true,
+                business: true,
+            };
             for member in group.group.members() {
-                every_tail &= packet_tail(config, member, previous, stack)?;
+                let tail = packet_tail(config, member, previous, stack)?;
+                every_tail.donor &= tail.donor;
+                every_tail.business &= tail.business;
             }
             Some(every_tail)
         }
@@ -151,3 +180,7 @@ fn inspect(config: &RuntimeConfig, name: &str, stack: &mut Vec<String>) -> Optio
 #[cfg(test)]
 #[path = "production/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "production/graph_tests.rs"]
+mod graph_tests;

@@ -50,6 +50,7 @@ impl ProtocolInventory {
             protocol,
             mode,
             &zero_engine::EndpointAdmission::from_config(config),
+            None,
         )
     }
 
@@ -60,6 +61,7 @@ impl ProtocolInventory {
         protocol: Option<u8>,
         mode: RouteMode,
         admission: &zero_engine::EndpointAdmission<'_>,
+        components: Option<&crate::component::catalog::ComponentPlan>,
     ) -> PacketRouteTarget {
         let leaf = match resolved {
             ResolvedOutbound::Single(leaf) => leaf,
@@ -68,7 +70,9 @@ impl ProtocolInventory {
                     candidates
                         .into_iter()
                         .map(|leaf| {
-                            self.prepare_packet_leaf(config, leaf, protocol, mode, admission)
+                            self.prepare_packet_leaf(
+                                config, leaf, protocol, mode, admission, components,
+                            )
                         })
                         .collect(),
                 );
@@ -83,7 +87,7 @@ impl ProtocolInventory {
                 };
             }
         };
-        self.prepare_packet_leaf(config, leaf, protocol, mode, admission)
+        self.prepare_packet_leaf(config, leaf, protocol, mode, admission, components)
     }
 
     fn prepare_packet_leaf(
@@ -93,7 +97,34 @@ impl ProtocolInventory {
         protocol: Option<u8>,
         mode: RouteMode,
         admission: &zero_engine::EndpointAdmission<'_>,
+        components: Option<&crate::component::catalog::ComponentPlan>,
     ) -> PacketRouteTarget {
+        // Flow admission is determined by the same installed generation that
+        // TCP/UDP dispatch will execute. Do not construct a legacy claim just
+        // to discover these roles: that may touch another protocol pool and
+        // makes factory-only outbounds disappear from Packet -> Flow routing.
+        if let ResolvedLeafOutbound::Proxy { identity } = &leaf {
+            if let Some(input) = config.outbounds.get(identity.config_index()) {
+                if admission.outbound_denial(input.tag()).is_some() {
+                    return PacketRouteTarget::Unsupported;
+                }
+                if let Some(slot) = components.and_then(|plan| plan.configured(input.tag())) {
+                    use zero_platform_tokio::contract::component::RoleKind;
+                    let roles = &slot.recipe.spec().roles;
+                    let flow = match protocol {
+                        Some(IPPROTO_TCP) => roles.contains(&RoleKind::Stream),
+                        Some(IPPROTO_UDP) => roles.contains(&RoleKind::Datagram),
+                        _ => false,
+                    };
+                    if flow
+                        && (matches!(mode, RouteMode::Flow | RouteMode::Translate)
+                            || (mode == RouteMode::Auto && !roles.contains(&RoleKind::Packet)))
+                    {
+                        return PacketRouteTarget::Flow;
+                    }
+                }
+            }
+        }
         let Ok(claimed) = self.claim_outbound_leaf(config, leaf) else {
             return PacketRouteTarget::Unsupported;
         };

@@ -2,7 +2,7 @@
 //! The GET and POST sockets are external peers, not Kernel IO/Scope evidence.
 use super::*;
 use std::sync::{Arc, Mutex};
-use tokio_util::sync::CancellationToken;
+use zero_platform_tokio::contract::CancellationToken;
 
 #[derive(Default)]
 struct Seen {

@@ -122,7 +122,12 @@ impl BackgroundPath<'_> {
         };
         for (index, node) in nodes.iter().enumerate() {
             if index != 0 && node.slot.recipe.spec().resources.iter().any(|resource| matches!(resource,
-                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { .. })) {
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { .. }
+                | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool { .. }
+                | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeCarrier { .. }
+                | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeStream { .. }
+                | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledServiceStream { .. }
+                | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier { .. })) {
                 services
                     .components
                     .as_ref()
@@ -186,21 +191,19 @@ impl BackgroundPath<'_> {
             };
             let role = node.slot.stream(end).await?;
             let mut opener = PrefixOpener::for_service(
-                role,
+                (node, role),
                 context,
                 selected.clone(),
                 next,
                 wire,
-                services.upstream(),
+                services,
                 if tag.is_empty() {
                     None
                 } else {
                     services.outbound_io(tag, zero_api::TrafficPlane::Outer)
                 },
-            );
+            )?;
             opener.service_identity = identity.clone();
-            opener.plan = services.components.as_ref().ok().map(Arc::downgrade);
-            opener.datagram_slot = Some(node.slot.clone());
             opener.health = (index == 0).then(|| {
                 FirstHopHealth::new(
                     services.engine(),

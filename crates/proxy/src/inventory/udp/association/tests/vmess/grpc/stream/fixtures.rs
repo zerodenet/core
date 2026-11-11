@@ -105,7 +105,8 @@ pub(super) async fn business(proxy: &Proxy) -> zero_platform_tokio::TcpRelayStre
     let crate::inventory::PreparedTcpCandidateExecution::Native(slot) = &prepared.execution else {
         panic!("new TCP cannot use compatibility execution")
     };
-    crate::component::stream_bridge::connect(&services.execution(), &session, slot, &prepared)
+    let slot = slot.slot().unwrap();
+    crate::component::stream_bridge::connect(&services.execution(), &session, &slot, &prepared)
         .await
         .unwrap_or_else(|error| panic!("{}: {}", error.stage, error.error))
         .into_relay_stream()

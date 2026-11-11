@@ -182,6 +182,7 @@ impl ProtocolInventory {
                 OutboundAdapterContext::new(config),
                 &leaves,
                 components,
+                None,
             ),
         }
         .map_err(|failure| failure.error)?;

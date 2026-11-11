@@ -82,6 +82,12 @@ impl ConfigurationSource {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(previous) = slot.as_ref() {
                 previous.confirm_closed()?;
+                if !previous.execution.retired() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "previous quota writer remains owned",
+                    ));
+                }
                 if let Some(failure) = previous.report_worker_failure() {
                     return Err(failure);
                 }
@@ -105,7 +111,9 @@ impl ConfigurationSource {
             let previous = slot.replace(StorageEntry::Owned(storage.clone()));
             drop(slot);
             drop(previous);
-            if let Some(tasks) = self.quota.tasks.get() { storage.execution.bind_kernel(tasks.clone())?; }
+            if let Some(tasks) = self.quota.tasks.get() {
+                storage.execution.bind_kernel(tasks.clone())?;
+            }
             storage.acquire()?;
             Ok(storage)
         })?

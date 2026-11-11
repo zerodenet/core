@@ -105,3 +105,50 @@ async fn initial_tls_failure_retires_original_application_before_same_config_ret
         );
     }
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn quota_control_startup_failure_finishes_the_original_writer_before_retry() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join("zero.json");
+    let quota = directory.path().join("quota.json");
+    std::fs::write(
+        &config,
+        serde_json::json!({
+            "runtime": {"principal_quota_state_path": quota},
+            "route": {"final": {"type": "direct"}}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    // The actual IPC startup fails through an existing regular-file parent;
+    // this reaches production application cleanup after Host adopted quota.
+    let unavailable = config.join("control.sock");
+    for _ in 0..2 {
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            super::run_with_logging(
+                config.to_str().unwrap(),
+                None,
+                Some(unavailable.to_str().unwrap()),
+                None,
+                false,
+                None,
+            ),
+        )
+        .await
+        .unwrap();
+        let error = result.unwrap_err().to_string();
+        assert!(
+            !error.contains("already owned by another Zero process"),
+            "the preceding original quota writer must retire: {error}"
+        );
+        assert!(
+            !error.contains("quota final retirement"),
+            "actual final quota cleanup must complete: {error}"
+        );
+        let frame: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&quota).unwrap()).unwrap();
+        assert_eq!(frame["balances"], serde_json::json!([]));
+    }
+}

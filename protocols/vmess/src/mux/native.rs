@@ -262,6 +262,8 @@ impl VmessMuxConnectionPool {
                 connection.streams.lock().unwrap().insert(sid, tx);
                 Ok(zero_transport::pooled_driver::datagram::PooledDatagram {
                     io: DatagramIo {
+                        observer: None,
+                        session: None,
                         connection,
                         sid,
                         rx,

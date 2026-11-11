@@ -4,7 +4,7 @@ use super::{PreparedTcpCandidate, PreparedTcpCandidateExecution};
 use crate::{component::instance::ComponentSlot, transport::TcpOutboundFailure};
 use std::sync::Arc;
 
-/// A cached relay recipe cannot keep a retired protocol factory or pool alive.
+/// A prepared or cached candidate cannot keep a retired factory or pool alive.
 #[derive(Clone)]
 pub(crate) struct StreamRoleRef {
     instance: zero_core::component::ComponentInstanceId,
@@ -46,7 +46,7 @@ pub(crate) struct PreparedNativeTcpRelayChain {
     pub(crate) nodes: Vec<PreparedNativeTcpNode>,
 }
 pub(crate) struct PreparedNativeTcpNode {
-    pub(crate) slot: Arc<ComponentSlot>,
+    pub(crate) slot: StreamRoleRef,
     pub(crate) tag: String,
     pub(crate) protocol: String,
     pub(crate) endpoint: Option<(String, u16)>,
@@ -71,7 +71,24 @@ impl ProtocolInventory {
             let PreparedTcpCandidateExecution::Native(slot) = candidate.execution else {
                 return None;
             };
-            let dial = slot.dial.clone();
+            // Only copy neutral dial facts here. The prepared chain retains
+            // weak generation identities; dispatch reacquires all actual owners
+            // before it may open its first carrier.
+            let dial = match slot.slot() {
+                Ok(owner) => owner.dial.clone(),
+                Err(source) => {
+                    return Some(Err(TcpOutboundFailure {
+                        stage: if index == 0 {
+                            "outbound_leaf_runtime"
+                        } else {
+                            "relay_prepare"
+                        },
+                        error: std::io::Error::other(source).into(),
+                        upstream_endpoint: candidate.endpoint.map(Box::new),
+                        network: None,
+                    }))
+                }
+            };
             nodes.push(PreparedNativeTcpNode {
                 slot,
                 tag: candidate.tag.expect("native node has a configured tag"),

@@ -17,6 +17,8 @@ use zero_engine::{ResolvedOutbound, RouteDecision, RouteMode};
 mod catalog;
 #[path = "tests/rejection.rs"]
 mod rejection;
+#[path = "tests/standard_selection.rs"]
+mod standard_selection;
 
 fn prepare(proxy: &Proxy, services: &TcpRuntimeServices, legacy: usize) -> PreparedTcpRelayChain {
     let (resolved, _) = proxy
@@ -30,12 +32,12 @@ fn prepare(proxy: &Proxy, services: &TcpRuntimeServices, legacy: usize) -> Prepa
     let context = OutboundAdapterContext::new(services.config());
     let mut prepared = proxy
         .protocols
-        .prepare_tcp_relay_chain(context, &chain, execution.components.as_deref().ok())
+        .prepare_tcp_relay_chain(context, &chain, execution.components.as_deref().ok(), None)
         .unwrap_or_else(|failure| panic!("{}", failure.error));
-    let claimed = proxy
+    let compatibility = proxy
         .protocols
-        .claim_relay_chain(services.config(), chain, |e| e, |e| e)
-        .unwrap();
+        .prepare_tcp_relay_chain(context, &chain, None, None)
+        .unwrap_or_else(|failure| panic!("{}", failure.error));
     assert!(matches!(
         prepared.first.execution,
         PreparedTcpCandidateExecution::Native(_)
@@ -58,19 +60,18 @@ fn prepare(proxy: &Proxy, services: &TcpRuntimeServices, legacy: usize) -> Prepa
     // Actual compatibility executors from the same assembly retain the whole
     // prefix through its last unmigrated node, as production selection does.
     // No protocol or close provider is invented by this fixture.
-    prepared.first = proxy
-        .protocols
-        .prepare_claimed_tcp_candidate(context, claimed.first(), RouteMode::Flow)
-        .unwrap_or_else(|failure| panic!("{}", failure.error));
+    prepared.first = compatibility.first;
     assert!(matches!(
         prepared.first.execution,
         PreparedTcpCandidateExecution::Connect(_)
     ));
-    for (index, leaf) in claimed.relay_hops().iter().take(legacy).enumerate() {
-        prepared.relay_hops[index] = proxy
-            .protocols
-            .prepare_claimed_tcp_relay_hop(context, leaf)
-            .unwrap();
+    for (index, hop) in compatibility
+        .relay_hops
+        .into_iter()
+        .take(legacy)
+        .enumerate()
+    {
+        prepared.relay_hops[index] = hop;
         assert!(matches!(
             prepared.relay_hops[index].execution,
             PreparedTcpRelayExecution::Legacy(_)

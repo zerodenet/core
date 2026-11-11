@@ -1,4 +1,4 @@
-//! Existing claim roots use the same configured original when installed.
+//! Compatibility projections retain only execution not owned by standard roles.
 use super::*;
 impl TrojanAdapter {
     pub(crate) fn claim_outbound_leaf_impl<'a>(
@@ -6,6 +6,7 @@ impl TrojanAdapter {
         input: OutboundLeafInput<'a>,
     ) -> Option<OutboundLeafClaim<'a>> {
         let OutboundLeafInput::Proxy {
+            config,
             outbound,
             endpoint,
             source_dir,
@@ -14,6 +15,13 @@ impl TrojanAdapter {
         else {
             return None;
         };
+        if self.native_node_dns
+            && self.production_selected(outbound, Some(config), true)
+            && (!component::native_input(outbound)
+                || !crate::adapters::mux_prefix::used_by_relay(config, outbound.tag()))
+        {
+            return None;
+        }
         let options = outbound_options(outbound.tag(), endpoint, &outbound.protocol)?;
         let leaf =
             TrojanOutboundLeaf::from_options_refs(source_dir, options, self.mux_pool.clone());
@@ -24,20 +32,13 @@ impl TrojanAdapter {
         );
         let (tcp, tcp_relay) = crate::adapters::tcp::transport_operations(leaf);
         let tcp = if self.native_node_dns && component::native_input(outbound) {
-            Ok(std::sync::Arc::new(tcp_owned::Connect {
-                tag: outbound.tag().into(),
-                server: endpoint.0.into(),
-                port: endpoint.1,
-            })
-                as std::sync::Arc<
-                    dyn crate::runtime::tcp_dispatch::operation::PreparedTcpConnectOperation,
-                >)
+            None
         } else {
-            tcp
+            Some(tcp)
         };
         Some(OutboundLeafClaim {
             tcp_path: TCP_PATH,
-            tcp: Some(tcp),
+            tcp,
             tcp_relay: Some(tcp_relay),
             udp: Some(udp),
             udp_relay: Some(udp_relay),

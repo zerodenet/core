@@ -13,20 +13,14 @@ fn same_pool_removes_legacy_claims_only_for_the_whole_owning_configuration() {
         native_node_dns: true,
         ..Default::default()
     };
-    let claim = adapter
+    assert!(adapter
         .claim_outbound_leaf_impl(crate::protocol_registry::OutboundLeafInput::Proxy {
             config: &standalone,
             outbound: node,
             endpoint: ("127.0.0.1", 443),
             source_dir: None,
         })
-        .unwrap();
-    assert!(
-        claim.tcp.is_none()
-            && claim.tcp_relay.is_none()
-            && claim.udp.is_none()
-            && claim.udp_relay.is_none()
-    );
+        .is_none());
     let mixed = config(
         serde_json::json!([{ "tag":"choice","type":"selector","outbounds":["other","node"],"selected":"other"},{"tag":"chain","type":"relay","proxies":["other","choice"]}]),
     );

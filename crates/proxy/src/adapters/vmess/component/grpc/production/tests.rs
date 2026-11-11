@@ -66,16 +66,22 @@ fn whole_node_projection_removes_legacy_tcp_for_native_relay_and_single_nodes() 
                 .count(),
             usize::from(enabled)
         );
-        let claim = adapter
-            .claim_outbound_leaf_impl(crate::protocol_registry::OutboundLeafInput::Proxy {
+        let claim =
+            adapter.claim_outbound_leaf_impl(crate::protocol_registry::OutboundLeafInput::Proxy {
                 config: &config,
                 outbound: node,
                 endpoint: ("127.0.0.1", 443),
                 source_dir: None,
-            })
-            .unwrap();
-        assert_eq!(claim.tcp.is_none(), enabled);
-        assert_eq!(claim.tcp_relay.is_none(), enabled);
+            });
+        if enabled {
+            assert!(
+                claim.is_none(),
+                "the paired actual roles retire all legacy executors"
+            );
+        } else {
+            let claim = claim.expect("an unmigrated Stream still needs its existing executor");
+            assert!(claim.tcp.is_some() && claim.tcp_relay.is_some());
+        }
     }
 }
 

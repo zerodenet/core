@@ -30,6 +30,15 @@ impl ProxyHandle {
                 ),
             )
             .map_err(|error| error.to_string())?;
+        let quota = self
+            .proxy
+            .engine
+            .configuration_source()
+            .prepare_quota_memory(&component_config.runtime)
+            .map_err(|error| error.to_string())?;
+        if let Some(quota) = &quota {
+            quota.seal().map_err(|error| error.to_string())?;
+        }
         if let Some(wire) = wire {
             wire.policy().seal().map_err(|error| error.to_string())?;
         }
@@ -73,6 +82,7 @@ impl ProxyHandle {
                             snapshot.clone(),
                             control.as_ref(),
                             wire.map(|wire| wire.policy()),
+                            quota.as_ref(),
                         )
                         .map_err(|error| error.to_string())?;
                     self.proxy.engine.commit_config_change();
@@ -105,6 +115,11 @@ impl ProxyHandle {
         if let Some(wire) = wire {
             if wire.policy().metadata_committed() {
                 wire.policy().publish();
+            }
+        }
+        if let Some(quota) = &quota {
+            if quota.metadata_committed() {
+                quota.publish();
             }
         }
         committed?;

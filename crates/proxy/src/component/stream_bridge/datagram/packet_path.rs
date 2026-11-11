@@ -18,6 +18,7 @@ use std::{pin::Pin, sync::Arc};
 use zero_core::{
     component::{AssociationId, NetworkGeneration},
     request::{DatagramTargets, Destination, ServiceOrigin, ServicePurpose, ServiceRequestFacts},
+    Address,
 };
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::{
@@ -37,6 +38,37 @@ pub(crate) struct StandardPacketPath {
     associated: bool,
 }
 impl StandardPacketPath {
+    /// Reuse semantic facts from the same once-prepared protocol factory.
+    /// A role without those facts is not an associated relay carrier.
+    pub(crate) fn prepare_declared(
+        slot: &Arc<ComponentSlot>,
+        tag: &str,
+    ) -> Option<Arc<dyn PreparedUdpPacketPathOperation>> {
+        if !slot
+            .recipe
+            .spec()
+            .roles
+            .contains(&zero_platform_tokio::contract::component::RoleKind::Datagram)
+        {
+            return None;
+        }
+        let facts = slot.recipe.packet_path_facts()?;
+        Some(Arc::new(Self {
+            selected: StreamRoleRef::new(slot),
+            descriptor: PacketPathCarrierDescriptor {
+                tag: Some(tag.into()),
+                server: match &facts.endpoint.address {
+                    Address::Domain(domain) => domain.clone(),
+                    Address::Ipv4(ip) => std::net::Ipv4Addr::from(*ip).to_string(),
+                    Address::Ipv6(ip) => std::net::Ipv6Addr::from(*ip).to_string(),
+                },
+                port: facts.endpoint.port,
+                cache_key: format!("standard-datagram:{:?}", slot.role_id()),
+            },
+            associated: facts.associated,
+        }))
+    }
+
     /// Existing claimed operation supplies the exact old capability/grammar;
     /// the actual installed role supplies its own generation and IO owner.
     pub(crate) async fn build_installed(

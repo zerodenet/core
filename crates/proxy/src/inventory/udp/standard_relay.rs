@@ -36,10 +36,11 @@ impl super::super::ProtocolInventory {
                 )))
             }
         };
-        let target = match super::association::prepare_flow(ctx, last)? {
-            Ok(target) => target,
-            Err(error) => return Some(Err(error)),
-        };
+        let target =
+            match super::association::prepare_flow(ctx, last, zero_engine::RouteMode::Flow)? {
+                Ok(target) => target,
+                Err(error) => return Some(Err(error)),
+            };
         let final_slot = match target.current_slot(&execution) {
             Ok(slot) => slot,
             Err(error) => return Some(Err(failure(error))),

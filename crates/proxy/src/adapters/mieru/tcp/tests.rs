@@ -5,7 +5,7 @@ use std::sync::{
     Arc,
 };
 use zero_core::{Address, Network, ProtocolType, Session};
-use zero_engine::{EngineError, ResolvedOutbound, RouteDecision};
+use zero_engine::EngineError;
 
 #[tokio::test]
 async fn pooled_tcp_relay_keeps_original_carrier_io_error_without_reopening() {
@@ -17,10 +17,7 @@ async fn pooled_tcp_relay_keeps_original_carrier_io_error_without_reopening() {
         }"#).unwrap();
         let proxy = Proxy::new(config).unwrap();
         let snapshot = proxy.engine().runtime_snapshot();
-        let (resolved, _) = proxy.engine().resolve_route_decision(RouteDecision::Route("pool".into())).unwrap();
-        let ResolvedOutbound::Single(leaf) = resolved else { panic!("actual pool leaf") };
-        let claimed = proxy.protocols.claim_outbound_leaf(snapshot.config(), leaf).unwrap();
-        let (_, _, operation) = claimed.tcp_relay_hop().unwrap();
+        let leaf = super::super::transport_leaf("pool", &snapshot.config().outbounds[0].protocol).unwrap();
         let mut session = Session::new(0, Address::Ipv4([203,0,113,1]), 443, Network::Tcp, ProtocolType::new("test"));
         proxy.engine().prepare_session(&mut session,"incoming").unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
@@ -35,8 +32,7 @@ async fn pooled_tcp_relay_keeps_original_carrier_io_error_without_reopening() {
             recorded.store(error.raw_os_error().expect("native source"),Ordering::SeqCst);
             Err(EngineError::Io(error))
         }));
-        let services = proxy.tcp_runtime_services().execution().upstream_observed("pool");
-        let error = match operation.execute_lazy(services,carrier,&session).await {
+        let error = match super::SocketTcpHandshake::open_tcp_relay_carrier(&leaf,carrier,&session).await {
             Err(error) => error,
             Ok(_) => panic!("actual failed carrier must not establish a stream"),
         };

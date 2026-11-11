@@ -130,12 +130,6 @@ impl<'a> ClaimedOutboundLeaf<'a> {
                 "relay hop resolved without upstream endpoint",
             ))
         })?;
-        if self.tcp.is_none() {
-            return Err(EngineError::Io(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "outbound does not provide a TCP relay capability",
-            )));
-        }
         let operation = self
             .tcp_relay
             .as_ref()

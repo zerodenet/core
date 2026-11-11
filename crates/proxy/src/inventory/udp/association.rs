@@ -50,13 +50,27 @@ pub(super) fn prepare(
 pub(super) fn prepare_flow(
     ctx: &crate::protocol_registry::UdpAdapterContext<'_>,
     leaf: &zero_engine::ResolvedLeafOutbound<'_>,
+    mode: zero_engine::RouteMode,
 ) -> Option<Result<DatagramAssociationTarget, crate::runtime::udp_dispatch::FlowFailure>> {
     let zero_engine::ResolvedLeafOutbound::Proxy { identity } = leaf else {
         return None;
     };
     let input = ctx.config().outbounds.get(identity.config_index())?;
     let execution = ctx.packet_path_execution_services().tcp();
-    let plan = execution.components.as_ref().ok()?;
+    let plan = match execution.components.as_ref() {
+        Ok(plan) => plan,
+        Err(source) => {
+            return Some(Err(crate::runtime::udp_dispatch::FlowFailure {
+                stage: "prepare_component",
+                error: std::io::Error::other(crate::component::instance::retained(source.clone()))
+                    .into(),
+                upstream: input
+                    .protocol
+                    .endpoint()
+                    .map(|(host, port)| (host.into(), port)),
+            }))
+        }
+    };
     let slot = plan.configured(&input.tag)?;
     if !slot
         .recipe
@@ -67,6 +81,41 @@ pub(super) fn prepare_flow(
         return None;
     }
     let endpoint = input.protocol.endpoint();
+    let failure = |stage, error| crate::runtime::udp_dispatch::FlowFailure {
+        stage,
+        error,
+        upstream: endpoint.map(|(server, port)| (server.into(), port)),
+    };
+    if !ctx.udp_enabled_for_outbound(Some(&input.tag)) {
+        return Some(Err(failure(
+            "udp_policy",
+            std::io::Error::other("udp disabled for outbound").into(),
+        )));
+    }
+    if let Some((reason, endpoint)) =
+        zero_engine::EndpointAdmission::from_config(ctx.config()).outbound_denial(&input.tag)
+    {
+        return Some(Err(failure(
+            "outbound_leaf_runtime",
+            zero_engine::EngineError::InvalidPlan {
+                message: format!("{reason}: {endpoint}"),
+            },
+        )));
+    }
+    if mode == zero_engine::RouteMode::Packet {
+        return if slot
+            .recipe
+            .spec()
+            .roles
+            .contains(&zero_platform_tokio::contract::component::RoleKind::Packet)
+        {
+            None
+        } else {
+            Some(Err(crate::runtime::path::missing_udp_route_capability(
+                mode,
+            )))
+        };
+    }
     if endpoint.is_none()
         && (![
             zero_platform_tokio::contract::component::RoleKind::Packet,
@@ -85,17 +134,6 @@ pub(super) fn prepare_flow(
             ),
             upstream: None,
         }));
-    }
-    let failure = |stage, error| crate::runtime::udp_dispatch::FlowFailure {
-        stage,
-        error,
-        upstream: endpoint.map(|(server, port)| (server.into(), port)),
-    };
-    if !ctx.udp_enabled_for_outbound(Some(&input.tag)) {
-        return Some(Err(failure(
-            "udp_policy",
-            std::io::Error::other("udp disabled for outbound").into(),
-        )));
     }
     Some(
         DatagramAssociationTarget::resolve_endpoint(&execution, &input.tag, endpoint)

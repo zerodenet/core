@@ -161,22 +161,22 @@ fn every_root_packet_prefix_branch_has_a_real_native_donor() {
 }
 
 #[test]
-fn unqualified_udp_suffix_keeps_all_mieru_profiles_on_the_existing_executor() {
+fn tcp_business_suffix_does_not_require_a_nonexistent_packet_donor() {
     let config = config(
         &["pool", "prefix"],
         serde_json::json!({"type":"socks5", "server":"127.0.0.1", "port":443}),
     );
-    assert!(!production_selected(Some(&config)));
+    assert!(production_selected(Some(&config)));
     let proxy = crate::Proxy::new(config).unwrap();
     let plan = proxy.tcp_runtime_services().components.clone().unwrap();
     assert!(plan.configured("prefix").is_some());
     for tag in ["pool", "other-pool"] {
-        assert!(plan.configured(tag).is_none());
+        assert!(plan.configured(tag).is_some());
     }
 }
 
 #[test]
-fn unselected_udp_suffix_branch_cannot_make_a_native_mieru_prefix_fall_back() {
+fn every_business_suffix_branch_uses_the_same_native_pool_without_inventing_udp() {
     let mut config = config(
         &["pool", "other-pool"],
         serde_json::json!({"type":"socks5", "server":"127.0.0.1", "port":443}),
@@ -195,7 +195,7 @@ fn unselected_udp_suffix_branch_cannot_make_a_native_mieru_prefix_fall_back() {
                 selected: Some("other-pool".into()),
             },
         });
-    assert!(!production_selected(Some(&config)));
+    assert!(production_selected(Some(&config)));
     let OutboundGroupKind::Selector { outbounds, .. } =
         &mut config.outbound_groups.last_mut().unwrap().group
     else {

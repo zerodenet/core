@@ -102,6 +102,8 @@ impl Options {
             flow,
             testseed,
             reality: None,
+            // The enclosing owned QUIC transport plan applies Encryption.
+            encryption: None,
             tls: Some(tls),
             ws: None,
             grpc: None,

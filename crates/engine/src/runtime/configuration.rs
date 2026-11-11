@@ -187,7 +187,7 @@ impl Engine {
         snapshot: Arc<super::EngineRuntimeSnapshot>,
         control: Option<&zero_runtime::configuration::ControlBudgetCandidate>,
     ) -> Result<(), EngineError> {
-        self.install_snapshot_with_control(snapshot, true, control, None)
+        self.install_snapshot_preparing_quota(snapshot, true, control)
     }
     /// The same Host's DNS wire candidate participates in this exact metadata
     /// publication; the Proxy releases deferred admission outside Host guards.
@@ -196,8 +196,9 @@ impl Engine {
         snapshot: Arc<super::EngineRuntimeSnapshot>,
         control: Option<&zero_runtime::configuration::ControlBudgetCandidate>,
         wire: Option<&zero_traits::packet_metadata::PacketMetadataLimitCandidate>,
+        quota: Option<&zero_traits::packet_metadata::PacketMetadataLimitCandidate>,
     ) -> Result<(), EngineError> {
-        self.install_snapshot_with_control(snapshot, true, control, wire)
+        self.install_snapshot_with_control(snapshot, true, control, wire, quota)
     }
 
     fn install_prepared_snapshot(
@@ -205,15 +206,45 @@ impl Engine {
         snapshot: Arc<super::EngineRuntimeSnapshot>,
         reconcile_live_choices: bool,
     ) -> Result<(), EngineError> {
-        self.install_snapshot_with_control(snapshot, reconcile_live_choices, None, None)
+        self.install_snapshot_preparing_quota(snapshot, reconcile_live_choices, None)
     }
+    fn install_snapshot_preparing_quota(
+        &self,
+        snapshot: Arc<super::EngineRuntimeSnapshot>,
+        reconcile_live_choices: bool,
+        control: Option<&zero_runtime::configuration::ControlBudgetCandidate>,
+    ) -> Result<(), EngineError> {
+        let quota = self
+            .config_source
+            .prepare_quota_memory(&snapshot.config.runtime)?;
+        if let Some(quota) = &quota {
+            quota.seal().map_err(std::io::Error::other)?;
+        }
+        let result = self.install_snapshot_with_control(
+            snapshot,
+            reconcile_live_choices,
+            control,
+            None,
+            quota.as_ref(),
+        );
+        if let Some(quota) = &quota {
+            if quota.metadata_committed() {
+                quota.publish();
+            }
+        }
+        result
+    }
+
     fn install_snapshot_with_control(
         &self,
         snapshot: Arc<super::EngineRuntimeSnapshot>,
         reconcile_live_choices: bool,
         control: Option<&zero_runtime::configuration::ControlBudgetCandidate>,
         wire: Option<&zero_traits::packet_metadata::PacketMetadataLimitCandidate>,
+        quota: Option<&zero_traits::packet_metadata::PacketMetadataLimitCandidate>,
     ) -> Result<(), EngineError> {
+        self.config_source
+            .validate_quota_memory_publication(&snapshot.config.runtime, quota)?;
         if let Some(wire) = wire {
             if wire.target()
                 != zero_runtime::HostOriginalBudgets::dns_wire_limits(&snapshot.config.runtime)?
@@ -264,6 +295,9 @@ impl Engine {
         }
         if let Some(wire) = wire {
             wire.commit_validated_deferred();
+        }
+        if let Some(quota) = quota {
+            quota.commit_validated_deferred();
         }
         statistics.commit();
         let waiters = if reconcile_live_choices

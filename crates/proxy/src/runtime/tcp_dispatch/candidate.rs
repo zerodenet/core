@@ -24,10 +24,10 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
         .and_then(|invocation| invocation.caller_native.as_ref())
     {
         let covered = match &prepared.execution {
-            PreparedTcpCandidateExecution::Native(slot) => {
-                !matches!(session.target, zero_core::Address::Domain(_)) && !matches!(session.effective_direct_target(), zero_core::Address::Domain(_))
+            PreparedTcpCandidateExecution::Native(selected) => {
+                selected.slot().is_ok_and(|slot| !matches!(session.target, zero_core::Address::Domain(_)) && !matches!(session.effective_direct_target(), zero_core::Address::Domain(_))
                     && slot.recipe.spec().resources.iter().any(|declaration| matches!(declaration,
-                        zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier { .. }))
+                        zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier { .. })))
             }
             PreparedTcpCandidateExecution::Block { .. } => !matches!(session.target, zero_core::Address::Domain(_)) && !matches!(session.effective_direct_target(), zero_core::Address::Domain(_)),
             PreparedTcpCandidateExecution::Connect(operation) => operation.controlled_native_coverage(&services, session),
@@ -42,9 +42,17 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
             })?;
     }
     let result = match &prepared.execution {
-        PreparedTcpCandidateExecution::Native(slot) => {
-            crate::component::stream_bridge::connect(&services, session, slot, &prepared).await
-        }
+        PreparedTcpCandidateExecution::Native(selected) => match selected.slot() {
+            Ok(slot) => {
+                crate::component::stream_bridge::connect(&services, session, &slot, &prepared).await
+            }
+            Err(source) => Err(TcpOutboundFailure {
+                stage: "outbound_leaf_runtime",
+                error: std::io::Error::other(source).into(),
+                upstream_endpoint: prepared.endpoint.clone().map(Box::new),
+                network: None,
+            }),
+        },
         PreparedTcpCandidateExecution::Block { tag } => {
             Ok(EstablishedTcpOutbound::block(tag.clone()))
         }

@@ -101,6 +101,7 @@ pub(crate) async fn connect(
         }),
     );
     let cancel = invocation.cancellation();
+    let business_session = invocation.identity.session();
     let context = OpenContext {
         identity: invocation.identity,
         deadline: invocation.deadline,
@@ -123,7 +124,11 @@ pub(crate) async fn connect(
             "native Stream did not retain its selected carrier facts",
         ))
     })?;
-    services.record_control_traffic(session.id, traffic.finish());
+    // Prefix destinations are framing DTOs (their id may be zero). Meter only
+    // the real admitted business caller, never a synthetic Service identity.
+    if let Some(actual) = business_session {
+        services.record_control_traffic(actual.0, traffic.finish());
+    }
     Ok(EstablishedTcpOutbound::proxied(
         prepared.tag.clone().expect("native node has a tag"),
         endpoint.0,

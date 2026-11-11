@@ -1,5 +1,4 @@
 #[cfg(feature = "trojan")]
-mod tcp_owned;
 #[cfg(feature = "trojan")]
 use ::trojan::transport::TrojanOutboundLeaf;
 #[cfg(feature = "trojan")]

@@ -34,7 +34,7 @@ fn compiled_in_outbound_leaf_variants_have_expected_protocol_owners() {
                 .as_ref()
                 .map(|claim| claim.has_tcp_capability())
                 .ok(),
-            Some(expected_owners == 1 && protocol != "wireguard"),
+            Some(expected_owners == 1 && !matches!(protocol, "wireguard" | "shadowsocks")),
             "{} claimed outbound lookup should expose runtime facts and optional adapter with the same ownership policy",
             protocol
         );

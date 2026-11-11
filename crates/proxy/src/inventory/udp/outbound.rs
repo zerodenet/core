@@ -67,31 +67,8 @@ impl ProtocolInventory {
                     return selected
                         .map(|selected| PreparedUdpOutbound::DatagramRelay(Box::new(selected)));
                 }
-                if chain.first().is_some_and(|first| {
-                    self.claim_outbound_leaf(ctx.config(), first.clone())
-                        .is_err()
-                }) {
-                    return self
-                        .prepare_standard_first_udp_relay(ctx, session, chain, payload)
-                        .map(|selected| PreparedUdpOutbound::Relay(Box::new(selected)));
-                }
-                let claimed = self.claim_relay_chain(
-                    ctx.config(),
-                    chain.iter().cloned(),
-                    |error| FlowFailure {
-                        stage: "outbound_leaf_runtime",
-                        error,
-                        upstream: None,
-                    },
-                    |error| FlowFailure {
-                        stage: "outbound_leaf_runtime",
-                        error,
-                        upstream: None,
-                    },
-                )?;
-                Ok(PreparedUdpOutbound::Relay(Box::new(
-                    self.prepare_claimed_udp_relay_chain(ctx, session, claimed, payload)?,
-                )))
+                self.prepare_udp_relay_chain(ctx, session, chain, payload)
+                    .map(|selected| PreparedUdpOutbound::Relay(Box::new(selected)))
             }
         }
     }

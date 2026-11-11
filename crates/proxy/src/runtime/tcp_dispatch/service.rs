@@ -232,6 +232,20 @@ async fn prepare_stream_path(
     );
     let mut prefix = Vec::with_capacity(nodes.len());
     for (index, (node, role)) in nodes.iter().zip(roles).enumerate() {
+        // A Service receiver is a real transitive consumer just like a
+        // Business receiver. Register that dependency before its acquisition,
+        // so replacement drains it before retiring the shorter prefix owner.
+        if !prefix.is_empty() && node.slot.recipe.spec().resources.iter().any(|resource| matches!(resource,
+            zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { .. }
+            | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool { .. }
+            | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeCarrier { .. }
+            | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeStream { .. }
+            | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledServiceStream { .. }
+            | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier { .. })) {
+            services.components.as_ref().map_err(|source| {
+                failure(Reason::Revoked).with_source(retained(source.clone()))
+            })?.authorize_carrier_prefix(node.slot.instance_id(), &prefix)?;
+        }
         let context = OpenContext {
             identity: identity.clone(),
             deadline: call.deadline,
@@ -263,14 +277,14 @@ async fn prepare_stream_path(
         upstream = UpstreamTransport::new(
             binding.clone(),
             Arc::new(PrefixOpener::for_service(
-                role,
+                (node, role),
                 context,
                 binding,
                 endpoint,
                 wire,
-                services.upstream(),
+                services,
                 observer,
-            )),
+            )?),
         );
     }
     Err(failure(Reason::Internal))

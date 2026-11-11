@@ -1,6 +1,9 @@
 //! Candidate-local plane selection for ordinary TCP and UDP flow inbounds.
 
-use zero_engine::{EngineError, RouteMode};
+use crate::runtime::path::missing_tcp_route_capability;
+#[cfg(feature = "udp-runtime")]
+use crate::runtime::path::missing_udp_route_capability;
+use zero_engine::RouteMode;
 
 use super::ClaimedOutboundLeaf;
 use crate::runtime::tcp_dispatch::operation::PreparedTcpConnectOperation;
@@ -97,29 +100,5 @@ impl<'a> ClaimedOutboundLeaf<'a> {
             }
             self.into_udp_flow()
         }
-    }
-}
-
-fn missing_tcp_route_capability(mode: RouteMode) -> crate::transport::TcpOutboundFailure {
-    crate::transport::TcpOutboundFailure {
-        stage: "data_plane_route",
-        error: EngineError::Io(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            format!("no executable TCP path for route mode {mode:?}"),
-        )),
-        upstream_endpoint: None,
-        network: None,
-    }
-}
-
-#[cfg(feature = "udp-runtime")]
-fn missing_udp_route_capability(mode: RouteMode) -> crate::runtime::udp_dispatch::FlowFailure {
-    crate::runtime::udp_dispatch::FlowFailure {
-        stage: "data_plane_route",
-        error: EngineError::Io(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            format!("no executable UDP path for route mode {mode:?}"),
-        )),
-        upstream: None,
     }
 }

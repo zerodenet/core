@@ -16,7 +16,13 @@ fn actual_owner_budgets_are_optional_finite_and_preserve_omitted_export_shape() 
         usize,
         usize,
     );
-    let fields: [BudgetField; 86] = [
+    let fields: [BudgetField; 87] = [
+        (
+            "principal_quota_total_max_storage_bytes",
+            RuntimeOptionsConfig::effective_principal_quota_total_max_storage_bytes,
+            16 * 1024 * 1024,
+            isize::MAX as usize,
+        ),
         (
             "dns_wire_total_max_buffered_bytes",
             RuntimeOptionsConfig::effective_dns_wire_total_max_buffered_bytes,

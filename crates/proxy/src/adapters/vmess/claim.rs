@@ -1,4 +1,4 @@
-//! Existing compatibility claims retain the actual native root.
+//! Compatibility projections retain only execution not owned by standard roles.
 use super::*;
 impl VmessAdapter {
     pub(crate) fn claim_outbound_leaf_impl<'a>(
@@ -14,6 +14,20 @@ impl VmessAdapter {
         else {
             return None;
         };
+        let streams =
+            !matches!(
+                &outbound.protocol,
+                OutboundProtocolConfig::Vmess { grpc: Some(_), .. }
+            ) || component::grpc::streams_selected(outbound, Some(config), self.native_node_dns);
+        if self.native_node_dns
+            && streams
+            && self.production_selected(outbound, Some(config), true)
+            && (!component::owned_input(outbound)
+                || !crate::adapters::mux_prefix::used_by_relay(config, outbound.tag()))
+        {
+            // No compatibility leaf may acquire the same native pool again.
+            return None;
+        }
         let options = outbound_options(outbound.tag(), endpoint, &outbound.protocol)?;
         let leaf = VmessOutboundLeaf::from_options_refs(source_dir, options, &self.runtime);
         let (udp, udp_relay) = crate::adapters::udp::transport_operations(
@@ -31,14 +45,7 @@ impl VmessAdapter {
                 (Some(tcp), Some(tcp_relay))
             };
         let tcp = if self.native_node_dns && component::owned_input(outbound) {
-            Some(Ok(std::sync::Arc::new(tcp_owned::Connect {
-                tag: outbound.tag().into(),
-                server: endpoint.0.into(),
-                port: endpoint.1,
-            })
-                as std::sync::Arc<
-                    dyn crate::runtime::tcp_dispatch::operation::PreparedTcpConnectOperation,
-                >))
+            None
         } else {
             tcp
         };

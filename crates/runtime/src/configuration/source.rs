@@ -5,7 +5,8 @@ mod document;
 mod quota;
 mod snapshot;
 pub use quota::{
-    OwnedQuotaStorage, QuotaMemoryBudget, QuotaMemoryCredit, QuotaStorage, WeakQuotaStorage,
+    OwnedQuotaStorage, QuotaMemoryBudget, QuotaMemoryCredit, QuotaStorage, QuotaWriterFailure,
+    WeakQuotaStorage,
 };
 pub use snapshot::ConfigurationSnapshotReader;
 mod embedded;

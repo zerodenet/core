@@ -19,13 +19,8 @@ impl ProtocolInventory {
         mode: RouteMode,
         components: Option<&crate::component::catalog::ComponentPlan>,
     ) -> Result<PreparedTcpOutbound, TcpOutboundFailure> {
-        // This migration registers Stream-only factories. Strict Packet mode
-        // continues through the existing executable-plane capability check.
-        let components = if mode == RouteMode::Packet {
-            None
-        } else {
-            components
-        };
+        // Strict plane admission uses the same installed catalog. An absent
+        // Packet role is reported without reconstructing an old protocol leaf.
         match resolved {
             ResolvedOutbound::Relay { chain } => {
                 if mode == RouteMode::Packet {
@@ -49,20 +44,21 @@ impl ProtocolInventory {
                                 if !slot.recipe.spec().resources.iter().any(|resource|matches!(resource,zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier {..})){return None;}
                                 return Some(Ok(super::PreparedTcpCandidate {
                                     health_tag:None,tag:Some(tag.unwrap_or("direct").into()),protocol:"direct".into(),endpoint:None,
-                                    execution:super::PreparedTcpCandidateExecution::Native(slot),
+                                    execution:super::PreparedTcpCandidateExecution::Native(crate::inventory::StreamRoleRef::new(&slot)),
                                 }));
                             }
-                            self.native_tcp_candidate(ctx, leaf, components)
+                            self.native_tcp_candidate(ctx, leaf, components, mode)
                         }),
                 ) {
                     return prepared.map(PreparedTcpOutbound::NativeRelay);
                 }
                 Ok(PreparedTcpOutbound::Relay(
-                    self.prepare_tcp_relay_chain(ctx, chain, components)?,
+                    self.prepare_tcp_relay_chain(ctx, chain, components, None)?,
                 ))
             }
             ResolvedOutbound::Single(candidate) => {
-                if let Some(prepared) = self.native_tcp_candidate(ctx, candidate, components) {
+                if let Some(prepared) = self.native_tcp_candidate(ctx, candidate, components, mode)
+                {
                     return prepared.map(PreparedTcpOutbound::Single);
                 }
                 let claimed = self
@@ -83,7 +79,7 @@ impl ProtocolInventory {
 
                 for candidate in candidates.iter().cloned() {
                     let prepared_candidate = self
-                        .native_tcp_candidate(ctx, &candidate, components)
+                        .native_tcp_candidate(ctx, &candidate, components, mode)
                         .unwrap_or_else(|| {
                             self.claim_outbound_leaf(ctx.config(), candidate)
                                 .map_err(|error| TcpOutboundFailure {

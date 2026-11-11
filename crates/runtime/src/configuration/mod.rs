@@ -19,9 +19,9 @@ pub use compile::{DnsConfigPreparation, RuntimeConfigPreparation};
 pub use notifications::{ConfigurationReconcileChanges, ConfigurationReconcileNotifications};
 pub use source::{
     ConfigurationSnapshotReader, ConfigurationSource, OwnedQuotaStorage, QuotaMemoryBudget,
-    QuotaMemoryCredit, QuotaStorage, RuleSetCacheDownload, SourceDisposition, SourcePersistError,
-    SourcePersistenceNotifications, SourceWriteObservation, SourceWriteView, WeakQuotaStorage,
-    MAX_RULE_SET_CACHE_BYTES,
+    QuotaMemoryCredit, QuotaStorage, QuotaWriterFailure, RuleSetCacheDownload, SourceDisposition,
+    SourcePersistError, SourcePersistenceNotifications, SourceWriteObservation, SourceWriteView,
+    WeakQuotaStorage, MAX_RULE_SET_CACHE_BYTES,
 };
 use std::sync::Arc;
 use zero_config::{ConfigError, RuntimeConfig};

@@ -1,5 +1,7 @@
 use zero_config::RuntimeConfig;
 use zero_core::{Address, Network, ProtocolType, Session, SessionAuth};
+#[path = "quota/ownership.rs"]
+mod ownership;
 #[path = "quota/streaming.rs"]
 mod streaming;
 

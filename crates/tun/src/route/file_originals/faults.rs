@@ -155,7 +155,7 @@ impl Drop for Payload {
             .get_mut()
             .unwrap_or_else(|e| e.into_inner())
             .take();
-        while let Some(mut node) = current {
+        while let Some(mut node) = current.take() {
             if let Some(node) = PacketMetadataArc::get_mut(&mut node) {
                 current = node
                     .next

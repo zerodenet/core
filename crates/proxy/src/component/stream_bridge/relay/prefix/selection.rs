@@ -69,19 +69,20 @@ impl PrefixOpener {
                 },
                 upstream: self.select_shorter(&call, waiting).await?,
             };
-            let mut selected = PrefixOpener::for_service(
-                self.role.clone(),
+            let selected = PrefixOpener {
+                role: self.role.clone(),
                 context,
-                binding.clone(),
-                self.expected_endpoint.clone(),
-                self.request_destination.clone(),
-                self.network.clone(),
-                self.observer.clone(),
-            );
-            selected.service_identity = self.service_identity.clone();
-            selected.datagram_slot = self.datagram_slot.clone();
-            selected.plan = self.plan.clone();
-            selected.health = self.health.clone();
+                expected_binding: binding.clone(),
+                expected_endpoint: self.expected_endpoint.clone(),
+                request_destination: self.request_destination.clone(),
+                network: self.network.clone(),
+                observer: self.observer.clone(),
+                service_identity: self.service_identity.clone(),
+                datagram_slot: self.datagram_slot.clone(),
+                plan: self.plan.clone(),
+                health: self.health.clone(),
+                business: None,
+            };
             Ok(UpstreamTransport::new(binding, Arc::new(selected)))
         })
     }

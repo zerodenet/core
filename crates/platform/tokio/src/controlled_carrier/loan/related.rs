@@ -61,6 +61,13 @@ impl RelatedControl {
     }
 }
 impl LoanOwner {
+    /// Fixture access to the actual controller already retained by this loan.
+    /// Never reconstruct a controller from the public weak observation.
+    #[cfg(feature = "test-support")]
+    pub fn retained_related_control_for_test(&self) -> Option<&CarrierAdoption> {
+        self.related.as_ref().map(|cleanup| &cleanup.token.parent)
+    }
+
     pub(in crate::controlled_carrier) fn related_control(&self) -> Option<Weak<RelatedControl>> {
         self.related
             .as_ref()

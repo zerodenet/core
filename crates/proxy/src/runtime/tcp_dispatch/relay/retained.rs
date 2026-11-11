@@ -118,7 +118,7 @@ impl RetainedSource {
                     let current = plan
                         .configured(tag)
                         .ok_or_else(|| revoked("native prefix owner is no longer configured"))?;
-                    if !Arc::ptr_eq(captured, &current) {
+                    if !captured.matches(&current) {
                         return Err(revoked("native prefix actual owner changed"));
                     }
                 }
@@ -150,6 +150,8 @@ pub(in crate::runtime) fn check_owners(prefix: &PreparedTcpRelayPrefix) -> Resul
     match &prefix.first.execution {
         PreparedTcpCandidateExecution::Connect(operation) => operation.retained_admission()?,
         PreparedTcpCandidateExecution::Native(slot) => slot
+            .slot()
+            .map_err(std::io::Error::other)?
             .service_admission()
             .ok_or_else(|| unsupported("native prefix has no actual host admission"))?
             .check_current()

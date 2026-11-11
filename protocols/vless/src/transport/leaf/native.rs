@@ -119,7 +119,8 @@ impl VlessOutboundLeaf {
             context.upstream.observed_pending_carrier(),
         ));
         let leaf = self.clone();
-        self.mux_pool
+        let mut opened = self
+            .mux_pool
             .open_native_udp(key, concurrency, binding, call, move |raw| async move {
                 let preparation = raw.preparation();
                 let io = zero_transport::TcpRelayStream::new(
@@ -127,6 +128,9 @@ impl VlessOutboundLeaf {
                 );
                 leaf.open_native_mux_carrier(io, preparation).await
             })
-            .await
+            .await?;
+        opened.io.observer = context.observer.clone();
+        opened.io.session = context.session_identity().map_err(std::io::Error::other)?;
+        Ok(opened)
     }
 }

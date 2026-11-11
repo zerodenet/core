@@ -18,6 +18,7 @@ pub(crate) mod udp;
 #[cfg(feature = "mieru")]
 #[derive(Debug, Default)]
 pub(crate) struct MieruAdapter {
+    pub(crate) native_host: bool,
     pool: std::sync::Arc<::mieru::client::ClientPool>,
 }
 
@@ -58,7 +59,7 @@ impl NamedProtocolAdapter for MieruAdapter {
             .outbounds
             .iter()
             .any(|node| matches!(node.protocol, OutboundProtocolConfig::Mieru { .. }));
-        let native = present && component::production_selected(Some(config));
+        let native = self.native_host && present && component::production_selected(Some(config));
         self.pool
             .validate_component_candidate(native, present && !native)
             .map_err(zero_engine::EngineError::Io)
@@ -74,9 +75,17 @@ impl MieruAdapter {
         &self,
         input: OutboundLeafInput<'a>,
     ) -> Option<OutboundLeafClaim<'a>> {
-        let OutboundLeafInput::Proxy { outbound, .. } = input else {
+        let OutboundLeafInput::Proxy {
+            config, outbound, ..
+        } = input
+        else {
             return None;
         };
+        if self.native_host && component::production_selected(Some(config)) {
+            // Every reachable consumer was qualified together for this actual
+            // adapter pool; the legacy ClientPool path may not coexist with it.
+            return None;
+        }
         let leaf = transport_leaf(outbound.tag(), &outbound.protocol)?.with_pool(self.pool.clone());
         let tcp = std::sync::Arc::new(
             crate::runtime::tcp_dispatch::operation::SocketTcpOperation {

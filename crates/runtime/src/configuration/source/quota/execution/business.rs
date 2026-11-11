@@ -18,19 +18,33 @@ impl Cell {
     }
     pub(super) fn receive(mut self, original: io::Error) -> Arc<io::Error> {
         let kind = original.kind();
-        let failure = PacketMetadataArc::from_prepaid(Failure { original }, self.0.take().unwrap().into_metadata());
-        let failure = match failure { Ok(failure) => failure, Err(_) => unreachable!("same prepaid quota business failure layout") };
+        let failure = PacketMetadataArc::from_prepaid(
+            Failure { original },
+            self.0.take().unwrap().into_metadata(),
+        );
+        let failure = match failure {
+            Ok(failure) => failure,
+            Err(_) => unreachable!("same prepaid quota business failure layout"),
+        };
         // Every clone/extracted inner error keeps the attachment alive. There
         // is no task witness, joined/Scope marker or mutable receiver back edge.
         Arc::new(io::Error::new(kind, Delivered(failure)))
     }
 }
 impl std::fmt::Debug for Delivered {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.debug_tuple("QuotaWriteFailure").field(&self.0.original.kind()).finish() }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("QuotaWriteFailure")
+            .field(&self.0.original.kind())
+            .finish()
+    }
 }
 impl std::fmt::Display for Delivered {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { self.0.original.fmt(f) }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.original.fmt(f)
+    }
 }
 impl std::error::Error for Delivered {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> { Some(&self.0.original) }
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0.original)
+    }
 }

@@ -22,6 +22,7 @@ pub struct Options {
     pub(super) flow: Option<&'static str>,
     pub(super) testseed: [u32; 4],
     pub(super) reality: Option<crate::reality::PreparedRealityClient>,
+    pub(super) encryption: Option<crate::encryption::EncryptionClient>,
     pub(super) tls: Option<OwnedClientTlsProfile>,
     pub(super) ws: Option<OwnedWebSocketProfile>,
     pub(super) grpc: Option<OwnedGrpcProfile>,
@@ -113,15 +114,33 @@ impl Options {
                 "VLESS flow requires its protocol stream integration",
             ));
         }
+        // The actual component recipe owns the bounded resumption ticket. This
+        // state has no driver or native I/O; every handshake uses the caller's
+        // original carrier and the same cancellation/deadline as the transport.
+        let encryption = input
+            .protocol
+            .encryption
+            .map(crate::encryption::config::EncryptionConfig::client)
+            .transpose()
+            .map_err(Error::Config)?
+            .flatten()
+            .map(crate::encryption::EncryptionClient::new)
+            .transpose()
+            .map_err(|_| Error::Config("invalid VLESS Encryption client keys"))?;
+        if input.grpc.is_some() && encryption.is_some() {
+            return Err(Error::Unsupported(
+                "VLESS encrypted gRPC requires its original shared pool owner",
+            ));
+        }
         if crate::flow::is_vision_flow(flow)
-            && ((input.tls.is_none() && input.protocol.reality.is_none())
+            && ((input.tls.is_none() && input.protocol.reality.is_none() && encryption.is_none())
                 || input.ws.is_some()
                 || input.grpc.is_some()
                 || input.h2.is_some()
                 || input.http_upgrade.is_some())
         {
             return Err(Error::Unsupported(
-                "Vision requires a real switchable TLS carrier",
+                "Vision requires a real switchable TLS or Encryption carrier",
             ));
         }
         if input.protocol.testpre != 0 || (flow.is_none() && !input.protocol.testseed.is_empty()) {
@@ -131,13 +150,6 @@ impl Options {
         }
         let testseed = crate::validation::normalize_vision_testseed(input.protocol.testseed)
             .map_err(Error::Config)?;
-        if let Some(encryption) = input.protocol.encryption.filter(|value| *value != "none") {
-            crate::encryption::config::EncryptionConfig::client(encryption)
-                .map_err(Error::Config)?;
-            return Err(Error::Unsupported(
-                "VLESS Encryption requires its protocol state owner",
-            ));
-        }
         if input.protocol.quic.is_some()
             || input.final_mask.is_some()
             || input.mkcp.is_some()
@@ -253,6 +265,8 @@ impl Options {
             uuid.hash(&mut hash);
             flow.hash(&mut hash);
             testseed.hash(&mut hash);
+            // Debug redacts keys; the full private profile must fence reuse.
+            input.protocol.encryption.hash(&mut hash);
             format!("{tls:?}{ws:?}{grpc:?}{h2:?}{http_upgrade:?}").hash(&mut hash);
             // Full profile participates in this keyed, process-local equality
             // hint; PreparedRealityClient's Debug intentionally omits keys.
@@ -268,6 +282,7 @@ impl Options {
             flow,
             testseed,
             reality,
+            encryption,
             tls,
             ws,
             grpc,

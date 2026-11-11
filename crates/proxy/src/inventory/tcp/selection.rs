@@ -15,11 +15,13 @@ impl ProtocolInventory {
         ctx: OutboundAdapterContext<'a>,
         leaves: &[ResolvedLeafOutbound<'a>],
         components: Option<&crate::component::catalog::ComponentPlan>,
+        final_claim: Option<&crate::inventory::ClaimedInventoryLeaf<'a>>,
     ) -> Result<PreparedTcpRelayChain, TcpOutboundFailure> {
         self.prepare_tcp_relay_chain_inner(
             ctx,
             leaves,
             components,
+            final_claim,
             #[cfg(feature = "udp-runtime")]
             None,
         )
@@ -38,13 +40,14 @@ impl ProtocolInventory {
                 EngineError::Io(std::io::Error::other("cold formatter leaf count changed")),
             ));
         }
-        self.prepare_tcp_relay_chain_inner(ctx, leaves, components, Some(sources))
+        self.prepare_tcp_relay_chain_inner(ctx, leaves, components, None, Some(sources))
     }
     fn prepare_tcp_relay_chain_inner<'a>(
         &self,
         ctx: OutboundAdapterContext<'a>,
         leaves: &[ResolvedLeafOutbound<'a>],
         components: Option<&crate::component::catalog::ComponentPlan>,
+        final_claim: Option<&crate::inventory::ClaimedInventoryLeaf<'a>>,
         #[cfg(feature = "udp-runtime")] sources: Option<
             &[Option<crate::protocol_registry::ColdPacketPathProjection>],
         >,
@@ -55,18 +58,27 @@ impl ProtocolInventory {
         // An unmigrated pool may retain its entire shorter prefix. Keep that
         // prefix with its existing owner until real carrier borrowing qualifies;
         // only the ordinary Stream suffix after it may use request-bound roles.
-        let last_legacy = leaves
-            .iter()
-            .rposition(|leaf| self.native_tcp_candidate(ctx, leaf, components).is_none());
+        let last_legacy = leaves.iter().rposition(|leaf| {
+            self.native_tcp_candidate(ctx, leaf, components, RouteMode::Flow)
+                .is_none()
+        });
         let native_at = |index: usize, leaf: &ResolvedLeafOutbound<'a>| {
-            let selected = self.native_tcp_candidate(ctx, leaf, components);
+            let selected = self.native_tcp_candidate(ctx, leaf, components, RouteMode::Flow);
             #[cfg(feature = "udp-runtime")]
             if sources.is_some() {
                 return selected;
             }
             if last_legacy.is_some_and(|last| index < last)
                 && matches!(selected, Some(Ok(_)))
-                && self.claim_outbound_leaf(ctx.config(), leaf.clone()).is_ok()
+                && self
+                    .claim_outbound_leaf(ctx.config(), leaf.clone())
+                    .is_ok_and(|claim| {
+                        if index == 0 {
+                            claim.tcp_connect_for_route(RouteMode::Flow).is_ok()
+                        } else {
+                            claim.tcp_relay_hop().is_ok()
+                        }
+                    })
             {
                 None
             } else {
@@ -144,9 +156,18 @@ impl ProtocolInventory {
                         )),
                     ));
                 }
-                let claimed = self
-                    .claim_outbound_leaf(ctx.config(), leaf.clone())
-                    .map_err(|error| failure("relay_prepare", error))?;
+                // UDP framing consumes this same prepared final leaf. Do not
+                // parse its private file material or enter its pool twice.
+                let owned_claim;
+                let claimed = match final_claim.filter(|_| index + 1 == leaves.len()) {
+                    Some(claimed) => claimed,
+                    None => {
+                        owned_claim = self
+                            .claim_outbound_leaf(ctx.config(), leaf.clone())
+                            .map_err(|error| failure("relay_prepare", error))?;
+                        &owned_claim
+                    }
+                };
                 #[cfg(feature = "udp-runtime")]
                 {
                     packet = if index + 1 < leaves.len() {
@@ -155,7 +176,7 @@ impl ProtocolInventory {
                         None
                     };
                 }
-                self.prepare_claimed_tcp_relay_hop(ctx, &claimed)
+                self.prepare_claimed_tcp_relay_hop(ctx, claimed)
                     .map_err(|error| failure("relay_prepare", error))?
             };
             #[cfg(feature = "udp-runtime")]
@@ -216,6 +237,9 @@ impl ProtocolInventory {
             dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation,
         >,
     > {
+        // Preserve existing Service/background compatibility until those real
+        // callers can transfer their original owner. Cold role facts alone do
+        // not authorize replacing their carrier with an unowned Service open.
         if let Some(operation) = self
             .claim_outbound_leaf(ctx.config(), leaf.clone())
             .ok()
@@ -228,6 +252,9 @@ impl ProtocolInventory {
         };
         let input = ctx.config().outbounds.get(identity.config_index())?;
         let slot = components?.configured(input.tag())?;
+        if let Some(operation) = crate::component::stream_bridge::datagram::packet_path::StandardPacketPath::prepare_declared(&slot, input.tag()) {
+            return Some(operation);
+        }
         if !slot
             .recipe
             .spec()
@@ -260,7 +287,7 @@ fn native_hop(candidate: PreparedTcpCandidate) -> PreparedTcpRelayHop {
         protocol: candidate.protocol,
         server,
         port,
-        execution: PreparedTcpRelayExecution::Native(super::native::StreamRoleRef::new(&slot)),
+        execution: PreparedTcpRelayExecution::Native(slot),
     }
 }
 

@@ -1,5 +1,5 @@
 //! Ordinary fallback/masquerade borrow the same finite Host native graph.
-use super::inbound_work_limits::{closed, owner};
+use super::inbound_receipts::{closed, owner};
 use crate::{Proxy, ProxyHandle};
 use std::time::Duration;
 use tokio::{

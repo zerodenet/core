@@ -103,9 +103,6 @@ impl<'a> ClaimedInventoryLeaf<'a> {
     }
 }
 
-mod relay;
-pub(crate) use relay::ClaimedRelayChain;
-
 impl ProtocolInventory {
     pub(in crate::inventory) fn service_node(
         &self,
@@ -135,13 +132,16 @@ impl ProtocolInventory {
             }
             ResolvedLeafOutbound::Block { .. } => Ok(None),
             ResolvedLeafOutbound::Proxy { .. } => {
-                let Some(candidate) = self.native_tcp_candidate(ctx, leaf, Some(components)) else {
+                let Some(candidate) =
+                    self.native_tcp_candidate(ctx, leaf, Some(components), RouteMode::Flow)
+                else {
                     return Ok(None);
                 };
                 let candidate = candidate?;
                 let PreparedTcpCandidateExecution::Native(slot) = candidate.execution else {
                     return Ok(None);
                 };
+                let slot = slot.slot().map_err(failure)?;
                 let Some((host, port)) = candidate.endpoint else {
                     return Ok(components
                         .has_device_carrier_provider(slot.role_id())
@@ -179,10 +179,10 @@ impl ProtocolInventory {
             ResolvedLeafOutbound::Block { .. } => None,
             ResolvedLeafOutbound::Proxy { .. } => {
                 let candidate = self
-                    .native_tcp_candidate(ctx, leaf, Some(components))?
+                    .native_tcp_candidate(ctx, leaf, Some(components), RouteMode::Flow)?
                     .ok()?;
                 match candidate.execution {
-                    super::PreparedTcpCandidateExecution::Native(slot) => Some(slot),
+                    super::PreparedTcpCandidateExecution::Native(slot) => slot.slot().ok(),
                     _ => None,
                 }
             }
@@ -194,6 +194,7 @@ impl ProtocolInventory {
         ctx: crate::protocol_registry::OutboundAdapterContext<'_>,
         leaf: &ResolvedLeafOutbound<'_>,
         components: Option<&crate::component::catalog::ComponentPlan>,
+        mode: RouteMode,
     ) -> Option<Result<super::PreparedTcpCandidate, crate::transport::TcpOutboundFailure>> {
         let ResolvedLeafOutbound::Proxy { identity } = leaf else {
             return None;
@@ -221,6 +222,22 @@ impl ProtocolInventory {
                 message: format!("{reason}: {endpoint}"),
             })));
         }
+        if mode == RouteMode::Packet {
+            return if slot
+                .recipe
+                .spec()
+                .roles
+                .contains(&zero_platform_tokio::contract::component::RoleKind::Packet)
+            {
+                // The existing Packet conversion still selects its actual
+                // device executor; a Stream role cannot substitute for it.
+                None
+            } else {
+                Some(Err(crate::runtime::path::missing_tcp_route_capability(
+                    mode,
+                )))
+            };
+        }
         let endpoint = match outbound.protocol.endpoint() {
             Some((server, port)) => Some((server.into(), port)),
             None if [zero_platform_tokio::contract::component::RoleKind::Packet,
@@ -237,7 +254,9 @@ impl ProtocolInventory {
             tag: Some(outbound.tag.clone()),
             protocol: outbound.protocol.protocol_name().into(),
             endpoint,
-            execution: super::PreparedTcpCandidateExecution::Native(slot),
+            execution: super::PreparedTcpCandidateExecution::Native(
+                super::tcp::StreamRoleRef::new(&slot),
+            ),
         }))
     }
     #[cfg(feature = "raw-ip-runtime")]
@@ -376,34 +395,5 @@ impl ProtocolInventory {
         }
         let claimed = self.registry.claim_outbound_leaf(config, leaf)?;
         Ok(ClaimedInventoryLeaf::new(claimed))
-    }
-
-    pub(in crate::inventory) fn claim_relay_chain<'a, E, F, G>(
-        &self,
-        config: &'a RuntimeConfig,
-        chain: impl IntoIterator<Item = ResolvedLeafOutbound<'a>>,
-        map_first_error: F,
-        map_relay_error: G,
-    ) -> Result<ClaimedRelayChain<'a>, E>
-    where
-        F: FnOnce(EngineError) -> E,
-        G: Fn(EngineError) -> E,
-    {
-        let mut chain = chain.into_iter();
-        let first = chain.next().expect("relay chain must have at least 2 hops");
-        let second = chain.next().expect("relay chain must have at least 2 hops");
-
-        let first = self
-            .claim_outbound_leaf(config, first)
-            .map_err(map_first_error)?;
-        let map_relay_error = &map_relay_error;
-        let relay_hops = std::iter::once(second)
-            .chain(chain)
-            .map(|leaf| {
-                self.claim_outbound_leaf(config, leaf)
-                    .map_err(map_relay_error)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(ClaimedRelayChain::new(first, relay_hops))
     }
 }

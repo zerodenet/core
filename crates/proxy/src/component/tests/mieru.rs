@@ -1,6 +1,8 @@
 //! The actual Proxy constructor, registry, shared pool, host apply and I/O.
 mod budget;
 #[cfg(feature = "socks5")]
+mod business_suffix;
+#[cfg(feature = "socks5")]
 mod cross_owner;
 #[cfg(all(feature = "wireguard", feature = "socks5"))]
 mod device;

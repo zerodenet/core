@@ -2,6 +2,8 @@
 use super::*;
 /// Direct packet access to the existing protocol map; no stream flattening or upload task.
 pub(crate) struct DatagramIo {
+    pub(crate) observer: Option<Arc<dyn zero_platform_tokio::contract::context::ConnectObserver>>,
+    pub(crate) session: Option<zero_core::component::SessionId>,
     pub(super) connection: Arc<TrojanMuxConn>,
     pub(super) sid: u16,
     pub(super) rx: mpsc::Receiver<TrojanMuxDownlink>,
@@ -61,6 +63,12 @@ impl zero_transport::pooled_driver::datagram::PacketIo for DatagramIo {
             .send(wire)?;
         self.first = false;
         self.target = Some(frame.address.clone());
+        drop(streams);
+        if let Some(observer) = &self.observer {
+            // Preserve this codec's existing Flow accounting boundary. MUX
+            // and carrier framing remain metered by the real physical driver.
+            observer.datagram_sent(self.session, frame.payload.len() as u64);
+        }
         Ok(())
     }
     fn poll_recv(

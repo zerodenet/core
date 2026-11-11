@@ -127,3 +127,7 @@ async fn vision_bypass_preserves_fragmented_random_headers() {
         assert_eq!(read, record);
     }
 }
+
+#[cfg(feature = "reality")]
+#[path = "component/encryption.rs"]
+mod standard;

@@ -9,7 +9,6 @@ mod packet_path;
 #[cfg(feature = "vless")]
 mod reverse;
 #[cfg(feature = "vless")]
-mod tcp_owned;
 #[cfg(feature = "vless")]
 use ::vless::transport::{
     VlessInboundBindPlan, VlessInboundListenerRequest, VlessInboundOptionsRef, VlessInboundUserRef,

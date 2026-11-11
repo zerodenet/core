@@ -63,6 +63,8 @@ impl Options {
             flow,
             testseed,
             reality: None,
+            // The enclosing owned transport plan applies Encryption once.
+            encryption: None,
             tls: None,
             ws: None,
             grpc: None,

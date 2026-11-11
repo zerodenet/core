@@ -25,7 +25,9 @@ pub(crate) struct PrefixOpener {
     pub(super) service_identity: Option<zero_platform_tokio::contract::context::RequestIdentity>,
     pub(super) business: Option<crate::component::business_carrier::BusinessCarrierRequest>,
     pub(super) plan: Option<std::sync::Weak<crate::component::catalog::ComponentPlan>>,
-    pub(super) datagram_slot: Option<Arc<crate::component::instance::ComponentSlot>>,
+    // A retained pool prefix names an exact generation without keeping that
+    // generation's factory, private pool or resource owner alive.
+    pub(super) datagram_slot: Option<crate::inventory::StreamRoleRef>,
     pub(super) context: OpenContext,
     pub(super) expected_binding: UpstreamBinding,
     pub(super) expected_endpoint: Destination,
@@ -36,30 +38,37 @@ pub(crate) struct PrefixOpener {
 }
 impl PrefixOpener {
     pub(crate) fn for_service(
-        role: Arc<dyn DynStreamOutbound>,
+        (node, role): (
+            &crate::inventory::service::ServiceNode,
+            Arc<dyn DynStreamOutbound>,
+        ),
         context: OpenContext,
         expected_binding: UpstreamBinding,
         expected_endpoint: Destination,
         request_destination: Destination,
-        network: UpstreamConnectServices,
+        services: &crate::protocol_registry::TcpExecutionServices,
         observer: Option<Arc<dyn zero_traits::IoObserver>>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ChannelError> {
+        let plan = services.components.as_ref().map_err(|source| {
+            invalid(Reason::Revoked, "Service prefix has no actual host")
+                .with_source(source.clone())
+        })?;
+        Ok(Self {
             role,
             service_identity: None,
             business: None,
-            plan: None,
+            plan: Some(Arc::downgrade(plan)),
             context,
             expected_binding,
             expected_endpoint,
             request_destination,
-            network,
+            network: services.upstream(),
             observer,
             health: None,
-            // Added by the parallel raw Datagram provider. DNS TCP services
-            // receive no unrelated Datagram grant.
-            datagram_slot: None,
-        }
+            // Weak identity supplies no I/O grant. Datagram execution still
+            // requires this exact current role and its original provider.
+            datagram_slot: Some(crate::inventory::StreamRoleRef::new(&node.slot)),
+        })
     }
     fn interrupted(&self, carrier: &CarrierContext, reason: Reason) -> ChannelError {
         let mut error = ChannelError::new(Stage::Dial, reason, Impact::Session);

@@ -50,4 +50,5 @@ fn actual_journal_files_close_before_return_and_stopped_source_can_only_use_its_
     owner.require_closed().unwrap();
 }
 
+#[path = "tests/metadata.rs"]
 mod metadata;

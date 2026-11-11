@@ -209,6 +209,20 @@ impl OrchestrationState {
                 result = Err(error);
             }
         }
+        // All real session users above have returned before freezing the sole
+        // quota writer. Embedded Proxy::run/spawn uses this same exit path.
+        if let Err(error) = proxy.engine.shutdown_principal_quota_state_async().await {
+            cleanup_errors.push(format!("quota writer shutdown failed: {error}"));
+            if !proxy.engine.principal_quota_retirement_complete() {
+                proxy
+                    .engine
+                    .configuration_source_owner()
+                    .retain_quota_cleanup();
+            }
+            if result.is_ok() {
+                result = Err(EngineError::Io(error));
+            }
+        }
         self.listener_stops.clear();
         self.active_inbounds.clear();
         #[cfg(feature = "raw-ip-runtime")]

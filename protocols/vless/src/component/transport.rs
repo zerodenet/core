@@ -21,7 +21,7 @@ impl Outbound {
         }.map_err(|error| self.admission.attach(error,session))?;
         let transport = async {
             let io = zero_transport::TcpRelayStream::new(carrier::Carrier::new(io));
-            if let Some(reality) = &self.options.reality {
+            let io = if let Some(reality) = &self.options.reality {
                 let stream = reality
                     .connect_with_navigation(io, |stream, host, plan| {
                         navigation::start_owned(
@@ -71,6 +71,14 @@ impl Outbound {
                     )
                     .await
                 }
+            }?;
+            match &self.options.encryption {
+                Some(encryption) => encryption
+                    .handshake(io)
+                    .await
+                    .map(|stream| stream.into_relay())
+                    .map_err(zero_transport::RuntimeError::Io),
+                None => Ok(io),
             }
         };
         let io = tokio::select! { biased;

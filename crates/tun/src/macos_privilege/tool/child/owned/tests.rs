@@ -156,4 +156,5 @@ fn actual_full_root_drains_original_child_and_returns_original_fds_before_small_
 #[path = "tests/cancel.rs"]
 mod cancel;
 
+#[path = "tests/query.rs"]
 mod query;

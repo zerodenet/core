@@ -177,7 +177,9 @@ pub(super) fn grow<K: std::hash::Hash + Eq, V>(
 pub(super) fn snapshot_layout(key: &QuotaKey) -> io::Result<PacketMetadataLayout> {
     let encoded = super::snapshot::encoded_row_bound(key)?;
     PacketMetadataLayout::array::<PersistedQuotaBalance>(1)
-        .and_then(|row| row.checked_add(PacketMetadataLayout::array::<u8>(key.principal_key.len())?))
+        .and_then(|row| {
+            row.checked_add(PacketMetadataLayout::array::<u8>(key.principal_key.len())?)
+        })
         .and_then(|row| row.checked_add(PacketMetadataLayout::array::<u8>(encoded)?))
         .map_err(io::Error::other)
 }
