@@ -146,4 +146,4 @@ The actual Proxy qualification assembly is narrower than the library surface.
 Same-owner Mieru prefixes are exercised there. Cross-owner prefixes need actual
 host dependency replacement, and local domain roots need actual host-owned DNS
 query providers; they fail before unowned I/O. Neither path silently falls back.
-See `design/v0.0.3/implementation/mieru-prefix.md` for the remaining production gate.
+The complete native subset and every production caller still require separate ownership and replacement qualification.

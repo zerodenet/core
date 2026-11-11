@@ -4,12 +4,12 @@
 第二轮控制预算续作保持V1控制信封、事件、命令超时、ACK/revision和CLI/FFI；新增可选
 control消息字段省略不导出。IPC/HTTP/SSE/gRPC消费者与原Connection、Scope和序列化输出
 原件接线仍在开发；新字段和局部测试不表示职责域关闭。详情见
-[控制原请求预算续作](../design/v0.0.3/compatibility.md#控制原请求与序列化输出预算续作)。
+控制原请求预算续作。
 
 Packet route 控制查询改为同原表冻结编码，V1形状/分页/错误不变；新增可选
 `runtime.packet_route_max_routes`（默认4096，省略不导出），低于未归还原件用量时
 拒绝配置替换，不驱逐活跃业务。Rust 完整 RuntimeOptionsConfig 字面量需增加 Option
-字段，Default 构造不变。见[原表与额度续作](../design/v0.0.3/compatibility.md#packet-route-原表查询与生产登记额度续作)。
+字段，Default 构造不变。见原表与额度续作。
 当前仍为开发中实现，尚未取得最终候选资格。
 
 本文记录会影响 GUI、SDK、面板、事件 Sink 或进程内 Rust 集成的控制面语义变化。公开接口与事件说明由 [ZeroDeNet 文档仓库](https://github.com/zerodenet/docs)维护；本文只维护 Core 的版本边界和迁移要求。
@@ -17,7 +17,7 @@ Packet route 控制查询改为同原表冻结编码，V1形状/分页/错误不
 第二轮续作的内部 Rust 错误转发须保留 `ChannelError` 可选的结构化 cleanup receipt；
 同 payload 的显式交接不替代 native/view/Scope/用户关闭。实际 Registrar 的 Scope 退休
 观察和同 ConfigurationSource 的 quota 检查入口见
-[续作兼容说明](../design/v0.0.3/compatibility.md#同原件故障交接与控制-scope-续作)。
+续作兼容说明。
 Application 状态采样改由原 TaskScope 监督并等待真实 join，正常配置替换继续监督下一
 实例。保留 V1 配置/API/events、CLI/FFI、ACK/revision 与计量语义，不需要消费者改动。
 当前仍为开发中续作，历史局部限制/资格不代表当前完整迁移或最终候选已完成。
@@ -29,7 +29,7 @@ Application 状态采样改由原 TaskScope 监督并等待真实 join，正常�
 控制 ACK、V1 信封和流量结算保持。TUN 初启/换代/恢复的内部 Rust 调用者接续同一
 Catalog 停旧、额度安装及真实网络代次后的 cold refresh；取消不丢原件责任。
 独立 inspect 与 quota 最终 worker 继续归原 ConfigurationSource。具体 Rust 接线见
-[当前调用者边界](../design/v0.0.3/compatibility.md#第二轮完整调用者续作的当前-rust-边界)。
+当前调用者边界。
 当前 Direct Packet/TUN 已有普通装配接线，完整 TX、其余调用者/旧链删除与全部预算仍在
 实现；下文先前“gate 未开启”等阶段性说明不作为当前状态。未取得统一最终候选资格，
 不要求客户端/面板修改，不改变 TEMP 的原有范围。
@@ -37,14 +37,14 @@ Catalog 停旧、额度安装及真实网络代次后的 cold refresh；取消�
 进程内 Rust 的 Packet 缓冲现保留 `PacketBuffer` 原件，`PacketRequest` 需显式提供
 实际返回 codec 布局，工作区声明增加原控制缓冲。新增 Source/Metadata/QUIC runtime
 预算保留省略导出和协议原默认；V1 消费者无需修改。具体 Rust 接线与开发中资格边界见
-[同原件 Packet 内存与 Source 生产预算](../design/v0.0.3/compatibility.md#同原件-packet-内存与-source-生产预算续作)。
+同原件 Packet 内存与 Source 生产预算。
 
 Windows Pipe 原件工作区新增可选生产总字节额度
 `runtime.control_pipe_max_workspace_bytes`（默认2MiB，省略不导出），由既有
 ControlBudget按实际provider预付并保留到原件/任务/Host ACK确认。
 进程内Rust `ControlBudgetLimits/Usage` 新增 `pipe_workspace_bytes` 字段和对应charge；
 V1/API/events、CLI/FFI与消费者无需改动。具体计额及尚待资格边界见
-[控制原件工作区](../design/v0.0.3/compatibility.md#同一控制原件的-pipe-工作区额度续作)。
+控制原件工作区。
 
 ## 消费者如何判断兼容性
 
@@ -89,7 +89,7 @@ VLESS 入站仅登记实际标准 ComponentFactory/InboundSource，删除 adapte
 
 共享 carrier 继续保留真实 caller 的原始失败诊断；Auxiliary 业务任务因断开/撤销结束不再被提升为共享 native 故障，Critical worker 与真实 native 失败仍按原始来源报告并保留失败边界。
 
-第二轮云端候选增加按实际 owner 消费的可选 DNS/Mieru/HY2/native-stream/VMess-gRPC/control 预算及 Direct Packet `write_queue`，旧省略字段导出形状保持。容量不足拒绝新增或对已有订阅背压，不驱逐活跃业务或有效 replay。内部 Rust 的原件观察、device cold/recovery/publication、同源 quota/TLS 和有限 FIFO 接口变化见 [兼容记录](../design/v0.0.3/compatibility.md#第二轮云端-rust-接口与可选预算迁移)。这不是完整架构、全部出站/Packet/process、跨平台或 GUI/面板资格通过的声明；未完成实现和 TEMP 债务仍单列。统计 sampler 已改用实际 blocking Scope join；endpoint 最终提交同时收尾 DNS token 并观察实际发布设备。对尚无原件关闭证明的 VMess gRPC/Mieru 跨执行方式切换，候选在源修改/停旧前拒绝并保留当前 revision 与旧 TCP；这是未完成迁移的明确限制。ControlledPacketDevice/owned PacketTx 是基础接口，普通 Direct Packet/TUN 生产 gate 未开启。
+第二轮云端候选增加按实际 owner 消费的可选 DNS/Mieru/HY2/native-stream/VMess-gRPC/control 预算及 Direct Packet `write_queue`，旧省略字段导出形状保持。容量不足拒绝新增或对已有订阅背压，不驱逐活跃业务或有效 replay。内部 Rust 的原件观察、device cold/recovery/publication、同源 quota/TLS 和有限 FIFO 接口变化见 兼容记录。这不是完整架构、全部出站/Packet/process、跨平台或 GUI/面板资格通过的声明；未完成实现和 TEMP 债务仍单列。统计 sampler 已改用实际 blocking Scope join；endpoint 最终提交同时收尾 DNS token 并观察实际发布设备。对尚无原件关闭证明的 VMess gRPC/Mieru 跨执行方式切换，候选在源修改/停旧前拒绝并保留当前 revision 与旧 TCP；这是未完成迁移的明确限制。ControlledPacketDevice/owned PacketTx 是基础接口，普通 Direct Packet/TUN 生产 gate 未开启。
 
 Linux 进程原件续作增加内核 Rust 的 cold owned-process grant，保留实际 actor Scope 与原生进程树/描述符关闭分证据；公开 wire 与消费者无需改变。此时 SIP 生产消费、总体预算与其他平台仍有实现，接口出现和底层通过不代表完整迁移。详见上述兼容记录。
 
@@ -160,7 +160,7 @@ V1 配置/API/events、CLI、FFI 及面板 wire 形状保持，无需消费者�
 原 Tx/Rx 绑定，`into_session` 的真实 codec 须使用原 wire ID；SS 借入 consumer 已配对。
 `BorrowedPacketSegment` 使用同 Factory Scope 的真实 driver 和既有队列，关闭须分别
 确认原件、join 和 Host ACK。现 QUIC 完整生产 consumer 仍在实现，尚非最终资格。
-具体调用者与 Rust 适配见[同原 Datagram 转交](../design/v0.0.3/compatibility.md#同一-datagramloan-的实际-wire-与逻辑-association-续作)。
+具体调用者与 Rust 适配见同原 Datagram 转交。
 V1/API/events、CLI/FFI 和客户端面板保持兼容，无需消费者迁移。
 
 
@@ -199,7 +199,7 @@ HTTP 字面量及域名监听使用协议的 `ComponentFactory`/`InboundSource` 
 
 2026-10-31 用户确认：既有 `outer_udp_proxy` 及重连历史的兼容生命周期只作为临时方案保留，未来必须纠正。当前换代仍有 30 秒退役宽限，可能短暂并存新旧资源；原始载体的 native 关闭凭据尚未补齐。这条路径不能宣称满足严格的确认停旧后启新，也不能计入完整 native 所有权或整体资源生命周期已完成。
 
-本例外不扩大到其他资源，不开放相应普通 native 登记，不新增协议组合，不要求客户端或面板改动。后续由内核补齐实际原始所有者、真实任务退出、转交资源归还与原始关闭凭据，移除兼容换代重叠，并按 [TEMP-WG-OUTER-UDP-01 的验收条件](../design/v0.0.3/lifecycle.md#temp-wg-outer-udp-01)关闭债务。旧接口删除或其他路径测试通过均不构成该项完成证据。
+本例外不扩大到其他资源，不开放相应普通 native 登记，不新增协议组合，不要求客户端或面板改动。后续由内核补齐实际原始所有者、真实任务退出、转交资源归还与原始关闭凭据，移除兼容换代重叠，并按 TEMP-WG-OUTER-UDP-01 的验收条件关闭债务。旧接口删除或其他路径测试通过均不构成该项完成证据。
 
 ### VLESS and Trojan root MUX prefixes for VMess gRPC UDP
 
@@ -268,9 +268,9 @@ SOCKS5 UDP association dispatch now consumes the compiled standard Datagram role
 
 The develop/v0.0.3 internal qualification assembly records actual background borrowing dependencies before I/O. A changed or removed donor propagates retirement through its consumers; confirmed original closure, task joins and transferred control/user settlement still precede candidate start. Taskless native stream/datagram custody retains its actual original controller and explicitly has no driver. In-process users of `zero_platform_tokio::controlled_carrier::CarrierOrigin::driver` must handle `Option<&TaskJoinWitness>`; `None` cannot substitute for native close evidence.
 
-Public configuration, V1 API/events, IPC/HTTP/gRPC and FFI ABI are unchanged. Ordinary Mieru background production registration remains disabled pending the complete provider and qualification gates; this internal Rust contract does not advertise additional public protocol support. Local evidence and remaining gates are recorded in `design/v0.0.3/implementation/cross-owner.md`.
+Public configuration, V1 API/events, IPC/HTTP/gRPC and FFI ABI are unchanged. Ordinary Mieru background production registration remains disabled pending the complete provider and qualification gates; this internal Rust contract does not advertise additional public protocol support.
 
-The internal `ResourceDeclaration::ControlledMetadataDatagram` and `ResourceAccess::register_metadata_pool` support on-demand original ancillary sockets for the same host Scope. Rejected unused-view claims remain with their original owner; successful native retirement requires the actual original user/driver graph and main/probe close receipts. Startup-only `MetadataDatagram` semantics and public configuration/control schemas are unchanged. Actual Proxy DoQ qualification is recorded separately in `design/v0.0.3/implementation/native-doq.md`; it does not enable ordinary Mieru production registration.
+The internal `ResourceDeclaration::ControlledMetadataDatagram` and `ResourceAccess::register_metadata_pool` support on-demand original ancillary sockets for the same host Scope. Rejected unused-view claims remain with their original owner; successful native retirement requires the actual original user/driver graph and main/probe close receipts. Startup-only `MetadataDatagram` semantics and public configuration/control schemas are unchanged. This does not enable ordinary Mieru production registration.
 
 ### RuntimeHost shared-resource replacement confirms StopOld before BuildNew
 
@@ -280,7 +280,7 @@ Affected connections may disconnect when their actual shared owner is rebuilt. O
 
 Changing a native Direct outbound's dial policy now closes that owner's existing TCP relays before the apply ACK, including explicit source-bound and address-family-only policies. Other unchanged outbound owners remain usable. Native SOCKS5 handshake writes explicitly flush their supplied carrier, matching the existing platform socket behavior, so a buffered Shadowsocks intermediate hop can complete authentication and CONNECT without changing wire frames.
 
-V1 configuration, API/event envelopes and the Engine-only FFI ABI are unchanged; no GUI/panel schema migration is required. Cleanup failure can reject an apply while the last committed revision remains current and affected resources are faulted. A lost response is resolved by querying core_instance_id/config_revision rather than starting a second kernel. This is an internal host implementation, not completion of independent zero-runtime extraction, all protocol roles or device qualification. Validation is recorded separately in design/v0.0.3/implementation/README.md.
+V1 configuration, API/event envelopes and the Engine-only FFI ABI are unchanged; no GUI/panel schema migration is required. Cleanup failure can reject an apply while the last committed revision remains current and affected resources are faulted. A lost response is resolved by querying core_instance_id/config_revision rather than starting a second kernel. This is an internal host implementation, not completion of independent zero-runtime extraction, all protocol roles or device qualification.
 
 ### Raw-IP Direct caller closure uses original native receipts
 
@@ -308,7 +308,7 @@ V1 config/API/events and FFI ABI are unchanged; no GUI/SDK migration is needed. 
 
 ### Listener replacement uses the single-instance StopOld boundary
 
-Changed listeners now prepare cold operation values, stop every affected old listener and confirm its actual retirement before binding any candidate, including candidates on a different port. Unchanged actual listener owners and existing protocol credential hot-update paths continue to be reused. This removes standby port reservation to match `design/v0.0.3/lifecycle.md`; a port conflict can therefore appear during the switch after old connections have stopped. Candidate cleanup and recovery use the actual last-good snapshot, including tags already removed from the active map by a cancelled attempt. A recovered listener is a new generation, not the original FD or a restoration of disconnected sessions. Stateful protocol security history must not be silently replaced; an unconfirmed or unsupported recovery remains an explicit failure. Pending native bind owners, their original failures and Unknown outcomes remain retained across cancellation and block further acquisition until resolved.
+Changed listeners now prepare cold operation values, stop every affected old listener and confirm its actual retirement before binding any candidate, including candidates on a different port. Unchanged actual listener owners and existing protocol credential hot-update paths continue to be reused. This removes standby port reservation; a port conflict can therefore appear during the switch after old connections have stopped. Candidate cleanup and recovery use the actual last-good snapshot, including tags already removed from the active map by a cancelled attempt. A recovered listener is a new generation, not the original FD or a restoration of disconnected sessions. Stateful protocol security history must not be silently replaced; an unconfirmed or unsupported recovery remains an explicit failure. Pending native bind owners, their original failures and Unknown outcomes remain retained across cancellation and block further acquisition until resolved.
 
 V1 configuration/API/events and FFI ABI are unchanged; no caller schema migration is required. A controlled listener close receipt does not establish closure of every accepted child socket or completion of all M4 resources. Validation for this change is recorded separately.
 
@@ -407,7 +407,7 @@ wire、结果码、策略/健康中立性与配置字段不变，无 GUI/SDK 迁
 - Relay chains whose network nodes all expose native Stream roles now compose strictly shorter, endpoint-bound prefixes through those roles. They retain actual business/component identities, original named-node wire targets, per-hop Outer observation and existing relay Flow counters. Mixed chains retain their existing executor pending migration; revoked roles cannot fall back to a legacy claim.
 - The Hysteria byte-stream carrier keeps at least two packets of congestion window at small bandwidth-delay products, matching Quinn's full-packet send reservation. QUIC close-only packets bypass the data congestion/pacing gate as required by RFC 9002 section 7.2, so queued application frames cannot strand CONNECTION_CLOSE. Existing authentication, negotiated rates, payload/FIN assertions and deadlines remain unchanged; both failure mechanisms have captured negative regressions.
 - Browser Dialer retirement now reports `io::ErrorKind::ConnectionAborted` with the existing message. Permanent retirement must terminate byte I/O; returning `Interrupted` let retrying I/O helpers spin inside one poll. Existing lifecycle, reuse, peer-close and deadline checks remain.
-- HTTP/1 XHTTP packet upload ownership retains existing request, byte and queue budgets and deadlines, and yields after bounded admission handoff so the consumer can progress before the next pipelined request. The receipt remains bounded ownership acknowledgment. Captured negative/positive regressions and the separate pinned reference-client byte-count qualification issue are recorded under design/v0.0.3/implementation.
+- HTTP/1 XHTTP packet upload ownership retains existing request, byte and queue budgets and deadlines, and yields after bounded admission handoff so the consumer can progress before the next pipelined request. The receipt remains bounded ownership acknowledgment. The separate pinned reference-client byte-count qualification issue remains outside those negative/positive regressions.
 
 ### Host Wintun activation and XHTTP upload receipts
 
@@ -922,7 +922,7 @@ Endpoint list/get/detail 生产查询改用同原配置、Source 写观测及实
 借阅视图与固定公共 peer-id 编码助手；不改既有结构字面量或配置省略导出形状。
 原 QueryService 的 genuine owned 调用仍有库职责，生产路径不回退深复制。
 借阅不授 I/O/任务/关闭权，所有 guard 在 await/退款前销毁；具体说明见
-[原件借阅续作](../design/v0.0.3/compatibility.md#endpoint-control-queries-borrow-their-actual-owners-before-materialization)。
+原件借阅续作。
 本片仍需实际统一编测，不据接口或历史局部通过宣告完整 DNS/控制域关闭。
 
 

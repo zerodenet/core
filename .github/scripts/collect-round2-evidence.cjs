@@ -13,25 +13,11 @@ module.exports = async ({ github, context, core }) => {
   });
   const records = [];
   let unavailable = false;
-  // The downloadable capsule must contain the caller/deletion/dependency
-  // ledgers themselves, not only hashes of files a reviewer must fetch later.
+  // Public delivery records only. Private local architecture plans are neither
+  // a workflow input nor archive content, even when present in this checkout.
   const ledgerFiles = [];
-  const round2 = 'design/v0.0.3/cloud/round2';
-  const requiredLedgers = [
-    `${round2}/README.md`, `${round2}/remaining.md`, `${round2}/execution.md`,
-    `${round2}/verification.md`, `${round2}/acceptance.md`,
-    'design/v0.0.3/compatibility.md', 'release/breaking-changes.md',
-  ];
+  const requiredLedgers = ['release/breaking-changes.md'];
   const ledgerPaths = new Set(requiredLedgers);
-  function findLedgers(directory) {
-    if (!fs.existsSync(directory)) return;
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      const filename = path.join(directory, entry.name);
-      if (entry.isDirectory()) findLedgers(filename);
-      else if (entry.isFile() && entry.name.endsWith('.md')) ledgerPaths.add(filename);
-    }
-  }
-  findLedgers(round2);
   for (const source of [...ledgerPaths].sort()) {
     if (!fs.existsSync(source)) {
       unavailable = true;

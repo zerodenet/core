@@ -21,18 +21,13 @@ test('exact run collection keeps original bytes, skipped state and rejects unkno
       fs.mkdirSync('.github/round2', { recursive: true });
       fs.writeFileSync('.github/round2/candidate.Cargo.lock', lock);
       fs.writeFileSync('.github/round2/candidate.Cargo.lock.sha256', sha(lock) + '  candidate.Cargo.lock\n');
-      const ledgers = [
-        'design/v0.0.3/cloud/round2/README.md',
-        'design/v0.0.3/cloud/round2/remaining.md',
-        'design/v0.0.3/cloud/round2/execution.md',
-        'design/v0.0.3/cloud/round2/verification.md',
-        'design/v0.0.3/cloud/round2/acceptance.md',
-        'design/v0.0.3/compatibility.md', 'release/breaking-changes.md',
-        'design/v0.0.3/cloud/round2/checkpoints/exact-source.md',
-      ];
+      const ledgers = ['release/breaking-changes.md'];
+      // Local-only notes must never enter the public evidence capsule.
+      fs.mkdirSync('design/private', { recursive: true });
+      fs.writeFileSync('design/private/local-plan.md', 'private local notes');
       const ledgerBytes = Buffer.from('实际调用者 → 原件责任 → 旧链删除；未执行不算通过\n');
       for (const filename of ledgers) {
-        if (mode === 'missing-ledger' && filename.endsWith('/execution.md')) continue;
+        if (mode === 'missing-ledger' && filename === 'release/breaking-changes.md') continue;
         fs.mkdirSync(path.dirname(filename), { recursive: true });
         fs.writeFileSync(filename, ledgerBytes);
       }
@@ -85,7 +80,7 @@ test('exact run collection keeps original bytes, skipped state and rejects unkno
       for (const ledger of result.ledgers) {
         if (ledger.unavailable) {
           assert.equal(mode, 'missing-ledger');
-          assert.equal(ledger.source, 'design/v0.0.3/cloud/round2/execution.md');
+          assert.equal(ledger.source, 'release/breaking-changes.md');
         } else {
           assert.deepEqual(fs.readFileSync(path.join('.round2-evidence/collected', ledger.file)), ledgerBytes);
           assert.equal(ledger.sha256, sha(ledgerBytes));
@@ -93,6 +88,8 @@ test('exact run collection keeps original bytes, skipped state and rejects unkno
         }
       }
       assert.equal(result.ledgers.length, ledgers.length);
+      assert.ok(Object.keys(manifest).every(filename => !filename.includes('design/')));
+      assert.equal(fs.existsSync('.round2-evidence/collected/ledgers/design'), false);
     }
   } finally {
     process.chdir(original);
