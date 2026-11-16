@@ -157,19 +157,17 @@ impl Host {
         self.scope
             .registrar()
             .spawn(TaskClass::Auxiliary, async move {
-                loop {
-                    match source
-                        .next(AcceptContext {
-                            deadline: None,
-                            cancel: stop.clone(),
-                        })
-                        .await
-                    {
-                        Err(error) if error.reason == Reason::Cancelled => return Ok(()),
-                        Ok(None) => return Ok(()),
-                        Ok(Some(_)) => panic!("one actual peer fixture"),
-                        Err(error) => return Err(error),
-                    }
+                match source
+                    .next(AcceptContext {
+                        deadline: None,
+                        cancel: stop.clone(),
+                    })
+                    .await
+                {
+                    Err(error) if error.reason == Reason::Cancelled => Ok(()),
+                    Ok(None) => Ok(()),
+                    Ok(Some(_)) => panic!("one actual peer fixture"),
+                    Err(error) => Err(error),
                 }
             })
             .unwrap();

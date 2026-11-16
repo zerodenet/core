@@ -306,7 +306,7 @@ async fn h2_origin(io: zero_platform_tokio::contract::stream::BoxStream) {
             .unwrap();
     };
     let drive = async {
-        while let Some(Ok(_)) = connection.accept().await {
+        if let Some(Ok(_)) = connection.accept().await {
             panic!("no second origin request or hidden pool");
         }
     };

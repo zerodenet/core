@@ -59,8 +59,8 @@ fn standard_fallback_remains_cold_before_credential_publication() {
     assert_eq!(current.profile.user_count(), 1);
 }
 
-#[test]
-fn standard_quic_rejects_unowned_appearance_before_credential_publication() {
+#[tokio::test]
+async fn standard_quic_origin_plan_stays_cold_before_credential_publication() {
     let runtime = crate::transport::VlessTransportRuntime::default();
     let current = request(USER, false)
         .prepare_publication(&runtime, "profile")
@@ -75,6 +75,20 @@ fn standard_quic_rejects_unowned_appearance_before_credential_publication() {
                 ),
         ))
         .prepare_publication(&runtime, "profile");
-    assert!(candidate.validate_standard_quic_source().is_err());
+    candidate.validate_standard_quic_source().unwrap();
+    assert_eq!(
+        candidate.target_endpoints(),
+        vec![zero_traits::FallbackEndpoint::Tcp {
+            server: "127.0.0.1".into(),
+            port: 9,
+        }]
+    );
     assert_eq!(current.profile.user_count(), 1);
+    let (mut writer, reader) = tokio::io::duplex(256);
+    writer.write_all(&header(1)).await.unwrap();
+    assert!(current
+        .profile
+        .accept_standard_facts(&mut TcpRelayStream::new(reader))
+        .await
+        .is_ok());
 }
