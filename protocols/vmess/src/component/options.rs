@@ -21,6 +21,7 @@ pub(super) struct CaFile {
 }
 #[derive(Clone)]
 pub struct Options {
+    pub(super) browser: Option<Arc<zero_transport::browser_dialer::component::Options>>,
     pub(super) material: Option<Arc<super::material::Material>>,
     pub(super) endpoint: Destination,
     pub(super) server: String,
@@ -228,6 +229,7 @@ impl Options {
             identity.extend_from_slice(&hash.finish().to_le_bytes());
         }
         Ok(Self {
+            browser: None,
             material: None,
             endpoint,
             server: input.server.into(),
@@ -246,3 +248,31 @@ impl Options {
 #[cfg(test)]
 #[path = "../../tests/component/options.rs"]
 mod tests;
+
+impl Options {
+    pub fn from_browser_options_refs<
+        TTls: ClientTlsProfile + ?Sized,
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+    >(
+        input: VmessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc>,
+        dial: DialPolicy,
+        browser: Arc<zero_transport::browser_dialer::component::Options>,
+    ) -> Result<Self, Error> {
+        let framing = VmessOutboundBuildOptionsRef {
+            tag: input.tag,
+            server: input.server,
+            port: input.port,
+            protocol: input.protocol,
+            tls: None::<&OwnedClientTlsProfile>,
+            ws: None::<&OwnedWebSocketProfile>,
+            grpc: None::<&OwnedGrpcProfile>,
+        };
+        let mut options = Self::from_options_refs(framing, dial)?;
+        let mut identity = options.identity.to_vec();
+        browser.extend_identity(&mut identity);
+        options.identity = identity.into();
+        options.browser = Some(browser);
+        Ok(options)
+    }
+}

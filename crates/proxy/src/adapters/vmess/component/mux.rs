@@ -14,6 +14,7 @@ use zero_platform_tokio::contract::{
 };
 
 pub(crate) enum Options {
+    Browser(Arc<crate::adapters::browser::Options<::vmess::component::Options>>),
     Ordinary(Arc<super::grpc::Options>),
     Mux(Arc<::vmess::component::mux::Options>),
 }
@@ -29,6 +30,9 @@ impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
         match options {
+            Options::Browser(options) => {
+                crate::adapters::browser::Factory(::vmess::component::Factory).describe(options)
+            }
             Options::Ordinary(options) => super::grpc::Factory.describe(options),
             Options::Mux(options) => ::vmess::component::mux::Factory.describe(options),
         }
@@ -39,6 +43,10 @@ impl ComponentFactory for Factory {
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
         match options.as_ref() {
+            Options::Browser(options) => {
+                crate::adapters::browser::Factory(::vmess::component::Factory)
+                    .build(options.clone(), context)
+            }
             Options::Ordinary(options) => super::grpc::Factory.build(options.clone(), context),
             Options::Mux(options) => {
                 ::vmess::component::mux::Factory.build(options.clone(), context)
@@ -47,6 +55,9 @@ impl ComponentFactory for Factory {
     }
 }
 pub(crate) fn eligible(input: &OutboundConfig) -> bool {
+    if crate::adapters::browser::eligible(input) {
+        return true;
+    }
     if super::grpc::owned_eligible(input) {
         return true;
     }
@@ -103,6 +114,9 @@ impl VmessAdapter {
         factory: Arc<background_pool::Factory>,
         limit: NonZeroUsize,
     ) -> Result<Options, RegistrationError> {
+        if crate::adapters::browser::eligible(input) {
+            return self.browser_options(input, resources, factory.network.clone());
+        }
         let OutboundProtocolConfig::Vmess {
             server,
             port,

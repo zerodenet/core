@@ -464,3 +464,6 @@ impl BrowserDialer {
 #[cfg(test)]
 #[path = "../tests/browser_dialer/owned/mod.rs"]
 mod owned_tests;
+
+pub mod component;
+pub mod registry;

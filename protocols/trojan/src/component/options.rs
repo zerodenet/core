@@ -11,6 +11,7 @@ use zero_transport::profile::{OwnedClientTlsProfile, OwnedGrpcProfile, OwnedWebS
 
 /// One validated non-MUX Stream configuration; credential material is private.
 pub struct Options {
+    pub(super) browser: Option<Arc<zero_transport::browser_dialer::component::Options>>,
     pub(super) endpoint: Destination,
     pub(super) server: String,
     pub(super) password: [u8; crate::shared::PASSWORD_HASH_LEN],
@@ -108,6 +109,7 @@ impl Options {
             identity.extend_from_slice(&hash.finish().to_le_bytes());
         }
         Ok(Self {
+            browser: None,
             endpoint,
             server: input.server.to_owned(),
             password: crate::shared::password_hash(input.protocol.password),
@@ -117,5 +119,31 @@ impl Options {
             dial,
             identity: identity.into(),
         })
+    }
+}
+
+impl Options {
+    pub fn from_browser_options_refs<
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+    >(
+        input: TrojanOutboundBuildOptionsRef<'_, TWs, TGrpc>,
+        dial: DialPolicy,
+        browser: Arc<zero_transport::browser_dialer::component::Options>,
+    ) -> Result<Self, Error> {
+        let framing = TrojanOutboundBuildOptionsRef {
+            tag: input.tag,
+            server: input.server,
+            port: input.port,
+            protocol: input.protocol,
+            ws: None::<&OwnedWebSocketProfile>,
+            grpc: None::<&OwnedGrpcProfile>,
+        };
+        let mut options = Self::from_options_refs(framing, dial)?;
+        let mut identity = options.identity.to_vec();
+        browser.extend_identity(&mut identity);
+        options.identity = identity.into();
+        options.browser = Some(browser);
+        Ok(options)
     }
 }

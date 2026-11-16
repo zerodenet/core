@@ -35,6 +35,7 @@ use zero_transport::{
 pub struct Factory;
 #[derive(Clone)]
 struct Outbound {
+    browser: Option<zero_transport::browser_dialer::component::Handle>,
     options: Arc<Options>,
     admission: Arc<SessionAdmission>,
     prepared_tls: owner::Prepared,
@@ -43,7 +44,7 @@ struct Outbound {
 impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
-        ComponentSpec {
+        let mut spec = ComponentSpec {
             owner: ResourceOwner::Component,
             roles: vec![RoleKind::Stream, RoleKind::Datagram],
             dependencies: vec![],
@@ -66,7 +67,11 @@ impl ComponentFactory for Factory {
                         .unwrap_or_default()
                 }),
             task_limit: None,
+        };
+        if let Some(browser) = &options.browser {
+            browser.declare(&mut spec);
         }
+        spec
     }
     fn build(
         &self,
@@ -91,6 +96,14 @@ impl Factory {
         context: BuildContext,
         resolver: Option<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>,
     ) -> Result<ComponentInstance, BuildError> {
+        let prepared_browser = options
+            .browser
+            .as_ref()
+            .map(|options| {
+                zero_transport::browser_dialer::component::Owner::build(options.clone(), &context)
+            })
+            .transpose()?;
+        let browser = prepared_browser.as_ref().map(|(_, handle)| handle.clone());
         let instance = context.instance();
         let (owner, admission) = SessionOwner::new(context.component, &context.cancel);
         let prepared_tls = Arc::new(Mutex::new(None));
@@ -107,7 +120,14 @@ impl Factory {
         } else {
             erase_lifecycle(owner)
         };
+        let lifecycle = match prepared_browser {
+            Some((browser, _)) => {
+                zero_transport::browser_dialer::component::Combined::wrap(browser, lifecycle)
+            }
+            None => lifecycle,
+        };
         let outbound = Outbound {
+            browser,
             options,
             admission,
             prepared_tls,
@@ -171,6 +191,9 @@ impl Outbound {
                 )
                 .with_source(source)
         })?;
+        if let Some(browser) = &self.browser {
+            return browser.open(context).await;
+        }
         let prepared_tls = self
             .prepared_tls
             .lock()

@@ -28,6 +28,8 @@ pub(crate) fn compiled_registries_with_network(
     Arc<crate::adapters::devices::Devices>,
 ) {
     let _ = &background;
+    #[cfg(any(feature = "vless", feature = "vmess", feature = "trojan"))]
+    let browser_registry = zero_transport::browser_dialer::registry::Registry::default();
     use zero_traits::ProtocolMetadata;
     let direct_adapter = Arc::new(crate::adapters::direct::DirectAdapter::default());
     let mut components = crate::component::ComponentRegistry::default();
@@ -172,6 +174,7 @@ pub(crate) fn compiled_registries_with_network(
     {
         use crate::adapters::vless::VlessAdapter;
         let mut adapter = VlessAdapter::default();
+        adapter.set_browser_registry(browser_registry.clone());
         adapter.native_node_dns = node_network.is_some() || background.is_some();
         let adapter = Arc::new(adapter);
         if let Some(network) = background.clone() {
@@ -435,6 +438,7 @@ pub(crate) fn compiled_registries_with_network(
     {
         use crate::adapters::trojan::TrojanAdapter;
         let mut adapter = TrojanAdapter::default();
+        adapter.browser = browser_registry.clone();
         adapter.native_node_dns = node_network.is_some() || background.is_some();
         let adapter = Arc::new(adapter);
         if let Some(network) = background.clone() {
@@ -539,6 +543,7 @@ pub(crate) fn compiled_registries_with_network(
     {
         use crate::adapters::vmess::VmessAdapter;
         let mut adapter = VmessAdapter::default();
+        adapter.browser = browser_registry.clone();
         adapter.native_node_dns = node_network.is_some() && background.is_none();
         let adapter = Arc::new(adapter);
         if let Some(network) = background.clone() {
@@ -587,6 +592,13 @@ pub(crate) fn compiled_registries_with_network(
                             Arc::new(crate::component::background::pool::Factory::new(network))
                         });
                         move |input, resources| {
+                            if crate::adapters::browser::eligible(input) {
+                                return adapter.browser_options(
+                                    input,
+                                    resources,
+                                    network.clone().expect("selected actual Browser network"),
+                                );
+                            }
                             if crate::adapters::vmess::component::mux::has_mux(input) {
                                 return adapter.production_mux_options(
                                     input,

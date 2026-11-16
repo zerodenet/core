@@ -31,3 +31,6 @@ pub(crate) mod vmess;
 pub(crate) mod wireguard;
 
 pub(crate) mod devices;
+
+#[cfg(any(feature = "vmess", feature = "trojan"))]
+pub(crate) mod browser;

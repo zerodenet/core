@@ -6,6 +6,9 @@ impl Outbound {
         context: &OpenContext,
         session: Option<zero_core::component::SessionId>,
     ) -> Result<zero_transport::TcpRelayStream, ChannelError> {
+        if let Some(browser) = &self.browser {
+            return browser.open(context).await;
+        }
         let carrier = CarrierContext {
             session,
             deadline: context.deadline,

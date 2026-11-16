@@ -20,6 +20,7 @@ use crate::adapters::identity::NamedProtocolAdapter;
 #[cfg(feature = "vmess")]
 #[derive(Debug, Default)]
 pub(crate) struct VmessAdapter {
+    pub(crate) browser: zero_transport::browser_dialer::registry::Registry,
     runtime: VmessTransportRuntime,
     pub(crate) native_node_dns: bool,
 }

@@ -44,3 +44,29 @@ pub(crate) fn component_options(
 #[cfg(test)]
 #[path = "component/tests.rs"]
 mod tests;
+
+impl super::VmessAdapter {
+    pub(crate) fn browser_options(
+        &self,
+        input: &OutboundConfig,
+        resources: &mut crate::component::ResourcePreparation<'_>,
+        network: std::sync::Arc<crate::component::background::BackgroundNetwork>,
+    ) -> Result<mux::Options, crate::component::RegistrationError> {
+        let carrier = crate::adapters::browser::prepare(input, resources, &self.browser)?;
+        let refs = super::outbound_options(
+            &input.tag,
+            (&carrier.server, carrier.endpoint.port),
+            &input.protocol,
+        )
+        .expect("actual Browser protocol projection");
+        let inner = ::vmess::component::Options::from_browser_options_refs(
+            refs,
+            input.dial.to_policy(),
+            carrier.clone(),
+        )
+        .map_err(|e| ConfigError::InvalidOutbound(e.to_string()))?;
+        Ok(mux::Options::Browser(std::sync::Arc::new(
+            crate::adapters::browser::Options::new(inner, carrier, input.tag.clone(), network),
+        )))
+    }
+}

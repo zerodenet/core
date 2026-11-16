@@ -244,3 +244,6 @@ mod standard_stream;
 mod tls_refresh;
 
 mod urltest_schedule;
+
+#[cfg(all(feature = "vmess", feature = "trojan", feature = "socks5"))]
+mod browser;

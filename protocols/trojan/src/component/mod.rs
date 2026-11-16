@@ -29,37 +29,61 @@ use zero_transport::{
 
 pub struct Factory;
 struct Outbound {
+    browser: Option<zero_transport::browser_dialer::component::Handle>,
     options: Arc<Options>,
     admission: Arc<SessionAdmission>,
 }
 impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
-        ComponentSpec {
+        let mut spec = ComponentSpec {
             owner: ResourceOwner::Component,
             roles: vec![RoleKind::Stream, RoleKind::Datagram],
             dependencies: vec![],
             static_identity: options.identity.clone(),
             resources: vec![],
             task_limit: None,
+        };
+        if let Some(browser) = &options.browser {
+            browser.declare(&mut spec);
         }
+        spec
     }
     fn build(
         &self,
         options: Arc<Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
+        let prepared_browser = options
+            .browser
+            .as_ref()
+            .map(|options| {
+                zero_transport::browser_dialer::component::Owner::build(options.clone(), &context)
+            })
+            .transpose()?;
+        let browser = prepared_browser.as_ref().map(|(_, handle)| handle.clone());
         let (owner, admission) = SessionOwner::new(context.component, &context.cancel);
         Ok(ComponentInstance {
-            lifecycle: erase_lifecycle(owner),
+            lifecycle: match prepared_browser {
+                Some((browser, _)) => zero_transport::browser_dialer::component::Combined::wrap(
+                    browser,
+                    erase_lifecycle(owner),
+                ),
+                None => erase_lifecycle(owner),
+            },
             roles: ComponentRoles {
                 datagram: Some(zero_platform_tokio::contract::datagram::erase_datagram(
                     Outbound {
+                        browser: browser.clone(),
                         options: options.clone(),
                         admission: admission.clone(),
                     },
                 )),
-                stream: Some(erase_stream(Outbound { options, admission })),
+                stream: Some(erase_stream(Outbound {
+                    browser,
+                    options,
+                    admission,
+                })),
                 ..Default::default()
             },
         })

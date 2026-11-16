@@ -102,3 +102,12 @@ mod reality;
 mod options;
 #[cfg(feature = "vless")]
 use options::outbound_options;
+
+impl VlessAdapter {
+    pub(crate) fn set_browser_registry(
+        &mut self,
+        registry: zero_transport::browser_dialer::registry::Registry,
+    ) {
+        self.runtime = VlessTransportRuntime::with_browser_registry(registry);
+    }
+}

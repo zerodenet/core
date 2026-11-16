@@ -2,7 +2,8 @@
 //! Its registry weak reference cannot acquire IO, ACK a task or prove closure.
 mod active;
 use super::*;
-pub(in crate::transport) use active::Active;
+use crate::browser_dialer::ScopedBrowserDialer;
+pub use active::Active;
 use zero_core::{component::ComponentInstanceId, request::Destination, Address};
 use zero_platform_tokio::contract::{
     component::{
@@ -14,13 +15,12 @@ use zero_platform_tokio::contract::{
     ChannelError, CloseReason, Impact, Reason, Stage,
 };
 use zero_traits::packet_metadata::PacketMetadataArc;
-use zero_transport::browser_dialer::ScopedBrowserDialer;
 
 /// The original raw settings/entry, never a cold native listener or task owner.
 pub struct ProviderOptions {
     access: Access,
     address: Destination,
-    identity: Arc<[u8]>,
+    pub(crate) identity: Arc<[u8]>,
     tasks: std::num::NonZeroUsize,
 }
 pub struct ProviderFactory;
@@ -30,7 +30,7 @@ struct Owner {
     access: Access,
 }
 impl ProviderOptions {
-    pub(in crate::transport) fn new(access: Access) -> Result<Self, ChannelError> {
+    pub fn new(access: Access) -> Result<Self, ChannelError> {
         let socket: std::net::SocketAddr = access
             .0
             .settings
@@ -52,7 +52,7 @@ impl ProviderOptions {
         )
         .unwrap();
         // Stream directly into the existing digest; no unbounded debug String.
-        struct Digest(blake3::Hasher);
+        struct Digest(ring::digest::Context);
         impl std::fmt::Write for Digest {
             fn write_str(&mut self, text: &str) -> std::fmt::Result {
                 self.0.update(text.as_bytes());
@@ -60,7 +60,7 @@ impl ProviderOptions {
             }
         }
         use std::fmt::Write;
-        let mut digest = Digest(blake3::Hasher::new());
+        let mut digest = Digest(ring::digest::Context::new(&ring::digest::SHA256));
         write!(
             &mut digest,
             "actual.browser.provider.v1:{:?}",
@@ -72,18 +72,15 @@ impl ProviderOptions {
             access,
             address,
             tasks,
-            identity: digest.0.finalize().as_bytes().as_slice().into(),
+            identity: digest.0.finish().as_ref().into(),
         })
     }
-    pub(crate) fn dialer(
-        &self,
-        instance: ComponentInstanceId,
-    ) -> Result<BrowserDialer, ChannelError> {
+    pub fn dialer(&self, instance: ComponentInstanceId) -> Result<BrowserDialer, ChannelError> {
         self.active(instance)?.dialer()
     }
     /// Expected instance comes from this role's actual declared dependency.
     /// This only selects the original provider value, not a caller identity.
-    fn active(
+    pub fn active(
         &self,
         instance: ComponentInstanceId,
     ) -> Result<PacketMetadataArc<Active>, ChannelError> {
@@ -301,5 +298,5 @@ impl Access {
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/transport/browser_dialer/recipe.rs"]
+#[path = "../../../tests/browser_dialer/provider_recipe.rs"]
 mod tests;

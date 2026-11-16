@@ -244,3 +244,15 @@ impl VlessTransportRuntime {
         Ok(profile)
     }
 }
+
+impl VlessTransportRuntime {
+    /// Cold assembly constructor; never replaces a running registry in place.
+    pub fn with_browser_registry(
+        registry: zero_transport::browser_dialer::registry::Registry,
+    ) -> Self {
+        Self {
+            browser_dialers: registry,
+            ..Self::default()
+        }
+    }
+}

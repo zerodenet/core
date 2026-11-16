@@ -13,6 +13,7 @@ use zero_platform_tokio::contract::{
 };
 
 pub(crate) enum Options {
+    Browser(Arc<crate::adapters::browser::Options<::trojan::component::Options>>),
     Ordinary(Arc<stateless::Options<::trojan::component::Options>>),
     Mux(Arc<::trojan::component::mux::Options>),
 }
@@ -32,6 +33,9 @@ impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
         match options {
+            Options::Browser(options) => {
+                crate::adapters::browser::Factory(::trojan::component::Factory).describe(options)
+            }
             Options::Ordinary(options) => {
                 stateless::Factory(::trojan::component::Factory).describe(options)
             }
@@ -44,6 +48,10 @@ impl ComponentFactory for Factory {
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
         match options.as_ref() {
+            Options::Browser(options) => {
+                crate::adapters::browser::Factory(::trojan::component::Factory)
+                    .build(options.clone(), context)
+            }
             Options::Ordinary(options) => {
                 stateless::Factory(::trojan::component::Factory).build(options.clone(), context)
             }
@@ -54,6 +62,9 @@ impl ComponentFactory for Factory {
     }
 }
 pub(crate) fn eligible(input: &OutboundConfig) -> bool {
+    if crate::adapters::browser::eligible(input) {
+        return true;
+    }
     if super::native_input(input) {
         return true;
     }
@@ -111,6 +122,9 @@ impl TrojanAdapter {
         limit: NonZeroUsize,
         stream_only: bool,
     ) -> Result<Options, RegistrationError> {
+        if crate::adapters::browser::eligible(input) {
+            return self.browser_options(input, resources, factory.network.clone());
+        }
         let OutboundProtocolConfig::Trojan {
             server,
             port,

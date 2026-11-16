@@ -8,6 +8,9 @@ impl TrojanAdapter {
         candidate: Option<&RuntimeConfig>,
         native: bool,
     ) -> bool {
+        if crate::adapters::browser::eligible(input) {
+            return native && candidate.is_some();
+        }
         if super::super::native_input(input) {
             return true;
         }

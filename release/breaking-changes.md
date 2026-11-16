@@ -1950,3 +1950,49 @@ source consistency checks do not establish runtime acceptance. Apple process
 authorization, TEMP-WG-OUTER-UDP-01 runtime acceptance and the broader refactor
 remain open. No public config/control schema, FFI ABI or protocol baseline is
 changed.
+
+
+### VMess/Trojan ordinary Browser WS: actual standard Source and carrier owner
+
+Ordinary browser-compatible VMess/Trojan WS configurations now select actual
+protocol-owned standard Stream/Datagram factories with a declared Browser Source
+dependency. Protocol constructors retain authentication and framing; transport
+owns the browser channel, original accepted loan and finite per-call custody.
+The selected path no longer enters the ordinary native TLS/WS compatibility
+stack, which previously ignored its BrowserDialer settings. Failed selected
+preparation does not retry through that native path.
+
+The Browser registry and roleless ProviderFactory move from VLESS-private code
+to neutral transport. VLESS retains a protocol-library reexport and its existing
+specialized standard WS/XHTTP owners. One actual registry in the compiled
+assembly and one canonical namespace share equal listener settings across
+protocols. The old VLESS registry/provider implementation files are deleted.
+The existing public loopback server and explicit standalone library capability
+remain available; their convenience runtime is not a production fallback.
+
+Before acquisition, the same installed per-call controller retains its original
+Root reservation, setup witness and sealed Source lineage. Original received
+setup failures, failed registration, abandoned delivery and cancellation remain
+owned until their actual actor/Source/controller evidence settles. Unique
+Stream/Datagram custody retains the real LoanOwner; logical return, native
+closure and Scope joins remain independent. Finite budgets reuse existing
+native-stream limits, with two setup/driver slots per original and the existing
+Source listener/peer limits. No unified budget configuration is claimed.
+
+Browser-inexpressible native Host/headers/TLS profiles, MUX and unqualified
+associated-prefix combinations retain their existing compatibility behavior.
+They remain implementation debt, not newly rejected configurations or completed
+Browser migration. Cross-protocol listener settings participate in authoritative
+config collision validation, including sharing equal settings.
+
+Regression sources cover actual ordinary Proxy -> Browser control WebSocket ->
+VMess/Trojan remote framing, TCP and UDP payloads, verified TLS to the Trojan
+remote, reused original provider generations, distinct accepted originals, and
+matching retained original controller/Source/Scope receipts. External browser
+protocol agents are fixtures, not evidence of running a real browser or its
+JavaScript. Recipe lifetime, listener sharing/collision and unqualified-profile
+selection sources are included. No compilation or test execution was performed.
+Apple authorization, TEMP-WG-OUTER-UDP-01 runtime acceptance and the overall
+refactor remain open. Public config/control schema, FFI ABI and pinned protocol
+baselines are unchanged; native listener claims now include the actually selected
+cross-protocol Browser configuration.

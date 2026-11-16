@@ -44,19 +44,25 @@ pub(super) fn validate_auxiliary_listeners(config: &RuntimeConfig) -> Result<(),
         }
     }
     for outbound in &config.outbounds {
-        let OutboundProtocolConfig::Vless { ws, split_http, .. } = &outbound.protocol else {
-            continue;
+        let (ws, split_http) = match &outbound.protocol {
+            OutboundProtocolConfig::Vless { ws, split_http, .. } => {
+                (ws.as_deref(), split_http.as_deref())
+            }
+            OutboundProtocolConfig::Trojan { .. } | OutboundProtocolConfig::Vmess { .. } => {
+                (outbound.protocol.ordinary_browser_ws_listener(), None)
+            }
+            _ => continue,
         };
         for browser in [
-            ws.as_deref()
-                .and_then(|profile| profile.browser_dialer.as_ref()),
-            split_http
-                .as_deref()
-                .and_then(|profile| profile.browser_dialer.as_ref()),
+            ws.and_then(|profile| profile.browser_dialer.as_ref()),
+            split_http.and_then(|profile| profile.browser_dialer.as_ref()),
         ]
         .into_iter()
         .flatten()
         {
+            browser
+                .validate()
+                .map_err(|e| ConfigError::InvalidOutbound(e.into()))?;
             let settings = browser.settings();
             if browser_settings.insert(settings.clone()) && browser_settings.len() > 64 {
                 return Err(ConfigError::InvalidOutbound(

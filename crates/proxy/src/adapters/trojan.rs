@@ -22,6 +22,7 @@ use crate::adapters::identity::NamedProtocolAdapter;
 #[cfg(feature = "trojan")]
 #[derive(Debug, Default)]
 pub(crate) struct TrojanAdapter {
+    pub(crate) browser: zero_transport::browser_dialer::registry::Registry,
     pub(crate) native_node_dns: bool,
     inbound_profiles: TrojanInboundProfileStore,
     mux_pool: ::trojan::mux::TrojanMuxConnectionPool,

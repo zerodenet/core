@@ -2,8 +2,8 @@
 use super::*;
 use zero_platform_tokio::contract::CancellationToken;
 pub struct Active {
-    pub(in crate::transport) instance: ComponentInstanceId,
-    pub(in crate::transport) scope: TaskScopeIdentity,
+    pub instance: ComponentInstanceId,
+    pub scope: TaskScopeIdentity,
     dialer: BrowserDialer,
     pub(super) cancel: CancellationToken,
     pub(super) ready: AtomicBool,
@@ -23,7 +23,7 @@ impl Active {
             ready: AtomicBool::new(false),
         }
     }
-    pub(in crate::transport) fn dialer(&self) -> Result<BrowserDialer, ChannelError> {
+    pub fn dialer(&self) -> Result<BrowserDialer, ChannelError> {
         if !self.ready.load(Ordering::Acquire)
             || self.cancel.is_cancelled()
             || !self.scope.resource_open()

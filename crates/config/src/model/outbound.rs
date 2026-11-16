@@ -1,3 +1,4 @@
+mod browser;
 use super::*;
 use serde::{Deserialize, Serialize};
 

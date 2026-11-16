@@ -111,3 +111,23 @@ fn browser_dialer_listener_claims_share_only_identical_settings() {
     value["inbounds"][0]["listen"] = json!({"address": "127.0.0.1", "port": 16888});
     assert!(RuntimeConfig::parse(&value.to_string()).is_err());
 }
+
+#[test]
+fn vmess_trojan_browser_listeners_share_equal_settings_and_reject_conflicts() {
+    let build = |second_port: u16| {
+        serde_json::json!({
+            "outbounds":[
+                {"tag":"vmess","protocol":{"type":"vmess","server":"example.test","port":443,"id":"11111111-2222-3333-4444-555555555555","ws":{"browser_dialer":{"listen":"127.0.0.1:16892"}}}},
+                {"tag":"trojan","protocol":{"type":"trojan","server":"example.test","port":443,"password":"secret","ws":{"browser_dialer":{"listen":format!("127.0.0.1:{second_port}")}}}}
+            ],"route":{"final":{"type":"direct"}}
+        })
+    };
+    assert!(RuntimeConfig::parse(&build(16892).to_string()).is_ok());
+    let mut conflict = build(16892);
+    conflict["outbounds"][1]["protocol"]["ws"]["browser_dialer"]["idle_capacity"] =
+        serde_json::json!(1);
+    assert!(RuntimeConfig::parse(&conflict.to_string()).is_err());
+    let mut inbound = build(16892);
+    inbound["inbounds"] = serde_json::json!([{"tag":"occupied","listen":{"address":"127.0.0.1","port":16892},"protocol":{"type":"socks5"}}]);
+    assert!(RuntimeConfig::parse(&inbound.to_string()).is_err());
+}

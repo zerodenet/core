@@ -146,7 +146,7 @@ impl super::super::VlessAdapter {
             ))
         })?;
         let provider = resources.share(
-            "vless.actual.browser-source.v1",
+            "transport.browser.actual-source.v1",
             Arc::new(::vless::transport::BrowserProviderFactory),
             prepared.provider.clone(),
         )?;
