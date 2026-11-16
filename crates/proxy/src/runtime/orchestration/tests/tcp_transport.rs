@@ -141,7 +141,7 @@ async fn connect(
     _config: &zero_config::RuntimeConfig,
     tag: &str,
     port: u16,
-) -> Result<crate::transport::TcpRelayStream, zero_engine::EngineError> {
+) -> Result<zero_platform_tokio::contract::stream::BoxStream, zero_engine::EngineError> {
     let (resolved, _) = proxy
         .engine()
         .resolve_route_decision(RouteDecision::Route(tag.into()))
@@ -171,7 +171,7 @@ async fn connect(
     )
     .await
     .map_err(|failure| failure.error)?
-    .into_relay_stream()
+    .into_stream()
 }
 async fn round_trip(proxy: &Proxy, config: &zero_config::RuntimeConfig, tag: &str, port: u16) {
     let mut stream = connect(proxy, config, tag, port).await.unwrap();

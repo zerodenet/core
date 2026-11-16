@@ -2,14 +2,14 @@ use crate::{
     inventory::{PreparedTcpRelayExecution, PreparedTcpRelayHop},
     protocol_registry::TcpExecutionServices,
     runtime::tcp_dispatch::operation::LazyTcpRelayCarrier,
-    transport::TcpRelayStream,
+    transport::EstablishedTcpOutbound,
 };
 pub(super) async fn execute(
     services: &TcpExecutionServices,
     hop: &PreparedTcpRelayHop,
     carrier: LazyTcpRelayCarrier<'static>,
     session: &zero_core::Session,
-) -> Result<TcpRelayStream, zero_engine::EngineError> {
+) -> Result<EstablishedTcpOutbound, zero_engine::EngineError> {
     match &hop.execution {
         PreparedTcpRelayExecution::Native(selected) => {
             crate::component::stream_bridge::relay::hop::connect(
@@ -30,9 +30,15 @@ pub(super) async fn execute(
             })
         }
         PreparedTcpRelayExecution::Legacy(operation) => {
-            operation
+            let original = operation
                 .execute_lazy(services.upstream_observed(&hop.tag), carrier, session)
-                .await
+                .await?;
+            Ok(EstablishedTcpOutbound::proxied_compatibility(
+                hop.tag.clone(),
+                hop.server.clone(),
+                hop.port,
+                original,
+            ))
         }
     }
 }

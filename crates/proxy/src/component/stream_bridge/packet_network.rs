@@ -274,11 +274,7 @@ pub(super) async fn connect(
         tag.clone(),
         None,
         vec![],
-        zero_platform_tokio::TcpRelayStream::from_client(LegacyStream::with_endpoints(
-            connected.io,
-            None,
-            None,
-        )),
+        connected.io,
     ))
 }
 

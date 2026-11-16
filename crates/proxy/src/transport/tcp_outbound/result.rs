@@ -16,7 +16,7 @@ pub(crate) fn extract_tcp_stream(
             upstream,
             network,
         } => Ok(TcpRouteResult {
-            upstream,
+            upstream: upstream.into_stream(),
             outbound_tag: tag,
             is_direct: true,
             upstream_endpoint: Some(remote),
@@ -35,7 +35,7 @@ pub(crate) fn extract_tcp_stream(
             port,
             upstream,
         } => Ok(TcpRouteResult {
-            upstream,
+            upstream: upstream.into_stream(),
             outbound_tag: tag,
             is_direct: false,
             upstream_endpoint: Some((server, port)),
@@ -50,7 +50,7 @@ pub(crate) fn extract_tcp_stream(
             relay_chain,
             upstream,
         } => Ok(TcpRouteResult {
-            upstream,
+            upstream: upstream.into_stream(),
             outbound_tag: tag,
             is_direct: false,
             upstream_endpoint,

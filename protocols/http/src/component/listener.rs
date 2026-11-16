@@ -13,7 +13,7 @@ use zero_platform_tokio::contract::{
     lifecycle::{erase_lifecycle, BuildError},
     ChannelError,
 };
-use zero_platform_tokio::{TcpRelayStream, TokioSocket};
+use zero_platform_tokio::{contract::stream::BoxStream, TokioSocket};
 
 pub struct InboundOptions {
     pub listen: Destination,
@@ -82,7 +82,7 @@ impl ComponentFactory for InboundFactory {
 }
 
 struct Connection {
-    io: TcpRelayStream,
+    io: BoxStream,
     facts: InboundConnectionFacts,
 }
 impl Connection {
@@ -90,7 +90,7 @@ impl Connection {
         let facts = InboundConnectionFacts::from_stream(&socket);
         Self {
             facts,
-            io: TcpRelayStream::from(socket),
+            io: Box::pin(socket),
         }
     }
 }
@@ -98,7 +98,7 @@ impl InboundHandshake for Connection {
     async fn complete(self, _: HandshakeContext) -> Result<AcceptedRequest, ChannelError> {
         // This is a real request source, not a business exchange hidden in Control.
         Ok(AcceptedRequest::Multiplex(Box::new(
-            super::Requests::new(self.io).with_connection_facts(self.facts),
+            super::Requests::from_stream(self.io, self.facts),
         )))
     }
 }

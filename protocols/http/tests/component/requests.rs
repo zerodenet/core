@@ -1,4 +1,5 @@
 use super::*;
+mod standard;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use zero_core::component::{ComponentId, ResourceGeneration, RoleInstanceId};
 use zero_platform_tokio::{
@@ -60,7 +61,7 @@ fn message_context(a: Arc<Counter>, b: Arc<Counter>) -> MessageContext {
 #[tokio::test]
 async fn source_accepts_without_reading_headers_and_cancellation_keeps_original_continuation() {
     let (io, mut peer) = tokio::io::duplex(4096);
-    let mut source = Requests::new(TcpRelayStream::new(io));
+    let mut source = standard::source(io);
     assert_eq!(source.max_in_flight().get(), 1);
     let pending = source.next(accept()).await.unwrap().unwrap();
     let ids = Arc::new(Identities(AtomicU64::new(31)));
@@ -106,7 +107,7 @@ async fn source_accepts_without_reading_headers_and_cancellation_keeps_original_
     assert!(matches!(
         first
             .respond(MessageAction::Transfer {
-                upstream: TcpRelayStream::new(upstream),
+                upstream: Box::pin(standard::SendOnly::new(upstream)),
                 effective_target,
                 context: message_context(inbound.clone(), outbound.clone())
             })
@@ -179,7 +180,7 @@ async fn source_accepts_without_reading_headers_and_cancellation_keeps_original_
 #[tokio::test]
 async fn message_upgrade_hands_back_actual_streams_and_preserves_unread_bidirectional_payload() {
     let (io, mut peer) = tokio::io::duplex(4096);
-    let mut source = Requests::new(TcpRelayStream::new(io));
+    let mut source = standard::source(io);
     peer.write_all(b"GET http://origin.test/socket HTTP/1.1\r\nHost: origin.test\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\nclient frame").await.unwrap();
     let AcceptedRequest::Message(request) = source
         .next(accept())
@@ -207,7 +208,7 @@ async fn message_upgrade_hands_back_actual_streams_and_preserves_unread_bidirect
         mut upstream,
     } = request
         .respond(MessageAction::Transfer {
-            upstream: TcpRelayStream::new(upstream),
+            upstream: Box::pin(standard::SendOnly::new(upstream)),
             effective_target: target,
             context: message_context(Arc::default(), Arc::default()),
         })
@@ -253,7 +254,7 @@ async fn forward_failure_keeps_actual_carrier_cause_session_and_uncertain_delive
     let original = Arc::new(());
     let result = request
         .respond(MessageAction::Transfer {
-            upstream: TcpRelayStream::new(BrokenCarrier(Some(io::Error::new(
+            upstream: Box::pin(BrokenCarrier(Some(io::Error::new(
                 io::ErrorKind::BrokenPipe,
                 OriginalFailure(original.clone()),
             )))),

@@ -7,7 +7,7 @@ pub(crate) mod datagram;
 mod health;
 pub(crate) mod hop;
 pub(crate) mod prefix;
-use super::{network::NodeOpener, LegacyStream};
+use super::network::NodeOpener;
 use crate::{
     component::instance::invalid,
     inventory::PreparedNativeTcpRelayChain,
@@ -234,12 +234,9 @@ pub(crate) async fn connect(
                     .iter()
                     .map(|node| (node.tag.clone(), node.protocol.clone()))
                     .collect(),
-                zero_platform_tokio::TcpRelayStream::from_client(LegacyStream::with_endpoints(
-                    connected.io,
-                    local,
-                    remote,
-                )),
-            ));
+                connected.io,
+            )
+            .with_endpoints(local, remote));
         };
         let next_endpoint = next.endpoint.as_ref().ok_or_else(|| {
             normalize(invalid(

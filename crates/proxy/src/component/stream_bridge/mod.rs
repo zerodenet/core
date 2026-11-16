@@ -1,8 +1,5 @@
-//! The single temporary conversion from native proxy roles to legacy relay I/O.
-use super::{
-    instance::{invalid, ComponentSlot},
-    legacy_stream::LegacyStream,
-};
+//! Actual standard Stream roles through the selected original providers.
+use super::instance::{invalid, ComponentSlot};
 use crate::{
     inventory::PreparedTcpCandidate,
     protocol_registry::TcpExecutionServices,
@@ -143,12 +140,9 @@ pub(crate) async fn connect(
         prepared.tag.clone().expect("native node has a tag"),
         endpoint.0,
         endpoint.1,
-        zero_platform_tokio::TcpRelayStream::from_client(LegacyStream::new(
-            connected.io,
-            evidence.local,
-            evidence.remote,
-        )),
-    ))
+        connected.io,
+    )
+    .with_endpoints(evidence.local, Some(evidence.remote)))
 }
 
 #[derive(Debug)]

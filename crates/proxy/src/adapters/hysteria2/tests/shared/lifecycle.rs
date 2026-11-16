@@ -17,7 +17,7 @@ async fn start(proxy: &Proxy) {
         .commit_components(&config, || Ok(()))
         .unwrap();
 }
-async fn connect(proxy: &Proxy, tag: &str) -> zero_platform_tokio::TcpRelayStream {
+async fn connect(proxy: &Proxy, tag: &str) -> zero_platform_tokio::contract::stream::BoxStream {
     let mut session = Session::new(
         0,
         Address::Ipv4([203, 0, 113, 1]),
@@ -43,7 +43,7 @@ async fn connect(proxy: &Proxy, tag: &str) -> zero_platform_tokio::TcpRelayStrea
     .await
     .map_err(|failure| failure.error)
     .unwrap();
-    let mut stream = established.into_relay_stream().unwrap();
+    let mut stream = established.into_stream().unwrap();
     stream.write_all(b"ping").await.unwrap();
     let mut response = [0; 4];
     stream.read_exact(&mut response).await.unwrap();

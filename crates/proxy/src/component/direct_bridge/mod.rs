@@ -3,10 +3,7 @@ pub(in crate::component) mod background;
 pub(super) mod controlled;
 pub(super) mod network;
 mod source;
-use super::{
-    instance::{invalid, retained},
-    legacy_stream::LegacyStream,
-};
+use super::instance::{invalid, retained};
 use crate::{
     protocol_registry::TcpExecutionServices,
     transport::{EstablishedTcpOutbound, TcpOutboundFailure},
@@ -188,13 +185,10 @@ pub(in crate::component) async fn connect_slot(
             Ok(EstablishedTcpOutbound::direct(
                 tag,
                 (evidence.remote.ip().to_string(), evidence.remote.port()),
-                zero_platform_tokio::TcpRelayStream::from_client(LegacyStream::new(
-                    connected.io,
-                    evidence.local,
-                    evidence.remote,
-                )),
+                connected.io,
                 evidence.network,
-            ))
+            )
+            .with_endpoints(evidence.local, Some(evidence.remote)))
         }
         Err(mut error) => {
             error.component = Some(slot.role_id().component);

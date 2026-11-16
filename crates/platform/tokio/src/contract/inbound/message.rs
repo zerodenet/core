@@ -1,14 +1,14 @@
 //! One framed request/response exchange. Policy and upstream selection stay
 //! outside this role; the protocol owns only message framing and continuation.
 use super::{BoxFuture, ChannelError, StreamActivity};
-use crate::{rate_limit::SharedRateLimiter, TcpRelayStream};
+use crate::{contract::stream::BoxStream, rate_limit::SharedRateLimiter};
 use std::{future::Future, sync::Arc};
 use zero_core::request::{Destination, RequestFacts};
 use zero_traits::IoObserver;
 
 pub enum MessageAction {
     Transfer {
-        upstream: TcpRelayStream,
+        upstream: BoxStream,
         effective_target: Destination,
         context: MessageContext,
     },
@@ -25,8 +25,8 @@ pub enum MessageAction {
 pub enum MessageTransfer {
     Complete,
     Upgraded {
-        inbound: TcpRelayStream,
-        upstream: Box<TcpRelayStream>,
+        inbound: BoxStream,
+        upstream: BoxStream,
     },
 }
 

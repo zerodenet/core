@@ -42,7 +42,7 @@ pub(super) fn profile(cipher: &str) -> vmess::inbound::VmessInboundProfile {
 pub(super) async fn connect(
     proxy: &crate::Proxy,
     tag: &str,
-) -> zero_platform_tokio::TcpRelayStream {
+) -> zero_platform_tokio::contract::stream::BoxStream {
     let services = proxy.tcp_runtime_services();
     let target = services.snapshot().plan().target_id(tag).unwrap();
     let (resolved, _) = services

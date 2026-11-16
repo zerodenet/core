@@ -34,16 +34,13 @@ pub(crate) async fn dispatch_tcp_relay(
     relay_chain.push((final_hop.tag.clone(), final_hop.protocol.clone()));
     let outbound_tag = final_hop.tag.clone();
     let carrier = lazy_relay_carrier(services.clone(), prefix, intent);
-    let stream = hop::execute(&services, &final_hop, carrier, session)
+    let outbound = hop::execute(&services, &final_hop, carrier, session)
         .await
         .map_err(|error| failure::hop_failure(&final_hop, error, "relay_last"))?;
 
-    Ok(EstablishedTcpOutbound::relay(
-        outbound_tag,
-        upstream_endpoint,
-        relay_chain,
-        stream,
-    ))
+    outbound
+        .with_relay_route(outbound_tag, upstream_endpoint, relay_chain)
+        .map_err(|error| failure::hop_failure(&final_hop, error, "relay_last"))
 }
 
 fn execute_relay_prefix_stream(
@@ -97,6 +94,7 @@ fn execute_relay_prefix_stream(
             let carrier = lazy_relay_carrier(services.clone(), prepared, intent);
             return hop::execute(&services, &current, carrier, &session)
                 .await
+                .and_then(EstablishedTcpOutbound::into_compatibility_stream)
                 .map_err(|error| failure::hop_failure(&current, error, "relay_hop"));
         }
         super::candidate::dispatch_prepared_tcp_candidate(
@@ -106,7 +104,7 @@ fn execute_relay_prefix_stream(
             intent,
         )
         .await?
-        .into_relay_stream()
+        .into_compatibility_stream()
         .map_err(|error| TcpOutboundFailure {
             stage: "relay_first_hop",
             error,

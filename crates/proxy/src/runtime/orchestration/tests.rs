@@ -224,3 +224,12 @@ mod inbound_targets;
 
 #[cfg(all(feature = "wireguard", feature = "udp-runtime"))]
 mod dns_wire;
+
+#[cfg(all(
+    feature = "http",
+    feature = "mixed",
+    feature = "socks5",
+    feature = "vless",
+    feature = "hysteria2"
+))]
+mod standard_stream;

@@ -25,6 +25,13 @@ pub struct Requests {
 impl Requests {
     pub fn new(client: TcpRelayStream) -> Self {
         let connection = InboundConnectionFacts::from_stream(&client);
+        Self::from_stream(Box::pin(client), connection)
+    }
+    /// Standard sources transfer the actual stream and captured connection facts.
+    pub fn from_stream(
+        client: zero_platform_tokio::contract::stream::BoxStream,
+        connection: InboundConnectionFacts,
+    ) -> Self {
         Self {
             connection,
             client: Some(Connection::new(client)),

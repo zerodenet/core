@@ -1,5 +1,10 @@
 # 控制面兼容性与破坏性变更
 
+本轮 TCP 生产调用者续作将 Direct／Node／设备流、完整标准 relay 以及兼容前缀之后的标准最后一跳的原 Stream 直接交给入口转发、HTTP Message／Upgrade 和探测；删除统一结果的旧 `into_relay_stream` 入口及这些调用者上的 `ClientStream` 重建。HTTP、SOCKS5 与 Mixed 标准 Source 直接接收原 pinned stream 和已捕获连接事实，保留同一 keep-alive 缓冲、认证计量、UDP TCP 控制、半关闭和原资源回执。明确暂留的 socket 协议交界仍接收其完整原兼容对象，不丢应用设置、传输控制或原有能力。
+
+进程内 Rust 的 `MessageAction::Transfer.upstream` 和 `MessageTransfer::Upgraded` 两个方向现为标准 `BoxStream`，Upgrade 上游不再多套一层 `Box<TcpRelayStream>`。HTTP／SOCKS5 协议库原便利构造器保留；公开配置、V1 API、CLI、流量口径与协议版本基线不变。已补真实 Proxy 生产装配及非 Sync 原流的回归源码；本轮按既定要求未编译、未运行测试，不能据此宣告运行验收。Apple 授权、TEMP-WG-OUTER-UDP-01 运行验收及整体迁移状态仍保持未完成。
+
+
 SOCKS5 Packet carrier 与 Shadowsocks codec relay 已统一使用实际标准角色图、原 TCP/BND UDP 和原缓存 owner。删除代理内 SOCKS association runtime、PacketPath 操作 SPI、兼容枚举、TCP 前缀里的影子 Datagram 配方和无主 socket/payload builder。TCP-only 插件 UDP 保留其标准非插件原件，UDP-only 插件 TCP 迁到真实标准 Stream/replay owner 且不会启动 UDP 插件进程；进程平台兼容与 TEMP-WG-OUTER-UDP-01 按原要求暂留。公开配置与协议能力不变，协议库独立便捷 API 保留；本轮不编译、不运行测试，不宣告运行验收。
 
 Active VLESS ingress 改为直接使用配置节点的实际标准 Stream generation；无关业务 relay/selector 分支不再决定其生产者资格。VLESS/VMess/Trojan/Mieru 的跨协议调用统一执行标准 Stream/Datagram 与原池 owner，移除代理内 transport leaf、流恢复包装、UDP 最后一跳/双流 SPI 和保留前缀重连工厂。后台 VLESS gRPC 的 TCP mask 由实际 H2 原件执行，完整 dial policy 随原绑定传递。此项不新增公开配置、协议组合或控制面字段；协议库独立兼容 API 保留。回归源码覆盖实际 wire、复用及独立原件/Scope 回执，本轮按要求未编译和执行测试，不能据此宣告完整运行验收。Apple 进程树授权与 TEMP-WG-OUTER-UDP-01 仍单独保留。

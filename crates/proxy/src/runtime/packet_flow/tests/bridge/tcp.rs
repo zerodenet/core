@@ -93,7 +93,7 @@ impl PreparedTcpConnectOperation for PacketTcpOperation {
                 self.0.tag.as_ref(),
                 None,
                 Vec::new(),
-                stream,
+                Box::pin(stream),
             ))
         })
     }

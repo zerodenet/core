@@ -8,7 +8,7 @@ fn unsupported(mut config: zero_config::RuntimeConfig) -> zero_config::RuntimeCo
     config.outbound_groups.push(serde_json::from_value(serde_json::json!({"tag":"unused-legacy","type":"relay","proxies":["a","legacy-grammar"]})).unwrap());
     config
 }
-async fn open(proxy: &Proxy) -> zero_platform_tokio::TcpRelayStream {
+async fn open(proxy: &Proxy) -> zero_platform_tokio::contract::stream::BoxStream {
     let session = Session::new(
         0,
         Address::Ipv4([203, 0, 113, 1]),
@@ -37,10 +37,10 @@ async fn open(proxy: &Proxy) -> zero_platform_tokio::TcpRelayStream {
     )
     .await
     .unwrap_or_else(|failure| panic!("{}: {}", failure.stage, failure.error))
-    .into_relay_stream()
+    .into_stream()
     .unwrap()
 }
-async fn echo(io: &mut zero_platform_tokio::TcpRelayStream) {
+async fn echo(io: &mut zero_platform_tokio::contract::stream::BoxStream) {
     io.write_all(b"live").await.unwrap();
     io.flush().await.unwrap();
     let mut data = [0; 4];

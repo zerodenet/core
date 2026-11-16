@@ -1,7 +1,7 @@
 //! HTTP owns one real message, its body framing and connection continuation.
 use super::connection::Connection;
 use crate::{HttpConnectInbound, HttpForwardCommand};
-use alloc::{boxed::Box, vec, vec::Vec};
+use alloc::{vec, vec::Vec};
 use std::{fmt, io};
 use tokio::sync::oneshot;
 use zero_core::request::RequestFacts;
@@ -11,7 +11,6 @@ use zero_platform_tokio::{
         ChannelError, DeliveryState, Impact, Reason, Stage,
     },
     rate_limit::SharedRateLimiter,
-    TcpRelayStream,
 };
 const REQUEST_COALESCE_LIMIT: u64 = 4 * 1024;
 
@@ -81,10 +80,16 @@ impl MessageReply for ForwardReply {
                     self.request
                         .set_effective_authority(&effective_target.address, effective_target.port);
                 }
-                match transfer(&mut self.client, upstream, &self.request, &context)
+                let mut upstream = super::socket::Socket::new(upstream);
+                match transfer(&mut self.client, &mut upstream, &self.request, &context)
                     .await
-                    .map_err(|source| source.channel(self.facts.session))?
-                {
+                    .map_err(|source| {
+                        upstream
+                            .take_source()
+                            .map(WireError::Io)
+                            .unwrap_or(source)
+                            .channel(self.facts.session)
+                    })? {
                     TransferOutcome::Continue => {
                         let _ = self
                             .continuation
@@ -93,10 +98,10 @@ impl MessageReply for ForwardReply {
                             .send(Some(self.client));
                     }
                     TransferOutcome::Close => {}
-                    TransferOutcome::Upgraded(upstream) => {
+                    TransferOutcome::Upgraded => {
                         return Ok(MessageTransfer::Upgraded {
-                            inbound: self.client.into_relay(),
-                            upstream: Box::new(upstream),
+                            inbound: self.client.into_stream(),
+                            upstream: upstream.into_inner(),
                         })
                     }
                 }
@@ -108,16 +113,16 @@ impl MessageReply for ForwardReply {
 enum TransferOutcome {
     Continue,
     Close,
-    Upgraded(TcpRelayStream),
+    Upgraded,
 }
 async fn transfer(
     client: &mut Connection,
-    mut upstream: TcpRelayStream,
+    upstream: &mut super::socket::Socket,
     request: &HttpForwardCommand,
     context: &MessageContext,
 ) -> Result<TransferOutcome, WireError> {
     if request.expect_continue() {
-        throttle_and_write(&mut upstream, request.head(), context.upload_limiter()).await?;
+        throttle_and_write(upstream, request.head(), context.upload_limiter()).await?;
         context.record_upload(request.head().len() as u64);
         crate::HttpConnectInbound
             .send_continue_response(client)
@@ -141,7 +146,7 @@ async fn transfer(
         let mut message = Vec::with_capacity(request.head().len() + body.len());
         message.extend_from_slice(request.head());
         message.extend_from_slice(&body);
-        zero_traits::AsyncSocket::write_all(&mut upstream, &message).await?;
+        zero_traits::AsyncSocket::write_all(upstream, &message).await?;
         context.record_upload(request.head().len() as u64);
         crate::HttpTransferCount {
             read: body.len() as u64,
@@ -149,17 +154,17 @@ async fn transfer(
         }
     } else {
         if !request.expect_continue() {
-            throttle_and_write(&mut upstream, request.head(), context.upload_limiter()).await?;
+            throttle_and_write(upstream, request.head(), context.upload_limiter()).await?;
             context.record_upload(request.head().len() as u64);
         }
         let mut throttled = RateLimitedSocket::new(client, context.upload_limiter(), context);
-        crate::relay_http_body(&mut throttled, &mut upstream, request.body()).await?
+        crate::relay_http_body(&mut throttled, upstream, request.body()).await?
     };
     context.record_upload_io(request_body.read, request_body.written);
 
     loop {
         let response = {
-            let mut active_upstream = RateLimitedSocket::new(&mut upstream, None, context);
+            let mut active_upstream = RateLimitedSocket::new(upstream, None, context);
             crate::HttpConnectInbound
                 .accept_response(
                     &mut active_upstream,
@@ -174,12 +179,12 @@ async fn transfer(
         context.record_download(response.head().len() as u64);
 
         if response.upgrade_accepted() {
-            return Ok(TransferOutcome::Upgraded(upstream));
+            return Ok(TransferOutcome::Upgraded);
         }
 
         let response_body = {
             let mut throttled =
-                RateLimitedSocket::new(&mut upstream, context.download_limiter(), context);
+                RateLimitedSocket::new(upstream, context.download_limiter(), context);
             if response.chunk_close_delimited() {
                 crate::relay_close_delimited_as_chunked(&mut throttled, client).await?
             } else {

@@ -1,8 +1,7 @@
 //! Explicit standalone Service fixtures. Production Query/Node and active
 //! ingress supply their actual original root to connect_stream/loan methods.
 use super::*;
-use crate::component::legacy_stream::LegacyStream;
-use zero_platform_tokio::{contract::context::with_deadline, TcpRelayStream};
+use zero_platform_tokio::contract::context::with_deadline;
 pub(crate) async fn connect(
     services: TcpExecutionServices,
     destination: Destination,
@@ -92,15 +91,11 @@ async fn chain(
     });
     let upstream = UpstreamTransport::new(binding, root.clone());
     let io = connect_stream(services, destination, &nodes, purpose, call, upstream).await?;
-    let evidence = root
+    let _evidence = root
         .take_evidence()
         .ok_or_else(|| failure(Reason::Internal))?;
     Ok(ServiceConnected {
-        stream: TcpRelayStream::from_client(LegacyStream::new(
-            io,
-            Some(evidence.local),
-            evidence.peer,
-        )),
+        stream: io,
         binding: ServiceBinding::new(&nodes, destination.clone(), generation, network_updates)?,
     })
 }

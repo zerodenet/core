@@ -16,16 +16,17 @@ use zero_platform_tokio::{
             InboundDatagramResponse, InboundDatagramSession, InboundDatagramTraffic, ReplyOutcome,
         },
         lifecycle::{ChannelControl, CloseReport, Unfinished},
+        stream::BoxStream,
         BoxFuture, ChannelError, CloseReason, DeliveryState, Impact, Reason, SendFailure,
         SendReceipt, Stage,
     },
     controlled_datagram::listener::{ControlledDatagramListenerRx, ControlledDatagramListenerTx},
-    AcceptedCaller, TcpRelayStream,
+    AcceptedCaller,
 };
 use zero_transport::MeteredStream;
 
 pub(super) struct Reply {
-    pub io: MeteredStream<TcpRelayStream>,
+    pub io: MeteredStream<BoxStream>,
     pub facts: RequestFacts,
     pub caller: AcceptedCaller,
     pub resources: Arc<dyn ResourceAccess>,
@@ -250,7 +251,7 @@ impl<'a> DatagramTx<InboundDatagramResponse<'a>, InboundDatagramReceipt> for Tx 
 }
 struct Input {
     buffer: alloc::vec::Vec<u8>,
-    tcp: MeteredStream<TcpRelayStream>,
+    tcp: MeteredStream<BoxStream>,
     udp: ControlledDatagramListenerRx,
     session: Arc<Mutex<Socks5InboundUdpAssociationSession>>,
     cancel: zero_platform_tokio::contract::CancellationToken,

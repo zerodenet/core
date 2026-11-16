@@ -1,4 +1,4 @@
-//! Temporary single conversion into the legacy relay facade. No pipe or task.
+//! Explicit deferred socket protocol boundary. Ordinary standard TCP never enters here.
 use std::{
     io,
     net::SocketAddr,
@@ -15,9 +15,6 @@ pub(crate) struct LegacyStream {
     peer: Option<SocketAddr>,
 }
 impl LegacyStream {
-    pub(crate) fn new(io: BoxStream, local: Option<SocketAddr>, peer: SocketAddr) -> Self {
-        Self::with_endpoints(io, local, Some(peer))
-    }
     pub(crate) fn with_endpoints(
         io: BoxStream,
         local: Option<SocketAddr>,

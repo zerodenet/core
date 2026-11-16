@@ -1,6 +1,7 @@
 //! Native donor prefix for an existing receiver: original caller -> actual
 //! standard Stream loan. No synthetic business Session or alternate executor.
 use super::*;
+use crate::component::legacy_stream::LegacyStream;
 use crate::inventory::{service::ServiceNode, PreparedTcpRelayPrefix};
 use zero_platform_tokio::contract::network::CarrierContext;
 pub(crate) async fn connect(

@@ -210,7 +210,7 @@ async fn standard_hysteria2_proxy_tcp_udp_empty_multitarget_share_actual_authent
         .await
         .map_err(|failure| failure.error)
         .unwrap();
-        let mut stream = established.into_relay_stream().unwrap();
+        let mut stream = established.into_stream().unwrap();
         stream.write_all(b"ping").await.unwrap();
         let mut response = [0; 4];
         stream.read_exact(&mut response).await.unwrap();

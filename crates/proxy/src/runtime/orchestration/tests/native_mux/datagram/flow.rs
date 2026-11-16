@@ -45,14 +45,14 @@ async fn reply(client: &UdpSocket, target: std::net::SocketAddr, payload: &[u8])
     assert_eq!(u16::from_be_bytes([frame[8], frame[9]]), target.port());
     assert_eq!(&frame[10..length], payload);
 }
-async fn exercise(protocol: &str, stop_pending: bool) {
+async fn exercise(protocol: &str, stop_pending: bool, ingress: &str) {
     timeout(Duration::from_secs(30),async{
         let server=Server::start(protocol).await;
         // Retain the actual bound peer originals through every I/O suspension.
         let first=UdpSocket::bind("127.0.0.1:0").await.unwrap();let second=UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let mut value=serde_json::to_value(config(protocol,server.fixture.front.port())).unwrap();
         value["runtime"]["native_mux_max_carriers"]=json!(1);
-        value["inbounds"]=json!([{"tag":"front","listen":{"address":"127.0.0.1","port":0},"udp":{"enabled":true},"protocol":{"type":"socks5"}}]);
+        value["inbounds"]=json!([{"tag":"front","listen":{"address":"127.0.0.1","port":0},"udp":{"enabled":true},"protocol":{"type":ingress}}]);
         let proxy=Proxy::new(zero_config::RuntimeConfig::parse(&value.to_string()).unwrap()).unwrap();let running=start_components(&proxy).await;
         let source=proxy.inbound_owners.owner("front").unwrap();source.wait_ready().await.unwrap();let front=*source.original_listener_address.get().unwrap();
         let client=UdpSocket::bind("127.0.0.1:0").await.unwrap();let (mut control,relay)=associate(front,&client).await;
@@ -96,11 +96,18 @@ async fn exercise(protocol: &str, stop_pending: bool) {
 async fn standard_datagram_flow_uses_original_rx_for_multiple_targets_empty_packets_and_unsolicited_replies(
 ) {
     for protocol in ["vless", "vmess"] {
-        exercise(protocol, false).await;
+        exercise(protocol, false, "socks5").await;
     }
 }
 #[tokio::test]
 async fn source_stop_during_actual_pending_rx_retains_original_views_native_provider_and_scope_receipts(
 ) {
-    exercise("vmess", true).await;
+    exercise("vmess", true, "socks5").await;
+}
+
+#[cfg(feature = "mixed")]
+#[tokio::test]
+async fn standard_mixed_tcp_control_keeps_original_udp_association_and_pending_rx_ownership() {
+    exercise("vmess", false, "mixed").await;
+    exercise("vmess", true, "mixed").await;
 }

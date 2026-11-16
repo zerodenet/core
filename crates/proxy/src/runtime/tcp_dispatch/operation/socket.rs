@@ -75,7 +75,7 @@ where
             if !traffic.is_empty() {
                 services.record_control_traffic(session.id, traffic);
             }
-            Ok(EstablishedTcpOutbound::proxied(
+            Ok(EstablishedTcpOutbound::proxied_compatibility(
                 handshake.tag().to_owned(),
                 endpoint.0,
                 endpoint.1,

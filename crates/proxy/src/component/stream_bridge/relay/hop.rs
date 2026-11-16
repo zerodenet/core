@@ -1,11 +1,11 @@
 //! An ordinary Stream role over one already selected compatibility prefix.
 //! This bridge grants no root sockets, background borrowing or native receipt.
 use crate::{
-    component::{instance::invalid, legacy_stream::LegacyStream},
+    component::instance::invalid,
     inventory::{PreparedTcpRelayHop, StreamRoleRef},
     protocol_registry::{TcpExecutionServices, UpstreamConnectServices},
     runtime::tcp_dispatch::operation::LazyTcpRelayCarrier,
-    transport::{ClientStream, TcpRelayStream},
+    transport::{ClientStream, EstablishedTcpOutbound},
 };
 use std::{
     net::SocketAddr,
@@ -25,7 +25,7 @@ pub(crate) async fn connect(
     selected: &StreamRoleRef,
     destination: Destination,
     carrier: LazyTcpRelayCarrier<'static>,
-) -> Result<TcpRelayStream, ChannelError> {
+) -> Result<EstablishedTcpOutbound, ChannelError> {
     let invocation = services.invocation.clone().ok_or_else(|| {
         invalid(
             Reason::Unsupported,
@@ -97,11 +97,15 @@ pub(crate) async fn connect(
                 "standard relay did not consume its selected prefix",
             )
         })?;
-    Ok(TcpRelayStream::from_client(LegacyStream::with_endpoints(
-        connected.io,
-        local,
-        peer,
-    )))
+    Ok(
+        EstablishedTcpOutbound::proxied(
+            hop.tag.clone(),
+            hop.server.clone(),
+            hop.port,
+            connected.io,
+        )
+        .with_endpoints(local, peer),
+    )
 }
 
 type Endpoints = (Option<SocketAddr>, Option<SocketAddr>);

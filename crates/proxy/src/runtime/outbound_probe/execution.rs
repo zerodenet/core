@@ -2,10 +2,10 @@
 use super::*;
 use crate::transport::extract_tcp_stream;
 use std::time::{Duration, Instant};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout_at;
 use zero_core::{Address, Network, ProtocolType, Session};
 use zero_engine::EngineError;
-use zero_traits::AsyncSocket;
 impl OutboundProbeRuntime {
     pub(super) async fn run_accepted_probe(
         &self,
@@ -114,6 +114,7 @@ impl OutboundProbeRuntime {
                 .write_all(request.request.as_bytes())
                 .await
                 .map_err(EngineError::from)?;
+            socket.flush().await.map_err(EngineError::from)?;
 
             let mut response = [0_u8; 1];
             let read = socket

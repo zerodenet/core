@@ -69,7 +69,7 @@ pub(super) async fn server(listener: TcpListener, mut release: tokio::sync::watc
     let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
     assert!(listener.poll_accept(&mut cx).is_pending());
 }
-pub(super) async fn business(proxy: &Proxy) -> zero_platform_tokio::TcpRelayStream {
+pub(super) async fn business(proxy: &Proxy) -> zero_platform_tokio::contract::stream::BoxStream {
     let mut session = Session::new(
         0,
         Address::Ipv4([203, 0, 113, 9]),
@@ -109,10 +109,10 @@ pub(super) async fn business(proxy: &Proxy) -> zero_platform_tokio::TcpRelayStre
     crate::component::stream_bridge::connect(&services.execution(), &session, &slot, &prepared)
         .await
         .unwrap_or_else(|error| panic!("{}: {}", error.stage, error.error))
-        .into_relay_stream()
+        .into_stream()
         .unwrap()
 }
-pub(super) async fn service(proxy: &Proxy) -> zero_platform_tokio::TcpRelayStream {
+pub(super) async fn service(proxy: &Proxy) -> zero_platform_tokio::contract::stream::BoxStream {
     use zero_platform_tokio::contract::{network::CarrierContext, CancellationToken};
     let services = proxy.tcp_runtime_services();
     let (resolved, _) = proxy
@@ -138,7 +138,7 @@ pub(super) async fn service(proxy: &Proxy) -> zero_platform_tokio::TcpRelayStrea
     .unwrap()
     .stream
 }
-pub(super) async fn exchange(io: &mut zero_platform_tokio::TcpRelayStream) {
+pub(super) async fn exchange(io: &mut (impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin)) {
     io.write_all(b"live").await.unwrap();
     io.flush().await.unwrap();
     let mut bytes = [0; 4];

@@ -1,6 +1,6 @@
 //! One standard source for both commands, sharing the real TCP accepted owner.
 use crate::transport::{Socks5InboundAcceptor, Socks5InboundUserRef};
-use alloc::{sync::Arc, vec, vec::Vec};
+use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 use std::{
     collections::hash_map::RandomState,
     hash::{BuildHasher, Hash, Hasher},
@@ -162,8 +162,8 @@ impl ComponentFactory for InboundFactory {
             context.cancel,
             move |socket| {
                 let facts = InboundConnectionFacts::from_stream(&socket);
-                super::inbound::Connection::new(
-                    socket.into(),
+                super::inbound::Connection::from_stream(
+                    Box::pin(socket),
                     facts,
                     options.acceptor(),
                     resources.clone(),

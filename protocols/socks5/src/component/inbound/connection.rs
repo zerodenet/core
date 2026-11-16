@@ -1,11 +1,13 @@
 //! Authentication and wire replies only. The host supplies policy and originals.
 use crate::transport::Socks5InboundAcceptor;
+use alloc::boxed::Box;
 use std::sync::Arc;
 use zero_platform_tokio::{
     contract::{
         component::ResourceAccess,
         context::{HandshakeContext, InboundConnectionFacts},
         inbound::{accept_datagram, accept_stream, AcceptedRequest, InboundHandshake},
+        stream::BoxStream,
         ChannelError, Impact, Reason, Stage,
     },
     TcpRelayStream,
@@ -13,7 +15,7 @@ use zero_platform_tokio::{
 use zero_transport::MeteredStream;
 
 pub struct Connection {
-    io: MeteredStream<TcpRelayStream>,
+    io: MeteredStream<BoxStream>,
     facts: InboundConnectionFacts,
     acceptor: Socks5InboundAcceptor,
     resources: Arc<dyn ResourceAccess>,
@@ -21,6 +23,15 @@ pub struct Connection {
 impl Connection {
     pub fn new(
         io: TcpRelayStream,
+        facts: InboundConnectionFacts,
+        acceptor: Socks5InboundAcceptor,
+        resources: Arc<dyn ResourceAccess>,
+    ) -> Self {
+        Self::from_stream(Box::pin(io), facts, acceptor, resources)
+    }
+    /// Standard listeners transfer their original pinned IO and captured facts.
+    pub fn from_stream(
+        io: BoxStream,
         facts: InboundConnectionFacts,
         acceptor: Socks5InboundAcceptor,
         resources: Arc<dyn ResourceAccess>,

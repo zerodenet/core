@@ -64,7 +64,7 @@ async fn source_relative_tcp_preparation_reuses_the_actual_authenticated_pool() 
                 crate::inventory::PreparedTcpOutbound::Single(crate::inventory::PreparedTcpCandidate {execution:crate::inventory::PreparedTcpCandidateExecution::Native(_),..})));
             let established=crate::runtime::tcp_dispatch::dispatch_tcp_outbound(services,&session,resolved,zero_engine::RouteMode::Flow,crate::runtime::tcp_dispatch::TcpDispatchIntent::Traffic).await
                 .map_err(|failure|failure.error).unwrap();
-            let mut stream = established.into_relay_stream().unwrap();
+            let mut stream = established.into_stream().unwrap();
             stream.write_all(b"ping").await.unwrap();
             let mut response = [0;4];
             stream.read_exact(&mut response).await.unwrap();

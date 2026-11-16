@@ -8,7 +8,7 @@ use zero_platform_tokio::{
         lifecycle::{erase_lifecycle, BuildError},
         ChannelError, Impact, Reason, Stage,
     },
-    TcpRelayStream, TokioSocket,
+    TokioSocket,
 };
 use zero_traits::AsyncSocket;
 type Options = socks5::component::listener::InboundOptions;
@@ -76,13 +76,9 @@ impl InboundHandshake for Connection {
             ));
         }
         let prefixed = crate::transport::PrefixedSocket::from_byte(self.socket, first[0]);
-        let io = match facts.local_endpoint {
-            Some(local) => TcpRelayStream::with_local_addr(prefixed, local),
-            None => TcpRelayStream::new(prefixed),
-        };
         if socks5::is_socks5_greeting_byte(first[0]) {
-            socks5::component::inbound::Connection::new(
-                io,
+            socks5::component::inbound::Connection::from_stream(
+                Box::pin(prefixed),
                 facts,
                 self.options.acceptor(),
                 self.resources,
@@ -91,7 +87,7 @@ impl InboundHandshake for Connection {
             .await
         } else {
             Ok(AcceptedRequest::Multiplex(Box::new(
-                http::component::Requests::new(io).with_connection_facts(facts),
+                http::component::Requests::from_stream(Box::pin(prefixed), facts),
             )))
         }
     }

@@ -6,7 +6,8 @@ use super::accounting::{record_tcp_download, record_tcp_upload};
 use super::activity::{TcpActivityStream, TcpRelayActivity};
 use crate::protocol_registry::TcpRuntimeServices;
 use crate::runtime::principal_rate_limit::TrafficRateLimiters;
-use crate::transport::{relay_bidirectional_metered_throttled, TcpRelayStream};
+use crate::transport::relay_bidirectional_metered_throttled;
+use zero_platform_tokio::contract::stream::BoxStream;
 
 #[async_trait]
 pub(crate) trait InboundProtocol: Send + Sync {
@@ -24,7 +25,7 @@ pub(crate) trait InboundProtocol: Send + Sync {
     async fn relay(
         &self,
         client: Self::ClientStream,
-        upstream: TcpRelayStream,
+        upstream: BoxStream,
         services: TcpRuntimeServices,
         session_id: u64,
         rate_limiters: TrafficRateLimiters,

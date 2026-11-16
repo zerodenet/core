@@ -111,7 +111,10 @@ pub(super) async fn start(
         .unwrap();
     (proxy, running, handle)
 }
-pub(super) async fn open(proxy: &Proxy, tag: &str) -> zero_platform_tokio::TcpRelayStream {
+pub(super) async fn open(
+    proxy: &Proxy,
+    tag: &str,
+) -> zero_platform_tokio::contract::stream::BoxStream {
     let session = Session::new(
         0,
         Address::Ipv4([203, 0, 113, 9]),
@@ -140,10 +143,10 @@ pub(super) async fn open(proxy: &Proxy, tag: &str) -> zero_platform_tokio::TcpRe
     )
     .await
     .unwrap_or_else(|failure| panic!("{}: {}", failure.stage, failure.error))
-    .into_relay_stream()
+    .into_stream()
     .unwrap()
 }
-pub(super) async fn echo(io: &mut zero_platform_tokio::TcpRelayStream) {
+pub(super) async fn echo(io: &mut zero_platform_tokio::contract::stream::BoxStream) {
     io.write_all(b"live").await.unwrap();
     io.flush().await.unwrap();
     let mut data = [0; 4];

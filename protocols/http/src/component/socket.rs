@@ -28,7 +28,7 @@ impl Socket {
         result.map_err(|source| {
             let kind = source.kind();
             self.source = Some(source);
-            io::Error::new(kind, "HTTP CONNECT carrier I/O failed")
+            io::Error::new(kind, "HTTP carrier I/O failed")
         })
     }
 }
@@ -39,7 +39,11 @@ impl AsyncSocket for Socket {
         self.capture(result)
     }
     async fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
-        let result = tokio::io::AsyncWriteExt::write_all(self.stream(), bytes).await;
+        let result = async {
+            tokio::io::AsyncWriteExt::write_all(self.stream(), bytes).await?;
+            tokio::io::AsyncWriteExt::flush(self.stream()).await
+        }
+        .await;
         self.capture(result)
     }
     async fn shutdown(&mut self) -> io::Result<()> {

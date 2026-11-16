@@ -61,14 +61,17 @@ async fn start_components(proxy: &Proxy) -> crate::RunningProxy {
     .unwrap();
     running
 }
-async fn connect(proxy: &Proxy, port: u16) -> Result<crate::transport::TcpRelayStream, String> {
+async fn connect(
+    proxy: &Proxy,
+    port: u16,
+) -> Result<zero_platform_tokio::contract::stream::BoxStream, String> {
     connect_target(proxy, port, "a").await
 }
 async fn connect_target(
     proxy: &Proxy,
     port: u16,
     target: &str,
-) -> Result<crate::transport::TcpRelayStream, String> {
+) -> Result<zero_platform_tokio::contract::stream::BoxStream, String> {
     let mut session = Session::new(
         0,
         Address::Ipv4([127, 0, 0, 1]),
@@ -105,10 +108,10 @@ async fn connect_target(
     )
     .await
     .map_err(|e| format!("{}: {}", e.stage, e.error))?
-    .into_relay_stream()
+    .into_stream()
     .map_err(|e| e.to_string())
 }
-async fn echo(stream: &mut crate::transport::TcpRelayStream) {
+async fn echo(stream: &mut zero_platform_tokio::contract::stream::BoxStream) {
     stream.write_all(b"real-mux").await.unwrap();
     let mut bytes = [0; 8];
     stream.read_exact(&mut bytes).await.unwrap();

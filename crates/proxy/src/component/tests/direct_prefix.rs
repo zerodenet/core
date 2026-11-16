@@ -77,6 +77,7 @@ async fn exercise(reject: bool) {
                         assert_eq!(original.delivery,zero_platform_tokio::contract::DeliveryState::Unknown);assert!(!original.retry_permitted());
                     }else{
                         let outbound=result.unwrap_or_else(|failure|panic!("{}: {}",failure.stage,failure.error));
+                        assert!(outbound.is_standard_stream_for_test(), "a standard native tail over the retained prefix must not reconstruct the old ClientStream facade");
                         let mut io=crate::transport::extract_tcp_stream(outbound).unwrap();
                         assert_eq!(io.relay_chain.len(),count);assert_eq!(io.outbound_tag,"last");
                         let mut prefix=[0;3];io.upstream.read_exact(&mut prefix).await.unwrap();assert_eq!(&prefix,b"pre");
