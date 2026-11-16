@@ -31,6 +31,12 @@ fn actual_transient_read_write_reuses_one_slot_and_retirement_revokes_io_without
         drop(received);
         assert_eq!(root.driver_metadata().occupied, stable);
     }
+    #[cfg(unix)]
+    {
+        original.sync_directory(directory.path()).unwrap();
+        assert_eq!(root.driver_metadata().occupied, stable);
+        assert!(!faults.has_failures());
+    }
     let closed = root
         .pause_driver_metadata_for_limit(crate::packet_memory::PacketMetadataLayout::new(
             root.driver_metadata().limit.allocations(),
@@ -45,6 +51,8 @@ fn actual_transient_read_write_reuses_one_slot_and_retirement_revokes_io_without
     assert!(original
         .write(&path, b"must not overwrite after retirement")
         .is_err());
+    #[cfg(unix)]
+    assert!(original.sync_directory(directory.path()).is_err());
     assert_eq!(std::fs::read(&path).unwrap(), b"replacement journal bytes");
     drop(original);
     drop(faults);

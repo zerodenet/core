@@ -42,9 +42,9 @@ mod route;
 #[cfg(feature = "device")]
 pub use route::{
     capture_route_prefixes, capture_route_prefixes_with_exclusions, split_default_route_prefixes,
-    strict_route_socket_mark, EgressUnavailableReason, FamilyEgressState, RouteChangeMonitor,
-    RouteFileFaults, RouteFileOriginals, RouteInstallRequest, RouteInterface, SystemLeakGuard,
-    SystemRouteGuard,
+    strict_route_socket_mark, tun_local_address_facts, tun_local_addresses,
+    EgressUnavailableReason, FamilyEgressState, RouteChangeMonitor, RouteFileFaults,
+    RouteFileOriginals, RouteInstallRequest, RouteInterface, SystemLeakGuard, SystemRouteGuard,
 };
 
 // ── Address helpers ───────────────────────────────────────────────────

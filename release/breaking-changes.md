@@ -2014,3 +2014,37 @@ forwarding and the matching original carrier/Source/Scope receipts, alongside
 ordinary TCP/UDP behavior. These sources were not compiled or run. This does
 not complete Browser MUX/custom native profiles, unify resource-limit config,
 qualify unrelated donor graphs or close Apple/TEMP-WG runtime acceptance.
+
+### macOS route acquisition intents and legacy recovery
+
+Peer repair and Capture installation now persist a separate pending intent
+before the system route operation, and confirm installation after success.
+Interrupted/failed outcomes remain pending; they never grant delete authority
+or disappear during ordinary journal cleanup. Journal writes sync their file
+and, on Unix, the renamed parent directory before returning.
+
+Old records with zero interface index or missing IPv4 capture gateway remain
+unknown. Recovery never substitutes current interface identity or adopts a
+matching route. Both old records and pending acquisitions retire automatically
+only after route-table readback confirms absence. Otherwise the existing TUN
+error/status reports TUN_ROUTE_RECOVERY_REQUIRED with the retained path/prefix,
+observations and recovery steps in release/tun-route-recovery.md. Known route
+cleanup still progresses independently; unresolved metadata remains retained.
+
+Regression sources cover durable intent before mutation, failed persistence,
+interrupted/failed mutation, old-schema recovery, preserved foreign routes and
+retry after external cleanup. Table fixtures prove policy only, not native close.
+No compilation, tests, privileged route mutation or runtime acceptance was run.
+Public control/config schema and FFI ABI are unchanged. Apple authorization and
+TEMP-WG running acceptance remain open.
+
+The consolidated production path applies exact local-address filtering in the
+existing System TUN Source route worker, including live discovery/reconciliation.
+Both retained installation variants keep their original lease/File controller
+before route mutation. New journal strings/intent rows use the same admitted
+metadata owner; confirmation moves the original paid row. Durable writes and
+parent-directory sync reuse that Source's actual transient File slot, retaining
+operation failures and explicit native close outcomes. No legacy TUN runner or
+bare production File fallback is reintroduced. Added regression sources cover
+new-field decoding/credit return and original directory-sync retirement; they
+have not been compiled or run.

@@ -97,8 +97,10 @@ fn journal(path: std::path::PathBuf) -> RouteJournal {
         tun_index: 7,
         egress: RouteInterface::new("physical0".to_owned(), 9).unwrap(),
         gateway: Some("192.0.2.1".to_owned()),
+        capture_gateway: None,
         excluded: Vec::new(),
         installed: Vec::new(),
+        pending: Vec::new(),
         scoped_bypass: false,
         path,
         _lease: None,
@@ -295,4 +297,23 @@ fn recovery_key_can_load_a_journal_from_a_renumbered_dynamic_device() {
         .expect("recovery journal");
     assert_eq!(recovered.tun_name, "utun8");
     assert_eq!(recovered.installed, vec!["0.0.0.0/1"]);
+}
+
+#[test]
+fn route_journal_retains_capture_next_hop_and_loads_legacy_records_without_inventing_one() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("routes.json");
+    let mut current = journal(path.clone());
+    current.capture_gateway = Some("10.19.7.2".into());
+    current.record_route("0.0.0.0/1").unwrap();
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let restored: RouteJournal = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(restored.capture_gateway.as_deref(), Some("10.19.7.2"));
+    assert_eq!(restored.tun_index, 7);
+    value.as_object_mut().unwrap().remove("capture_gateway");
+    value["tun_index"] = 0.into();
+    let legacy: RouteJournal = serde_json::from_value(value).unwrap();
+    assert!(legacy.capture_gateway.is_none());
+    assert_eq!(legacy.tun_index, 0);
 }

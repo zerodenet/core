@@ -7,6 +7,8 @@ fn actual_layout(journal: &RouteJournal) -> PacketMetadataLayout {
     for value in std::iter::once(&journal.tun_name)
         .chain(std::iter::once(&journal.egress.name))
         .chain(journal.gateway.iter())
+        .chain(journal.capture_gateway.iter())
+        .chain(&journal.pending)
         .chain(&journal.installed)
     {
         layout = layout
@@ -19,6 +21,7 @@ fn actual_layout(journal: &RouteJournal) -> PacketMetadataLayout {
     for value in [
         PacketMetadataLayout::array::<IpAddr>(journal.excluded.capacity()).unwrap(),
         PacketMetadataLayout::array::<String>(journal.installed.capacity()).unwrap(),
+        PacketMetadataLayout::array::<String>(journal.pending.capacity()).unwrap(),
     ] {
         layout = layout.checked_add(value).unwrap();
     }
@@ -174,4 +177,53 @@ fn admitted_new_string_is_released_if_its_actual_table_growth_cannot_fit() {
         .is_some_and(|source| source.is::<PacketMemoryError>()));
     assert_eq!(root.driver_metadata().occupied, occupied);
     assert_eq!(serde_json::to_vec(&journal).unwrap(), before);
+}
+
+#[test]
+fn recovery_extensions_keep_actual_metadata_custody_through_intent_confirmation_and_retirement() {
+    let root = Arc::new(PacketReturnTotals::default());
+    let baseline = root.driver_metadata().occupied;
+    let bytes = br#"{"tun_name":"utun7","ipv6":false,"tun_index":7,"egress":{"name":"en0","index":9},"capture_gateway":"10.19.7.2","excluded":[],"installed":[],"pending":["0.0.0.0/1"]}"#;
+    let mut journal = decode(bytes, root.driver_metadata_view()).unwrap();
+    assert_eq!(journal.capture_gateway.as_deref(), Some("10.19.7.2"));
+    assert_eq!(
+        root.driver_metadata().occupied,
+        baseline.checked_add(actual_layout(&journal)).unwrap()
+    );
+    let directory = tempfile::tempdir().unwrap();
+    journal.path = journal
+        ._metadata
+        .path(&directory.path().join("journal.json"))
+        .unwrap();
+    journal
+        .cleanup(
+            |_| panic!("unconfirmed acquisition has no delete authority"),
+            |_| panic!("no exclusions"),
+        )
+        .unwrap();
+    let stored: RouteJournal =
+        serde_json::from_slice(&std::fs::read(&journal.path).unwrap()).unwrap();
+    assert_eq!(stored.pending, ["0.0.0.0/1"]);
+    assert_eq!(stored.capture_gateway, journal.capture_gateway);
+    // The callback is an injected absence observation, not a native close receipt.
+    journal.cleanup_pending_with(|_| Ok(())).unwrap();
+    journal
+        .install_route_with("128.0.0.0/1", || Ok(()))
+        .unwrap();
+    assert!(journal.pending.is_empty());
+    assert_eq!(journal.installed, ["128.0.0.0/1"]);
+    assert_eq!(
+        root.driver_metadata().occupied,
+        baseline.checked_add(actual_layout(&journal)).unwrap()
+    );
+    journal
+        .cleanup(|_| Ok(()), |_| panic!("no exclusions"))
+        .unwrap();
+    assert!(!journal.path.exists());
+    assert_eq!(
+        root.driver_metadata().occupied,
+        baseline.checked_add(actual_layout(&journal)).unwrap()
+    );
+    drop(journal);
+    assert_eq!(root.driver_metadata().occupied, baseline);
 }

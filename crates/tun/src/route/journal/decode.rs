@@ -23,6 +23,8 @@ const FIELDS: &[&str] = &[
     "excluded",
     "installed",
     "scoped_bypass",
+    "capture_gateway",
+    "pending",
 ];
 struct Parts {
     tun_name: String,
@@ -33,6 +35,8 @@ struct Parts {
     excluded: Vec<IpAddr>,
     installed: Vec<String>,
     scoped_bypass: bool,
+    capture_gateway: Option<String>,
+    pending: Vec<String>,
 }
 struct Seed<'a>(&'a mut Owner);
 #[derive(Deserialize)]
@@ -46,6 +50,8 @@ enum JournalField {
     Excluded,
     Installed,
     ScopedBypass,
+    CaptureGateway,
+    Pending,
     #[serde(other)]
     Other,
 }
@@ -59,6 +65,7 @@ impl<'de> Visitor<'de> for Seed<'_> {
         let (mut tun_name, mut ipv6, mut tun_index, mut egress) = (None, None, None, None);
         let (mut gateway, mut excluded, mut installed, mut scoped_bypass) =
             (None, None, None, None);
+        let (mut capture_gateway, mut pending) = (None, None);
         while let Some(field) = map.next_key()? {
             match field {
                 JournalField::TunName => {
@@ -109,6 +116,18 @@ impl<'de> Visitor<'de> for Seed<'_> {
                     }
                     scoped_bypass = Some(map.next_value()?);
                 }
+                JournalField::CaptureGateway => {
+                    if capture_gateway.is_some() {
+                        return Err(de::Error::duplicate_field("capture_gateway"));
+                    }
+                    capture_gateway = Some(map.next_value_seed(OptionalString(self.0))?);
+                }
+                JournalField::Pending => {
+                    if pending.is_some() {
+                        return Err(de::Error::duplicate_field("pending"));
+                    }
+                    pending = Some(map.next_value_seed(Strings(self.0))?);
+                }
                 JournalField::Other => {
                     let _: de::IgnoredAny = map.next_value()?;
                 }
@@ -123,6 +142,8 @@ impl<'de> Visitor<'de> for Seed<'_> {
             excluded: excluded.ok_or_else(|| de::Error::missing_field("excluded"))?,
             installed: installed.ok_or_else(|| de::Error::missing_field("installed"))?,
             scoped_bypass: scoped_bypass.unwrap_or(false),
+            capture_gateway: capture_gateway.unwrap_or(None),
+            pending: pending.unwrap_or_default(),
         })
     }
     fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Parts, A::Error> {
@@ -149,6 +170,10 @@ impl<'de> Visitor<'de> for Seed<'_> {
                 .next_element_seed(Strings(self.0))?
                 .ok_or_else(|| de::Error::invalid_length(6, &self))?,
             scoped_bypass: seq.next_element()?.unwrap_or(false),
+            capture_gateway: seq
+                .next_element_seed(OptionalString(self.0))?
+                .unwrap_or(None),
+            pending: seq.next_element_seed(Strings(self.0))?.unwrap_or_default(),
         })
     }
 }
@@ -188,6 +213,8 @@ pub(super) fn decode(
         tun_index: parts.tun_index,
         egress: parts.egress,
         gateway: parts.gateway,
+        capture_gateway: parts.capture_gateway,
+        pending: parts.pending,
         excluded: parts.excluded,
         installed: parts.installed,
         scoped_bypass: parts.scoped_bypass,

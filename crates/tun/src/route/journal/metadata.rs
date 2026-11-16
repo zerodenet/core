@@ -66,6 +66,12 @@ impl Owner {
         rows.push(value);
         Ok(())
     }
+    pub(super) fn reserve_slot<T>(&mut self, rows: &mut Vec<T>) -> Result<(), PacketMemoryError> {
+        if rows.len() == rows.capacity() {
+            self.grow(rows)?;
+        }
+        Ok(())
+    }
     fn grow<T>(&mut self, rows: &mut Vec<T>) -> Result<(), PacketMemoryError> {
         let capacity = rows
             .capacity()

@@ -35,7 +35,7 @@ impl MacosHelperOwner {
         &self,
         path: &Path,
     ) -> io::Result<PacketMetadataVec<u8>> {
-        self.file_io(path, None)
+        self.file_io(path, None, false)
     }
     pub(in crate::macos_privilege::session) fn write_file(
         &self,
@@ -47,9 +47,20 @@ impl MacosHelperOwner {
                 "route journal exceeds actual file material allowance",
             ));
         }
-        self.file_io(path, Some(bytes)).map(drop)
+        self.file_io(path, Some(bytes), false).map(drop)
     }
-    fn file_io(&self, path: &Path, input: Option<&[u8]>) -> io::Result<PacketMetadataVec<u8>> {
+    pub(in crate::macos_privilege::session) fn sync_directory(
+        &self,
+        path: &Path,
+    ) -> io::Result<()> {
+        self.file_io(path, None, true).map(drop)
+    }
+    fn file_io(
+        &self,
+        path: &Path,
+        input: Option<&[u8]>,
+        sync_directory: bool,
+    ) -> io::Result<PacketMetadataVec<u8>> {
         if !self.0.io_allowed() {
             return Err(io::Error::from(io::ErrorKind::Interrupted));
         }
@@ -81,6 +92,7 @@ impl MacosHelperOwner {
         epoch.local_file = Some(Original::new(fd, epoch.id));
         let result = match input {
             Some(bytes) => write_all(fd, bytes).map(|()| PacketMetadataVec::default()),
+            None if sync_directory => sync(fd).map(|()| PacketMetadataVec::default()),
             None => read_all(fd, self.0.output_limit, &self.0.memory),
         };
         let closed = epoch.local_file.as_mut().unwrap().close_once();
@@ -113,7 +125,18 @@ fn write_all(fd: i32, mut bytes: &[u8]) -> io::Result<()> {
         }
         bytes = &bytes[count as usize..];
     }
-    Ok(())
+    sync(fd)
+}
+fn sync(fd: i32) -> io::Result<()> {
+    loop {
+        if unsafe { libc::fsync(fd) } == 0 {
+            return Ok(());
+        }
+        let source = io::Error::last_os_error();
+        if source.kind() != io::ErrorKind::Interrupted {
+            return Err(source);
+        }
+    }
 }
 fn read_all(fd: i32, limit: usize, memory: &PacketMemoryView) -> io::Result<PacketMetadataVec<u8>> {
     let mut output = PacketMetadataVec::default();

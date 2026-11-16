@@ -1,5 +1,7 @@
 mod audit;
+mod cleanup;
 mod owned;
+mod recovery;
 
 use std::io;
 use std::net::IpAddr;
@@ -17,9 +19,7 @@ mod exclusions;
 mod interfaces;
 mod scoped;
 
-use scoped::{
-    combine_cleanup_errors, ensure_scoped_bypass, gateway_matches_family, remove_scoped_bypass,
-};
+use scoped::{combine_cleanup_errors, ensure_scoped_bypass, gateway_matches_family};
 
 #[derive(Debug)]
 pub struct SystemRouteGuard {
@@ -31,6 +31,7 @@ pub struct SystemRouteGuard {
     ipv6: bool,
     gateway: Option<String>,
     tun_gateway: Option<String>,
+    local_addresses: [Option<IpAddr>; 3],
     excluded: Vec<IpAddr>,
     captured: Vec<IpNet>,
     journal: RouteJournal,
@@ -111,7 +112,8 @@ impl SystemRouteGuard {
             family_exclusions_for_egress(excluded, self.ipv6, &selected.family)
                 .into_iter()
                 .filter(|peer| {
-                    exclusions::requires_host_bypass(*peer, &self.captured, &connected)
+                    !self.local_addresses.contains(&Some(*peer))
+                        && exclusions::requires_host_bypass(*peer, &self.captured, &connected)
                         && (self.journal.excluded.contains(peer)
                             || !exclusions::has_native_route(*peer, &self.captured, &self.tun_name))
                 })
@@ -138,20 +140,6 @@ impl SystemRouteGuard {
         self.journal.close_owned()
     }
 
-    fn add(&self, prefix: &str) -> io::Result<()> {
-        let arguments = route_add_arguments(
-            self.ipv6,
-            &self.tun_name,
-            self.tun_gateway.as_deref(),
-            prefix,
-        );
-        run_route(&arguments).map(|_| ())
-    }
-
-    fn remove(&self, prefix: &str) -> io::Result<()> {
-        remove_route(self.ipv6, prefix)
-    }
-
     fn install_exclusion(&mut self, peer: IpAddr) -> io::Result<()> {
         self.journal.record_exclusion(peer)?;
         add_exclusion(&self.egress, self.gateway.as_deref(), self.ipv6, peer)
@@ -166,7 +154,8 @@ impl SystemRouteGuard {
             return Ok(());
         }
         if let Err(error) = self.journal.record_scoped_bypass() {
-            let rollback = remove_scoped_bypass(self.ipv6, self.egress.name());
+            let rollback =
+                cleanup::remove_scoped_bypass(self.ipv6, &self.egress, self.gateway.as_deref());
             return Err(with_rollback_error(error, rollback));
         }
         Ok(())
@@ -176,7 +165,7 @@ impl SystemRouteGuard {
         if !self.journal.scoped_bypass {
             return Ok(());
         }
-        remove_scoped_bypass(self.ipv6, self.egress.name())?;
+        cleanup::remove_scoped_bypass(self.ipv6, &self.egress, self.gateway.as_deref())?;
         self.journal.forget_scoped_bypass()
     }
 
@@ -196,7 +185,7 @@ impl SystemRouteGuard {
             .filter(|peer| !desired.contains(peer) && self.journal.excluded.contains(peer))
             .collect::<Vec<_>>();
         for peer in stale {
-            remove_exclusion(self.ipv6, self.gateway.as_deref(), peer)?;
+            cleanup::remove_exclusion(self.ipv6, &self.egress, self.gateway.as_deref(), peer)?;
             self.journal.forget_exclusion(peer)?;
         }
         Ok(())
@@ -211,7 +200,7 @@ impl SystemRouteGuard {
 
     fn remove_owned_exclusions(&mut self) -> io::Result<()> {
         for peer in self.journal.excluded.clone().into_iter().rev() {
-            remove_exclusion(self.ipv6, self.gateway.as_deref(), peer)?;
+            cleanup::remove_exclusion(self.ipv6, &self.egress, self.gateway.as_deref(), peer)?;
             self.journal.forget_exclusion(peer)?;
         }
         Ok(())
@@ -219,14 +208,10 @@ impl SystemRouteGuard {
 
     fn cleanup(&mut self) -> io::Result<()> {
         self.recover_stale()?;
-        let ipv6 = self.ipv6;
+        let pending = recovery::pending(&mut self.journal);
         let bypass = self.remove_owned_scoped_bypass();
-        let gateway = self.gateway.as_deref();
-        let routes = self.journal.cleanup(
-            |prefix| remove_route(ipv6, prefix),
-            |peer| remove_exclusion(ipv6, gateway, peer),
-        );
-        combine_cleanup_errors(bypass, routes)
+        let routes = cleanup_recorded_routes(&mut self.journal);
+        combine_cleanup_errors(pending, combine_cleanup_errors(bypass, routes))
     }
 }
 
@@ -347,18 +332,42 @@ fn add_exclusion(
 }
 
 fn cleanup_stale_routes(journal: &mut RouteJournal) -> io::Result<()> {
-    let ipv6 = journal.ipv6;
+    let pending = recovery::pending(journal);
     let bypass = if journal.scoped_bypass {
-        remove_scoped_bypass(ipv6, journal.egress.name())
+        cleanup::remove_scoped_bypass(journal.ipv6, &journal.egress, journal.gateway.as_deref())
             .and_then(|()| journal.forget_scoped_bypass())
     } else {
         Ok(())
     };
-    let routes = journal.cleanup_record(
-        |_, prefix| remove_route(ipv6, prefix),
-        |record, peer| remove_exclusion(ipv6, record.gateway.as_deref(), peer),
-    );
-    combine_cleanup_errors(bypass, routes)
+    let routes = cleanup_recorded_routes(journal);
+    combine_cleanup_errors(pending, combine_cleanup_errors(bypass, routes))
+}
+
+fn cleanup_recorded_routes(journal: &mut RouteJournal) -> io::Result<()> {
+    journal.cleanup_record(
+        |record, prefix| {
+            if recovery::legacy_capture(record) {
+                return recovery::confirm_absent_with(
+                    &record.path,
+                    &record.tun_name,
+                    record.ipv6,
+                    prefix,
+                    "legacy journal lacks original capture identity",
+                    || audit::table::read(record.ipv6),
+                );
+            }
+            cleanup::remove_capture(
+                record.ipv6,
+                &record.tun_name,
+                record.tun_index,
+                record.capture_gateway.as_deref(),
+                prefix,
+            )
+        },
+        |record, peer| {
+            cleanup::remove_exclusion(record.ipv6, &record.egress, record.gateway.as_deref(), peer)
+        },
+    )
 }
 
 fn route_add_arguments(
@@ -381,10 +390,6 @@ fn route_add_arguments(
     arguments
 }
 
-fn remove_route(ipv6: bool, prefix: &str) -> io::Result<()> {
-    run_route_remove(&route_remove_arguments(ipv6, prefix))
-}
-
 fn route_remove_arguments(ipv6: bool, prefix: &str) -> Vec<String> {
     vec![
         "-n".to_owned(),
@@ -392,20 +397,6 @@ fn route_remove_arguments(ipv6: bool, prefix: &str) -> Vec<String> {
         family(ipv6).to_owned(),
         prefix.to_owned(),
     ]
-}
-
-fn remove_exclusion(ipv6: bool, gateway: Option<&str>, peer: IpAddr) -> io::Result<()> {
-    let mut arguments = vec![
-        "-n".to_owned(),
-        "delete".to_owned(),
-        family(ipv6).to_owned(),
-        "-host".to_owned(),
-        peer.to_string(),
-    ];
-    if let Some(gateway) = gateway {
-        arguments.push(gateway.to_owned());
-    }
-    run_route_remove(&arguments)
 }
 
 impl Drop for SystemRouteGuard {

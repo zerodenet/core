@@ -67,12 +67,21 @@ impl RouteFileIo {
         result
     }
     pub(in crate::route) fn read(&self, path: &Path) -> io::Result<PacketMetadataVec<u8>> {
-        self.run(path, None)
+        self.run(path, None, false)
     }
     pub(in crate::route) fn write(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
-        self.run(path, Some(bytes)).map(drop)
+        self.run(path, Some(bytes), false).map(drop)
     }
-    fn run(&self, path: &Path, input: Option<&[u8]>) -> io::Result<PacketMetadataVec<u8>> {
+    #[cfg(unix)]
+    pub(in crate::route) fn sync_directory(&self, path: &Path) -> io::Result<()> {
+        self.run(path, None, true).map(drop)
+    }
+    fn run(
+        &self,
+        path: &Path,
+        input: Option<&[u8]>,
+        sync_directory: bool,
+    ) -> io::Result<PacketMetadataVec<u8>> {
         // All quota, Arc/Waker construction precedes owner locking/native IO.
         let attempt = self.faults.begin(&self.memory).map_err(io::Error::other)?;
         let mut candidate = Some(TrackedFile::pending(self.faults.clone(), attempt.clone()));
@@ -104,8 +113,15 @@ impl RouteFileIo {
                 match input {
                     Some(bytes) => {
                         let mut file = original.file().expect("same installed transient File");
-                        file.write_all(bytes).map(|()| PacketMetadataVec::default())
+                        file.write_all(bytes)
+                            .and_then(|()| file.sync_all())
+                            .map(|()| PacketMetadataVec::default())
                     }
+                    None if sync_directory => original
+                        .file()
+                        .expect("same installed directory original")
+                        .sync_all()
+                        .map(|()| PacketMetadataVec::default()),
                     None => read_all(
                         original.file().expect("same installed transient File"),
                         &self.memory,

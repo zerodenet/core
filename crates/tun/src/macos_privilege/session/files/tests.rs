@@ -16,6 +16,7 @@ fn actual_journal_files_close_before_return_and_stopped_source_can_only_use_its_
     let source = lock.access();
     journal_write(&file, b"actual journal").unwrap().unwrap();
     assert_eq!(&*journal_read(&file).unwrap().unwrap(), b"actual journal");
+    journal_sync_directory(directory.path()).unwrap().unwrap();
     assert!(owner.0.epochs[0]
         .lock()
         .unwrap()
@@ -35,6 +36,7 @@ fn actual_journal_files_close_before_return_and_stopped_source_can_only_use_its_
         .closed());
     owner.stop();
     assert!(journal_write(&file, b"unadmitted new IO").unwrap().is_err());
+    assert!(journal_sync_directory(directory.path()).unwrap().is_err());
     drop(context);
     assert!(owner.access().enter().is_err());
     {

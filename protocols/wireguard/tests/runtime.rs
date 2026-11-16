@@ -469,28 +469,32 @@ fn opaque_outer_carrier_rejects_handshakes_at_cookie_threshold() {
     .unwrap();
     let mut outbound = tunnel(93, 94, "10.0.0.1/32");
     let mut client = tunnel(94, 93, "10.0.0.2/32");
-    let initiation = network_packets(client.initiate_handshake().unwrap()).remove(0);
-
+    let initiation = network_packets(outbound.initiate_handshake().unwrap()).remove(0);
+    let response = network_packets(client.receive_datagram(None, &initiation).unwrap()).remove(0);
+    assert_eq!(response[0], 2);
+    // Real, MAC-authenticated responses exercise the same opaque-source gate.
+    // Replaying an already-consumed/unknown response avoids doing two hundred
+    // expensive initiation decryptions inside a one-second wall-clock window.
     for _ in 0..100 {
-        let _ = server.receive_datagram_with_source(None, &initiation);
-        let _ = outbound.receive_datagram(None, &initiation);
+        let _ = server.receive_datagram_with_source(None, &response);
+        let _ = outbound.receive_datagram(None, &response);
     }
     assert!(matches!(
-        server.receive_datagram_with_source(None, &initiation),
+        server.receive_datagram_with_source(None, &response),
         Err(TunnelError::RateLimited)
     ));
     assert!(matches!(
-        outbound.receive_datagram(None, &initiation),
+        outbound.receive_datagram(None, &response),
         Err(TunnelError::RateLimited)
     ));
 
     std::thread::sleep(std::time::Duration::from_millis(1_100));
     assert_ne!(
-        server.receive_datagram_with_source(None, &initiation).err(),
+        server.receive_datagram_with_source(None, &response).err(),
         Some(TunnelError::RateLimited)
     );
     assert_ne!(
-        outbound.receive_datagram(None, &initiation).err(),
+        outbound.receive_datagram(None, &response).err(),
         Some(TunnelError::RateLimited)
     );
 }

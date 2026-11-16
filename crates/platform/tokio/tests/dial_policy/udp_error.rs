@@ -7,7 +7,7 @@ fn actual_native_udp_address_collision_keeps_its_original_os_error_through_phase
     // port probe or a reconstructed io::Error from an expected platform code.
     let held = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
     let address = held.local_addr().unwrap();
-    let original = bind_native(address, false).unwrap_err();
+    let original = bind_native(address, false, None).unwrap_err();
     assert_eq!(original.kind(), io::ErrorKind::AddrInUse);
     let code = original
         .raw_os_error()

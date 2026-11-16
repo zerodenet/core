@@ -240,6 +240,9 @@ pub(crate) fn journal_encode(
 ) -> Option<io::Result<crate::packet_memory::PacketMetadataVec<u8>>> {
     current().map(|owner| owner.encode_journal(value))
 }
+pub(crate) fn journal_sync_directory(path: &Path) -> Option<io::Result<()>> {
+    current().map(|owner| owner.sync_directory(path))
+}
 pub(crate) fn journal_write(path: &Path, bytes: &[u8]) -> Option<io::Result<()>> {
     current().map(|owner| owner.write_file(path, bytes))
 }

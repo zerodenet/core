@@ -4,6 +4,7 @@ pub(crate) mod interfaces;
 mod owned_tcp;
 mod tcp;
 mod udp;
+pub(crate) mod udp_bind;
 use crate::{EgressInterface, EgressSelection};
 use interfaces::{invalid_policy, inventory_for};
 use std::{

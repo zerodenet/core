@@ -32,19 +32,22 @@ impl SystemRouteGuard {
             IpAddr::V4(address) => Some(crate::macos::ipv4_peer(address, netmask)?.to_string()),
             IpAddr::V6(_) => None,
         };
-        let journal = RouteJournal::new_borrowed(
+        let mut journal = RouteJournal::new_borrowed(
             lease,
             tun_name,
             ipv6,
-            0,
+            cleanup::interface_index(tun_name)?,
             &egress,
             gateway.as_deref().map(crate::route::journal::Gateway::Text),
         )?;
+        journal.set_capture_gateway(tun_gateway.as_deref())?;
+        let local_addresses = super::super::tun_local_address_facts(address, netmask)?;
         let connected = exclusions::connected_networks(tun_name)?;
         let desired_exclusions = family_exclusions_for_egress(excluded, ipv6, &selected.family)
             .into_iter()
             .filter(|peer| {
-                exclusions::requires_host_bypass(*peer, captured, &connected)
+                !local_addresses.contains(&Some(*peer))
+                    && exclusions::requires_host_bypass(*peer, captured, &connected)
                     && !exclusions::has_native_route(*peer, captured, tun_name)
             })
             .collect::<Vec<_>>();
@@ -55,6 +58,7 @@ impl SystemRouteGuard {
             ipv6,
             gateway,
             tun_gateway,
+            local_addresses,
             excluded: desired_exclusions.clone(),
             captured: captured.to_vec(),
             journal,
@@ -64,16 +68,12 @@ impl SystemRouteGuard {
         let guard = original.as_mut().expect("same installed route original");
         guard.recover_stale()?;
         publish_egress(&guard.family_egress)?;
+        guard.audit_peer_route()?;
         guard.install_scoped_bypass()?;
         for peer in desired_exclusions {
             guard.install_exclusion(peer)?;
         }
-        for prefix in captured {
-            let prefix = prefix.to_string();
-            let _ = guard.remove(&prefix);
-            guard.journal.record_route(&prefix)?;
-            guard.add(&prefix)?;
-        }
+        guard.install_capture_routes()?;
         guard.audit_routes()?;
         Ok(())
     }
@@ -118,15 +118,18 @@ impl SystemRouteGuard {
             lease,
             tun_name,
             ipv6,
-            0,
+            cleanup::interface_index(tun_name)?,
             &egress,
             gateway.as_deref().map(crate::route::journal::Gateway::Text),
         )?;
+        journal.set_capture_gateway(tun_gateway.as_deref())?;
+        let local_addresses = super::super::tun_local_address_facts(address, netmask)?;
         let connected = exclusions::connected_networks(tun_name)?;
         let desired_exclusions = family_exclusions_for_egress(excluded, ipv6, &selected.family)
             .into_iter()
             .filter(|peer| {
-                exclusions::requires_host_bypass(*peer, captured, &connected)
+                !local_addresses.contains(&Some(*peer))
+                    && exclusions::requires_host_bypass(*peer, captured, &connected)
                     && !exclusions::has_native_route(*peer, captured, tun_name)
             })
             .collect::<Vec<_>>();
@@ -138,6 +141,7 @@ impl SystemRouteGuard {
             ipv6,
             gateway,
             tun_gateway,
+            local_addresses,
             excluded: desired_exclusions.clone(),
             captured: captured.to_vec(),
             journal,
@@ -147,16 +151,12 @@ impl SystemRouteGuard {
         let guard = original.as_mut().expect("same installed route original");
         guard.recover_stale()?;
         publish_egress(&guard.family_egress)?;
+        guard.audit_peer_route()?;
         guard.install_scoped_bypass()?;
         for peer in desired_exclusions {
             guard.install_exclusion(peer)?;
         }
-        for prefix in captured {
-            let prefix = prefix.to_string();
-            let _ = guard.remove(&prefix);
-            guard.journal.record_route(&prefix)?;
-            guard.add(&prefix)?;
-        }
+        guard.install_capture_routes()?;
         guard.audit_routes()?;
         Ok(())
     }

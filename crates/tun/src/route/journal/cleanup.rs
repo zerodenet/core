@@ -82,7 +82,11 @@ impl RouteJournal {
         }
         self.excluded.truncate(kept);
         self._removed_exclusions = 0;
-        if self.installed.is_empty() && self.excluded.is_empty() && !self.scoped_bypass {
+        if self.installed.is_empty()
+            && self.pending.is_empty()
+            && self.excluded.is_empty()
+            && !self.scoped_bypass
+        {
             if let Err(error) = self.clear() {
                 first_error.get_or_insert(error);
             }

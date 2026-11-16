@@ -48,7 +48,10 @@ pub(super) fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(result) = crate::macos_privilege::journal_write(path, bytes) {
         return result;
     }
-    std::fs::write(path, bytes)
+    use std::io::Write;
+    let mut file = std::fs::File::create(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
 }
 #[cfg(target_os = "macos")]
 impl RouteJournal {
@@ -105,4 +108,19 @@ pub(super) fn write_from(
         return original.write(path, bytes);
     }
     write(path, bytes)
+}
+
+#[cfg(unix)]
+pub(super) fn sync_directory_from(
+    path: &Path,
+    original: Option<&crate::route::file_originals::RouteFileIo>,
+) -> io::Result<()> {
+    #[cfg(target_os = "macos")]
+    if let Some(result) = crate::macos_privilege::journal_sync_directory(path) {
+        return result;
+    }
+    if let Some(original) = original {
+        return original.sync_directory(path);
+    }
+    std::fs::File::open(path)?.sync_all()
 }

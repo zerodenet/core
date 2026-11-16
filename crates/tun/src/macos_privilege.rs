@@ -26,7 +26,8 @@ mod server;
 pub(crate) mod session;
 pub(crate) use session::{
     has_owned_context, journal_encode, journal_lock, journal_lock_retained, journal_read,
-    journal_write, route_query, route_table, MacosRouteFileAccess, MacosRouteLock,
+    journal_sync_directory, journal_write, route_query, route_table, MacosRouteFileAccess,
+    MacosRouteLock,
 };
 mod tool;
 mod transfer;

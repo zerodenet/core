@@ -61,3 +61,5 @@ fn owned_route_journal_keeps_same_source_file_custody_after_tls_returns_until_ex
     // Receipt idempotence does not reenter the now-closed file capability.
     journal.close_owned().unwrap();
 }
+
+mod intent;

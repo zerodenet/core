@@ -54,6 +54,8 @@ impl RouteJournal {
                 index: egress.index(),
             },
             gateway,
+            capture_gateway: None,
+            pending: Vec::new(),
             excluded: Vec::new(),
             installed: Vec::new(),
             scoped_bypass: false,
@@ -127,6 +129,23 @@ impl RouteJournal {
                 .map_err(io::Error::other)?;
         }
         self.persist()
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(in crate::route) fn set_capture_gateway(
+        &mut self,
+        gateway: Option<&str>,
+    ) -> io::Result<()> {
+        let next = gateway
+            .map(|value| self._metadata.string(value))
+            .transpose()
+            .map_err(io::Error::other)?;
+        if let Some(previous) = std::mem::replace(&mut self.capture_gateway, next) {
+            self._metadata
+                .release_string(previous)
+                .map_err(io::Error::other)?;
+        }
+        Ok(())
     }
 
     pub(in crate::route) fn record_route(&mut self, prefix: &str) -> io::Result<()> {

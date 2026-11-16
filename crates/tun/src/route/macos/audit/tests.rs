@@ -213,3 +213,88 @@ fn native_route_table_can_be_read_without_network_mutation() {
     table::read(false).unwrap();
     table::read(true).unwrap();
 }
+
+#[test]
+fn missing_tun_peer_route_is_restored_before_capture_and_then_remains_stable() {
+    let mut expected = expected();
+    expected.insert(
+        0,
+        ExpectedRoute {
+            kind: RouteKind::Peer,
+            prefix: "10.19.7.2/32".parse().unwrap(),
+            interface: "utun7".into(),
+            gateway: None,
+        },
+    );
+    let os = RefCell::new(Vec::new());
+    let repairs = RefCell::new(Vec::new());
+    let recover = || {
+        reconcile_with(
+            &expected,
+            || Ok(os.borrow().clone()),
+            |route| {
+                if matches!(route.kind, RouteKind::Capture) {
+                    assert!(os
+                        .borrow()
+                        .iter()
+                        .any(|row: &RouteEntry| row.prefix == expected[0].prefix
+                            && row.interface == "utun7"));
+                }
+                repairs.borrow_mut().push(route.prefix);
+                let row = RouteEntry {
+                    prefix: route.prefix,
+                    gateway: route.gateway.clone().unwrap_or("link#7".into()),
+                    interface: route.interface.clone(),
+                    flags: if matches!(route.kind, RouteKind::Peer) {
+                        "UHS"
+                    } else if matches!(route.kind, RouteKind::Scoped) {
+                        "UGSI"
+                    } else {
+                        "UGS"
+                    }
+                    .into(),
+                };
+                os.borrow_mut().push(row);
+                Ok(())
+            },
+        )
+    };
+    assert!(recover().unwrap());
+    assert_eq!(repairs.borrow()[0].to_string(), "10.19.7.2/32");
+    assert!(!recover().unwrap());
+    os.borrow_mut()[0].interface = "utun9".into();
+    assert!(recover().is_err());
+}
+
+#[test]
+fn initial_capture_conflicts_do_not_delete_foreign_routes_or_claim_correct_native_routes() {
+    let wanted = ExpectedRoute {
+        kind: RouteKind::Capture,
+        prefix: "0.0.0.0/1".parse().unwrap(),
+        interface: "utun7".into(),
+        gateway: Some("10.19.7.2".into()),
+    };
+    for foreign in [
+        RouteEntry {
+            interface: "utun9".into(),
+            ..entry(&wanted)
+        },
+        RouteEntry {
+            gateway: "10.99.0.2".into(),
+            ..entry(&wanted)
+        },
+    ] {
+        assert!(reconcile_with(
+            std::slice::from_ref(&wanted),
+            || Ok(vec![foreign.clone()]),
+            |_| panic!("startup must preserve the occupied prefix")
+        )
+        .is_err());
+    }
+    assert!(!reconcile_with(
+        std::slice::from_ref(&wanted),
+        || Ok(vec![entry(&wanted)]),
+        |_| panic!("a correct existing route is borrowed, not journal-owned")
+    )
+    .unwrap());
+}

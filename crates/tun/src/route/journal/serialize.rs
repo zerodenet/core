@@ -24,7 +24,10 @@ impl<T: Serialize + PartialEq> Serialize for Visible<'_, T> {
 }
 impl Serialize for RouteJournal {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut journal = serializer.serialize_struct("RouteJournal", 8)?;
+        let mut journal = serializer.serialize_struct(
+            "RouteJournal",
+            8 + usize::from(self.capture_gateway.is_some()) + usize::from(!self.pending.is_empty()),
+        )?;
         journal.serialize_field("tun_name", &self.tun_name)?;
         journal.serialize_field("ipv6", &self.ipv6)?;
         journal.serialize_field("tun_index", &self.tun_index)?;
@@ -45,6 +48,12 @@ impl Serialize for RouteJournal {
             },
         )?;
         journal.serialize_field("scoped_bypass", &self.scoped_bypass)?;
+        if let Some(gateway) = &self.capture_gateway {
+            journal.serialize_field("capture_gateway", gateway)?;
+        }
+        if !self.pending.is_empty() {
+            journal.serialize_field("pending", &self.pending)?;
+        }
         journal.end()
     }
 }

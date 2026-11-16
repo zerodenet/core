@@ -18,6 +18,11 @@ pub(super) struct RouteJournal {
     pub(super) installed: Vec<String>,
     #[serde(default)]
     pub(super) scoped_bypass: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) capture_gateway: Option<String>,
+    /// Persisted intent is not proof that this owner installed the route.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) pending: Vec<String>,
     #[serde(skip)]
     pub(super) path: PathBuf,
     #[serde(skip)]
@@ -58,6 +63,8 @@ pub(super) mod metadata;
 mod object;
 mod serialize;
 pub(super) use lease::RouteLease;
+#[cfg(any(target_os = "macos", test))]
+mod intent;
 mod material;
 #[cfg(test)]
 mod tests;
@@ -128,6 +135,7 @@ impl RouteJournal {
     fn persist_or_clear(&self) -> io::Result<()> {
         if !serialize::visible(&self.installed, self._removed_routes)
             && !serialize::visible(&self.excluded, self._removed_exclusions)
+            && self.pending.is_empty()
             && !self.scoped_bypass
         {
             self.clear()
@@ -146,7 +154,12 @@ impl RouteJournal {
         if self.path.exists() {
             std::fs::remove_file(&self.path)?;
         }
-        std::fs::rename(&temporary, &self.path)
+        std::fs::rename(&temporary, &self.path)?;
+        #[cfg(unix)]
+        if let Some(parent) = self.path.parent() {
+            material::sync_directory_from(parent, self.file_io.as_ref().map(|io| &**io))?;
+        }
+        Ok(())
     }
 
     fn clear(&self) -> io::Result<()> {

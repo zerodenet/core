@@ -5,6 +5,8 @@ use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 
 mod file_originals;
+mod local;
+pub use local::{tun_local_address_facts, tun_local_addresses};
 mod journal;
 pub use file_originals::{RouteFileFaults, RouteFileOriginals};
 mod leak;

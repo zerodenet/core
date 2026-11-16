@@ -205,6 +205,16 @@ fn prepare(
             }
         })
         .map_err(Arc::new)?;
+    {
+        let native = original
+            .native
+            .lock()
+            .unwrap_or_else(|source| source.into_inner());
+        for &(address, mask) in &native.spec.addresses {
+            let local = zero_tun::tun_local_address_facts(address, mask).map_err(Arc::new)?;
+            route_exclusions.retain(|peer| !local.contains(&Some(*peer)));
+        }
+    }
     route_exclusions.retain(|address| crate::inbound::tun::tun_route_exclusion_required(*address));
     route_exclusions.sort_unstable();
     route_exclusions.dedup();
