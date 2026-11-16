@@ -52,3 +52,8 @@ fn loopback_policy() -> DialPolicy {
 mod selection;
 #[path = "dial_policy/socket.rs"]
 mod socket;
+#[path = "dial_policy/udp_fallback.rs"]
+mod udp_fallback;
+#[cfg(windows)]
+#[path = "dial_policy/windows_udp.rs"]
+mod windows_udp;

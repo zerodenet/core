@@ -14,8 +14,8 @@ impl TokioDatagramSocket {
     ) -> io::Result<Self> {
         Self::bind_for_peer_with_policy_preserving_port(peer, None, policy, selection).await
     }
-    /// Only a source-port collision permits retrying an ephemeral port. The
-    /// source address, family, interface and strict-route mark are retained.
+    /// A preferred-port conflict (including Windows WSAEACCES) permits one
+    /// ephemeral retry. Source address, family, interface and route mark remain.
     pub async fn bind_for_peer_with_policy_preserving_port(
         peer: SocketAddr,
         preferred_port: Option<u16>,
@@ -50,14 +50,8 @@ impl TokioDatagramSocket {
         let v6_only = policy
             .effective_family()
             .is_ok_and(|family| family == AddressFamily::OnlyIpv6);
-        let socket = match bind_native(source, v6_only) {
-            Ok(socket) => socket,
-            Err(error) if preferred_port.is_some() && error.kind() == io::ErrorKind::AddrInUse => {
-                source.set_port(0);
-                bind_native(source, v6_only).map_err(|error| phase("bind_source", error))?
-            }
-            Err(error) => return Err(phase("bind_source", error)),
-        };
+        let (socket, source) = bind_native(source, v6_only, preferred_port)
+            .map_err(|error| phase("bind_source", error))?;
         if let Some(interface) = &dial.interface {
             bind_udp_to_interface(&socket, source, interface)
                 .map_err(|error| phase("bind_interface", error))?;
@@ -100,7 +94,11 @@ impl std::error::Error for BindPhaseError {
         Some(&self.source)
     }
 }
-fn bind_native(source: SocketAddr, v6_only: bool) -> io::Result<std::net::UdpSocket> {
+fn bind_native(
+    source: SocketAddr,
+    v6_only: bool,
+    preferred_port: Option<u16>,
+) -> io::Result<(std::net::UdpSocket, SocketAddr)> {
     let domain = if source.is_ipv4() {
         socket2::Domain::IPV4
     } else {
@@ -111,8 +109,9 @@ fn bind_native(source: SocketAddr, v6_only: bool) -> io::Result<std::net::UdpSoc
         // A v6 socket must not provide a mapped-v4 escape from only_ipv6.
         socket.set_only_v6(true)?;
     }
-    socket.bind(&source.into())?;
-    Ok(socket.into())
+    let source =
+        super::udp_bind::bind_source(&socket2::SockRef::from(&socket), source, preferred_port)?;
+    Ok((socket.into(), source))
 }
 
 #[cfg(test)]

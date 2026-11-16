@@ -195,7 +195,7 @@ impl ControlledDatagramOwner {
 }
 fn configure(
     original: &std::net::UdpSocket,
-    mut source: SocketAddr,
+    source: SocketAddr,
     preferred: Option<u16>,
     v6_only: bool,
     interface: Option<&EgressInterface>,
@@ -208,18 +208,8 @@ fn configure(
             .set_only_v6(true)
             .map_err(|source| std_io::Error::other(phase("set_only_v6", source)))?;
     }
-    match socket.bind(&source.into()) {
-        Ok(()) => {}
-        Err(error) if preferred.is_some() && error.kind() == std_io::ErrorKind::AddrInUse => {
-            // A failed UDP bind leaves this exact original unbound. Retry only
-            // its port, retaining source/family/interface; allocate no new fd.
-            source.set_port(0);
-            socket
-                .bind(&source.into())
-                .map_err(|source| std_io::Error::other(phase("bind_source", source)))?;
-        }
-        Err(source) => return Err(std_io::Error::other(phase("bind_source", source))),
-    }
+    let source = dial::udp_bind::bind_source(&socket, source, preferred)
+        .map_err(|source| std_io::Error::other(phase("bind_source", source)))?;
     if let Some(interface) = interface {
         crate::egress::bind_udp_to_interface(original, source, interface)
             .map_err(|source| std_io::Error::other(phase("bind_interface", source)))?;
