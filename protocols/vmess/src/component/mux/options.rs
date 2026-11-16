@@ -108,6 +108,43 @@ impl PreparedMux {
             grpc_admission: input.grpc.is_some().then(|| runtime.grpc_carrier_state()),
         })
     }
+    pub fn from_browser_options_refs<TTls, TWs, TGrpc>(
+        input: crate::transport::VmessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc>,
+        runtime: &crate::transport::VmessTransportRuntime,
+        binding: UpstreamBinding,
+        carriers: NonZeroUsize,
+        open_budget: Duration,
+    ) -> Result<Self, RuntimeError>
+    where
+        TTls: zero_traits::ClientTlsProfile + ?Sized,
+        TWs: zero_traits::WebSocketTransportProfile + ?Sized,
+        TGrpc: zero_traits::GrpcTransportProfile + ?Sized,
+    {
+        let framing = crate::transport::VmessOutboundBuildOptionsRef {
+            tag: input.tag,
+            server: input.server,
+            port: input.port,
+            protocol: input.protocol,
+            tls: None::<&zero_transport::profile::OwnedClientTlsProfile>,
+            ws: None::<&zero_transport::profile::OwnedWebSocketProfile>,
+            grpc: None::<&zero_transport::profile::OwnedGrpcProfile>,
+        };
+        let mut ordinary = framing;
+        ordinary.protocol.mux_concurrency = None;
+        super::super::Options::from_options_refs(ordinary, binding.dial.clone())?;
+        let leaf = crate::transport::VmessOutboundLeaf::from_options_refs(None, input, runtime)?;
+        let pool = Arc::new(leaf.native_mux_options(binding, carriers, open_budget)?);
+        Ok(Self {
+            leaf,
+            pool,
+            material: None,
+            grpc_admission: None,
+        })
+    }
+    pub fn with_carrier_lender(mut self, dependency: ComponentId) -> Self {
+        self.pool = Arc::new((*self.pool).clone().with_stream_dependency(dependency));
+        self
+    }
     pub fn with_node_dependency(mut self, dependency: ComponentId) -> Self {
         let pool = (*self.pool).clone().with_node_dependency(dependency);
         self.pool = Arc::new(pool);

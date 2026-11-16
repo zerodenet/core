@@ -1,3 +1,4 @@
+mod browser;
 mod pool;
 mod production;
 use super::super::VmessAdapter;
@@ -55,7 +56,7 @@ impl ComponentFactory for Factory {
     }
 }
 pub(crate) fn eligible(input: &OutboundConfig) -> bool {
-    if crate::adapters::browser::eligible(input) {
+    if crate::adapters::browser::eligible(input) || crate::adapters::browser::mux_eligible(input) {
         return true;
     }
     if super::grpc::owned_eligible(input) {
@@ -116,6 +117,9 @@ impl VmessAdapter {
     ) -> Result<Options, RegistrationError> {
         if crate::adapters::browser::eligible(input) {
             return self.browser_options(input, resources, factory.network.clone());
+        }
+        if crate::adapters::browser::mux_eligible(input) {
+            return self.browser_mux_options(input, resources, factory, limit);
         }
         let OutboundProtocolConfig::Vmess {
             server,
@@ -198,6 +202,7 @@ impl VmessAdapter {
             background: factory,
         });
         let pool_options = Arc::new(pool::Options {
+            browser: None,
             pool: Arc::new(
                 (*prepared.owned_pool_options())
                     .clone()

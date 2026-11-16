@@ -70,9 +70,13 @@ impl TrojanOutboundLeaf {
                     let io = zero_transport::TcpRelayStream::new(
                         zero_transport::pooled_driver::ExclusiveIo::new(raw),
                     );
-                    leaf.transport
-                        .open_owned_relay_with_profile(io, leaf.protocol.owned_tls_profile())
-                        .await
+                    if leaf.mux_pool.borrows_layered_carrier()? {
+                        Ok(io)
+                    } else {
+                        leaf.transport
+                            .open_owned_relay_with_profile(io, leaf.protocol.owned_tls_profile())
+                            .await
+                    }
                 },
             )
             .await
@@ -101,9 +105,13 @@ impl TrojanOutboundLeaf {
                 let io = zero_transport::TcpRelayStream::new(
                     zero_transport::pooled_driver::ExclusiveIo::new(raw),
                 );
-                leaf.transport
-                    .open_owned_relay_with_profile(io, leaf.protocol.owned_tls_profile())
-                    .await
+                if leaf.mux_pool.borrows_layered_carrier()? {
+                    Ok(io)
+                } else {
+                    leaf.transport
+                        .open_owned_relay_with_profile(io, leaf.protocol.owned_tls_profile())
+                        .await
+                }
             })
             .await?;
         opened.io.observer = context.observer.clone();

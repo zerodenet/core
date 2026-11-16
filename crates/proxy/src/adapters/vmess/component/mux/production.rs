@@ -18,7 +18,9 @@ impl VmessAdapter {
         candidate: Option<&RuntimeConfig>,
         native: bool,
     ) -> bool {
-        if crate::adapters::browser::eligible(input) {
+        if crate::adapters::browser::eligible(input)
+            || crate::adapters::browser::mux_eligible(input)
+        {
             return native && candidate.is_some();
         }
         if !has_mux(input) {

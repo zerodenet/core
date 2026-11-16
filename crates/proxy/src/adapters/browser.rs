@@ -9,6 +9,18 @@ use zero_platform_tokio::contract::{
     component::*, lifecycle::BuildError, network::UpstreamBinding,
 };
 use zero_transport::browser_dialer::{component as carrier, registry};
+pub(crate) mod mux;
+pub(crate) fn mux_eligible(input: &OutboundConfig) -> bool {
+    input.protocol.browser_mux_ws_listener().is_some()
+}
+/// Preserve the preexisting native TLS/WS semantics for profiles the browser
+/// channel cannot express. Their complete profile stays on the standard native
+/// owner; selecting this branch never retries a failed Browser acquisition.
+pub(crate) fn native_compatibility(input: &OutboundConfig) -> bool {
+    matches!(&input.protocol, OutboundProtocolConfig::Vmess { ws: Some(ws), .. } | OutboundProtocolConfig::Trojan { ws: Some(ws), .. } if ws.browser_dialer.is_some())
+        && !eligible(input)
+        && !mux_eligible(input)
+}
 pub(crate) fn eligible(input: &OutboundConfig) -> bool {
     input.protocol.ordinary_browser_ws_listener().is_some()
 }

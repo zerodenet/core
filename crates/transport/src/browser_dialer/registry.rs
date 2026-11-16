@@ -17,6 +17,7 @@ pub struct Registry(Arc<State>);
 
 #[derive(Default)]
 struct State {
+    raw: super::component::raw::Registry,
     entries: Mutex<HashMap<zero_traits::BrowserDialerSettings, Arc<Entry>>>,
 }
 
@@ -51,6 +52,13 @@ impl std::fmt::Debug for Access {
 }
 
 impl Registry {
+    pub fn raw_carrier(
+        &self,
+        identity: &[u8],
+        endpoint: zero_core::request::Destination,
+    ) -> super::component::raw::RawCarrier {
+        self.0.raw.access(identity, endpoint)
+    }
     pub fn access(&self, settings: zero_traits::BrowserDialerSettings) -> Access {
         let mut entries = self
             .0

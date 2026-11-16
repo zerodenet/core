@@ -7,6 +7,7 @@ mod entry;
 mod factory;
 mod ordinary;
 mod pending;
+pub mod raw;
 mod table;
 use crate::profile::OwnedWebSocketProfile;
 pub use factory::Owner;

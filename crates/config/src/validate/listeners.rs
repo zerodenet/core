@@ -48,9 +48,13 @@ pub(super) fn validate_auxiliary_listeners(config: &RuntimeConfig) -> Result<(),
             OutboundProtocolConfig::Vless { ws, split_http, .. } => {
                 (ws.as_deref(), split_http.as_deref())
             }
-            OutboundProtocolConfig::Trojan { .. } | OutboundProtocolConfig::Vmess { .. } => {
-                (outbound.protocol.ordinary_browser_ws_listener(), None)
-            }
+            OutboundProtocolConfig::Trojan { .. } | OutboundProtocolConfig::Vmess { .. } => (
+                outbound
+                    .protocol
+                    .ordinary_browser_ws_listener()
+                    .or_else(|| outbound.protocol.browser_mux_ws_listener()),
+                None,
+            ),
             _ => continue,
         };
         for browser in [

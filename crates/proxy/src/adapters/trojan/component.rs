@@ -11,7 +11,7 @@ pub(crate) fn native_input(input: &OutboundConfig) -> bool {
             mux_concurrency: None,
             ws,
             ..
-        } if ws.as_ref().is_none_or(|ws| ws.browser_dialer.is_none())
+        } if ws.as_ref().is_none_or(|ws| ws.browser_dialer.is_none() || crate::adapters::browser::native_compatibility(input))
     )
 }
 pub(crate) fn component_options(
@@ -25,9 +25,15 @@ pub(crate) fn component_options(
     };
     let options = super::outbound_options(&input.tag, (server, *port), &input.protocol)
         .expect("Trojan projection");
-    ::trojan::component::Options::from_options_refs(options, input.dial.to_policy()).map_err(
-        |source| ConfigError::InvalidOutbound(format!("outbound `{}`: {source}", input.tag)),
-    )
+    (if crate::adapters::browser::native_compatibility(input) {
+        ::trojan::component::Options::from_native_browser_options_refs(
+            options,
+            input.dial.to_policy(),
+        )
+    } else {
+        ::trojan::component::Options::from_options_refs(options, input.dial.to_policy())
+    })
+    .map_err(|source| ConfigError::InvalidOutbound(format!("outbound `{}`: {source}", input.tag)))
 }
 
 #[cfg(test)]

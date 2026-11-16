@@ -81,14 +81,15 @@ impl TrojanManagedUdpFlowResume {
             let leaf = self.clone();
             self.protocol
                 .open_native_mux_flow(session, &self.mux_pool, binding, move |raw| async move {
-                    leaf.transport
-                        .open_owned_relay_with_profile(
-                            TcpRelayStream::new(zero_transport::pooled_driver::ExclusiveIo::new(
-                                raw,
-                            )),
-                            leaf.protocol.native_tls_profile(),
-                        )
-                        .await
+                    let io =
+                        TcpRelayStream::new(zero_transport::pooled_driver::ExclusiveIo::new(raw));
+                    if leaf.mux_pool.borrows_layered_carrier()? {
+                        Ok(io)
+                    } else {
+                        leaf.transport
+                            .open_owned_relay_with_profile(io, leaf.protocol.native_tls_profile())
+                            .await
+                    }
                 })
                 .await
                 .map(Some)

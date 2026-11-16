@@ -60,12 +60,22 @@ impl super::super::super::VmessAdapter {
             .then(|| resources.previous_named_instance(&input.tag))
             .flatten();
         let mut selected = if grpc.is_none() {
-            let mut base = ::vmess::component::Options::from_owned_options_refs_at(
-                refs,
-                input.dial.to_policy(),
-                resources.source_dir(),
-                Some(max),
-            )
+            let mut base = (if crate::adapters::browser::native_compatibility(input) {
+                ::vmess::component::Options::from_native_browser_options_refs(
+                    refs,
+                    input.dial.to_policy(),
+                    resources.source_dir(),
+                    Some(max),
+                    true,
+                )
+            } else {
+                ::vmess::component::Options::from_owned_options_refs_at(
+                    refs,
+                    input.dial.to_policy(),
+                    resources.source_dir(),
+                    Some(max),
+                )
+            })
             .map_err(|error| ConfigError::InvalidOutbound(error.to_string()))?
             .with_owned_material(&self.runtime, resources.source_dir(), max)
             .map_err(|error| ConfigError::InvalidOutbound(error.to_string()))?;

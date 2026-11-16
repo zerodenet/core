@@ -13,6 +13,9 @@ type NativeCall = Option<(
     Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
 )>;
 impl VmessMuxConnectionPool {
+    pub(crate) fn borrows_layered_carrier(&self) -> Result<bool, RuntimeError> {
+        Ok(self.control.managed()?.stream_dependency().is_some())
+    }
     pub(crate) fn native_eligible(&self) -> bool {
         self.control.native_eligible()
     }

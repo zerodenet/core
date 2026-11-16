@@ -1,3 +1,4 @@
+mod browser;
 mod production;
 use super::super::TrojanAdapter;
 use crate::component::{
@@ -62,7 +63,7 @@ impl ComponentFactory for Factory {
     }
 }
 pub(crate) fn eligible(input: &OutboundConfig) -> bool {
-    if crate::adapters::browser::eligible(input) {
+    if crate::adapters::browser::eligible(input) || crate::adapters::browser::mux_eligible(input) {
         return true;
     }
     if super::native_input(input) {
@@ -124,6 +125,9 @@ impl TrojanAdapter {
     ) -> Result<Options, RegistrationError> {
         if crate::adapters::browser::eligible(input) {
             return self.browser_options(input, resources, factory.network.clone());
+        }
+        if crate::adapters::browser::mux_eligible(input) {
+            return self.browser_mux_options(input, resources, factory, limit);
         }
         let OutboundProtocolConfig::Trojan {
             server,

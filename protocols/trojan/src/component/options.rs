@@ -40,12 +40,34 @@ impl Options {
         TWs: WebSocketTransportProfile + ?Sized,
         TGrpc: GrpcTransportProfile + ?Sized,
     {
+        Self::from_options_refs_inner(input, dial, false)
+    }
+    pub fn from_native_browser_options_refs<TWs, TGrpc>(
+        input: TrojanOutboundBuildOptionsRef<'_, TWs, TGrpc>,
+        dial: DialPolicy,
+    ) -> Result<Self, Error>
+    where
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+    {
+        Self::from_options_refs_inner(input, dial, true)
+    }
+    fn from_options_refs_inner<TWs, TGrpc>(
+        input: TrojanOutboundBuildOptionsRef<'_, TWs, TGrpc>,
+        dial: DialPolicy,
+        native_browser_compatibility: bool,
+    ) -> Result<Self, Error>
+    where
+        TWs: WebSocketTransportProfile + ?Sized,
+        TGrpc: GrpcTransportProfile + ?Sized,
+    {
         if input.protocol.mux_concurrency.is_some() {
             return Err(Error::Unsupported(
                 "Trojan MUX requires its shared resource owner",
             ));
         }
-        if input.ws.is_some_and(|ws| ws.browser_dialer().is_some()) {
+        if !native_browser_compatibility && input.ws.is_some_and(|ws| ws.browser_dialer().is_some())
+        {
             return Err(Error::Unsupported(
                 "Trojan browser dialer requires its resource owner",
             ));

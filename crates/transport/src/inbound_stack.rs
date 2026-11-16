@@ -87,6 +87,21 @@ where
     TH2: H2TransportProfile + ?Sized,
 {
     let stream = accept_tls_inbound_stream(socket, tls_acceptor).await?;
+    accept_inbound_stream_stack_scoped(stream, stack, invalid_message, caller).await
+}
+/// Plain and TLS Sources share the same accepted caller for h2c/gRPC tasks.
+pub async fn accept_inbound_stream_stack_scoped<S, TWs, TGrpc, TH2>(
+    stream: S,
+    stack: InboundStreamStack<'_, TWs, TGrpc, TH2>,
+    invalid_message: &'static str,
+    caller: &zero_platform_tokio::AcceptedCaller,
+) -> Result<TcpRelayStream, RuntimeError>
+where
+    S: zero_traits::AsyncSocket + AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
+    TWs: WebSocketTransportProfile + ?Sized,
+    TGrpc: GrpcTransportProfile + ?Sized,
+    TH2: H2TransportProfile + ?Sized,
+{
     #[cfg(feature = "grpc")]
     if let (None, Some(profile), None) = (stack.ws, stack.grpc, stack.h2) {
         return Ok(TcpRelayStream::new(

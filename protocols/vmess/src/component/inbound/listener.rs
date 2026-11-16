@@ -16,7 +16,7 @@ use zero_platform_tokio::contract::{
 };
 pub struct Options {
     source_limits: InboundSourceLimits,
-    tls_material: Arc<zero_transport::tls::source::PreparedServer>,
+    tls_material: Option<Arc<zero_transport::tls::source::PreparedServer>>,
 
     listen: Destination,
     request: Mutex<Option<PreparedVmessInboundListenerRequest>>,
@@ -116,7 +116,10 @@ impl ComponentFactory for Factory {
                 }),
             }],
         };
-        zero_transport::tls::source::declare(&mut spec, &[options.tls_material.clone()]);
+        zero_transport::tls::source::declare(
+            &mut spec,
+            &options.tls_material.iter().cloned().collect::<Vec<_>>(),
+        );
         spec
     }
     fn build(
@@ -156,7 +159,7 @@ impl ComponentFactory for Factory {
                     ..Default::default()
                 },
             },
-            vec![tls_material],
+            tls_material.into_iter().collect(),
             tls_resources,
             tls_tasks,
             tls_cancel,

@@ -10,6 +10,9 @@ use zero_platform_tokio::{
     controlled_carrier::{CarrierBufferBudget, CarrierGrants, CarrierOwner},
 };
 pub(super) struct Shared {
+    pub instance: ComponentInstanceId,
+    pub ready: std::sync::atomic::AtomicBool,
+    pub closed: PacketMetadataArc<std::sync::atomic::AtomicBool>,
     pub options: Arc<Options>,
     pub dependency: ComponentInstanceId,
     pub resources: Arc<dyn ResourceAccess>,
@@ -49,9 +52,19 @@ impl Owner {
         let header = memory
             .reserve(PacketMetadataArc::<Shared>::layout().map_err(capacity)?)
             .map_err(capacity)?;
+        let marker = memory
+            .reserve(
+                PacketMetadataArc::<std::sync::atomic::AtomicBool>::layout().map_err(capacity)?,
+            )
+            .map_err(capacity)?;
+        let closed = PacketMetadataArc::from_prepaid(false.into(), marker)
+            .map_err(|(source, _, _)| capacity(source))?;
         let carrier = CarrierOwner::new(context.instance(), options.origins, &context.cancel);
         let shared = PacketMetadataArc::from_prepaid(
             Shared {
+                instance: context.instance(),
+                ready: false.into(),
+                closed,
                 options,
                 dependency,
                 upstream,
@@ -93,9 +106,15 @@ impl ResourceLifecycle for Owner {
             .provider
             .dialer(self.shared.dependency)?;
         self.carrier.start(end).await?;
+        self.shared
+            .ready
+            .store(true, std::sync::atomic::Ordering::Release);
         Ok(())
     }
     fn revoke(&self, reason: CloseReason) {
+        self.shared
+            .ready
+            .store(false, std::sync::atomic::Ordering::Release);
         self.shared.cancel.cancel();
         table::Table::request_retirement(&self.shared.entries);
     }
@@ -124,6 +143,11 @@ impl ResourceLifecycle for Owner {
         }
         let report = self.carrier.shutdown(end).await?;
         table::Table::reap(&self.shared.entries);
+        if report.is_complete() {
+            self.shared
+                .closed
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
         Ok(report)
     }
 }

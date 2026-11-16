@@ -69,7 +69,7 @@ impl Options {
         TWs: WebSocketTransportProfile + ?Sized,
         TGrpc: GrpcTransportProfile + ?Sized,
     {
-        Self::from_options_refs_inner(input, dial, source_dir, ca_max_bytes, false, false)
+        Self::from_options_refs_inner(input, dial, source_dir, ca_max_bytes, false, false, false)
     }
     pub fn from_owned_options_refs_at<TTls, TWs, TGrpc>(
         input: VmessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc>,
@@ -82,7 +82,7 @@ impl Options {
         TWs: WebSocketTransportProfile + ?Sized,
         TGrpc: GrpcTransportProfile + ?Sized,
     {
-        Self::from_options_refs_inner(input, dial, source_dir, ca_max_bytes, true, false)
+        Self::from_options_refs_inner(input, dial, source_dir, ca_max_bytes, true, false, false)
     }
     // Only the real MUX owner consumes this full transport recipe. Bare
     // per-connection Options still rejects gRPC without its actual owner.
@@ -97,7 +97,15 @@ impl Options {
         TWs: WebSocketTransportProfile + ?Sized,
         TGrpc: GrpcTransportProfile + ?Sized,
     {
-        Self::from_options_refs_inner(input, dial, source_dir, Some(ca_max_bytes), true, true)
+        Self::from_options_refs_inner(
+            input,
+            dial,
+            source_dir,
+            Some(ca_max_bytes),
+            true,
+            true,
+            true,
+        )
     }
     fn from_options_refs_inner<TTls, TWs, TGrpc>(
         input: VmessOutboundBuildOptionsRef<'_, TTls, TWs, TGrpc>,
@@ -106,6 +114,7 @@ impl Options {
         ca_max_bytes: Option<NonZeroUsize>,
         owned: bool,
         managed_grpc: bool,
+        native_browser_compatibility: bool,
     ) -> Result<Self, Error>
     where
         TTls: ClientTlsProfile + ?Sized,
@@ -128,7 +137,8 @@ impl Options {
                 "VMess gRPC requires its carrier and registered driver owner",
             ));
         }
-        if input.ws.is_some_and(|ws| ws.browser_dialer().is_some()) {
+        if !native_browser_compatibility && input.ws.is_some_and(|ws| ws.browser_dialer().is_some())
+        {
             return Err(Error::Unsupported(
                 "VMess browser dialer requires its resource owner",
             ));
@@ -276,3 +286,5 @@ impl Options {
         Ok(options)
     }
 }
+
+mod native_browser;

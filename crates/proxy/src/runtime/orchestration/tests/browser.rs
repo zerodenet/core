@@ -1,5 +1,7 @@
 //! Whole ordinary registry/actual Host/real browser WS and exact Source return.
 mod fixture;
+mod mux;
+mod native;
 use fixture::Running;
 use futures_util::{SinkExt, StreamExt};
 use std::time::Duration;
@@ -258,6 +260,11 @@ async fn vmess_and_trojan_browser_sources_forward_tcp_udp_and_retire_actual_orig
     }).await.unwrap();
 }
 async fn datagram(client: &Running, trust: rustls::RootCertStore) {
+    let agent = tokio::spawn(relay_browser(browser().await, trust));
+    datagram_exchange(client).await;
+    agent.await.unwrap();
+}
+async fn datagram_exchange(client: &Running) {
     let target = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let port = target.local_addr().unwrap().port();
     let echo = tokio::spawn(async move {
@@ -265,7 +272,6 @@ async fn datagram(client: &Running, trust: rustls::RootCertStore) {
         let (size, peer) = target.recv_from(&mut bytes).await.unwrap();
         target.send_to(&bytes[..size], peer).await.unwrap();
     });
-    let agent = tokio::spawn(relay_browser(browser().await, trust));
     let mut control = TcpStream::connect(client.address).await.unwrap();
     control.write_all(&[5, 1, 0]).await.unwrap();
     let mut auth = [0; 2];
@@ -296,5 +302,4 @@ async fn datagram(client: &Running, trust: rustls::RootCertStore) {
     assert_eq!(&response[..size], packet);
     drop(control);
     echo.await.unwrap();
-    agent.await.unwrap();
 }

@@ -31,7 +31,9 @@ impl PreparedMux {
         // complete owners are absent: CA files, gRPC, browser dialers, etc.
         let mut ordinary = input;
         ordinary.protocol.mux_concurrency = None;
-        super::super::Options::from_options_refs(ordinary, binding.dial.clone())?;
+        // This existing native MUX owner preserves the full native profile,
+        // including compatibility Browser metadata; its IO remains native.
+        super::super::Options::from_native_browser_options_refs(ordinary, binding.dial.clone())?;
         let leaf = crate::transport::TrojanOutboundLeaf::from_options_refs(
             source_dir,
             input,
@@ -39,6 +41,39 @@ impl PreparedMux {
         )?;
         let pool = Arc::new(leaf.native_mux_options(binding, carriers, open_budget)?);
         Ok(Self { leaf, pool })
+    }
+    pub fn from_browser_options_refs<TWs, TGrpc>(
+        input: crate::transport::TrojanOutboundBuildOptionsRef<'_, TWs, TGrpc>,
+        runtime: &crate::mux::TrojanMuxConnectionPool,
+        binding: UpstreamBinding,
+        carriers: NonZeroUsize,
+        open_budget: Duration,
+    ) -> Result<Self, RuntimeError>
+    where
+        TWs: zero_traits::WebSocketTransportProfile + ?Sized,
+        TGrpc: zero_traits::GrpcTransportProfile + ?Sized,
+    {
+        let framing = crate::transport::TrojanOutboundBuildOptionsRef {
+            tag: input.tag,
+            server: input.server,
+            port: input.port,
+            protocol: input.protocol,
+            ws: None::<&zero_transport::profile::OwnedWebSocketProfile>,
+            grpc: None::<&zero_transport::profile::OwnedGrpcProfile>,
+        };
+        let mut ordinary = framing;
+        ordinary.protocol.mux_concurrency = None;
+        // This existing native MUX owner preserves the full native profile,
+        // including compatibility Browser metadata; its IO remains native.
+        super::super::Options::from_native_browser_options_refs(ordinary, binding.dial.clone())?;
+        let leaf =
+            crate::transport::TrojanOutboundLeaf::from_options_refs(None, input, runtime.clone())?;
+        let pool = Arc::new(leaf.native_mux_options(binding, carriers, open_budget)?);
+        Ok(Self { leaf, pool })
+    }
+    pub fn with_carrier_lender(mut self, dependency: ComponentId) -> Self {
+        self.pool = Arc::new((*self.pool).clone().with_stream_dependency(dependency));
+        self
     }
     pub fn with_node_dependency(mut self, dependency: ComponentId) -> Self {
         let pool = (*self.pool).clone().with_node_dependency(dependency);

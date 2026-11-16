@@ -17,8 +17,8 @@ pub struct VmessInboundListenerRequest {
 }
 #[derive(Clone)]
 struct PreparedMaterial {
-    tls_acceptor: tls::TlsAcceptor,
-    tls_material: std::sync::Arc<tls::source::PreparedServer>,
+    tls_acceptor: Option<tls::TlsAcceptor>,
+    tls_material: Option<std::sync::Arc<tls::source::PreparedServer>>,
     ws: Option<OwnedWebSocketProfile>,
     grpc: Option<OwnedGrpcProfile>,
     protocol_name: &'static str,
@@ -31,7 +31,7 @@ pub struct PreparedVmessInboundListenerRequest {
     update: super::runtime::PreparedVmessInboundProfile,
 }
 impl PreparedVmessInboundListenerRequest {
-    pub(crate) fn tls_material(&self) -> std::sync::Arc<tls::source::PreparedServer> {
+    pub(crate) fn tls_material(&self) -> Option<std::sync::Arc<tls::source::PreparedServer>> {
         self.material.tls_material.clone()
     }
     pub fn activate(self) -> Result<VmessInboundListenerRequest, RuntimeError> {
@@ -44,7 +44,7 @@ impl PreparedVmessInboundListenerRequest {
 }
 
 impl VmessInboundListenerRequest {
-    pub(crate) fn tls_material(&self) -> std::sync::Arc<tls::source::PreparedServer> {
+    pub(crate) fn tls_material(&self) -> Option<std::sync::Arc<tls::source::PreparedServer>> {
         self.material.tls_material.clone()
     }
     pub const ERROR_PROTOCOL_NAME: &'static str = "vmess";
@@ -89,13 +89,11 @@ impl VmessInboundListenerRequest {
             (None, None) => "vmess",
         };
 
-        let tls_material = tls::source::PreparedServer::new(
-            tls.ok_or_else(|| io::Error::other("vmess requires TLS"))?,
-            source_dir,
-            false,
-        )?;
+        let tls_material = tls
+            .map(|profile| tls::source::PreparedServer::new(profile, source_dir, false))
+            .transpose()?;
         let material = PreparedMaterial {
-            tls_acceptor: tls_material.acceptor(),
+            tls_acceptor: tls_material.as_ref().map(|material| material.acceptor()),
             tls_material,
             ws: ws.map(OwnedWebSocketProfile::from_profile),
             grpc: grpc.map(OwnedGrpcProfile::from_profile),
@@ -185,18 +183,32 @@ impl VmessInboundListenerRequest {
                 zero_platform_tokio::contract::Impact::Session,
             )
         })?;
-        let carrier = zero_transport::inbound_stack::accept_tls_inbound_stream_stack_scoped(
-            socket,
-            &self.material.tls_acceptor,
-            InboundStreamStack {
-                ws: self.material.ws.as_ref(),
-                grpc: self.material.grpc.as_ref(),
-                h2: None::<&OwnedH2Profile>,
-            },
-            "vmess: ws and grpc are mutually exclusive",
-            caller,
-        )
-        .await
+        let stack = InboundStreamStack {
+            ws: self.material.ws.as_ref(),
+            grpc: self.material.grpc.as_ref(),
+            h2: None::<&OwnedH2Profile>,
+        };
+        let carrier = match &self.material.tls_acceptor {
+            Some(acceptor) => {
+                zero_transport::inbound_stack::accept_tls_inbound_stream_stack_scoped(
+                    socket,
+                    acceptor,
+                    stack,
+                    "vmess: ws and grpc are mutually exclusive",
+                    caller,
+                )
+                .await
+            }
+            None => {
+                zero_transport::inbound_stack::accept_inbound_stream_stack_scoped(
+                    socket,
+                    stack,
+                    "vmess: ws and grpc are mutually exclusive",
+                    caller,
+                )
+                .await
+            }
+        }
         .map_err(crate::component::inbound::datagram::failure)?;
         let (request, stream) = self
             .profile
@@ -247,17 +259,30 @@ impl VmessInboundListenerRequest {
     }
 
     async fn accept_carrier(&self, socket: TokioSocket) -> Result<TcpRelayStream, RuntimeError> {
-        let acceptor = self.material.tls_material.library_acceptor()?;
-        zero_transport::inbound_stack::accept_tls_inbound_stream_stack(
-            socket,
-            &acceptor,
-            InboundStreamStack {
-                ws: self.material.ws.as_ref(),
-                grpc: self.material.grpc.as_ref(),
-                h2: None::<&OwnedH2Profile>,
-            },
-            "vmess: ws and grpc are mutually exclusive",
-        )
-        .await
+        let stack = InboundStreamStack {
+            ws: self.material.ws.as_ref(),
+            grpc: self.material.grpc.as_ref(),
+            h2: None::<&OwnedH2Profile>,
+        };
+        match &self.material.tls_material {
+            Some(material) => {
+                let acceptor = material.library_acceptor()?;
+                zero_transport::inbound_stack::accept_tls_inbound_stream_stack(
+                    socket,
+                    &acceptor,
+                    stack,
+                    "vmess: ws and grpc are mutually exclusive",
+                )
+                .await
+            }
+            None => {
+                zero_transport::inbound_stack::accept_inbound_stream_stack(
+                    socket,
+                    stack,
+                    "vmess: ws and grpc are mutually exclusive",
+                )
+                .await
+            }
+        }
     }
 }

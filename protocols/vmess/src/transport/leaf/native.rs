@@ -5,6 +5,18 @@ use zero_core::{component::ComponentInstanceId, request::Destination};
 use zero_platform_tokio::contract::network::UpstreamBinding;
 use zero_transport::pooled_driver::PoolOptions;
 impl VmessOutboundLeaf {
+    pub(in crate::transport) async fn wrap_native_mux_carrier(
+        &self,
+        io: zero_transport::TcpRelayStream,
+    ) -> Result<zero_transport::TcpRelayStream, RuntimeError> {
+        if self.mux_pool.borrows_layered_carrier()? {
+            Ok(io)
+        } else {
+            self.transport
+                .open_native_mux_carrier(io, self.mux_pool.native_instance()?)
+                .await
+        }
+    }
     /// Cold admission only; prior legacy exposure is never an adoption proof.
     pub fn native_mux_eligible(&self) -> bool {
         self.mux_pool.native_eligible()
@@ -71,9 +83,7 @@ impl VmessOutboundLeaf {
                     let io = zero_transport::TcpRelayStream::new(
                         zero_transport::pooled_driver::ExclusiveIo::new(raw),
                     );
-                    leaf.transport
-                        .open_native_mux_carrier(io, leaf.mux_pool.native_instance()?)
-                        .await
+                    leaf.wrap_native_mux_carrier(io).await
                 },
             )
             .await
@@ -102,9 +112,7 @@ impl VmessOutboundLeaf {
                 let io = zero_transport::TcpRelayStream::new(
                     zero_transport::pooled_driver::ExclusiveIo::new(raw),
                 );
-                leaf.transport
-                    .open_native_mux_carrier(io, leaf.mux_pool.native_instance()?)
-                    .await
+                leaf.wrap_native_mux_carrier(io).await
             })
             .await?;
         opened.io.observer = context.observer.clone();

@@ -21,6 +21,8 @@ fn browser_selection_retains_unqualified_profiles_instead_of_silently_dropping_t
             _ => unreachable!(),
         }
         assert!(!eligible(&custom));
+        assert!(native_compatibility(&custom));
+        assert!(!native_compatibility(&original));
         match &custom.protocol {
             OutboundProtocolConfig::Trojan { ws, .. }
             | OutboundProtocolConfig::Vmess { ws, .. } => {
@@ -39,6 +41,7 @@ fn browser_selection_retains_unqualified_profiles_instead_of_silently_dropping_t
             _ => unreachable!(),
         }
         assert!(!eligible(&mux));
+        assert!(mux_eligible(&mux));
         assert!(eligible(&original));
     }
 }

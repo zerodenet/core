@@ -5,8 +5,11 @@ use zero_config::{ConfigError, OutboundConfig, OutboundProtocolConfig};
 pub(crate) const LEGACY_CONNECT_STAGE: &str = "connect_upstream_vmess";
 
 pub(crate) fn native_input(input: &OutboundConfig) -> bool {
+    native_shape(input, crate::adapters::browser::native_compatibility(input))
+}
+fn native_shape(input: &OutboundConfig, native_browser: bool) -> bool {
     matches!(&input.protocol, OutboundProtocolConfig::Vmess {mux_concurrency:None,grpc:None,tls,ws,..}
-        if ws.as_ref().is_none_or(|ws|ws.browser_dialer.is_none())
+        if ws.as_ref().is_none_or(|ws|ws.browser_dialer.is_none() || native_browser)
             && tls.as_ref().is_none_or(|tls|tls.ca_cert_path.is_none() && !tls.options.ech_config_list.contains("://")))
 }
 pub(crate) fn owned_input(input: &OutboundConfig) -> bool {
@@ -23,7 +26,10 @@ pub(crate) fn owned_input(input: &OutboundConfig) -> bool {
             tls.options.ech_config_list.clear();
         }
     }
-    native_input(&plain)
+    native_shape(
+        &plain,
+        crate::adapters::browser::native_compatibility(input),
+    )
 }
 pub(crate) fn component_options(
     input: &OutboundConfig,
@@ -36,9 +42,18 @@ pub(crate) fn component_options(
     };
     let options = super::outbound_options(&input.tag, (server, *port), &input.protocol)
         .expect("VMess projection");
-    ::vmess::component::Options::from_options_refs(options, input.dial.to_policy()).map_err(
-        |source| ConfigError::InvalidOutbound(format!("outbound `{}`: {source}", input.tag)),
-    )
+    (if crate::adapters::browser::native_compatibility(input) {
+        ::vmess::component::Options::from_native_browser_options_refs(
+            options,
+            input.dial.to_policy(),
+            None,
+            None,
+            false,
+        )
+    } else {
+        ::vmess::component::Options::from_options_refs(options, input.dial.to_policy())
+    })
+    .map_err(|source| ConfigError::InvalidOutbound(format!("outbound `{}`: {source}", input.tag)))
 }
 
 #[cfg(test)]

@@ -7,6 +7,10 @@ use zero_platform_tokio::contract::{
 };
 pub(super) struct Options {
     pub(super) pool: Arc<::vmess::component::mux::OwnedPoolOptions>,
+    pub(super) browser: Option<(
+        zero_core::component::ComponentId,
+        zero_transport::browser_dialer::component::raw::RawCarrier,
+    )>,
     pub(super) tag: String,
     pub(super) wire_endpoint: zero_core::request::Destination,
 }
@@ -30,17 +34,33 @@ impl ComponentFactory for Factory {
         mut context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
         let instance = context.instance();
-        context.background_carrier = Some(
-            BackgroundCarrier {
-                network: self.background.network.clone(),
-                instance,
-                initial: options.pool.pool_options().binding().clone(),
-                endpoint: options.pool.pool_options().endpoint().clone(),
-                wire_endpoint: options.wire_endpoint.clone(),
-                tag: options.tag.clone(),
-            }
-            .transport(),
-        );
+        let provider = BackgroundCarrier {
+            network: self.background.network.clone(),
+            instance,
+            initial: options.pool.pool_options().binding().clone(),
+            endpoint: options.pool.pool_options().endpoint().clone(),
+            wire_endpoint: options.wire_endpoint.clone(),
+            tag: options.tag.clone(),
+        };
+        context.background_carrier = Some(if let Some((dependency, source)) = &options.browser {
+            let expected = context
+                .dependency(*dependency)
+                .filter(|actual| *actual != instance)
+                .ok_or_else(|| {
+                    crate::component::instance::invalid(
+                        zero_platform_tokio::contract::Reason::StalePlan,
+                        "Browser MUX dependency changed",
+                    )
+                })?;
+            crate::adapters::browser::mux::lender::transport(
+                Arc::new(provider),
+                options.pool.pool_options().binding().clone(),
+                expected,
+                source.clone(),
+            )
+        } else {
+            provider.transport()
+        });
         ::vmess::component::mux::OwnedPoolFactory.build_with_ech_resolver(
             options.pool.clone(),
             context,
