@@ -2048,3 +2048,57 @@ operation failures and explicit native close outcomes. No legacy TUN runner or
 bare production File fallback is reintroduced. Added regression sources cover
 new-field decoding/credit return and original directory-sync retirement; they
 have not been compiled or run.
+
+
+### VMess/Trojan Browser MUX and native-profile standard execution
+
+Browser-compatible MUX now declares the actual neutral raw Browser factory as
+a dependency of its existing protocol-owned MUX pool. The raw owner installs
+its real weak generation, retained Source originals and finite setup/driver
+budget. The upper pool borrows the actual original StreamLoan, retaining its
+controller and same-Scope MUX driver. Full profile/cache identity remains shared
+with reconstructed UDP callers. Both ordinary and compatibility consumers consult
+the installed pool's actual layered-stream dependency before applying TLS/WS,
+preventing a second transport handshake after a Browser handoff.
+
+Profiles requiring native Host/headers/TLS options preserve their previous
+native wire behavior through explicit protocol-owned standard constructors.
+Native options remain intact and use existing File/native/Scope owners. This is
+cold executor selection, never a retry after a selected Browser Source fails.
+Browser listener collision validation now includes the real MUX listener.
+
+Production regression sources exercise VMess/Trojan TCP/UDP over one real
+Browser MUX original, independent logical streams, matching lower Source/native/
+Scope receipts, and native custom TLS/WS forwarding without a browser agent.
+They have not been compiled or run. Remaining associated-prefix combinations,
+VM process ownership and complete runtime qualification stay open.
+
+### TLS material File policy and optional VMess TLS
+
+Certificate/key/OCSP source readers now consume the existing
+runtime.file_read_max_bytes setting. Omission preserves their existing 16 MiB
+limit while ordinary File readers keep their 8 MiB default. Each actual passive
+plan freezes its bound before Source binding; declarations, initial reads and
+refresh use that same bound. A changed effective limit rebuilds affected TLS
+Sources through the existing transaction. The original File native-close and
+blocking-job receipts remain independent from refresh-worker Scope joins.
+
+The previous TLS migration accidentally required TLS for VMess raw/WS/h2c
+inbounds. TLS is optional again: plain and TLS sources share the same scoped
+gRPC helper and original accepted caller. No unowned binder or worker returns.
+Regression sources cover actual configured File bounds and affected-source
+classification, alongside real plain Browser/MUX and signed TLS forwarding.
+Only touched-file formatting/source checks are intended here; compilation,
+tests, privileged and low-resource runtime acceptance remain unperformed.
+
+### macOS plugin backend choice: Linux VM
+
+The owner selected a Linux VM to retain complete process-tree isolation without
+Apple Developer enrollment or Endpoint Security authorization. Docker Desktop's
+existing Linux VM was started; no plugin image/container was built or run.
+release/macos-plugin-vm.md records the actual host/guest original ownership,
+endpoint authorization, binary compatibility and confirmed replacement duties.
+The ES probe is optional historical preparation. The VM provider and its macOS
+production migration are unfinished; existing plugin capabilities and ownership
+remain until the replacement is implemented. This choice does not close
+TEMP-WG-OUTER-UDP-01 or overall refactor/runtime qualification.

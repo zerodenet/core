@@ -1,5 +1,10 @@
 # macOS Endpoint Security preparation
 
+2026-11-16: the owner selected a Linux VM backend instead of Apple Developer
+enrollment. This directory is an optional archived capability probe, not the
+active deployment path. See [the selected VM ownership boundary](../../release/macos-plugin-vm.md);
+the actual VM provider is still unfinished.
+
 This directory prepares an optional entitlement capability probe and its signing
 inputs. It is outside Cargo, CI and normal Zero startup. It does not implement or
 qualify the generic plugin process-tree/derived-endpoint provider.
