@@ -74,9 +74,10 @@ impl VlessInboundListenerRequest {
             }
             plan::VlessTcpInboundAcceptResult::Stream { stream, sni, alpn } => {
                 facts.sni = sni;
-                let stream = session::decrypt_stream(self.transport.decryption.as_ref(), stream)
-                    .await
-                    .map_err(datagram::failure)?;
+                let stream =
+                    session::decrypt_standard_stream(self.transport.decryption.as_ref(), stream)
+                        .await
+                        .map_err(datagram::failure)?;
                 self.accept_standard_stream(record_client_stream(stream), facts, alpn, context)
                     .await
             }

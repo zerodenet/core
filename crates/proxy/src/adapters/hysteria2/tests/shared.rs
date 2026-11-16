@@ -35,10 +35,10 @@ struct Server {
 }
 impl Server {
     async fn new() -> Self {
-        Self::with_codec(None).await
+        Self::with_codecs(Vec::new()).await
     }
-    async fn with_codec(
-        codec: Option<Arc<dyn zero_traits::DatagramCodec<Address, Error = zero_core::Error>>>,
+    async fn with_codecs(
+        codecs: Vec<Arc<dyn zero_traits::DatagramCodec<Address, Error = zero_core::Error>>>,
     ) -> Self {
         let material = tempfile::tempdir().unwrap();
         let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
@@ -84,7 +84,7 @@ impl Server {
                 let ids = ids.clone();
                 let closed = observed_closed.clone();
                 let closed_changed = observed_closed_changed.clone();
-                let codec = codec.clone();
+                let codecs = codecs.clone();
                 clients.spawn(async move {
                     let profile=Hysteria2AuthenticatedInboundProfile::from_options_refs(Hysteria2InboundOptionsRef {users:[Hysteria2InboundUserRef {password:"p",principal_key:None,up_bps:None,down_bps:None,device_limit:None,quota_remaining_bytes:None,policy_revision:None}]});
                     let connection=profile.accept_authenticated_connection(raw.clone()).await.unwrap();count.fetch_add(1,Ordering::SeqCst);
@@ -94,11 +94,19 @@ impl Server {
                         _=async {while let Ok(data)=source.read_datagram().await {
                             let packet=::hysteria2::udp::Hysteria2InboundUdpCodec.decode_datagram(&data).unwrap();ids.lock().unwrap().insert(packet.session_id());
                             *observed.lock().unwrap().entry((packet.target().clone(),packet.port())).or_default()+=data.len() as u64;
-                            let data = if let Some(codec) = &codec {
-                                let (address, port, payload) = codec.decode(packet.payload()).expect("real inner SS wire");
-                                assert_eq!(port, 53);
-                                let encoded = codec.encode(&address, port, &payload).unwrap();
-                                ::hysteria2::udp::Hysteria2InboundUdpCodec.encode_datagram(packet.session_id(), packet.target(), packet.port(), &encoded).unwrap().into()
+                            let data = if !codecs.is_empty() {
+                                let mut payload = packet.payload().to_vec();
+                                let mut layers = Vec::new();
+                                for codec in &codecs {
+                                    let (address, port, decoded) = codec.decode(&payload).expect("real nested SS wire");
+                                    layers.push((address, port));
+                                    payload = decoded;
+                                }
+                                assert_eq!(layers.last().unwrap().1, 53);
+                                for (codec,(address,port)) in codecs.iter().zip(&layers).rev() {
+                                    payload = codec.encode(address,*port,&payload).unwrap();
+                                }
+                                ::hysteria2::udp::Hysteria2InboundUdpCodec.encode_datagram(packet.session_id(), packet.target(), packet.port(), &payload).unwrap().into()
                             } else { data };
                             if raw.send_datagram(data).is_err(){break;}
                         }}=>{},

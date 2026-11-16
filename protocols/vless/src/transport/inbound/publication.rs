@@ -49,7 +49,29 @@ impl VlessInboundListenerRequest {
         }
     }
 }
+impl VlessInboundListenerRequest {
+    pub(crate) fn prepare_decryption_maintenance(
+        &self,
+        cancel: zero_platform_tokio::contract::CancellationToken,
+    ) -> Result<
+        Option<crate::encryption::HostedMaintenance>,
+        zero_platform_tokio::contract::ChannelError,
+    > {
+        self.transport
+            .decryption
+            .as_ref()
+            .map(|server| server.prepare_hosted(cancel))
+            .transpose()
+    }
+}
 impl PreparedVlessInboundListenerRequest {
+    pub(crate) fn requires_decryption_maintenance(&self) -> bool {
+        self.request
+            .transport
+            .decryption
+            .as_ref()
+            .is_some_and(|server| server.requires_maintenance())
+    }
     pub(crate) fn target_endpoints(&self) -> Vec<zero_traits::FallbackEndpoint> {
         let mut endpoints = self.request.transport.target_endpoints();
         if let Some(endpoint) = self

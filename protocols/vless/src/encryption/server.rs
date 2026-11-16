@@ -9,6 +9,8 @@ use super::{
     state::ServerCache,
     stream::EncryptionStream,
 };
+mod maintenance;
+pub(crate) use maintenance::HostedMaintenance;
 use rand::Rng;
 use std::{
     io,
@@ -26,7 +28,7 @@ struct Server {
     config: EncryptionConfig,
     keys: Vec<ServerKey>,
     cache: Mutex<ServerCache>,
-    maintenance_started: std::sync::atomic::AtomicBool,
+    maintenance: std::sync::atomic::AtomicU8,
 }
 impl EncryptionServer {
     pub fn new(config: EncryptionConfig) -> io::Result<Self> {
@@ -40,7 +42,7 @@ impl EncryptionServer {
                 config,
                 keys,
                 cache: Mutex::new(ServerCache::default()),
-                maintenance_started: std::sync::atomic::AtomicBool::new(false),
+                maintenance: std::sync::atomic::AtomicU8::new(0),
             }),
         })
     }
@@ -55,7 +57,21 @@ impl EncryptionServer {
         &self,
         stream: S,
     ) -> io::Result<EncryptionStream<S>> {
-        self.start_maintenance();
+        self.start_library_maintenance()?;
+        self.handshake_timed(stream).await
+    }
+    /// Production sources may only use the worker installed by their real Host.
+    pub(crate) async fn handshake_hosted<S: AsyncRead + AsyncWrite + Unpin>(
+        &self,
+        stream: S,
+    ) -> io::Result<EncryptionStream<S>> {
+        self.check_hosted()?;
+        self.handshake_timed(stream).await
+    }
+    async fn handshake_timed<S: AsyncRead + AsyncWrite + Unpin>(
+        &self,
+        stream: S,
+    ) -> io::Result<EncryptionStream<S>> {
         tokio::time::timeout(Duration::from_secs(30), self.handshake_inner(stream))
             .await
             .map_err(|_| {
@@ -64,30 +80,6 @@ impl EncryptionServer {
                     "VLESS decryption handshake timeout",
                 )
             })?
-    }
-    fn start_maintenance(&self) {
-        if !self.inner.config.resume {
-            return;
-        }
-        if self
-            .inner
-            .maintenance_started
-            .swap(true, std::sync::atomic::Ordering::AcqRel)
-        {
-            return;
-        }
-        let owner = Arc::downgrade(&self.inner);
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(Duration::from_secs(60)).await;
-                let Some(owner) = owner.upgrade() else { break };
-                owner
-                    .cache
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .prune();
-            }
-        });
     }
     async fn handshake_inner<S: AsyncRead + AsyncWrite + Unpin>(
         &self,

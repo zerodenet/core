@@ -57,6 +57,7 @@ pub(super) struct Host {
     pub endpoint: SocketAddr,
     pub stop: CancellationToken,
     pub portal: crate::reverse::Portal,
+    internal_tasks: usize,
 }
 impl Host {
     pub async fn new(grpc: bool) -> Self {
@@ -72,7 +73,8 @@ impl Host {
         ));
         let factory = crate::component::inbound::listener::Factory;
         let spec = factory.describe(&options);
-        let mut scope = TaskScope::new(tokio::runtime::Handle::current(), nz(520));
+        let internal_tasks = spec.task_limit.map_or(0, NonZeroUsize::get);
+        let mut scope = TaskScope::new(tokio::runtime::Handle::current(), nz(520 + internal_tasks));
         scope.enable_registration().unwrap();
         let stop = CancellationToken::new();
         let mut original = ControlledTcpListenerOwner::new_with_accepted_graph(
@@ -97,7 +99,11 @@ impl Host {
                     dependencies: Arc::from([]),
                     roles: Default::default(),
                     resources: Arc::new(Resources(Mutex::new(Some(listener)))),
-                    tasks: scope.registrar().without_tasks(),
+                    tasks: if spec.task_limit.is_some() {
+                        scope.registrar()
+                    } else {
+                        scope.registrar().without_tasks()
+                    },
                     cancel: stop.clone(),
                     background_carrier: None,
                 },
@@ -115,6 +121,7 @@ impl Host {
             endpoint,
             stop,
             portal: runtime.reverse_portal("portal"),
+            internal_tasks,
         }
     }
     pub async fn accept(
@@ -176,11 +183,19 @@ impl Host {
         self.scope.begin_shutdown();
         let receiver = self.original.accepted_task_receiver().unwrap();
         let mut joined = 0;
+        let mut internal_joined = 0;
         while let Some(exit) = self.scope.next_exit().await {
             assert!(exit.result.is_ok(), "{:?}", exit.result);
-            assert!(receiver.observe_joined(exit.id).is_some());
+            if receiver.observe_joined(exit.id).is_none() {
+                assert_eq!(exit.class, TaskClass::Critical);
+                internal_joined += 1;
+            }
             joined += 1;
         }
+        assert_eq!(
+            internal_joined, self.internal_tasks,
+            "only the actual declared Source workers bypass the accepted-task receiver"
+        );
         assert!(joined >= minimum);
         if let Some(exact) = exact {
             assert_eq!(joined, exact);

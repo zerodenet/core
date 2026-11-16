@@ -1,6 +1,10 @@
-//! Standard source for carriers with integrated original host ownership. Proxy
-//! keeps the remaining native carrier shapes on their explicit compatibility path.
-//! Cold state and credentials remain inert until confirmed StopOld and host Build.
+//! Standard sources over original host-owned carriers and the same cache owner.
+//! Cold credentials and task ownership remain inert until confirmed StopOld,
+//! host Build and the installed lifecycle's bounded start phase.
+#[path = "listener/build.rs"]
+mod build;
+#[path = "listener/maintenance.rs"]
+mod maintenance;
 #[path = "quic.rs"]
 mod quic;
 #[path = "listener/source_limits.rs"]
@@ -29,6 +33,7 @@ pub struct Options {
 
     listen: Destination,
     udp: bool,
+    decryption_maintenance: bool,
     quic: Option<zero_transport::quic::QuicServerConfig>,
     packet_masks: Vec<zero_transport::finalmask::udp::Mask>,
     targets: Vec<zero_traits::FallbackEndpoint>,
@@ -62,6 +67,7 @@ impl Options {
             targets: prepared.target_endpoints(),
             file_root: prepared.file_root(),
             udp: prepared.uses_mkcp(),
+            decryption_maintenance: prepared.requires_decryption_maintenance(),
             quic: None,
             packet_masks: if prepared.uses_mkcp() {
                 prepared.masks()
@@ -115,15 +121,14 @@ impl Options {
             })
     }
     fn internal_tasks(&self) -> Option<NonZeroUsize> {
-        if self.quic.is_some() {
-            NonZeroUsize::new(self.quic_drivers())
+        let carriers = if self.quic.is_some() {
+            self.quic_drivers()
         } else if self.masked_mkcp() {
-            NonZeroUsize::new(
-                zero_transport::finalmask::owned::driver_count(&self.packet_masks).max(1),
-            )
+            zero_transport::finalmask::owned::driver_count(&self.packet_masks).max(1)
         } else {
-            None
-        }
+            0
+        };
+        NonZeroUsize::new(carriers + usize::from(self.decryption_maintenance))
     }
 }
 pub struct Factory;
@@ -198,82 +203,7 @@ impl ComponentFactory for Factory {
         options: Arc<Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
-        let mut prepared = options.prepared.lock().unwrap_or_else(|e| e.into_inner());
-        let request = prepared
-            .as_ref()
-            .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component))?;
-        if options.quic.is_none() {
-            request.validate_standard_source()?;
-        } else {
-            request.validate_standard_quic_source()?;
-        }
-        let request = prepared
-            .take()
-            .expect("validated original prepared source")
-            .activate();
-        drop(prepared);
-        if let Some(server) = options.quic.clone() {
-            return quic::build(
-                &options.listen,
-                request,
-                server,
-                options.packet_masks.clone(),
-                options.metadata_limits(),
-                zero_transport::quic::owned::OwnedEndpointLimits {
-                    drivers: NonZeroUsize::new(options.quic_drivers()).unwrap(),
-                    users: options.quic_users,
-                },
-                context,
-            );
-        }
-        if options.masked_mkcp() {
-            return quic::build_mkcp(
-                &options.listen,
-                request,
-                options.packet_masks.clone(),
-                options.metadata_limits(),
-                options.peer_limits(),
-                context,
-            );
-        }
-        if options.udp {
-            let (lifecycle, source) = udp::source(
-                options.listen.clone(),
-                context.resources,
-                context.cancel,
-                options.peer_limits(),
-                std::time::Duration::from_secs(300),
-                move |peer| PacketConnection {
-                    request: request.clone(),
-                    peer,
-                },
-            );
-            return Ok(ComponentInstance {
-                lifecycle: erase_lifecycle(lifecycle),
-                roles: ComponentRoles {
-                    inbound: Some(erase_inbound(source)),
-                    ..Default::default()
-                },
-            });
-        }
-        let resources = context.resources.clone();
-        let (lifecycle, source) = tcp::source(
-            options.listen.clone(),
-            context.resources,
-            context.cancel,
-            move |socket| Connection {
-                request: request.clone(),
-                socket,
-                resources: resources.clone(),
-            },
-        );
-        Ok(ComponentInstance {
-            lifecycle: erase_lifecycle(lifecycle),
-            roles: ComponentRoles {
-                inbound: Some(erase_inbound(source)),
-                ..Default::default()
-            },
-        })
+        build::source(options, context)
     }
 }
 struct Connection {

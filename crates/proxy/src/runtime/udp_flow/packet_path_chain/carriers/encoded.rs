@@ -11,17 +11,17 @@ use zero_engine::EngineError;
 #[path = "tests/encoded.rs"]
 mod tests;
 
+/// Storage from the actual caller, with no implicit unbudgeted execution mode.
+pub(crate) enum CodecMemory {
+    Source(crate::protocol_registry::packet_memory::PacketCodecReceiveMemory),
+    Business(crate::protocol_registry::packet_memory::business::BusinessMemory),
+    #[cfg(test)]
+    Library,
+}
 pub(crate) fn wrap(
     path: Arc<dyn PacketPathCarrier>,
     source: UdpDatagramSource,
-) -> Arc<dyn PacketPathCarrier> {
-    wrap_with_memory(path, source, None, None)
-}
-pub(crate) fn wrap_with_memory(
-    path: Arc<dyn PacketPathCarrier>,
-    source: UdpDatagramSource,
-    memory: Option<crate::protocol_registry::packet_memory::PacketCodecReceiveMemory>,
-    business: Option<crate::protocol_registry::packet_memory::business::BusinessMemory>,
+    memory: CodecMemory,
 ) -> Arc<dyn PacketPathCarrier> {
     let endpoint = source.descriptor().endpoint();
     Arc::new(Encoded {
@@ -30,7 +30,6 @@ pub(crate) fn wrap_with_memory(
         target: endpoint.target(),
         port: endpoint.port(),
         memory,
-        business,
     })
 }
 struct Encoded {
@@ -38,9 +37,13 @@ struct Encoded {
     source: UdpDatagramSource,
     target: Address,
     port: u16,
-    memory: Option<crate::protocol_registry::packet_memory::PacketCodecReceiveMemory>,
-    business: Option<crate::protocol_registry::packet_memory::business::BusinessMemory>,
+    memory: CodecMemory,
 }
+#[cfg(test)]
+#[path = "encoded/tests/library.rs"]
+mod library;
+#[cfg(test)]
+use library::wrap as wrap_library;
 mod receive;
 #[async_trait::async_trait]
 impl PacketPathCarrier for Encoded {
@@ -184,33 +187,26 @@ impl PacketPathCarrier for Encoded {
         port: u16,
         payload: &[u8],
     ) -> Result<(), EngineError> {
-        if self.has_driver_handoff() {
-            let count = self.codec_transmit_count(target, port, payload.len())?;
-            let mut lengths = self.prepare_codec_lengths(count)?;
-            self.codec_transmit_lengths(target, port, payload.len(), &mut lengths)?;
-            let buffers = self
-                .prepare_codec_send(&lengths)
-                .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
-            drop(lengths); // actual temporary array is free before any codec advances state
-            let (mut buffers, mut copy) = buffers.into_batch_parts();
-            return self
-                .send_codec_buffered(target, port, payload, &mut buffers, &mut copy)
-                .await;
+        match &self.memory {
+            CodecMemory::Source(_) => {
+                let count = self.codec_transmit_count(target, port, payload.len())?;
+                let mut lengths = self.prepare_codec_lengths(count)?;
+                self.codec_transmit_lengths(target, port, payload.len(), &mut lengths)?;
+                let buffers = self
+                    .prepare_codec_send(&lengths)
+                    .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
+                drop(lengths);
+                let (mut buffers, mut copy) = buffers.into_batch_parts();
+                self.send_codec_buffered(target, port, payload, &mut buffers, &mut copy)
+                    .await
+            }
+            CodecMemory::Business(memory) => {
+                let wire = memory.encode(self.source.codec.as_ref(), target, port, payload)?;
+                self.path.send_to(&self.target, self.port, &wire).await
+            }
+            #[cfg(test)]
+            CodecMemory::Library => self.send_library(target, port, payload).await,
         }
-        if let Some(memory) = &self.business {
-            let wire = memory.encode(self.source.codec.as_ref(), target, port, payload)?;
-            return self.path.send_to(&self.target, self.port, &wire).await;
-        }
-        // Remaining compatibility consumers have not yet migrated their book.
-        let wire = self
-            .source
-            .codec
-            .encode(target, port, payload)
-            .map_err(|error| EngineError::Io(std::io::Error::other(error)))?;
-        let endpoint = self.source.descriptor().endpoint();
-        self.path
-            .send_to(&endpoint.target(), endpoint.port(), &wire)
-            .await
     }
     async fn recv_from(&self, output: &mut [u8]) -> Result<usize, EngineError> {
         self.recv_decoded(output).await.map(|(size, _)| size)

@@ -273,7 +273,7 @@ impl VlessInboundListenerRequest {
             mux_response_backlog,
             transport,
         } = self;
-        let stream = session::decrypt_stream(transport.decryption.as_ref(), stream).await?;
+        let stream = session::decrypt_library_stream(transport.decryption.as_ref(), stream).await?;
         accept_vless_stream_route(
             profile,
             fallback_enabled,

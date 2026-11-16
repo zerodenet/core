@@ -97,7 +97,10 @@ fn source(marker: u8, port: u16) -> UdpDatagramSource {
 #[tokio::test]
 async fn nested_codecs_preserve_hop_order_and_receive_small_plaintext() {
     let carrier = Arc::new(Carrier::default());
-    let path = wrap(wrap(carrier.clone(), source(1, 1001)), source(2, 1002));
+    let path = wrap_library(
+        wrap_library(carrier.clone(), source(1, 1001)),
+        source(2, 1002),
+    );
     let destination = Address::Ipv4([192, 0, 2, 3]);
     path.send_to(&destination, 53, b"x").await.unwrap();
     let sent = carrier.sent.lock().unwrap().pop().unwrap();
@@ -124,7 +127,7 @@ async fn nested_codecs_preserve_hop_order_and_receive_small_plaintext() {
     assert_eq!(&output, b"y");
     let oversize = Codec(1).encode(&destination, 53, b"large").unwrap();
     carrier.received.lock().unwrap().push_back(oversize);
-    let single = wrap(carrier, source(1, 1001));
+    let single = wrap_library(carrier, source(1, 1001));
     assert!(
         matches!(single.recv_from(&mut output).await, Err(EngineError::Io(error)) if error.kind() == std::io::ErrorKind::InvalidData)
     );
@@ -133,7 +136,7 @@ async fn nested_codecs_preserve_hop_order_and_receive_small_plaintext() {
 #[test]
 fn nested_source_shape_dimensions_fill_only_exact_prepared_slice_in_wire_order() {
     let carrier = Arc::new(Carrier::default());
-    let path = wrap(wrap(carrier, source(1, 1001)), source(2, 1002));
+    let path = wrap_library(wrap_library(carrier, source(1, 1001)), source(2, 1002));
     let target = Address::Ipv4([192, 0, 2, 3]);
     assert_eq!(path.codec_transmit_count(&target, 53, 1).unwrap(), 2);
     let mut dimensions = [0; 2];

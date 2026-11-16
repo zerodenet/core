@@ -86,3 +86,19 @@ impl ServerCache {
         Ok(Some(session.key))
     }
 }
+
+#[cfg(test)]
+impl ServerCache {
+    pub(super) fn counts_for_test(&self) -> (usize, usize) {
+        (self.sessions.len(), self.replay_count)
+    }
+    pub(super) fn expire_for_test(&mut self) {
+        // Move the actual entries' expiry, never replace their tickets/keys.
+        let now = Instant::now();
+        self.expiry = self
+            .expiry
+            .keys()
+            .map(|(_, ticket)| ((now, *ticket), ()))
+            .collect();
+    }
+}

@@ -60,12 +60,22 @@ where
     }
 }
 
-pub(super) async fn decrypt_stream(
+pub(super) async fn decrypt_library_stream(
     decryption: Option<&crate::encryption::EncryptionServer>,
     stream: TcpRelayStream,
 ) -> Result<TcpRelayStream, RuntimeError> {
     match decryption {
         Some(decryption) => Ok(decryption.handshake(stream).await?.into_relay()),
+        None => Ok(stream),
+    }
+}
+
+pub(super) async fn decrypt_standard_stream(
+    decryption: Option<&crate::encryption::EncryptionServer>,
+    stream: TcpRelayStream,
+) -> Result<TcpRelayStream, RuntimeError> {
+    match decryption {
+        Some(decryption) => Ok(decryption.handshake_hosted(stream).await?.into_relay()),
         None => Ok(stream),
     }
 }

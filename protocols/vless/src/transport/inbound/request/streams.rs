@@ -94,9 +94,10 @@ impl InboundHandshake for Stream {
         let (stream, metadata) = self.incoming;
         let mut facts = self.facts;
         facts.sni = metadata.sni;
-        let stream = session::decrypt_stream(self.request.transport.decryption.as_ref(), stream)
-            .await
-            .map_err(datagram::failure)?;
+        let stream =
+            session::decrypt_standard_stream(self.request.transport.decryption.as_ref(), stream)
+                .await
+                .map_err(datagram::failure)?;
         self.request
             .accept_standard_stream(record_client_stream(stream), facts, metadata.alpn, context)
             .await

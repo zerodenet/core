@@ -1,5 +1,10 @@
 # 控制面兼容性与破坏性变更
 
+VLESS 入站解密的 resume 票据／重放缓存维护现由同一个标准 Source 工厂、生命周期和原 Scope 监督，启用 resume 时显式声明一个 Critical 内部任务；无 resume 仍不启动维护任务。TCP 与现有 framed carrier、mKCP 和 QUIC 的生产解密入口改用原 hosted cache，删除握手时隐式启动私有 worker 的生产调用链；独立协议库便利 API 单独保留。原票据时限、缓存容量、重放拒绝、加密 wire 与原件关闭职责不变。
+
+UDP 多跳 codec 的 caller 交接改为必需的 Source 缓冲 grant 或同一 Host 业务内存账本；删除两个可空内存字段、旧 `wrap_with_memory` 入口和无预算生产编码／解码回退。原 Datagram／Stream provider、Scope、空包、多目标、codec 顺序及流量口径继续保留。本轮补充真实 Source/native provider 与加密／嵌套 codec 的回归源码，但按要求未编译和运行测试；公开配置、V1 API 与协议版本基线未调整。Apple 授权、TEMP-WG-OUTER-UDP-01 运行验收及整体迁移仍未完成。
+
+
 本轮 TCP 生产调用者续作将 Direct／Node／设备流、完整标准 relay 以及兼容前缀之后的标准最后一跳的原 Stream 直接交给入口转发、HTTP Message／Upgrade 和探测；删除统一结果的旧 `into_relay_stream` 入口及这些调用者上的 `ClientStream` 重建。HTTP、SOCKS5 与 Mixed 标准 Source 直接接收原 pinned stream 和已捕获连接事实，保留同一 keep-alive 缓冲、认证计量、UDP TCP 控制、半关闭和原资源回执。明确暂留的 socket 协议交界仍接收其完整原兼容对象，不丢应用设置、传输控制或原有能力。
 
 进程内 Rust 的 `MessageAction::Transfer.upstream` 和 `MessageTransfer::Upgraded` 两个方向现为标准 `BoxStream`，Upgrade 上游不再多套一层 `Box<TcpRelayStream>`。HTTP／SOCKS5 协议库原便利构造器保留；公开配置、V1 API、CLI、流量口径与协议版本基线不变。已补真实 Proxy 生产装配及非 Sync 原流的回归源码；本轮按既定要求未编译、未运行测试，不能据此宣告运行验收。Apple 授权、TEMP-WG-OUTER-UDP-01 运行验收及整体迁移状态仍保持未完成。

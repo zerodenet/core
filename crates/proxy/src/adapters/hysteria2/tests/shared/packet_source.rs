@@ -1,23 +1,30 @@
-//! Actual accepted SOCKS Source -> HY2 Datagram original -> SS codec.
+//! Actual accepted SOCKS Source -> HY2 original -> Host-paid nested SS codecs.
 use super::*;
 use tokio::net::{TcpStream, UdpSocket};
 
 #[tokio::test]
-async fn real_packet_source_preserves_empty_multitarget_packets_and_closes_original_hy2_provider() {
+async fn real_packet_source_preserves_nested_codecs_empty_multitarget_packets_and_original_hy2_provider(
+) {
     tokio::time::timeout(Duration::from_secs(30), async {
         let codec_node: zero_config::OutboundConfig = serde_json::from_value(serde_json::json!({
             "tag":"codec","protocol":{"type":"shadowsocks","server":"203.0.113.254","port":9876,"cipher":"chacha20-ietf-poly1305","password":"packet-codec"}
         })).unwrap();
         let codec = crate::adapters::shadowsocks::transport_leaf(&Default::default(), "codec", &codec_node.protocol)
             .unwrap().udp_packet_path_plan().unwrap().carrier_codec();
-        let server = Server::with_codec(Some(codec)).await;
+        let middle: zero_config::OutboundConfig = serde_json::from_value(serde_json::json!({
+            "tag":"middle","protocol":{"type":"shadowsocks","server":"192.0.2.254","port":8765,"cipher":"chacha20-ietf-poly1305","password":"middle-codec"}
+        })).unwrap();
+        let first = crate::adapters::shadowsocks::transport_leaf(&Default::default(), "middle", &middle.protocol)
+            .unwrap().udp_packet_path_plan().unwrap().carrier_codec();
+        let server = Server::with_codecs(vec![first, codec]).await;
         let config = zero_config::RuntimeConfig::parse(&serde_json::json!({
             "inbounds":[{"tag":"source","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],
             "outbounds":[
                 {"tag":"hy","protocol":{"type":"hysteria2","server":"127.0.0.1","port":server.port,"password":"p","insecure":true}},
+                middle,
                 {"tag":"codec","protocol":{"type":"shadowsocks","server":"203.0.113.254","port":9876,"cipher":"chacha20-ietf-poly1305","password":"packet-codec"}}
             ],
-            "outbound_groups":[{"tag":"chain","type":"relay","proxies":["hy","codec"]}],
+            "outbound_groups":[{"tag":"chain","type":"relay","proxies":["hy","middle","codec"]}],
             "route":{"final":{"type":"route","outbound":"chain"}}
         }).to_string()).unwrap();
         let proxy = Proxy::new(config.clone()).unwrap();
@@ -55,7 +62,7 @@ async fn real_packet_source_preserves_empty_multitarget_packets_and_closes_origi
         }
         let (provider,original)=original.expect("the actual HY2 Metadata native original");
         assert!(original.closed().is_none());
-        for index in 0..2 {
+        for index in 0..3 {
             assert!(proxy.protocols.claim_outbound_leaf(proxy.engine().config().as_ref(),zero_engine::ResolvedLeafOutbound::Proxy {
                 identity:zero_engine::OutboundIdentity::from_config_index(index),
             }).is_err());

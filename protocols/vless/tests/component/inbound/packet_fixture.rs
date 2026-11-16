@@ -56,8 +56,9 @@ impl Host {
             request.prepare_publication(&runtime, "peer"),
             b"real mKCP test source",
         ));
+        let spec = factory.describe(&options);
         assert!(matches!(
-            factory.describe(&options).resources[0],
+            spec.resources[0],
             ResourceDeclaration::DatagramListener {
                 accepted: Some(_),
                 ..
@@ -69,7 +70,10 @@ impl Host {
             .unwrap();
         let endpoint = rx.local_addr().unwrap();
         let retained = tx.clone();
-        let mut scope = TaskScope::new(tokio::runtime::Handle::current(), nz(521));
+        let mut scope = TaskScope::new(
+            tokio::runtime::Handle::current(),
+            nz(521 + spec.task_limit.map_or(0, NonZeroUsize::get)),
+        );
         scope.enable_registration().unwrap();
         let stop = CancellationToken::new();
         let mut instance = factory
@@ -84,7 +88,11 @@ impl Host {
                         rx,
                         tx,
                     })))),
-                    tasks: scope.registrar().without_tasks(),
+                    tasks: if spec.task_limit.is_some() {
+                        scope.registrar()
+                    } else {
+                        scope.registrar().without_tasks()
+                    },
                     cancel: stop.clone(),
                     background_carrier: None,
                 },

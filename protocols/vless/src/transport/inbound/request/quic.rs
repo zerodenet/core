@@ -55,7 +55,7 @@ impl VlessInboundListenerRequest {
             ));
         }
         let stream = connection.accept_bi_stream().await?;
-        let stream = session::decrypt_stream(
+        let stream = session::decrypt_standard_stream(
             self.transport.decryption.as_ref(),
             TcpRelayStream::new(stream),
         )

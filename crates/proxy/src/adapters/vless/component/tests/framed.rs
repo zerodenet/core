@@ -108,6 +108,7 @@ pub(super) async fn exercise(endpoint: SocketAddr) {
 #[tokio::test]
 async fn encryption_vision_framed_tcp_and_xudp_use_real_standard_owners() {
     for carrier in [
+        serde_json::json!({}),
         serde_json::json!({"ws":{"path":"/vision"}}),
         serde_json::json!({"h2":{"path":"/vision"}}),
         serde_json::json!({"http_upgrade":{"path":"/vision"}}),
@@ -138,13 +139,37 @@ async fn encryption_vision_framed_tcp_and_xudp_use_real_standard_owners() {
         })).await;
         let owner = client.inbound_owners.owner("entry").unwrap();
         let original_remote = remote.inbound_owners.owner("entry").unwrap();
-        let result = tokio::time::timeout(Duration::from_secs(20), exercise(socks)).await;
+        let original_scope = original_remote.original_scope_for_test();
+        let cold = remote
+            .protocols
+            .prepare_inbound_bind(remote.engine().config().inbounds[0].clone(), None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            cold.into_recipe().spec().task_limit.unwrap().get(),
+            1,
+            "exact resumable decryption Source declares one maintenance task before any handshake"
+        );
+        let result = tokio::time::timeout(Duration::from_secs(30), async {
+            exercise(socks).await;
+            exercise(socks).await;
+        })
+        .await;
         client_running.shutdown().await.unwrap();
         remote_running.shutdown().await.unwrap();
         assert!(result.is_ok(), "actual encrypted Vision carrier: {carrier}");
+        assert!(
+            !original_scope.resource_open(),
+            "that same original Source Scope retired, not a replacement observer"
+        );
         for original in [owner, original_remote] {
             let closed = original.terminal_for_test().unwrap();
             assert!(closed.failure().is_none() && closed.closed_io_receipts() > 0);
+            assert!(
+                closed.joined_tasks() > 1
+                    && closed.task_failures().is_empty()
+                    && closed.native_bound_failures().is_empty()
+            );
         }
     }
 }

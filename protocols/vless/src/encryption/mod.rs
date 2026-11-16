@@ -23,6 +23,8 @@ mod client;
 #[cfg(all(feature = "runtime", feature = "tokio"))]
 mod server;
 #[cfg(all(feature = "runtime", feature = "tokio"))]
+pub(crate) use server::HostedMaintenance;
+#[cfg(all(feature = "runtime", feature = "tokio"))]
 pub use {client::EncryptionClient, server::EncryptionServer, stream::EncryptionStream};
 
 #[cfg(all(feature = "runtime", feature = "tokio"))]

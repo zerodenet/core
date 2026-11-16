@@ -231,12 +231,21 @@ impl RolePacketPath {
                     .tcp()
                     .outbound_io(&source.descriptor().tag, zero_api::TrafficPlane::Outer),
             );
-            path = crate::runtime::udp_flow::packet_path_chain::carriers::encoded::wrap_with_memory(
-                path,
-                source.clone(),
-                services.packet_codec_receive(index)?,
-                business.clone(),
-            );
+            use crate::runtime::udp_flow::packet_path_chain::carriers::encoded::{
+                self, CodecMemory,
+            };
+            let memory = match &business {
+                Some(actual) => CodecMemory::Business(actual.clone()),
+                None => {
+                    CodecMemory::Source(services.packet_codec_receive(index)?.ok_or_else(|| {
+                        failure(invalid(
+                            Reason::Internal,
+                            "Source codec lost its original declared receive buffers",
+                        ))
+                    })?)
+                }
+            };
+            path = encoded::wrap(path, source.clone(), memory);
         }
         Ok(path)
     }

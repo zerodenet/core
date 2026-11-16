@@ -25,6 +25,7 @@ use zero_platform_tokio::{
     ControlledTcpListener, ControlledTcpListenerOwner,
 };
 use zero_transport::profile::*;
+mod encryption;
 mod fixture;
 mod grpc;
 mod h2;
@@ -55,6 +56,15 @@ fn request_options(
     h2: Option<&OwnedH2Profile>,
     reverse_tag: Option<&str>,
 ) -> VlessInboundListenerRequest {
+    request_options_with_decryption(id, grpc, h2, reverse_tag, None)
+}
+fn request_options_with_decryption(
+    id: &'static str,
+    grpc: Option<&OwnedGrpcProfile>,
+    h2: Option<&OwnedH2Profile>,
+    reverse_tag: Option<&str>,
+    decryption: Option<&str>,
+) -> VlessInboundListenerRequest {
     VlessInboundListenerRequest::from_options_refs(
         None,
         VlessInboundOptionsRef::<
@@ -79,7 +89,7 @@ fn request_options(
                 quota_remaining_bytes: None,
                 policy_revision: Some(7),
             }],
-            decryption: None,
+            decryption,
             reality: None,
             tls: None,
             ws: None,
