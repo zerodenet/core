@@ -316,6 +316,11 @@ impl RuntimeOptionsConfig {
             .unwrap_or(16 * 1024 * 1024)
     }
 
+    /// The same file policy controls TLS material; omission preserves its
+    /// existing 16 MiB bound while ordinary configuration files keep 8 MiB.
+    pub fn effective_tls_material_max_file_bytes(&self) -> usize {
+        self.file_read_max_bytes.unwrap_or(16 * 1024 * 1024)
+    }
     pub fn effective_file_read_max_bytes(&self) -> usize {
         self.file_read_max_bytes.unwrap_or(8 * 1024 * 1024)
     }

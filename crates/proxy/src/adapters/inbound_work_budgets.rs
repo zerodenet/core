@@ -36,8 +36,25 @@ pub(crate) fn inbound_work_source_changed(
     };
     let a = &old.runtime;
     let b = &next.runtime;
-    a.effective_inbound_max_tasks_per_carrier(tasks)
-        != b.effective_inbound_max_tasks_per_carrier(tasks)
+    let tls_source = matches!(
+        &input.protocol,
+        zero_config::InboundProtocolConfig::Trojan { .. }
+            | zero_config::InboundProtocolConfig::Hysteria2 { .. }
+    ) || matches!(
+        &input.protocol,
+        zero_config::InboundProtocolConfig::Vmess { tls: Some(_), .. }
+    );
+    #[cfg(feature = "vless")]
+    let tls_source = tls_source
+        || matches!(
+            &input.protocol,
+            zero_config::InboundProtocolConfig::Vless { tls: Some(_), .. }
+                | zero_config::InboundProtocolConfig::Vless { quic: Some(_), .. }
+        );
+    (tls_source
+        && a.effective_tls_material_max_file_bytes() != b.effective_tls_material_max_file_bytes())
+        || a.effective_inbound_max_tasks_per_carrier(tasks)
+            != b.effective_inbound_max_tasks_per_carrier(tasks)
         || a.effective_inbound_max_resources_per_carrier(resources)
             != b.effective_inbound_max_resources_per_carrier(resources)
         || requests.is_some_and(|default| {

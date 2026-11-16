@@ -19,7 +19,7 @@ fn all_standard_tls_factories_declare_cold_original_files_and_finite_workers() {
         json!({"type":"vless","users":[{"id":"11111111-2222-3333-4444-555555555555"}],"quic":{"cert_path":"missing-cert.pem","key_path":"missing-key.pem"}}),
         json!({"type":"hysteria2","password":"11111111-2222-3333-4444-555555555555","cert_path":"missing-cert.pem","key_path":"missing-key.pem"}),
     ] {
-        let config=zero_config::RuntimeConfig::parse(&json!({"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":protocol}],"route":{"final":{"type":"direct"}}}).to_string()).unwrap();
+        let config=zero_config::RuntimeConfig::parse(&json!({"runtime":{"file_read_max_bytes":4096},"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":protocol}],"route":{"final":{"type":"direct"}}}).to_string()).unwrap();
         let proxy = crate::Proxy::new(config.clone()).unwrap();
         let cold = proxy
             .protocols
@@ -36,6 +36,18 @@ fn all_standard_tls_factories_declare_cold_original_files_and_finite_workers() {
                 .count(),
             2
         );
+        for resource in cold.resources() {
+            if let zero_platform_tokio::contract::component::ResourceDeclaration::File {
+                max_bytes,
+                ..
+            } = resource
+            {
+                assert_eq!(
+                    *max_bytes, 4096,
+                    "actual Source declares the runtime File policy"
+                );
+            }
+        }
         assert!(cold.into_recipe().spec().task_limit.is_some());
         assert_eq!(
             proxy
@@ -76,4 +88,33 @@ async fn real_vless_trojan_vmess_sources_rotate_certificate_and_keep_proxy_wire(
             }
         }
     }).await.unwrap();
+}
+
+#[test]
+fn tls_file_limit_changes_rebuild_only_actual_tls_sources_and_preserve_legacy_default() {
+    let base = zero_config::RuntimeOptionsConfig::default();
+    assert_eq!(base.effective_file_read_max_bytes(), 8 * 1024 * 1024);
+    assert_eq!(
+        base.effective_tls_material_max_file_bytes(),
+        16 * 1024 * 1024
+    );
+    for protocol in [
+        json!({"type":"http"}),
+        json!({"type":"vmess","users":[{"id":"11111111-2222-3333-4444-555555555555"}]}),
+        json!({"type":"vmess","users":[{"id":"11111111-2222-3333-4444-555555555555"}],"tls":{"cert_path":"cold-cert.pem","key_path":"cold-key.pem"}}),
+        json!({"type":"trojan","password":"secret","tls":{"cert_path":"cold-cert.pem","key_path":"cold-key.pem"}}),
+    ] {
+        let old = zero_config::RuntimeConfig::parse(&json!({"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":protocol}],"route":{"final":{"type":"direct"}}}).to_string()).unwrap();
+        let mut next = old.clone();
+        next.runtime.file_read_max_bytes = Some(8 * 1024 * 1024);
+        let expected = protocol.get("tls").is_some();
+        assert_eq!(
+            crate::adapters::inbound_work_budgets::inbound_work_source_changed(
+                &old.inbounds[0],
+                &old,
+                &next
+            ),
+            expected
+        );
+    }
 }

@@ -99,12 +99,11 @@ async fn failed_replacement_keeps_last_good_signed_context_and_recovery_closes_s
                 },
             };
             let plan = PreparedServer::new(&profile, None, false).unwrap();
+            plan.set_file_read_limit(NonZeroUsize::new(4096).unwrap())
+                .unwrap();
             let files = Files(
                 zero_platform_tokio::file::declared::DeclaredFileReads::new(
-                    [
-                        (cert.clone(), MAX_FILE_BYTES),
-                        (key.clone(), MAX_FILE_BYTES),
-                    ],
+                    [(cert.clone(), 4096), (key.clone(), 4096)],
                     CancellationToken::new(),
                 )
                 .unwrap(),

@@ -24,7 +24,7 @@ pub(crate) struct FileMaterial {
     pub(crate) key: Vec<u8>,
     pub(crate) ocsp: Option<Vec<u8>>,
 }
-const MAX_FILE_BYTES: usize = 16 * 1024 * 1024;
+const DEFAULT_FILE_BYTES: usize = 16 * 1024 * 1024;
 enum Backend {
     Rustls {
         certificates: super::refresh::Certificates,
@@ -39,6 +39,7 @@ pub struct PreparedServer {
     files: Vec<zero_traits::TlsCertificateFiles>,
     backend: Backend,
     bound: AtomicBool,
+    max_file_bytes: std::sync::atomic::AtomicUsize,
     base: Option<std::path::PathBuf>,
     library: Mutex<Option<TlsAcceptor>>,
 }
@@ -48,6 +49,30 @@ impl std::fmt::Debug for PreparedServer {
     }
 }
 impl PreparedServer {
+    /// Cold configuration only. The existing library/start mutex freezes this
+    /// exact value before the plan can issue its first declared File read.
+    pub fn set_file_read_limit(&self, limit: NonZeroUsize) -> io::Result<()> {
+        let library = self
+            .library
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let value = limit.get();
+        if value.checked_add(1).is_none() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "TLS file bound leaves no overflow probe",
+            ));
+        }
+        if (library.is_some() || self.bound.load(Ordering::Acquire))
+            && self.max_file_bytes.load(Ordering::Acquire) != value
+        {
+            return Err(io::Error::other(
+                "TLS File limit is frozen on its original Source",
+            ));
+        }
+        self.max_file_bytes.store(value, Ordering::Release);
+        Ok(())
+    }
     /// Pure recipe/config creation. No file, process, socket or task starts.
     pub fn new(
         profile: &(impl ServerTlsProfile + ?Sized),
@@ -89,6 +114,7 @@ impl PreparedServer {
             files,
             backend,
             bound: false.into(),
+            max_file_bytes: DEFAULT_FILE_BYTES.into(),
             base: base.map(Path::to_path_buf),
             library: Mutex::new(None),
         }))
@@ -152,13 +178,23 @@ impl PreparedServer {
         files: &zero_traits::TlsCertificateFiles,
     ) -> Result<FileMaterial, ChannelError> {
         let cert = resources
-            .read_file(files.cert_path.clone().into(), MAX_FILE_BYTES)
+            .read_file(
+                files.cert_path.clone().into(),
+                self.max_file_bytes.load(Ordering::Acquire),
+            )
             .await?;
         let key = resources
-            .read_file(files.key_path.clone().into(), MAX_FILE_BYTES)
+            .read_file(
+                files.key_path.clone().into(),
+                self.max_file_bytes.load(Ordering::Acquire),
+            )
             .await?;
         let ocsp = match &files.ocsp_path {
-            Some(path) => Some(resources.read_file(path.into(), MAX_FILE_BYTES).await?),
+            Some(path) => Some(
+                resources
+                    .read_file(path.into(), self.max_file_bytes.load(Ordering::Acquire))
+                    .await?,
+            ),
             None => None,
         };
         Ok(FileMaterial {
@@ -186,7 +222,10 @@ pub fn declare(spec: &mut ComponentSpec, plans: &[Arc<PreparedServer>]) {
             .into_iter()
             .flatten()
             {
-                files.insert(std::path::PathBuf::from(path), MAX_FILE_BYTES);
+                files.insert(
+                    std::path::PathBuf::from(path),
+                    plan.max_file_bytes.load(Ordering::Acquire),
+                );
             }
         }
     }

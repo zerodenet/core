@@ -103,7 +103,7 @@ pub struct RuntimeOptionsConfig {
     /// on demand; independent of QUIC buffers and Scope/native-close receipts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dns_wire_total_max_buffered_bytes: Option<usize>,
-    /// Per-file bound for component-owned file snapshots. Omission keeps the legacy exported config shape; production readers use 8 MiB by default.
+    /// Per-file bound for component-owned snapshots, including TLS certificate/key/OCSP material. Omission preserves existing defaults: 8 MiB for ordinary readers and 16 MiB for TLS material.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_read_max_bytes: Option<usize>,
     /// On-demand physical carriers per native MUX pool. Omission preserves the exported configuration shape and uses a conservative four-carrier cap.

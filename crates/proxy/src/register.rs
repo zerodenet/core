@@ -286,6 +286,12 @@ pub(crate) fn compiled_registries_with_network(
                         .effective_inbound_max_tasks_per_carrier(options.work_task_limit().get());
                     options
                         .with_inbound_source_limits(limits)?
+                        .with_tls_file_limit(
+                            std::num::NonZeroUsize::new(
+                                runtime.effective_tls_material_max_file_bytes(),
+                            )
+                            .unwrap(),
+                        )?
                         .with_inbound_work_limits(
                             std::num::NonZeroUsize::new(tasks).unwrap(),
                             runtime.effective_inbound_max_resources_per_carrier(257),
@@ -341,6 +347,12 @@ pub(crate) fn compiled_registries_with_network(
                         crate::adapters::source_budgets::limits(runtime, options.source_limits());
                     options
                         .with_inbound_source_limits(limits)?
+                        .with_tls_file_limit(
+                            std::num::NonZeroUsize::new(
+                                runtime.effective_tls_material_max_file_bytes(),
+                            )
+                            .unwrap(),
+                        )?
                         .with_inbound_work_limits(
                             std::num::NonZeroUsize::new(
                                 runtime.effective_inbound_max_tasks_per_carrier(520),
@@ -522,6 +534,12 @@ pub(crate) fn compiled_registries_with_network(
                         crate::adapters::source_budgets::limits(runtime, options.source_limits());
                     options
                         .with_inbound_source_limits(limits)?
+                        .with_tls_file_limit(
+                            std::num::NonZeroUsize::new(
+                                runtime.effective_tls_material_max_file_bytes(),
+                            )
+                            .unwrap(),
+                        )?
                         .with_inbound_work_limits(
                             std::num::NonZeroUsize::new(
                                 runtime.effective_inbound_max_tasks_per_carrier(516),
@@ -647,6 +665,12 @@ pub(crate) fn compiled_registries_with_network(
                         crate::adapters::source_budgets::limits(runtime, options.source_limits());
                     options
                         .with_inbound_source_limits(limits)?
+                        .with_tls_file_limit(
+                            std::num::NonZeroUsize::new(
+                                runtime.effective_tls_material_max_file_bytes(),
+                            )
+                            .unwrap(),
+                        )?
                         .with_inbound_work_limits(
                             std::num::NonZeroUsize::new(
                                 runtime.effective_inbound_max_tasks_per_carrier(516),
