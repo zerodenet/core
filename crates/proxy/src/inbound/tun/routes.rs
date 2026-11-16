@@ -431,6 +431,7 @@ async fn run(
                 // snapshot. A transient DNS bootstrap failure retains the
                 // last usable routes even when startup used non-strict mode.
                 true,
+                &spec.addresses,
             ) => prepared,
         };
         let exclusions = match prepared {

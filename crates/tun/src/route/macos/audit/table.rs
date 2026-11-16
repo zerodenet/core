@@ -5,14 +5,14 @@ use std::process::Command;
 use ipnet::IpNet;
 
 #[derive(Debug, Clone)]
-pub(super) struct RouteEntry {
+pub(in crate::route::macos) struct RouteEntry {
     pub prefix: IpNet,
     pub gateway: String,
     pub interface: String,
     pub flags: String,
 }
 
-pub(super) fn read(ipv6: bool) -> io::Result<Vec<RouteEntry>> {
+pub(in crate::route::macos) fn read(ipv6: bool) -> io::Result<Vec<RouteEntry>> {
     let output = Command::new("/usr/sbin/netstat")
         .args(["-rnW", "-f", if ipv6 { "inet6" } else { "inet" }])
         .env("LC_ALL", "C")
@@ -26,7 +26,7 @@ pub(super) fn read(ipv6: bool) -> io::Result<Vec<RouteEntry>> {
     parse(&output.stdout, ipv6)
 }
 
-pub(super) fn parse(output: &[u8], ipv6: bool) -> io::Result<Vec<RouteEntry>> {
+pub(in crate::route::macos) fn parse(output: &[u8], ipv6: bool) -> io::Result<Vec<RouteEntry>> {
     let text = std::str::from_utf8(output).map_err(io::Error::other)?;
     let mut header = false;
     let mut entries = Vec::new();

@@ -14,6 +14,8 @@ pub(super) struct RouteJournal {
     pub(super) egress: RouteInterface,
     #[serde(default)]
     pub(super) gateway: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) capture_gateway: Option<String>,
     pub(super) excluded: Vec<IpAddr>,
     pub(super) installed: Vec<String>,
     #[serde(default)]
@@ -146,6 +148,7 @@ impl RouteJournal {
             tun_index,
             egress,
             gateway,
+            capture_gateway: None,
             excluded: Vec::new(),
             installed: Vec::new(),
             scoped_bypass: false,

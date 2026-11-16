@@ -4,6 +4,9 @@ use std::net::IpAddr;
 use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 
+mod local;
+pub use local::tun_local_addresses;
+
 mod journal;
 mod leak;
 #[cfg(target_os = "linux")]

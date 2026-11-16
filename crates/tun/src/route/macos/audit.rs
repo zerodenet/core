@@ -3,9 +3,9 @@ use std::net::IpAddr;
 
 use ipnet::IpNet;
 
-use super::{add_exclusion, gateway_matches_family, run_route, SystemRouteGuard};
+use super::{add_exclusion, family, gateway_matches_family, run_route, SystemRouteGuard};
 
-mod table;
+pub(super) mod table;
 use table::RouteEntry;
 
 #[derive(Debug, Clone, Copy)]
@@ -13,6 +13,7 @@ enum RouteKind {
     Scoped,
     Exclusion(IpAddr),
     Capture,
+    Peer,
 }
 
 #[derive(Debug, Clone)]
@@ -98,6 +99,44 @@ fn reconcile_with(
 }
 
 impl SystemRouteGuard {
+    fn peer_route(&self) -> io::Result<Option<ExpectedRoute>> {
+        self.tun_gateway
+            .as_ref()
+            .map(|peer| {
+                Ok(ExpectedRoute {
+                    kind: RouteKind::Peer,
+                    prefix: format!("{peer}/32").parse().map_err(io::Error::other)?,
+                    interface: self.tun_name.clone(),
+                    gateway: None,
+                })
+            })
+            .transpose()
+    }
+
+    pub(super) fn audit_peer_route(&mut self) -> io::Result<bool> {
+        let expected = self.peer_route()?.into_iter().collect::<Vec<_>>();
+        if expected.is_empty() {
+            return Ok(false);
+        }
+        self.audit_expected(&expected)
+    }
+
+    pub(super) fn install_capture_routes(&mut self) -> io::Result<bool> {
+        let expected = self
+            .captured
+            .iter()
+            .map(|prefix| ExpectedRoute {
+                kind: RouteKind::Capture,
+                prefix: *prefix,
+                interface: self.tun_name.clone(),
+                gateway: self.tun_gateway.clone(),
+            })
+            .collect::<Vec<_>>();
+        // Validate every existing route before adding anything. An occupied
+        // prefix belongs to its actual owner, not to our new empty journal.
+        self.audit_expected(&expected)
+    }
+
     pub(super) fn audit_routes(&mut self) -> io::Result<bool> {
         let mut expected = Vec::new();
         if gateway_matches_family(self.ipv6, self.gateway.as_deref()) {
@@ -116,15 +155,22 @@ impl SystemRouteGuard {
             interface: self.egress.name().into(),
             gateway: self.gateway.clone(),
         }));
+        // An old physical /32 exclusion may have replaced the native peer
+        // route. Repair it before auditing the capture routes that use it.
+        expected.extend(self.peer_route()?);
         expected.extend(self.captured.iter().map(|prefix| ExpectedRoute {
             kind: RouteKind::Capture,
             prefix: *prefix,
             interface: self.tun_name.clone(),
             gateway: self.tun_gateway.clone(),
         }));
+        self.audit_expected(&expected)
+    }
+
+    fn audit_expected(&mut self, expected: &[ExpectedRoute]) -> io::Result<bool> {
         let ipv6 = self.ipv6;
         reconcile_with(
-            &expected,
+            expected,
             || table::read(ipv6),
             |route| {
                 match route.kind {
@@ -142,7 +188,28 @@ impl SystemRouteGuard {
                         self.journal.record_exclusion(peer)?;
                         add_exclusion(&self.egress, self.gateway.as_deref(), self.ipv6, peer)?;
                     }
-                    RouteKind::Capture => self.add(&route.prefix.to_string())?,
+                    RouteKind::Peer => {
+                        let prefix = route.prefix.to_string();
+                        run_route(&[
+                            "-n".into(),
+                            "add".into(),
+                            family(false).into(),
+                            "-host".into(),
+                            route.prefix.addr().to_string(),
+                            "-interface".into(),
+                            self.tun_name.clone(),
+                        ])?;
+                        if !self.journal.installed.contains(&prefix) {
+                            self.journal.record_route(&prefix)?;
+                        }
+                    }
+                    RouteKind::Capture => {
+                        let prefix = route.prefix.to_string();
+                        self.add(&prefix)?;
+                        if !self.journal.installed.contains(&prefix) {
+                            self.journal.record_route(&prefix)?;
+                        }
+                    }
                 }
                 tracing::info!(prefix = %route.prefix, interface = %route.interface,
                 "restored missing TUN route");

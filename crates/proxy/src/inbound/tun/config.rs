@@ -175,3 +175,9 @@ fn parse_ip(value: &str, field: &str) -> Result<IpAddr, EngineError> {
 fn invalid_input(message: impl Into<String>) -> EngineError {
     EngineError::Io(io::Error::new(io::ErrorKind::InvalidInput, message.into()))
 }
+
+/// Apply after every DNS discovery, including capture publication, reload and
+/// recovery. System resolvers may now contain our own synthetic DNS peer.
+pub(super) fn filter_route_exclusions(exclusions: &mut Vec<IpAddr>, local: &[IpAddr]) {
+    exclusions.retain(|address| !local.contains(address));
+}

@@ -269,12 +269,16 @@ impl Proxy {
                 )));
             }
         }
+        let address_pairs = interface_addresses
+            .iter()
+            .map(|address| (address.address, address.netmask))
+            .collect::<Vec<_>>();
         let primary = &interface_addresses[0];
         let address = primary.address;
         let prepared_network = match prepared_network {
             Some(prepared) => prepared,
             None => {
-                self.prepare_tun_network(auto_route, dns_hijack, strict_route)
+                self.prepare_tun_network(auto_route, dns_hijack, strict_route, &address_pairs)
                     .await?
             }
         };
@@ -287,10 +291,6 @@ impl Proxy {
         );
 
         let device = zero_tun::create(name).map_err(EngineError::Io)?;
-        let address_pairs = interface_addresses
-            .iter()
-            .map(|address| (address.address, address.netmask))
-            .collect::<Vec<_>>();
         device
             .configure_addresses(&address_pairs, mtu)
             .map_err(EngineError::Io)?;
@@ -487,17 +487,21 @@ impl Proxy {
     ) -> Result<(), EngineError> {
         let current = self.tun_info.lock().unwrap().clone();
         let prepared_network = if let Some(desired) = desired {
-            parse_interface_addresses(
+            let addresses = parse_interface_addresses(
                 &desired.addr,
                 &desired.mask,
                 desired.secondary_addr.as_deref(),
                 desired.dual_stack,
-            )?;
+            )?
+            .into_iter()
+            .map(|value| (value.address, value.netmask))
+            .collect::<Vec<_>>();
             Some(
                 self.prepare_tun_network(
                     desired.auto_route,
                     desired.dns_hijack,
                     desired.strict_route,
+                    &addresses,
                 )
                 .await?,
             )
@@ -566,6 +570,7 @@ impl Proxy {
         auto_route: bool,
         dns_hijack: bool,
         strict_route: bool,
+        addresses: &[(IpAddr, IpAddr)],
     ) -> Result<PreparedTunNetwork, EngineError> {
         let (dns_hijack, dns_route_exclusions) = self
             .prepare_tun_dns_hijack(dns_hijack, auto_route, strict_route)
@@ -576,6 +581,8 @@ impl Proxy {
             Vec::new()
         };
         if auto_route {
+            let local = zero_tun::tun_local_addresses(addresses).map_err(EngineError::Io)?;
+            config::filter_route_exclusions(&mut route_exclusions, &local);
             route_exclusions.retain(|address| tun_route_exclusion_required(*address));
             route_exclusions.sort_unstable();
             route_exclusions.dedup();

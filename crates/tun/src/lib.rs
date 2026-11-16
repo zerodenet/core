@@ -26,8 +26,8 @@ pub use owned_adopt::{AdoptedTunIo, AdoptedTunOwner, TunAcquisitionError, TunAcq
 mod route;
 pub use route::{
     capture_route_prefixes, capture_route_prefixes_with_exclusions, split_default_route_prefixes,
-    strict_route_socket_mark, EgressUnavailableReason, FamilyEgressState, RouteChangeMonitor,
-    RouteInterface, SystemLeakGuard, SystemRouteGuard,
+    strict_route_socket_mark, tun_local_addresses, EgressUnavailableReason, FamilyEgressState,
+    RouteChangeMonitor, RouteInterface, SystemLeakGuard, SystemRouteGuard,
 };
 
 // ── Address helpers ───────────────────────────────────────────────────
