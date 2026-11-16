@@ -1,5 +1,14 @@
 # 控制面兼容性与破坏性变更
 
+### VLESS standard Source masks and XHTTP session ownership
+
+VLESS 入站 TCP FinalMask 的普通 TCP/TLS/WS/H2/HTTP-Upgrade 与 gRPC/split-HTTP 入口改用同一 Host 原始账本持有的 inline 变换；冷准备只存原配方，真正材料在标准工厂 Build、凭据发布与 I/O 之前构造。删除这些生产路径的通道 worker 回退，保留 Custom 握手、Fragment、双向 Sudoku、原 native/control/endpoint、回压和独立半关闭。普通原生出站也显式选择 hosted 入口；原有 MUX/preconnect/mixed 前缀继续使用其实际已付材料及原载体。独立协议库便捷 API 继续保留原有执行能力。
+
+XHTTP 跨请求 session 到期清理由私有 tokio task 迁到创建请求的真实 AcceptedCaller Scope，HTTP/1、H2 和 H3 均保留真实来源 publisher，上传 HTTP 连接结束后仍能等待另一连接提供下载或缺失序号。注册失败、未开始轮询及取消均移除匹配的原逻辑条目并唤醒等待者；逻辑条目退休不作为 native close 或 Scope join 证据。原有 1024 个 session 和 30 秒 pending deadline 不变，split-HTTP 默认 accepted task ceiling 从 520 增至 1544 以覆盖既有容量，显式 runtime 上限继续优先，reload 的有效预算比较同步采用同一默认值。
+
+新增实际 SOCKS -> VLESS 的普通／复用 TCP 与 UDP、十种载体及 MUX 组合、双向大数据／半关闭、原 Source/provider 关闭回执，以及真实 accepted 原件下 session 到期／取消／join 的回归源码。按用户要求未编译、未运行测试；精确文件格式和静态调用链检查不代表运行验收。公开配置形状、API/events、ABI 和固定协议版本基线不变；Apple 授权、TEMP-WG-OUTER-UDP-01 运行验收及整体迁移继续保持未完成。
+
+
 VLESS 入站解密的 resume 票据／重放缓存维护现由同一个标准 Source 工厂、生命周期和原 Scope 监督，启用 resume 时显式声明一个 Critical 内部任务；无 resume 仍不启动维护任务。TCP 与现有 framed carrier、mKCP 和 QUIC 的生产解密入口改用原 hosted cache，删除握手时隐式启动私有 worker 的生产调用链；独立协议库便利 API 单独保留。原票据时限、缓存容量、重放拒绝、加密 wire 与原件关闭职责不变。
 
 UDP 多跳 codec 的 caller 交接改为必需的 Source 缓冲 grant 或同一 Host 业务内存账本；删除两个可空内存字段、旧 `wrap_with_memory` 入口和无预算生产编码／解码回退。原 Datagram／Stream provider、Scope、空包、多目标、codec 顺序及流量口径继续保留。本轮补充真实 Source/native provider 与加密／嵌套 codec 的回归源码，但按要求未编译和运行测试；公开配置、V1 API 与协议版本基线未调整。Apple 授权、TEMP-WG-OUTER-UDP-01 运行验收及整体迁移仍未完成。

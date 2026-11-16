@@ -63,6 +63,7 @@ impl Options {
             private_identity.hash(&mut hasher);
             identity.extend_from_slice(&hasher.finish().to_le_bytes());
         }
+        let work_tasks = NonZeroUsize::new(520 + prepared.session_tasks()).unwrap();
         Self {
             targets: prepared.target_endpoints(),
             file_root: prepared.file_root(),
@@ -77,7 +78,7 @@ impl Options {
             listen,
             prepared: Mutex::new(Some(prepared)),
             identity: identity.into(),
-            work_tasks: NonZeroUsize::new(520).unwrap(),
+            work_tasks,
             work_resources: 257,
             source_limits: InboundSourceLimits::default(),
             metadata_probes: NonZeroUsize::new(2).unwrap(),

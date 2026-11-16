@@ -9,7 +9,7 @@ mod owned;
 mod prepared;
 pub use owned::OwnedMasks;
 mod stream;
-pub use prepared::{wrap_prepared, PreparedMasks};
+pub use prepared::{wrap_hosted, wrap_prepared, PreparedMasks};
 #[derive(Debug, Clone)]
 pub enum Mask {
     Custom(Custom),

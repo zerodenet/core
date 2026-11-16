@@ -82,7 +82,7 @@ impl OwnedVlessInboundTransportPlan {
         >,
         RuntimeError,
     > {
-        let socket = zero_transport::finalmask::tcp::wrap_prepared(
+        let socket = zero_transport::finalmask::tcp::wrap_hosted(
             TcpRelayStream::from(socket),
             self.final_mask.tcp(),
             true,
@@ -234,7 +234,7 @@ impl OwnedVlessInboundTransportPlan {
             decryption: _,
         } = self;
 
-        let socket = zero_transport::finalmask::tcp::wrap_prepared(
+        let socket = zero_transport::finalmask::tcp::wrap_hosted(
             TcpRelayStream::from(socket),
             final_mask.tcp(),
             true,

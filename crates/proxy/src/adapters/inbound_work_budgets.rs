@@ -10,7 +10,18 @@ fn inbound_work_defaults(input: &InboundConfig) -> Option<(usize, usize, Option<
         I::Shadowsocks { .. } => (1, 0, None),
         I::Mieru { .. } => (514, 257, Some(256)),
         I::Vmess { .. } | I::Trojan { .. } => (516, 257, Some(256)),
-        I::Vless { mkcp, .. } => (520, 257, Some(if mkcp.is_some() { 128 } else { 256 })),
+        #[cfg(feature = "vless")]
+        I::Vless {
+            mkcp, split_http, ..
+        } => (
+            520 + if split_http.is_some() {
+                zero_transport::split_http::SplitHttpRegistry::MAX_SESSIONS
+            } else {
+                0
+            },
+            257,
+            Some(if mkcp.is_some() { 128 } else { 256 }),
+        ),
         I::Hysteria2 { .. } => (520, 257, Some(256)),
         _ => return None,
     })

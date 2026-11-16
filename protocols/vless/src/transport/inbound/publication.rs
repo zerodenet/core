@@ -50,6 +50,55 @@ impl VlessInboundListenerRequest {
     }
 }
 impl VlessInboundListenerRequest {
+    pub(crate) fn bind_host_masks(
+        mut self,
+        resources: &dyn zero_platform_tokio::contract::component::ResourceAccess,
+    ) -> Result<Self, zero_platform_tokio::contract::ChannelError> {
+        use zero_platform_tokio::contract::{ChannelError, Impact, Reason, Stage};
+        let fail = |source: std::io::Error| {
+            ChannelError::new(Stage::Prepare, Reason::InvalidConfig, Impact::Component)
+                .with_source(source)
+        };
+        if let Some(settings) = self.mask_recipe.take() {
+            self.transport.final_mask = if settings.tcp.is_empty() {
+                // Existing UDP source decorators keep their own original
+                // Metadata/grant preparation. This adds no TCP work or task.
+                zero_transport::finalmask::Profile::new(settings).map_err(fail)?
+            } else {
+                let book = resources.carrier_buffer_budget().ok_or_else(|| {
+                    fail(std::io::Error::other(
+                        "inbound TCP masks require the actual Host buffer book",
+                    ))
+                })?;
+                zero_transport::finalmask::Profile::new_owned(
+                    settings,
+                    book,
+                    resources.packet_driver_metadata()?,
+                )
+                .map_err(fail)?
+            };
+        } else if !self.transport.final_mask.tcp().is_empty() {
+            let book = resources.carrier_buffer_budget().ok_or_else(|| {
+                fail(std::io::Error::other(
+                    "retained inbound TCP masks have no original Host book",
+                ))
+            })?;
+            if !self
+                .transport
+                .final_mask
+                .same_owned_budget(&book, &resources.packet_driver_metadata()?)
+            {
+                return Err(ChannelError::new(
+                    Stage::Prepare,
+                    Reason::StalePlan,
+                    Impact::Component,
+                ));
+            }
+        }
+        Ok(self)
+    }
+}
+impl VlessInboundListenerRequest {
     pub(crate) fn prepare_decryption_maintenance(
         &self,
         cancel: zero_platform_tokio::contract::CancellationToken,
@@ -65,6 +114,20 @@ impl VlessInboundListenerRequest {
     }
 }
 impl PreparedVlessInboundListenerRequest {
+    pub(crate) fn bind_host_masks(
+        mut self,
+        resources: &dyn zero_platform_tokio::contract::component::ResourceAccess,
+    ) -> Result<Self, zero_platform_tokio::contract::ChannelError> {
+        self.request = self.request.bind_host_masks(resources)?;
+        Ok(self)
+    }
+    pub(crate) fn session_tasks(&self) -> usize {
+        if self.request.transport.split_http_registry.is_some() {
+            zero_transport::split_http::SplitHttpRegistry::MAX_SESSIONS
+        } else {
+            0
+        }
+    }
     pub(crate) fn requires_decryption_maintenance(&self) -> bool {
         self.request
             .transport
@@ -93,7 +156,10 @@ impl PreparedVlessInboundListenerRequest {
             .and_then(|profile| profile.file_root())
     }
     pub(crate) fn masks(&self) -> Vec<zero_transport::finalmask::udp::Mask> {
-        self.request.transport.final_mask.udp().to_vec()
+        self.request.mask_recipe.as_ref().map_or_else(
+            || self.request.transport.final_mask.udp().to_vec(),
+            |settings| settings.udp.clone(),
+        )
     }
     pub(crate) fn uses_mkcp(&self) -> bool {
         self.request.uses_mkcp()
@@ -125,11 +191,10 @@ impl PreparedVlessInboundListenerRequest {
             );
         }
         if self.request.uses_mkcp() {
-            zero_transport::finalmask::owned::validate(self.request.transport.final_mask.udp())
-                .map_err(|source| {
-                    ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
-                        .with_source(source)
-                })?;
+            zero_transport::finalmask::owned::validate(&self.masks()).map_err(|source| {
+                ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
+                    .with_source(source)
+            })?;
         }
         Ok(())
     }

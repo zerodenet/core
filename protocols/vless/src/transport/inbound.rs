@@ -42,6 +42,7 @@ pub struct VlessInboundListenerRequest {
     hysteria: Option<zero_transport::hysteria::Profile>,
     profile: crate::inbound::VlessInboundProfile,
     transport: OwnedVlessInboundTransportPlan,
+    mask_recipe: Option<zero_transport::finalmask::Settings>,
     fallback_enabled: bool,
     mux_response_backlog: crate::mux::MuxResponseBacklogPolicy,
 }
@@ -96,8 +97,18 @@ impl VlessInboundListenerRequest {
         mut self,
         settings: zero_transport::finalmask::Settings,
     ) -> Result<Self, RuntimeError> {
-        self.transport.final_mask = zero_transport::finalmask::Profile::new(settings)?;
+        self.transport.final_mask = zero_transport::finalmask::Profile::new(settings.clone())?;
+        self.mask_recipe = Some(settings);
         Ok(self)
+    }
+    /// Keep validated settings cold. The standard factory builds immutable
+    /// material against its actual Host before any accepted carrier executes.
+    pub fn with_host_final_mask_recipe(
+        mut self,
+        settings: zero_transport::finalmask::Settings,
+    ) -> Self {
+        self.mask_recipe = Some(settings);
+        self
     }
 
     pub fn accepts_proxy_protocol(&self) -> bool {
@@ -120,6 +131,7 @@ impl VlessInboundListenerRequest {
             hysteria: None,
             profile,
             transport,
+            mask_recipe: None,
             fallback_enabled,
             mux_response_backlog,
         }
@@ -272,6 +284,7 @@ impl VlessInboundListenerRequest {
             fallback_enabled,
             mux_response_backlog,
             transport,
+            mask_recipe: _,
         } = self;
         let stream = session::decrypt_library_stream(transport.decryption.as_ref(), stream).await?;
         accept_vless_stream_route(

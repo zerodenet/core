@@ -81,6 +81,13 @@ where
         .extensions()
         .get::<super::super::body::Caller>()
         .cloned();
+    let source = request
+        .extensions()
+        .get::<super::super::sessions::Source>()
+        .cloned()
+        .unwrap_or_else(|| super::super::sessions::Source::Tcp {
+            _original: accepted.clone(),
+        });
     let (id, sequence) = profile.meta(&request)?;
     tracing::trace!(session = %id, ?sequence, method = %request.method(), "XHTTP request dispatch");
     let method = request.method().clone();
@@ -108,8 +115,15 @@ where
         return Ok(status(400));
     }
     if upload && !stream_one {
-        let session =
-            sessions.get_with_limit(&id, profile.options.sc_max_buffered_posts as usize)?;
+        let session = match &caller {
+            Some(caller) => sessions.get_scoped(
+                &id,
+                profile.options.sc_max_buffered_posts as usize,
+                caller,
+                source,
+            )?,
+            None => sessions.get_with_limit(&id, profile.options.sc_max_buffered_posts as usize)?,
+        };
         if let Some(sequence) = sequence {
             return super::packet::upload(request, profile, session, sequence, permit, accepted)
                 .await;
@@ -168,8 +182,15 @@ where
     let session = if stream_one {
         None
     } else {
-        let session =
-            sessions.get_with_limit(&id, profile.options.sc_max_buffered_posts as usize)?;
+        let session = match &caller {
+            Some(caller) => sessions.get_scoped(
+                &id,
+                profile.options.sc_max_buffered_posts as usize,
+                caller,
+                source,
+            )?,
+            None => sessions.get_with_limit(&id, profile.options.sc_max_buffered_posts as usize)?,
+        };
         session.claim_download()?;
         tracing::debug!(session = %id, state = ?session.life.as_ptr(), "XHTTP download attached");
         Some(session)

@@ -16,6 +16,7 @@ pub(super) fn source(
     let request = prepared
         .take()
         .expect("validated original prepared source")
+        .bind_host_masks(context.resources.as_ref())?
         .activate();
     drop(prepared);
     let maintenance = request.prepare_decryption_maintenance(context.cancel.child_token())?;

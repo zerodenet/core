@@ -227,6 +227,8 @@ fn ordinary_mux_and_grpc_keep_encryption_in_protocol_framing() {
 
 #[cfg(feature = "socks5")]
 mod framed;
+#[cfg(feature = "socks5")]
+mod masks;
 
 #[cfg(feature = "socks5")]
 mod reverse;

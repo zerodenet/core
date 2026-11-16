@@ -5,6 +5,9 @@ pub struct SplitHttpRegistry {
     pub(super) requests: std::sync::Arc<tokio::sync::Semaphore>,
 }
 impl SplitHttpRegistry {
+    /// Existing listener-wide session capacity. Native Sources reserve this
+    /// finite additional accepted-task budget before any session can start.
+    pub const MAX_SESSIONS: usize = 1024;
     pub fn new() -> Self {
         Self::default()
     }

@@ -182,3 +182,5 @@ async fn blocked_upload_payload_remains_in_shared_byte_budget_until_cancelled() 
     drop(session);
     assert_eq!(budget.available_permits(), 4);
 }
+
+mod scoped;

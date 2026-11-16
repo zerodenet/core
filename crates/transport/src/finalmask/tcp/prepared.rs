@@ -41,16 +41,33 @@ impl PreparedMasks {
         self.0.is_empty()
     }
 }
+/// Actual hosted material only. The stream keeps its original native/control
+/// custody; mutable transforms run inline on the same reader/writer polls.
+pub async fn wrap_hosted(
+    stream: TcpRelayStream,
+    masks: &PreparedMasks,
+    server: bool,
+) -> io::Result<TcpRelayStream> {
+    if masks.is_empty() {
+        return Ok(stream);
+    }
+    let actual = masks
+        .1
+        .as_ref()
+        .ok_or_else(|| io::Error::other("hosted TCP masks lost their original material book"))?;
+    masks
+        .prepare_owned(actual.book.clone(), actual.metadata.clone())?
+        .wrap(stream, server)
+        .await
+}
+/// Explicit standalone library API. Hosted sources use wrap_hosted directly.
 pub async fn wrap_prepared(
     mut stream: TcpRelayStream,
     masks: &PreparedMasks,
     server: bool,
 ) -> io::Result<TcpRelayStream> {
-    if let Some(actual) = &masks.1 {
-        return masks
-            .prepare_owned(actual.book.clone(), actual.metadata.clone())?
-            .wrap(stream, server)
-            .await;
+    if masks.1.is_some() {
+        return wrap_hosted(stream, masks, server).await;
     }
     for mask in masks.0.iter() {
         stream = match mask {
@@ -63,11 +80,10 @@ pub async fn wrap_prepared(
                 .map_err(|_| io::Error::from(io::ErrorKind::TimedOut))??;
                 stream
             }
-            Prepared::Fragment(config) => TcpRelayStream::from_client(stream::Stream::new(
-                stream,
-                stream::Transform::Fragment(config.clone()),
-            )),
-            Prepared::Sudoku(profile) => TcpRelayStream::from_client(stream::Stream::new(
+            Prepared::Fragment(config) => TcpRelayStream::from_client(
+                stream::library::Stream::new(stream, stream::Transform::Fragment(config.clone())),
+            ),
+            Prepared::Sudoku(profile) => TcpRelayStream::from_client(stream::library::Stream::new(
                 stream,
                 stream::Transform::Sudoku(profile.clone(), server),
             )),

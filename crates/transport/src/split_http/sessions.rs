@@ -9,7 +9,9 @@ use std::{
 };
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 
-const MAX_SESSIONS: usize = 1024;
+const MAX_SESSIONS: usize = super::SplitHttpRegistry::MAX_SESSIONS;
+mod maintenance;
+pub(in crate::split_http) use maintenance::Source;
 #[cfg(test)]
 const MAX_POSTS: usize = 30;
 const MAX_BYTES: usize = 16 * 1024 * 1024;
@@ -96,38 +98,61 @@ impl Sessions {
     pub(super) fn get(&self, id: &str) -> io::Result<Arc<Session>> {
         self.get_with_limit(id, MAX_POSTS)
     }
+    /// Explicit standalone library path; native requests call get_scoped.
     pub(super) fn get_with_limit(&self, id: &str, max_posts: usize) -> io::Result<Arc<Session>> {
+        let (session, maintenance) = self.entry(id, max_posts)?;
+        if let Some(original) = maintenance {
+            maintenance::spawn_library(original);
+        }
+        Ok(session)
+    }
+    pub(super) fn get_scoped(
+        &self,
+        id: &str,
+        max_posts: usize,
+        caller: &super::body::Caller,
+        source: Source,
+    ) -> io::Result<Arc<Session>> {
+        // Check even when reusing a session: a retired incoming must not borrow
+        // a different carrier's live logical session as new task authority.
+        caller.0.check_open().map_err(io::Error::other)?;
+        let (session, maintenance) = self.entry(id, max_posts)?;
+        if let Some(original) = maintenance {
+            caller
+                .0
+                .spawn(
+                    zero_platform_tokio::contract::lifecycle::TaskClass::Auxiliary,
+                    move |_| async move {
+                        // Keep that actual publisher until expiration/logical return.
+                        // HTTP EOF cannot end its primary and revoke pending uploads
+                        // before a later connection supplies the download/sequence.
+                        let _source = source;
+                        original.run().await;
+                        Ok(())
+                    },
+                )
+                .map_err(io::Error::other)?;
+        }
+        Ok(session)
+    }
+    fn entry(
+        &self,
+        id: &str,
+        max_posts: usize,
+    ) -> io::Result<(Arc<Session>, Option<maintenance::Original>)> {
         let mut map = self.0.lock().unwrap();
         if let Some(session) = map.get(id) {
-            return Ok(session.clone());
+            return Ok((session.clone(), None));
         }
         if map.len() >= MAX_SESSIONS {
             return Err(io::Error::other("xhttp session capacity exceeded"));
         }
         let session = Arc::new(Session::new(self.1.clone(), max_posts));
         map.insert(id.into(), session.clone());
-        let weak = Arc::downgrade(&self.0);
-        let stored = Arc::downgrade(&session);
-        let key = id.to_owned();
-        tokio::spawn(async move {
-            let Some(session) = stored.upgrade() else {
-                return;
-            };
-            tokio::select! {
-                _ = tokio::time::sleep(Duration::from_secs(30)) => {
-                    if session.state.lock().unwrap().download { session.life.cancelled().await; }
-                    else { session.life.fail("xhttp pending session expired"); }
-                }
-                _ = session.life.cancelled() => {}
-            }
-            if let Some(map) = weak.upgrade() {
-                let mut map = map.lock().unwrap();
-                if map.get(&key).is_some_and(|s| Arc::ptr_eq(s, &session)) {
-                    map.remove(&key);
-                }
-            }
-        });
-        Ok(session)
+        let original = maintenance::Original::new(self, id, session.clone());
+        // Registration and possible future Drop occur outside this map lock.
+        // Rejected/not-polled registration retires exactly this entry as well.
+        Ok((session, Some(original)))
     }
 }
 

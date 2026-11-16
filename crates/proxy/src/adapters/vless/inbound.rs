@@ -91,12 +91,12 @@ impl VlessAdapter {
                 )
                 .map_err(EngineError::from)?
                 .with_transport_runtime(&self.runtime)
-                .with_final_mask(
+                .with_host_final_mask_recipe(
                     final_mask
                         .as_deref()
                         .map(finalmask::options)
                         .unwrap_or_default(),
-                )?
+                )
                 .with_mkcp_masks(
                     mkcp.as_deref().map(mkcp::settings),
                     &final_mask

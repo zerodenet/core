@@ -22,12 +22,10 @@ async fn actual_owned_custom_and_directional_sudoku_keep_full_payload_half_close
             crate::finalmask::Profile::new_owned(settings, book.clone(), metadata.clone()).unwrap();
         let masks = profile.tcp().clone();
         drop(profile);
-        let client = masks.prepare_owned(book.clone(), metadata.clone()).unwrap();
-        let server = masks.prepare_owned(book.clone(), metadata.clone()).unwrap();
+        let server_masks = masks.clone();
         let (client_io, server_io) = tokio::io::duplex(4096);
         let server = tokio::spawn(async move {
-            let mut stream = server
-                .wrap(TcpRelayStream::new(server_io), true)
+            let mut stream = wrap_hosted(TcpRelayStream::new(server_io), &server_masks, true)
                 .await
                 .unwrap();
             let mut received = Vec::new();
@@ -35,8 +33,7 @@ async fn actual_owned_custom_and_directional_sudoku_keep_full_payload_half_close
             stream.write_all(&received).await.unwrap();
             stream.shutdown().await.unwrap();
         });
-        let mut stream = client
-            .wrap(TcpRelayStream::new(client_io), false)
+        let mut stream = wrap_hosted(TcpRelayStream::new(client_io), &masks, false)
             .await
             .unwrap();
         let expected = vec![0x3a; 131073];

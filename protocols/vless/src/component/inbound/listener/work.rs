@@ -1,6 +1,11 @@
 //! Actual same-original accepted/peer admission ceilings.
 use super::*;
 impl Options {
+    /// Exact cold accepted-graph default, including actual XHTTP session jobs.
+    pub fn work_task_limit(&self) -> NonZeroUsize {
+        self.work_tasks
+    }
+
     pub(super) fn peer_limits(&self) -> DatagramPeerLimits {
         let mut limits = peer_limits();
         limits.max_peers = self.source_limits.datagram_peers;

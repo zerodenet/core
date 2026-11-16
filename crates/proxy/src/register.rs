@@ -279,13 +279,12 @@ pub(crate) fn compiled_registries_with_network(
                     }?;
                     let limits =
                         crate::adapters::source_budgets::limits(runtime, options.source_limits());
+                    let tasks = runtime
+                        .effective_inbound_max_tasks_per_carrier(options.work_task_limit().get());
                     options
                         .with_inbound_source_limits(limits)?
                         .with_inbound_work_limits(
-                            std::num::NonZeroUsize::new(
-                                runtime.effective_inbound_max_tasks_per_carrier(520),
-                            )
-                            .unwrap(),
+                            std::num::NonZeroUsize::new(tasks).unwrap(),
                             runtime.effective_inbound_max_resources_per_carrier(257),
                             std::num::NonZeroUsize::new(
                                 runtime.effective_inbound_max_in_flight_requests(

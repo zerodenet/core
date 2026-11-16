@@ -78,6 +78,7 @@ async fn run(
                 tasks.push(Box::pin(async move {
                     let (mut request,stream)=tokio::time::timeout(Duration::from_secs(30),resolver.resolve_request()).await.map_err(io::Error::other)?.map_err(io::Error::other)?;
                     request.extensions_mut().insert(Caller(caller.clone()));
+                    request.extensions_mut().insert(super::super::sessions::Source::H3 { _original: accepted.clone() });
                     let (mut send,mut recv)=stream.split();let (sender,receiver)=mpsc::channel(8);
                     let upload=super::super::body::spawn(Some(&Caller(caller)),async move {
                         let result=async {while let Some(mut data)=recv.recv_data().await.map_err(io::Error::other)?{let bytes=data.copy_to_bytes(data.remaining());sender.send(Ok(bytes)).await.map_err(io::Error::other)?;}Ok::<_,io::Error>(())}.await;

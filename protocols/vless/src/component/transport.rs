@@ -21,8 +21,13 @@ impl Outbound {
         }.map_err(|error| self.admission.attach(error,session))?;
         let transport = async {
             let io = zero_transport::TcpRelayStream::new(carrier::Carrier::new(io));
-            let io =
-                zero_transport::finalmask::tcp::wrap_prepared(io, self.masks.tcp(), false).await?;
+            let io = if self.datagram_budget.is_some() {
+                // The same established hosted mode already supplied these exact
+                // material books. Never reenter the standalone mask executor.
+                zero_transport::finalmask::tcp::wrap_hosted(io, self.masks.tcp(), false).await?
+            } else {
+                zero_transport::finalmask::tcp::wrap_prepared(io, self.masks.tcp(), false).await?
+            };
             let io = if let Some(reality) = &self.options.reality {
                 let stream = reality
                     .connect_with_navigation(io, |stream, host, plan| {
