@@ -1,5 +1,6 @@
 mod audit;
 mod cleanup;
+mod recovery;
 
 use std::io;
 use std::net::IpAddr;
@@ -162,16 +163,6 @@ impl SystemRouteGuard {
         self.cleanup()
     }
 
-    fn add(&self, prefix: &str) -> io::Result<()> {
-        let arguments = route_add_arguments(
-            self.ipv6,
-            &self.tun_name,
-            self.tun_gateway.as_deref(),
-            prefix,
-        );
-        run_route(&arguments).map(|_| ())
-    }
-
     fn install_exclusion(&mut self, peer: IpAddr) -> io::Result<()> {
         self.journal.record_exclusion(peer)?;
         if let Err(error) = add_exclusion(&self.egress, self.gateway.as_deref(), self.ipv6, peer) {
@@ -249,6 +240,7 @@ impl SystemRouteGuard {
         let tun_name = self.tun_name.clone();
         let tun_index = self.journal.tun_index;
         let capture_gateway = self.journal.capture_gateway.clone();
+        let pending = recovery::pending(&mut self.journal);
         let bypass = self.remove_owned_scoped_bypass();
         let routes = self.journal.cleanup(
             |prefix| {
@@ -262,7 +254,7 @@ impl SystemRouteGuard {
             },
             |peer| cleanup::remove_exclusion(ipv6, &egress, gateway.as_deref(), peer),
         );
-        combine_cleanup_errors(bypass, routes)
+        combine_cleanup_errors(pending, combine_cleanup_errors(bypass, routes))
     }
 }
 
@@ -379,6 +371,9 @@ fn recover_stale_routes(lease: &RouteLease, ipv6: bool) -> io::Result<()> {
     let Some(mut journal) = RouteJournal::load(lease, ipv6)? else {
         return Ok(());
     };
+    let pending = recovery::pending(&mut journal);
+    let legacy = recovery::legacy_capture(&journal);
+    let journal_path = journal.path.clone();
     let bypass = if journal.scoped_bypass {
         cleanup::remove_scoped_bypass(ipv6, &journal.egress, journal.gateway.as_deref())
             .and_then(|()| journal.forget_scoped_bypass())
@@ -392,6 +387,16 @@ fn recover_stale_routes(lease: &RouteLease, ipv6: bool) -> io::Result<()> {
     let capture_gateway = journal.capture_gateway.clone();
     let routes = journal.cleanup(
         |prefix| {
+            if legacy {
+                return recovery::confirm_absent_with(
+                    &journal_path,
+                    &tun_name,
+                    ipv6,
+                    prefix,
+                    "legacy journal lacks original capture identity",
+                    || audit::table::read(ipv6),
+                );
+            }
             cleanup::remove_capture(
                 ipv6,
                 &tun_name,
@@ -402,7 +407,7 @@ fn recover_stale_routes(lease: &RouteLease, ipv6: bool) -> io::Result<()> {
         },
         |peer| cleanup::remove_exclusion(ipv6, &egress, stale_gateway.as_deref(), peer),
     );
-    combine_cleanup_errors(bypass, routes)
+    combine_cleanup_errors(pending, combine_cleanup_errors(bypass, routes))
 }
 
 fn route_add_arguments(

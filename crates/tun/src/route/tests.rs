@@ -100,6 +100,7 @@ fn journal(path: std::path::PathBuf) -> RouteJournal {
         capture_gateway: None,
         excluded: Vec::new(),
         installed: Vec::new(),
+        pending: Vec::new(),
         scoped_bypass: false,
         path,
         _lease: None,

@@ -706,3 +706,27 @@ IPC、HTTP SSE 和 gRPC 的 wire 格式保持 `zero.api.v1` / `zero.event.v1`，
 开发期间只在版本矩阵和 `## Unreleased` 下登记，不预判最终发布版本，也不写入 Cargo 的 `-dev.N` 构建号。完整测试通过后，由 `Prepare Release` 工作流或 `scripts/release.sh` 将矩阵行、章节标题和 workspace 版本一起封板；禁止手工分别修改这些位置。
 
 Startup, supervision, reload and transaction-drain futures separate their heap-owned phases to fit the native Windows main stack. A one-MiB-thread regression reaches actual Ready and confirms shutdown; no larger process stack is required by the execution path.
+
+
+### macOS route acquisition intents and legacy recovery
+
+Peer repair and Capture installation now persist a separate pending intent
+before the system route operation, and confirm installation after success.
+Interrupted/failed outcomes remain pending; they never grant delete authority
+or disappear during ordinary journal cleanup. Journal writes sync their file
+and, on Unix, the renamed parent directory before returning.
+
+Old records with zero interface index or missing IPv4 capture gateway remain
+unknown. Recovery never substitutes current interface identity or adopts a
+matching route. Both old records and pending acquisitions retire automatically
+only after route-table readback confirms absence. Otherwise the existing TUN
+error/status reports TUN_ROUTE_RECOVERY_REQUIRED with the retained path/prefix,
+observations and recovery steps in release/tun-route-recovery.md. Known route
+cleanup still progresses independently; unresolved metadata remains retained.
+
+Regression sources cover durable intent before mutation, failed persistence,
+interrupted/failed mutation, old-schema recovery, preserved foreign routes and
+retry after external cleanup. Table fixtures prove policy only, not native close.
+No compilation, tests, privileged route mutation or runtime acceptance was run.
+Public control/config schema and FFI ABI are unchanged. Apple authorization and
+TEMP-WG running acceptance remain open.

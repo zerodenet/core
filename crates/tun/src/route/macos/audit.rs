@@ -190,7 +190,7 @@ impl SystemRouteGuard {
                     }
                     RouteKind::Peer => {
                         let prefix = route.prefix.to_string();
-                        run_route(&[
+                        let arguments = vec![
                             "-n".into(),
                             "add".into(),
                             family(false).into(),
@@ -198,17 +198,20 @@ impl SystemRouteGuard {
                             route.prefix.addr().to_string(),
                             "-interface".into(),
                             self.tun_name.clone(),
-                        ])?;
-                        if !self.journal.installed.contains(&prefix) {
-                            self.journal.record_route(&prefix)?;
-                        }
+                        ];
+                        self.journal
+                            .install_route_with(&prefix, || run_route(&arguments).map(|_| ()))?;
                     }
                     RouteKind::Capture => {
                         let prefix = route.prefix.to_string();
-                        self.add(&prefix)?;
-                        if !self.journal.installed.contains(&prefix) {
-                            self.journal.record_route(&prefix)?;
-                        }
+                        let arguments = super::route_add_arguments(
+                            self.ipv6,
+                            &self.tun_name,
+                            self.tun_gateway.as_deref(),
+                            &prefix,
+                        );
+                        self.journal
+                            .install_route_with(&prefix, || run_route(&arguments).map(|_| ()))?;
                     }
                 }
                 tracing::info!(prefix = %route.prefix, interface = %route.interface,

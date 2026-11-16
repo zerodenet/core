@@ -18,6 +18,9 @@ pub(super) struct RouteJournal {
     pub(super) capture_gateway: Option<String>,
     pub(super) excluded: Vec<IpAddr>,
     pub(super) installed: Vec<String>,
+    /// Persisted intent is not proof that this owner installed the route.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) pending: Vec<String>,
     #[serde(default)]
     pub(super) scoped_bypass: bool,
     #[serde(skip)]
@@ -100,6 +103,8 @@ impl Drop for RouteLease {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
+mod intent;
 #[cfg(test)]
 mod tests;
 
@@ -151,6 +156,7 @@ impl RouteJournal {
             capture_gateway: None,
             excluded: Vec::new(),
             installed: Vec::new(),
+            pending: Vec::new(),
             scoped_bypass: false,
             path: lease.journal_path.clone(),
             _lease: Some(lease),
@@ -228,7 +234,11 @@ impl RouteJournal {
                 }
             }
         }
-        if self.installed.is_empty() && self.excluded.is_empty() && !self.scoped_bypass {
+        if self.installed.is_empty()
+            && self.pending.is_empty()
+            && self.excluded.is_empty()
+            && !self.scoped_bypass
+        {
             if let Err(error) = self.clear() {
                 first_error.get_or_insert(error);
             }
@@ -239,7 +249,11 @@ impl RouteJournal {
     }
 
     fn persist_or_clear(&self) -> io::Result<()> {
-        if self.installed.is_empty() && self.excluded.is_empty() && !self.scoped_bypass {
+        if self.installed.is_empty()
+            && self.pending.is_empty()
+            && self.excluded.is_empty()
+            && !self.scoped_bypass
+        {
             self.clear()
         } else {
             self.persist()
@@ -249,12 +263,21 @@ impl RouteJournal {
     fn persist(&self) -> io::Result<()> {
         let encoded = serde_json::to_vec(self).map_err(io::Error::other)?;
         let temporary = self.path.with_extension("json.tmp");
-        std::fs::write(&temporary, encoded)?;
+        use std::io::Write;
+        let mut file = std::fs::File::create(&temporary)?;
+        file.write_all(&encoded)?;
+        file.sync_all()?;
+        drop(file);
         #[cfg(windows)]
         if self.path.exists() {
             std::fs::remove_file(&self.path)?;
         }
-        std::fs::rename(&temporary, &self.path)
+        std::fs::rename(&temporary, &self.path)?;
+        #[cfg(unix)]
+        if let Some(parent) = self.path.parent() {
+            std::fs::File::open(parent)?.sync_all()?;
+        }
+        Ok(())
     }
 
     fn clear(&self) -> io::Result<()> {

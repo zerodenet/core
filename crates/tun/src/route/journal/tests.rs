@@ -15,3 +15,5 @@ fn dropping_owner_releases_lease_while_a_duplicate_descriptor_survives() {
     drop(next);
     RouteLease::acquire_at(path, "third").unwrap();
 }
+
+mod intent;
