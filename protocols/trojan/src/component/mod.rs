@@ -1,5 +1,6 @@
 //! Protocol-owned ordinary Trojan Stream roles over a constrained real carrier.
 mod carrier;
+mod connect;
 mod datagram;
 pub mod inbound;
 pub mod mux;
@@ -96,53 +97,34 @@ impl StreamOutbound for Outbound {
         request: ConnectRequest,
         context: OpenContext,
     ) -> Result<Connected<BoxStream>, ChannelError> {
-        let session = self.admission.check(&context)?;
-        if context.upstream.binding().dial != self.options.dial {
-            return Err(self.admission.error(
-                session,
+        let (session, bytes) = self.prepare_stream(&request, &context)?;
+        let io = self.open_transport(&context, session).await?;
+        self.submit_stream(io, bytes, context, session).await
+    }
+    async fn connect_carrier(
+        &self,
+        request: ConnectRequest,
+        context: OpenContext,
+    ) -> Result<Connected<zero_platform_tokio::controlled_carrier::loan::StreamLoan>, ChannelError>
+    {
+        let browser = self.browser.as_ref().ok_or_else(|| {
+            self.admission.error(
+                None,
                 Stage::Prepare,
-                Reason::StalePlan,
+                Reason::Unsupported,
                 DeliveryState::NotSubmitted,
-            ));
-        }
-        let bytes = crate::shared::build_request_with_hash(
-            &self.options.password,
-            &request.destination.address,
-            request.destination.port,
-            crate::shared::CMD_TCP,
-        )
-        .map_err(|source| {
-            self.admission
-                .error(
-                    session,
-                    Stage::Prepare,
-                    Reason::InvalidConfig,
-                    DeliveryState::NotSubmitted,
-                )
-                .with_source(source)
+            )
         })?;
-        let mut io = self.open_transport(&context, session).await?;
-        let submit = async {
-            io.write_all(&bytes).await?;
-            io.flush().await
-        };
-        tokio::select! { biased;
-            _ = self.admission.cancelled() => return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
-            _ = context.cancel.cancelled() => return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-            result = with_deadline(context.deadline,submit) => result.map_err(|source| self.admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
-        }.map_err(|source| self.admission.error(session,Stage::Handshake,Reason::Io,DeliveryState::Unknown).with_source(source))?;
-        if let Some(observer) = &context.observer {
-            // WebSocket early data can defer the upgrade until write/flush.
-            // Only successful flush proves that the complete carrier is ready.
-            observer.record(session, ConnectFact::CarrierReady);
-            observer.record(session, ConnectFact::RequestSubmitted);
-            observer.protocol_traffic(session, 0, bytes.len() as u64);
-        }
-        // Trojan sends no successful CONNECT acknowledgement. write/flush is
-        // local submission only; the first business bytes may expose rejection.
+        let (session, bytes) = self.prepare_stream(&request, &context)?;
+        let (io, control, original) = browser.open_parts(&context).await?;
+        let connected = self.submit_stream(io, bytes, context, session).await?;
         Ok(Connected {
-            io: Box::pin(io),
-            peer_confirmation: PeerConfirmation::Deferred,
+            io: zero_platform_tokio::controlled_carrier::loan::StreamLoan::new(
+                connected.io,
+                control,
+                original,
+            ),
+            peer_confirmation: connected.peer_confirmation,
         })
     }
 }

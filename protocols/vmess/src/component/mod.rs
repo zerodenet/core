@@ -164,6 +164,58 @@ impl StreamOutbound for Outbound {
         )
         .await
     }
+    async fn connect_carrier(
+        &self,
+        request: ConnectRequest,
+        context: OpenContext,
+    ) -> Result<Connected<zero_platform_tokio::controlled_carrier::loan::StreamLoan>, ChannelError>
+    {
+        let browser = self.browser.as_ref().ok_or_else(|| {
+            self.admission.error(
+                None,
+                Stage::Prepare,
+                Reason::Unsupported,
+                DeliveryState::NotSubmitted,
+            )
+        })?;
+        let session = self.admission.check(&context)?;
+        if context.upstream.binding().dial != self.options.dial {
+            return Err(self.admission.error(
+                session,
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        crate::shared::validate_request_target(&request.destination.address).map_err(|source| {
+            self.admission
+                .error(
+                    session,
+                    Stage::Prepare,
+                    Reason::InvalidConfig,
+                    DeliveryState::NotSubmitted,
+                )
+                .with_source(source)
+        })?;
+        let (io, control, original) = browser.open_parts(&context).await?;
+        let connected = submit::submit(
+            &self.options,
+            &self.admission,
+            request,
+            context,
+            session,
+            io,
+        )
+        .await?;
+        Ok(Connected {
+            io: zero_platform_tokio::controlled_carrier::loan::StreamLoan::new(
+                connected.io,
+                control,
+                original,
+            ),
+            peer_confirmation: connected.peer_confirmation,
+        })
+    }
 }
 
 impl Outbound {

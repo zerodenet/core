@@ -1996,3 +1996,21 @@ Apple authorization, TEMP-WG-OUTER-UDP-01 runtime acceptance and the overall
 refactor remain open. Public config/control schema, FFI ABI and pinned protocol
 baselines are unchanged; native listener claims now include the actually selected
 cross-protocol Browser configuration.
+
+
+### VMess/Trojan Browser Stream carrier execution
+
+The actual standard Browser Stream roles now implement connect_carrier, closing
+the gap between their selected role and the previous default Unsupported entry.
+The same original Browser Source loan is transformed by protocol-owned framing;
+a prepaid logical controller keeps its real lower LoanOwner, sealed origin and
+close receipt. Ordinary and borrowed Trojan execution share one framing/submit
+implementation; VMess reuses its existing submit path. Full dial policy, actual
+Service caller, accounting and deferred peer confirmation remain intact. No
+new native socket, runtime, business Session or compatibility retry is created.
+
+Regression source adds real Proxy -> Browser VMess/Trojan -> SOCKS5 relay
+forwarding and the matching original carrier/Source/Scope receipts, alongside
+ordinary TCP/UDP behavior. These sources were not compiled or run. This does
+not complete Browser MUX/custom native profiles, unify resource-limit config,
+qualify unrelated donor graphs or close Apple/TEMP-WG runtime acceptance.

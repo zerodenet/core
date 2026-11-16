@@ -237,16 +237,22 @@ async fn vmess_and_trojan_browser_sources_forward_tcp_udp_and_retire_actual_orig
             outbound[if kind=="trojan" {"password"}else{"id"}]=serde_json::json!(ID);
             let mut alias=serde_json::json!({"type":if kind=="trojan" {"vmess"}else{"trojan"},"server":"127.0.0.1","port":remote.address.port(),"ws":{"path":"/original?ed=2048","browser_dialer":{"listen":BROWSER,"idle_capacity":1}}});
             alias[if kind=="trojan" {"id"}else{"password"}]=serde_json::json!(ID);
-            let client=fixture::start_owned(serde_json::json!({"runtime":{"native_stream_max_originals":1},"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"outbounds":[{"tag":"node","protocol":outbound},{"tag":"other","protocol":alias}],"route":{"final":{"type":"route","outbound":"node"}}}),"entry").await;
+            let client=fixture::start_owned(serde_json::json!({"runtime":{"native_stream_max_originals":1},"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"outbounds":[{"tag":"node","protocol":outbound.clone()},{"tag":"other","protocol":alias}],"route":{"final":{"type":"route","outbound":"node"}}}),"entry").await;
             let plan=client.proxy.tcp_runtime_services().components.clone().unwrap();
             let node=plan.configured("node").unwrap();let other=plan.configured("other").unwrap();
             assert_eq!(node.dependency_instances(),other.dependency_instances(),"cross-protocol aliases share the exact original provider generation");
             let mut trust=rustls::RootCertStore::empty();trust.add(certificate.cert.der().clone()).unwrap();
             let first=wire(&client,0x39,trust.clone()).await;let second=wire(&client,0x71,trust.clone()).await;
             assert!(first.owner.same_owner(&second.owner));assert!(!first.source.same_original(&second.source));assert_eq!(first.source.accepted().unwrap().instance(),second.source.accepted().unwrap().instance());
-            datagram(&client,trust).await;
+            datagram(&client,trust.clone()).await;
             let roots=client.proxy.protocols.runtime_host().original_budgets();client.close().await;
             assert!(second.owner.closed().unwrap().matches(&second.owner));assert_eq!(roots.carrier.snapshot().charged,0);
+            let last=fixture::start(serde_json::json!({"inbounds":[{"tag":"last","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"route":{"final":{"type":"direct"}}}),"last").await;
+            let relay=fixture::start_owned(serde_json::json!({"runtime":{"native_stream_max_originals":1},"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"outbounds":[{"tag":"node","protocol":outbound},{"tag":"last","protocol":{"type":"socks5","server":"127.0.0.1","port":last.address.port()}}],"outbound_groups":[{"tag":"chain","type":"relay","proxies":["node","last"]}],"route":{"final":{"type":"route","outbound":"chain"}}}),"entry").await;
+            let borrowed=wire(&relay,0xa3,trust).await;
+            let roots=relay.proxy.protocols.runtime_host().original_budgets();relay.close().await;
+            assert!(borrowed.owner.closed().unwrap().matches(&borrowed.owner));assert_eq!(roots.carrier.snapshot().charged,0);
+            last.close().await;
             remote.close().await;
         }
     }).await.unwrap();
