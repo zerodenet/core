@@ -564,3 +564,5 @@ mod ss_plugin_tests;
 #[cfg(all(test, feature = "wireguard"))]
 #[path = "runtime/tests/wg_packet.rs"]
 mod wg_packet_tests;
+
+mod urltest_schedule;

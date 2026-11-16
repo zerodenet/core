@@ -2,10 +2,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use tokio::sync::watch;
-use tokio::task::JoinSet;
 use tracing::info;
 use zero_config::InboundConfig;
-use zero_engine::EngineError;
 
 use crate::groups::UrlTestRuntime;
 use crate::runtime::route_runtime::InboundListenerRuntimeFactory;
@@ -32,7 +30,7 @@ pub(super) struct OrchestrationState {
     pub(super) expected_listener_exits: usize,
     pub(super) listener_stops: HashMap<String, watch::Sender<bool>>,
     pub(super) active_inbounds: HashMap<String, InboundConfig>,
-    pub(super) urltests: JoinSet<Result<(), EngineError>>,
+    pub(super) urltests: crate::runtime::urltest_schedule::Schedules,
     pub(super) services: crate::runtime::inbound_service::InboundServices,
     pub(super) reload_changes: zero_runtime::configuration::ConfigurationReconcileChanges,
     pub(super) source_dir: Option<PathBuf>,

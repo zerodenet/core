@@ -112,7 +112,8 @@ impl OrchestrationState {
         // Keep the original observer handles on timeout/cancellation. They
         // remain the live consumer of the actual persistent listener Scope;
         // dropping this state returns their same JoinSet to the registry.
-        self.urltests.shutdown().await;
+        self.urltests.clear();
+        self.urltest_runtime.clear_probe_triggers();
         if let Err(error) = self.services.shutdown().await {
             cleanup_errors.push(format!("Service Scope shutdown failed: {error}"));
             if result.is_ok() {

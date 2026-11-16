@@ -242,3 +242,5 @@ mod standard_stream;
     feature = "hysteria2"
 ))]
 mod tls_refresh;
+
+mod urltest_schedule;

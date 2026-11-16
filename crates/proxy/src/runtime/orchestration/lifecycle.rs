@@ -293,7 +293,7 @@ pub(super) fn handle_listener_result(
 }
 
 pub(super) fn handle_urltest_result(
-    result: Option<Result<Result<(), EngineError>, tokio::task::JoinError>>,
+    result: Option<crate::runtime::urltest_schedule::Outcome>,
     shutting_down: bool,
 ) -> Result<(), EngineError> {
     match result {

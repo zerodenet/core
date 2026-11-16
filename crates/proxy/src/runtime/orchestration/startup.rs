@@ -7,7 +7,6 @@ use crate::runtime::route_runtime::{InboundListenerRuntimeFactory, SharedIngress
 use crate::runtime::{listeners, Proxy};
 use std::collections::HashMap;
 use tokio::sync::watch;
-use tokio::task::JoinSet;
 use tracing::{error, info};
 use zero_engine::EngineError;
 
@@ -72,7 +71,7 @@ impl OrchestrationState {
                 })
                 .map(|inbound| (inbound.tag.clone(), inbound.clone()))
                 .collect(),
-            urltests: JoinSet::new(),
+            urltests: Default::default(),
             services: proxy.inbound_services.clone(),
             reload_changes,
             source_dir,
@@ -278,7 +277,7 @@ impl OrchestrationState {
         for group_id in self.urltest_runtime.group_ids() {
             let runtime = self.urltest_runtime.clone();
             let shutdown = self.shutdown_rx.clone();
-            self.urltests.spawn(async move {
+            self.urltests.push(async move {
                 info!(group_id = group_id.index(), "urltest runtime task started");
                 let result = runtime.run_urltest_group(group_id, shutdown).await;
                 match &result {

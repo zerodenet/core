@@ -688,8 +688,7 @@ impl OrchestrationState {
             &candidate_urltest_runtime,
             &self.shutdown_rx,
             &mut self.urltests,
-        )
-        .await;
+        );
         proxy.protocols.on_config_reloaded(&new_config);
         #[cfg(feature = "managed-stream-runtime")]
         if let Err(error) = self

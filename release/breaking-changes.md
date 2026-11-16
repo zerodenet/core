@@ -1922,3 +1922,31 @@ run. Only touched-file formatting and source consistency were checked. No public
 configuration shape, control API/event schema, FFI ABI or pinned protocol baseline
 was changed. Apple authorization, TEMP-WG-OUTER-UDP-01 runtime acceptance and the overall
 refactor remain open; this is implementation progress, not runtime acceptance.
+
+
+### URLTest production scheduler on the original caller
+
+Startup and configuration reload now install URLTest group continuations in
+the existing orchestration caller. Parallel timer/manual-trigger futures retain
+the same group runtime and call the actual Host ProbeCall / standard Stream
+provider; no second executor, task owner or native provider is constructed.
+The URLTest JoinSet, group task spawning, abort-on-reload chain and private
+shutdown executor are removed. Pending work survives cancellation of the outer
+select wait; explicit generation retirement destroys the original group futures
+before installing replacements. Their existing coalesced ProbeOriginal waiter
+requests cancellation of the same actual Host call. Logical waiter return and
+trigger removal remain distinct from actual native closure and Scope receipts.
+
+Scheduled/startup probes, parallel groups, manual trigger coalescing, probe
+limits, policy publication and original errors remain supported. A panicking
+continuation retains its original payload rather than fabricating a task join
+error. Regression sources drive real pending socket I/O in the same registered
+caller, cover completion and cancellation, and consume matching original
+controller/Scope receipts; they also retain original panic identity. Existing
+production URLTest forwarding/manual/reload regressions remain in place.
+
+No compilation or test execution was performed. Touched-file formatting and
+source consistency checks do not establish runtime acceptance. Apple process
+authorization, TEMP-WG-OUTER-UDP-01 runtime acceptance and the broader refactor
+remain open. No public config/control schema, FFI ABI or protocol baseline is
+changed.
