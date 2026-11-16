@@ -123,9 +123,14 @@ pub(crate) async fn execute_prepared_udp_candidate(
             PreparedUdpLeafCandidate::Block { .. } => {
                 !matches!(session.target, zero_core::Address::Domain(_))
             }
-            PreparedUdpLeafCandidate::Flow(operation) => {
-                operation.controlled_native_coverage(session)
+            PreparedUdpLeafCandidate::Direct(_) => {
+                !matches!(session.target, zero_core::Address::Domain(_))
+                    && !matches!(
+                        session.effective_direct_target(),
+                        zero_core::Address::Domain(_)
+                    )
             }
+            PreparedUdpLeafCandidate::Flow(_) => false,
             #[cfg(feature = "upstream-association-runtime")]
             PreparedUdpLeafCandidate::Datagram(_) => false,
             #[cfg(feature = "managed-stream-runtime")]
@@ -141,6 +146,9 @@ pub(crate) async fn execute_prepared_udp_candidate(
     }
     match prepared {
         PreparedUdpLeafCandidate::Block { tag } => Ok(FlowStartResult::Blocked { tag }),
+        PreparedUdpLeafCandidate::Direct(target) => {
+            super::direct::start(dispatch, ctx.runtime_services(), session, payload, target).await
+        }
         #[cfg(feature = "managed-stream-runtime")]
         PreparedUdpLeafCandidate::DatagramFlow(target) => {
             let tag = target.tag();

@@ -1,6 +1,6 @@
 //! Real dispatch/admission and the actual peer/provider, with explicit fixture grants.
 use super::*;
-use crate::runtime::{pipe::UdpPipeInput, udp_dispatch::operation::LiveDirectSource};
+use crate::runtime::{pipe::UdpPipeInput, udp_dispatch::LiveDirectSource};
 use std::{
     future::{poll_fn, Future},
     task::Poll,

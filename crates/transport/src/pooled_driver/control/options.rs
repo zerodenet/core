@@ -78,6 +78,9 @@ impl PoolOptions {
     pub fn binding(&self) -> &UpstreamBinding {
         &self.binding
     }
+    pub fn stream_dependency(&self) -> Option<zero_core::component::ComponentId> {
+        self.stream_dependency
+    }
 }
 #[cfg(test)]
 #[path = "../../../tests/pooled_driver/preparation.rs"]

@@ -49,9 +49,32 @@ impl ComponentPlan {
             })?;
         if !owner.recipe.spec().resources.iter().any(|resource| matches!(resource,
             zero_platform_tokio::contract::component::ResourceDeclaration::ControlledServiceStream { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeCarrier { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeStream { .. })) {
-            return Err(invalid(Reason::Unsupported, "background owner has no finite controlled declaration"));
+            // Callable MUX/gRPC/Mieru roles can be resource-free projections of
+            // one directly declared actual pool. Charge that real owner, never
+            // invent a finite resource on the role or retain a second registry.
+            let spec = owner.recipe.spec();
+            if !spec.resources.is_empty() || spec.task_limit.is_some() {
+                return Err(invalid(Reason::Unsupported, "background owner has no finite controlled declaration"));
+            }
+            let pools = owner.dependency_instances().iter().filter_map(|dependency| {
+                self.order.iter().find(|slot| slot.instance_id() == *dependency)
+            }).filter(|slot| {
+                let spec = slot.recipe.spec();
+                spec.roles.is_empty() && spec.resources.iter().any(|resource| matches!(resource,
+                    zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { .. }
+                    | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool { .. }
+                    | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier { .. }))
+            }).collect::<Vec<_>>();
+            if pools.is_empty() {
+                return Err(invalid(Reason::Unsupported, "resource-free role has no direct actual carrier pool"));
+            }
+            for pool in pools {
+                self.authorize_carrier_prefix(pool.instance_id(), prefix)?;
+            }
+            return Ok(());
         }
         let mut donors = Vec::new();
+        let mut coupled = Vec::new();
         for role in prefix {
             let slot = self
                 .role_slot(*role)
@@ -62,6 +85,19 @@ impl ComponentPlan {
                     Reason::Unsupported,
                     "background borrowing cannot depend on deferred native device start",
                 ));
+            }
+            // Separate logical uses of this same concrete owner are already
+            // charged to its real original/resource ledger. They create no
+            // cross-component retirement edge or self-dependency.
+            if slot.instance_id() == consumer {
+                continue;
+            }
+            if owner.same_lifecycle_group(&slot) {
+                // This exact cold-bound assembly owns both controllers/scopes.
+                // Its members retire together and all their original receipts
+                // remain mandatory; there is no independent inverse edge.
+                coupled.push(slot.admission_grant());
+                continue;
             }
             let spec = slot.recipe.spec();
             // A resource/task-free role directly backed by this same pool
@@ -85,7 +121,7 @@ impl ComponentPlan {
             })
             .collect();
         self.borrowing
-            .borrow_from(owner.admission_grant(), donors, &declared)
+            .borrow_from(owner.admission_grant(), donors, &coupled, &declared)
     }
     pub(super) fn retirement_dependencies(
         &self,

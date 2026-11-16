@@ -4,6 +4,7 @@ mod business;
 mod cleanup;
 mod construction;
 mod health;
+mod lifecycle_group;
 mod node_dns;
 mod observations;
 mod original_budgets;
@@ -69,6 +70,7 @@ pub struct ComponentSlot {
     pub generation: ResourceGeneration,
     pub recipe: ComponentRecipe,
     dependencies: Arc<[ComponentInstanceId]>,
+    lifecycle_group: OnceLock<Arc<[ComponentInstanceId]>>,
     dependency_slots: OnceLock<Arc<[std::sync::Weak<ComponentSlot>]>>,
     legacy_connect_stage: &'static str,
     pub dial: zero_traits::DialPolicy,
@@ -93,6 +95,9 @@ pub struct ComponentSlot {
     packet_source: Arc<OnceLock<zero_platform_tokio::controlled_carrier::CarrierOrigin>>,
 }
 struct Live {
+    accepted_carriers:
+        Option<Arc<zero_platform_tokio::controlled_carrier::AcceptedCarrierProvider>>,
+
     packet: Option<Arc<dyn DynPacketOutbound>>,
     stream: Option<Arc<dyn DynStreamOutbound>>,
     datagram: Option<Arc<dyn DynDatagramOutbound>>,

@@ -89,7 +89,42 @@ impl AcceptedCaller {
         })
     }
 }
+/// Passive proof from this exact original row. Keeping it grants no cleanup,
+/// task or native authority; disappearance of a handle is never its close proof.
+#[derive(Clone)]
+pub struct AcceptedResourceObservation {
+    original: Arc<Retained>,
+}
+impl AcceptedResourceObservation {
+    pub fn confirmed_closed(&self) -> bool {
+        self.original.complete()
+    }
+}
 impl AcceptedResource {
+    pub fn observation(&self) -> AcceptedResourceObservation {
+        AcceptedResourceObservation {
+            original: self.original.clone(),
+        }
+    }
+    pub fn names_driver(&self, driver: &TaskJoinWitness) -> bool {
+        self.original
+            .driver
+            .get()
+            .and_then(|task| task.get())
+            .is_some_and(|(_, actual)| actual.same_registration(driver))
+    }
+    pub fn confirmed_closed(&self) -> bool {
+        self.original.complete()
+    }
+    pub fn belongs_to(&self, caller: &AcceptedCaller) -> bool {
+        self.users.ptr_eq(&caller.users)
+            && self
+                .original
+                .logical_owner
+                .as_ref()
+                .is_some_and(|actual| Arc::ptr_eq(actual, &caller.task))
+    }
+
     /// Called inside the actual spawn constructor, before admission or I/O.
     /// The same scope publishes its original task/witness into this exact cell.
     pub fn bind_driver(&self, tasks: &AcceptedTasks) -> Result<(), ChannelError> {
@@ -120,6 +155,24 @@ impl AcceptedResource {
             .driver
             .set(tasks.task.clone())
             .map_err(|_| gone())
+    }
+    /// Request the same original logical owner's stop without claiming its
+    /// driver/Scope join or native close. The retained row remains installed.
+    pub async fn request_stop(&self, deadline: Instant) -> Result<(), ChannelError> {
+        let mut owner = tokio::time::timeout_at(deadline, self.original.owner.lock())
+            .await
+            .map_err(|source| {
+                failure(
+                    Stage::Close,
+                    Reason::Timeout,
+                    "logical owner stop remains pending",
+                )
+                .with_source(source)
+            })?;
+        if let Some(owner) = owner.as_mut() {
+            owner.revoke(crate::contract::CloseReason::Shutdown);
+        }
+        Ok(())
     }
     pub async fn close(&self, deadline: Instant) -> Result<bool, ChannelError> {
         if self.original.complete() {

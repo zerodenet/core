@@ -2,6 +2,7 @@
 use super::*;
 #[derive(Clone)]
 pub(super) struct Outbound {
+    pub(super) control_only: bool,
     pub(super) inner: Arc<dyn DynStreamOutbound>,
     // None is the original explicit library contract, which prepares inline.
     // Every ordinary owning Factory installs its real Scope registrar above.
@@ -24,6 +25,9 @@ impl StreamOutbound for Outbound {
         request: ConnectRequest,
         context: OpenContext,
     ) -> Result<Connected<BoxStream>, ChannelError> {
+        if self.control_only && !dialed_ingress(&context) {
+            return self.inner.connect(request, context).await;
+        }
         if context.session_identity()?.is_some() && context.upstream.has_tracked_business_caller() {
             return self.connect_business(request, context).await;
         }
@@ -44,6 +48,9 @@ impl StreamOutbound for Outbound {
         request: ConnectRequest,
         context: OpenContext,
     ) -> Result<Connected<StreamLoan>, ChannelError> {
+        if self.control_only && !dialed_ingress(&context) {
+            return self.inner.connect_carrier(request, context).await;
+        }
         if context.session_identity()?.is_some() || context.upstream.binding().dial != self.dial {
             return Err(crate::component::instance::invalid(
                 Reason::StalePlan,
@@ -111,4 +118,8 @@ impl StreamOutbound for Outbound {
             });
         }
     }
+}
+
+fn dialed_ingress(context: &OpenContext) -> bool {
+    matches!(&context.identity,zero_platform_tokio::contract::context::RequestIdentity::Service(facts) if facts.purpose==zero_core::request::ServicePurpose::DialedIngress)
 }

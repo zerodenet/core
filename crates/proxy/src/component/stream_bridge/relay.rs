@@ -1,5 +1,7 @@
 //! Real Stream roles composed through a strictly shorter selected prefix.
 pub(crate) mod background;
+mod selected_prefix;
+pub(crate) use selected_prefix::connect as connect_prefix;
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) mod datagram;
 mod health;
@@ -262,7 +264,7 @@ pub(crate) async fn connect(
         )
         .map_err(normalize)?
         .map(|request| request.with_prefix(&binding.prefix));
-        if business.is_some() {
+        if business.is_some() || plan.has_stream_loan_provider(slots[index + 1].role_id()) {
             plan.authorize_carrier_prefix(slots[index + 1].instance_id(), &binding.prefix)
                 .map_err(normalize)?;
         }

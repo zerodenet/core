@@ -1,6 +1,26 @@
 //! Attach one concrete Endpoint to this exact pre-I/O ancillary original.
 use super::*;
 use crate::controlled_carrier::{CarrierProtocolRetirement, RejectedOriginalProtocolControl};
+impl MetadataPoolOrigin {
+    /// Drive the already installed controller of this exact historical
+    /// original. The same Scope check still applies; no native grant is issued.
+    pub async fn retire_protocol(
+        &self,
+        tasks: &TaskRegistrar,
+        end: tokio::time::Instant,
+    ) -> Result<bool, ChannelError> {
+        if self.closed().is_some() {
+            return Ok(true);
+        }
+        let slot = self.slot.upgrade().ok_or_else(|| {
+            error(
+                Reason::Revoked,
+                "metadata original disappeared before protocol retirement",
+            )
+        })?;
+        MetadataPoolPermit(slot).retire_protocol(tasks, end).await
+    }
+}
 impl MetadataPoolPermit {
     pub fn install_protocol_control(
         &self,

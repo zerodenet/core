@@ -112,4 +112,25 @@ impl Carrier {
             },
         }
     }
+
+    /// The logical standalone source has no Bound socket of its own. Return
+    /// its actual outer views/attempts after joining the wire, before the same
+    /// Source's provider shutdown observes its complete original call book.
+    pub(in crate::runtime::raw_ip::device) async fn close_logical(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), EngineError> {
+        let Self::Logical(original) = self else {
+            return Err(std::io::Error::other("logical cleanup names a physical wire").into());
+        };
+        original.stopped.store(true, Ordering::Release);
+        match original.path.get() {
+            Some(path) => tokio::time::timeout_at(deadline, path.close_native())
+                .await
+                .map_err(|source| std::io::Error::new(std::io::ErrorKind::TimedOut, source))?,
+            // No path was handed in. Any interrupted initial build remains in
+            // the same Source's original call book, independently of this view.
+            None => Ok(()),
+        }
+    }
 }

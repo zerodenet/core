@@ -100,6 +100,19 @@ async fn ordinary_mieru_owned_udp_handoff_preserves_both_underlays_reuse_and_pay
                 };
                 *transport = zero_config::MieruTransport::Udp;
             }
+            config.outbounds.push(
+                serde_json::from_value(serde_json::json!({
+                    "tag":"plain", "protocol":{"type":"direct"}
+                }))
+                .unwrap(),
+            );
+            // A separate business alias cannot demote this root's TCP/UDP pool.
+            config.outbound_groups.push(
+                serde_json::from_value(serde_json::json!({
+                    "tag":"unused-branch", "type":"relay", "proxies":["node","plain"]
+                }))
+                .unwrap(),
+            );
             let proxy = Proxy::new(config).unwrap();
             let config = proxy.engine().runtime_snapshot().config().clone();
             proxy
@@ -130,7 +143,11 @@ async fn ordinary_mieru_owned_udp_handoff_preserves_both_underlays_reuse_and_pay
                         .unwrap();
                     let mut total = 0;
                     let mut previous = None;
-                    for payload in [b"owned-one".as_slice(), b"owned-two".as_slice()] {
+                    for payload in [
+                        b"owned-one".as_slice(),
+                        b"".as_slice(),
+                        b"owned-two".as_slice(),
+                    ] {
                         let id = dispatch
                             .dispatch(UdpPipeInput {
                                 peer_identity: None,

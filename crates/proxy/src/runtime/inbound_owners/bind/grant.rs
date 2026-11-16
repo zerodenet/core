@@ -58,7 +58,7 @@ impl NativeTcpGrant {
                 Impact::Component,
             ));
         };
-        let native = match declaration {
+        let mut native = match declaration {
             ResourceDeclaration::TcpListener {
                 accepted: Some(limits),
                 ..
@@ -85,6 +85,9 @@ impl NativeTcpGrant {
             )?,
             _ => ControlledTcpListenerOwner::new(declaration, max_bind_attempts, cancel.clone())?,
         };
+        if let Some(address) = address {
+            native.refine_literal_endpoint(address)?;
+        }
         let accepted = native.accepted_task_receiver();
         let addresses = OnceLock::new();
         if let Some(address) = address {

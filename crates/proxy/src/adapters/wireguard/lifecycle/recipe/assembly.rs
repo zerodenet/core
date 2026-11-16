@@ -3,7 +3,7 @@ use super::*;
 impl LinkedEndpointRecipe {
     /// Split one pure candidate into the canonical graph owner and its short
     /// BuildNew invocation. No query budget or network service enters Options.
-    pub(super) fn into_component(
+    pub(in crate::adapters::wireguard::lifecycle) fn into_component(
         self,
         preparation: &mut crate::component::ResourcePreparation<'_>,
     ) -> Result<(zero_core::component::ComponentId, LinkedInvocation), EngineError> {
@@ -27,48 +27,6 @@ impl LinkedEndpointRecipe {
                 .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
         }
         Ok((id, invocation))
-    }
-    pub(in crate::adapters::wireguard::lifecycle) fn into_retained_component(
-        self,
-        preparation: &mut crate::component::ResourcePreparation<'_>,
-        candidate: &super::super::pending_map::PendingEntries,
-    ) -> Result<zero_core::component::ComponentId, EngineError> {
-        self.check_staged()?;
-        let tag = self.tag.clone();
-        let ready = self.pending.ready().is_some();
-        let binding = self.binding.clone();
-        let fresh = self.reuse.is_none();
-        let (options, invocation) = self.into_parts()?;
-        let id = preparation
-            .prepare_component(
-                SHARED_NAMESPACE,
-                Arc::new(LinkedStackFactory),
-                options.clone(),
-            )
-            .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
-        if options.resource.get_or_init(|| id) != &id {
-            return Err(invalid(
-                "same graph was assigned a different canonical resource",
-            ));
-        }
-        if fresh {
-            preparation
-                .require_fresh_resource(id)
-                .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
-        }
-        candidate
-            .invocations
-            .try_lock()
-            .map_err(|source| EngineError::Io(std::io::Error::other(source)))?
-            .entry(tag)
-            .or_insert_with(|| {
-                if ready {
-                    retained::RetainedInvocation::Installed { binding }
-                } else {
-                    retained::RetainedInvocation::Prepared(Box::new(invocation))
-                }
-            });
-        Ok(id)
     }
     pub(super) fn into_parts(
         mut self,

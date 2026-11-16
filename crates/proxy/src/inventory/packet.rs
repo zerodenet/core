@@ -6,16 +6,12 @@ use zero_engine::{ResolvedLeafOutbound, ResolvedOutbound};
 use zero_stack::packet::{IPPROTO_ICMP, IPPROTO_ICMPV6, IPPROTO_TCP, IPPROTO_UDP};
 
 use super::ProtocolInventory;
-use crate::runtime::network_graph::{NetworkGraph, Plane};
-use crate::runtime::{packet_route::PreparedPacketRouteOperation, path::TcpPathCategory};
 
 pub(crate) enum PacketRouteTarget {
     Packet {
         tag: String,
         translated: bool,
-        operation: std::sync::Arc<dyn PreparedPacketRouteOperation>,
-        role: Option<zero_core::component::RoleInstanceId>,
-        builtin: bool,
+        role: zero_core::component::RoleInstanceId,
     },
     Flow,
     DirectEcho {
@@ -99,118 +95,116 @@ impl ProtocolInventory {
         admission: &zero_engine::EndpointAdmission<'_>,
         components: Option<&crate::component::catalog::ComponentPlan>,
     ) -> PacketRouteTarget {
-        // Flow admission is determined by the same installed generation that
-        // TCP/UDP dispatch will execute. Do not construct a legacy claim just
-        // to discover these roles: that may touch another protocol pool and
-        // makes factory-only outbounds disappear from Packet -> Flow routing.
-        if let ResolvedLeafOutbound::Proxy { identity } = &leaf {
-            if let Some(input) = config.outbounds.get(identity.config_index()) {
+        use zero_platform_tokio::contract::component::RoleKind;
+        let flow_protocol = matches!(protocol, Some(IPPROTO_TCP | IPPROTO_UDP));
+        if matches!(leaf, ResolvedLeafOutbound::Block { .. }) {
+            return if mode != RouteMode::Packet && flow_protocol {
+                PacketRouteTarget::Flow
+            } else {
+                PacketRouteTarget::Block
+            };
+        }
+        let (tag, slot, direct, policy) = match &leaf {
+            ResolvedLeafOutbound::Direct {
+                tag, dial_policy, ..
+            } => (
+                tag.map(str::to_owned).unwrap_or_else(|| "direct".into()),
+                components
+                    .and_then(|plan| plan.direct(*tag).ok())
+                    .filter(|slot| slot.dial == *dial_policy),
+                true,
+                dial_policy.clone(),
+            ),
+            ResolvedLeafOutbound::Proxy { identity } => {
+                let Some(input) = config.outbounds.get(identity.config_index()) else {
+                    return PacketRouteTarget::Unsupported;
+                };
                 if admission.outbound_denial(input.tag()).is_some() {
                     return PacketRouteTarget::Unsupported;
                 }
-                if let Some(slot) = components.and_then(|plan| plan.configured(input.tag())) {
-                    use zero_platform_tokio::contract::component::RoleKind;
-                    let roles = &slot.recipe.spec().roles;
-                    let flow = match protocol {
-                        Some(IPPROTO_TCP) => roles.contains(&RoleKind::Stream),
-                        Some(IPPROTO_UDP) => roles.contains(&RoleKind::Datagram),
-                        _ => false,
-                    };
-                    if flow
-                        && (matches!(mode, RouteMode::Flow | RouteMode::Translate)
-                            || (mode == RouteMode::Auto && !roles.contains(&RoleKind::Packet)))
-                    {
-                        return PacketRouteTarget::Flow;
-                    }
-                }
+                (
+                    input.tag().to_owned(),
+                    components.and_then(|plan| plan.configured(input.tag())),
+                    false,
+                    input.dial.to_policy(),
+                )
             }
-        }
-        let Ok(claimed) = self.claim_outbound_leaf(config, leaf) else {
-            return PacketRouteTarget::Unsupported;
+            ResolvedLeafOutbound::Block { .. } => unreachable!(),
         };
-        let runtime = claimed.runtime();
-        match runtime.tcp_path {
-            TcpPathCategory::Block
-                if mode != RouteMode::Packet
-                    && matches!(protocol, Some(IPPROTO_TCP | IPPROTO_UDP)) =>
-            {
-                return PacketRouteTarget::Flow;
-            }
-            TcpPathCategory::Block => return PacketRouteTarget::Block,
-            _ => {}
-        }
+        // Selection retains the exact installed role, never a protocol plan,
+        // private pool or callback to be patched with a provider afterwards.
+        let native = slot.as_ref().filter(|slot| {
+            (!direct || policy == zero_traits::DialPolicy::default())
+                && components.is_some_and(|plan| plan.has_packet_provider(slot.role_id()))
+        });
+        let translated = native.is_some_and(|slot| {
+            components.is_some_and(|plan| plan.has_device_carrier_provider(slot.role_id()))
+        });
         if mode == RouteMode::Translate && matches!(protocol, Some(IPPROTO_ICMP | IPPROTO_ICMPV6)) {
-            return match claimed.prepare_translated_packet_route() {
-                Some(operation) => PacketRouteTarget::Packet {
-                    builtin: runtime.tag.is_none(),
-                    tag: runtime.tag.unwrap_or_else(|| "direct".into()),
+            return match native.filter(|_| translated) {
+                Some(slot) => PacketRouteTarget::Packet {
+                    tag,
                     translated: true,
-                    role: None,
-                    operation,
+                    role: slot.role_id(),
                 },
                 None => PacketRouteTarget::Unsupported,
             };
         }
-        let correlated_returns_required = runtime
-            .tag
-            .as_deref()
-            .is_some_and(|tag| admission.requires_correlated_packet_returns(tag));
-        let unsafe_native_returns =
-            correlated_returns_required && !claimed.native_packet_returns_correlated();
-        if mode == RouteMode::Packet && unsafe_native_returns {
+        // Existing native providers expose endpoint returns. Outbound-only
+        // endpoints still need their correlated L4 conversion; translation is
+        // the owning stack's separate opt-in, never a forged native guarantee.
+        let unsafe_returns = admission.requires_correlated_packet_returns(&tag);
+        let forced_flow = matches!(mode, RouteMode::Flow | RouteMode::Translate)
+            || (mode == RouteMode::Auto && unsafe_returns);
+        if !forced_flow {
+            if let Some(slot) = native.filter(|_| !unsafe_returns) {
+                return PacketRouteTarget::Packet {
+                    tag,
+                    translated: false,
+                    role: slot.role_id(),
+                };
+            }
+        }
+        if mode == RouteMode::Packet {
             return PacketRouteTarget::Unsupported;
         }
-        if matches!(mode, RouteMode::Flow | RouteMode::Translate)
-            || (mode == RouteMode::Auto && unsafe_native_returns)
-        {
-            // Force the ingress through its L4 stack. The selected outbound
-            // may still execute a registered Flow -> Packet conversion.
-            let supported = match protocol {
-                Some(IPPROTO_TCP) => claimed.tcp_connect_for_route(mode).is_ok(),
-                Some(IPPROTO_UDP) => claimed.into_udp_flow_for_route(mode).is_ok(),
+        if flow_protocol {
+            // Engine-owned Direct semantics remain available. Dispatch uses
+            // its actual Stream role or Host Bound Datagram provider.
+            if direct {
+                return PacketRouteTarget::Flow;
+            }
+            if slot.as_ref().is_some_and(|slot| match protocol {
+                Some(IPPROTO_TCP) => slot.recipe.spec().roles.contains(&RoleKind::Stream),
+                Some(IPPROTO_UDP) => slot.recipe.spec().roles.contains(&RoleKind::Datagram),
                 _ => false,
-            };
-            return if supported {
-                PacketRouteTarget::Flow
-            } else {
-                PacketRouteTarget::Unsupported
-            };
-        }
-        let mut sinks = claimed.data_plane_sinks();
-        match mode {
-            RouteMode::Auto => {}
-            RouteMode::Packet => sinks.retain_only(Plane::Packet),
-            RouteMode::Flow | RouteMode::Translate => {
-                unreachable!("converted ingress was prepared above")
+            }) {
+                return PacketRouteTarget::Flow;
             }
-        }
-        let path = NetworkGraph::packet_ingress().shortest_path(Plane::Packet, sinks, protocol);
-        match path.as_ref().and_then(|path| path.planes.last()) {
-            Some(Plane::Packet) => {
-                let Some(operation) = claimed.prepare_packet_route() else {
-                    return PacketRouteTarget::Unsupported;
+            // Preserve the explicitly deferred process/plugin L4 capability.
+            // Such a claim cannot advertise or execute a native Packet path.
+            if let Ok(claimed) = self.claim_outbound_leaf(config, leaf) {
+                let supported = match protocol {
+                    Some(IPPROTO_TCP) => claimed.tcp_connect_for_route(mode).is_ok(),
+                    Some(IPPROTO_UDP) => claimed.into_udp_flow_for_route(mode).is_ok(),
+                    _ => false,
                 };
-                PacketRouteTarget::Packet {
-                    builtin: runtime.tag.is_none(),
-                    tag: runtime.tag.unwrap_or_else(|| "direct".into()),
-                    translated: false,
-                    role: None,
-                    operation,
+                if supported {
+                    return PacketRouteTarget::Flow;
                 }
             }
-            Some(Plane::Stream | Plane::Datagram) => PacketRouteTarget::Flow,
-            None if mode == RouteMode::Auto
-                && matches!(runtime.tcp_path, TcpPathCategory::Direct)
-                && runtime.dial_policy == zero_traits::DialPolicy::default()
-                && matches!(protocol, Some(IPPROTO_ICMP | IPPROTO_ICMPV6)) =>
-            {
-                // Direct echo is a legacy host-socket operation, not a PacketSink.
-                PacketRouteTarget::DirectEcho {
-                    dial_policy: runtime.dial_policy,
-                }
-            }
-            _ => PacketRouteTarget::Unsupported,
         }
+        if direct
+            && mode == RouteMode::Auto
+            && policy == zero_traits::DialPolicy::default()
+            && config.runtime.network.direct_packet_device.is_none()
+            && matches!(protocol, Some(IPPROTO_ICMP | IPPROTO_ICMPV6))
+        {
+            return PacketRouteTarget::DirectEcho {
+                dial_policy: policy,
+            };
+        }
+        PacketRouteTarget::Unsupported
     }
 }
 

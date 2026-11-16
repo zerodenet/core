@@ -39,7 +39,7 @@ pub(super) struct Replacement {
     // contain affected shared/native owners and their transitive consumers.
     affected_current: Box<[ComponentInstanceId]>,
     parts: Vec<Part>,
-    order: Vec<ComponentInstanceId>,
+    order: Vec<Vec<ComponentInstanceId>>,
     dependencies: BTreeMap<ComponentInstanceId, BTreeSet<ComponentInstanceId>>,
     terminal: OnceLock<Arc<DeclaredComponentTerminal>>,
     released: Mutex<publication::Publication>,
@@ -82,6 +82,14 @@ impl Replacement {
                                 .any(|id| stop_current.contains(id)))
                     {
                         stop_current.insert(slot.instance_id());
+                    }
+                }
+                for slot in &current.order {
+                    if slot
+                        .lifecycle_group()
+                        .is_some_and(|group| group.iter().any(|id| stop_current.contains(id)))
+                    {
+                        stop_current.extend(slot.lifecycle_group().unwrap().iter().copied());
                     }
                 }
                 if stop_current.len() == before {
@@ -201,19 +209,29 @@ impl Replacement {
         }
         let mut pending = None;
         let mut blocked: BTreeSet<ComponentInstanceId> = BTreeSet::new();
-        for identity in &self.order {
+        for group in &self.order {
             let part = self
                 .parts
                 .iter()
-                .find(|part| part.instances.contains(identity))
+                .find(|part| part.instances.contains(&group[0]))
                 .unwrap();
-            if blocked.contains(identity) {
-                blocked.extend(self.dependencies[identity].iter());
+            if group.iter().any(|id| !part.instances.contains(id)) {
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "actual lifecycle group is split across retirement plans",
+                ));
+            }
+            if group.iter().any(|identity| blocked.contains(identity)) {
+                for identity in group {
+                    blocked.extend(self.dependencies[identity].iter());
+                }
                 continue;
             }
-            let exact = BTreeSet::from([*identity]);
+            let exact = group.iter().copied().collect();
             if let Err(error) = part.plan.confirm_instances(&exact, deadline).await {
-                blocked.extend(self.dependencies[identity].iter());
+                for identity in group {
+                    blocked.extend(self.dependencies[identity].iter());
+                }
                 pending.get_or_insert(error);
             }
         }

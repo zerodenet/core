@@ -13,9 +13,9 @@ pub(crate) use direct_dial::candidate::{
     CandidateOpenFailure, CandidateOpened, CandidateOpener, CandidateRefresh, RefreshFuture,
     RefreshResult,
 };
-pub(crate) use direct_dial::{
-    open_service_candidates, open_service_candidates_using, DirectCandidate,
-};
+#[cfg(test)]
+pub(crate) use direct_dial::open_service_candidates;
+pub(crate) use direct_dial::{open_service_candidates_using, DirectCandidate};
 pub(crate) mod establishment;
 mod failure;
 mod tcp_outbound;
@@ -40,8 +40,6 @@ pub(crate) use zero_transport::ClientStream;
 pub(crate) use zero_transport::MeteredStream;
 pub(crate) use zero_transport::PrefixedSocket;
 pub(crate) use zero_transport::RecordingStream;
-#[cfg(feature = "udp-runtime")]
-pub(crate) use zero_transport::RelayCarrier;
 pub(crate) use zero_transport::ReplayStream;
 #[cfg(feature = "udp-runtime")]
 pub(crate) use zero_transport::StreamTraffic;

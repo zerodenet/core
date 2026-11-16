@@ -4,7 +4,6 @@ use zero_core::Address;
 
 use super::bridge::Waiters;
 use super::key::PathKey;
-use crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation;
 use crate::runtime::udp_flow::packet_path::PacketPathCarrier;
 use crate::runtime::udp_flow::packet_path::{
     DatagramCodec, PacketPathCarrierDescriptor, UdpDatagramEndpoint, UdpDatagramSource,
@@ -18,14 +17,17 @@ pub(crate) struct PacketPathStartRequest<'a> {
     pub(crate) packet: UdpPacketRef<'a>,
 }
 
-pub(crate) struct PacketPathCarrierRequest {
-    pub(crate) descriptor: PacketPathCarrierDescriptor,
-    pub(crate) build_operation: Arc<dyn PreparedUdpPacketPathOperation>,
-}
+pub(crate) struct PacketPathCarrierRequest(
+    pub(crate) Arc<crate::component::stream_bridge::datagram::packet_path::RolePacketPath>,
+);
 
 impl PacketPathCarrierRequest {
+    pub(crate) fn descriptor(&self) -> PacketPathCarrierDescriptor {
+        self.0.descriptor()
+    }
     pub(crate) fn upstream(&self) -> (String, u16) {
-        (self.descriptor.server.clone(), self.descriptor.port)
+        let descriptor = self.descriptor();
+        (descriptor.server, descriptor.port)
     }
 }
 

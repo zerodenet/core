@@ -96,6 +96,14 @@ impl Managed {
         owner
             .check()
             .map_err(|source| owner.admission.attach(source, session))?;
+        if record.stop.is_cancelled() {
+            return Err(owner.admission.error(
+                session,
+                Stage::Handshake,
+                Reason::Revoked,
+                DeliveryState::Unknown,
+            ));
+        }
         if owner.options.node()
             && (
                 context.upstream.binding().network_generation,

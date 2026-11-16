@@ -154,7 +154,9 @@ impl DatagramConnection {
         // Standard receipts continue to report business payload bytes only.
         Ok(encoded.unwrap_or(receipt.accepted_bytes))
     }
-    pub(super) async fn receive(&self) -> Result<super::Packet, EngineError> {
+    pub(super) async fn receive_packet(
+        &self,
+    ) -> Result<(Address, u16, zero_traits::PacketBuffer), EngineError> {
         let frame = recv(self.rx.lock().await.as_mut())
             .await
             .map_err(legacy)?
@@ -175,11 +177,7 @@ impl DatagramConnection {
                 Impact::Session,
             )));
         }
-        Ok((
-            frame.address.address,
-            frame.address.port,
-            frame.payload.to_vec(),
-        ))
+        Ok((frame.address.address, frame.address.port, frame.payload))
     }
 }
 impl Drop for DatagramConnection {

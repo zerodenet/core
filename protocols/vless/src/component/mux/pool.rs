@@ -18,6 +18,15 @@ pub struct OwnedPoolOptions {
     pub(super) material: Option<Arc<super::super::Options>>,
 }
 impl OwnedPoolOptions {
+    pub(in crate::component) fn for_client(
+        pool: Arc<PoolOptions>,
+        material: Arc<super::super::Options>,
+    ) -> Self {
+        Self {
+            pool,
+            material: Some(material),
+        }
+    }
     pub fn pool_options(&self) -> &Arc<PoolOptions> {
         &self.pool
     }

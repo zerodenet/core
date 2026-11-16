@@ -321,6 +321,19 @@ impl PreparedVlessOutboundRequestBundle {
     }
 
     #[cfg(feature = "reality")]
+    pub(crate) fn native_xudp_plan(
+        &self,
+        server: &str,
+        port: u16,
+    ) -> Result<(crate::mux_pool::PoolKey, u32), Error> {
+        self.requests.udp_direct.native_mux_plan(
+            server,
+            port,
+            self.mux_transport_profile.as_borrowed(),
+        )
+    }
+
+    #[cfg(feature = "reality")]
     pub(crate) fn reverse_parameters(
         &self,
     ) -> (

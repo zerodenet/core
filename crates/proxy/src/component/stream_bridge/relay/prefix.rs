@@ -1,10 +1,11 @@
 mod business;
-mod compatibility;
+mod call;
 mod datagram;
 mod loan;
 mod packet_loan;
-mod preparation;
+pub(in crate::component::stream_bridge) mod preparation;
 mod selection;
+mod stream;
 use super::health::FirstHopHealth;
 use crate::component::instance::invalid;
 use crate::protocol_registry::UpstreamConnectServices;
@@ -361,7 +362,7 @@ impl UpstreamOpener for PrefixOpener {
         destination: Destination,
         carrier: CarrierContext,
     ) -> BoxFuture<'_, Result<BoxStream, ChannelError>> {
-        self.open_compatibility_stream(binding, destination, carrier)
+        self.open_stream_loan(binding, destination, carrier)
     }
     fn open_datagram(
         &self,
@@ -369,7 +370,7 @@ impl UpstreamOpener for PrefixOpener {
         request: DatagramRequest,
         carrier: CarrierContext,
     ) -> BoxFuture<'_, Result<BoxDatagramSession, ChannelError>> {
-        self.open_compatibility_datagram(binding, request, carrier)
+        self.open_datagram_loan(binding, request, carrier)
     }
 }
 

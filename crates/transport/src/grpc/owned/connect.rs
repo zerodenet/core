@@ -1,14 +1,8 @@
-use super::{
-    state::{Body, Physical},
-    *,
-};
+use super::{state::Physical, *};
 use crate::grpc::pool::Cached;
 use std::{
     future::Future,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::{atomic::Ordering, Arc},
 };
 use zero_platform_tokio::contract::{lifecycle::TaskClass, network::CarrierContext, DeliveryState};
 
@@ -87,12 +81,13 @@ impl Managed {
                 .into_iter()
                 .find(|client| client.binding == demand.binding && !client.closed())
             {
+                if let Some(waiting) = &waiting {
+                    waiting.retain(client.life.physical.adoption.clone())?;
+                }
                 return client.open(self, &demand, lease).await;
             }
         }
-        let _guard = self
-            .wait(&demand, async { Ok(pool.connecting.lock().await) })
-            .await?;
+        let _guard = self.serialize_binding(&demand).await?;
         if !self.ready() || pool.retired.load(Ordering::Acquire) {
             return Err(error(self.instance, Stage::Prepare, Reason::Revoked));
         }
@@ -102,6 +97,9 @@ impl Managed {
                 .into_iter()
                 .find(|client| client.binding == demand.binding && !client.closed())
             {
+                if let Some(waiting) = &waiting {
+                    waiting.retain(client.life.physical.adoption.clone())?;
+                }
                 return client.open(self, &demand, lease).await;
             }
         }
@@ -111,34 +109,31 @@ impl Managed {
         if !self.ready() || pool.retired.load(Ordering::Acquire) {
             return Err(error(self.instance, Stage::Prepare, Reason::Revoked));
         }
-        let previous = {
-            let mut cache = pool.cached.lock().unwrap();
-            if matches!(cache.as_ref(), Some(Cached::Legacy(_))) {
-                // A conflicting actual legacy owner is retained unchanged;
-                // error/Drop cannot certify its original controller closed.
-                return Err(error(self.instance, Stage::Prepare, Reason::StalePlan));
-            }
-            cache.take()
-        };
-        let mut clients = match previous {
-            Some(Cached::Owned(clients)) => clients,
-            None => Vec::new(),
-            Some(Cached::Legacy(_)) => {
-                return Err(error(self.instance, Stage::Prepare, Reason::StalePlan));
-            }
-        };
-        // Source/view destruction and callbacks run outside the cache lock.
-        clients.retain(|client| !client.closed());
-        clients.push(client.clone());
-        {
+        let retired = {
+            let epoch = self.epoch.lock().unwrap();
+            self.verify_epoch_state(
+                &epoch,
+                &demand.binding,
+                self.upstream.carrier_dns_generation(),
+            )?;
             let mut cache = pool.cached.lock().unwrap();
             if !self.ready() || pool.retired.load(Ordering::Acquire) {
-                drop(cache);
-                drop(clients);
                 return Err(error(self.instance, Stage::Prepare, Reason::Revoked));
             }
-            *cache = Some(Cached::Owned(clients));
-        }
+            if cache.is_none() {
+                *cache = Some(Cached::Owned(Vec::new()));
+            }
+            let Some(Cached::Owned(clients)) = cache.as_mut() else {
+                return Err(error(self.instance, Stage::Prepare, Reason::StalePlan));
+            };
+            let retired = clients
+                .extract_if(.., |client| client.closed())
+                .collect::<Vec<_>>();
+            clients.push(client.clone());
+            retired
+        };
+        // User/source destruction stays outside the actual publication locks.
+        drop(retired);
         client.open(self, &demand, lease).await
     }
     pub(super) async fn create_attempt(
@@ -148,6 +143,7 @@ impl Managed {
         candidates: Option<Arc<super::candidates::Candidates>>,
         attempted: &mut Option<Arc<Physical>>,
     ) -> Result<Arc<NativeClient>, ChannelError> {
+        self.verify_epoch(&demand.binding, self.upstream.carrier_dns_generation())?;
         if !self.ready() {
             return Err(error(self.instance, Stage::Prepare, Reason::Revoked));
         }
@@ -160,70 +156,7 @@ impl Managed {
         {
             return Err(demand_error(self.instance, Reason::Timeout));
         }
-        let totals = self.totals.lock().unwrap().clone();
-        let total = totals
-            .as_ref()
-            .map(|totals| totals.physical(self.instance))
-            .transpose()?;
-        let mut grant = match self.grants.reserve() {
-            Ok(grant) => grant,
-            Err(source) => {
-                if let Some(total) = &total {
-                    total.refuse_unassigned()?;
-                }
-                return Err(source);
-            }
-        };
-        let prepared_protocols = (|| {
-            Ok::<_, ChannelError>(
-                if self.options.selected_background && grant.adoption().has_original_root() {
-                    let limit = self
-                        .upstream
-                        .pending_carrier_capacity_for(&demand.binding)
-                        .ok_or_else(|| error(self.instance, Stage::Prepare, Reason::StalePlan))?;
-                    if limit == 0 {
-                        None
-                    } else {
-                        let memory = self
-                            .resources
-                            .upgrade()
-                            .ok_or_else(|| error(self.instance, Stage::Prepare, Reason::Revoked))?
-                            .packet_driver_metadata()?;
-                        Some(crate::protocol_pending::Children::new(memory, limit))
-                    }
-                } else {
-                    None
-                },
-            )
-        })();
-        let protocols = match prepared_protocols {
-            Ok(prepared) => prepared,
-            Err(source) => {
-                if let Some(total) = &total {
-                    total.refuse_unassigned()?;
-                }
-                return Err(source);
-            }
-        };
-        let physical = Arc::new(Physical {
-            owner: Arc::downgrade(self),
-            binding: demand.binding.clone(),
-            pending: Mutex::new(Vec::new()),
-            protocols,
-            adoption: grant.adoption(),
-            stop: grant.cancellation(),
-            view: Mutex::new(None),
-            witness: Mutex::new(None),
-            received: Mutex::new(None),
-            accepted: AtomicBool::new(false),
-            done: AtomicBool::new(false),
-        });
-        self.records.lock().unwrap().push(physical.clone());
-        *attempted = Some(physical.clone());
-        if let Some(total) = total {
-            total.install(physical.clone())?;
-        }
-        let body = Body(physical.clone());
+        let (mut grant, physical, body) = self.install_original(demand, attempted)?;
         *physical.view.lock().unwrap() = Some(grant.claim_driver_view()?);
         // The receiver and exact native cancellation are installed before the
         // actual caller or Node provider can await resolution/connect/TLS/H2.

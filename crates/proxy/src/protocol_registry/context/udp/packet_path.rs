@@ -130,11 +130,4 @@ impl PacketPathExecutionServices {
     ) -> std::sync::Arc<dyn zero_transport::tls::ech::EchConfigResolver> {
         self.tcp.upstream().ech_resolver()
     }
-
-    pub(crate) fn prepare_lazy_tcp_relay_prefix<'a>(
-        &self,
-        prefix: crate::inventory::PreparedTcpRelayPrefix,
-    ) -> crate::runtime::tcp_dispatch::operation::LazyTcpRelayCarrier<'a> {
-        crate::runtime::tcp_dispatch::relay::prepare_lazy_tcp_relay_prefix(self.tcp(), prefix)
-    }
 }

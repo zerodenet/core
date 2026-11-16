@@ -2,6 +2,47 @@
 use super::*;
 use crate::controlled_carrier::{ProtocolOriginal, ProtocolOriginalChildren};
 impl AcceptedCaller {
+    /// Same real Source Host Root, never reconstructed from component IDs.
+    /// Exact Source instance installed by its original host binding; it can
+    /// differ from a canonical native carrier dependency's component identity.
+    pub fn source_instance(
+        &self,
+    ) -> Result<zero_core::component::ComponentInstanceId, ChannelError> {
+        let users = self.users.upgrade().ok_or_else(gone)?;
+        if let Some((instance, _)) = users.lookup_totals.get() {
+            return Ok(*instance);
+        }
+        users
+            .pool
+            .upgrade()
+            .and_then(|pool| pool.originals.get().map(|original| original.instance))
+            .ok_or_else(gone)
+    }
+    pub fn belongs_to_original_root(
+        &self,
+        root: &Arc<crate::controlled_carrier::CarrierOriginalTotals>,
+    ) -> bool {
+        let Some(users) = self.users.upgrade() else {
+            return false;
+        };
+        if let Some(actual) = users
+            .lookup_totals
+            .get()
+            .and_then(|(_, root)| root.upgrade())
+        {
+            return Arc::ptr_eq(&actual, root);
+        }
+        users
+            .pool
+            .upgrade()
+            .and_then(|pool| {
+                pool.originals
+                    .get()
+                    .and_then(|original| original.root.upgrade())
+            })
+            .is_some_and(|actual| Arc::ptr_eq(&actual, root))
+    }
+
     pub fn protocol_metadata(
         &self,
     ) -> Result<(crate::contract::component::PacketDriverMetadataView, usize), ChannelError> {

@@ -29,7 +29,12 @@ impl ComponentFactory for StreamFactory {
     fn describe(&self, options: &StreamOptions) -> ComponentSpec {
         ComponentSpec {
             owner: ResourceOwner::Component,
-            roles: vec![RoleKind::Stream, RoleKind::Datagram],
+            roles: std::iter::once(RoleKind::Stream)
+                .chain(
+                    (!crate::flow::is_vision_flow(options.protocol().flow))
+                        .then_some(RoleKind::Datagram),
+                )
+                .collect(),
             dependencies: vec![options.pool_owner],
             static_identity: options.identity.clone(),
             resources: vec![],
@@ -86,14 +91,14 @@ impl StreamFactory {
                     pool,
                     datagram_budget: datagram_budget.clone(),
                 })),
-                datagram: Some(zero_platform_tokio::contract::datagram::erase_datagram(
-                    Outbound {
+                datagram: (!crate::flow::is_vision_flow(options.protocol().flow)).then(|| {
+                    zero_platform_tokio::contract::datagram::erase_datagram(Outbound {
                         options,
                         admission,
                         pool,
                         datagram_budget,
-                    },
-                )),
+                    })
+                }),
                 ..Default::default()
             },
         })
@@ -101,7 +106,7 @@ impl StreamFactory {
 }
 impl ResourceLifecycle for Owner {
     async fn start(&mut self, deadline: Instant) -> Result<(), BuildError> {
-        self.options.prepared.pool.matches(self.pool)?;
+        self.options.matches(self.pool)?;
         self.inner.start(deadline).await
     }
     fn revoke(&self, reason: CloseReason) {

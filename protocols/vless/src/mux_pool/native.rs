@@ -13,6 +13,30 @@ type NativeCall = Option<(
     Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
 )>;
 impl MuxConnectionPool {
+    pub(crate) fn with_native_policy(mut self, tcp: Option<u32>, udp: Option<u32>) -> Self {
+        self.native_policy = Some((tcp, udp));
+        self
+    }
+    fn native_profile(&self, key: &PoolKey, concurrency: u32) -> Result<String, RuntimeError> {
+        let policy = match self.native_policy {
+            Some((tcp, udp)) if tcp == Some(concurrency) || udp == Some(concurrency) => {
+                format!("tcp={tcp:?}:udp={udp:?}")
+            }
+            Some(_) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "native MUX request differs from its actual TCP/XUDP concurrency policy",
+                )
+                .into())
+            }
+            None => concurrency.to_string(),
+        };
+        Ok(format!(
+            "{:?}:{key:?}:{policy}:native-upload-fifo-v1:8:66559",
+            self.scope
+        ))
+    }
+
     pub(crate) fn native_eligible(&self) -> bool {
         self.control.native_eligible()
     }
@@ -61,11 +85,7 @@ impl MuxConnectionPool {
         budget: Duration,
     ) -> Result<PoolOptions, RuntimeError> {
         let options = self.control.options(
-            format!(
-                "{:?}:{key:?}:{concurrency}:native-upload-fifo-v1:8:66559",
-                self.scope
-            )
-            .into(),
+            self.native_profile(key, concurrency)?.into(),
             endpoint,
             binding,
             limit,
@@ -112,12 +132,9 @@ impl MuxConnectionPool {
         Fut: Future<Output = Result<S, RuntimeError>> + Send + 'static,
     {
         let owner = self.control.managed()?;
-        let profile = format!(
-            "{:?}:{key:?}:{concurrency}:native-upload-fifo-v1:8:66559",
-            self.scope
-        );
+        let profile = self.native_profile(&key, concurrency)?;
         let _operation = owner.operation()?;
-        let _connecting = owner.serialize().await?;
+        let _connecting = owner.serialize_binding(&binding).await?;
         owner.prepare_epoch(&profile, &binding).await?;
         let selected = binding.clone();
         let opening = owner.clone();
@@ -205,22 +222,6 @@ impl MuxConnectionPool {
             io: Box::pin(UserStream::new(stream, usage)),
         })
     }
-    pub(crate) async fn open_native_udp<S, F, Fut>(
-        &self,
-        key: PoolKey,
-        concurrency: u32,
-        binding: UpstreamBinding,
-        call: NativeCall,
-        wrap: F,
-    ) -> Result<zero_transport::pooled_driver::datagram::PooledDatagram<DatagramIo>, RuntimeError>
-    where
-        S: zero_traits::AsyncSocket + AsyncRead + AsyncWrite + Unpin + Send + 'static,
-        F: FnOnce(zero_platform_tokio::controlled_carrier::CarrierIo) -> Fut + Send + 'static,
-        Fut: Future<Output = Result<S, RuntimeError>> + Send + 'static,
-    {
-        self.open_native_udp_with_id(key, concurrency, binding, call, None, wrap)
-            .await
-    }
     pub(crate) async fn open_native_udp_with_id<S, F, Fut>(
         &self,
         key: PoolKey,
@@ -259,6 +260,7 @@ impl MuxConnectionPool {
                 );
                 Ok(zero_transport::pooled_driver::datagram::PooledDatagram {
                     io: DatagramIo {
+                        block_udp443: false,
                         observer: None,
                         session: None,
                         connection,
@@ -266,6 +268,7 @@ impl MuxConnectionPool {
                         rx,
                         writer: Some(writer),
                         first: true,
+                        origin: None,
                         global_id,
                     },
                     usage,
@@ -275,4 +278,106 @@ impl MuxConnectionPool {
         )
         .await
     }
+}
+
+/// Existing reverse worker uses this same physical FIFO and decoder map.
+/// The caller keeps its actual accepted driver and separate logical custody.
+pub(crate) fn reverse_stream(
+    connection: Arc<MuxPoolConn>,
+    sid: u16,
+    destination: zero_core::request::Destination,
+    origin: crate::mux::origin::Origin,
+) -> impl Future<Output = Result<zero_platform_tokio::contract::stream::BoxStream, RuntimeError>> + Send
+{
+    let reserved =
+        stream::StreamReservation::new(connection, sid, destination.port, &destination.address)
+            .with_origin(origin);
+    async move {
+        let mut io = reserved.open().await?;
+        std::future::poll_fn(|cx| io.poll_native_initial(cx)).await?;
+        Ok(Box::pin(io) as zero_platform_tokio::contract::stream::BoxStream)
+    }
+}
+pub(crate) fn reverse_datagram(
+    connection: Arc<MuxPoolConn>,
+    sid: u16,
+    origin: crate::mux::origin::Origin,
+    observer: Option<Arc<dyn zero_platform_tokio::contract::context::ConnectObserver>>,
+    session: Option<zero_core::component::SessionId>,
+) -> impl Future<Output = Result<DatagramIo, RuntimeError>> + Send {
+    struct Reserved {
+        connection: Arc<MuxPoolConn>,
+        sid: Option<u16>,
+    }
+    impl Drop for Reserved {
+        fn drop(&mut self) {
+            if let Some(sid) = self.sid.take() {
+                self.connection.release_stream(sid);
+            }
+        }
+    }
+    let mut reserved = Reserved {
+        connection: connection.clone(),
+        sid: Some(sid),
+    };
+    let (tx, rx) = mpsc::channel(connection.response_backlog_frames);
+    connection.streams.lock().unwrap().insert(
+        sid,
+        MuxClientStreamState {
+            downlink: MuxClientDownlink::Udp(tx),
+            target: None,
+        },
+    );
+    async move {
+        let writer = connection
+            .native_udp_tx
+            .writer_when_ready(encode_mux_end_frame(sid)?)
+            .await?;
+        reserved.sid.take();
+        Ok(DatagramIo {
+            block_udp443: false,
+            observer,
+            session,
+            connection,
+            sid,
+            rx,
+            writer: Some(writer),
+            first: true,
+            origin: Some(origin),
+            global_id: None,
+        })
+    }
+}
+
+pub(crate) fn reverse_control(
+    connection: Arc<MuxPoolConn>,
+    sid: u16,
+) -> Result<DatagramIo, RuntimeError> {
+    let writer = match connection.native_udp_tx.writer(encode_mux_end_frame(sid)?) {
+        Ok(writer) => writer,
+        Err(source) => {
+            connection.release_stream(sid);
+            return Err(source.into());
+        }
+    };
+    let (tx, rx) = mpsc::channel(connection.response_backlog_frames);
+    connection.streams.lock().unwrap().insert(
+        sid,
+        MuxClientStreamState {
+            downlink: MuxClientDownlink::Udp(tx),
+            target: None,
+        },
+    );
+    Ok(DatagramIo {
+        block_udp443: false,
+        observer: None,
+        session: None,
+        connection,
+        sid,
+        rx,
+        writer: Some(writer),
+        first: true,
+        origin: None,
+        global_id: None,
+    })
 }

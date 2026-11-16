@@ -23,25 +23,12 @@ impl Outbound {
         ),
         ChannelError,
     > {
-        let credit = self
-            .shared
-            .memory
-            .reserve(zero_traits::packet_metadata::PacketMetadataLayout::boxed::<
-                logical::Logical,
-            >())
-            .map_err(|source| error(Stage::Prepare, Reason::Capacity).with_source(source))?;
-        let (stream, original) = self.shared.acquire_xhttp(context).await?;
-        let returned = stream
-            .owned_return()
-            .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
-        let control = BoxChannelControl::from_prepaid(logical::Logical(returned), credit).map_err(
-            |(source, _, _)| error(Stage::Prepare, Reason::Capacity).with_source(source),
-        )?;
-        let encrypted = self
-            .shared
-            .options
-            .plan
-            .encrypt(zero_platform_tokio::TcpRelayStream::new(stream));
+        let crate::component::preconnect::Opened {
+            io: stream,
+            control,
+            original,
+        } = self.shared.acquire_transport(context).await?;
+        let encrypted = self.shared.options.plan.encrypt(stream);
         let io = zero_platform_tokio::contract::context::with_deadline(context.deadline, encrypted)
             .await
             .map_err(|source| error(Stage::Handshake, Reason::Timeout).with_source(source))?
@@ -64,22 +51,18 @@ impl Outbound {
                 zero_platform_tokio::contract::DeliveryState::NotSubmitted,
             ));
         }
-        let bytes = crate::outbound::build_tcp_request_to(
-            &request.destination.address,
-            request.destination.port,
-            &options.uuid,
-            options.flow,
-        )
-        .map_err(|source| {
-            self.admission
-                .error(
-                    session,
-                    Stage::Prepare,
-                    Reason::InvalidConfig,
-                    zero_platform_tokio::contract::DeliveryState::NotSubmitted,
-                )
-                .with_source(source)
-        })?;
+        let bytes = options
+            .stream_request(&request, &context)
+            .map_err(|source| {
+                self.admission
+                    .error(
+                        session,
+                        Stage::Prepare,
+                        Reason::InvalidConfig,
+                        zero_platform_tokio::contract::DeliveryState::NotSubmitted,
+                    )
+                    .with_source(source)
+            })?;
         let (io, control, original) = self.acquire_parts(&context).await?;
         let connected = crate::component::connect::submit(
             options,
@@ -115,5 +98,31 @@ impl StreamOutbound for Outbound {
         context: OpenContext,
     ) -> Result<Connected<StreamLoan>, ChannelError> {
         self.borrow(request, context).await
+    }
+}
+
+impl super::factory::Shared {
+    pub(in crate::component) async fn acquire_transport(
+        &self,
+        context: &OpenContext,
+    ) -> Result<crate::component::preconnect::Opened, ChannelError> {
+        let credit = self
+            .memory
+            .reserve(zero_traits::packet_metadata::PacketMetadataLayout::boxed::<
+                logical::Logical,
+            >())
+            .map_err(|source| error(Stage::Prepare, Reason::Capacity).with_source(source))?;
+        let (stream, original) = self.acquire_xhttp(context).await?;
+        let returned = stream
+            .owned_return()
+            .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
+        let control = BoxChannelControl::from_prepaid(logical::Logical(returned), credit).map_err(
+            |(source, _, _)| error(Stage::Prepare, Reason::Capacity).with_source(source),
+        )?;
+        Ok(crate::component::preconnect::Opened {
+            io: zero_platform_tokio::TcpRelayStream::new(stream),
+            control,
+            original,
+        })
     }
 }

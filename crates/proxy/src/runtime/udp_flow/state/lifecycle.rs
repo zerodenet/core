@@ -1,4 +1,3 @@
-use tokio::task::JoinSet;
 #[cfg(feature = "upstream-association-runtime")]
 use tokio::time::Instant as TokioInstant;
 #[cfg(feature = "upstream-association-runtime")]
@@ -48,7 +47,7 @@ impl UpstreamUdpPoll<'_> {
 
 impl UdpFlowState {
     pub(crate) fn new() -> Self {
-        let (response_owner, chain_tasks) = ResponseSetOwner::new(JoinSet::new());
+        let (response_owner, chain_tasks) = ResponseSetOwner::new();
         Self {
             registered: RegisteredUdpState::new(),
             packet_path: crate::runtime::udp_flow::packet_path_chain::PacketPathManager::new(),
@@ -63,9 +62,11 @@ impl UdpFlowState {
 
     #[cfg(feature = "udp-runtime")]
     pub(crate) fn chain_tasks(&mut self) -> &mut ResponseSetLease {
-        #[cfg(feature = "managed-stream-runtime")]
-        self.registered
-            .poll_logical_responses(&mut self.chain_tasks, self.response_owner.evidence());
+        #[cfg(all(test, feature = "managed-stream-runtime"))]
+        if self.registered.has_standalone_fixture_for_test() {
+            self.registered
+                .poll_logical_responses(&mut self.chain_tasks, self.response_owner.evidence());
+        }
         &mut self.chain_tasks
     }
 
@@ -79,9 +80,11 @@ impl UdpFlowState {
         Option<TokioInstant>,
         &mut ResponseSetLease,
     ) {
-        #[cfg(feature = "managed-stream-runtime")]
-        self.registered
-            .poll_logical_responses(&mut self.chain_tasks, self.response_owner.evidence());
+        #[cfg(all(test, feature = "managed-stream-runtime"))]
+        if self.registered.has_standalone_fixture_for_test() {
+            self.registered
+                .poll_logical_responses(&mut self.chain_tasks, self.response_owner.evidence());
+        }
         (
             UpstreamUdpPoll {
                 registered: &self.registered,

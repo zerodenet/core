@@ -55,6 +55,15 @@ impl ResourceLifecycle for Owner {
         self.shared.cancel.cancel();
         self.shared.stop.send_replace(true);
         self.shared.proxies.request_abort();
+        let outer = self
+            .shared
+            .outer_carriers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        for carrier in outer {
+            carrier.request_stop();
+        }
         // Only an unconsumed launch is refundable here; a spawned wire keeps
         // its real registration credit through its actual join/Host ACK.
         let unspawned = self.shared.state.lock().unwrap().wire_launch.take();
@@ -67,6 +76,25 @@ impl ResourceLifecycle for Owner {
             tokio::time::timeout_at(deadline, witness.wait())
                 .await
                 .map_err(|source| error(Reason::Timeout).with_source(source))?;
+        }
+        let outer = self
+            .shared
+            .outer_carriers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let mut first = None;
+        for carrier in outer {
+            use crate::runtime::raw_ip::RawIpWireCarrier;
+            match tokio::time::timeout_at(deadline, carrier.close_native()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(source)) => {
+                    first.get_or_insert_with(|| error(Reason::Io).with_source(source));
+                }
+                Err(source) => {
+                    first.get_or_insert_with(|| error(Reason::Timeout).with_source(source));
+                }
+            }
         }
         self.shared.pending_tx.lock().unwrap().take();
         // The real Scope join above ends wire custody. Native close belongs to
@@ -83,6 +111,10 @@ impl ResourceLifecycle for Owner {
         if let Some(control) = control {
             control.revoke();
         }
-        self.shared.proxies.clone().shutdown(deadline).await
+        let report = self.shared.proxies.clone().shutdown(deadline).await;
+        match first {
+            Some(source) => Err(source),
+            None => report,
+        }
     }
 }

@@ -1,4 +1,5 @@
 use super::*;
+mod mkcp;
 use crate::component::Options as Protocol;
 use crate::transport::{VlessOutboundLeaf, VlessTransportRuntime};
 use zero_platform_tokio::controlled_datagram::metadata::MetadataLimits;
@@ -7,7 +8,12 @@ use zero_transport::profile::OwnedClientTlsProfile;
 pub struct Options {
     pub(super) protocol: Protocol,
     pub(super) plan: crate::transport::OwnedVlessOutboundTransportPlan,
-    pub(super) profile: crate::transport::VlessQuicClientProfile,
+    pub(super) profile: Option<crate::transport::VlessQuicClientProfile>,
+    pub(super) hysteria: Option<(
+        zero_transport::hysteria::Profile,
+        zero_transport::hysteria::Pool,
+    )>,
+    pub(super) mkcp: Option<zero_transport::mkcp::Settings>,
     pub(super) h3: Option<(
         zero_transport::split_http::XhttpClientPool,
         zero_transport::profile::OwnedSplitHttpProfile,
@@ -16,7 +22,8 @@ pub struct Options {
     pub(super) users: NonZeroUsize,
     pub(super) limits: MetadataLimits,
     pub(super) identity: Arc<[u8]>,
-    suffix: Arc<[u8]>,
+    pub(super) suffix: Arc<[u8]>,
+    pub(super) carrier: Option<super::TransportCarrier>,
     pub(super) raw_masks: Option<zero_transport::finalmask::Settings>,
     pub(super) buffers: zero_platform_tokio::controlled_carrier::CarrierBufferLimits,
     pub(super) dependencies: Vec<zero_core::component::ComponentId>,
@@ -41,6 +48,12 @@ impl Options {
         source_dir: Option<&std::path::Path>,
         file_bytes: NonZeroUsize,
     ) -> Result<Option<Self>, zero_transport::RuntimeError> {
+        if let Some(parts) = leaf.plain_owned_mkcp_parts() {
+            return Self::from_mkcp_parts(
+                parts, runtime, dial, origins, users, limits, source_dir, file_bytes,
+            )
+            .map(Some);
+        }
         let Some(parts) = leaf.plain_owned_quic_parts() else {
             return Ok(None);
         };
@@ -69,7 +82,7 @@ impl Options {
             ca_cert_path: profile.ca_cert_path.clone(),
             options: profile.tls_options.clone(),
             disable_sni: false,
-            alpn: Self::alpn_for(&profile, parts.h3.is_some())
+            alpn: Self::alpn_for(&profile, parts.h3.is_some() || parts.hysteria.is_some())
                 .iter()
                 .map(|v| String::from_utf8_lossy(v).into_owned())
                 .collect(),
@@ -92,6 +105,7 @@ impl Options {
         identity.extend_from_slice(&hash.finish().to_be_bytes());
         let protocol = Protocol {
             material: None,
+            masks: None,
             server: match &parts.endpoint.address {
                 zero_core::Address::Domain(name) => name.clone(),
                 zero_core::Address::Ipv4(ip) => std::net::Ipv4Addr::from(*ip).to_string(),
@@ -134,13 +148,29 @@ impl Options {
             dependencies: vec![],
             protocol,
             plan: parts.plan,
-            profile,
+            profile: Some(profile),
+            mkcp: None,
+            hysteria: parts.hysteria,
+            carrier: None,
             h3: parts.h3,
             origins,
             users,
             limits,
             identity: identity.into(),
         };
+        if prepared.origins.get().checked_mul(3).is_none()
+            || prepared
+                .origins
+                .get()
+                .checked_mul(3 + prepared.drivers())
+                .is_none()
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "native wire/task capacity overflows",
+            )
+            .into());
+        }
         prepared.refresh_material_identity();
         Ok(prepared)
     }
@@ -152,7 +182,9 @@ impl Options {
         }
     }
     pub(super) fn alpn(&self) -> Vec<Vec<u8>> {
-        Self::alpn_for(&self.profile, self.h3.is_some())
+        self.profile.as_ref().map_or_else(Vec::new, |profile| {
+            Self::alpn_for(profile, self.h3.is_some() || self.hysteria.is_some())
+        })
     }
     /// Accepted raw settings stay in the immutable recipe; actual table
     /// allocations belong only to a concrete Host generation.
@@ -187,8 +219,29 @@ impl Options {
             None => Ok(self.plan.final_mask_profile().clone()),
         }
     }
+    pub(super) fn hopping(&self) -> Option<&zero_transport::datagram_hop::Profile> {
+        self.hysteria
+            .as_ref()
+            .and_then(|(profile, _)| profile.hopping())
+    }
+    pub(super) fn metadata_origins(&self) -> NonZeroUsize {
+        // The closed first native wire still anchors the actual protocol phase.
+        // At most two live wires coexist beside that retained anchor row.
+        n(self
+            .origins
+            .get()
+            .checked_mul(if self.hopping().is_some() { 3 } else { 1 })
+            .expect("validated native wire peak"))
+    }
+    pub(super) fn native_task_peak(&self) -> usize {
+        self.origins
+            .get()
+            .checked_mul(2 + self.drivers() + usize::from(self.hopping().is_some()))
+            .expect("validated native task peak")
+    }
     pub(super) fn drivers(&self) -> usize {
-        2 + usize::from(self.h3.is_some())
+        (if self.mkcp.is_some() { 1 } else { 2 })
+            + usize::from(self.h3.is_some() || self.hysteria.is_some())
             + zero_transport::finalmask::owned::driver_count(self.mask_settings())
     }
     pub fn packet_path_metadata(&self) -> (zero_core::request::Destination, bool) {
@@ -243,7 +296,7 @@ impl Options {
         }
         Ok(reused)
     }
-    fn refresh_material_identity(&mut self) {
+    pub(super) fn refresh_material_identity(&mut self) {
         let mut identity = self.protocol.identity.to_vec();
         identity.extend_from_slice(&self.suffix);
         identity.extend_from_slice(&(self.buffers.max_queue_packets as u64).to_be_bytes());

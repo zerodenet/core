@@ -13,4 +13,8 @@ pub(crate) use leaf::{
 pub(crate) use native::PreparedNativeTcpRelayChain;
 pub(crate) use native::StreamRoleRef;
 pub(crate) use outbound::PreparedTcpOutbound;
-pub(crate) use relay::{PreparedTcpRelayChain, PreparedTcpRelayPrefix};
+pub(crate) use relay::PreparedTcpRelayPrefix;
+
+#[cfg(all(test, feature = "managed-stream-runtime"))]
+#[path = "tests/direct.rs"]
+mod direct_tests;

@@ -38,10 +38,12 @@ impl SharedIngressRuntimeServices {
         }
         self
     }
-    pub(super) fn configuration_publication(&self) -> zero_engine::ConfigurationPublication {
+    pub(in crate::runtime) fn configuration_publication(
+        &self,
+    ) -> zero_engine::ConfigurationPublication {
         self.tcp_services.snapshot().configuration_publication()
     }
-    #[cfg(feature = "raw-ip-runtime")]
+    #[cfg(any(feature = "raw-ip-runtime", feature = "managed-stream-runtime"))]
     pub(super) fn source_dependencies_changed(
         &self,
         owners: &crate::runtime::inbound_owners::InboundOwnerRegistry,

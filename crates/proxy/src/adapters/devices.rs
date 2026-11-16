@@ -139,12 +139,7 @@ impl Devices {
                 .collect::<Vec<_>>();
             Some(
                 owner
-                    .prepare_devices_for_candidate(
-                        config,
-                        &outbounds,
-                        &config.inbounds,
-                        context.clone(),
-                    )
+                    .prepare_devices_for_candidate(config, &outbounds, context.clone())
                     .await?,
             )
         } else {

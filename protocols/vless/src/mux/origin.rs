@@ -1,7 +1,7 @@
 //! Reverse MUX source/local metadata uses the ordinary MUX address encoding.
 use super::{MuxTarget, MUX_MAX_METADATA, NETWORK_TCP, NETWORK_UDP};
 use alloc::vec::Vec;
-use zero_core::{Error, Network, Session};
+use zero_core::{Address, Error, Network, Session};
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Origin {
     source: Option<MuxTarget>,
@@ -33,12 +33,53 @@ impl Origin {
                 }),
         }
     }
+    #[cfg(feature = "reality")]
+    pub(crate) fn from_facts(facts: &zero_core::request::RequestFacts, network: u8) -> Self {
+        fn target(endpoint: core::net::SocketAddr, network: u8) -> MuxTarget {
+            MuxTarget {
+                network,
+                address: match endpoint.ip() {
+                    core::net::IpAddr::V4(ip) => Address::Ipv4(ip.octets()),
+                    core::net::IpAddr::V6(ip) => Address::Ipv6(ip.octets()),
+                },
+                port: endpoint.port(),
+            }
+        }
+        Self {
+            source: facts
+                .effective_source
+                .map(|endpoint| target(endpoint, network)),
+            local: facts
+                .local_endpoint
+                .map(|endpoint| target(endpoint, network)),
+        }
+    }
     pub(crate) fn apply(self, session: &mut Session) {
         if let Some(source) = self.source {
             session.source_ip = Some(source.address);
             session.source_port = Some(source.port);
         }
         session.inbound_local = self.local.map(|target| (target.address, target.port));
+    }
+    #[cfg(feature = "reality")]
+    pub(crate) fn apply_facts(
+        &self,
+        facts: &mut zero_platform_tokio::contract::context::InboundConnectionFacts,
+    ) {
+        fn endpoint(target: &MuxTarget) -> Option<std::net::SocketAddr> {
+            let ip = match &target.address {
+                zero_core::Address::Ipv4(ip) => std::net::IpAddr::V4((*ip).into()),
+                zero_core::Address::Ipv6(ip) => std::net::IpAddr::V6((*ip).into()),
+                zero_core::Address::Domain(_) => return None,
+            };
+            Some(std::net::SocketAddr::new(ip, target.port))
+        }
+        if let Some(source) = &self.source {
+            // Preserve the real physical original separately from the remote
+            // portal's per-request source/local facts. Never use a domain as IP.
+            facts.effective_source = endpoint(source);
+            facts.local_endpoint = self.local.as_ref().and_then(endpoint);
+        }
     }
     pub(crate) fn parse(bytes: &[u8]) -> Result<Self, Error> {
         let (source, consumed) = parse_endpoint(bytes)?;

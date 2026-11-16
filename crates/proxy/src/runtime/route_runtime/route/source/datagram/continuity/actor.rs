@@ -16,11 +16,8 @@ pub(super) async fn start(
     let witness = binding
         .join_witness()
         .ok_or_else(|| std::io::Error::other("association original host witness is absent"))?;
-    let local = route
-        .tcp_runtime
-        .local_addr()
-        .ok_or_else(|| std::io::Error::other("association requires actual listener endpoint"))?;
-    let graph = AcceptedPeerScope::for_association(
+    let local = route.tcp_runtime.local_addr();
+    let graph = AcceptedPeerScope::for_logical_association(
         &host.tasks.peer_registrar(),
         task,
         witness,
@@ -62,87 +59,96 @@ pub(super) async fn start(
     let route = route
         .with_accepted_tasks(tasks.clone())
         .map_err(std::io::Error::other)?;
+    let (slot, job) = crate::runtime::udp_socket::endpoint::peer::DirectPeerDriverSlot::channel();
     let udp = route
         .udp_runtime()
         .with_datagram_returns(returns)
-        .with_accepted_caller(tasks.caller().map_err(std::io::Error::other)?);
+        .with_accepted_caller(tasks.caller().map_err(std::io::Error::other)?)
+        .with_inline_direct_driver(slot, stopped.clone());
     let _closing = Closing(association.clone());
-    let mut state = state.lock().await;
-    let dispatch = udp.new_dispatch(route.inbound_tag()).await?;
-    state.dispatch = Some(dispatch);
-    let mut detached = tokio::time::Instant::now() + retention;
-    let mut cancellations = tokio::time::interval(Duration::from_millis(100));
-    cancellations.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    loop {
-        let attachment = tokio::select! {biased;
-            _=stopped.cancelled()=>return Ok(()),
-            _=tokio::time::sleep_until(detached)=>return Ok(()),
-            next=incoming.recv()=>match next {Some(next)=>next,None=>return Ok(())},
-            _=cancellations.tick()=>{if state.dispatch.as_mut().unwrap().finish_pending_cancellations(){return Ok(());}continue;},
-        };
-        let Attachment {
-            tx,
-            rx,
-            limits,
-            negotiation,
-            state: control,
-            continuity,
-            auth,
-            source,
-            cancel,
-            done,
-        } = attachment;
-        let mut control = control.lock().await;
-        let attached_udp = udp.with_source_addr(source);
-        let result = tokio::select! {biased;
-            _=stopped.cancelled()=>return Ok(()),
-            result=super::super::relay::run(&attached_udp,route.inbound_tag(),state.dispatch.as_mut().unwrap(),control.control.as_mut().unwrap().as_mut(),tx,rx,limits,negotiation,auth.as_ref(),&cancel)=>result,
-        };
-        let terminal = matches!(&result, Ok(super::super::relay::Exit::AssociationEnded))
-            || continuity.termination.reason() == zero_core::InboundMuxUdpTermination::ExplicitEnd
-            || state
-                .dispatch
-                .as_mut()
-                .unwrap()
-                .finish_pending_cancellations();
-        // TX/RX have returned. Consume the original protocol control outcome
-        // before admitting a replacement transport; cancellation is not proof.
-        let original = control.control.as_mut().unwrap();
-        original.cancel(CloseReason::Shutdown);
-        let report = original
-            .wait_closed(tokio::time::Instant::now() + Duration::from_secs(5))
-            .await
-            .map_err(std::io::Error::other)?;
-        let complete = report.is_complete() && report.failed_tasks.is_empty();
-        control.receipts.append(report);
-        if !complete {
-            return Err(std::io::Error::other("old continuity control remains unconfirmed").into());
-        }
-        control.control = None;
-        drop(control);
-        let generation = association.generation.load(Ordering::Acquire);
-        if terminal {
-            association.closing.store(true, Ordering::Release);
+    let consumer = async {
+        let mut state = state.lock().await;
+        let dispatch = udp.new_dispatch(route.inbound_tag()).await?;
+        state.dispatch = Some(dispatch);
+        let mut detached = tokio::time::Instant::now() + retention;
+        let mut cancellations = tokio::time::interval(Duration::from_millis(100));
+        cancellations.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            let attachment = tokio::select! {biased;
+                _=stopped.cancelled()=>return Ok(()),
+                _=tokio::time::sleep_until(detached)=>return Ok(()),
+                next=incoming.recv()=>match next {Some(next)=>next,None=>return Ok(())},
+                _=cancellations.tick()=>{if state.dispatch.as_mut().unwrap().finish_pending_cancellations(){return Ok(());}continue;},
+            };
+            let Attachment {
+                tx,
+                rx,
+                limits,
+                negotiation,
+                state: control,
+                continuity,
+                auth,
+                source,
+                cancel,
+                done,
+            } = attachment;
+            let mut control = control.lock().await;
+            let attached_udp = udp.with_source_addr(source);
+            let result = tokio::select! {biased;
+                _=stopped.cancelled()=>return Ok(()),
+                result=super::super::relay::run(&attached_udp,route.inbound_tag(),state.dispatch.as_mut().unwrap(),control.control.as_mut().unwrap().as_mut(),tx,rx,limits,negotiation,auth.as_ref(),&cancel)=>result,
+            };
+            let terminal = matches!(&result, Ok(super::super::relay::Exit::AssociationEnded))
+                || continuity.termination.reason()
+                    == zero_core::InboundMuxUdpTermination::ExplicitEnd
+                || state
+                    .dispatch
+                    .as_mut()
+                    .unwrap()
+                    .finish_pending_cancellations();
+            // TX/RX have returned. Consume the original protocol control outcome
+            // before admitting a replacement transport; cancellation is not proof.
+            let original = control.control.as_mut().unwrap();
+            original.cancel(CloseReason::Shutdown);
+            let report = original
+                .wait_closed(tokio::time::Instant::now() + Duration::from_secs(5))
+                .await
+                .map_err(std::io::Error::other)?;
+            let complete = report.is_complete() && report.failed_tasks.is_empty();
+            control.receipts.append(report);
+            if !complete {
+                return Err(
+                    std::io::Error::other("old continuity control remains unconfirmed").into(),
+                );
+            }
+            control.control = None;
+            drop(control);
+            let generation = association.generation.load(Ordering::Acquire);
+            if terminal {
+                association.closing.store(true, Ordering::Release);
+                let _ = done.send(result.map(|_| ()));
+                return Ok(());
+            }
+            detached = tokio::time::Instant::now() + retention;
+            if host
+                .registry
+                .detach(
+                    &association.scope,
+                    generation,
+                    retention,
+                    Some(association.clone()),
+                )
+                .is_err()
+            {
+                return Err(std::io::Error::other(
+                    "association detach lost its original generation",
+                )
+                .into());
+            }
             let _ = done.send(result.map(|_| ()));
-            return Ok(());
         }
-        detached = tokio::time::Instant::now() + retention;
-        if host
-            .registry
-            .detach(
-                &association.scope,
-                generation,
-                retention,
-                Some(association.clone()),
-            )
-            .is_err()
-        {
-            return Err(
-                std::io::Error::other("association detach lost its original generation").into(),
-            );
-        }
-        let _ = done.send(result.map(|_| ()));
-    }
+    };
+    crate::runtime::udp_socket::endpoint::peer::job::run_peer_preserving(consumer, job).await
 }
 struct Closing(Arc<Association>);
 impl Drop for Closing {

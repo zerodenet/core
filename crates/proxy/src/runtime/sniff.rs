@@ -1,7 +1,7 @@
 use std::net::IpAddr;
 
 use regex::Regex;
-use zero_core::{Address, InboundMuxTcpRelay, Session, TargetHostSource};
+use zero_core::{Address, Session, TargetHostSource};
 pub(crate) mod inline;
 
 #[cfg(feature = "managed-stream-runtime")]
@@ -234,35 +234,38 @@ pub(crate) fn sniff_tcp_prefix(
     SniffProgress::NoMatch
 }
 
-pub(crate) async fn sniff_mux_tcp_session<R>(
+/// Inspect the actual standard Service byte view with the same bounded parser
+/// and policy as the shared inbound path. Every consumed byte is replayed.
+#[cfg(feature = "managed-stream-runtime")]
+pub(crate) async fn sniff_service_stream(
     policy: &SniffingPolicy,
     session: &mut Session,
-    relay: &mut R,
+    stream: &mut zero_platform_tokio::contract::stream::BoxStream,
     fake_dns_fallback: bool,
-) -> Vec<u8>
-where
-    R: InboundMuxTcpRelay,
-{
+) -> Vec<u8> {
+    use tokio::io::AsyncReadExt;
     if !policy.sniffs_tcp(fake_dns_fallback) {
         return Vec::new();
     }
     let mut prefix = Vec::new();
-    let sniff = async {
+    let inspect = async {
+        let mut chunk = [0; 4096];
         loop {
-            let remaining = MAX_SNIFF_BYTES.saturating_sub(prefix.len());
+            let remaining = MAX_SNIFF_BYTES
+                .saturating_sub(prefix.len())
+                .min(chunk.len());
             if remaining == 0 {
                 break;
             }
-            match relay.read_inbound_chunk(remaining).await {
-                Ok(Some(chunk)) if !chunk.is_empty() => prefix.extend_from_slice(&chunk),
-                Ok(Some(_)) => continue,
-                Ok(None) | Err(_) => break,
+            match stream.read(&mut chunk[..remaining]).await {
+                Ok(0) | Err(_) => break,
+                Ok(read) => prefix.extend_from_slice(&chunk[..read]),
             }
             match sniff_tcp_prefix(&prefix, policy, fake_dns_fallback) {
-                SniffProgress::Domain(sniffed) => {
+                SniffProgress::Domain(domain) => {
                     policy.apply_to_session_with_fake_dns_fallback(
                         session,
-                        sniffed,
+                        domain,
                         fake_dns_fallback,
                     );
                     break;
@@ -272,7 +275,7 @@ where
             }
         }
     };
-    let _ = tokio::time::timeout(SNIFF_TIMEOUT, sniff).await;
+    let _ = tokio::time::timeout(SNIFF_TIMEOUT, inspect).await;
     prefix
 }
 

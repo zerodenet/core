@@ -14,14 +14,15 @@ pub(crate) fn eligible(input: &OutboundConfig) -> bool {
     if !matches!(
         &input.protocol,
         OutboundProtocolConfig::Vless {
-            flow: None,
+            flow,
             reality: None,
             mux_concurrency: None,
             xudp_concurrency: None,
             grpc: Some(_),
             encryption,
             ..
-        } if encryption.as_deref().is_none_or(|value| value == "none")
+        } if flow.as_deref().is_none_or(|value| value == "zero-aead-v1") || flow.as_deref().is_some_and(::vless::validation::is_vision_flow)
+            && encryption.as_deref().is_some_and(|value| value != "none")
     ) {
         return false;
     }
@@ -60,7 +61,9 @@ impl VlessAdapter {
         factory: &Arc<pool::Factory>,
     ) -> Result<super::mux::Options, RegistrationError> {
         let (prepared, pool_id) = self.grpc_pool_options(input, resources, factory)?;
-        Ok(super::mux::Options::Grpc(Arc::new(prepared.bind(pool_id))))
+        Ok(super::mux::Options::Pooled(Arc::new(
+            prepared.bind(pool_id),
+        )))
     }
     pub(super) fn grpc_pool_options(
         &self,

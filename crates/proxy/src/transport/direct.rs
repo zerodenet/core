@@ -13,9 +13,11 @@ use zero_platform_tokio::{
 };
 use zero_traits::IpAddress;
 
+#[cfg(test)]
+use super::direct_dial::candidate::LegacyCandidateOpener;
 use super::direct_dial::{
-    candidate::LegacyCandidateOpener, dial_tcp_candidates_using, dial_tcp_fallback_using,
-    CandidateOpener, TcpDialAttempt, TcpDialFailure,
+    dial_tcp_candidates_using, dial_tcp_fallback_using, CandidateOpener, TcpDialAttempt,
+    TcpDialFailure,
 };
 use candidates::{
     literal_direct_target, recovered_ipv4_candidate_refresh, refresh_recovered_ipv4_candidates,
@@ -104,6 +106,7 @@ impl DirectConnector {
         .await
     }
 
+    #[cfg(test)]
     pub(crate) async fn connect_with_policy(
         &self,
         session: &Session,

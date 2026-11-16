@@ -23,6 +23,11 @@ impl Outbound {
         ),
         ChannelError,
     > {
+        if self.generation.options.hysteria.is_some() {
+            let opened = super::hysteria::open(&self.generation, context).await?;
+            context.upstream.observe_carrier_origin(&opened.original);
+            return Ok((opened.io, opened.control, opened.original));
+        }
         if self.generation.options.h3.is_some() {
             return self.acquire_h3(context).await;
         }
@@ -64,22 +69,18 @@ impl Outbound {
                 zero_platform_tokio::contract::DeliveryState::NotSubmitted,
             ));
         }
-        let bytes = crate::outbound::build_tcp_request_to(
-            &request.destination.address,
-            request.destination.port,
-            &options.uuid,
-            options.flow,
-        )
-        .map_err(|source| {
-            self.admission
-                .error(
-                    session,
-                    Stage::Prepare,
-                    Reason::InvalidConfig,
-                    zero_platform_tokio::contract::DeliveryState::NotSubmitted,
-                )
-                .with_source(source)
-        })?;
+        let bytes = options
+            .stream_request(&request, &context)
+            .map_err(|source| {
+                self.admission
+                    .error(
+                        session,
+                        Stage::Prepare,
+                        Reason::InvalidConfig,
+                        zero_platform_tokio::contract::DeliveryState::NotSubmitted,
+                    )
+                    .with_source(source)
+            })?;
         let (io, control, original) = self.acquire_parts(&context).await?;
         let connected = crate::component::connect::submit(
             options,

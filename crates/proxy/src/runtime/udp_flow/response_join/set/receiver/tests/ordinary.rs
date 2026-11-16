@@ -27,7 +27,7 @@ async fn actual_original_two_task_graph_polls_udp_without_a_third_task_and_keeps
             let worker_memory=memory.clone();let worker_source=source.clone();
             let (driver_id,witness)=scope.registrar().spawn_tracked(TaskClass::Critical,async move {
                 begun.await.unwrap();
-                let (owner,mut lease)=ResponseSetOwner::new(JoinSet::new());
+                let (owner,mut lease)=ResponseSetOwner::new();
                 let reply=lease.packet_sender(&worker_memory).unwrap();
                 let cleanup=CancellationToken::new();let body_stop=cleanup.clone();
                 let body_sources=worker_source.clone();

@@ -49,16 +49,13 @@ pub(super) async fn refresh_endpoint_peers(
         }
     }
     *generation = zero_platform_tokio::contract::CancellationToken::new();
-    let carriers = if declared.is_empty() {
-        &peers.carriers
-    } else {
-        declared
-    };
-    if carriers.len() != peers.carriers.len() {
+    if !declared.is_empty() && declared.len() != peers.initial_endpoints.len() {
         return Err(std::io::Error::other("actual Source carrier peer set changed").into());
     }
-    *peer_uses_proxy = carriers.iter().map(Option::is_some).collect();
-    for (peer, carrier) in carriers.iter().enumerate() {
+    *peer_uses_proxy = (0..peers.initial_endpoints.len())
+        .map(|peer| declared.get(peer).is_some_and(Option::is_some))
+        .collect();
+    for (peer, carrier) in declared.iter().enumerate() {
         let Some(carrier) = carrier.clone() else {
             continue;
         };
@@ -130,20 +127,10 @@ pub(super) async fn refresh_endpoint_peers(
 }
 
 pub(super) fn peer_carrier(
-    endpoint: &Option<RawIpInboundEndpoint>,
     declared: &[Option<Arc<dyn RawIpWireCarrier>>],
     peer: usize,
 ) -> Option<Arc<dyn RawIpWireCarrier>> {
-    if !declared.is_empty() {
-        return declared.get(peer)?.clone();
-    }
-    endpoint
-        .as_ref()?
-        .peers
-        .borrow()
-        .carriers
-        .get(peer)?
-        .clone()
+    declared.get(peer)?.clone()
 }
 
 pub(super) async fn send_network_actions(

@@ -56,6 +56,8 @@ pub(super) struct OriginalClose {
     pub(super) tasks: crate::contract::scope::TaskRegistrar,
     pub(super) wire: Mutex<Option<crate::contract::component::GrantedMetadataListener>>,
     pub(super) claim: Mutex<Option<MetadataViewClaim>>,
+    pub(super) users:
+        Mutex<Option<crate::controlled_datagram::metadata::users::MetadataUsersClosedReceipt>>,
 }
 pub(super) struct Control(pub(super) Arc<OriginalClose>);
 impl DynChannelControl for Control {
@@ -84,6 +86,12 @@ impl DynChannelControl for Control {
                     .get()
                     .unwrap()
                     .return_unbound(&mut claim, &self.0.tasks)?;
+            } else if let Some(users) = self.0.users.lock().unwrap().as_ref() {
+                self.0
+                    .origin
+                    .get()
+                    .unwrap()
+                    .retain_users_receipt(users, &self.0.tasks)?;
             } else {
                 assert!(
                     self.0.origin.get().unwrap().endpoints().is_none(),

@@ -126,14 +126,6 @@ pub(crate) trait PacketPathCarrier: Send + Sync {
         .into())
     }
 
-    /// Only a migrated original physical root can supply this owner. None is
-    /// unknown native ownership; it is never a successful close/no-I/O fact.
-    fn native_owner(
-        &self,
-    ) -> Option<Arc<crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot>> {
-        None
-    }
-
     /// Send `payload` to `target:port` through this carrier.
     async fn send_to(&self, target: &Address, port: u16, payload: &[u8])
         -> Result<(), EngineError>;
@@ -160,81 +152,9 @@ pub(crate) fn packet_path_source(address: &Address, port: u16) -> Option<SocketA
     Some(SocketAddr::new(ip, port))
 }
 
-/// Generic payload-based packet-path transport bridge.
-///
-/// Some protocol adapters expose an already-established upstream transport that
-/// can send target-addressed payloads and return stripped payloads directly.
-/// Runtime wraps those transports into a neutral `PacketPathCarrier` so
-/// adapters do not need to define one-off carrier structs.
-#[async_trait]
-#[cfg(feature = "upstream-association-runtime")]
-pub(crate) trait PacketPathPayloadTransport: Send + Sync {
-    async fn send_to(&self, target: &Address, port: u16, payload: &[u8])
-        -> Result<(), EngineError>;
-
-    async fn recv_from(&self, buf: &mut [u8]) -> Result<usize, EngineError>;
-
-    async fn recv_from_with_source(
-        &self,
-        buf: &mut [u8],
-    ) -> Result<(usize, Option<SocketAddr>), EngineError> {
-        self.recv_from(buf).await.map(|size| (size, None))
-    }
-}
-
-#[cfg(feature = "upstream-association-runtime")]
-struct PacketPathPayloadCarrier {
-    transport: Arc<dyn PacketPathPayloadTransport>,
-    services: crate::protocol_registry::UdpNetworkServices,
-}
-
-#[cfg(feature = "upstream-association-runtime")]
-impl Drop for PacketPathPayloadCarrier {
-    fn drop(&mut self) {
-        self.services
-            .record_association_close(crate::protocol_registry::UdpAssociationCloseKind::Closed);
-    }
-}
-
-#[async_trait]
-#[cfg(feature = "upstream-association-runtime")]
-impl PacketPathCarrier for PacketPathPayloadCarrier {
-    async fn send_to(
-        &self,
-        target: &Address,
-        port: u16,
-        payload: &[u8],
-    ) -> Result<(), EngineError> {
-        self.transport.send_to(target, port, payload).await
-    }
-
-    async fn recv_from(&self, buf: &mut [u8]) -> Result<usize, EngineError> {
-        self.transport.recv_from(buf).await
-    }
-
-    async fn recv_from_with_source(
-        &self,
-        buf: &mut [u8],
-    ) -> Result<(usize, Option<SocketAddr>), EngineError> {
-        self.transport.recv_from_with_source(buf).await
-    }
-}
-
-#[cfg(feature = "upstream-association-runtime")]
-pub(crate) fn packet_path_payload_carrier(
-    services: crate::protocol_registry::UdpNetworkServices,
-    transport: Arc<dyn PacketPathPayloadTransport>,
-) -> Arc<dyn PacketPathCarrier> {
-    services.record_association_created();
-    Arc::new(PacketPathPayloadCarrier {
-        transport,
-        services,
-    })
-}
-
 /// Carrier identity for cache lookup (cheap, computed before dialing).
 ///
-/// Produced by `PreparedUdpPacketPathOperation::into_carrier_descriptor`. The
+/// Produced by the actual cold standard factory or codec metadata. The
 /// `cache_key` uniquely identifies one carrier connection so the manager can
 /// reuse it across packets; `server`/`port` are the endpoint for diagnostics.
 #[derive(Clone)]

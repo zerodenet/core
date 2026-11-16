@@ -21,6 +21,8 @@ impl Outbound {
         }.map_err(|error| self.admission.attach(error,session))?;
         let transport = async {
             let io = zero_transport::TcpRelayStream::new(carrier::Carrier::new(io));
+            let io =
+                zero_transport::finalmask::tcp::wrap_prepared(io, self.masks.tcp(), false).await?;
             let io = if let Some(reality) = &self.options.reality {
                 let stream = reality
                     .connect_with_navigation(io, |stream, host, plan| {

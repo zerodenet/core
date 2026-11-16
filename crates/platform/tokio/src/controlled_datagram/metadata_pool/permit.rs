@@ -130,7 +130,13 @@ impl MetadataPoolPermit {
                     "metadata users receipt belongs to another original",
                 ));
             }
-            native.confirmed.get_or_insert_with(|| receipt.clone());
+            if let Some(previous) = native.confirmed.as_ref() {
+                if let Some(completed) = previous.with_later_protocol_receipt(receipt) {
+                    native.confirmed = Some(completed);
+                }
+            } else {
+                native.confirmed = Some(receipt.clone());
+            }
         }
         Ok(())
     }
@@ -153,7 +159,33 @@ impl MetadataPoolPermit {
             self.release_registration_credit();
             return Ok(Some(receipt));
         }
+        if self.close_native_views()?.is_none() {
+            return Ok(None);
+        }
+        let acquired = self.0.native()?.acquired_confirmed;
+        let _ = self.0.closed.set(acquired);
+        self.0.retired.cancel();
+        if let Some(owner) = self.0.owner.upgrade() {
+            if acquired {
+                owner
+                    .confirmed_native
+                    .store(true, std::sync::atomic::Ordering::Release);
+            }
+        }
+        self.release_registration_credit();
+        Ok(self.origin().closed())
+    }
+
+    /// Native FD/probe close after the exact view/driver receipt. This does not
+    /// complete the enclosing protocol phase or release its original Root N.
+    fn close_native_views(&self) -> Result<Option<Arc<MetadataOwnerReport>>, ChannelError> {
+        if self.0.preparing.load(std::sync::atomic::Ordering::Acquire) {
+            return Ok(None);
+        }
         let mut native = self.0.native()?;
+        if native.wire_closed {
+            return Ok(native.report.clone());
+        }
         let returned_unbound = native.unbound.as_ref().is_some_and(|(claim, tasks)| {
             claim.try_closed().is_some_and(|views| {
                 native
@@ -169,10 +201,9 @@ impl MetadataPoolPermit {
         let complete = report.is_complete();
         let unknown = !report.main.unconfirmed.is_empty() || !report.probes.unconfirmed.is_empty();
         native.acquired_confirmed |= report.main.confirmed_closed > 0;
-        let acquired = native.acquired_confirmed;
         // All actual sources were captured by MetadataOwner before report
         // extraction. Retire the former report only after the native lock.
-        let previous = native.report.replace(report);
+        let previous = native.report.replace(report.clone());
         if unknown {
             let source = self
                 .0
@@ -189,22 +220,31 @@ impl MetadataPoolPermit {
             drop(previous);
             return Ok(None);
         }
-        let _ = self.0.closed.set(acquired);
-        self.0.retired.cancel();
+        native.wire_closed = true;
         drop(native);
         drop(previous);
-        if let Some(owner) = self.0.owner.upgrade() {
-            if acquired {
-                owner
-                    .confirmed_native
-                    .store(true, std::sync::atomic::Ordering::Release);
-            }
-        }
-        self.release_registration_credit();
-        Ok(self.origin().closed())
+        Ok(Some(report))
     }
 }
 impl MetadataPoolOrigin {
+    /// Consume this original's actual users/driver/view receipt and close only
+    /// its native metadata wire. The protocol cleanup owner must still finish
+    /// its phase and Scope/registration ACK; this is not MetadataPoolClosed.
+    pub fn close_native_wire(
+        &self,
+        receipt: &MetadataUsersClosedReceipt,
+        tasks: &TaskRegistrar,
+    ) -> Result<Option<Arc<MetadataOwnerReport>>, ChannelError> {
+        let slot = self.slot.upgrade().ok_or_else(|| {
+            error(
+                Reason::Revoked,
+                "metadata wire owner disappeared before native close",
+            )
+        })?;
+        let permit = MetadataPoolPermit(slot);
+        permit.retain_users_inner(Some(receipt), tasks)?;
+        permit.close_native_views()
+    }
     /// Read only the actual establishing registration already installed in this
     /// original. No registrar, new task, native grant or ACK is reconstructed.
     pub fn initializer_registration(&self) -> Option<TaskJoinWitness> {

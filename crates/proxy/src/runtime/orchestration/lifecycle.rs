@@ -25,9 +25,13 @@ fn run_owned_until<'a>(
     Box::pin(async move {
         proxy
             .statistics
-            .drive(Box::pin(proxy.protocols.drive_component_supervision(
-                Box::pin(run_supervised_until(proxy, shutdown)),
-            )))
+            .drive(Box::pin(
+                proxy.protocols.drive_component_supervision(Box::pin(
+                    proxy
+                        .inbound_services
+                        .drive(Box::pin(run_supervised_until(proxy, shutdown))),
+                )),
+            ))
             .await
     })
 }

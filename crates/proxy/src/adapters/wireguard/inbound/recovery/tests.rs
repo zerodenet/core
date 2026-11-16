@@ -98,7 +98,6 @@ fn restore_requires_ready_same_crypto_candidate_and_rejects_another_actual_owner
         another,
         vec![],
         vec![],
-        vec![],
         sender,
         receiver,
     ));

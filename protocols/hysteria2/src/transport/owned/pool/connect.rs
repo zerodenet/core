@@ -5,6 +5,8 @@ impl Generation {
         profile: usize,
         binding: UpstreamBinding,
         expected_dns: Option<Option<zero_platform_tokio::contract::dns::DnsGeneration>>,
+        waiting: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
+        initializer_cancel: zero_platform_tokio::contract::CancellationToken,
         end: Instant,
     ) -> Result<Arc<OwnedAuthentication>, ChannelError> {
         if !binding.prefix.is_empty() {
@@ -18,9 +20,18 @@ impl Generation {
             deadline: Some(end),
             cancel: self.cancel.child_token(),
         };
-        let upstream = self.upstreams[profile]
-            .select_background_carrier(Some(binding), call.clone())
-            .await?;
+        let upstream = match waiting.clone() {
+            Some(waiting) => {
+                self.upstreams[profile]
+                    .select_background_carrier_observed(Some(binding), call.clone(), waiting)
+                    .await?
+            }
+            None => {
+                self.upstreams[profile]
+                    .select_background_carrier(Some(binding), call.clone())
+                    .await?
+            }
+        };
         let key = Key {
             profile,
             binding: upstream.binding().clone(),
@@ -102,11 +113,31 @@ impl Generation {
             entry.receive_setup(end).await?;
             entry.wait_setup_ack(end).await?;
             drop(_initialization);
-            return Box::pin(self.acquire(profile, key.binding.clone(), expected_dns, end)).await;
+            return Box::pin(self.acquire(
+                profile,
+                key.binding.clone(),
+                expected_dns,
+                waiting,
+                initializer_cancel,
+                end,
+            ))
+            .await;
         }
         if let Some(auth) = &state.auth {
-            if auth.is_ready() && !entry.cancel.is_cancelled() && !state.closed {
+            if auth.is_ready()
+                && !entry.cancel.is_cancelled()
+                && !state.closed
+                && state
+                    .original_stop
+                    .as_ref()
+                    .is_none_or(|stop| !stop.is_cancelled())
+                && state
+                    .retirement
+                    .as_ref()
+                    .is_none_or(|original| !original.retirement_requested())
+            {
                 let auth = auth.clone();
+                self.observe_retained_original(&state, profile, &upstream)?;
                 drop(state);
                 entry.wait_setup_ack(end).await?;
                 return Ok(auth);
@@ -117,7 +148,15 @@ impl Generation {
             entry.close(end).await?;
             self.remove_entry(&key, &entry).await?;
             drop(_initialization);
-            return Box::pin(self.acquire(profile, key.binding.clone(), expected_dns, end)).await;
+            return Box::pin(self.acquire(
+                profile,
+                key.binding.clone(),
+                expected_dns,
+                waiting,
+                initializer_cancel,
+                end,
+            ))
+            .await;
         }
         state.attempted = true;
         state.tasks = Some(self.tasks.clone());
@@ -140,6 +179,7 @@ impl Generation {
                         call: call.clone(),
                         client: client.clone(),
                         dns: key.dns_generation,
+                        initializer_cancel: initializer_cancel.clone(),
                     },
                     end,
                 )
@@ -156,7 +196,7 @@ impl Generation {
                         .ok_or_else(|| error(Stage::Prepare, Reason::Internal));
                 }
                 Err(source) => {
-                    let mut state = entry.state.lock().await;
+                    let state = entry.state.lock().await;
                     let retry = state
                         .setup_failure
                         .as_ref()
@@ -166,8 +206,8 @@ impl Generation {
                     }
                     // Native/users closure is independent of the failed setup's
                     // Host acknowledgement. Publish both before fresh admission.
-                    let retirement = state.retire_endpoint(end).await;
                     drop(state);
+                    let retirement = entry.retire_current_endpoint(end).await;
                     entry.receive_native_failure().await?;
                     retirement?;
                     let state = entry.state.lock().await;
@@ -187,105 +227,5 @@ impl Generation {
         }
     }
 }
-impl Generation {
-    pub(super) async fn open_candidate(
-        &self,
-        state: &mut EntryState,
-        profile: usize,
-        index: usize,
-        client: &quinn::ClientConfig,
-        end: Instant,
-    ) -> Result<OwnedConnection, ChannelError> {
-        let options = &self.profiles[profile];
-        let permit = self.metadata[profile]
-            .grants()
-            .reserve(state.caller.as_ref().unwrap())?;
-        state.native_sources = permit.origin().original_sources();
-        state.origin = Some(permit.origin());
-        state.permit = Some(permit);
-        let port = options
-            .leaf
-            .node
-            .udp_hop
-            .as_ref()
-            .map(|hop| hop.next_port());
-        let mut logical = state
-            .candidates
-            .as_ref()
-            .unwrap()
-            .peer(index)
-            .ok_or_else(|| error(Stage::Prepare, Reason::InvalidConfig))?;
-        logical.set_port(options.leaf.port);
-        // The original N is already held. Prepay actual scratch/codec/copy
-        // before opening any native candidate; no second byte book is created.
-        let (socket, queues) =
-            PacketSocket::prepare_with_budget(logical, self.buffers.clone(), &options.masks())
-                .map_err(|source| error(Stage::Prepare, Reason::Capacity).with_source(source))?;
-        let (peer, grant) = state.candidates.as_ref().unwrap().open_metadata(
-            index,
-            port,
-            state.permit.as_ref().unwrap(),
-            state.caller.as_ref().unwrap(),
-            end,
-        )?;
-        state.unbound = Some(grant);
-        state.logical = Some(logical);
-        state.next_hop = options
-            .leaf
-            .node
-            .udp_hop
-            .as_ref()
-            .map(|hop| Instant::now() + hop.next_interval());
-        let segment = match PacketSegment::prepare(
-            state.unbound.take().unwrap(),
-            queues,
-            self.tasks.clone(),
-            peer,
-            logical,
-        ) {
-            Ok(segment) => segment,
-            Err(rejected) => {
-                let rejected = *rejected;
-                state.unbound = Some(rejected.grant);
-                state.queues = Some(rejected.queues);
-                return Err(error(Stage::Prepare, Reason::Io).with_source(rejected.error));
-            }
-        };
-        state.segment = Some(segment);
-        let (owner, receiver) = OwnedEndpointOwner::new_packet(
-            socket,
-            self.tasks.clone(),
-            OwnedEndpointLimits {
-                drivers: n(3),
-                users: self.endpoint_users,
-            },
-        );
-        state.owner = Some(owner);
-        state.receiver = Some(receiver);
-        state
-            .owner
-            .as_ref()
-            .unwrap()
-            .bind_packet_segment(state.segment.as_ref().unwrap())?;
-        state.segment.as_mut().unwrap().start()?;
-        let handle =
-            state
-                .owner
-                .as_mut()
-                .unwrap()
-                .start(Default::default(), None, Some(client.clone()))?;
-        tokio::time::timeout_at(
-            end,
-            handle.connect(
-                logical,
-                options
-                    .leaf
-                    .server_name
-                    .as_deref()
-                    .unwrap_or(&options.leaf.server),
-            ),
-        )
-        .await
-        .map_err(|source| error(Stage::Dial, Reason::Timeout).with_source(source))?
-    }
-}
+
+mod native;

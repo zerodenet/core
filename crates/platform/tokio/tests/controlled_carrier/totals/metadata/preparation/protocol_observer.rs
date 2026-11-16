@@ -1,7 +1,7 @@
 //! An actual finite receiver holds the exact pre-IO UDP original through ACK.
 use super::*;
 use crate::contract::{
-    lifecycle::{CloseReport, DynChannelControl},
+    lifecycle::{CloseReport, DynChannelControl, ResourceLifecycle},
     network::{PendingCarrierObserver, UpstreamTransport},
     scope::TaskScopeIdentity,
     BoxFuture, CloseReason,
@@ -72,6 +72,7 @@ async fn exact_protocol_observer_is_strong_before_udp_and_settles_only_after_act
             tasks: tasks.clone(),
             wire: Mutex::new(None),
             claim: Mutex::new(None),
+            users: Mutex::new(None),
         });
         let (prepared, retirement) = owner
             .grants()
@@ -176,11 +177,33 @@ async fn exact_protocol_observer_is_strong_before_udp_and_settles_only_after_act
             })
             .unwrap();
         let permit = Arc::new(permit);
+        // The actual provider issued this sealed original before native I/O.
+        // A real registered continuation can retain that unknown observation;
+        // no listener endpoint or fabricated TCP/UDP admission is required.
+        let stream_origin = crate::controlled_carrier::CarrierOrigin::from_metadata(origin.clone());
+        assert!(stream_origin.endpoints().is_none());
+        let primary = actor.task_id().unwrap();
+        let mut logical = crate::AcceptedPeerScope::for_stream_carrier(
+            &tasks.downgrade(),
+            primary,
+            actor.clone(),
+            CancellationToken::new(),
+            one,
+            1,
+            &stream_origin,
+        )
+        .unwrap();
+        assert!(logical.tasks().caller().unwrap().local_endpoint().is_err());
+        assert!(
+            origin.closed().is_none(),
+            "logical carrier graph grants no native close"
+        );
         assert!(begin.send((permit.clone(), actor.clone())).is_ok());
         let mut bytes = [0; 64];
         let (size, _) = peer.recv_from(&mut bytes).await.unwrap();
         assert_eq!(&bytes[..size], b"same pre-delivery protocol original");
         let receipt = scope.next_receipt().await.unwrap();
+        assert!(logical.observe_joined(primary).is_some());
         assert!(actor.matches_joined(receipt.joined()) && receipt.result().is_ok());
         assert!(!receipt.joined().registration_released());
         actual.request_retirement();
@@ -191,6 +214,45 @@ async fn exact_protocol_observer_is_strong_before_udp_and_settles_only_after_act
         .await;
         assert!(!actual.is_settled() && origin.closed().is_none());
         assert_eq!(totals.snapshot().charged, 1);
+        // The actual initializer above performed native UDP IO and joined.
+        // Return its unique views without inventing an independent driver;
+        // the enclosing real protocol continuation deliberately stays pending.
+        let mut wire = retained.wire.lock().unwrap().take().unwrap();
+        let claim = wire.users_claim.take().unwrap();
+        let (graph, _receiver) = claim
+            .bind_users::<u8, ()>(tasks.clone(), one, one)
+            .unwrap_or_else(|_| panic!("same actual native view claim"));
+        drop(wire);
+        graph.users().cancellation().cancel();
+        graph.drivers().revoke_registration();
+        let users = graph.completion().try_owned_closed().unwrap();
+        let foreign_scope = TaskScope::empty(tokio::runtime::Handle::current());
+        assert!(origin
+            .close_native_wire(&users, &foreign_scope.registrar())
+            .is_err());
+        let native = origin.close_native_wire(&users, &tasks).unwrap().unwrap();
+        assert!(native.is_complete() && native.main.confirmed_closed == 1);
+        assert!(
+            Arc::ptr_eq(
+                &native,
+                &origin.close_native_wire(&users, &tasks).unwrap().unwrap()
+            ),
+            "repeat close keeps the original positive native report"
+        );
+        assert!(
+            origin.closed().is_none() && !actual.is_settled(),
+            "native wire close is not whole protocol closure"
+        );
+        assert_eq!(
+            totals.snapshot().charged,
+            1,
+            "same protocol/Host ACK still retains its Root N"
+        );
+        assert!(
+            owner.grants().prepare_original(&tasks).is_err(),
+            "native-only close cannot admit a replacement original"
+        );
+        *retained.users.lock().unwrap() = Some(users);
         retained.ready.store(true, Ordering::Release);
         retained.changed.notify_waiters();
         std::future::poll_fn(|cx| {
@@ -211,6 +273,7 @@ async fn exact_protocol_observer_is_strong_before_udp_and_settles_only_after_act
         assert!(!actual.is_settled());
         drop(deferred);
         assert!(actor.try_joined().unwrap().registration_released());
+        assert!(logical.shutdown(deadline()).await.unwrap().is_complete());
         // This explicit barrier stops before the Root's next scan. The local
         // owner has genuine native/registration ACK proof and can remove its
         // own slot, but the same Root row is still charged.

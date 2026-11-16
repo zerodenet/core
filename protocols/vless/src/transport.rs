@@ -21,8 +21,8 @@ pub use inbound::{
     PreparedVlessInboundListenerRequest, VlessInboundBindPlan, VlessInboundListenerRequest,
     VlessInboundStreamMetadata, VlessInboundTransportStreams,
 };
-pub(crate) use leaf::OwnedQuicParts;
-pub use leaf::{VlessOutboundLeaf, VlessReverseBridge};
+pub use leaf::VlessOutboundLeaf;
+pub(crate) use leaf::{OwnedMkcpParts, OwnedQuicParts};
 pub use managed_udp::{VlessManagedUdpConnectorFlow, VlessManagedUdpFlowResume};
 pub use options::{
     VlessInboundOptionsRef, VlessInboundUserRef, VlessOutboundBuildOptionsRef,
@@ -32,4 +32,6 @@ pub use options::{
 pub use runtime::browser_dialer::{
     ProviderFactory as BrowserProviderFactory, ProviderOptions as BrowserProviderOptions,
 };
+#[cfg(feature = "reality")]
+pub use runtime::preconnect::Access as PreconnectPool;
 pub use runtime::VlessTransportRuntime;

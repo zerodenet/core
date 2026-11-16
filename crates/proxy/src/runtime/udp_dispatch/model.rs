@@ -36,3 +36,20 @@ pub(crate) struct UdpDispatch {
     pub(super) cancel_tx: tokio::sync::mpsc::UnboundedSender<UdpFlowCancellation>,
     pub(super) cancel_rx: tokio::sync::mpsc::UnboundedReceiver<UdpFlowCancellation>,
 }
+
+#[cfg(test)]
+impl UdpDispatch {
+    pub(crate) fn direct_original_views_for_test(
+        &self,
+    ) -> Vec<(
+        zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+        zero_platform_tokio::contract::component::BoundDatagramView,
+    )> {
+        match &self.direct_socket {
+            DispatchDirectSockets::Bound(socket) => socket.original_views_for_test(),
+            DispatchDirectSockets::Legacy(_) => {
+                panic!("actual Source must never choose the library socket fixture")
+            }
+        }
+    }
+}

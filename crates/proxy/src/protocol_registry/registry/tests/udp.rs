@@ -8,53 +8,29 @@ fn cold_udp_projection_moves_existing_operations_without_a_runtime_or_second_pre
     for (config, leaf, _) in compiled_in_outbound_leaves() {
         let protocol = outbound_leaf_name(&config, &leaf);
         let claimed = registry.claim_outbound_leaf(&config, leaf);
-        if protocol == "hysteria2" {
+        if matches!(
+            protocol,
+            "hysteria2"
+                | "vless"
+                | "vmess"
+                | "trojan"
+                | "mieru"
+                | "socks5"
+                | "shadowsocks"
+                | "wireguard"
+                | "direct"
+        ) {
             assert!(
                 claimed.is_err(),
-                "HY2 must not restore its retired compatibility projection"
+                "migrated protocol must not restore its retired compatibility projection"
             );
             continue;
         }
         let claimed = claimed.unwrap();
         let has_udp = claimed.has_udp_flow_capability();
-        let expected = matches!(
-            protocol,
-            "direct" | "vless" | "vmess" | "trojan" | "hysteria2" | "shadowsocks" | "mieru"
-        );
+        let expected = matches!(protocol, "shadowsocks");
         assert_eq!(has_udp, expected, "{protocol}");
         let operation = claimed.into_udp_flow();
-        if protocol == "vmess" {
-            let failure = operation
-                .err()
-                .expect("ordinary VMess UDP uses the standard Datagram role");
-            assert_eq!(failure.stage, "udp_standard_role");
-            assert_eq!(failure.upstream, Some(("127.0.0.1".into(), 443)));
-        } else {
-            assert_eq!(operation.is_ok(), expected, "{protocol}");
-        }
-    }
-}
-
-#[test]
-fn cold_udp_relay_results_keep_the_existing_binding_capabilities() {
-    assert!(tokio::runtime::Handle::try_current().is_err());
-    let registry = crate::register::protocol_registry();
-    for (config, leaf, _) in compiled_in_outbound_leaves() {
-        let protocol = outbound_leaf_name(&config, &leaf);
-        let claimed = registry.claim_outbound_leaf(&config, leaf);
-        if protocol == "hysteria2" {
-            assert!(
-                claimed.is_err(),
-                "HY2 must not restore its retired compatibility projection"
-            );
-            continue;
-        }
-        let claimed = claimed.unwrap();
-        let relay = claimed.into_udp_relay();
-        assert_eq!(
-            relay.is_ok(),
-            matches!(protocol, "vless" | "vmess" | "trojan" | "mieru"),
-            "{protocol}"
-        );
+        assert_eq!(operation.is_ok(), expected, "{protocol}");
     }
 }

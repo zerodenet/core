@@ -1,4 +1,4 @@
-use crate::runtime::inbound_service::PreparedInboundServiceOperation;
+use crate::runtime::inbound_service::NativeServiceOperation;
 use zero_config::OutboundConfig;
 use zero_engine::EngineError;
 
@@ -7,6 +7,5 @@ pub(crate) trait InboundServiceCapability: Send + Sync {
     fn prepare_inbound_service(
         &self,
         outbound: &OutboundConfig,
-        source_dir: Option<&std::path::Path>,
-    ) -> Result<Option<Box<dyn PreparedInboundServiceOperation>>, EngineError>;
+    ) -> Result<Option<NativeServiceOperation>, EngineError>;
 }

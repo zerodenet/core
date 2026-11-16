@@ -33,6 +33,7 @@ struct Shared {
     pending_tx: Arc<Mutex<Option<IpPacket>>>,
     resources: Arc<dyn ResourceAccess>,
     outer_network: Option<std::sync::Weak<crate::component::background::BackgroundNetwork>>,
+    outer_carriers: Arc<Mutex<Vec<Arc<crate::runtime::raw_ip::RegisteredProxiedRawIpWireCarrier>>>>,
 }
 struct State {
     wire: Option<wire::Wire>,
@@ -69,6 +70,7 @@ pub(crate) fn source(
         TaskClass::Auxiliary,
     );
     proxies.bind(context.tasks.downgrade())?;
+    let outer_carriers = Arc::new(Mutex::new(Vec::new()));
     let shared = Arc::new(Shared {
         state: Mutex::new(State {
             wire: Some(wire::Wire {
@@ -76,6 +78,7 @@ pub(crate) fn source(
                 endpoint,
                 proxies: proxies.clone(),
                 carriers: Vec::new(),
+                outer_owners: outer_carriers.clone(),
                 proxy_reads: Vec::new(),
                 proxy_codecs: Vec::new(),
             }),
@@ -94,6 +97,7 @@ pub(crate) fn source(
         pending_tx: Arc::new(Mutex::new(None)),
         resources: context.resources.clone(),
         outer_network,
+        outer_carriers,
     });
     Ok((
         Owner {

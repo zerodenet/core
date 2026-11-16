@@ -1,11 +1,9 @@
 //! Install or retain actual prepared peer originals after deferred startup.
 use super::*;
-mod proxied;
 impl WireguardAdapter {
     pub(super) async fn prepare_devices_inner(
         &self,
         outbounds: &[&OutboundConfig],
-        inbounds: &[InboundConfig],
         mut context: OutboundDevicePreparationContext,
         cold: Option<Arc<pending_map::PendingEntries>>,
     ) -> Result<PreparedWireguardDevices, EngineError> {
@@ -18,42 +16,41 @@ impl WireguardAdapter {
         if cold.is_none() {
             PendingEndpoints::ensure_available(&self.pending_endpoints)?;
         }
-        let upstream = &context.upstream;
         let mut profiles = HashMap::new();
         let mut linked = HashMap::new();
-        let mut linked_updates = Vec::new();
         let mut traffic = Vec::new();
-        let generation = upstream.egress_generation();
+        let generation = context.network_generation.0;
         let selected = self.select_devices(outbounds, &context)?;
         let desired = selected
             .iter()
-            .map(|(outbound, _, identity, plan)| {
-                let root = cold.as_ref().and_then(|candidate| {
-                    candidate
+            .map(|(outbound, _, identity, _)| {
+                let candidate = cold.as_ref().ok_or_else(|| {
+                    invalid("WireGuard requires its same actual cold component candidate")
+                })?;
+                let count = match &outbound.protocol {
+                    OutboundProtocolConfig::Wireguard {
+                        inbound_tag: Some(tag),
+                        ..
+                    } => candidate
+                        .get(tag)
+                        .ok_or_else(|| {
+                            invalid("linked WireGuard has no actual cold component root")
+                        })?
+                        .client_peer_count(),
+                    OutboundProtocolConfig::Wireguard {
+                        inbound_tag: None, ..
+                    } => candidate
                         .standalone
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
                         .get(&outbound.tag)
-                        .cloned()
-                });
-                let count = match root {
-                    Some(root) => root.root.peers.len(),
-                    None if matches!(
-                        outbound.protocol,
-                        OutboundProtocolConfig::Wireguard {
-                            inbound_tag: None,
-                            outer_udp_proxy: None,
-                            ..
-                        }
-                    ) =>
-                    {
-                        return Err(invalid(
-                            "plain standalone WireGuard has no actual cold component root",
-                        ));
-                    }
-                    None => self.prepared_peer_count(
-                        outbound, inbounds, plan, *identity, generation, &context,
-                    )?,
+                        .ok_or_else(|| {
+                            invalid("standalone WireGuard has no actual cold component root")
+                        })?
+                        .root
+                        .peers
+                        .len(),
+                    _ => unreachable!(),
                 };
                 Ok((outbound.tag.clone(), (*identity, generation, count)))
             })
@@ -69,99 +66,29 @@ impl WireguardAdapter {
                 } => outer_udp_proxy.as_deref(),
                 _ => None,
             };
-            let canonical = match &outbound.protocol {
-                OutboundProtocolConfig::Wireguard {
-                    inbound_tag: Some(tag),
-                    ..
-                } => cold
-                    .as_ref()
-                    .is_some_and(|candidate| candidate.contains_key(tag)),
-                OutboundProtocolConfig::Wireguard {
-                    inbound_tag: None, ..
-                } => cold.as_ref().is_some_and(|candidate| {
-                    candidate
-                        .standalone
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner())
-                        .contains_key(&outbound.tag)
-                }),
-                _ => false,
-            };
-            let prepared_traffic = (!canonical)
-                .then(|| {
-                    context
-                        .endpoint_bindings
-                        .iter()
-                        .find(|b| b.canonical && b.outbound_tags.contains(&outbound.tag))
-                        .and_then(|binding| {
-                            context
-                                .traffic
-                                .prepare_endpoint_traffic(binding, &plan.peer_ids())
-                        })
-                })
-                .flatten();
-            let meters = prepared_traffic.as_ref().map(|p| (p.endpoint(), p.peers()));
-            if let Some(prepared) = prepared_traffic {
-                traffic.push(prepared);
-            }
             if let OutboundProtocolConfig::Wireguard {
                 inbound_tag: Some(inbound_tag),
                 ..
             } = &outbound.protocol
             {
-                let inbound = inbounds
-                    .iter()
-                    .find(|inbound| inbound.tag == *inbound_tag)
-                    .ok_or_else(|| invalid("linked WireGuard inbound missing"))?;
-                let (link, update) = if canonical {
-                    let link = self
-                        .install_component_link(
-                            cold.as_ref().expect("actual cold candidate"),
-                            inbound_tag,
-                            outbound,
-                            &mut staged,
-                            device_identity,
-                            generation,
-                            outer_udp_proxy
-                                .as_ref()
-                                .and_then(|tag| context.packet_paths.get(*tag))
-                                .cloned(),
-                        )
-                        .await?;
-                    (link, None)
-                } else {
-                    if outer_udp_proxy.is_none() {
-                        return Err(invalid(
-                            "plain linked graph cannot restart through the legacy worker path",
-                        ));
-                    }
-                    // TEMP-WG-OUTER-UDP-01 retains this original compatibility branch.
-                    self.prepare_linked_endpoint(
+                let link = self
+                    .install_component_link(
+                        cold.as_ref().expect("actual cold candidate"),
+                        inbound_tag,
                         outbound,
-                        inbound,
-                        &plan,
-                        &context,
                         &mut staged,
                         device_identity,
                         generation,
-                        desired[&outbound.tag].2,
-                        meters.as_ref(),
+                        outer_udp_proxy
+                            .and_then(|tag| context.packet_paths.get(tag))
+                            .cloned(),
                     )
-                    .await?
-                };
-                if let Some(update) = update {
-                    linked_updates.push(update);
-                }
+                    .await?;
                 linked.insert(inbound_tag.clone(), link);
                 profiles.insert(
                     outbound.tag.clone(),
                     CachedProfile {
                         graph: None,
-                        packet: self.packet_operations(
-                            &outbound.tag,
-                            device_identity,
-                            plan.clone(),
-                        ),
                         identity,
                         device_identity,
                         plan,
@@ -169,8 +96,8 @@ impl WireguardAdapter {
                 );
                 continue;
             }
-            if canonical {
-                let root = cold
+            {
+                let (root, owned) = cold
                     .as_ref()
                     .and_then(|candidate| {
                         candidate
@@ -178,7 +105,9 @@ impl WireguardAdapter {
                             .lock()
                             .unwrap_or_else(|error| error.into_inner())
                             .get(&outbound.tag)
-                            .map(|candidate| candidate.root.clone())
+                            .map(|candidate| {
+                                (candidate.root.clone(), candidate.owns_candidate_originals())
+                            })
                     })
                     .ok_or_else(|| {
                         invalid(
@@ -207,7 +136,7 @@ impl WireguardAdapter {
                             cell.set(device).map_err(|_| {
                                 invalid("standalone original peer was already installed")
                             })?;
-                            (cell, true)
+                            (cell, owned)
                         }
                     };
                     staged.insert(
@@ -217,18 +146,12 @@ impl WireguardAdapter {
                         generation,
                         cell,
                         fresh,
-                        outer_udp_proxy.is_some(),
                     )?;
                 }
                 profiles.insert(
                     outbound.tag.clone(),
                     CachedProfile {
                         graph: Some(Arc::downgrade(&root)),
-                        packet: self.packet_operations(
-                            &outbound.tag,
-                            device_identity,
-                            plan.clone(),
-                        ),
                         identity,
                         device_identity,
                         plan,
@@ -236,54 +159,20 @@ impl WireguardAdapter {
                 );
                 continue;
             }
-            // A standalone device has no retained listener role. Revocation
-            // removes its stacks/carrier through normal pool publication.
-            if context.disabled_outbounds.contains(&outbound.tag) {
-                continue;
-            }
-            self.prepare_proxied_peers(
-                proxied::ProxiedPreparation {
-                    outbound,
-                    plan: &plan,
-                    context: &context,
-                    device_identity,
-                    generation,
-                    meters: &meters,
-                    outer_udp_proxy,
-                },
-                &mut staged,
-            )
-            .await?;
-            profiles.insert(
-                outbound.tag.clone(),
-                CachedProfile {
-                    graph: None,
-                    packet: self.packet_operations(&outbound.tag, device_identity, plan.clone()),
-                    identity,
-                    device_identity,
-                    plan,
-                },
-            );
         }
         let pending = if let Some(candidate) = cold {
             traffic.extend(
                 std::mem::take(&mut *candidate.traffic.lock().unwrap_or_else(|e| e.into_inner()))
                     .into_values(),
             );
-            PendingEndpoints::adopt(self.pending_endpoints.clone(), candidate)?
-        } else {
-            PendingEndpoints::install(
+            Some(PendingEndpoints::adopt(
                 self.pending_endpoints.clone(),
-                linked
-                    .iter()
-                    .map(|(tag, link)| {
-                        Ok((
-                            tag.clone(),
-                            Arc::new(PendingLinkedEndpoint::from_ready(link.clone())?),
-                        ))
-                    })
-                    .collect::<Result<HashMap<_, _>, EngineError>>()?,
-            )?
+                candidate,
+            )?)
+        } else {
+            // With no WireGuard devices there is no new candidate to adopt.
+            // Any previous originals still retire through the same host/pool.
+            None
         };
         Ok(PreparedWireguardDevices {
             pool: self.pool.clone(),
@@ -292,9 +181,8 @@ impl WireguardAdapter {
             staged,
             linked: self.linked_endpoints.clone(),
             next_linked: linked,
-            linked_updates,
             traffic,
-            pending: Some(pending),
+            pending,
             published: false,
             stopped: Vec::new(),
         })

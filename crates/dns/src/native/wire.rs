@@ -28,6 +28,18 @@ pub fn validate_node_server(server: &DnsServerConfig) -> io::Result<()> {
     Ok(())
 }
 pub fn validate_node_config(config: Option<&zero_config::DnsConfig>) -> io::Result<()> {
+    validate_node_config_with_detours(config, |_| {
+        Err(unsupported(
+            "native Node DNS requires its actual detour provider",
+        ))
+    })
+}
+/// Validate backend wire facts while the assembling host checks its detour's
+/// bootstrap dependencies. This callback grants no runtime I/O or role handle.
+pub fn validate_node_config_with_detours(
+    config: Option<&zero_config::DnsConfig>,
+    mut validate_detour: impl FnMut(&str) -> io::Result<()>,
+) -> io::Result<()> {
     // No DNS document already means System resolution. The same host-owned
     // Node provider executes that real blocking work; this is a cold capability
     // check, never authorization to perform it before the provider starts.
@@ -65,7 +77,17 @@ pub fn validate_node_config(config: Option<&zero_config::DnsConfig>) -> io::Resu
                 format!("native Node DNS selected undefined backend `{tag}`"),
             )
         })?;
-        validate_node_server(server)?;
+        if let Some(detour) = server.detour() {
+            if matches!(server, DnsServerConfig::Doq { .. }) {
+                return Err(unsupported("DoQ detour requires its original QUIC carrier"));
+            }
+            if validated_peers(server)?.is_empty() {
+                return Err(unsupported("node DNS has no native peers"));
+            }
+            validate_detour(detour)?;
+        } else {
+            validate_node_server(server)?;
+        }
     }
     Ok(())
 }
@@ -155,7 +177,12 @@ pub(super) async fn exchange(
         Ok(peers) => {
             let mut last = None;
             for peer in peers {
-                let attempt = exchange_peer(provider, config, backend, &request, peer).await;
+                let opening = exchange_peer(provider, config, backend, &request, peer);
+                let attempt = if config.detour().is_some() {
+                    crate::native_node::during_detour(opening).await
+                } else {
+                    opening.await
+                };
                 let retry = attempt.can_retry()
                     && attempt.failed()
                     && Instant::now() < end

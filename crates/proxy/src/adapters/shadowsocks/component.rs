@@ -1,7 +1,9 @@
 //! Cold config projection into protocol-owned options and one canonical replay owner.
 use super::ShadowsocksAdapter;
+mod factory;
 mod udp;
 use crate::component::{background::stateless, RegistrationError, ResourcePreparation};
+pub(crate) use factory::{Factory, Options};
 use shadowsocks::component::{ReplayFactory, StreamOptions, TcpPreparation};
 use std::sync::Arc;
 use zero_config::{ConfigError, OutboundConfig, OutboundProtocolConfig};
@@ -13,6 +15,22 @@ pub(crate) fn native_input(input: &OutboundConfig) -> bool {
             if plugin.is_none() || cfg!(any(target_os = "linux", windows))
     )
 }
+/// A UDP-only plugin never owns the ordinary TCP carrier. That Stream uses
+/// the actual replay/native owner even on a deferred process platform.
+pub(crate) fn stream_input(input: &OutboundConfig) -> bool {
+    native_input(input)
+        || matches!(&input.protocol,
+        OutboundProtocolConfig::Shadowsocks { plugin: Some(plugin), .. } if !plugin.mode.tcp())
+}
+/// TCP-only plugins never participate in the original UDP wire path. Its real
+/// UDP cache can be hosted even where native Process ownership is unavailable.
+pub(crate) fn packet_input(input: &OutboundConfig) -> bool {
+    matches!(&input.protocol, OutboundProtocolConfig::Shadowsocks { plugin, .. }
+        if plugin.as_ref().is_none_or(|plugin| !plugin.mode.udp()))
+}
+pub(crate) fn registered_input(input: &OutboundConfig) -> bool {
+    stream_input(input) || packet_input(input)
+}
 impl ShadowsocksAdapter {
     pub(crate) fn component_options(
         &self,
@@ -20,7 +38,7 @@ impl ShadowsocksAdapter {
         resources: &mut ResourcePreparation<'_>,
         replay_factory: Arc<ReplayFactory>,
         node_network: Option<Arc<crate::component::background::BackgroundNetwork>>,
-    ) -> Result<stateless::Options<StreamOptions>, RegistrationError> {
+    ) -> Result<Options, RegistrationError> {
         let OutboundProtocolConfig::Shadowsocks {
             server,
             port,
@@ -33,10 +51,21 @@ impl ShadowsocksAdapter {
         else {
             return Err(options_error("expected Shadowsocks outbound"));
         };
+        if !stream_input(input) {
+            if !packet_input(input) {
+                return Err(options_error(
+                    "configured UDP plugin requires its real Process owner",
+                ));
+            }
+            let network = node_network
+                .ok_or_else(|| options_error("UDP source requires its actual Host network"))?;
+            let (owner, pool) = self.prepare_udp(input, resources, network, None)?;
+            return Ok(Options::Datagram(Arc::new(pool.bind_datagram(owner))));
+        }
         // The protocol plan preserves the configured plugin. Its ordinary
         // consumer uses the real Process dependency, rather than silently
         // treating the configured remote as the plugin's physical endpoint.
-        let process = if let Some(plugin) = plugin {
+        let process = if let Some(plugin) = plugin.as_ref().filter(|_| native_input(input)) {
             let network = node_network
                 .as_ref()
                 .ok_or_else(|| options_error("plugin requires its actual runtime network epoch"))?;
@@ -122,9 +151,11 @@ impl ShadowsocksAdapter {
             })
             .transpose()?;
         let mut options = prepared.bind(replay).map_err(options_error)?;
-        if let Some(network) = node_network.clone() {
-            let (owner, pool) = self.prepare_udp(input, resources, network, process)?;
-            options = options.with_udp_pool(&pool, owner).map_err(options_error)?;
+        if native_input(input) || packet_input(input) {
+            if let Some(network) = node_network.clone() {
+                let (owner, pool) = self.prepare_udp(input, resources, network, process)?;
+                options = options.with_udp_pool(&pool, owner).map_err(options_error)?;
+            }
         }
         let options = stateless::Options::new(
             options,
@@ -167,10 +198,10 @@ impl ShadowsocksAdapter {
         {
             if let Some(network) = node_network {
                 let node = crate::component::native_dns::prepare_node(resources, network)?;
-                return Ok(options.with_node_dns(node));
+                return Ok(Options::Stream(Arc::new(options.with_node_dns(node))));
             }
         }
-        Ok(options)
+        Ok(Options::Stream(Arc::new(options)))
     }
 }
 fn options_error(error: impl std::fmt::Display) -> RegistrationError {

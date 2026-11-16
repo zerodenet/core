@@ -1,3 +1,5 @@
+mod direct;
+pub(crate) use direct::DirectDatagramTarget;
 #[cfg(any(
     feature = "upstream-association-runtime",
     feature = "managed-stream-runtime"
@@ -8,11 +10,9 @@ mod association;
     feature = "managed-stream-runtime"
 ))]
 pub(crate) use association::DatagramAssociationTarget;
-mod datagram_relay;
 mod leaf;
 mod outbound;
-mod packet_path;
-mod relay;
+mod standard_packet;
 
 pub(crate) use leaf::PreparedUdpLeafCandidate;
 pub(crate) use outbound::PreparedUdpOutbound;

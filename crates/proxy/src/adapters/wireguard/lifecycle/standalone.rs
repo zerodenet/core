@@ -252,6 +252,9 @@ impl StandaloneStackOptions {
             .stopped = true;
         for peer in &self.peers {
             peer.owner.revoke();
+            if let Some(original) = peer.logical.get() {
+                original.request_stop();
+            }
         }
     }
     fn needs_cleanup(&self) -> bool {
@@ -270,7 +273,13 @@ impl StandaloneStackOptions {
             }
             state.resources.clone()
         };
-        if self.peers.iter().any(|peer| !peer.owner.is_drained()) {
+        if self.peers.iter().any(|peer| {
+            !peer.owner.is_drained()
+                || peer
+                    .logical
+                    .get()
+                    .is_some_and(|original| !original.carrier_retired())
+        }) {
             return true;
         }
         resources.as_ref().is_none_or(|resources| {

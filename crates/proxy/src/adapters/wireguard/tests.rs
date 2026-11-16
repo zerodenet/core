@@ -5,8 +5,7 @@ use gotatun::x25519::{PublicKey, StaticSecret};
 use zero_config::OutboundConfig;
 use zero_traits::ProtocolMetadata;
 
-use super::{protocol_identity, udp::WireguardRawIpPlan, CachedProfile, WireguardAdapter};
-use crate::protocol_registry::OutboundLeafInput;
+use super::{udp::WireguardRawIpPlan, WireguardAdapter};
 use crate::runtime::raw_ip::{RawIpOutboundPlan, SharedRawIpDevice};
 use zero_platform_tokio::TokioDatagramSocket;
 
@@ -32,66 +31,27 @@ fn outbound(private: u8) -> OutboundConfig {
 }
 
 #[test]
-fn wireguard_adapter_claims_without_mutating_published_profile() {
-    let adapter = WireguardAdapter::default();
-    let first = outbound(1);
-    assert!(adapter
-        .claim_outbound_leaf_impl(OutboundLeafInput::Virtual { outbound: &first })
-        .is_some());
-    let first_plan = Arc::new(WireguardRawIpPlan::from_protocol(&first.protocol).unwrap());
-    adapter.profiles.lock().unwrap().insert(
-        "wg".to_owned(),
-        CachedProfile {
-            graph: None,
-            packet: adapter.packet_operations(
-                "wg",
-                protocol_identity(&first.protocol).unwrap(),
-                first_plan.clone(),
-            ),
-            identity: protocol_identity(&first.protocol).unwrap(),
-            device_identity: protocol_identity(&first.protocol).unwrap(),
-            plan: first_plan.clone(),
-        },
-    );
-    adapter
-        .claim_outbound_leaf_impl(OutboundLeafInput::Virtual { outbound: &first })
-        .unwrap();
-    adapter
-        .claim_outbound_leaf_impl(OutboundLeafInput::Virtual { outbound: &first })
-        .unwrap();
-    let second_plan = adapter
-        .profiles
-        .lock()
-        .unwrap()
-        .get("wg")
-        .unwrap()
-        .plan
-        .clone();
-    assert!(Arc::ptr_eq(&first_plan, &second_plan));
-
-    let changed = outbound(3);
-    assert!(adapter
-        .claim_outbound_leaf_impl(OutboundLeafInput::Virtual { outbound: &changed })
-        .is_some());
-    assert!(Arc::ptr_eq(
-        &first_plan,
-        &adapter.profiles.lock().unwrap().get("wg").unwrap().plan
-    ));
-}
-
-#[test]
-fn wireguard_advertises_packet_with_shared_flow_converters() {
-    let adapter = WireguardAdapter::default();
-    let outbound = outbound(1);
-    let claim = adapter
-        .claim_outbound_leaf_impl(OutboundLeafInput::Virtual {
-            outbound: &outbound,
+fn wireguard_outbound_has_no_private_claim_or_projection() {
+    let config = zero_config::RuntimeConfig::parse(
+        &serde_json::json!({
+            "outbounds":[outbound(1)],
+            "route":{"final":{"type":"route","outbound":"wg"}}
         })
-        .expect("claim WireGuard outbound");
-    assert!(claim.tcp.is_none());
-    assert!(claim.udp.is_none());
-    let packet = claim.packet.expect("native PacketSink");
-    assert!(packet.flow.is_some());
+        .to_string(),
+    )
+    .unwrap();
+    let inventory = crate::inventory::ProtocolInventory::default();
+    assert!(
+        inventory
+            .claim_outbound_leaf(
+                &config,
+                zero_engine::ResolvedLeafOutbound::Proxy {
+                    identity: zero_engine::OutboundIdentity::from_config_index(0),
+                }
+            )
+            .is_err(),
+        "WireGuard executes only its actual standard device roles"
+    );
 }
 
 #[test]

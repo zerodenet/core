@@ -21,6 +21,7 @@ struct Entry {
     legacy: bool,
     jobs: Vec<Job>,
     endpoint: Option<endpoint::Endpoint>,
+    first_fault: Option<Arc<ChannelError>>,
 }
 struct Job {
     original: Arc<OwnedProcess>,
@@ -53,6 +54,7 @@ impl ProcessDeclarations {
                         legacy: false,
                         jobs: Vec::new(),
                         endpoint: None,
+                        first_fault: None,
                     },
                 ))
             })
@@ -86,32 +88,39 @@ impl ProcessDeclarations {
     pub(super) fn evidence(&self, component: ComponentId) -> Vec<ProcessIoEvidence> {
         let mut evidence: Vec<_> = self
             .lock()
-            .values()
-            .map(|entry| ProcessIoEvidence {
-                ordinal: entry.ordinal,
-                registered: self.identity.is_some() && !entry.legacy,
-                confirmed: self.identity.is_some()
-                    && !entry.legacy
-                    && entry.jobs.iter().all(|job| {
-                        job.original
-                            .closed()
-                            .is_some_and(|closed| closed.matches(&job.original))
-                    }),
-                first_fault: entry
-                    .jobs
-                    .iter()
-                    .filter(|job| job.original.closed().is_none())
-                    .find_map(|job| job.original.first_failure())
-                    .map(|source| {
-                        Arc::new(
-                            error(
-                                component,
-                                Reason::Io,
-                                "actual process original retained its failure",
+            .values_mut()
+            .map(|entry| {
+                // Native completion and failure publication are independent.
+                // Sample the same originals even after matching close: a
+                // fast failed start may close before the first Host observer.
+                if entry.first_fault.is_none() {
+                    entry.first_fault = entry
+                        .jobs
+                        .iter()
+                        .find_map(|job| job.original.first_failure())
+                        .map(|source| {
+                            Arc::new(
+                                error(
+                                    component,
+                                    Reason::Io,
+                                    "actual process original retained its failure",
+                                )
+                                .with_source(ProcessFailure(source)),
                             )
-                            .with_source(ProcessFailure(source)),
-                        )
-                    }),
+                        });
+                }
+                ProcessIoEvidence {
+                    ordinal: entry.ordinal,
+                    registered: self.identity.is_some() && !entry.legacy,
+                    confirmed: self.identity.is_some()
+                        && !entry.legacy
+                        && entry.jobs.iter().all(|job| {
+                            job.original
+                                .closed()
+                                .is_some_and(|closed| closed.matches(&job.original))
+                        }),
+                    first_fault: entry.first_fault.clone(),
+                }
             })
             .collect();
         evidence.extend(self.endpoint_evidence());

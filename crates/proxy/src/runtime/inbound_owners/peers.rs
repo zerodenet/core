@@ -77,6 +77,17 @@ impl std::fmt::Debug for InboundPeerTasks {
 }
 impl InboundPeerTasks {
     #[cfg(test)]
+    pub(crate) fn bindings_for_test(&self) -> Vec<Arc<HostPeerBinding>> {
+        self.state
+            .lock()
+            .unwrap()
+            .active
+            .values()
+            .cloned()
+            .collect()
+    }
+
+    #[cfg(test)]
     pub(crate) fn diagnose_actual_retirement(&self) {
         let (preparing, children, claiming, fault, bindings) = {
             let state = self.state.lock().unwrap();
@@ -139,6 +150,16 @@ impl InboundPeerTasks {
             .join_witness()?
             .try_joined()
     }
+    /// Delivery from the same original Service Scope exit consumer. All
+    /// evidence comes from these already registered primary/descendant witnesses.
+    pub(in crate::runtime) fn receive_service_joined(
+        &self,
+        task: TaskId,
+    ) -> Option<zero_platform_tokio::contract::scope::TaskJoined> {
+        let joined = self.observe_peer_joined(task)?;
+        self.joined(joined.id(), joined.class(), joined.result().err());
+        Some(joined)
+    }
     pub(super) fn observe_peer_joined(
         &self,
         task: TaskId,
@@ -166,7 +187,7 @@ impl InboundPeerTasks {
         }
         joined
     }
-    pub(super) async fn retire_logical_resources(
+    pub(in crate::runtime) async fn retire_logical_resources(
         &self,
         deadline: Instant,
     ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
@@ -205,7 +226,7 @@ impl InboundPeerTasks {
         }
     }
     #[cfg(feature = "managed-datagram-runtime")]
-    pub(super) fn with_limit(
+    pub(in crate::runtime) fn with_limit(
         identity: ComponentInstanceId,
         cancel: CancellationToken,
         protocols: ProtocolInventory,
@@ -384,7 +405,7 @@ impl InboundPeerTasks {
             .failure
             .clone()
     }
-    pub(super) fn physically_closed(&self) -> bool {
+    pub(in crate::runtime) fn physically_closed(&self) -> bool {
         let state = self.state.lock().expect("peer task state poisoned");
         state.closing
             && state.active.is_empty()

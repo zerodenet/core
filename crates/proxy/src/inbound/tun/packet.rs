@@ -15,7 +15,7 @@ use zero_stack::packet;
 pub(super) async fn try_forward(
     inner: &mut zero_traits::PacketBuffer,
     route: &InboundRouteRuntimeFactory,
-    ingress_id: u64,
+    _ingress_id: u64,
     pins: &mut PacketSessionPins,
     responses: &zero_stack::packet_output::PacketSender,
     echo: &IcmpEchoRelay,
@@ -39,56 +39,13 @@ pub(super) async fn try_forward(
     let Some(destination) = packet::ip_destination(inner) else {
         return false;
     };
-    let packet_key = packet::packet_conversation_key(inner);
     for candidate in route
         .packet_route_target(destination, packet::ip_protocol(inner))
         .into_candidates()
     {
         match candidate {
-            PacketRouteTarget::Packet {
-                tag,
-                translated,
-                operation,
-                ..
-            } => {
-                let generation = route.icmp_egress_generation();
-                let plane = if translated {
-                    PacketPlane::TranslatedPacket(tag.clone())
-                } else {
-                    PacketPlane::Packet(tag.clone())
-                };
-                if !pins.permits(inner, &plane) {
-                    continue;
-                }
-                let observer = pins.inner_io(inner, &plane, None, || route.outbound_inner_io(&tag));
-                let Some(replies) = pins.replies_for(inner, &plane, None, responses.clone()) else {
-                    continue;
-                };
-                match operation
-                    .forward(inner, ingress_id, replies, generation, observer.clone())
-                    .await
-                {
-                    Ok(observed) => {
-                        pins.record_observed_key(
-                            packet_key,
-                            plane,
-                            None,
-                            observed.peer_identity,
-                            observer,
-                        );
-                        if let Some(response) = observed.response {
-                            send_response(responses, response, traffic);
-                        }
-                        return true;
-                    }
-                    Err(error) => {
-                        pins.reject_unaccepted_key(packet_key, None);
-                        if inner.is_empty() {
-                            break;
-                        }
-                        tracing::debug!(%error, "TUN packet route candidate unavailable");
-                    }
-                }
+            PacketRouteTarget::Packet { .. } => {
+                panic!("native Packet execution requires the actual Source fixture and original provider");
             }
             PacketRouteTarget::Flow => {
                 if !pins.permits(inner, &PacketPlane::Flow) {

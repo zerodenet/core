@@ -90,6 +90,16 @@ impl AcceptedTcpTaskReceiver {
     }
 }
 impl AcceptedTcpCarrierOrigin {
+    /// Facts read from this same original socket. They grant no IO/close rights.
+    pub(crate) fn endpoints(&self) -> Option<(std::net::SocketAddr, std::net::SocketAddr)> {
+        self.entry()
+            .control
+            .get()?
+            .try_lock()
+            .ok()?
+            .original_endpoints()
+            .ok()
+    }
     fn entry(&self) -> &Entry {
         self.entry
             .as_ref()
@@ -281,5 +291,40 @@ impl AcceptedTcpCarrierOrigin {
                         && actual.scope.scope_identity().same_scope(&self.scope)
                 })
         })
+    }
+}
+
+impl super::super::AcceptedCaller {
+    /// The original Source's sealed lineage, without minting IO or close rights.
+    /// Non-socket carriers retain the exact origin installed at Source handoff.
+    pub fn carrier_origin(
+        &self,
+    ) -> Result<Option<crate::controlled_carrier::CarrierOrigin>, ChannelError> {
+        self.check_open()?;
+        let users = self.users.upgrade().ok_or_else(|| {
+            failure(
+                Stage::Prepare,
+                Reason::Revoked,
+                "original accepted graph expired",
+            )
+        })?;
+        if let Some(original) = users.carrier_origin.get() {
+            return Ok(Some(original.clone()));
+        }
+        let Some(entry) = users.entry.upgrade() else {
+            return Ok(None);
+        };
+        let pool = users.pool.upgrade().ok_or_else(|| {
+            failure(
+                Stage::Prepare,
+                Reason::Revoked,
+                "original accepted Source expired",
+            )
+        })?;
+        let original =
+            AcceptedTcpTaskReceiver::new(&pool).carrier_origin(&AcceptedTcpClaim { entry })?;
+        Ok(Some(
+            crate::controlled_carrier::CarrierOrigin::from_accepted(original),
+        ))
     }
 }

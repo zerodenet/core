@@ -37,6 +37,7 @@ mod fixtures;
 use fixtures::*;
 mod bindings;
 mod generations;
+mod reverse;
 mod wire;
 
 mod datagram;

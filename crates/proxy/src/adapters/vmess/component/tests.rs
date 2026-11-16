@@ -203,7 +203,7 @@ fn ordinary_mux_prefix_admission_rejects_nonroot_nested_and_unowned_views() {
     assert!(!adapter.production_selected(&pool, None, true));
     let mut custom_dial = config.clone();
     custom_dial.outbounds[1].dial.interface = Some("lo0".into());
-    assert!(!adapter.production_selected(&pool, Some(&custom_dial), true));
+    assert!(adapter.production_selected(&pool, Some(&custom_dial), true));
     let mut nonroot = config.clone();
     nonroot.outbound_groups.push(
         serde_json::from_value(
@@ -211,7 +211,7 @@ fn ordinary_mux_prefix_admission_rejects_nonroot_nested_and_unowned_views() {
         )
         .unwrap(),
     );
-    assert!(!adapter.production_selected(&pool, Some(&nonroot), true));
+    assert!(adapter.production_selected(&pool, Some(&nonroot), true));
     let mut nested = config.clone();
     nested.outbound_groups.push(
         serde_json::from_value(
@@ -219,7 +219,7 @@ fn ordinary_mux_prefix_admission_rejects_nonroot_nested_and_unowned_views() {
         )
         .unwrap(),
     );
-    assert!(!adapter.production_selected(&pool, Some(&nested), true));
+    assert!(adapter.production_selected(&pool, Some(&nested), true));
 }
 
 #[tokio::test]

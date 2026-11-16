@@ -6,6 +6,7 @@ pub mod catalog;
 pub mod dependencies;
 pub mod generations;
 pub mod instance;
+mod lifecycle;
 mod preparation;
 mod recipe;
 mod registry;

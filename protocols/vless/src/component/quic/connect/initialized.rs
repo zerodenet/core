@@ -2,6 +2,7 @@ use super::*;
 pub(in crate::component::quic) enum Ready {
     Stream(zero_platform_tokio::TcpRelayStream),
     H3(zero_transport::split_http::OwnedXhttp3),
+    Hysteria(PacketMetadataArc<zero_transport::hysteria::owned::OwnedClient>),
 }
 pub(in crate::component::quic) struct Pending(pub Option<PacketMetadataArc<Entry>>);
 impl Drop for Pending {
@@ -43,5 +44,31 @@ impl Initialized {
         };
         self.pending.0.take();
         client
+    }
+}
+
+impl Initialized {
+    pub(in crate::component::quic) fn commit_hysteria(
+        mut self,
+        slot: &zero_transport::hysteria::NativeSlot,
+    ) -> Result<
+        (
+            PacketMetadataArc<zero_transport::hysteria::owned::OwnedClient>,
+            CarrierOrigin,
+        ),
+        ChannelError,
+    > {
+        let Some(Ready::Hysteria(client)) = self.io.take() else {
+            return Err(error(Stage::Prepare, Reason::StalePlan));
+        };
+        let origin = self
+            .entry
+            .origin
+            .get()
+            .cloned()
+            .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
+        slot.publish(client.clone(), origin.clone())?;
+        self.pending.0.take();
+        Ok((client, origin))
     }
 }

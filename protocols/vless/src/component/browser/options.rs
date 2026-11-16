@@ -1,5 +1,6 @@
 //! One accepted value and its actual shared Source dependency.
 use super::*;
+mod carrier;
 pub struct Prepared {
     pub provider: Arc<crate::transport::BrowserProviderOptions>,
     options: Options,
@@ -11,6 +12,7 @@ pub struct Options {
     pub(super) dependency: Option<zero_core::component::ComponentId>,
     pub(super) origins: std::num::NonZeroUsize,
     pub(super) identity: Arc<[u8]>,
+    pub(super) carrier: Option<crate::component::quic::TransportCarrier>,
 }
 impl Prepared {
     pub fn bind_provider(mut self, dependency: zero_core::component::ComponentId) -> Options {
@@ -57,6 +59,7 @@ impl Options {
         identity.extend_from_slice(digest.0.finalize().as_bytes());
         let protocol = crate::component::Options {
             material: None,
+            masks: None,
             endpoint: parts.endpoint,
             server,
             uuid,
@@ -82,6 +85,7 @@ impl Options {
                 dependency: None,
                 origins,
                 identity: identity.into(),
+                carrier: None,
             },
         }))
     }

@@ -16,13 +16,7 @@ pub(super) fn requested_ring_declaration(
             }
         )
 }
-pub(crate) fn input_identity(input: &zero_config::InboundConfig) -> Result<[u8; 32], EngineError> {
-    use sha2::{Digest, Sha256};
-    // Opaque configuration hashing only: the host does not parse protocol
-    // settings or retain another configuration/profile or resource owner.
-    let encoded = serde_json::to_vec(input).map_err(std::io::Error::other)?;
-    Ok(Sha256::digest(encoded).into())
-}
+pub(crate) use super::source_dependencies::input_identity;
 impl InboundOwnerRegistry {
     #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
     pub(in crate::runtime) fn packet_source_memory(

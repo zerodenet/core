@@ -83,7 +83,27 @@ impl OrchestrationState {
     pub(super) async fn reconcile_outbound_network(&mut self, proxy: &Proxy) {
         let generation = *self.egress_updates.borrow_and_update();
         if generation == self.device_generation {
-            self.device_retry_at = None;
+            // A topology may return to the prior generation after superseding
+            // a drained candidate. Its accepted Sources still need restoration.
+            if let Err(error) = self
+                .services
+                .restore(
+                    proxy.tcp_runtime_services_for_snapshot(self.applied_snapshot.clone()),
+                    self.shutdown_rx.clone(),
+                )
+                .await
+            {
+                self.device_retry_at = Some(Instant::now() + self.device_retry_delay);
+                self.publish_network_recovery(
+                    proxy,
+                    generation,
+                    zero_api::EndpointRecoveryPhase::Retrying,
+                    Some(self.device_retry_delay.as_millis() as u64),
+                    Some(error.to_string()),
+                );
+            } else {
+                self.device_retry_at = None;
+            }
             return;
         }
         let snapshot = self.applied_snapshot.clone();
@@ -94,6 +114,35 @@ impl OrchestrationState {
             None,
             None,
         );
+        // The same active Sources are transitive borrowers of this network's
+        // native originals. Return their real loans/accepted graphs before any
+        // donor candidate is discarded or started, including retry attempts.
+        let service_prepare = self
+            .services
+            .prepare_restoration(&proxy.tcp_runtime_services_for_snapshot(snapshot.clone()))
+            .await;
+        if let Err(error) = service_prepare {
+            self.device_retry_at = Some(Instant::now() + self.device_retry_delay);
+            self.publish_network_recovery(
+                proxy,
+                generation,
+                zero_api::EndpointRecoveryPhase::Retrying,
+                Some(self.device_retry_delay.as_millis() as u64),
+                Some(error.to_string()),
+            );
+            return;
+        }
+        if let Err(error) = self.services.suspend_for_replacement().await {
+            self.device_retry_at = Some(Instant::now() + self.device_retry_delay);
+            self.publish_network_recovery(
+                proxy,
+                generation,
+                zero_api::EndpointRecoveryPhase::Retrying,
+                Some(self.device_retry_delay.as_millis() as u64),
+                Some(error.to_string()),
+            );
+            return;
+        }
         let prepared = self.prepare_network_devices(proxy, &snapshot).await;
         // A superseded candidate remains owned until this exact graph and
         // its real native originals have completed their separate cleanup.
@@ -173,6 +222,24 @@ impl OrchestrationState {
                 if let Err(error) = proxy
                     .protocols
                     .finish_device_publication(snapshot.config())
+                    .await
+                {
+                    self.device_retry_at = Some(Instant::now() + self.device_retry_delay);
+                    self.publish_network_recovery(
+                        proxy,
+                        generation,
+                        zero_api::EndpointRecoveryPhase::Retrying,
+                        Some(self.device_retry_delay.as_millis() as u64),
+                        Some(error.to_string()),
+                    );
+                    return;
+                }
+                if let Err(error) = self
+                    .services
+                    .restore(
+                        proxy.tcp_runtime_services_for_snapshot(snapshot.clone()),
+                        self.shutdown_rx.clone(),
+                    )
                     .await
                 {
                     self.device_retry_at = Some(Instant::now() + self.device_retry_delay);

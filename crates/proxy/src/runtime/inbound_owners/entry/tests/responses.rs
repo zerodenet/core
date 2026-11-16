@@ -16,7 +16,7 @@ use fixture::*;
 #[tokio::test]
 async fn caller_join_and_cancelled_close_retain_the_original_response_set_and_peer_permit() {
     let live = Live::new();
-    let (responses, mut lease) = ResponseSetOwner::new(JoinSet::new());
+    let (responses, mut lease) = ResponseSetOwner::new();
     let (mut io, mut finish) = pair().await;
     let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let address = socket.local_addr().unwrap();
@@ -147,7 +147,7 @@ async fn response_panic_keeps_original_source_after_real_response_joins_and_chil
         .role;
     let socket = TokioDatagramSocket::bind("127.0.0.1:0").await.unwrap();
     let address = socket.local_addr().unwrap();
-    let (responses, mut lease) = ResponseSetOwner::new(JoinSet::new());
+    let (responses, mut lease) = ResponseSetOwner::new();
     let (mut io, mut panic_now) = pair().await;
     let pending_response = Arc::new(Notify::new());
     let actual = responses.clone();

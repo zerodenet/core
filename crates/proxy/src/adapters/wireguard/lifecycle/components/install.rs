@@ -35,7 +35,9 @@ impl WireguardAdapter {
                     cell.get()
                         .is_some_and(|original| Arc::ptr_eq(original, &device))
                 });
-            let fresh = previous.is_none();
+            // A new map cell does not grant cleanup rights over a reused Host
+            // generation. Discarding this publication must not stop that graph.
+            let fresh = previous.is_none() && pending.owns_candidate_originals();
             let cell = match previous {
                 Some(cell) => cell,
                 None => {
@@ -52,7 +54,6 @@ impl WireguardAdapter {
                 generation,
                 cell,
                 fresh,
-                false,
             )?;
         }
         Ok(link)

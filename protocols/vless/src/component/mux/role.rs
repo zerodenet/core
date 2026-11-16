@@ -16,6 +16,8 @@ use zero_platform_tokio::contract::{
     ChannelError, CloseReason, DeliveryState, Reason, Stage,
 };
 mod datagram;
+mod lifecycle;
+mod stream;
 pub struct Factory;
 struct Ready {
     leaf: Mutex<Option<crate::transport::VlessOutboundLeaf>>,
@@ -26,6 +28,7 @@ struct Outbound {
     options: Weak<Options>,
     admission: Arc<SessionAdmission>,
     pool: ComponentInstanceId,
+    control_stream: Option<Weak<dyn zero_platform_tokio::contract::stream::DynStreamOutbound>>,
 }
 struct Owner {
     ready: Arc<Ready>,
@@ -33,28 +36,88 @@ struct Owner {
     admission: Arc<SessionAdmission>,
     inner: SessionOwner,
     pool: ComponentInstanceId,
+    // The original owner retains the same ordinary callable role. Cached MUX
+    // handles retain only a Weak and cannot pin its private resources.
+    _control_stream: Option<Arc<dyn zero_platform_tokio::contract::stream::DynStreamOutbound>>,
+    ordinary: Option<Box<dyn zero_platform_tokio::contract::lifecycle::DynResourceLifecycle>>,
+    failures: zero_platform_tokio::contract::lifecycle::ResourceCleanupFailures,
+    masks: Option<zero_transport::finalmask::Profile>,
 }
 impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
+        let ordinary = options.ordinary.as_ref().map(|plan| plan.describe());
+        let mut dependencies = vec![options.pool_owner];
+        if let Some(spec) = &ordinary {
+            for dependency in &spec.dependencies {
+                if !dependencies.contains(dependency) {
+                    dependencies.push(*dependency);
+                }
+            }
+        }
         ComponentSpec {
             owner: ResourceOwner::Component,
-            roles: if options.datagram {
-                vec![RoleKind::Stream, RoleKind::Datagram]
-            } else {
-                vec![RoleKind::Stream]
-            },
-            dependencies: vec![options.pool_owner],
+            roles: (options.stream || ordinary.is_some())
+                .then_some(RoleKind::Stream)
+                .into_iter()
+                .chain(
+                    (options.datagram || options.stream && ordinary.is_some())
+                        .then_some(RoleKind::Datagram),
+                )
+                .collect(),
+            dependencies,
             static_identity: options.identity.clone(),
-            resources: vec![],
-            task_limit: None,
+            resources: ordinary
+                .as_ref()
+                .map(|spec| spec.resources.clone())
+                .unwrap_or_default(),
+            task_limit: ordinary.as_ref().and_then(|spec| spec.task_limit),
         }
     }
+
     fn build(
         &self,
         options: Arc<Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
+        self.build_roles(options, context, None, false)
+    }
+}
+impl Factory {
+    pub fn build_hosted(
+        &self,
+        options: Arc<Options>,
+        context: BuildContext,
+        resolver: Option<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>,
+    ) -> Result<ComponentInstance, BuildError> {
+        self.build_roles(options, context, resolver, true)
+    }
+    fn build_roles(
+        &self,
+        options: Arc<Options>,
+        context: BuildContext,
+        resolver: Option<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>,
+        hosted: bool,
+    ) -> Result<ComponentInstance, BuildError> {
+        if options.prepared.leaf.preconnect_access().is_some()
+            && options.prepared.pool.stream_dependency().is_none()
+        {
+            let mut error = ChannelError::new(
+                Stage::Prepare,
+                Reason::InvalidConfig,
+                zero_platform_tokio::contract::Impact::Component,
+            );
+            error.component = Some(context.component);
+            return Err(error);
+        }
+        let masks = options
+            .prepared
+            .material
+            .as_ref()
+            .map(|material| {
+                super::super::masks::prepare(material, context.resources.as_ref(), hosted, None)
+            })
+            .transpose()?;
         let (inner, admission) = SessionOwner::new(context.component, &context.cancel);
         let ready = Arc::new(Ready {
             leaf: Mutex::new(None),
@@ -62,7 +125,11 @@ impl ComponentFactory for Factory {
         let pool = context
             .dependency(options.pool_owner)
             .filter(|pool| pool.component != context.component)
-            .filter(|_| context.dependencies.len() == 1)
+            .filter(|_| {
+                let expected = self.describe(&options).dependencies;
+                context.dependencies.len() == expected.len()
+                    && expected.iter().all(|id| context.dependency(*id).is_some())
+            })
             .ok_or_else(|| {
                 admission.error(
                     None,
@@ -71,18 +138,97 @@ impl ComponentFactory for Factory {
                     DeliveryState::NotSubmitted,
                 )
             })?;
+        let mut ordinary = options
+            .ordinary
+            .as_ref()
+            .map(|plan| {
+                let spec = plan.describe();
+                let actual = BuildContext {
+                    component: context.component,
+                    generation: context.generation,
+                    dependencies: context
+                        .dependencies
+                        .iter()
+                        .copied()
+                        .filter(|id| spec.dependencies.contains(&id.component))
+                        .collect::<Vec<_>>()
+                        .into(),
+                    roles: context.roles.clone(),
+                    resources: context.resources.clone(),
+                    tasks: context.tasks.clone(),
+                    cancel: context.cancel.clone(),
+                    background_carrier: context.background_carrier.clone(),
+                };
+                match plan {
+                    super::options::OrdinaryPlan::Ordinary(options) if hosted => {
+                        super::super::Factory.build_hosted(
+                            options.clone(),
+                            actual,
+                            resolver,
+                            masks.clone(),
+                        )
+                    }
+                    super::options::OrdinaryPlan::Ordinary(options) => match resolver {
+                        Some(resolver) => super::super::Factory.build_with_ech_resolver(
+                            options.clone(),
+                            actual,
+                            resolver,
+                        ),
+                        None => super::super::Factory.build(options.clone(), actual),
+                    },
+                    super::options::OrdinaryPlan::Grpc(options) if hosted => {
+                        super::super::grpc::StreamFactory.build_hosted(options.clone(), actual)
+                    }
+                    super::options::OrdinaryPlan::Grpc(options) => {
+                        super::super::grpc::StreamFactory.build(options.clone(), actual)
+                    }
+                }
+            })
+            .transpose()?;
+        let control_stream = ordinary
+            .as_mut()
+            .map(|instance| {
+                instance.roles.stream.take().ok_or_else(|| {
+                    admission.error(
+                        None,
+                        Stage::Prepare,
+                        Reason::InvalidConfig,
+                        DeliveryState::NotSubmitted,
+                    )
+                })
+            })
+            .transpose()?;
+        let ordinary_stream = (!options.stream).then(|| control_stream.clone()).flatten();
+        let ordinary_role = ordinary
+            .as_mut()
+            .filter(|_| options.stream && !options.datagram)
+            .map(|instance| {
+                instance.roles.datagram.take().ok_or_else(|| {
+                    admission.error(
+                        None,
+                        Stage::Prepare,
+                        Reason::InvalidConfig,
+                        DeliveryState::NotSubmitted,
+                    )
+                })
+            })
+            .transpose()?;
         let outbound = Outbound {
             options: Arc::downgrade(&options),
             ready: Arc::downgrade(&ready),
             admission: admission.clone(),
             pool,
+            control_stream: control_stream.as_ref().map(Arc::downgrade),
         };
         Ok(ComponentInstance {
             roles: ComponentRoles {
-                stream: Some(erase_stream(outbound.clone())),
-                datagram: options
-                    .datagram
-                    .then(|| zero_platform_tokio::contract::datagram::erase_datagram(outbound)),
+                stream: ordinary_stream
+                    .or_else(|| options.stream.then(|| erase_stream(outbound.clone()))),
+                datagram: ordinary_role.or_else(|| {
+                    options
+                        .datagram
+                        .then(|| zero_platform_tokio::contract::datagram::erase_datagram(outbound))
+                }),
                 ..Default::default()
             },
             lifecycle: erase_lifecycle(Owner {
@@ -91,134 +237,11 @@ impl ComponentFactory for Factory {
                 admission,
                 inner,
                 pool,
+                _control_stream: control_stream,
+                ordinary: ordinary.map(|instance| instance.lifecycle),
+                failures: Default::default(),
+                masks,
             }),
         })
-    }
-}
-impl ResourceLifecycle for Owner {
-    async fn start(&mut self, deadline: Instant) -> Result<(), BuildError> {
-        let bound = self
-            .options
-            .prepared
-            .leaf
-            .bind_native_mux(self.pool)
-            .map_err(|source| {
-                self.admission
-                    .error(
-                        None,
-                        Stage::Prepare,
-                        Reason::Revoked,
-                        DeliveryState::NotSubmitted,
-                    )
-                    .with_source(source)
-            })?;
-        *self.ready.leaf.lock().unwrap() = Some(bound);
-        self.inner.start(deadline).await
-    }
-    fn revoke(&self, reason: CloseReason) {
-        self.inner.revoke(reason);
-        self.ready.leaf.lock().unwrap().take();
-    }
-    async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, BuildError> {
-        self.inner.shutdown(deadline).await
-    }
-}
-impl StreamOutbound for Outbound {
-    type Stream = BoxStream;
-    async fn connect(
-        &self,
-        request: ConnectRequest,
-        context: OpenContext,
-    ) -> Result<Connected<BoxStream>, ChannelError> {
-        let io = self.connect_actual(request, context).await?;
-        Ok(Connected {
-            io: io.io,
-            peer_confirmation: PeerConfirmation::Deferred,
-        })
-    }
-    async fn connect_carrier(
-        &self,
-        request: ConnectRequest,
-        context: OpenContext,
-    ) -> Result<Connected<zero_platform_tokio::controlled_carrier::loan::StreamLoan>, ChannelError>
-    {
-        let session = context.session_identity()?;
-        let io = self.connect_actual(request, context).await?;
-        let loan = io
-            .into_stream_loan()
-            .map_err(|error| self.admission.attach(error, session))?;
-        Ok(Connected {
-            io: loan,
-            peer_confirmation: PeerConfirmation::Deferred,
-        })
-    }
-}
-impl Outbound {
-    async fn connect_actual(
-        &self,
-        request: ConnectRequest,
-        context: OpenContext,
-    ) -> Result<zero_transport::pooled_driver::PooledStream, ChannelError> {
-        let session = self.admission.check(&context)?;
-        let leaf = self.selected_leaf(&context)?;
-        let opening = leaf.open_native_mux(request.destination, &context);
-        let io = tokio::select! { biased;
-            _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
-            _=context.cancel.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),
-            result=with_deadline(context.deadline,opening)=>result.map_err(|source|self.admission.error(session,Stage::Handshake,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
-        }.map_err(|source|self.admission.error(session,Stage::Handshake,Reason::Io,DeliveryState::Unknown).with_source(source))?;
-        if !context.upstream.observe_carrier_origin(&io.origin) {
-            return Err(self.admission.error(
-                session,
-                Stage::Prepare,
-                Reason::StalePlan,
-                DeliveryState::Unknown,
-            ));
-        }
-        if let Some(observer) = &context.observer {
-            observer.record(session, ConnectFact::CarrierReady);
-        }
-        Ok(io)
-    }
-    fn selected_leaf(
-        &self,
-        context: &OpenContext,
-    ) -> Result<crate::transport::VlessOutboundLeaf, ChannelError> {
-        let session = self.admission.check(context)?;
-        let options = self.options.upgrade().ok_or_else(|| {
-            self.admission.error(
-                session,
-                Stage::Prepare,
-                Reason::Revoked,
-                DeliveryState::NotSubmitted,
-            )
-        })?;
-        let ready = self.ready.upgrade().ok_or_else(|| {
-            self.admission.error(
-                session,
-                Stage::Prepare,
-                Reason::Revoked,
-                DeliveryState::NotSubmitted,
-            )
-        })?;
-        let leaf = ready.leaf.lock().unwrap().clone().ok_or_else(|| {
-            self.admission.error(
-                session,
-                Stage::Prepare,
-                Reason::Revoked,
-                DeliveryState::NotSubmitted,
-            )
-        })?;
-        if leaf.native_mux_instance().ok() != Some(self.pool)
-            || context.upstream.binding().dial != options.prepared.pool.binding().dial
-        {
-            return Err(self.admission.error(
-                session,
-                Stage::Prepare,
-                Reason::StalePlan,
-                DeliveryState::NotSubmitted,
-            ));
-        }
-        Ok(leaf)
     }
 }

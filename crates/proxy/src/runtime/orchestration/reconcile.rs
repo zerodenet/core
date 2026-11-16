@@ -194,7 +194,13 @@ impl OrchestrationState {
                     .map(|input| input.tag.clone()),
             );
         }
-        let source_barrier = budget_changed || tun_restart || !source_dependency_changes.is_empty();
+        let system_tcp_restart = proxy
+            .inbound_owners
+            .system_tcp_budget_changed(self.applied_snapshot.config(), &new_config);
+        let source_barrier = budget_changed
+            || tun_restart
+            || system_tcp_restart
+            || !source_dependency_changes.is_empty();
         let affected = proxy.protocols.affected_dns_detours(
             &proxy.engine,
             &self.applied_snapshot,
@@ -218,6 +224,33 @@ impl OrchestrationState {
             // No Source/Host StopOld has run. Preserve the actual old query,
             // restore only cold admission and discard this exact token/plan.
             self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
+                .await;
+            return;
+        }
+        #[cfg(feature = "managed-stream-runtime")]
+        let prepared_services = match proxy.protocols.prepare_inbound_services(&new_config) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
+                    .await;
+                return;
+            }
+        };
+        #[cfg(feature = "managed-stream-runtime")]
+        if let Err(error) = self
+            .services
+            .prepare_replacement(
+                prepared_services.len(),
+                &proxy.tcp_runtime_services_for_snapshot(new_snapshot.clone()),
+            )
+            .await
+        {
+            self.reject_before_start(proxy, &new_snapshot, error.to_string(), true)
+                .await;
+            return;
+        }
+        if let Err(error) = self.services.suspend_for_replacement().await {
+            self.finish_rejection(proxy, &new_snapshot, error.to_string(), true)
                 .await;
             return;
         }
@@ -285,17 +318,6 @@ impl OrchestrationState {
             candidate_runtime_factory.for_recovery()
         } else {
             candidate_runtime_factory.with_preparing(preparing.clone())
-        };
-        #[cfg(feature = "managed-stream-runtime")]
-        let prepared_services = match proxy.protocols.prepare_inbound_services(&new_config) {
-            Ok(prepared) => prepared,
-            Err(error) => {
-                let cold_only = source_retirement.is_none();
-                drop(source_retirement.take());
-                self.reject_before_start(proxy, &new_snapshot, error.to_string(), cold_only)
-                    .await;
-                return;
-            }
         };
         let rollback_runtime_factory = self.inbound_runtime_factory.clone();
         let source_dir = self.source_dir.clone();
@@ -444,6 +466,9 @@ impl OrchestrationState {
         }
         let required_source_restarts = charged_source_changes.clone();
         let output_resources = &mut prepared_resources;
+        let mut system_exits = 0usize;
+        let expected_system_exits = &mut system_exits;
+        let system_runtime = self.inbound_runtime_factory.clone();
         let inbound_result = listeners::reconcile_inbounds_with_before_bind(
             &proxy.protocols,
             source_dir.as_deref(),
@@ -483,6 +508,16 @@ impl OrchestrationState {
                             )));
                         }
                     }
+                    if system_tcp_restart {
+                        proxy
+                            .inbound_owners
+                            .retire_system_tcp_reported(
+                                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                                expected_system_exits,
+                                &system_runtime,
+                            )
+                            .await?;
+                    }
                     drop(source_retirement);
                     #[cfg(feature = "raw-ip-runtime")]
                     let refreshed = if tun_restart {
@@ -520,6 +555,7 @@ impl OrchestrationState {
             },
         )
         .await;
+        self.expected_listener_exits = self.expected_listener_exits.saturating_add(system_exits);
         if let Err(error) = inbound_result {
             let message = error.to_string();
             warn!(
@@ -656,13 +692,32 @@ impl OrchestrationState {
         .await;
         proxy.protocols.on_config_reloaded(&new_config);
         #[cfg(feature = "managed-stream-runtime")]
-        self.services
+        if let Err(error) = self
+            .services
             .replace(
                 prepared_services,
                 candidate_tcp_services,
                 self.shutdown_rx.clone(),
             )
-            .await;
+            .await
+        {
+            self.finish_rejection(proxy, &new_snapshot, error.to_string(), true)
+                .await;
+            return;
+        }
+        if let Err(error) = proxy
+            .inbound_owners
+            .restore_system_tcp(
+                &proxy.protocols,
+                &new_config,
+                proxy.tcp_runtime_services_for_snapshot(new_snapshot.clone()),
+            )
+            .await
+        {
+            self.finish_rejection(proxy, &new_snapshot, error.to_string(), true)
+                .await;
+            return;
+        }
         // Resource/service publication above can suspend. Recheck the same
         // phase immediately before its success ACK; stop cannot become success
         // merely because all listeners had reached Ready earlier.
@@ -696,6 +751,7 @@ impl OrchestrationState {
         // For an accepted apply, its persistent task takes over retirement and
         // commit after this real acknowledgement. Resolver retains the token.
         self.pending_dns_reload = None;
+        self.services.accept().await;
         proxy.complete_reload(&self.applied_snapshot, Ok(()));
     }
 

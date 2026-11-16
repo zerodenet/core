@@ -1,6 +1,7 @@
 //! One inert connection future; the actual owner chooses its task registrar.
 use std::{future::Future, pin::Pin};
 
+mod admission;
 mod candidates;
 mod control;
 pub mod datagram;

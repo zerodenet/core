@@ -3,9 +3,7 @@ impl RawIpDevicePool {
     /// Drain only originals already abandoned by a dropped staging guard.
     /// Published healthy entries stay admitted; no replacement is allocated.
     pub(crate) async fn close_discarded(&self) -> Result<(), EngineError> {
-        let result = self.drain_retired().await;
-        self.drain_compatibility_workers().await;
-        result
+        self.drain_retired().await
     }
     /// Fence and retain affected originals BEFORE any candidate allocation.
     pub(crate) async fn retire_changed(
@@ -18,15 +16,14 @@ impl RawIpDevicePool {
                 .entries
                 .iter()
                 .filter(|((tag, peer), entry)| {
-                    !entry.compatibility
-                        && !desired
-                            .get(tag)
-                            .is_some_and(|(identity, generation, count)| {
-                                entry.identity == *identity
-                                    && entry.egress_generation == *generation
-                                    && peer < count
-                                    && entry.cell.get().is_some_and(|d| d.is_usable())
-                            })
+                    !desired
+                        .get(tag)
+                        .is_some_and(|(identity, generation, count)| {
+                            entry.identity == *identity
+                                && entry.egress_generation == *generation
+                                && peer < count
+                                && entry.cell.get().is_some_and(|d| d.is_usable())
+                        })
                 })
                 .map(|(key, _)| key.clone())
                 .collect::<Vec<_>>();
@@ -41,9 +38,7 @@ impl RawIpDevicePool {
                 }
             }
         }
-        let result = self.drain_retired().await;
-        self.drain_compatibility_workers().await;
-        result
+        self.drain_retired().await
     }
     async fn drain_retired(&self) -> Result<(), EngineError> {
         loop {
@@ -75,22 +70,8 @@ impl RawIpDevicePool {
         for entry in entries.into_values() {
             if let Some(device) = entry.cell.get() {
                 device.close_now();
-                if entry.compatibility {
-                    state.compatibility_stopping.push(device.clone());
-                } else {
-                    state.retiring.push_back(device.clone());
-                }
+                state.retiring.push_back(device.clone());
             }
-        }
-        let compatibility = std::mem::take(&mut state.compatibility_retiring);
-        for (_, device) in compatibility {
-            if let Some(device) = device.upgrade() {
-                device.close_now();
-                state.compatibility_stopping.push(device);
-            }
-        }
-        for device in &state.compatibility_stopping {
-            device.close_now();
         }
         for device in &state.retiring {
             device.close_now();
@@ -98,35 +79,6 @@ impl RawIpDevicePool {
     }
     pub(crate) async fn close_all(&self) -> Result<(), EngineError> {
         self.request_shutdown();
-        let result = self.drain_retired().await;
-        self.drain_compatibility_workers().await;
-        result
-    }
-    /// Existing compatibility completion consumes actual worker joins only.
-    /// It grants neither native activation nor a confirmed replacement receipt.
-    async fn drain_compatibility_workers(&self) {
-        loop {
-            let device = self
-                .state
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .compatibility_stopping
-                .last()
-                .cloned();
-            let Some(device) = device else {
-                return;
-            };
-            if let Err(error) = device.wait_workers_stopped().await {
-                tracing::warn!(%error, "compatibility raw-IP original workers stopped with a retained failure");
-            }
-            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            if state
-                .compatibility_stopping
-                .last()
-                .is_some_and(|last| Arc::ptr_eq(last, &device))
-            {
-                state.compatibility_stopping.pop();
-            }
-        }
+        self.drain_retired().await
     }
 }

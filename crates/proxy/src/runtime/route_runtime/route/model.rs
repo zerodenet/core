@@ -16,6 +16,8 @@ pub(crate) struct InboundRouteRuntime {
     pub(in crate::runtime) continuity:
         Option<std::sync::Arc<super::source::DatagramContinuityHost>>,
     accepted_tasks: Option<zero_platform_tokio::AcceptedTasks>,
+    #[cfg(feature = "managed-stream-runtime")]
+    pub(in crate::runtime) service_sniffing: Option<crate::runtime::sniff::SniffingPolicy>,
     pub(super) connection: Option<zero_platform_tokio::contract::context::InboundConnectionFacts>,
     pub(super) tcp_runtime: TcpIngressRuntime,
     #[cfg(feature = "managed-datagram-runtime")]
@@ -27,6 +29,36 @@ pub(crate) struct InboundRouteRuntime {
 }
 
 impl InboundRouteRuntime {
+    #[cfg(feature = "managed-stream-runtime")]
+    pub(in crate::runtime) fn with_service_continuity(
+        mut self,
+        host: std::sync::Arc<super::source::DatagramContinuityHost>,
+    ) -> Self {
+        self.continuity = Some(host);
+        self
+    }
+    #[cfg(feature = "managed-stream-runtime")]
+    pub(in crate::runtime) fn with_service_sniffing(
+        mut self,
+        policy: Option<crate::runtime::sniff::SniffingPolicy>,
+    ) -> Self {
+        self.service_sniffing = policy;
+        self
+    }
+    #[cfg(feature = "managed-stream-runtime")]
+    pub(in crate::runtime) fn with_service_instance(
+        mut self,
+        identity: zero_core::component::ComponentInstanceId,
+    ) -> Self {
+        self.tcp_runtime = self.tcp_runtime.with_service_instance(identity);
+        #[cfg(feature = "udp-runtime")]
+        {
+            self.udp_runtime = crate::runtime::udp_ingress::UdpIngressRuntime::new(
+                self.tcp_runtime.runtime_services(),
+            );
+        }
+        self
+    }
     /// Installed only at the original accepted handler's first poll. This keeps
     /// task registration authority separate from the outbound caller identity.
     pub(in crate::runtime) fn with_accepted_tasks(
@@ -66,6 +98,8 @@ impl InboundRouteRuntime {
             #[cfg(feature = "managed-datagram-runtime")]
             continuity: None,
             accepted_tasks: None,
+            #[cfg(feature = "managed-stream-runtime")]
+            service_sniffing: None,
             connection: None,
             #[cfg(feature = "managed-datagram-runtime")]
             peer_datagram: None,
@@ -157,46 +191,14 @@ impl InboundRouteRuntimeFactory {
             return crate::inventory::PacketRouteTarget::Unsupported;
         };
         let plan = services.protocols().current_components(snapshot.config());
-        let prepared = services.protocols().prepare_packet_route_target_admitted(
+        services.protocols().prepare_packet_route_target_admitted(
             snapshot.config(),
             resolved,
             protocol,
             trace.route_mode,
             &zero_engine::EndpointAdmission::from_snapshot(&snapshot),
             plan.as_deref(),
-        );
-        let Some(plan) = plan else {
-            return prepared;
-        };
-        fn bind(
-            target: &mut crate::inventory::PacketRouteTarget,
-            plan: &crate::component::catalog::ComponentPlan,
-        ) {
-            use crate::inventory::PacketRouteTarget;
-            match target {
-                PacketRouteTarget::Packet {
-                    tag, role, builtin, ..
-                } => {
-                    let slot = if *builtin {
-                        plan.direct(None).ok()
-                    } else {
-                        plan.configured(tag)
-                    };
-                    *role = slot
-                        .filter(|slot| plan.has_packet_provider(slot.role_id()))
-                        .map(|slot| slot.role_id());
-                }
-                PacketRouteTarget::Fallback(candidates) => {
-                    for candidate in candidates {
-                        bind(candidate, plan);
-                    }
-                }
-                _ => {}
-            }
-        }
-        let mut prepared = prepared;
-        bind(&mut prepared, &plan);
-        prepared
+        )
     }
 
     #[cfg(feature = "raw-ip-runtime")]

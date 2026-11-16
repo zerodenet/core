@@ -11,6 +11,7 @@ use zero_platform_tokio::contract::{
 };
 use zero_traits::{AddressFamily, DialPolicy};
 mod borrowing;
+mod lifecycle;
 
 struct Dependent(Vec<ComponentId>);
 impl ComponentFactory for Dependent {

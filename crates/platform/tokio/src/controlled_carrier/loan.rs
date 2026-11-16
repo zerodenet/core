@@ -48,6 +48,13 @@ pub type PrepaidStreamLoanResult<S> = Result<
     ),
 >;
 impl StreamLoan {
+    pub fn with_transport_bypass_control(
+        mut self,
+        control: Option<zero_traits::TransportBypassControl>,
+    ) -> Self {
+        self.io.set_transport_bypass_control(control);
+        self
+    }
     /// Same logical loan constructor with its concrete erased IO Box paid
     /// BEFORE allocation. This adds no native/controller/Scope authority and
     /// does not claim the legacy common LoanState headers are prepaid here.

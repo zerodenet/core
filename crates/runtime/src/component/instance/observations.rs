@@ -100,3 +100,13 @@ impl ComponentSlot {
             .original_accepted_receiver(destination)
     }
 }
+
+impl ComponentSlot {
+    pub fn accepted_carrier_provider(
+        &self,
+    ) -> Option<Arc<zero_platform_tokio::controlled_carrier::AcceptedCarrierProvider>> {
+        let provider = self.live.get()?.as_ref().ok()?.accepted_carriers.as_ref()?;
+        (provider.instance() == self.instance_id() && provider.capacity().is_some())
+            .then(|| provider.clone())
+    }
+}

@@ -50,7 +50,9 @@ pub(crate) async fn resolve_with(
     let role = match &identity {
         RequestIdentity::Business(_) => DnsQueryRole::Default,
         RequestIdentity::Service(facts) => match facts.purpose {
-            ServicePurpose::DnsQuery | ServicePurpose::BackgroundControl => DnsQueryRole::Node,
+            ServicePurpose::DnsQuery
+            | ServicePurpose::BackgroundControl
+            | ServicePurpose::DialedIngress => DnsQueryRole::Node,
             ServicePurpose::Bootstrap => DnsQueryRole::Bootstrap,
             ServicePurpose::HealthProbe | ServicePurpose::DiagnosticProbe => DnsQueryRole::Default,
         },

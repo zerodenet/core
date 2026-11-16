@@ -1,8 +1,7 @@
 //! Remaining explicit PacketBuffer library bridge; ordinary Sources use owned roles.
 use super::*;
-#[async_trait::async_trait]
-impl PreparedPacketRouteOperation for Arc<HostPacketDevice> {
-    async fn forward(
+impl HostPacketDevice {
+    pub(super) async fn forward(
         &self,
         packet: &mut zero_traits::PacketBuffer,
         ingress_id: u64,

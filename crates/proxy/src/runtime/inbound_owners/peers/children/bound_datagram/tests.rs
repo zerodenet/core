@@ -1,6 +1,6 @@
 //! Actual provider originals close even when a mapping close first reports I/O failure.
 use super::*;
-use crate::runtime::udp_dispatch::operation::LiveDirectSource;
+use crate::runtime::udp_dispatch::LiveDirectSource;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream, UdpSocket},

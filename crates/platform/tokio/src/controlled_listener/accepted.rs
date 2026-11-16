@@ -11,8 +11,8 @@ mod capacity;
 mod close;
 pub(crate) mod graph;
 pub use graph::{
-    AcceptedCaller, AcceptedOrigin, AcceptedPeerScope, AcceptedResource, AcceptedTasks,
-    AcceptedTcpCarrierOrigin, AcceptedTcpTaskReceiver,
+    AcceptedCaller, AcceptedOrigin, AcceptedPeerScope, AcceptedResource,
+    AcceptedResourceObservation, AcceptedTasks, AcceptedTcpCarrierOrigin, AcceptedTcpTaskReceiver,
 };
 mod owner;
 mod pool;

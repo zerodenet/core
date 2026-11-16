@@ -83,12 +83,21 @@ impl Client {
     }
 }
 #[derive(Clone, Default)]
-pub struct Pool(Arc<PoolState>);
+pub struct Pool(pub(super) Arc<PoolState>);
 #[derive(Default)]
-struct PoolState {
+pub(super) struct PoolState {
+    pub(super) ownership: Mutex<Ownership>,
+    pub(super) family: Arc<super::OwnershipFamily>,
     cached: Mutex<Option<Arc<Client>>>,
     connecting: tokio::sync::Mutex<()>,
     retired: AtomicBool,
+}
+#[derive(Default)]
+pub(super) enum Ownership {
+    #[default]
+    Cold,
+    Legacy,
+    Native(super::managed::OwnerRecord),
 }
 impl std::fmt::Debug for Pool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -97,6 +106,9 @@ impl std::fmt::Debug for Pool {
 }
 impl Pool {
     pub fn retire(&self) {
+        if self.has_host_owner() {
+            return;
+        }
         self.0.retired.store(true, Ordering::Release);
         self.0.cached.lock().unwrap().take();
     }
@@ -109,6 +121,21 @@ impl Pool {
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<QuicConnection, RuntimeError>>,
     {
+        self.0.family.enter_legacy().map_err(io::Error::other)?;
+        {
+            let mut mode = self.0.ownership.lock().unwrap();
+            match &*mode {
+                Ownership::Cold => *mode = Ownership::Legacy,
+                Ownership::Legacy => {}
+                Ownership::Native(_) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "Hysteria pool is owned by its original Host generation",
+                    )
+                    .into())
+                }
+            }
+        }
         let _guard = self.0.connecting.lock().await;
         let cached = self.0.cached.lock().unwrap().clone();
         if let Some(client) = cached.filter(|client| client.connection.close_reason().is_none()) {

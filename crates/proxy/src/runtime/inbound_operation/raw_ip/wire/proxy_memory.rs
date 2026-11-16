@@ -10,13 +10,12 @@ impl Wire {
         };
         let peers = endpoint.peers.borrow().clone();
         let mut ordinal = 0usize;
-        for (index, carrier) in peers.carriers.iter().enumerate() {
-            if carrier.is_none()
-                && peers
-                    .prepared_outer
-                    .get(index)
-                    .and_then(Option::as_ref)
-                    .is_none()
+        for index in 0..peers.initial_endpoints.len() {
+            if peers
+                .prepared_outer
+                .get(index)
+                .and_then(Option::as_ref)
+                .is_none()
             {
                 self.proxy_reads.push(None);
                 self.proxy_codecs.push(Vec::new());

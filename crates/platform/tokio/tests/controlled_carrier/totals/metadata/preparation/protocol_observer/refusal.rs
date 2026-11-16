@@ -23,6 +23,7 @@ pub(super) async fn known_unregistered_original_returns_while_same_scope_real_ta
         tasks: tasks.clone(),
         wire: Mutex::new(None),
         claim: Mutex::new(None),
+        users: Mutex::new(None),
     });
     let (prepared, retirement) = owner
         .grants()

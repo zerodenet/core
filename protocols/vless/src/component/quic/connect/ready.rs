@@ -5,6 +5,9 @@ pub(super) async fn connected(
     entry: &Entry,
     connection: zero_transport::quic::owned::OwnedConnection,
 ) -> Result<Ready, ChannelError> {
+    if generation.options.hysteria.is_some() {
+        return super::hysteria::connected(generation, entry, connection).await;
+    }
     if generation.options.h3.is_none() {
         return Ok(Ready::Stream(zero_platform_tokio::TcpRelayStream::new(
             connection.into_bi_stream().await?,

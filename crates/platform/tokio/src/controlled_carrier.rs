@@ -8,7 +8,11 @@ pub use buffers::{
     CarrierBufferBudget, CarrierBufferCredit, CarrierBufferFrameCredit, CarrierBufferLimits,
     CarrierBufferWorkingLane, CarrierBufferWorkingSet, CarrierBufferWorkingShape,
 };
+mod accepted;
 mod totals;
+pub use accepted::{
+    AcceptedCarrierProvider, AcceptedCarrierUse, AcceptedCarrierUses, AcceptedSourcesReturned,
+};
 pub use totals::preparation::{CarrierPreparationRequest, CarrierPreparationTotalsSnapshot};
 pub(crate) use totals::{BoundCustody, MetadataCustody, SourceCustody};
 pub use totals::{CarrierOriginalFailure, CarrierOriginalTotals, CarrierOriginalTotalsSnapshot};

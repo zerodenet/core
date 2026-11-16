@@ -44,7 +44,8 @@ impl TcpIngressRuntime {
             self.apply_url_rewrite(&mut session);
         }
         self.apply_kernel_rate_limits(&mut session);
-        self.prepare_session_with_ticket(&mut session, Some(&identity))
+        let admission = self
+            .prepare_session_with_ticket(&mut session, Some(&identity))
             .await?;
         let rate_limiters = self.traffic_rate_limiters(&session);
         let mut handle = self.track_session(session.id);
@@ -62,9 +63,16 @@ impl TcpIngressRuntime {
         handle.register_cancellation(move || {
             let _ = cancel_tx.send(());
         });
+        // Use the original per-exchange admission, after recovery/policy, and
+        // the real accepted caller retained by the Source route host.
+        let demand = crate::component::business_demand::AdmittedBusinessDemand::new(
+            self.runtime_services().engine(),
+            zero_core::component::SessionId(session.id),
+            admission,
+        )?;
         let mut pipe = TcpPipe::new(self);
         let dispatch = tokio::select! {
-            result = pipe.dispatch(TcpPipeInput { session: &mut session, admitted: None }) => result,
+            result = pipe.dispatch(TcpPipeInput { session: &mut session, admitted: Some(demand) }) => result,
             _ = &mut cancel_rx => {
                 let reason = handle.cancellation_reason().unwrap_or_else(|| "cancelled".to_owned());
                 let _ = handle.finish_with_reason(SessionOutcome::Cancelled, Some(reason));

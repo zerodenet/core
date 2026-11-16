@@ -50,9 +50,25 @@ impl ComponentFactory for Factory {
 pub(super) fn eligible(input: &OutboundConfig) -> bool {
     matches!(&input.protocol, OutboundProtocolConfig::Vless {
         mux_concurrency: None, xudp_concurrency: None, testpre: 0,
-        reverse_tag: None, reverse_sniffing: None, ws, split_http, ..
+         ws, split_http, ..
     } if ws.as_ref().is_some_and(|ws| ws.browser_dialer.is_some())
         || split_http.as_ref().is_some_and(|http| http.browser_dialer.is_some()))
+}
+pub(super) fn carrier_eligible(input: &OutboundConfig) -> bool {
+    let mut carrier = input.clone();
+    let OutboundProtocolConfig::Vless {
+        testpre,
+        mux_concurrency,
+        xudp_concurrency,
+        ..
+    } = &mut carrier.protocol
+    else {
+        return false;
+    };
+    *testpre = 0;
+    *mux_concurrency = None;
+    *xudp_concurrency = None;
+    eligible(&carrier)
 }
 impl super::super::VlessAdapter {
     pub(super) fn browser_options(
@@ -61,6 +77,36 @@ impl super::super::VlessAdapter {
         resources: &mut ResourcePreparation<'_>,
         network: Arc<BackgroundNetwork>,
     ) -> Result<super::mux::Options, RegistrationError> {
+        Ok(super::mux::Options::Browser(
+            self.browser_recipe(input, resources, network, false, None)?,
+        ))
+    }
+    pub(super) fn browser_pool_options(
+        &self,
+        input: &OutboundConfig,
+        resources: &mut ResourcePreparation<'_>,
+        network: Arc<BackgroundNetwork>,
+        originals: NonZeroUsize,
+    ) -> Result<
+        (
+            Arc<::vless::component::browser::Options>,
+            zero_core::component::ComponentId,
+        ),
+        RegistrationError,
+    > {
+        let options = self.browser_recipe(input, resources, network, true, Some(originals))?;
+        let inner = options.inner.clone();
+        let owner = resources.share("vless.browser.actual_carrier", Arc::new(Factory), options)?;
+        Ok((inner, owner))
+    }
+    fn browser_recipe(
+        &self,
+        input: &OutboundConfig,
+        resources: &mut ResourcePreparation<'_>,
+        network: Arc<BackgroundNetwork>,
+        raw: bool,
+        originals: Option<NonZeroUsize>,
+    ) -> Result<Arc<Options>, RegistrationError> {
         let OutboundProtocolConfig::Vless { server, port, .. } = &input.protocol else {
             unreachable!("actual Browser projection")
         };
@@ -80,9 +126,11 @@ impl super::super::VlessAdapter {
             .candidate()
             .map(|config| config.runtime.effective_native_stream_max_originals())
             .unwrap_or(4);
-        let limit = NonZeroUsize::new(limit).ok_or_else(|| {
-            ConfigError::InvalidRuntime("zero actual Browser original limit".into())
-        })?;
+        let limit = originals
+            .or_else(|| NonZeroUsize::new(limit))
+            .ok_or_else(|| {
+                ConfigError::InvalidRuntime("zero actual Browser original limit".into())
+            })?;
         let prepared = ::vless::component::browser::Options::from_accepted_leaf(
             &leaf,
             input.dial.to_policy(),
@@ -102,10 +150,16 @@ impl super::super::VlessAdapter {
             Arc::new(::vless::transport::BrowserProviderFactory),
             prepared.provider.clone(),
         )?;
-        Ok(super::mux::Options::Browser(Arc::new(Options {
-            inner: Arc::new(prepared.bind_provider(provider)),
+        let options = prepared.bind_provider(provider);
+        let options = if raw {
+            options.into_carrier_owner(&self.runtime)
+        } else {
+            options
+        };
+        Ok(Arc::new(Options {
+            inner: Arc::new(options),
             tag: input.tag.clone(),
             network,
-        })))
+        }))
     }
 }

@@ -76,15 +76,21 @@ impl Runtime {
                     .prepare_masks(buffers.clone(), memory.clone())
                     .map_err(capacity)?;
                 let carrier = CarrierOwner::new(instance, options.origins, &cleanup);
-                let metadata_owner =
-                    MetadataPoolOwner::new(instance, options.origins, options.limits, &cleanup)?;
+                let metadata_owner = MetadataPoolOwner::new(
+                    instance,
+                    options.metadata_origins(),
+                    options.limits,
+                    &cleanup,
+                )?;
                 let paid = memory
                     .reserve(PacketMetadataArc::<entry::Generation>::layout().map_err(capacity)?)
                     .map_err(capacity)?;
                 let generation = PacketMetadataArc::from_prepaid(
                     entry::Generation {
                         instance,
+                        closed: crate::component::quic::closed_marker(&memory)?,
                         options: options.clone(),
+                        hysteria: std::sync::OnceLock::new(),
                         resources: context.resources.clone(),
                         tasks: context.tasks.clone(),
                         upstream,

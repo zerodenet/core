@@ -123,3 +123,95 @@ async fn actual_unused_cold_process_grant_has_no_fabricated_native_or_actor() {
     assert!(original.root_status().is_none());
     assert!(resources.io_evidence().physical_confirmed());
 }
+
+#[tokio::test]
+async fn failed_original_launch_keeps_the_same_fault_after_native_close_before_first_observation() {
+    let directory = tempfile::tempdir().unwrap();
+    let program = directory.path().join("missing-native-plugin");
+    let mut scope = TaskScope::new(
+        tokio::runtime::Handle::current(),
+        NonZeroUsize::new(1).unwrap(),
+    );
+    let id = ComponentInstanceId {
+        component: ComponentId(733),
+        generation: ResourceGeneration(1),
+    };
+    let resources = HostResources::new_for_instance(
+        id,
+        &[ResourceDeclaration::Process {
+            program: program.clone(),
+            max_starts: NonZeroUsize::new(1).unwrap(),
+        }],
+        CancellationToken::new(),
+        scope.registrar().scope_identity(),
+    )
+    .unwrap();
+    let phase = resources.activate(end()).unwrap();
+    let original = resources
+        .prepare_owned_process(ProcessRequest::new(program), &scope.registrar())
+        .unwrap();
+    let (begin, begun) = oneshot::channel();
+    let (observed, failure) = oneshot::channel();
+    let actual = original.clone();
+    let (_, witness) = scope
+        .registrar()
+        .spawn_tracked(TaskClass::Critical, async move {
+            let result = async {
+                actual.start(begun.await.unwrap())?;
+                actual.wait_started(end()).await
+            }
+            .await;
+            assert!(
+                result.is_err(),
+                "actual OS launch, no synthetic readiness result"
+            );
+            observed
+                .send(actual.first_failure().expect("same native launch fault"))
+                .unwrap();
+            Ok(())
+        })
+        .unwrap();
+    begin.send(witness.clone()).unwrap();
+    let native_failure = tokio::time::timeout_at(end(), failure)
+        .await
+        .unwrap()
+        .unwrap();
+    drop(phase);
+    // Deliberately finish the same production native branch before sampling.
+    // A matching Scope join and real provider receipt do not erase its fault.
+    let (native, tasks) = tokio::join!(
+        resources.processes.shutdown(id.component, end()),
+        scope.shutdown(end()),
+    );
+    assert!(native.is_complete(), "{native:?}");
+    assert!(tasks.is_complete() && witness.is_joined());
+    let closed = original.closed().expect("same failed original closed");
+    assert!(closed.matches(&original));
+    #[cfg(target_os = "linux")]
+    assert!(
+        closed.had_native_acquisition(),
+        "the actual helper and FDs closed"
+    );
+    let first = resources.io_evidence();
+    let fault = first.processes[0]
+        .first_fault
+        .as_ref()
+        .expect("fault survives physical close");
+    assert!(first.processes[0].confirmed);
+    use std::error::Error;
+    let source = fault
+        .source()
+        .unwrap()
+        .downcast_ref::<ProcessFailure>()
+        .unwrap();
+    assert!(Arc::ptr_eq(&source.0, &native_failure));
+    let again = resources.io_evidence();
+    assert!(Arc::ptr_eq(
+        fault,
+        again.processes[0].first_fault.as_ref().unwrap()
+    ));
+    assert!(again
+        .sticky_faults
+        .iter()
+        .any(|source| Arc::ptr_eq(source, fault)));
+}

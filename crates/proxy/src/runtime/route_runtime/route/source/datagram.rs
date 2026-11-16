@@ -50,11 +50,21 @@ pub(super) async fn run(
     }
     #[cfg(feature = "managed-datagram-runtime")]
     if let Some(peer) = runtime.peer_datagram.clone() {
+        let (slot, job) =
+            crate::runtime::udp_socket::endpoint::peer::DirectPeerDriverSlot::channel();
         let udp = runtime
             .udp_runtime()
             .with_datagram_returns(peer.returns)
-            .with_peer_resources(peer.resources);
-        let result = drive(runtime, request, auth, peer.cancel, peer.state.clone(), udp).await;
+            .with_peer_resources(peer.resources)
+            .with_inline_direct_driver(slot, peer.cancel.clone());
+        let stopped = peer.cancel.clone();
+        let operation = drive(runtime, request, auth, peer.cancel, peer.state.clone(), udp);
+        let consumer = async {
+            tokio::select! {biased;result=operation=>result,_=stopped.cancelled()=>Ok(())}
+        };
+        let result =
+            crate::runtime::udp_socket::endpoint::peer::job::run_peer_preserving(consumer, job)
+                .await;
         if result.is_err() {
             peer.state.lock().await.dropped = true;
         }
@@ -89,15 +99,30 @@ pub(super) async fn run(
             let binding = retained.bind_driver(&driver);
             async move {
                 binding?;
+                #[cfg(feature = "managed-datagram-runtime")]
+                let (slot, job) =
+                    crate::runtime::udp_socket::endpoint::peer::DirectPeerDriverSlot::channel();
                 let udp = runtime
                     .udp_runtime()
                     .with_datagram_returns(returns)
                     .with_accepted_caller(driver.caller()?);
+                #[cfg(feature = "managed-datagram-runtime")]
+                let udp = udp.with_inline_direct_driver(slot, stop.clone());
                 let operation = drive(runtime, request, auth, stop.clone(), state.clone(), udp);
-                let completion = tokio::select! { biased;
-                    _ = stop.cancelled() => Ok(()),
-                    result = operation => result,
+                // Cancellation ends the consumer inside the same structured
+                // pair; an already-returned driver failure cannot be erased by
+                // the stop wake it caused.
+                let consumer = async {
+                    tokio::select! {biased;result=operation=>result,_=stop.cancelled()=>Ok(())}
                 };
+                #[cfg(feature = "managed-datagram-runtime")]
+                let completion =
+                    crate::runtime::udp_socket::endpoint::peer::job::run_peer_preserving(
+                        consumer, job,
+                    )
+                    .await;
+                #[cfg(not(feature = "managed-datagram-runtime"))]
+                let completion = consumer.await;
                 if completion.is_err() {
                     state
                         .try_lock()
@@ -218,3 +243,7 @@ impl InboundRouteRuntime {
         Ok(self)
     }
 }
+
+#[cfg(all(test, feature = "managed-datagram-runtime"))]
+#[path = "datagram/tests.rs"]
+mod tests;

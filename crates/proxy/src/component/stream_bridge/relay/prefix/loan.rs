@@ -21,6 +21,16 @@ impl PrefixOpener {
         carrier: CarrierContext,
         waiting: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
     ) -> BoxFuture<'_, Result<StreamLoan, ChannelError>> {
+        self.borrow_selected_in_context(binding, destination, carrier, waiting, None)
+    }
+    pub(super) fn borrow_selected_in_context(
+        &self,
+        binding: UpstreamBinding,
+        destination: Destination,
+        carrier: CarrierContext,
+        waiting: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
+        identity: Option<RequestIdentity>,
+    ) -> BoxFuture<'_, Result<StreamLoan, ChannelError>> {
         Box::pin(async move {
             let shorter = self.context.upstream.binding();
             if carrier.session.is_some()
@@ -50,15 +60,17 @@ impl PrefixOpener {
                 self.context.upstream.clone()
             };
             let context = OpenContext {
-                identity: self.service_identity.clone().unwrap_or_else(|| {
-                    RequestIdentity::Service(
-                        Arc::new(ServiceRequestFacts {
-                            origin: ServiceOrigin::Runtime,
-                            purpose: ServicePurpose::BackgroundControl,
-                        })
-                        .into(),
-                    )
-                }),
+                identity: identity
+                    .or_else(|| self.service_identity.clone())
+                    .unwrap_or_else(|| {
+                        RequestIdentity::Service(
+                            Arc::new(ServiceRequestFacts {
+                                origin: ServiceOrigin::Runtime,
+                                purpose: ServicePurpose::BackgroundControl,
+                            })
+                            .into(),
+                        )
+                    }),
                 deadline: carrier.deadline,
                 cancel: carrier.cancel.clone(),
                 upstream,

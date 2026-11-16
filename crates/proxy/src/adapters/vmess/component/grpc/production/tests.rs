@@ -66,27 +66,23 @@ fn whole_node_projection_removes_legacy_tcp_for_native_relay_and_single_nodes() 
                 .count(),
             usize::from(enabled)
         );
-        let claim =
-            adapter.claim_outbound_leaf_impl(crate::protocol_registry::OutboundLeafInput::Proxy {
-                config: &config,
-                outbound: node,
-                endpoint: ("127.0.0.1", 443),
-                source_dir: None,
-            });
-        if enabled {
-            assert!(
-                claim.is_none(),
-                "the paired actual roles retire all legacy executors"
-            );
-        } else {
-            let claim = claim.expect("an unmigrated Stream still needs its existing executor");
-            assert!(claim.tcp.is_some() && claim.tcp_relay.is_some());
-        }
+        assert!(enabled);
+        assert!(
+            crate::register::protocol_registry()
+                .claim_outbound_leaf(
+                    &config,
+                    zero_engine::ResolvedLeafOutbound::Proxy {
+                        identity: zero_engine::OutboundIdentity::from_config_index(0),
+                    },
+                )
+                .is_err(),
+            "paired actual roles retire all legacy executors"
+        );
     }
 }
 
 #[test]
-fn another_grpc_nodes_unmigrated_mux_relay_keeps_the_entire_adapter_on_its_existing_tcp_executor() {
+fn grpc_mux_relay_and_plain_grpc_nodes_share_the_same_native_registry_budget() {
     let mut config = config(serde_json::json!([]));
     let mut legacy = config.outbounds[0].clone();
     legacy.tag = "legacy-node".into();
@@ -108,6 +104,6 @@ fn another_grpc_nodes_unmigrated_mux_relay_keeps_the_entire_adapter_on_its_exist
         .iter()
         .filter(|node| node.protocol.protocol_name() == "vmess")
     {
-        assert!(!streams_selected(node, Some(&config), true));
+        assert!(streams_selected(node, Some(&config), true));
     }
 }

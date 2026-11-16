@@ -4,6 +4,7 @@ mod memory;
 mod monitor;
 pub(in crate::inbound::tun) use memory::{copy_addresses, copy_key, copy_prefixes};
 mod native;
+mod unwind;
 mod worker;
 use super::*;
 pub(in crate::inbound::tun) use native::Snapshot;
@@ -36,6 +37,8 @@ struct Shared {
     monitor_io: tokio::sync::Mutex<RouteChangeMonitor>,
     worker: OnceLock<TaskJoinWitness>,
     monitor: OnceLock<TaskJoinWitness>,
+    #[cfg(test)]
+    cleanup_gate: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
 }
 #[derive(Default)]
 struct Observed {
@@ -44,6 +47,8 @@ struct Observed {
     physically_closed: bool,
 }
 enum Job {
+    #[cfg(test)]
+    Panic,
     Discover(
         Arc<zero_config::RuntimeConfig>,
         Option<oneshot::Sender<Result<super::super::PreparedTunNetwork, SourceError>>>,
@@ -287,3 +292,7 @@ impl std::error::Error for SharedError {
 #[cfg(test)]
 #[path = "owned/tests/metadata.rs"]
 mod metadata_tests;
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos", windows)))]
+#[path = "owned/tests/unwind.rs"]
+mod unwind_tests;

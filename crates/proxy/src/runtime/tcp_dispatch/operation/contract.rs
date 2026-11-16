@@ -9,23 +9,15 @@ use crate::transport::{EstablishedTcpOutbound, TcpOutboundFailure, TcpRelayStrea
 
 pub(crate) struct LazyTcpRelayCarrier<'a> {
     observer: Option<std::sync::Arc<dyn zero_traits::IoObserver>>,
-    identity: String,
-    generation: u64,
-    connector: Option<zero_transport::relay_connector::RelayStreamConnector>,
     open: Pin<Box<dyn Future<Output = Result<TcpRelayStream, EngineError>> + Send + 'a>>,
 }
 
 impl<'a> LazyTcpRelayCarrier<'a> {
     pub(crate) fn new(
-        identity: String,
-        generation: u64,
         open: Pin<Box<dyn Future<Output = Result<TcpRelayStream, EngineError>> + Send + 'a>>,
     ) -> Self {
         Self {
             observer: None,
-            identity,
-            generation,
-            connector: None,
             open,
         }
     }
@@ -37,29 +29,6 @@ impl<'a> LazyTcpRelayCarrier<'a> {
         self.observer = observer;
         self
     }
-    pub(crate) fn with_connector(
-        mut self,
-        connector: zero_transport::relay_connector::RelayStreamConnector,
-    ) -> Self {
-        self.connector = Some(connector);
-        self
-    }
-    pub(crate) fn connector(
-        &self,
-    ) -> Option<zero_transport::relay_connector::RelayStreamConnector> {
-        self.connector
-            .clone()
-            .map(|connector| connector.with_observer(self.observer.clone()))
-    }
-
-    pub(crate) fn identity(&self) -> &str {
-        &self.identity
-    }
-
-    pub(crate) fn generation(&self) -> u64 {
-        self.generation
-    }
-
     pub(crate) async fn open(self) -> Result<TcpRelayStream, EngineError> {
         let stream = self.open.await?;
         Ok(match self.observer {
@@ -72,22 +41,6 @@ impl<'a> LazyTcpRelayCarrier<'a> {
 }
 
 pub(crate) trait PreparedTcpConnectOperation: Send + Sync {
-    /// Complete native coverage of a literal Direct execution. Other operations
-    /// retain Unknown until their own native/query owners participate.
-    #[cfg(feature = "raw-ip-runtime")]
-    fn controlled_native_coverage(
-        &self,
-        _services: &TcpExecutionServices,
-        _session: &Session,
-    ) -> bool {
-        false
-    }
-
-    /// Unknown legacy owners cannot authorize retained reconnection.
-    fn retained_admission(&self) -> Result<(), EngineError> {
-        Err(zero_core::Error::Unsupported("retained TCP owner is not migrated").into())
-    }
-
     fn execute<'a>(
         &'a self,
         services: TcpExecutionServices,
@@ -98,10 +51,6 @@ pub(crate) trait PreparedTcpConnectOperation: Send + Sync {
 }
 
 pub(crate) trait PreparedTcpRelayOperation: Send + Sync {
-    fn retained_admission(&self) -> Result<(), EngineError> {
-        Err(zero_core::Error::Unsupported("retained relay owner is not migrated").into())
-    }
-
     fn execute<'a>(
         &'a self,
         services: crate::protocol_registry::UpstreamConnectServices,

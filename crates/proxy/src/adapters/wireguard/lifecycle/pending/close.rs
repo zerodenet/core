@@ -1,97 +1,54 @@
-//! Close only this candidate's declared peers, in their actual dependency order.
+//! Join the candidate's actual virtual stacks; native receipts stay with Source.
 use super::*;
-use crate::runtime::udp_dispatch::packet_owner::PacketCarrierCloseReport;
+use zero_platform_tokio::contract::lifecycle::CloseReport;
 
 pub(in crate::adapters::wireguard) struct PendingPeerCloseReport {
     pub(in crate::adapters::wireguard) workers_drained: bool,
-    pub(in crate::adapters::wireguard) owners_current: bool,
-    pub(in crate::adapters::wireguard) native: Vec<PacketCarrierCloseReport>,
+    pub(in crate::adapters::wireguard) stacks: Vec<CloseReport>,
+    expected_stacks: usize,
     pub(in crate::adapters::wireguard) failures: Vec<Arc<EngineError>>,
 }
 impl PendingPeerCloseReport {
     pub(in crate::adapters::wireguard) fn is_complete(&self) -> bool {
         self.workers_drained
-            && self.owners_current
-            && self
-                .native
-                .iter()
-                .all(PacketCarrierCloseReport::is_complete)
+            && self.stacks.len() == self.expected_stacks
+            && self.stacks.iter().all(CloseReport::is_complete)
     }
 }
 impl PeerResources {
-    /// The host has already stopped the affected original listener before this
-    /// phase. These are client stacks/outer carriers, not its native close ACK.
-    /// Partial candidates remain in the same pending map until this completes.
+    /// This graph owns the virtual clients, not the listener or outer carriers.
+    /// Source shutdown separately consumes its original views, wire/reconnect
+    /// joins and complete actual donor/controller/native attempt book.
     pub(in crate::adapters::wireguard) async fn stop_peer_resources(
         &self,
-        link: Option<&LinkedEndpoint>,
         deadline: tokio::time::Instant,
     ) -> PendingPeerCloseReport {
         if !self.owned {
             return PendingPeerCloseReport {
                 workers_drained: false,
-                owners_current: false,
-                native: Vec::new(),
+                stacks: Vec::new(),
+                expected_stacks: self.peer_stacks.len(),
                 failures: vec![Arc::new(super::super::invalid(
-                    "warm legacy linked graph has no candidate resource owner",
+                    "linked graph has no candidate stack owner",
                 ))],
             };
         }
+        self.cancelled.cancel();
         for stack in &self.peer_stacks {
             stack.revoke();
         }
-        for carrier in &self.peer_carriers {
-            carrier.revoke();
-        }
-        let carriers = link.map(LinkedEndpoint::outer_carriers).unwrap_or_default();
-        let waits: Vec<_> = carriers
-            .iter()
-            .map(|carrier| carrier.stop_background())
-            .collect();
+        let mut stacks = Vec::with_capacity(self.peer_stacks.len());
         let mut failures = Vec::new();
-        for waiter in waits {
-            let result = match waiter {
-                Some(waiter) => tokio::time::timeout_at(deadline, waiter)
-                    .await
-                    .map_err(|source| {
-                        EngineError::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, source))
-                    })
-                    .and_then(|result| result),
-                None => Err(super::super::invalid(
-                    "outer carrier has no original background task owner",
-                )),
-            };
-            if let Err(error) = result {
-                failures.push(Arc::new(error));
-            }
-        }
         for stack in &self.peer_stacks {
-            if let Err(error) = stack.stop(deadline).await {
-                failures.push(Arc::new(error));
+            match stack.stop(deadline).await {
+                Ok(report) => stacks.push(report),
+                Err(error) => failures.push(Arc::new(error)),
             }
         }
-        let workers_drained = self.peer_stacks.iter().all(|stack| stack.is_drained())
-            && carriers.iter().all(|carrier| carrier.background_drained());
-        let owners_current = link.is_none_or(|link| link.carrier_owners_match(&self.peer_carriers));
-        if !owners_current {
-            failures.push(Arc::new(super::super::invalid(
-                "outer carrier no longer belongs to the candidate's original native owner",
-            )));
-        }
-        // An actual joined task failure is preserved but does not hide the
-        // original native handles from cleanup. A timeout never authorizes it.
-        let native = if workers_drained {
-            self.peer_carriers
-                .iter()
-                .map(|carrier| carrier.close_native())
-                .collect()
-        } else {
-            Vec::new()
-        };
         PendingPeerCloseReport {
-            workers_drained,
-            owners_current,
-            native,
+            workers_drained: self.peer_stacks.iter().all(|stack| stack.is_drained()),
+            stacks,
+            expected_stacks: self.peer_stacks.len(),
             failures,
         }
     }

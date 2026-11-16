@@ -1,45 +1,9 @@
 use std::collections::BTreeMap;
-use std::collections::VecDeque;
 
 use zero_config::{DnsAnswerConfig, DnsConfig, DnsPolicyConfig, DnsServerConfig};
-use zero_core::{
-    Address, Error, InboundMuxTcpRelay, Network, ProtocolType, Session, TargetHostSource,
-};
-use zero_traits::AsyncSocket;
+use zero_core::{Address, Network, ProtocolType, Session, TargetHostSource};
 
-use super::{sniff_mux_tcp_session, sniff_tcp_prefix, SniffProgress, SniffingPolicy};
-
-struct ChunkRelay {
-    chunks: VecDeque<Vec<u8>>,
-    reads: usize,
-}
-
-impl InboundMuxTcpRelay for ChunkRelay {
-    fn mux_session_id(&self) -> u16 {
-        1
-    }
-
-    async fn close_stream(&self) {}
-
-    async fn read_inbound_chunk(&mut self, max_bytes: usize) -> Result<Option<Vec<u8>>, Error> {
-        self.reads += 1;
-        let Some(mut chunk) = self.chunks.pop_front() else {
-            return Ok(None);
-        };
-        if chunk.len() > max_bytes {
-            let remainder = chunk.split_off(max_bytes);
-            self.chunks.push_front(remainder);
-        }
-        Ok(Some(chunk))
-    }
-
-    async fn relay_stream<S>(self, _upstream: S)
-    where
-        S: AsyncSocket + 'static,
-        S::Error: Send,
-    {
-    }
-}
+use super::{sniff_tcp_prefix, SniffProgress, SniffingPolicy};
 
 fn policy(overrides: &[&str], excluded: &[&str], route_only: bool) -> SniffingPolicy {
     SniffingPolicy::new(
@@ -167,58 +131,6 @@ fn metadata_only_never_requests_payload() {
 }
 
 #[tokio::test]
-async fn mux_tcp_reads_split_prefix_before_routing_and_returns_it_for_replay() {
-    let policy = policy(&["http"], &[], false);
-    let mut session = Session::new(
-        1,
-        Address::Ipv4([203, 0, 113, 8]),
-        80,
-        Network::Tcp,
-        ProtocolType::new("vless"),
-    );
-    let mut relay = ChunkRelay {
-        chunks: [
-            b"GET / HTTP/1.1\r\nHo".to_vec(),
-            b"st: split.example\r\n\r\npayload".to_vec(),
-        ]
-        .into(),
-        reads: 0,
-    };
-
-    let prefix = sniff_mux_tcp_session(&policy, &mut session, &mut relay, false).await;
-    assert_eq!(
-        prefix,
-        b"GET / HTTP/1.1\r\nHost: split.example\r\n\r\npayload"
-    );
-    assert_eq!(session.target, Address::Domain("split.example".to_owned()));
-    assert_eq!(relay.reads, 2);
-}
-
-#[tokio::test]
-async fn metadata_only_mux_tcp_does_not_touch_relay_payload() {
-    let policy = SniffingPolicy::new(true, &["http".to_owned()], &[], true, false).unwrap();
-    let mut session = Session::new(
-        1,
-        Address::Ipv4([203, 0, 113, 8]),
-        80,
-        Network::Tcp,
-        ProtocolType::new("vless"),
-    );
-    let mut relay = ChunkRelay {
-        chunks: [b"GET / HTTP/1.1\r\nHost: ignored.example\r\n\r\n".to_vec()].into(),
-        reads: 0,
-    };
-
-    assert!(
-        sniff_mux_tcp_session(&policy, &mut session, &mut relay, false)
-            .await
-            .is_empty()
-    );
-    assert_eq!(relay.reads, 0);
-    assert_eq!(session.target, Address::Ipv4([203, 0, 113, 8]));
-}
-
-#[tokio::test]
 async fn fake_dns_mapping_overrides_target_even_with_route_only_and_honors_exclusion() {
     let dns = fake_dns();
     let response = dns
@@ -333,3 +245,7 @@ fn dns_a_query(domain: &str) -> Vec<u8> {
     query.extend_from_slice(&1_u16.to_be_bytes());
     query
 }
+
+#[cfg(feature = "managed-stream-runtime")]
+#[path = "tests/service_stream.rs"]
+mod service_stream;

@@ -112,6 +112,7 @@ impl PacketReturns {
         false
     }
 
+    #[cfg(test)]
     pub(crate) fn translate(
         &self,
         packet: &[u8],

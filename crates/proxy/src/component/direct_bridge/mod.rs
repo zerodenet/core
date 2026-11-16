@@ -108,21 +108,16 @@ impl From<ServiceInvocation> for Invocation {
     }
 }
 
-pub(crate) async fn connect(
+/// Execute the exact selected generation; cached callers cannot reselect a new
+/// Direct owner by name after their original role has been retired.
+pub(in crate::component) async fn connect_slot(
     services: &TcpExecutionServices,
     session: &Session,
     tag: &str,
-    configured_tag: Option<&str>,
+    slot: &Arc<super::instance::ComponentSlot>,
     policy: &zero_traits::DialPolicy,
     invocation: Invocation,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
-    let plan = services
-        .components
-        .as_ref()
-        .map_err(|error| failure("prepare_component", retained(error.clone())))?;
-    let slot = plan
-        .direct(configured_tag)
-        .map_err(|error| failure("prepare_component", error))?;
     tracing::trace!(
         session = session.id,
         "Direct business waiting for component role"

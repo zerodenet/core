@@ -74,8 +74,10 @@ pub(super) fn spawn(
                     .await?
             };
             let result = tokio::select! { biased;
-                _ = stopped.cancelled() => Ok(()),
+                // Poll the original operation's settled result before its own
+                // stop wake; its structured native pair retains both outputs.
                 result = route.complete_request(pending, cancel) => result,
+                _ = stopped.cancelled() => Ok(()),
             };
             if let Err(error) = result {
                 tracing::debug!(%error, "standard UDP peer ended");
@@ -104,6 +106,7 @@ pub(super) fn spawn_carrier(
         .carrier_facts()
         .cloned()
         .ok_or_else(|| std::io::Error::other("missing carrier facts"))?;
+    let original = pending.stream_carrier().cloned();
     let local = facts
         .local_endpoint
         .ok_or_else(|| std::io::Error::other("missing original carrier endpoint"))?;
@@ -133,6 +136,7 @@ pub(super) fn spawn_carrier(
             eprintln!("actual carrier original peer task {task:?} remote={actual_remote:?} local={local:?}");
             let witness=binding.join_witness().ok_or_else(||std::io::Error::other("carrier original witness absent"))?;
             let graph=zero_platform_tokio::AcceptedPeerScope::for_carrier(&registrar,task,witness,stopped.clone(),limits.max_tasks_per_peer,limits.max_resources_per_peer,local).map_err(std::io::Error::other)?;
+            if let Some(original)=original {graph.retain_carrier_origin(original).map_err(std::io::Error::other)?;}
             let tasks=graph.tasks();
             resources.claim(tokio::time::Instant::now()+std::time::Duration::from_secs(5),|_| {binding.install_scope(graph.clone())?;Ok((zero_platform_tokio::contract::lifecycle::erase_lifecycle(graph),()))}).await.map_err(std::io::Error::other)?;
             let route=route.with_accepted_tasks(tasks).map_err(std::io::Error::other)?;

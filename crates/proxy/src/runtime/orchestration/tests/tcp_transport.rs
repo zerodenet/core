@@ -7,7 +7,7 @@ use tokio::{
     time::{timeout, Duration},
 };
 use zero_core::{Address, Network, ProtocolType, Session};
-use zero_engine::{ResolvedOutbound, RouteDecision, RouteMode};
+use zero_engine::{RouteDecision, RouteMode};
 
 #[tokio::test]
 async fn materialized_transport_leaves_keep_relative_roots_and_isolate_real_mux_owners() {
@@ -54,7 +54,9 @@ async fn materialized_transport_leaves_keep_relative_roots_and_isolate_real_mux_
                 "route":{"final":{"type":"route","outbound":"a"}}});
             let config = config_at(base.clone(), material.path());
             let outer = Proxy::new(config.clone()).unwrap();
-            start_components(&outer).await;
+            let running = outer.spawn();
+            let handle = crate::ProxyHandle::new(zero_engine::EngineHandle::new(outer.engine().clone()), outer.clone());
+            handle.apply_runtime_config_and_wait(config.clone(), Duration::from_secs(5)).await.unwrap();
             round_trip(&outer, &config, "a", fixture.echo.port()).await;
             round_trip(&outer, &config, "a", fixture.echo.port()).await;
             assert_eq!(
@@ -63,9 +65,8 @@ async fn materialized_transport_leaves_keep_relative_roots_and_isolate_real_mux_
                 "{protocol}: same actual MUX owner must reuse its carrier"
             );
 
-            // Same owner, endpoint and credentials, but incompatible private
-            // transport material. An old cached MUX must not bypass this TLS/WS
-            // handshake. Both failed handshakes reach the actual peer.
+            // The same configured owner changes through its real Host apply.
+            // No old pool may bypass changed transport authentication.
             let mut incompatible = base.clone();
             if protocol == "trojan" {
                 incompatible["outbounds"][0]["protocol"]["ws"]["path"] = json!("/rejected");
@@ -74,6 +75,7 @@ async fn materialized_transport_leaves_keep_relative_roots_and_isolate_real_mux_
                     json!("untrusted.pem");
             }
             let incompatible = config_at(incompatible, material.path());
+            handle.apply_runtime_config_and_wait(incompatible.clone(), Duration::from_secs(5)).await.unwrap();
             assert!(
                 connect(&outer, &incompatible, "a", fixture.echo.port())
                     .await
@@ -81,18 +83,20 @@ async fn materialized_transport_leaves_keep_relative_roots_and_isolate_real_mux_
                 "{protocol}: cached MUX bypassed changed transport authentication"
             );
             assert_eq!(fixture.connections(), 2);
+            handle.apply_runtime_config_and_wait(config.clone(), Duration::from_secs(5)).await.unwrap();
             round_trip(&outer, &config, "b", fixture.echo.port()).await;
             round_trip(&outer, &config, "a", fixture.echo.port()).await;
             assert_eq!(
                 fixture.connections(),
-                3,
-                "{protocol}: outbound owners stay distinct; original owner stays reusable"
+                4,
+                "{protocol}: distinct owners and the restored actual generation retain independent pools"
             );
             outer
                 .protocols
                 .shutdown_components(tokio::time::Instant::now() + Duration::from_secs(2))
                 .await
                 .unwrap();
+            running.shutdown().await.unwrap();
             drop(outer);
             shutdown.send(true).unwrap();
             inbound_worker.await.unwrap().unwrap();
@@ -134,23 +138,14 @@ async fn start_components(proxy: &Proxy) {
 
 async fn connect(
     proxy: &Proxy,
-    config: &zero_config::RuntimeConfig,
+    _config: &zero_config::RuntimeConfig,
     tag: &str,
     port: u16,
 ) -> Result<crate::transport::TcpRelayStream, zero_engine::EngineError> {
-    // Resolve against the supplied immutable planning snapshot while using the
-    // one actual adapter assembly and pool. No replacement is committed here.
-    let engine = zero_engine::Engine::new(config.clone()).unwrap();
-    let (resolved, _) = engine
+    let (resolved, _) = proxy
+        .engine()
         .resolve_route_decision(RouteDecision::Route(tag.into()))
         .unwrap();
-    let ResolvedOutbound::Single(leaf) = resolved else {
-        panic!("actual leaf")
-    };
-    let claimed = proxy.protocols.claim_outbound_leaf(config, leaf).unwrap();
-    let operation = claimed
-        .tcp_connect_for_route(RouteMode::Flow)
-        .map_err(|failure| failure.error)?;
     let mut session = Session::new(
         0,
         Address::Ipv4([127, 0, 0, 1]),
@@ -162,11 +157,21 @@ async fn connect(
         .engine()
         .prepare_session(&mut session, "incoming")
         .unwrap();
-    operation
-        .execute(proxy.tcp_runtime_services().execution(), &session)
-        .await
-        .map_err(|failure| failure.error)?
-        .into_relay_stream()
+    let services = proxy
+        .tcp_runtime_services()
+        .for_inbound("incoming".into())
+        .with_business_identity(&session)
+        .unwrap();
+    crate::runtime::tcp_dispatch::dispatch_tcp_outbound(
+        services,
+        &session,
+        resolved,
+        RouteMode::Flow,
+        crate::runtime::tcp_dispatch::TcpDispatchIntent::Traffic,
+    )
+    .await
+    .map_err(|failure| failure.error)?
+    .into_relay_stream()
 }
 async fn round_trip(proxy: &Proxy, config: &zero_config::RuntimeConfig, tag: &str, port: u16) {
     let mut stream = connect(proxy, config, tag, port).await.unwrap();
@@ -178,7 +183,7 @@ async fn round_trip(proxy: &Proxy, config: &zero_config::RuntimeConfig, tag: &st
 }
 
 #[test]
-fn cold_tcp_errors_stay_deferred_and_preserve_connect_and_relay_diagnostics() {
+fn invalid_tcp_options_fail_the_actual_factory_without_reconstructing_a_private_executor() {
     for protocol in ["vless", "vmess", "trojan"] {
         let mut options = credentials(protocol);
         options["server"] = json!("127.0.0.1");
@@ -190,7 +195,6 @@ fn cold_tcp_errors_stay_deferred_and_preserve_connect_and_relay_diagnostics() {
             .to_string(),
         )
         .unwrap();
-        let proxy = Proxy::new(config.clone()).unwrap();
         use zero_config::OutboundProtocolConfig::*;
         match &mut config.outbounds[0].protocol {
             Vless {
@@ -210,38 +214,18 @@ fn cold_tcp_errors_stay_deferred_and_preserve_connect_and_relay_diagnostics() {
         let leaf = zero_engine::ResolvedLeafOutbound::Proxy {
             identity: zero_engine::OutboundIdentity::from_config_index(0),
         };
-        let claimed = proxy
-            .protocols
+        assert!(crate::register::protocol_registry()
             .claim_outbound_leaf(&config, leaf)
-            .unwrap()
-            .into_claimed();
-        assert!(claimed.has_udp_flow_capability());
-        let connect = claimed
-            .tcp_connect_for_route(RouteMode::Flow)
-            .err()
-            .expect("deferred invalid TCP config");
-        assert_eq!(
-            connect.stage,
-            match protocol {
-                "vless" => "connect_upstream_vless",
-                "vmess" => "connect_upstream_vmess",
-                _ => "connect_upstream_trojan",
-            }
+            .is_err());
+        let error = match Proxy::new(config) {
+            Err(source) => source,
+            Ok(_) => panic!("invalid native factory accepted"),
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("MUX response backlog frames must be within 1..=4096"),
+            "{protocol}: {error}"
         );
-        assert_eq!(
-            connect.upstream_endpoint.as_deref(),
-            Some(&("127.0.0.1".to_owned(), 443))
-        );
-        assert!(connect
-            .error
-            .to_string()
-            .contains(&format!("invalid {protocol} tcp config:")));
-        let relay = claimed
-            .tcp_relay_hop()
-            .err()
-            .expect("deferred invalid relay config");
-        assert!(relay
-            .to_string()
-            .contains(&format!("invalid {protocol} tcp relay config:")));
     }
 }

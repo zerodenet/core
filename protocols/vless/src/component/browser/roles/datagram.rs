@@ -26,7 +26,7 @@ impl DatagramOutbound for Outbound {
                 DeliveryState::NotSubmitted,
             ));
         };
-        if self.shared.options.protocol.flow.is_some()
+        if crate::flow::is_vision_flow(self.shared.options.protocol.flow)
             || target.port == 0
             || context.upstream.binding().dial != self.shared.options.protocol.dial
         {

@@ -8,9 +8,9 @@ mod wire;
 
 pub use control::{Control, ACTIVE, DRAIN};
 #[cfg(feature = "reality")]
-pub use portal::{Portal, PortalRegistration};
+pub use portal::{component, Portal, PortalRegistration};
 pub use state::{needs_worker, BridgeState, PortalHeartbeat, WorkerLoad};
-pub use wire::send_request;
+pub use wire::{build_request, send_request};
 
 pub const COMMAND: u8 = 4;
 pub const REQUEST_DOMAIN: &str = "v1.rvs.cool";
@@ -25,3 +25,11 @@ pub use registry::PortalRegistry;
 
 #[cfg(feature = "reality")]
 pub(crate) mod worker;
+
+#[cfg(feature = "reality")]
+mod demand;
+#[cfg(feature = "reality")]
+pub use demand::{WorkerAttempt, WorkerDemand};
+
+#[cfg(feature = "reality")]
+pub mod source;

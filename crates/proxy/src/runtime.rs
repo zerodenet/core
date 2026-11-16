@@ -19,23 +19,16 @@ pub(crate) mod current_services;
 #[cfg(feature = "udp-runtime")]
 pub(crate) mod datagram_udp;
 mod diagnostic_service;
+#[cfg(all(test, feature = "dns"))]
 mod dns_outbound;
 mod handle;
 pub(crate) mod http_redirect;
 pub(crate) mod inbound_operation;
 pub(crate) mod inbound_owners;
-#[cfg(test)]
-pub(crate) mod inbound_route;
 pub(crate) mod listener_loop;
 mod listeners;
 #[cfg(feature = "managed-stream-runtime")]
-pub(crate) mod mux_session;
-#[cfg(feature = "managed-stream-runtime")]
-pub(crate) mod mux_tcp;
-#[cfg(feature = "managed-stream-runtime")]
 pub(crate) mod mux_udp;
-#[cfg(feature = "raw-ip-runtime")]
-pub(crate) mod network_graph;
 pub(crate) mod orchestration;
 pub(crate) mod outbound_probe;
 mod packet_close_owner;
@@ -43,7 +36,7 @@ mod packet_close_owner;
 pub(crate) mod packet_flow;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) mod packet_route;
-#[cfg(feature = "managed-stream-runtime")]
+#[cfg(all(test, feature = "managed-stream-runtime"))]
 pub(crate) mod packet_session_udp;
 mod passive_relay_health;
 pub(crate) use passive_relay_health::classify_channel_establishment_failure;
@@ -62,12 +55,7 @@ mod target;
 pub(crate) use target::resolve_packet_targets;
 pub(crate) mod tcp_dispatch;
 pub(crate) mod tcp_ingress;
-#[cfg(any(
-    feature = "tcp-tunnel-runtime",
-    feature = "tcp-session-runtime",
-    feature = "managed-stream-runtime"
-))]
-pub(crate) mod transport_leaf;
+
 #[cfg(feature = "udp-runtime")]
 pub(crate) mod udp_delivery;
 #[cfg(feature = "udp-runtime")]
@@ -109,6 +97,7 @@ pub struct Proxy {
     packet_close_owner: Arc<packet_close_owner::PacketCloseOwner>,
     statistics: Arc<orchestration::statistics::Sampler>,
     inbound_owners: Arc<inbound_owners::InboundOwnerRegistry>,
+    inbound_services: inbound_service::InboundServices,
     retired_datagrams: Arc<crate::component::datagram_retirement::RetiredDatagrams>,
     principal_rate_limits: principal_rate_limit::PrincipalRateLimitRegistry,
     current_services: Arc<current_services::CurrentServiceSource>,
@@ -276,13 +265,11 @@ impl Proxy {
                 component_tasks,
             )),
             inbound_owners,
+            inbound_services: Default::default(),
             retired_datagrams: retired_datagrams.clone(),
             principal_rate_limits: principal_rate_limits.clone(),
             current_services,
         };
-        resolver.set_outbound_connector(Arc::new(dns_outbound::ProxyDnsOutboundConnector::new(
-            proxy.current_service_source(),
-        )));
         Ok(proxy)
     }
 

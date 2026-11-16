@@ -1,57 +1,22 @@
 //! Existing flat Associated relay, with its real Source driver caller.
 use super::*;
 use crate::{
-    component::stream_bridge::relay::background::BackgroundPath,
-    inventory::{service::ServiceNode, PreparedTcpRelayPrefix},
+    component::stream_bridge::relay::background::BackgroundPath, inventory::service::ServiceNode,
 };
 use zero_platform_tokio::contract::dns::DnsQueryRole;
 impl StandardPacketPath {
-    pub(crate) async fn build_associated(
+    pub(super) async fn open_source_associated(
         services: &PacketPathExecutionServices,
-        prefix: &PreparedTcpRelayPrefix,
+        slot: Arc<ComponentSlot>,
+        nodes: Vec<ServiceNode>,
+        binding: UpstreamBinding,
         descriptor: PacketPathCarrierDescriptor,
-    ) -> Result<Option<Arc<dyn PacketPathCarrier>>, EngineError> {
-        // The actual Source and Business are distinct existing callers;
-        // neither absence nor Service identity grants their IO. Once present, subsequent
-        // target/binding/plan error is terminal for this attempt.
-        if !services.has_packet_driver_caller() {
-            let execution = services.tcp();
-            if !services.has_business_invocation() {
-                return Ok(None);
-            }
-            let plan = execution
-                .components
-                .as_ref()
-                .map_err(|source| failure(crate::component::instance::retained(source.clone())))?;
-            let tag = descriptor.tag.as_deref().ok_or_else(|| {
-                failure(invalid(Reason::StalePlan, "associated target is absent"))
-            })?;
-            let slot = plan
-                .configured(tag)
-                .ok_or_else(|| failure(invalid(Reason::Revoked, "associated owner retired")))?;
-            if !slot
-                .recipe
-                .spec()
-                .roles
-                .contains(&zero_platform_tokio::contract::component::RoleKind::Datagram)
-            {
-                return Ok(None);
-            }
-            return super::business::open_associated(services, prefix, &descriptor)
-                .await
-                .map(Some);
-        }
+    ) -> Result<Arc<dyn PacketPathCarrier>, EngineError> {
         let execution = services.tcp();
         let plan = execution
             .components
             .as_ref()
             .map_err(|source| failure(crate::component::instance::retained(source.clone())))?;
-        let (slot, nodes, binding) = associated_selection(
-            plan,
-            prefix,
-            &descriptor,
-            NetworkGeneration(execution.upstream().network_generation()),
-        )?;
         let tag = descriptor
             .tag
             .as_deref()
@@ -88,6 +53,7 @@ impl StandardPacketPath {
             &execution,
             Some(caller.pending.clone()),
             Some(identity.clone()),
+            true,
         )
         .await
         .map_err(failure)?;
@@ -103,7 +69,14 @@ impl StandardPacketPath {
             .open_carrier(
                 DatagramRequest {
                     association,
-                    targets: DatagramTargets::Multiple,
+                    targets: DatagramTargets::Fixed(services.packet_target().cloned().ok_or_else(
+                        || {
+                            failure(invalid(
+                                Reason::InvalidConfig,
+                                "Source relay lacks its actual packet destination",
+                            ))
+                        },
+                    )?),
                 },
                 OpenContext {
                     identity,
@@ -125,12 +98,10 @@ impl StandardPacketPath {
             return Err(failure(source));
         }
         session.control = reservation.adopt(session.control);
-        Ok(Some(Arc::new(Path::new(
-            session,
-            association,
-            stop,
-            Some(handoff),
-        ))))
+        Ok(
+            Arc::new(Path::new(session, association, stop, Some(handoff)))
+                as Arc<dyn PacketPathCarrier>,
+        )
     }
 }
 pub(super) fn destination(host: &str, port: u16) -> Destination {
@@ -143,7 +114,7 @@ pub(super) fn destination(host: &str, port: u16) -> Destination {
         port,
     )
 }
-fn node(
+pub(super) fn node(
     slot: Arc<ComponentSlot>,
     tag: Option<String>,
     endpoint: Option<(String, u16)>,
@@ -158,69 +129,4 @@ fn node(
         endpoint: endpoint.map(|(host, port)| destination(&host, port)),
         role: DnsQueryRole::Node,
     }
-}
-
-/// Pure same-plan binding shared by cold Source capture and actual execution.
-/// This is metadata only; it does not enter a role or acquire any IO.
-pub(crate) fn associated_binding(
-    plan: &crate::component::catalog::ComponentPlan,
-    prefix: &PreparedTcpRelayPrefix,
-    descriptor: &PacketPathCarrierDescriptor,
-    network_generation: NetworkGeneration,
-) -> Result<UpstreamBinding, EngineError> {
-    associated_selection(plan, prefix, descriptor, network_generation)
-        .map(|(_, _, binding)| binding)
-}
-pub(super) fn associated_selection(
-    plan: &crate::component::catalog::ComponentPlan,
-    prefix: &PreparedTcpRelayPrefix,
-    descriptor: &PacketPathCarrierDescriptor,
-    network_generation: NetworkGeneration,
-) -> Result<(Arc<ComponentSlot>, Vec<ServiceNode>, UpstreamBinding), EngineError> {
-    let tag = descriptor.tag.as_deref().ok_or_else(|| {
-        failure(invalid(
-            Reason::StalePlan,
-            "associated target tag is absent",
-        ))
-    })?;
-    if tag != prefix.final_tag
-        || descriptor.server != prefix.final_server
-        || descriptor.port != prefix.final_port
-    {
-        return Err(failure(invalid(
-            Reason::StalePlan,
-            "associated target changed",
-        )));
-    }
-    let slot = plan
-        .configured(tag)
-        .ok_or_else(|| failure(invalid(Reason::Revoked, "associated final owner retired")))?;
-    let mut nodes = Vec::with_capacity(prefix.relay_hops.len() + 1);
-    let first = match prefix.first.tag.as_deref() {
-        Some(tag) => plan
-            .configured(tag)
-            .ok_or_else(|| failure(invalid(Reason::Revoked, "associated first owner retired")))?,
-        None => plan.direct(None).map_err(failure)?,
-    };
-    nodes.push(node(
-        first,
-        prefix.first.tag.clone(),
-        prefix.first.endpoint.clone(),
-    ));
-    for hop in &prefix.relay_hops {
-        let slot = plan
-            .configured(&hop.tag)
-            .ok_or_else(|| failure(invalid(Reason::Revoked, "associated prefix owner retired")))?;
-        nodes.push(node(
-            slot,
-            Some(hop.tag.clone()),
-            Some((hop.server.clone(), hop.port)),
-        ));
-    }
-    let binding = UpstreamBinding {
-        prefix: nodes.iter().map(|node| node.slot.role_id()).collect(),
-        dial: slot.dial.clone(),
-        network_generation: network_generation,
-    };
-    Ok((slot, nodes, binding))
 }

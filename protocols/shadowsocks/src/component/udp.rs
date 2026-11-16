@@ -3,6 +3,8 @@ mod pool;
 pub(crate) use pool::{PoolRegistry, PoolSelection};
 pub use pool::{UdpPoolFactory, UdpPoolOptions};
 
+mod factory;
 mod logical;
+pub use factory::{DatagramFactory, DatagramOptions};
 
 pub(crate) mod role;

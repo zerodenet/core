@@ -27,7 +27,7 @@ impl PacketPathManager {
         responses: &mut crate::runtime::udp_flow::response_join::ResponseSetLease,
     ) -> Result<&Entry, EngineError> {
         let candidate = EntryCandidate {
-            carrier_desc: carrier.descriptor,
+            carrier_desc: carrier.descriptor(),
             datagram,
         };
         let existing = self
@@ -125,7 +125,7 @@ impl PacketPathManager {
                 )
                 .map_err(std::io::Error::other)?;
             let key = candidate.key();
-            let entry = build_entry(ctx, carrier.build_operation, candidate, receiver).await?;
+            let entry = build_entry(ctx, carrier, candidate, receiver).await?;
             self.upstreams
                 .push_reserved(CacheRow {
                     key,

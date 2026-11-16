@@ -16,7 +16,9 @@ mod table;
 pub(super) use control::{LogicalControl, ProtocolControl, View};
 pub(super) struct Generation {
     pub instance: ComponentInstanceId,
+    pub closed: PacketMetadataArc<std::sync::atomic::AtomicBool>,
     pub options: Arc<Options>,
+    pub hysteria: std::sync::OnceLock<Arc<zero_transport::hysteria::ManagedPool>>,
     pub resources: Arc<dyn ResourceAccess>,
     pub tasks: TaskRegistrar,
     pub upstream: UpstreamTransport,
@@ -157,12 +159,17 @@ pub(super) struct State {
     pub tcp_driver: Option<zero_platform_tokio::contract::scope::TaskJoinWitness>,
     pub tcp_joined: Option<zero_platform_tokio::contract::scope::TaskJoined>,
     pub endpoint: Option<zero_transport::quic::owned::OwnedEndpointOwner>,
+    pub mkcp: Option<zero_transport::mkcp::owned::OwnedMkcp>,
     pub receiver: Option<zero_transport::quic::owned::DriverExitReceiver>,
     pub segment: Option<Segment>,
     pub queues: Option<zero_transport::quic::owned::packet::PacketQueues>,
     pub unbound: Option<GrantedMetadataListener>,
     pub native_origin:
         Option<zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOrigin>,
+    pub hopping: Option<super::connect::hopping::Hopping>,
+    pub native_users: Option<
+        zero_platform_tokio::controlled_datagram::metadata::users::MetadataUsersClosedReceipt,
+    >,
     pub retry_connection: bool,
     pub logical_memory: Option<PacketMetadataCredit>,
     pub h3: Option<zero_transport::split_http::PreparedXhttp3>,

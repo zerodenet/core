@@ -6,7 +6,10 @@ use crate::transport::TcpOutboundFailure;
 
 pub(crate) enum PreparedTcpOutbound {
     NativeRelay(super::PreparedNativeTcpRelayChain),
-    Relay(super::PreparedTcpRelayChain),
+    Relay {
+        prefix: super::PreparedTcpRelayPrefix,
+        final_hop: super::PreparedTcpRelayHop,
+    },
     Single(super::PreparedTcpCandidate),
     Fallback(Vec<super::PreparedTcpCandidate>),
 }
@@ -35,26 +38,19 @@ impl ProtocolInventory {
                     });
                 }
                 if let Some(prepared) = Self::prepare_native_tcp_relay_chain(
-                    chain
-                        .iter()
-                        .enumerate().map(|(index,leaf)| {
-                            if let zero_engine::ResolvedLeafOutbound::Direct {tag,..}=leaf {
-                                if index!=0 {return None;}
-                                let slot=components?.direct(*tag).ok()?;
-                                if !slot.recipe.spec().resources.iter().any(|resource|matches!(resource,zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream {..} | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier {..})){return None;}
-                                return Some(Ok(super::PreparedTcpCandidate {
-                                    health_tag:None,tag:Some(tag.unwrap_or("direct").into()),protocol:"direct".into(),endpoint:None,
-                                    execution:super::PreparedTcpCandidateExecution::Native(crate::inventory::StreamRoleRef::new(&slot)),
-                                }));
-                            }
-                            self.native_tcp_candidate(ctx, leaf, components, mode)
-                        }),
+                    chain.iter().enumerate().map(|(index, leaf)| {
+                        if index != 0
+                            && matches!(leaf, zero_engine::ResolvedLeafOutbound::Direct { .. })
+                        {
+                            return None;
+                        }
+                        self.native_tcp_candidate(ctx, leaf, components, mode)
+                    }),
                 ) {
                     return prepared.map(PreparedTcpOutbound::NativeRelay);
                 }
-                Ok(PreparedTcpOutbound::Relay(
-                    self.prepare_tcp_relay_chain(ctx, chain, components, None)?,
-                ))
+                let (prefix, final_hop) = self.prepare_tcp_relay(ctx, chain, components)?;
+                Ok(PreparedTcpOutbound::Relay { prefix, final_hop })
             }
             ResolvedOutbound::Single(candidate) => {
                 if let Some(prepared) = self.native_tcp_candidate(ctx, candidate, components, mode)

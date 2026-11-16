@@ -7,7 +7,7 @@ pub(crate) use zero_traits::DatagramCodec;
 
 /// Datagram source params for a relay-chain final hop over a packet path.
 ///
-/// Produced by `PreparedUdpPacketPathOperation::into_datagram_source`. The
+/// Produced by the owning adapter's cold packet projection. The
 /// `cache_key` feeds packet-path cache identity without exposing raw config
 /// parsing to the manager.
 #[derive(Clone)]

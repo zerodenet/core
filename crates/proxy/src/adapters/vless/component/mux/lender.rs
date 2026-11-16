@@ -20,10 +20,72 @@ use zero_platform_tokio::{
 };
 use zero_transport::grpc::{Demand, NativePoolOptions};
 
+#[derive(Clone)]
+pub(super) enum Source {
+    Carrier(::vless::component::quic::TransportCarrier),
+    Grpc(Arc<NativePoolOptions>),
+    Preconnect {
+        pool: ::vless::transport::PreconnectPool,
+        endpoint: Destination,
+    },
+}
+impl Source {
+    fn endpoint(&self) -> &Destination {
+        match self {
+            Self::Grpc(options) => options.endpoint(),
+            Self::Carrier(pool) => pool.endpoint(),
+            Self::Preconnect { endpoint, .. } => endpoint,
+        }
+    }
+    async fn open(
+        &self,
+        expected: ComponentInstanceId,
+        binding: UpstreamBinding,
+        call: CarrierContext,
+        waiting: Option<PendingCarrierObserver>,
+    ) -> Result<StreamLoan, ChannelError> {
+        match self {
+            Self::Carrier(pool) => pool.open_carrier(expected, binding, call, waiting).await,
+            Self::Grpc(options) => options
+                .open_observed(
+                    expected,
+                    Demand {
+                        binding,
+                        deadline: call.deadline,
+                        cancel: call.cancel,
+                    },
+                    waiting,
+                )
+                .await?
+                .into_stream_loan(),
+            Self::Preconnect { pool, .. } => {
+                pool.open_carrier(expected, &binding, call, waiting).await
+            }
+        }
+    }
+}
+pub(super) fn transport(
+    provider: Arc<BackgroundCarrier>,
+    initial: UpstreamBinding,
+    expected: ComponentInstanceId,
+    source: Source,
+) -> UpstreamTransport {
+    let base = UpstreamTransport::new(initial, provider.clone());
+    UpstreamTransport::new(
+        base.binding().clone(),
+        Arc::new(Root {
+            base,
+            provider,
+            expected,
+            source,
+        }),
+    )
+}
+
 pub(super) struct Factory {
     pub(super) background: Arc<background_pool::Factory>,
     pub(super) dependency: ComponentId,
-    pub(super) grpc: Arc<NativePoolOptions>,
+    pub(super) source: Source,
 }
 impl ComponentFactory for Factory {
     type Options = super::pool::Options;
@@ -51,18 +113,11 @@ impl ComponentFactory for Factory {
             wire_endpoint: options.wire_endpoint.clone(),
             tag: options.tag.clone(),
         });
-        let base = UpstreamTransport::new(
+        context.background_carrier = Some(transport(
+            provider,
             options.pool.pool_options().binding().clone(),
-            provider.clone(),
-        );
-        context.background_carrier = Some(UpstreamTransport::new(
-            base.binding().clone(),
-            Arc::new(Root {
-                base,
-                provider,
-                expected,
-                grpc: self.grpc.clone(),
-            }),
+            expected,
+            self.source.clone(),
         ));
         ::vless::component::mux::OwnedPoolFactory.build_with_ech_resolver(
             options.pool.clone(),
@@ -78,7 +133,7 @@ struct Root {
     base: UpstreamTransport,
     provider: Arc<BackgroundCarrier>,
     expected: ComponentInstanceId,
-    grpc: Arc<NativePoolOptions>,
+    source: Source,
 }
 impl Root {
     fn select(
@@ -105,7 +160,7 @@ impl Root {
                 Arc::new(Selected {
                     base,
                     expected: self.expected,
-                    grpc: self.grpc.clone(),
+                    source: self.source.clone(),
                     waiting,
                     call,
                 }),
@@ -176,7 +231,7 @@ impl UpstreamOpener for Root {
 struct Selected {
     base: UpstreamTransport,
     expected: ComponentInstanceId,
-    grpc: Arc<NativePoolOptions>,
+    source: Source,
     waiting: Option<PendingCarrierObserver>,
     call: CarrierContext,
 }
@@ -190,7 +245,7 @@ impl UpstreamOpener for Selected {
         let binding = binding.clone();
         Box::pin(async move {
             if binding != *self.base.binding()
-                || endpoint != *self.grpc.endpoint()
+                || endpoint != *self.source.endpoint()
                 || call.session.is_some()
                 || call.deadline != self.call.deadline
                 || call.cancel.is_cancelled()
@@ -198,19 +253,9 @@ impl UpstreamOpener for Selected {
             {
                 return Err(invalid());
             }
-            let stream = self
-                .grpc
-                .open_observed(
-                    self.expected,
-                    Demand {
-                        binding,
-                        deadline: call.deadline,
-                        cancel: call.cancel,
-                    },
-                    self.waiting.clone(),
-                )
-                .await?;
-            stream.into_stream_loan()
+            self.source
+                .open(self.expected, binding, call, self.waiting.clone())
+                .await
         })
     }
     fn open_stream(

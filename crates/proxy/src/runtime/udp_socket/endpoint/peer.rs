@@ -174,11 +174,81 @@ impl DirectEndpointOwner {
             Self {
                 shared,
                 scope: None,
+                accepted: None,
                 peer: Some(PeerOwner {
                     binding,
                     task,
                     joined: None,
                 }),
+                commands: None,
+                report: Default::default(),
+                io_report: Default::default(),
+                failures: Vec::new(),
+            },
+            driver,
+        ))
+    }
+}
+
+impl DirectEndpointOwner {
+    pub(crate) fn for_bound_accepted(
+        options: DirectBoundPeerOptions,
+        caller: zero_platform_tokio::AcceptedCaller,
+        cancel: CancellationToken,
+        observer: Option<Arc<dyn zero_traits::IoObserver>>,
+    ) -> Result<(Self, DirectPeerDriver), ChannelError> {
+        caller.check_open()?;
+        let witness = caller
+            .task_join_witness()
+            .filter(|witness| witness.task_id() == Some(options.task))
+            .ok_or_else(|| {
+                error(
+                    Stage::Prepare,
+                    Reason::StalePlan,
+                    DeliveryState::NotSubmitted,
+                )
+            })?;
+        let sockets = DirectUdpSockets::new_bound(observer.clone(), options.limits.native_sockets);
+        let (shared, commands) = shared(
+            options.identity,
+            sockets,
+            options.queue,
+            options.limits,
+            cancel,
+            observer,
+        )?;
+        let original = shared.clone();
+        let driver = DirectPeerDriver {
+            stop: shared.scope_cancel.clone(),
+            future: Box::pin(async move {
+                caller.check_open()?;
+                loop {
+                    let changed = original.changed.notified();
+                    tokio::pin!(changed);
+                    changed.as_mut().enable();
+                    {
+                        let state = original
+                            .state
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        if state.closing || original.scope_cancel.is_cancelled() {
+                            return Ok(());
+                        }
+                        if state.started {
+                            break;
+                        }
+                    }
+                    tokio::select! {_=changed=>{},_=original.scope_cancel.cancelled()=>return Ok(())}
+                }
+                driver::run(original, commands).await
+            }),
+        };
+        Ok((
+            Self {
+                shared,
+                scope: None,
+                peer: None,
+                accepted: Some(witness),
                 commands: None,
                 report: Default::default(),
                 io_report: Default::default(),

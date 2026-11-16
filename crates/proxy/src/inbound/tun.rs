@@ -26,7 +26,7 @@ mod sniff;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) mod source;
 mod statistics;
-#[cfg(feature = "udp-runtime")]
+#[cfg(all(feature = "udp-runtime", any(test, feature = "raw-ip-runtime")))]
 pub(crate) mod udp;
 
 use std::io;

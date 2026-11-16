@@ -9,6 +9,14 @@ pub(super) type Epoch = (
     zero_core::component::NetworkGeneration,
     Option<DnsGeneration>,
 );
+#[derive(Default)]
+pub(super) enum EpochState {
+    #[default]
+    Cold,
+    Ready(Epoch),
+    // This remains set across cancellation, errors and incomplete cleanup.
+    Draining,
+}
 impl ManagedPool {
     /// Select the actual current root provider for compatibility users of this
     /// same pool. Selection grants no carrier and never replaces an original.
@@ -34,13 +42,13 @@ impl ManagedPool {
     /// Check the retained real provider again before logical exposure. A
     /// changed DNS generation keeps the already installed original for cleanup.
     pub fn verify_epoch(&self, binding: &UpstreamBinding) -> Result<(), crate::RuntimeError> {
+        let current = (
+            binding.network_generation,
+            self.upstream.carrier_dns_generation(),
+        );
         if !self.ready()
             || binding.dial != self.options.binding.dial
-            || self.epoch.lock().unwrap().as_ref()
-                != Some(&(
-                    binding.network_generation,
-                    self.upstream.carrier_dns_generation(),
-                ))
+            || !matches!(&*self.epoch.lock().unwrap(), EpochState::Ready(actual) if *actual == current)
         {
             return Err(std::io::Error::other(failure(
                 self.instance,
@@ -52,13 +60,17 @@ impl ManagedPool {
         Ok(())
     }
 
-    /// Called while the real pool's admission mutex is held. Selection is a
-    /// current-host authorization, not an acquisition or a close proof.
+    /// One epoch transition fences every physical prefix of this actual pool.
+    /// It never holds the prefix publication lane across another prefix's IO.
     pub async fn prepare_epoch(
         &self,
         profile: &str,
         binding: &UpstreamBinding,
     ) -> Result<(), crate::RuntimeError> {
+        let _transition = tokio::select! { biased;
+            _=self.cancel.cancelled()=>return Err(std::io::Error::other(failure(self.instance,Stage::Prepare,Reason::Revoked)).into()),
+            result=tokio::time::timeout(self.options.open_budget,self.connecting.lock())=>result.map_err(|source|std::io::Error::new(std::io::ErrorKind::TimedOut,source))?,
+        };
         self.check(profile)?;
         if binding.dial != self.options.binding.dial {
             return Err(std::io::Error::other(failure(
@@ -89,52 +101,33 @@ impl ManagedPool {
             binding.network_generation,
             self.upstream.carrier_dns_generation(),
         );
-        if self
-            .epoch
-            .lock()
-            .unwrap()
-            .as_ref()
-            .is_none_or(|actual| actual == &epoch)
+        let records = {
+            let mut state = self.epoch.lock().unwrap();
+            if matches!(&*state, EpochState::Cold)
+                || matches!(&*state, EpochState::Ready(actual) if *actual == epoch)
+            {
+                *state = EpochState::Ready(epoch);
+                return Ok(());
+            }
+            // Same lock order as install_original: fence admission before
+            // taking the complete census, including interrupted preparations.
+            *state = EpochState::Draining;
+            self.records.lock().unwrap().clone()
+        };
+        if !self
+            .retire_originals(records, deadline)
+            .await
+            .map_err(std::io::Error::other)?
         {
-            *self.epoch.lock().unwrap() = Some(epoch);
-            return Ok(());
-        }
-        let records = self.records.lock().unwrap().clone();
-        for record in &records {
-            record.stop.cancel();
-        }
-        for record in records {
-            let report = record
-                .original
-                .retire(deadline)
-                .await
-                .map_err(std::io::Error::other)?;
-            let complete = report.is_complete();
-            self.settled.lock().unwrap().append(report);
-            if !complete {
-                return Err(std::io::Error::other(failure(
-                    self.instance,
-                    Stage::Close,
-                    Reason::Timeout,
-                ))
-                .into());
-            }
-        }
-        loop {
-            let changed = self.changed.notified();
-            tokio::pin!(changed);
-            changed.as_mut().enable();
-            self.harvest();
-            if self.records.lock().unwrap().is_empty() {
-                break;
-            }
-            tokio::select! {biased;
-                _=self.cancel.cancelled()=>return Err(std::io::Error::other(failure(self.instance,Stage::Close,Reason::Revoked)).into()),
-                result=tokio::time::timeout_at(deadline,changed)=>{result.map_err(|source|std::io::Error::new(std::io::ErrorKind::TimedOut,source))?;},
-            }
+            return Err(std::io::Error::other(failure(
+                self.instance,
+                Stage::Close,
+                Reason::Timeout,
+            ))
+            .into());
         }
         self.check(profile)?;
-        *self.epoch.lock().unwrap() = Some(epoch);
+        *self.epoch.lock().unwrap() = EpochState::Ready(epoch);
         // Both open preparations and logical users settled through matching
         // originals above; a body-exit flag alone was never used as evidence.
         Ok(())

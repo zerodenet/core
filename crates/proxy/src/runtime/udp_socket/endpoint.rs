@@ -53,6 +53,8 @@ pub(crate) struct DirectEndpointOwner {
     scope: Option<TaskScope>,
     #[cfg(feature = "managed-datagram-runtime")]
     peer: Option<peer::PeerOwner>,
+    #[cfg(feature = "managed-datagram-runtime")]
+    accepted: Option<zero_platform_tokio::contract::scope::TaskJoinWitness>,
     commands: Option<mpsc::Receiver<Command>>,
     report: zero_platform_tokio::contract::lifecycle::CloseReport,
     io_report: zero_platform_tokio::contract::lifecycle::CloseReport,
@@ -177,6 +179,8 @@ impl DirectEndpointOwner {
             scope: Some(scope),
             #[cfg(feature = "managed-datagram-runtime")]
             peer: None,
+            #[cfg(feature = "managed-datagram-runtime")]
+            accepted: None,
             commands: Some(commands),
             report: Default::default(),
             io_report: Default::default(),

@@ -1,4 +1,4 @@
-mod business_carrier;
+pub(in crate::component) mod business_carrier;
 mod business_demand;
 mod request;
 
@@ -33,3 +33,6 @@ mod taskless_node_dns;
 #[cfg(any(feature = "vless", feature = "vmess", feature = "trojan"))]
 #[path = "tests/mux_datagram.rs"]
 mod mux_datagram;
+
+#[cfg(all(feature = "vmess", feature = "socks5"))]
+mod direct_prefix;

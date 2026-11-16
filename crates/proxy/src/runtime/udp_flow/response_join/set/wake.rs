@@ -34,7 +34,7 @@ struct State {
     pending: bool,
 }
 #[derive(Default)]
-pub(super) struct Relay(Mutex<State>);
+pub(in crate::runtime::udp_flow) struct Relay(Mutex<State>);
 impl Relay {
     fn bind(self: &Arc<Self>, target: &Arc<Target>) {
         self.0
@@ -69,7 +69,7 @@ impl Relay {
         }
         retry.complete = true;
     }
-    pub(super) fn signal(&self) {
+    pub(in crate::runtime::udp_flow) fn signal(&self) {
         self.0
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -147,12 +147,16 @@ impl Relay {
 pub(super) enum Next {
     Native(NativeChainJoin),
     Packet(Packet),
+    #[cfg(feature = "managed-stream-runtime")]
+    Logical(Result<Packet, Arc<EngineError>>),
 }
 pub(super) async fn next(
-    tasks: &mut JoinSet<ChainTask>,
+    tasks: &mut Option<JoinSet<ChainTask>>,
     relay: &Arc<Relay>,
     packets: Option<&super::packets::PacketReplies>,
     receiver: Option<&super::receiver::PacketReceiver>,
+    #[cfg(feature = "managed-stream-runtime")]
+    logical: &crate::runtime::udp_flow::registered::logical::receiver::Receivers,
 ) -> Option<Next> {
     let target = Arc::new(Target::default());
     std::future::poll_fn(|cx| {
@@ -162,13 +166,22 @@ pub(super) async fn next(
         let waker = Waker::from(relay.clone());
         let mut native = Context::from_waker(&waker);
         // Consume real joins first so a ready data queue cannot starve cleanup.
-        let joined = tasks.poll_join_next_with_id(&mut native);
+        let joined = tasks.as_mut().map_or(Poll::Ready(None), |tasks| {
+            tasks.poll_join_next_with_id(&mut native)
+        });
+        if let Poll::Ready(Some(result)) = joined {
+            drop(deferred);
+            return Poll::Ready(Some(Next::Native(result)));
+        }
         if let Some(receiver) = receiver {
             receiver.poll(&mut native);
         }
+        #[cfg(feature = "managed-stream-runtime")]
+        let logical_reply = logical.poll(&mut native);
         drop(deferred);
-        if let Poll::Ready(Some(result)) = joined {
-            return Poll::Ready(Some(Next::Native(result)));
+        #[cfg(feature = "managed-stream-runtime")]
+        if let Poll::Ready(reply) = logical_reply {
+            return Poll::Ready(Some(Next::Logical(reply)));
         }
         if let Some(packets) = packets {
             if let Some(packet) = packets.pop() {
@@ -179,6 +192,10 @@ pub(super) async fn next(
             }
         }
         if receiver.is_some_and(|receiver| !receiver.is_complete()) {
+            return Poll::Pending;
+        }
+        #[cfg(feature = "managed-stream-runtime")]
+        if logical.len() != 0 {
             return Poll::Pending;
         }
         match joined {

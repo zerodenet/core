@@ -23,11 +23,6 @@ pub(in crate::runtime) enum RegisteredUdpConnection {
     Logical(super::super::LogicalConnection),
     #[cfg(feature = "upstream-association-runtime")]
     Upstream(super::super::upstream::DatagramAssociationTarget),
-    #[cfg(feature = "managed-stream-runtime")]
-    Tuple {
-        connection: crate::runtime::udp_flow::managed::connection::SharedManagedUdpConnection,
-        stage: &'static str,
-    },
     #[cfg(feature = "managed-datagram-runtime")]
     Datagram {
         connection:
@@ -40,9 +35,6 @@ pub(crate) struct RegisteredUdpState {
     #[cfg(feature = "managed-stream-runtime")]
     pub(in crate::runtime::udp_flow::registered) logical_sessions: HashMap<u64, ManagedUdpFlowRef>,
     pub(in crate::runtime::udp_flow::registered) sessions: HashMap<u64, ManagedUdpFlowRef>,
-    #[cfg(feature = "managed-stream-runtime")]
-    pub(in crate::runtime) tuple_connections:
-        crate::runtime::udp_flow::managed::cache::ManagedUdpConnectionCache,
     #[cfg(feature = "managed-datagram-runtime")]
     pub(in crate::runtime) datagram_connections:
         crate::runtime::udp_flow::managed::cache::ManagedDatagramConnectionCache,

@@ -4,7 +4,7 @@ mod carrier;
 mod datagram;
 pub(crate) use datagram::ServiceDatagram;
 mod roots;
-pub(crate) use roots::{dns_roots, ServiceRoot};
+pub(crate) use roots::{dns_roots_for, ServiceRoot};
 mod selection;
 use super::ProtocolInventory;
 use crate::{
@@ -74,6 +74,7 @@ impl ProtocolInventory {
                     .ok_or_else(invalid)?;
                 if node.slot.role_id() != *role
                     || (node.endpoint.is_none()
+                        && node.slot.accepted_carrier_provider().is_none()
                         && !components.has_device_carrier_provider(*role)
                         && !components.has_preparing_node_carrier_provider(*role))
                 {
@@ -100,7 +101,8 @@ impl ProtocolInventory {
                     };
                     if node.endpoint.is_none()
                         && (!nodes.is_empty()
-                            || (!components.has_device_carrier_provider(node.slot.role_id())
+                            || (node.slot.accepted_carrier_provider().is_none()
+                                && !components.has_device_carrier_provider(node.slot.role_id())
                                 && !components
                                     .has_preparing_node_carrier_provider(node.slot.role_id())))
                     {

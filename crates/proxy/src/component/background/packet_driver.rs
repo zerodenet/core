@@ -109,11 +109,42 @@ impl PacketPathExecutionSource {
             })
         })
     }
+    pub(crate) fn request_carrier_retirement(&self) {
+        self.caller.request_carrier_retirement();
+    }
+
+    pub(crate) fn receive_reconnect_failures(&self) -> Result<(), ChannelError> {
+        if let Some(source) = self.caller.receive_reconnect_failures() {
+            self.receive_cleanup_failure(Arc::new(source))?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn cleanup_failures_received(&self) -> bool {
+        self.caller.cleanup_failures_received()
+    }
+
+    /// Drive all actual attempts of this carrier call, including failed and cancelled
+    /// setup from earlier reconnect actors. Donor native/Scope receipts stay
+    /// with their actual Host dependency; no physical-close claim is minted.
+    pub(crate) async fn retire_carriers(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<zero_platform_tokio::contract::lifecycle::CloseReport, ChannelError> {
+        self.caller.retire_carrier_attempts(deadline).await
+    }
+
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.caller.cancellation().is_cancelled()
+    }
+    pub(crate) async fn cancelled(&self) {
+        self.caller.cancellation().cancelled().await
+    }
+
     pub(crate) async fn build_carrier(
         &self,
-        operation: &Arc<
-            dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation,
-        >,
+        recipe: &crate::component::stream_bridge::datagram::packet_path::RolePacketPath,
+        endpoint: std::net::SocketAddr,
     ) -> Result<
         Arc<dyn crate::runtime::udp_flow::packet_path::PacketPathCarrier>,
         zero_engine::EngineError,
@@ -134,12 +165,19 @@ impl PacketPathExecutionSource {
         let execution = crate::protocol_registry::PacketPathExecutionServices::from_tcp_execution(
             &services.execution(),
         )
-        .with_packet_driver(attempt.clone());
+        .with_packet_driver(attempt.clone())
+        .with_packet_target(zero_core::request::Destination::new(
+            match endpoint.ip() {
+                std::net::IpAddr::V4(ip) => zero_core::Address::Ipv4(ip.octets()),
+                std::net::IpAddr::V6(ip) => zero_core::Address::Ipv6(ip.octets()),
+            },
+            endpoint.port(),
+        ));
         let execution = match &self.receive {
             Some(groups) => execution.with_packet_driver_receive(groups.clone()),
             None => execution,
         };
-        match operation.build_carrier(execution).await {
+        match recipe.build(execution).await {
             Ok(path) => Ok(path),
             Err(source) => {
                 // Cleanup uses the same original attempt and immutable end.

@@ -5,7 +5,37 @@ pub(super) struct Epoch(
     zero_core::component::NetworkGeneration,
     Option<zero_platform_tokio::contract::dns::DnsGeneration>,
 );
+#[derive(Default)]
+pub(super) enum EpochState {
+    #[default]
+    Cold,
+    Ready(Epoch),
+    Draining,
+}
 impl Managed {
+    pub(super) fn verify_epoch(
+        &self,
+        binding: &zero_platform_tokio::contract::network::UpstreamBinding,
+        dns: Option<zero_platform_tokio::contract::dns::DnsGeneration>,
+    ) -> Result<(), ChannelError> {
+        self.verify_epoch_state(&self.epoch.lock().unwrap(), binding, dns)
+    }
+    pub(super) fn verify_epoch_state(
+        &self,
+        state: &EpochState,
+        binding: &zero_platform_tokio::contract::network::UpstreamBinding,
+        dns: Option<zero_platform_tokio::contract::dns::DnsGeneration>,
+    ) -> Result<(), ChannelError> {
+        if !self.options.selected_background {
+            return Ok(());
+        }
+        let expected = Epoch(binding.network_generation, dns);
+        if !matches!(state, EpochState::Ready(actual) if *actual == expected) {
+            return Err(error(self.instance, Stage::Prepare, Reason::StalePlan));
+        }
+        Ok(())
+    }
+
     pub(super) async fn admit_epoch(
         &self,
         demand: &Demand,
@@ -14,13 +44,13 @@ impl Managed {
         let epoch = Epoch(demand.binding.network_generation, dns);
         {
             let mut current = self.epoch.lock().unwrap();
-            match *current {
-                None => {
-                    *current = Some(epoch);
+            match &*current {
+                EpochState::Cold => {
+                    *current = EpochState::Ready(epoch);
                     return Ok(());
                 }
-                Some(actual) if actual == epoch => return Ok(()),
-                Some(_) => {}
+                EpochState::Ready(actual) if *actual == epoch => return Ok(()),
+                EpochState::Ready(_) | EpochState::Draining => {}
             }
         }
         let pool = self
@@ -33,73 +63,32 @@ impl Managed {
         let _serial = self
             .wait(demand, async { Ok(pool.connecting.lock().await) })
             .await?;
-        if *self.epoch.lock().unwrap() == Some(epoch) {
-            return Ok(());
-        }
-        let records = self.records.lock().unwrap().clone();
-        for record in &records {
-            record.stop.cancel();
-            record.adoption.request_retirement();
-        }
+        let records = {
+            let mut state = self.epoch.lock().unwrap();
+            if matches!(&*state, EpochState::Ready(actual) if *actual == epoch) {
+                return Ok(());
+            }
+            // Errors/cancellation cannot turn the old epoch into live admission.
+            *state = EpochState::Draining;
+            self.records.lock().unwrap().clone()
+        };
         if let Some(pool) = self.options.pool.upgrade() {
             let retired = pool.cached.lock().unwrap().take();
             drop(retired);
         }
-        for record in &records {
-            // Cancellation requests are not exits. Observe the actual original
-            // initializer/driver and the Host's registration ACK before the
-            // reap predicate can become true. These observers never consume a
-            // join, grant another task or close a still-held logical view.
-            let auxiliary = self
-                .grants
-                .registration()
-                .observe()
-                .ok_or_else(|| error(self.instance, Stage::Close, Reason::Revoked))?
-                .slots()
-                .iter()
-                .filter_map(|slot| slot.auxiliary().cloned())
-                .find(|witness| record.adoption.matches_auxiliary(witness));
-            if let Some(auxiliary) = auxiliary {
-                let joined = self
-                    .wait(demand, record.adoption.accept_auxiliary())
-                    .await?;
-                if !joined
-                    .as_ref()
-                    .is_some_and(|joined| auxiliary.matches_joined(joined))
-                {
-                    return Err(error(self.instance, Stage::Close, Reason::Internal));
-                }
-                let released = self
-                    .wait(demand, async {
-                        Ok(auxiliary.wait_registration_released().await)
-                    })
-                    .await?;
-                if !auxiliary.matches_joined(&released) || !released.registration_released() {
-                    return Err(error(self.instance, Stage::Close, Reason::Internal));
-                }
-            }
-            let driver = record.witness.lock().unwrap().clone();
-            if let Some(driver) = driver {
-                let joined = self.wait(demand, async { Ok(driver.wait().await) }).await?;
-                if !driver.matches_joined(&joined) {
-                    return Err(error(self.instance, Stage::Close, Reason::Internal));
-                }
-                record.receive(joined);
-                let released = self
-                    .wait(demand, async {
-                        Ok(driver.wait_registration_released().await)
-                    })
-                    .await?;
-                if !driver.matches_joined(&released) || !released.registration_released() {
-                    return Err(error(self.instance, Stage::Close, Reason::Internal));
-                }
-            }
+        let end = demand
+            .deadline
+            .unwrap_or_else(|| Instant::now() + std::time::Duration::from_secs(30));
+        if !self
+            .wait(demand, self.retire_originals(records, end))
+            .await?
+        {
+            return Err(error(self.instance, Stage::Close, Reason::Capacity));
         }
-        self.wait(demand, self.reap_demand(demand.deadline)).await?;
         if !self.records.lock().unwrap().is_empty() || self.budget.retained() != 0 {
             return Err(error(self.instance, Stage::Prepare, Reason::Capacity));
         }
-        *self.epoch.lock().unwrap() = Some(epoch);
+        *self.epoch.lock().unwrap() = EpochState::Ready(epoch);
         Ok(())
     }
 }

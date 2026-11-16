@@ -85,16 +85,54 @@ impl super::opener::Opener {
             }
             let prefix = self.borrowed.as_ref().expect("selected real donor");
             let ticket = self.business.authorize(&endpoint, &binding, &grant)?;
+            let preparation = grant.preparation();
             let service = CarrierContext {
                 session: None,
                 deadline: Some(
                     call.deadline
                         .unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(5)),
                 ),
-                cancel: call.cancel.clone(),
+                cancel: if preparation.is_some() {
+                    grant.cancellation()
+                } else {
+                    call.cancel.clone()
+                },
             };
-            let attempt = prefix
-                .upstream
+            let preparing = preparation
+                .map(|preparation| {
+                    super::super::prefix::preparation::for_business(
+                        preparation,
+                        self.business.clone(),
+                        self.identity.clone(),
+                        call.clone(),
+                        service.clone(),
+                        prefix.upstream.binding().clone(),
+                        prefix.upstream.observed_pending_carrier(),
+                    )
+                })
+                .transpose()?;
+            let selected = match preparing.as_ref() {
+                Some(preparing) => {
+                    prefix
+                        .upstream
+                        .select_background_carrier_observed(
+                            Some(prefix.upstream.binding().clone()),
+                            service.clone(),
+                            preparing.pending_carrier_observer(),
+                        )
+                        .await?
+                }
+                None => {
+                    prefix
+                        .upstream
+                        .select_background_carrier(
+                            Some(prefix.upstream.binding().clone()),
+                            service.clone(),
+                        )
+                        .await?
+                }
+            };
+            let attempt = selected
                 .borrow_stream(prefix.endpoint.clone(), service)
                 .await;
             // The selected prefix already observes its actual first-hop result.

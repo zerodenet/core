@@ -21,9 +21,7 @@ impl VmessAdapter {
         if !has_mux(input) {
             return super::super::grpc::selected(input, candidate, native);
         }
-        let Some(config) = candidate
-            .filter(|_| native && eligible(input) && input.dial.to_policy() == Default::default())
-        else {
+        let Some(config) = candidate.filter(|_| native && eligible(input)) else {
             return false;
         };
         if matches!(
@@ -33,14 +31,7 @@ impl VmessAdapter {
         {
             return false;
         }
-        if needs_ip_backend(input)
-            && zero_dns::native::validate_node_config(config.runtime.dns.as_ref()).is_err()
-        {
-            return false;
-        }
-        if crate::adapters::mux_prefix::used_by_relay(config, &input.tag)
-            && !crate::adapters::mux_prefix::qualified(input, Some(config), native)
-        {
+        if needs_ip_backend(input) && crate::adapters::node_dns::validate(config).is_err() {
             return false;
         }
         let OutboundProtocolConfig::Vmess { server, port, .. } = &input.protocol else {

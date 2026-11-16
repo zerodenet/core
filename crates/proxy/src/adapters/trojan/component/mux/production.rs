@@ -11,20 +11,17 @@ impl TrojanAdapter {
         if super::super::native_input(input) {
             return true;
         }
-        let Some(config) = candidate.filter(|_| native && input.dial.is_default()) else {
+        let Some(config) = candidate.filter(|_| native) else {
             return false;
         };
-        if !eligible(input)
-            || crate::adapters::mux_prefix::used_by_relay(config, &input.tag)
-                && !crate::adapters::mux_prefix::qualified(input, candidate, native)
-        {
+        if !eligible(input) {
             return false;
         }
         let OutboundProtocolConfig::Trojan { server, port, .. } = &input.protocol else {
             return false;
         };
         if zero_core::address::parse_ip_literal(server).is_none()
-            && zero_dns::native::validate_node_config(config.runtime.dns.as_ref()).is_err()
+            && crate::adapters::node_dns::validate(config).is_err()
         {
             return false;
         }

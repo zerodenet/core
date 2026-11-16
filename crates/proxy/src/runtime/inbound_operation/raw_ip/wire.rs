@@ -19,6 +19,8 @@ pub(super) struct Wire {
     pub endpoint: Option<RawIpInboundEndpoint>,
     pub proxies: tasks::RetainedTasks<()>,
     pub carriers: Vec<Option<Arc<dyn RawIpWireCarrier>>>,
+    pub outer_owners:
+        Arc<std::sync::Mutex<Vec<Arc<crate::runtime::raw_ip::RegisteredProxiedRawIpWireCarrier>>>>,
     pub proxy_reads: Vec<Option<zero_tun::packet_memory::NativeReadGrant>>,
     pub proxy_codecs: Vec<Vec<crate::protocol_registry::packet_memory::PacketCodecReceiveMemory>>,
 }
@@ -273,7 +275,7 @@ pub(super) async fn run(
                         }
                     }
                 }
-                let carrier = proxied_peer.and_then(|peer| peer_carrier(&operation.endpoint, &operation.carriers, peer));
+                let carrier = proxied_peer.and_then(|peer| peer_carrier(&operation.carriers, peer));
                 let response_target = source.or_else(|| proxied_peer.and_then(|peer| endpoints.get(peer).and_then(|value| *value)));
                 if let Some(response_target) = response_target {
                     send_network_actions(&mut wire_sender, carrier, response_target, &dispatch.actions, &traffic.peer(dispatch.peer_index)).await;
@@ -315,7 +317,7 @@ pub(super) async fn run(
                     if let Some(observer) = &outgoing.observer { observer.dropped_reason(zero_traits::PacketDropReason::NoRoute); }
                     continue;
                 };
-                let carrier = peer_uses_proxy.get(outgoing.peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, &operation.carriers, outgoing.peer)).flatten();
+                let carrier = peer_uses_proxy.get(outgoing.peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.carriers, outgoing.peer)).flatten();
                 let mtu = usize::from(operation.device.mtu());
                 let packets=tokio::select! { biased;
                     _=shutdown.changed()=>break Ok(()),
@@ -343,7 +345,7 @@ pub(super) async fn run(
                 let Some(destination) = packet::ip_destination(&response) else { continue; };
                 let Some(peer) = operation.device.peer_for_destination(destination) else { continue; };
                 let Some(endpoint) = endpoints.get(peer).and_then(|value| *value) else { continue; };
-                let carrier = peer_uses_proxy.get(peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, &operation.carriers, peer)).flatten();
+                let carrier = peer_uses_proxy.get(peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.carriers, peer)).flatten();
                 let mtu = usize::from(operation.device.mtu());
                 let packets=tokio::select! { biased;
                     _=shutdown.changed()=>break Ok(()),
@@ -376,7 +378,7 @@ pub(super) async fn run(
                     timers.update(peer, schedule);
                     match result {
                         Ok(actions) => if let Some(endpoint) = endpoints.get(peer).copied().flatten() {
-                            let carrier = peer_uses_proxy.get(peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.endpoint, &operation.carriers, peer)).flatten();
+                            let carrier = peer_uses_proxy.get(peer).copied().unwrap_or(false).then(|| peer_carrier(&operation.carriers, peer)).flatten();
                             send_network_actions(&mut wire_sender, carrier, endpoint, &actions, &traffic.peer(Some(peer))).await;
                         } else {
                             for action in actions { if matches!(action, RawIpInboundAction::SendNetwork(_)) { traffic.peer(Some(peer)).dropped_reason(TrafficPlane::Outer, true, zero_api::TrafficDropReason::NoRoute); } }

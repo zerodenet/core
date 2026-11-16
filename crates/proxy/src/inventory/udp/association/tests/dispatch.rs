@@ -80,13 +80,12 @@ async fn ordinary_socks_datagram_dispatch_needs_no_claim_and_preserves_wire_tx_a
     let zero_engine::ResolvedOutbound::Single(leaf) = &resolved else {
         panic!("single node");
     };
-    let claimed = proxy
-        .protocols
-        .claim_outbound_leaf(&config, leaf.clone())
-        .unwrap();
     assert!(
-        claimed.into_udp_flow_for_route(RouteMode::Flow).is_err(),
-        "no legacy UDP operation may remain"
+        proxy
+            .protocols
+            .claim_outbound_leaf(&config, leaf.clone())
+            .is_err(),
+        "the actual standard Datagram has no private executor"
     );
     let session = Session::new(
         0,

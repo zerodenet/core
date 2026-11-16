@@ -90,7 +90,7 @@ impl ResourceLifecycle for Owner {
             state.responses = None;
         }
         if let Some(direct) = state.direct.as_mut() {
-            let mut report = direct.close_originals();
+            let mut report = direct.close_originals_until(deadline).await?;
             let closed = report.is_complete();
             unfinished.append(&mut report.unfinished);
             state.receipts.append(report);

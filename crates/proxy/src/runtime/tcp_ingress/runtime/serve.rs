@@ -1,9 +1,9 @@
 use zero_core::Session;
 use zero_engine::EngineError;
 
-#[cfg(feature = "managed-stream-runtime")]
+#[cfg(all(test, feature = "managed-stream-runtime"))]
 use crate::runtime::pipe::{KernelPipe, TcpPipe, TcpPipeInput};
-#[cfg(feature = "managed-stream-runtime")]
+#[cfg(all(test, feature = "managed-stream-runtime"))]
 use crate::transport::TcpRouteResult;
 
 use super::super::contract::InboundProtocol;
@@ -23,7 +23,7 @@ impl TcpIngressRuntime {
         serve_inbound(self, session, client, protocol).await
     }
 
-    #[cfg(feature = "managed-stream-runtime")]
+    #[cfg(all(test, feature = "managed-stream-runtime"))]
     pub(crate) async fn open_tcp_upstream(
         &self,
         session: &mut Session,

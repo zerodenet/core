@@ -6,6 +6,9 @@ pub(in crate::adapters::wireguard::lifecycle) struct Candidate {
     owned: bool,
 }
 impl Candidate {
+    pub(in crate::adapters::wireguard::lifecycle) fn owns_candidate_originals(&self) -> bool {
+        self.owned
+    }
     pub(in crate::adapters::wireguard::lifecycle) fn revoke(&self) {
         if self.owned {
             self.root.revoke();
@@ -25,6 +28,7 @@ impl WireguardAdapter {
         options: &RawIpStackOptions,
         registry: &crate::protocol_registry::ProtocolRegistry,
         materials: &mut super::super::recipe::outer::OuterMaterials,
+        only: Option<&str>,
     ) -> Result<
         (
             HashMap<String, Candidate>,
@@ -35,7 +39,11 @@ impl WireguardAdapter {
         let mut roots = HashMap::new();
         let mut deferred = std::collections::BTreeSet::new();
         let admission = zero_engine::EndpointAdmission::from_config(config);
-        for outbound in &config.outbounds {
+        for outbound in config
+            .outbounds
+            .iter()
+            .filter(|outbound| only.is_none_or(|tag| outbound.tag() == tag))
+        {
             if !matches!(
                 outbound.protocol,
                 OutboundProtocolConfig::Wireguard {
@@ -69,10 +77,9 @@ impl WireguardAdapter {
                 }
             ) && outer.is_none()
             {
-                resources
-                    .omit_unused_device_alias(&outbound.tag)
-                    .map_err(std::io::Error::other)?;
-                continue;
+                return Err(invalid(
+                    "selected WireGuard Source lost its declared outer path",
+                ));
             }
             let plan = Arc::new(WireguardRawIpPlan::from_protocol(&outbound.protocol)?);
             let protocol = super::super::super::protocol_identity(&outbound.protocol)

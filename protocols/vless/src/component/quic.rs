@@ -1,7 +1,12 @@
 //! One real per-call QUIC endpoint; native and borrowed share this actual N.
+mod carrier;
+pub(in crate::component) use carrier::closed_marker;
+pub(crate) use carrier::Registry as CarrierRegistry;
+pub use carrier::TransportCarrier;
 mod connect;
 mod entry;
 mod factory;
+pub(in crate::component) mod hysteria;
 pub mod mixed;
 mod options;
 mod pending;

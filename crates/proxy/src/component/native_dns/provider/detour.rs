@@ -21,6 +21,11 @@ impl Provider {
         let Ok(services) = source.runtime_services() else {
             return false;
         };
+        if self.purpose == Purpose::Node
+            && crate::adapters::node_dns::validate_detour(services.config(), outbound).is_err()
+        {
+            return false;
+        }
         let Some(id) = services.snapshot().plan().target_id(outbound) else {
             return false;
         };
@@ -76,6 +81,9 @@ impl Provider {
     ) -> std::io::Result<Detour> {
         let source = self.network.current_services()?;
         let services = source.runtime_services()?;
+        if self.purpose == Purpose::Node {
+            crate::adapters::node_dns::validate_detour(services.config(), &outbound)?;
+        }
         let execution = services.execution();
         let components = execution
             .components

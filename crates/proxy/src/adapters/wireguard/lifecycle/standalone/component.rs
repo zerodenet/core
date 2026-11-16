@@ -240,6 +240,20 @@ impl ResourceLifecycle for Owner {
                 if let Some(carrier) = peer.original.get() {
                     carrier.return_view().await;
                 }
+                if self.options.outer.is_some() {
+                    // An interrupted initial build may never hand its views to
+                    // the device. Its preinstalled original still needs cleanup.
+                    if let Some(original) = peer.logical.get() {
+                        if let Err(source) = original.close_carrier(deadline).await {
+                            first.get_or_insert_with(|| failure(Stage::Close, source));
+                        }
+                    }
+                    if let Some(device) = peer.owner.device() {
+                        if let Err(source) = device.close_logical_carrier(deadline).await {
+                            first.get_or_insert_with(|| failure(Stage::Close, source));
+                        }
+                    }
+                }
             } else {
                 report.unfinished.push(Unfinished::Resource(
                     "same standalone wire Scope/view".into(),

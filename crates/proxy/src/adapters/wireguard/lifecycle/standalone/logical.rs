@@ -8,6 +8,7 @@ use zero_platform_tokio::contract::{
 pub(super) struct Original {
     grants: GrantedLogicalPacketWorkspaces,
     driver: TaskJoinWitness,
+    endpoint: SocketAddr,
     input: Mutex<
         Option<(
             crate::runtime::raw_ip::PendingNativeWire,
@@ -15,6 +16,7 @@ pub(super) struct Original {
         )>,
     >,
     codecs: PacketCodecReceiveGroups,
+    carrier: OnceLock<Arc<crate::runtime::raw_ip::RegisteredProxiedRawIpWireCarrier>>,
 }
 impl StandaloneStackOptions {
     pub(super) async fn start_logical_peer(
@@ -81,8 +83,10 @@ impl StandaloneStackOptions {
             .set(Original {
                 grants,
                 driver,
+                endpoint,
                 input: Mutex::new(Some((pending, checkpoint))),
                 codecs,
+                carrier: OnceLock::new(),
             })
             .map_err(|_returned| error(Stage::Prepare, Reason::StalePlan))?;
         Ok(())
@@ -126,7 +130,7 @@ impl StandaloneStackOptions {
             .outer
             .as_ref()
             .ok_or_else(|| invalid("plain standalone received an outer Path"))?;
-        if path.root_binding.network_generation != self.binding.network_generation {
+        if path.recipe.binding().network_generation != self.binding.network_generation {
             return Err(invalid(
                 "same standalone outer Path changed network generation",
             ));
@@ -169,31 +173,41 @@ impl StandaloneStackOptions {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .is_some();
             if pending {
-                let grant = resources
-                    .packet_driver_caller(
-                        &self.carrier_origin(index).map_err(std::io::Error::other)?,
-                        &original.driver,
-                        path.root_binding.clone(),
-                        CarrierContext {
-                            session: None,
-                            deadline: None,
-                            cancel: cancel.clone(),
-                        },
-                    )
-                    .map_err(std::io::Error::other)?;
-                let execution = network
-                    .packet_driver_execution(grant, Arc::downgrade(&resources))
-                    .map_err(std::io::Error::other)?
-                    .with_prepaid_receive(original.codecs.clone())
-                    .map_err(std::io::Error::other)?;
-                let carrier = Arc::new(
-                    crate::runtime::raw_ip::RegisteredProxiedRawIpWireCarrier::start(
-                        path.operation.clone(),
-                        execution,
-                        tasks.clone(),
-                    )
-                    .await?,
-                );
+                let carrier = match original.carrier.get() {
+                    Some(carrier) => carrier.clone(),
+                    None => {
+                        let grant = resources
+                            .packet_driver_caller(
+                                &self.carrier_origin(index).map_err(std::io::Error::other)?,
+                                &original.driver,
+                                path.recipe.binding().clone(),
+                                CarrierContext {
+                                    session: None,
+                                    deadline: None,
+                                    cancel: cancel.clone(),
+                                },
+                            )
+                            .map_err(std::io::Error::other)?;
+                        let execution = network
+                            .packet_driver_execution(grant, Arc::downgrade(&resources))
+                            .map_err(std::io::Error::other)?
+                            .with_prepaid_receive(original.codecs.clone())
+                            .map_err(std::io::Error::other)?;
+                        let carrier = Arc::new(
+                            crate::runtime::raw_ip::RegisteredProxiedRawIpWireCarrier::prepare(
+                                path.recipe.clone(),
+                                execution,
+                                tasks.clone(),
+                                original.endpoint,
+                            )?,
+                        );
+                        original.carrier.set(carrier.clone()).map_err(|_| {
+                            invalid("same standalone outer controller was already installed")
+                        })?;
+                        carrier
+                    }
+                };
+                carrier.initialize().await?;
                 // The original input is consumed synchronously AFTER the same
                 // attempt's actual Path/controller is retained. Cancellation of
                 // the build never drops this input or replaces its driver.
@@ -222,5 +236,34 @@ impl StandaloneStackOptions {
                 .await?;
         }
         Ok(())
+    }
+}
+
+impl Original {
+    pub(super) fn request_stop(&self) {
+        if let Some(carrier) = self.carrier.get() {
+            carrier.request_stop();
+        }
+    }
+
+    pub(super) fn carrier_retired(&self) -> bool {
+        self.carrier
+            .get()
+            .is_none_or(|carrier| carrier.retirement_complete())
+    }
+
+    /// Covers pre-handoff originals as well as the carrier installed into the
+    /// real wire. The caller first stops/joins that wire, never its ancestor.
+    pub(super) async fn close_carrier(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), EngineError> {
+        use crate::runtime::raw_ip::RawIpWireCarrier;
+        match self.carrier.get() {
+            Some(carrier) => tokio::time::timeout_at(deadline, carrier.close_native())
+                .await
+                .map_err(|source| std::io::Error::new(std::io::ErrorKind::TimedOut, source))?,
+            None => Ok(()), // No carrier acquisition was started for this peer.
+        }
     }
 }

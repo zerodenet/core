@@ -23,26 +23,12 @@ impl Outbound {
         ),
         ChannelError,
     > {
-        // The concrete logical-controller box is paid before Source task selection.
-        let credit = self
-            .shared
-            .memory
-            .reserve(PacketMetadataLayout::boxed::<logical::Logical>())
-            .map_err(capacity)?;
-        let loan = if self.shared.options.plan.browser_http().is_some() {
-            super::factory::Shared::acquire_http(&self.shared, context).await?
-        } else {
-            super::factory::Shared::acquire_ws(&self.shared, context).await?
-        };
-        let original = loan.owner.original().clone();
-        let stream = zero_transport::pooled_driver::ExclusiveIo::new(loan.io);
-        let control = BoxChannelControl::from_prepaid(logical::Logical::Loan(loan.owner), credit)
-            .map_err(|(source, _, _)| capacity(source))?;
-        let encrypted = self
-            .shared
-            .options
-            .plan
-            .encrypt(zero_platform_tokio::TcpRelayStream::new(stream));
+        let crate::component::preconnect::Opened {
+            io: stream,
+            control,
+            original,
+        } = super::factory::Shared::acquire_transport(&self.shared, context).await?;
+        let encrypted = self.shared.options.plan.encrypt(stream);
         let io = zero_platform_tokio::contract::context::with_deadline(context.deadline, encrypted)
             .await
             .map_err(|source| error(Stage::Handshake, Reason::Timeout).with_source(source))?
@@ -65,22 +51,18 @@ impl Outbound {
                 zero_platform_tokio::contract::DeliveryState::NotSubmitted,
             ));
         }
-        let bytes = crate::outbound::build_tcp_request_to(
-            &request.destination.address,
-            request.destination.port,
-            &options.uuid,
-            options.flow,
-        )
-        .map_err(|source| {
-            self.admission
-                .error(
-                    session,
-                    Stage::Prepare,
-                    Reason::InvalidConfig,
-                    zero_platform_tokio::contract::DeliveryState::NotSubmitted,
-                )
-                .with_source(source)
-        })?;
+        let bytes = options
+            .stream_request(&request, &context)
+            .map_err(|source| {
+                self.admission
+                    .error(
+                        session,
+                        Stage::Prepare,
+                        Reason::InvalidConfig,
+                        zero_platform_tokio::contract::DeliveryState::NotSubmitted,
+                    )
+                    .with_source(source)
+            })?;
         let (io, control, original) = self.acquire_parts(&context).await?;
         let connected = crate::component::connect::submit(
             options,
@@ -116,5 +98,32 @@ impl StreamOutbound for Outbound {
         context: OpenContext,
     ) -> Result<Connected<StreamLoan>, ChannelError> {
         self.borrow(request, context).await
+    }
+}
+
+impl super::factory::Shared {
+    pub(in crate::component) async fn acquire_transport(
+        shared: &PacketMetadataArc<Self>,
+        context: &OpenContext,
+    ) -> Result<crate::component::preconnect::Opened, ChannelError> {
+        // The concrete logical-controller box is paid before Source task selection.
+        let credit = shared
+            .memory
+            .reserve(PacketMetadataLayout::boxed::<logical::Logical>())
+            .map_err(capacity)?;
+        let loan = if shared.options.plan.browser_http().is_some() {
+            super::factory::Shared::acquire_http(shared, context).await?
+        } else {
+            super::factory::Shared::acquire_ws(shared, context).await?
+        };
+        let original = loan.owner.original().clone();
+        let stream = zero_transport::pooled_driver::ExclusiveIo::new(loan.io);
+        let control = BoxChannelControl::from_prepaid(logical::Logical::Loan(loan.owner), credit)
+            .map_err(|(source, _, _)| capacity(source))?;
+        Ok(crate::component::preconnect::Opened {
+            io: zero_platform_tokio::TcpRelayStream::new(stream),
+            control,
+            original,
+        })
     }
 }

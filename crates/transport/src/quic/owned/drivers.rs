@@ -24,6 +24,9 @@ pub enum OwnedDriverOrigin {
     Http3,
     /// Actual bounded packet relay worker, in this endpoint's original Scope.
     Carrier,
+    /// Actual mKCP reliability driver; never represented as a Quinn endpoint.
+    #[cfg(feature = "mkcp")]
+    Mkcp,
 }
 impl From<quinn::DriverOrigin> for OwnedDriverOrigin {
     fn from(origin: quinn::DriverOrigin) -> Self {

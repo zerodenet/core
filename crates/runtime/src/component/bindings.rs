@@ -39,6 +39,31 @@ pub(super) fn validate_roles(
     spec: &ComponentSpec,
     roles: &ComponentRoles,
 ) -> Result<(), BuildError> {
+    use zero_platform_tokio::contract::component::ResourceDeclaration;
+    let accepted = spec
+        .resources
+        .iter()
+        .filter(|resource| matches!(resource, ResourceDeclaration::AcceptedCarrierSources { .. }))
+        .count();
+    if accepted != usize::from(roles.accepted_carriers.is_some()) {
+        return Err(invalid(
+            "accepted Source declaration and original provider differ".into(),
+        ));
+    }
+    if let Some(provider) = &roles.accepted_carriers {
+        if spec.task_limit.is_some()
+            || !matches!(spec.resources.as_slice(),
+                [ResourceDeclaration::AcceptedCarrierSources { max_sources }] if *max_sources == provider.limit())
+            || !spec.roles.contains(&RoleKind::Stream)
+            || !spec.roles.contains(&RoleKind::Datagram)
+            || roles.packet.is_some()
+            || roles.inbound.is_some()
+        {
+            return Err(invalid(
+                "accepted Source provider has an unsupported role/resource shape".into(),
+            ));
+        }
+    }
     let actual = [
         (RoleKind::Stream, roles.stream.is_some()),
         (RoleKind::Datagram, roles.datagram.is_some()),

@@ -7,6 +7,8 @@ use crate::contract::{
 };
 use std::sync::atomic::AtomicUsize;
 
+mod logical;
+
 pub(super) struct Ledger {
     pub(super) origin: AcceptedOrigin,
     reports: Mutex<resources::ChildReports>,
@@ -99,95 +101,6 @@ impl AcceptedPeerScope {
             .as_ref()
             .expect("original resource ledger")
             .origin
-    }
-    /// A host-owned logical association uses the same retained resource ledger
-    /// and exact Scope witness, without fabricating a native TCP/UDP admission.
-    pub fn for_association(
-        registrar: &WeakTaskRegistrar,
-        task: TaskId,
-        witness: TaskJoinWitness,
-        cancel: CancellationToken,
-        max_tasks: NonZeroUsize,
-        max_resources: usize,
-        local: std::net::SocketAddr,
-    ) -> Result<Self, ChannelError> {
-        if !witness
-            .scope_identity()
-            .same_scope(&registrar.scope_identity())
-            || !registrar.registration_open()
-            || witness.task_id() != Some(task)
-            || witness.is_joined()
-            || cancel.is_cancelled()
-        {
-            return Err(failure(
-                Stage::Prepare,
-                Reason::StalePlan,
-                "association differs from actual host registration",
-            ));
-        }
-        let authority = Authority {
-            scope: registrar.scope_identity(),
-            registrar: registrar.clone(),
-            max_tasks,
-            max_resources,
-        };
-        let mut users = Users::new(authority, Weak::new(), Weak::new(), cancel, None, None);
-        users.peer = Some(Arc::new(Ledger {
-            origin: AcceptedOrigin::Association,
-            reports: Mutex::default(),
-            custody: AtomicUsize::new(0),
-            failure: Mutex::new(None),
-            user_failure: Mutex::new(None),
-        }));
-        let _ = users.local.set(local);
-        users.state().primary = true;
-        users.state().tasks.insert(
-            task,
-            Node {
-                witness: witness.clone(),
-                primary: true,
-                process: None,
-                process_helper: false,
-                received_failure: None,
-                fault: None,
-            },
-        );
-        let origin = Arc::new(OnceLock::new());
-        let _ = origin.set((task, witness));
-        Ok(Self {
-            users: Arc::new(users),
-            task: origin,
-            admission: None,
-            control: None,
-        })
-    }
-    pub fn for_carrier(
-        registrar: &WeakTaskRegistrar,
-        task: TaskId,
-        witness: TaskJoinWitness,
-        cancel: CancellationToken,
-        max_tasks: NonZeroUsize,
-        max_resources: usize,
-        local: std::net::SocketAddr,
-    ) -> Result<Self, ChannelError> {
-        let mut graph = Self::for_association(
-            registrar,
-            task,
-            witness,
-            cancel,
-            max_tasks,
-            max_resources,
-            local,
-        )?;
-        let ledger = Arc::get_mut(&mut graph.users)
-            .expect("unpublished carrier graph")
-            .peer
-            .as_mut()
-            .expect("actual carrier ledger");
-        Arc::get_mut(ledger)
-            .expect("unpublished carrier ledger")
-            .origin = AcceptedOrigin::Carrier;
-        Ok(graph)
     }
     pub fn tasks(&self) -> AcceptedTasks {
         AcceptedTasks {

@@ -108,6 +108,7 @@ impl PendingEndpoints {
         }
         Ok(())
     }
+    #[cfg(test)]
     pub(super) fn install(
         owner: PendingEndpointMap,
         entries: HashMap<String, Arc<PendingLinkedEndpoint>>,

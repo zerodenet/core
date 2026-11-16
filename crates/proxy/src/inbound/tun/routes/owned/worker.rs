@@ -1,5 +1,6 @@
 //! This is the original blocking SDK worker, not a wrapper joining another task.
 use super::*;
+mod cleanup;
 pub(super) fn run(original: PacketMetadataArc<Shared>) -> Result<(), ChannelError> {
     let mut received = original
         .received
@@ -20,13 +21,9 @@ pub(super) fn run(original: PacketMetadataArc<Shared>) -> Result<(), ChannelErro
         .packet
         .driver_metadata_view();
     #[cfg(target_os = "macos")]
-    let helper = original.metadata.macos_helper_lease()?;
-    // The actual blocking route duty owns this lease for discovery, route/PF
-    // mutation and final cleanup. No global helper fallback is available.
+    let mut helper: Option<zero_tun::MacosHelperLease> = None;
     #[cfg(target_os = "macos")]
-    let mut helper_context = Some(helper.enter().map_err(|source| {
-        error(Reason::Io, "same Source helper context failed").with_source(source)
-    })?);
+    let mut helper_context: Option<zero_tun::MacosHelperContext> = None;
     // Clone only the already paid pure diagnostic payload. This cannot pin
     // native IO or create work, and outlives every concrete Native lock below.
     let diagnostics = original
@@ -35,173 +32,144 @@ pub(super) fn run(original: PacketMetadataArc<Shared>) -> Result<(), ChannelErro
         .unwrap_or_else(|error| error.into_inner())
         .diagnostics();
     let mut fault = None;
-    while !original.closing.load(Ordering::Acquire) {
-        let Some(job) = received.blocking_recv() else {
-            break;
-        };
-        match job {
-            Job::Discover(config, completed) => {
-                let (hijack, strict) = {
-                    let native = original
-                        .native
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner());
-                    (native.spec.dns_hijack, native.spec.strict_route)
-                };
-                let result = prepare(&config, hijack, &original).or_else(|source| {
+    let operation = unwind::attempt(|| -> Result<(), ChannelError> {
+        #[cfg(target_os = "macos")]
+        if original
+            .native
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .requires_helper()
+        {
+            helper = Some(original.metadata.macos_helper_lease()?);
+            helper_context = Some(helper.as_ref().unwrap().enter().map_err(|source| {
+                error(Reason::Io, "same Source helper context failed").with_source(source)
+            })?);
+        }
+        while !original.closing.load(Ordering::Acquire) {
+            let Some(job) = received.blocking_recv() else {
+                break;
+            };
+            match job {
+                #[cfg(test)]
+                Job::Panic => panic!("original route worker injected job panic"),
+                Job::Discover(config, completed) => {
+                    let (hijack, strict) = {
+                        let native = original
+                            .native
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner());
+                        (native.spec.dns_hijack, native.spec.strict_route)
+                    };
+                    let result = prepare(&config, hijack, &original).or_else(|source| {
                     if strict { Err(source) } else {
                         tracing::warn!(%source,"TUN DNS interception disabled after preparation failure");
                         Ok(crate::inbound::tun::PreparedTunNetwork {dns_hijack:false,route_exclusions:vec![]})
                     }
                 });
-                if let Err(source) = &result {
-                    fault.get_or_insert_with(|| source.clone());
-                    diagnostics.record_operation(source.clone());
+                    if let Err(source) = &result {
+                        fault.get_or_insert_with(|| source.clone());
+                        diagnostics.record_operation(source.clone());
+                    }
+                    original
+                        .observed
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .prepared = Some(result.clone());
+                    if let Some(completed) = completed {
+                        let _ = completed.send(result);
+                    }
+                    original.changed.notify_waiters();
                 }
-                original
-                    .observed
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .prepared = Some(result.clone());
-                if let Some(completed) = completed {
+                Job::Install(name, completed) => {
+                    let prepared = original
+                        .observed
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .prepared
+                        .clone();
+                    let result = match prepared {
+                        Some(Ok(prepared)) => {
+                            let notifications = route_memory.notifications();
+                            let result = original
+                                .native
+                                .lock()
+                                .unwrap_or_else(|error| error.into_inner())
+                                .install(
+                                    name,
+                                    &prepared.route_exclusions,
+                                    &original.proxy.egress_interface,
+                                )
+                                .map_err(Arc::new);
+                            drop(notifications);
+                            result
+                        }
+                        Some(Err(source)) => Err(source),
+                        None => Err(Arc::new(io::Error::other(
+                            "native route install preceded actual DNS preparation",
+                        ))),
+                    };
+                    if let Err(source) = &result {
+                        fault.get_or_insert_with(|| source.clone());
+                        diagnostics.record_operation(source.clone());
+                    }
                     let _ = completed.send(result);
                 }
-                original.changed.notify_waiters();
-            }
-            Job::Install(name, completed) => {
-                let prepared = original
-                    .observed
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .prepared
-                    .clone();
-                let result = match prepared {
-                    Some(Ok(prepared)) => {
+                Job::Reconcile(config, completed) => {
+                    let hijack = original
+                        .native
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .spec
+                        .dns_hijack;
+                    let result = prepare(&config, hijack, &original).and_then(|prepared| {
                         let notifications = route_memory.notifications();
                         let result = original
                             .native
                             .lock()
                             .unwrap_or_else(|error| error.into_inner())
-                            .install(
-                                name,
-                                &prepared.route_exclusions,
-                                &original.proxy.egress_interface,
-                            )
+                            .reconcile(&prepared.route_exclusions, &original.proxy.egress_interface)
                             .map_err(Arc::new);
                         drop(notifications);
                         result
-                    }
-                    Some(Err(source)) => Err(source),
-                    None => Err(Arc::new(io::Error::other(
-                        "native route install preceded actual DNS preparation",
-                    ))),
-                };
-                if let Err(source) = &result {
-                    fault.get_or_insert_with(|| source.clone());
-                    diagnostics.record_operation(source.clone());
+                    });
+                    // Transient maintenance errors remain visible to this actual
+                    // recovery request. The worker keeps the same native originals.
+                    let _ = completed.send(result);
                 }
-                let _ = completed.send(result);
+                Job::Close => break,
             }
-            Job::Reconcile(config, completed) => {
-                let hijack = original
-                    .native
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .spec
-                    .dns_hijack;
-                let result = prepare(&config, hijack, &original).and_then(|prepared| {
-                    let notifications = route_memory.notifications();
-                    let result = original
-                        .native
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner())
-                        .reconcile(&prepared.route_exclusions, &original.proxy.egress_interface)
-                        .map_err(Arc::new);
-                    drop(notifications);
-                    result
-                });
-                // Transient maintenance errors remain visible to this actual
-                // recovery request. The worker keeps the same native originals.
-                let _ = completed.send(result);
-            }
-            Job::Close => break,
+        }
+        Ok(())
+    });
+    let mut operation_panic = None;
+    match operation {
+        Ok(Ok(())) => {}
+        Ok(Err(source)) => {
+            let source = Arc::new(io::Error::other(source));
+            diagnostics.record_operation(source.clone());
+            fault.get_or_insert(source);
+        }
+        Err(panic) => {
+            let source = panic.source();
+            diagnostics.record_operation(source.clone());
+            fault.get_or_insert(source);
+            operation_panic = Some(panic);
         }
     }
+    // This same original stops new jobs and its monitor before native cleanup;
+    // neither the caller's cancellation nor a failed job can discard custody.
+    original.closing.store(true, Ordering::Release);
+    original.cancel.cancel();
     received.close();
-    // This waits for a different real registration, never our own body or join.
-    // The external owning Source Scope consumes its actual native exit.
-    if let Some(monitor) = original.monitor.get() {
-        let _ = tokio::runtime::Handle::current().block_on(monitor.wait());
-    }
-    let mut close_fault = None;
-    loop {
+    let (close_fault, cleanup_panic) = cleanup::run(
+        &original,
+        &route_memory,
+        &diagnostics,
         #[cfg(target_os = "macos")]
-        {
-            // Re-enter only the same helper's fixed cleanup epoch. Drop TLS
-            // before observing another real actor's join/ACK so no recursive
-            // helper command can be dispatched through a retired context.
-            drop(helper_context.take());
-            match helper.prepare_cleanup() {
-                Ok(context) => helper_context = Some(context),
-                Err(source) if source.kind() == io::ErrorKind::WouldBlock => {
-                    if let Err(source) = tokio::runtime::Handle::current()
-                        .block_on(original.metadata.wait_macos_helper_actor_returned())
-                    {
-                        close_fault.get_or_insert_with(|| Arc::new(io::Error::other(source)));
-                    }
-                    continue;
-                }
-                Err(source) => {
-                    close_fault.get_or_insert_with(|| Arc::new(source));
-                    // Native unknown stays on this worker. No new helper or
-                    // replacement epoch can be started without its receipts.
-                    std::thread::park_timeout(ROUTE_RETRY_DELAYS[0]);
-                    continue;
-                }
-            }
-        }
-        let monitor = original.monitor_io.blocking_lock().close();
-        let routes = {
-            let notifications = route_memory.notifications();
-            let result = original
-                .native
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .close();
-            drop(notifications);
-            result
-        };
-        let failures = monitor
-            .err()
-            .into_iter()
-            .chain(routes.err())
-            .collect::<Vec<_>>();
-        match if failures.is_empty() {
-            Ok(())
-        } else {
-            Err(io::Error::other(CleanupFailures(failures)))
-        } {
-            Ok(()) => {
-                #[cfg(target_os = "macos")]
-                if let Err(source) = helper.finish_cleanup() {
-                    close_fault.get_or_insert_with(|| Arc::new(source));
-                    if helper.require_closed().is_err() {
-                        continue;
-                    }
-                }
-                break;
-            }
-            Err(source) => {
-                let source = Arc::new(source);
-                diagnostics.record_cleanup(source.clone());
-                close_fault.get_or_insert(source);
-                // Failed cleanup keeps this actual worker and native originals
-                // alive. Shutdown deadlines report unfinished without aborting
-                // its SDK command or replacing the controller.
-                std::thread::park_timeout(ROUTE_RETRY_DELAYS[0]);
-            }
-        }
-    }
+        &mut helper,
+        #[cfg(target_os = "macos")]
+        &mut helper_context,
+    );
     #[cfg(target_os = "macos")]
     {
         drop(helper_context.take());
@@ -213,7 +181,11 @@ pub(super) fn run(original: PacketMetadataArc<Shared>) -> Result<(), ChannelErro
         .unwrap_or_else(|error| error.into_inner())
         .physically_closed = true;
     original.changed.notify_waiters();
-    diagnostics.finish_worker(fault, close_fault)
+    let result = diagnostics.finish_worker(fault, close_fault);
+    if let Some(panic) = operation_panic.or(cleanup_panic) {
+        panic.resume();
+    }
+    result
 }
 fn prepare(
     config: &zero_config::RuntimeConfig,
@@ -240,23 +212,4 @@ fn prepare(
         dns_hijack,
         route_exclusions,
     })
-}
-
-#[derive(Debug)]
-struct CleanupFailures(Vec<io::Error>);
-impl std::fmt::Display for CleanupFailures {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (index, source) in self.0.iter().enumerate() {
-            if index != 0 {
-                f.write_str("; ")?;
-            }
-            source.fmt(f)?;
-        }
-        Ok(())
-    }
-}
-impl std::error::Error for CleanupFailures {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.0.first().map(|source| source as _)
-    }
 }

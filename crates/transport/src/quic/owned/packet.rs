@@ -21,15 +21,22 @@ use zero_platform_tokio::{
 
 pub struct PacketSocket {
     identity: Arc<continuation::PacketIdentity>,
-    pub(super) socket: Arc<dyn quinn::AsyncUdpSocket>,
+    pub(crate) socket: Arc<dyn quinn::AsyncUdpSocket>,
     pub(super) callbacks: Arc<callbacks::Broker>,
     memory: Option<Arc<datagram_queue::memory::Shared>>,
 }
 mod borrowed;
 mod continuation;
+mod hopping;
 mod prepare;
 mod retire;
-#[cfg(feature = "split_http")]
+pub use hopping::{PacketHopMemory, PacketReceiveLoan};
+#[cfg(any(
+    feature = "split_http",
+    feature = "mkcp",
+    feature = "hysteria",
+    feature = "quic_h3"
+))]
 mod xhttp;
 pub use borrowed::{
     BorrowedPacketReturned, BorrowedPacketSegment, BorrowedProtocolReturned,
@@ -42,13 +49,30 @@ pub struct PacketSegment {
     identity: Arc<continuation::PacketIdentity>,
     graph: MetadataUserGraph<OwnedDriverOrigin, DriverBody>,
     receiver: super::DriverExitReceiver,
-    #[cfg(feature = "split_http")]
+    #[cfg(any(
+        feature = "split_http",
+        feature = "mkcp",
+        feature = "hysteria",
+        feature = "quic_h3"
+    ))]
     endpoint_users: Option<(
         super::OwnedEndpointLimits,
         MetadataUserGraph<OwnedDriverOrigin, DriverBody>,
         super::DriverExitReceiver,
     )>,
     source: Option<super::HostedMetadataSocket>,
+    wires: Arc<Mutex<hopping::Wires>>,
+    hop_user: Option<hopping::ReceivePermit>,
+    hop_receiver: Arc<
+        Mutex<
+            Option<
+                zero_platform_tokio::controlled_datagram::metadata::users::drivers::DriverOwner<
+                    OwnedDriverOrigin,
+                    DriverBody,
+                >,
+            >,
+        >,
+    >,
     queues: Arc<Mutex<Option<Channels>>>,
     driver: Option<zero_core::component::TaskId>,
     received: Option<super::DriverDelivery>,
@@ -177,30 +201,30 @@ impl PacketSegment {
             .unwrap()
             .take()
             .ok_or_else(|| error(Reason::Revoked))?;
-        let returned = self.queues.clone();
+        let wires = {
+            let mut wires = self.wires.lock().unwrap();
+            wires.source = Some(source);
+            std::mem::take(&mut *wires)
+        };
         let stop = self.stop.clone();
         let final_retirement = self.final_retirement.clone();
         let peer = self.peer;
         let logical = self.logical;
         let origin = OwnedDriverOrigin::Carrier;
-        struct Return {
-            channels: Option<Channels>,
-            target: Arc<Mutex<Option<Channels>>>,
-        }
-        impl Drop for Return {
-            fn drop(&mut self) {
-                *self.target.lock().unwrap() = self.channels.take();
-            }
-        }
-        let mut queue = Return {
+        let mut queue = hopping::Return {
             channels: Some(channels),
-            target: returned,
+            target: self.queues.clone(),
+            wires,
+            returned_wires: self.wires.clone(),
+            final_retirement: self.final_retirement.clone(),
         };
         let task=self.graph.drivers().spawn(origin,zero_platform_tokio::contract::scope::TaskClass::Auxiliary,move |slot| async move {
+            let source=queue.wires.source.as_ref().expect("original wire");
             let socket=source.socket();
             let callbacks=source.callbacks.clone();
             let work=Box::pin(async move {
                 let channels=queue.channels.as_mut().unwrap();
+                let previous=&mut queue.wires.previous;
                 loop {
                     tokio::select! {biased;
                         _=stop.cancelled()=>{
@@ -232,6 +256,10 @@ impl PacketSegment {
                                 caps.maximum_transmit_segments=caps.maximum_transmit_segments.max(transmit);
                             }
                         },
+                        packets=hopping::receive_previous(previous)=>for mut packet in packets? {
+                            packet.peer=logical;
+                            let _=channels.incoming.try_send(packet);
+                        },
                         packets=async {
                             match channels.memory.as_mut() {
                                 Some(memory) => datagram_queue::receive_budgeted(socket.as_ref(), &mut memory.receive, true).await,
@@ -244,7 +272,6 @@ impl PacketSegment {
                 }
             });
             let result=callbacks::Boundary::new(work,callbacks).await;
-            drop(source);
             let body=slot.record(DriverBody {origin,io_error:result.err().map(Arc::new),close_reason:None,
                 #[cfg(any(feature="split_http",feature="hysteria",feature="quic_h3"))] http3:None});
             match &body.io_error {Some(source)=>Err(error(Reason::Io).with_source(Original(source.clone()))),None=>Ok(())}

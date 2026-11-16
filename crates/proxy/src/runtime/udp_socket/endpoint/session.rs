@@ -39,6 +39,15 @@ impl Drop for PendingSend<'_> {
     }
 }
 impl DirectEndpointTx {
+    pub(super) fn bound_current(&self) -> bool {
+        !self.logical.cancel.is_cancelled()
+            && self
+                .logical
+                .binding
+                .as_ref()
+                .is_some_and(|binding| binding.check_current().is_ok())
+    }
+
     pub(super) fn new(shared: Arc<Shared>, logical: Arc<Logical>) -> Self {
         Self { shared, logical }
     }

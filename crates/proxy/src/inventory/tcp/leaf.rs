@@ -1,7 +1,7 @@
 use zero_engine::{EngineError, RouteMode};
 
 use super::super::ProtocolInventory;
-use crate::inventory::ClaimedInventoryLeaf;
+use crate::protocol_registry::ClaimedOutboundLeaf;
 use crate::protocol_registry::OutboundAdapterContext;
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::tcp_dispatch::operation::{
@@ -52,10 +52,10 @@ impl ProtocolInventory {
     pub(in crate::inventory) fn prepare_claimed_tcp_candidate<'a>(
         &self,
         _ctx: OutboundAdapterContext,
-        claimed: &ClaimedInventoryLeaf<'a>,
+        claimed: &ClaimedOutboundLeaf<'a>,
         mode: RouteMode,
     ) -> Result<PreparedTcpCandidate, TcpOutboundFailure> {
-        let runtime = claimed.runtime();
+        let runtime = claimed.runtime.clone();
         let health_tag = health_tag(&runtime).map(ToOwned::to_owned);
         let execution = if matches!(runtime.tcp_path, TcpPathCategory::Block) {
             PreparedTcpCandidateExecution::Block {
@@ -79,10 +79,10 @@ impl ProtocolInventory {
     pub(in crate::inventory) fn prepare_claimed_tcp_relay_hop<'a>(
         &self,
         _ctx: OutboundAdapterContext,
-        claimed: &ClaimedInventoryLeaf<'a>,
+        claimed: &ClaimedOutboundLeaf<'a>,
     ) -> Result<PreparedTcpRelayHop, EngineError> {
         let (server, port, operation) = claimed.tcp_relay_hop()?;
-        let runtime = claimed.runtime();
+        let runtime = claimed.runtime.clone();
         Ok(PreparedTcpRelayHop {
             tag: runtime.tag.unwrap_or_else(|| "unknown".to_owned()),
             protocol: runtime.protocol,
@@ -95,7 +95,7 @@ impl ProtocolInventory {
 
 fn health_tag(runtime: &crate::protocol_registry::OutboundLeafRuntime) -> Option<&str> {
     match runtime.tcp_path {
-        TcpPathCategory::Unavailable | TcpPathCategory::Direct | TcpPathCategory::Block => None,
+        TcpPathCategory::Unavailable | TcpPathCategory::Block => None,
         #[cfg(feature = "tcp-tunnel-runtime")]
         TcpPathCategory::Tunnel => runtime.health_tag.as_deref(),
         #[cfg(feature = "tcp-session-runtime")]

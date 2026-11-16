@@ -15,12 +15,12 @@ pub(crate) use endpoint::{
 mod model;
 mod registry;
 
+#[cfg(feature = "udp-runtime")]
+pub(crate) use capability::UdpFlowResult;
 pub(crate) use capability::{
     OutboundLeafClaim, OutboundLeafInput, ProtocolSupportCapability, TcpConnectResult,
     TcpRelayResult,
 };
-#[cfg(feature = "udp-runtime")]
-pub(crate) use capability::{UdpFlowResult, UdpRelayResult};
 pub(crate) use context::{
     OutboundAdapterContext, TcpExecutionServices, TcpRuntimeServices, UpstreamConnectServices,
 };

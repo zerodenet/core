@@ -302,3 +302,26 @@ fn error(instance: ComponentInstanceId, reason: Reason, message: &'static str) -
     failure.delivery = DeliveryState::NotSubmitted;
     failure
 }
+
+#[cfg(feature = "test-support")]
+impl HostBoundDatagramResources {
+    /// Passive observations of this provider's exact originals, including each
+    /// transferred view. This grants no acquisition, close or join authority.
+    pub fn original_views_for_test(
+        &self,
+    ) -> Vec<(
+        zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+        zero_platform_tokio::contract::component::BoundDatagramView,
+    )> {
+        let originals = self
+            .state()
+            .originals
+            .values()
+            .filter_map(|original| Some((original.control.clone()?, original.view.clone()?)))
+            .collect::<Vec<_>>();
+        originals
+            .into_iter()
+            .filter_map(|(control, view)| Some((control.identity().provider()?.origin()?, view)))
+            .collect()
+    }
+}

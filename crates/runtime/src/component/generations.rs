@@ -42,6 +42,7 @@ pub(super) fn order_with_loans(
     // First validate the candidate's own declared graph. Old loans determine
     // invalidation, not new-generation factory dependencies or borrow authority.
     super::dependencies::order(candidates.iter().map(|slot| (slot.id, slot.recipe.spec())))?;
+    super::lifecycle::validate(&candidates)?;
     let old: BTreeMap<_, _> = previous.iter().map(|slot| (slot.id, slot)).collect();
     let mut changed: std::collections::BTreeSet<_> = candidates
         .iter()
@@ -50,6 +51,7 @@ pub(super) fn order_with_loans(
                 !previous.can_reuse()
                     || slot.generation != previous.generation
                     || slot.recipe.spec() != previous.recipe.spec()
+                    || slot.recipe.lifecycle_owner() != previous.recipe.lifecycle_owner()
                     || slot.recipe.packet_path_facts() != previous.recipe.packet_path_facts()
                     || slot.recipe.carrier_total_limit() != previous.recipe.carrier_total_limit()
                     || slot.recipe.process_limits() != previous.recipe.process_limits()
@@ -65,8 +67,17 @@ pub(super) fn order_with_loans(
         })
         .map(|slot| slot.id)
         .collect();
+    let groups = super::lifecycle::groups(candidates.iter().chain(previous.iter()));
     loop {
         let count = changed.len();
+        for members in groups.values() {
+            if members
+                .iter()
+                .any(|id| changed.contains(id) || !ids.contains(id))
+            {
+                changed.extend(members.iter().filter(|id| ids.contains(id)).copied());
+            }
+        }
         for slot in &candidates {
             if slot
                 .recipe

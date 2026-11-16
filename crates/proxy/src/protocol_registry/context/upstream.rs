@@ -1,7 +1,10 @@
-#[cfg(feature = "udp-runtime")]
+#[cfg(all(test, feature = "udp-runtime"))]
+#[path = "upstream/tests/legacy_datagram.rs"]
 mod datagram;
+#[cfg(test)]
+#[path = "upstream/tests/legacy_root.rs"]
+mod legacy_root;
 pub(crate) mod packet_target;
-mod root;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -46,16 +49,6 @@ impl UpstreamConnectServices {
     }
     pub(crate) fn network_updates(&self) -> tokio::sync::watch::Receiver<u64> {
         self.egress_interface.subscribe_generation()
-    }
-    pub(crate) async fn connect_direct(
-        &self,
-        session: &zero_core::Session,
-        policy: &zero_traits::DialPolicy,
-    ) -> Result<crate::transport::DirectTcpConnection, crate::transport::DirectTcpConnectFailure>
-    {
-        self.connector
-            .connect_with_policy(session, &self.resolver, &self.egress_interface, policy)
-            .await
     }
     pub(crate) async fn connect_direct_using<D: crate::transport::CandidateOpener>(
         &self,
@@ -152,6 +145,7 @@ impl UpstreamConnectServices {
             .await
     }
 
+    #[cfg(any(test, not(any(target_os = "linux", windows))))]
     pub(crate) async fn connect_upstream_owned(
         &self,
         server: String,
@@ -172,14 +166,6 @@ impl UpstreamConnectServices {
                     observer.error();
                 }
             })
-    }
-
-    pub(crate) async fn connect_upstream(
-        &self,
-        server: &str,
-        port: u16,
-    ) -> Result<zero_platform_tokio::TokioSocket, zero_transport::RuntimeError> {
-        self.connect_upstream_owned(server.to_owned(), port).await
     }
 
     pub(crate) fn outbound_datagram_socket_factory(
@@ -258,17 +244,6 @@ impl UpstreamConnectServices {
     ) -> Self {
         self.ech_resolver = owner;
         self
-    }
-
-    #[cfg(feature = "udp-runtime")]
-    pub(crate) async fn bind_datagram_socket(
-        &self,
-        peer: std::net::SocketAddr,
-    ) -> Result<zero_platform_tokio::TokioDatagramSocket, zero_engine::EngineError> {
-        self.outbound_datagram_socket_factory()
-            .bind_tokio(peer)
-            .await
-            .map_err(Into::into)
     }
 }
 

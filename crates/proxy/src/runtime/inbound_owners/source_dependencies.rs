@@ -6,7 +6,7 @@ impl InboundOwnerRegistry {
         config: &zero_config::RuntimeConfig,
         plan: &crate::component::catalog::ComponentPlan,
     ) -> Result<std::collections::BTreeSet<String>, EngineError> {
-        #[cfg(feature = "raw-ip-runtime")]
+        #[cfg(any(feature = "raw-ip-runtime", feature = "managed-stream-runtime"))]
         {
             let mut changed = std::collections::BTreeSet::new();
             for input in &config.inbounds {
@@ -16,13 +16,13 @@ impl InboundOwnerRegistry {
             }
             Ok(changed)
         }
-        #[cfg(not(feature = "raw-ip-runtime"))]
+        #[cfg(not(any(feature = "raw-ip-runtime", feature = "managed-stream-runtime")))]
         {
             let _ = (config, plan);
             Ok(Default::default())
         }
     }
-    #[cfg(feature = "raw-ip-runtime")]
+    #[cfg(any(feature = "raw-ip-runtime", feature = "managed-stream-runtime"))]
     pub(in crate::runtime) fn source_dependencies_changed(
         &self,
         input: &zero_config::InboundConfig,
@@ -39,4 +39,11 @@ impl InboundOwnerRegistry {
             .get()
             .map_or(next.is_empty(), |actual| actual.as_ref() == next.as_slice()))
     }
+}
+
+#[cfg(any(feature = "raw-ip-runtime", feature = "managed-stream-runtime"))]
+pub(crate) fn input_identity(input: &zero_config::InboundConfig) -> Result<[u8; 32], EngineError> {
+    use sha2::{Digest, Sha256};
+    let encoded = serde_json::to_vec(input).map_err(std::io::Error::other)?;
+    Ok(Sha256::digest(encoded).into())
 }

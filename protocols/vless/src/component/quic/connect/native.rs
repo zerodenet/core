@@ -51,6 +51,14 @@ pub(super) fn spawn(
         };
         match result {
             Some(Ok(io)) => {
+                if let Err(source) =
+                    super::hopping::spawn(actor_generation.clone(), work_entry.clone()).await
+                {
+                    let source = work_entry.owners.receive_setup(source);
+                    let _ = ready.send(Err(ChannelError::retained(source.clone())));
+                    work_entry.retirement.request_retirement();
+                    return Err(ChannelError::retained(source));
+                }
                 if ready.send(Ok(io)).is_err() {
                     work_entry.retirement.request_retirement();
                 }
@@ -115,6 +123,23 @@ async fn initialize(
         .requires_icmp()
         .then(|| MetadataIcmpMemory::reserve(&generation.metadata_memory))
         .transpose()?;
+    if options.mkcp.is_some() {
+        return super::mkcp::native(
+            generation,
+            entry,
+            permit,
+            caller,
+            call,
+            &candidates,
+            index,
+            peer,
+            socket,
+            queues,
+            plan,
+            icmp,
+        )
+        .await;
+    }
     let mut client = options
         .protocol
         .material
@@ -129,6 +154,11 @@ async fn initialize(
             profile.options.xmux.h_keep_alive_period,
         );
     }
+    if let Some((profile, _)) = &options.hysteria {
+        client.transport_config(Arc::new(profile.transport(false).map_err(|source| {
+            error(Stage::Prepare, Reason::InvalidConfig).with_source(source)
+        })?));
+    }
     // Installing the actual native grant and its unique rejected claim is
     // synchronous under the entry lock, before any endpoint future may suspend.
     let handle = {
@@ -137,22 +167,50 @@ async fn initialize(
             return Err(error(Stage::Prepare, Reason::Cancelled));
         }
         state.native_origin = Some(permit.origin());
+        let hopping = options
+            .hysteria
+            .as_ref()
+            .and_then(|(profile, _)| profile.hopping());
+        let port = hopping.map(|profile| profile.next_port());
+        if let Some(profile) = hopping {
+            state.hopping = Some(super::hopping::Hopping::prepare(
+                profile.clone(),
+                candidates.clone(),
+                index,
+                peer,
+                generation,
+            )?);
+        }
         let (wire, grant) =
-            candidates.open_metadata_with_deadline(index, None, permit, caller, call.deadline)?;
+            candidates.open_metadata_with_deadline(index, port, permit, caller, call.deadline)?;
         state.unbound = Some(grant);
         let icmp = match icmp {
             Some(memory) => Some(generation.resources.bind_outbound_icmp(
-                candidates.prepare_icmp(index, None, permit, caller, memory)?,
+                candidates.prepare_icmp(index, port, permit, caller, memory)?,
             )?),
             None => None,
         };
-        let segment = match PacketSegment::prepare(
-            state.unbound.take().unwrap(),
-            queues,
-            generation.tasks.clone(),
-            wire,
-            peer,
-        ) {
+        let segment = match if options.hysteria.is_some() {
+            PacketSegment::prepare_with_endpoint(
+                state.unbound.take().unwrap(),
+                queues,
+                generation.tasks.clone(),
+                wire,
+                peer,
+                OwnedEndpointLimits {
+                    drivers: n(options.drivers()),
+                    users: options.users,
+                },
+            )
+        } else {
+            PacketSegment::prepare(
+                state.unbound.take().unwrap(),
+                queues,
+                generation.tasks.clone(),
+                wire,
+                peer,
+            )
+        } {
             Ok(segment) => segment,
             Err(rejected) => {
                 let rejected = *rejected;
@@ -167,7 +225,7 @@ async fn initialize(
             drivers: n(drivers),
             users: options.users,
         };
-        let (owner, receiver) = if options.h3.is_some() {
+        let (owner, receiver) = if options.h3.is_some() || options.hysteria.is_some() {
             let Some(Segment::Native(segment)) = state.segment.as_mut() else {
                 unreachable!()
             };
@@ -200,6 +258,8 @@ async fn initialize(
             peer,
             options
                 .profile
+                .as_ref()
+                .expect("actual QUIC carrier")
                 .server_name
                 .as_deref()
                 .unwrap_or(&options.protocol.server),

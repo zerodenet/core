@@ -2,6 +2,7 @@
 mod accounting;
 mod device_aliases;
 mod identities;
+mod lifecycle;
 mod named;
 mod packet_path;
 mod source_dependencies;
@@ -64,6 +65,7 @@ pub struct ResourcePreparation<'a> {
     active_named: Option<String>,
     named_packet_paths: BTreeMap<String, (Arc<[u8]>, super::PacketPathFacts)>,
     source_dependencies: Option<SourceDependencyDeclarations>,
+    source_dependencies_installed: bool,
     resources: BTreeMap<Key, PreparedSharedResource>,
     identities: BTreeSet<ComponentId>,
     failed: Cell<bool>,
@@ -93,6 +95,7 @@ impl<'a> ResourcePreparation<'a> {
             active_named: None,
             named_packet_paths: BTreeMap::new(),
             source_dependencies: None,
+            source_dependencies_installed: false,
             resources: BTreeMap::new(),
             identities: BTreeSet::new(),
             failed: Cell::new(false),
@@ -195,7 +198,13 @@ impl<'a> ResourcePreparation<'a> {
         if self.restarting {
             return None;
         }
-        check(self, component, &mut BTreeSet::new())
+        let actual = check(self, component, &mut BTreeSet::new())?;
+        self.lifecycle_reuse_members(component)?
+            .into_iter()
+            .try_for_each(|member| {
+                (check(self, member.component, &mut BTreeSet::new())? == member).then_some(())
+            })?;
+        Some(actual)
     }
 
     /// Read-only reuse evidence for a one-use recipe before its owner chooses
@@ -350,6 +359,39 @@ impl<'a> ResourcePreparation<'a> {
     ) -> Option<&[zero_core::component::ComponentInstanceId]> {
         self.ensure_valid().ok()?;
         Some(self.previous_named?.get(tag)?.dependency_instances())
+    }
+    /// Actual previous dependency closure for immutable, same-source material
+    /// inheritance. Nested pools must find their original File owner rather
+    /// than ask the outer callable role to impersonate that owner. This only
+    /// returns identities from this preparation pass; it grants no reuse/IO.
+    pub fn previous_named_resource_instances(
+        &self,
+        tag: &str,
+    ) -> Vec<zero_core::component::ComponentInstanceId> {
+        if self.ensure_valid().is_err() {
+            return Vec::new();
+        }
+        let Some(root) = self.previous_named.and_then(|named| named.get(tag)) else {
+            return Vec::new();
+        };
+        let mut pending = vec![root.instance_id()];
+        let mut seen = std::collections::BTreeSet::new();
+        let mut result = Vec::new();
+        while let Some(instance) = pending.pop() {
+            if !seen.insert(instance) {
+                continue;
+            }
+            let Some(slot) = self
+                .previous_slots
+                .iter()
+                .find(|slot| slot.instance_id() == instance)
+            else {
+                continue;
+            };
+            result.push(instance);
+            pending.extend_from_slice(slot.dependency_instances());
+        }
+        result
     }
     /// Borrow only for this cold pass; owned protocol profiles resolve their
     /// own paths and cannot retain a previous configuration document.

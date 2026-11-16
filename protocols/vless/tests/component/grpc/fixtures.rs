@@ -118,6 +118,7 @@ pub(super) struct Assembly {
     pub(super) scope: TaskScope,
     pub(super) role_scope: TaskScope,
     pub(super) actual: ComponentInstanceId,
+    pub(super) role_actual: ComponentInstanceId,
     pub(super) upstream: UpstreamTransport,
     pub(super) pool_options: zero_transport::grpc::NativePoolOptions,
     pub(super) observations: Arc<Observations>,
@@ -171,17 +172,16 @@ impl Assembly {
         let pool = PoolFactory
             .build(Arc::new(pool_options.clone()), pool_context)
             .unwrap();
+        let role_context = context(
+            ComponentId(702),
+            ResourceGeneration(2),
+            Arc::from([actual]),
+            role_scope.registrar(),
+            None,
+        );
+        let role_actual = role_context.instance();
         let role = StreamFactory
-            .build(
-                Arc::new(prepared.bind(actual.component)),
-                context(
-                    ComponentId(702),
-                    ResourceGeneration(2),
-                    Arc::from([actual]),
-                    role_scope.registrar(),
-                    None,
-                ),
-            )
+            .build(Arc::new(prepared.bind(actual.component)), role_context)
             .unwrap();
         Self {
             pool,
@@ -189,6 +189,7 @@ impl Assembly {
             scope,
             role_scope,
             actual,
+            role_actual,
             upstream,
             pool_options,
             observations: Arc::new(Observations::default()),

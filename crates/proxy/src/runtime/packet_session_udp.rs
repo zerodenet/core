@@ -1,8 +1,5 @@
-//! Neutral packet-session UDP runtime glue for stream and MUX transports.
-//!
-//! The root stays as a facade so stream- and mux-carried UDP reuse the same
-//! runtime loop without turning this module back into a grab-bag implementation
-//! surface.
+//! Explicit test fixtures for the retired pre-standard packet-session loop.
+//! Production Stream/MUX Datagram delivery runs through the actual standard Source.
 
 mod contract;
 mod lifecycle;
@@ -11,7 +8,4 @@ pub(crate) use contract::{
     PacketSessionUdpFailurePolicy, PacketSessionUdpHandler, PacketSessionUdpReadFailure,
     PacketSessionUdpReadFailureAction, PacketSessionUdpReadResult, PacketSessionUdpRelayRequest,
 };
-pub(crate) use lifecycle::{
-    run_packet_session_udp_relay, run_packet_session_udp_relay_with_dispatch,
-    PacketSessionUdpLoopExit,
-};
+pub(crate) use lifecycle::{run_packet_session_udp_relay_with_dispatch, PacketSessionUdpLoopExit};

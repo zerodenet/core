@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
+#[cfg(test)]
 use tokio::task::JoinSet;
 use zero_core::{
     Address, DatagramUdpResponder, Error, InboundDatagramUdpRelay, InboundUdpDispatch,

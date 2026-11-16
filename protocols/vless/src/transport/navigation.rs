@@ -8,7 +8,28 @@ pub(super) async fn open_carrier(
     io: TcpRelayStream,
     preparation: Option<zero_platform_tokio::controlled_carrier::CarrierPreparation>,
 ) -> Result<TcpRelayStream, RuntimeError> {
+    open_original_carrier(
+        transport,
+        pool.native_instance()?,
+        pool.native_stream_dependency()?.is_some(),
+        reality,
+        io,
+        preparation,
+    )
+    .await
+}
+pub(crate) async fn open_original_carrier(
+    transport: &OwnedVlessOutboundTransportPlan,
+    instance: zero_core::component::ComponentInstanceId,
+    stream_dependency: bool,
+    reality: Option<&crate::reality::PreparedRealityClient>,
+    io: TcpRelayStream,
+    preparation: Option<zero_platform_tokio::controlled_carrier::CarrierPreparation>,
+) -> Result<TcpRelayStream, RuntimeError> {
     if let Some(reality) = reality {
+        let io =
+            zero_transport::finalmask::tcp::wrap_prepared(io, transport.final_mask.tcp(), false)
+                .await?;
         // Only the owning recipe installs this cold, already-validated
         // policy. The same raw CarrierIo supplied this preparation token.
         let preparation = preparation.ok_or_else(|| {
@@ -32,13 +53,11 @@ pub(super) async fn open_carrier(
             .encrypt(zero_transport::TcpRelayStream::with_transport_bypass_control(stream, control))
             .await;
     }
-    if pool.native_stream_dependency()?.is_some() {
+    if stream_dependency {
         // TLS, H2 and the gRPC body belong to the lower real cache. Keep
         // VLESS's own optional encryption above that exact logical view.
         transport.encrypt(io).await
     } else {
-        transport
-            .open_owned_mux_carrier(io, pool.native_instance()?)
-            .await
+        transport.open_owned_mux_carrier(io, instance).await
     }
 }

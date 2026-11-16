@@ -30,6 +30,30 @@ impl ComponentFactory for Factory {
         )
     }
 }
+pub(super) struct MuxFactory {
+    pub(super) network: Arc<BackgroundNetwork>,
+}
+impl ComponentFactory for MuxFactory {
+    type Options = ::vless::component::mux::Options;
+    fn describe(&self, options: &Self::Options) -> ComponentSpec {
+        ::vless::component::mux::Factory.describe(options)
+    }
+    fn build(
+        &self,
+        options: Arc<Self::Options>,
+        context: BuildContext,
+    ) -> Result<ComponentInstance, BuildError> {
+        let instance = context.instance();
+        ::vless::component::mux::Factory.build_hosted(
+            options,
+            context,
+            Some(crate::component::background::grpc::tls_resolver(
+                self.network.clone(),
+                instance,
+            )),
+        )
+    }
+}
 impl super::super::VlessAdapter {
     pub(super) fn ordinary_options(
         &self,

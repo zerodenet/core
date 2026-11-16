@@ -77,3 +77,32 @@ fn implicit_system_node_is_supported_without_admitting_an_empty_dns_document() {
     empty.servers.clear();
     assert!(validate_node_config(Some(&empty)).is_err());
 }
+
+#[test]
+fn host_detour_validation_checks_exact_selected_node_backends_without_acquiring_io() {
+    let mut config = configured();
+    config.policy.node_server = Some("query".into());
+    config.policy.node_fallback_servers.clear();
+    let mut actual = Vec::new();
+    validate_node_config_with_detours(Some(&config), |tag| {
+        actual.push(tag.to_string());
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(actual, ["grpc"]);
+    assert!(
+        validate_node_config(Some(&config)).is_err(),
+        "a standalone caller lacks that provider"
+    );
+    config.servers.insert(
+        "query".into(),
+        serde_json::from_value(serde_json::json!({
+            "type":"doq","host":"127.0.0.1","detour":"grpc"
+        }))
+        .unwrap(),
+    );
+    assert!(validate_node_config_with_detours(Some(&config), |_| panic!(
+        "no original detour QUIC provider"
+    ))
+    .is_err());
+}

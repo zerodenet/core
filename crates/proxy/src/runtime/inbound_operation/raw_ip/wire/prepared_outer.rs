@@ -28,9 +28,7 @@ impl Wire {
             .peers
             .borrow()
             .clone();
-        if peers.prepared_outer.len() != peers.carriers.len()
-            || peers.carriers.iter().any(Option::is_some)
-            || !self.carriers.is_empty()
+        if peers.prepared_outer.len() != peers.initial_endpoints.len() || !self.carriers.is_empty()
         {
             return Err(std::io::Error::other(
                 "Source outer paths do not match their original peer declaration",
@@ -44,6 +42,20 @@ impl Wire {
         // This per-peer controller table is separate construction metadata;
         // its finite row count does not claim that byte accounting is complete.
         self.carriers = vec![None; peers.prepared_outer.len()];
+        {
+            let mut owners = self
+                .outer_owners
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if !owners.is_empty() {
+                return Err(
+                    std::io::Error::other("same Source outer owners already installed").into(),
+                );
+            }
+            owners
+                .try_reserve_exact(peers.prepared_outer.len())
+                .map_err(std::io::Error::other)?;
+        }
         for (peer, path) in peers.prepared_outer.iter().enumerate() {
             let Some(path) = path else {
                 if peers
@@ -73,7 +85,7 @@ impl Wire {
                 .packet_driver_caller(
                     &original,
                     driver,
-                    path.root_binding.clone(),
+                    path.recipe.binding().clone(),
                     CarrierContext {
                         session: None,
                         deadline: None,
@@ -88,15 +100,31 @@ impl Wire {
                     std::io::Error::other("Source outer peer lost its actual codec workspaces")
                 })?)
                 .map_err(std::io::Error::other)?;
-            let carrier = crate::runtime::raw_ip::RegisteredProxiedRawIpWireCarrier::start(
-                path.operation.clone(),
-                execution,
-                tasks.clone(),
-            )
-            .await?;
-            // Strong-install this actual carrier, including its original views
-            // and control, before another peer can start or the loop can poll IO.
-            self.carriers[peer] = Some(Arc::new(carrier));
+            let carrier = Arc::new(
+                crate::runtime::raw_ip::RegisteredProxiedRawIpWireCarrier::prepare(
+                    path.recipe.clone(),
+                    execution,
+                    tasks.clone(),
+                    peers
+                        .initial_endpoints
+                        .get(peer)
+                        .copied()
+                        .flatten()
+                        .ok_or_else(|| {
+                            std::io::Error::other(
+                                "declared outer peer has no actual initial endpoint",
+                            )
+                        })?,
+                )?,
+            );
+            // Keep the controller before its FIRST acquisition can suspend.
+            // Interrupted or failed initialization remains on this same wire.
+            self.outer_owners
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(carrier.clone());
+            self.carriers[peer] = Some(carrier.clone());
+            carrier.initialize().await?;
         }
         Ok(())
     }

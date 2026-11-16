@@ -18,8 +18,10 @@ impl Record {
                 let Some(target) = targets.iter().find(|target| target.role == *role) else {
                     return false;
                 };
-                if target.instance != original.instance()
-                    || original.binding().dial != target.binding.dial
+                // Aliases/MUX owners may borrow their actual roleless lower
+                // provider. Its identity must be proven by this target's real
+                // transitive declaration, never by inventing a role for it.
+                if original.binding().dial != target.binding.dial
                     || original.binding().prefix != self.binding.prefix[..index]
                 {
                     return false;
@@ -49,6 +51,7 @@ impl Record {
             .ok_or_else(|| failure(Reason::Revoked))?
             .pending_carrier_observer();
         if !original.matches_observer(&anchor)
+            || self.retiring.load(std::sync::atomic::Ordering::Acquire)
             || !self.validates_protocol(&original)
             || self.call.cancel.is_cancelled()
             || self.caller.is_joined()

@@ -4,9 +4,12 @@ use tokio::task::JoinSet;
 use zero_core::Address;
 use zero_engine::EngineError;
 
-#[cfg(any(
-    feature = "managed-stream-runtime",
-    feature = "managed-datagram-runtime"
+#[cfg(all(
+    test,
+    any(
+        feature = "managed-stream-runtime",
+        feature = "managed-datagram-runtime"
+    )
 ))]
 #[async_trait::async_trait]
 pub(crate) trait ManagedUdpConnection: Send + Sync {
@@ -19,9 +22,12 @@ pub(crate) trait ManagedUdpConnection: Send + Sync {
     fn spawn_response_bridge(&self, chain_tasks: &mut JoinSet<ChainTask>, session_id: u64);
 }
 
-#[cfg(any(
-    feature = "managed-stream-runtime",
-    feature = "managed-datagram-runtime"
+#[cfg(all(
+    test,
+    any(
+        feature = "managed-stream-runtime",
+        feature = "managed-datagram-runtime"
+    )
 ))]
 pub(crate) type SharedManagedUdpConnection = Arc<dyn ManagedUdpConnection>;
 

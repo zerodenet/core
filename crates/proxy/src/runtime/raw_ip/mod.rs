@@ -2,25 +2,22 @@
 
 mod carrier;
 mod contract;
-mod datagram;
-mod flow;
-pub(crate) use flow::RawIpFlowSource;
 mod device;
+#[cfg(test)]
+mod flow;
 mod incarnation;
 pub(crate) mod memory;
-mod packet;
 mod pool;
 pub(crate) use incarnation::next as next_incarnation;
 
 #[cfg(test)]
 pub(crate) use carrier::DirectRawIpWireCarrier;
 pub(crate) use carrier::RegisteredProxiedRawIpWireCarrier;
-pub(crate) use carrier::{HostedRawIpWireCarrier, ProxiedRawIpWireCarrier, RawIpWireCarrier};
+pub(crate) use carrier::{HostedRawIpWireCarrier, RawIpWireCarrier};
 pub(crate) use contract::{
     OwnedWireFailure, OwnedWireResult, PreparedWireData, PreparedWireReceive, RawIpAction,
     RawIpOutboundPlan, RawIpPeerPlan, RawIpTunnel,
 };
-pub(crate) use datagram::RawIpDatagramOperation;
 pub(crate) use device::{
     EndpointPacket, EndpointStackOwner, EndpointStackRecipe, PendingNativeWire, SharedRawIpDevice,
     WireStackRecipe,
@@ -28,7 +25,6 @@ pub(crate) use device::{
 pub(crate) use device::{
     PacketFlowBorrow, PacketReturnTotals, PacketReturns, PacketSubmission, ReturnSource,
 };
-pub(crate) use packet::RawIpPacketOperation;
 pub(crate) use pool::{RawIpDevicePool, StagedRawIpDevices, MAX_RAW_IP_DEVICES};
 
 mod options;

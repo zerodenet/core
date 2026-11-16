@@ -11,9 +11,7 @@ impl PacketDriverCalls {
             if !record.call.cancel.is_cancelled() {
                 continue;
             }
-            if let Some(installed) = record.installed.get() {
-                record.release_host_retained_pending(installed);
-            }
+            record.request_retirement();
             for index in 0..record.max_pending {
                 let Some(adoption) = record.pending_at(index) else {
                     break;

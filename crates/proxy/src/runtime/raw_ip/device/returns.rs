@@ -69,6 +69,7 @@ struct TranslatedReturn {
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) enum ReturnSource {
+    #[cfg(test)]
     Legacy(u64),
     Endpoint {
         endpoint: zero_core::component::EndpointId,

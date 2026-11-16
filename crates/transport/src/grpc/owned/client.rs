@@ -130,7 +130,18 @@ impl NativeClient {
         demand: &Demand,
         lease: Lease,
     ) -> Result<NativeGrpcStream, ChannelError> {
-        lease.bind(self.life.physical.clone())?;
+        {
+            let epoch = owner.epoch.lock().unwrap();
+            owner.verify_epoch_state(
+                &epoch,
+                &demand.binding,
+                owner.upstream.carrier_dns_generation(),
+            )?;
+            if self.life.stop.is_cancelled() {
+                return Err(error(owner.instance, Stage::Prepare, Reason::Revoked));
+            }
+            lease.bind(self.life.physical.clone())?;
+        }
         let ready = self.sender.clone().ready();
         let mut sender = owner
             .wait(demand, async {
@@ -144,10 +155,21 @@ impl NativeClient {
                 .map_err(|source| {
                 error(owner.instance, Stage::Prepare, Reason::InvalidConfig).with_source(source)
             })?;
-        lease.attempting();
-        let (response, send) = sender.send_request(request, false).map_err(|source| {
-            error(owner.instance, Stage::Handshake, Reason::Io).with_source(source)
-        })?;
+        let (response, send) = {
+            let epoch = owner.epoch.lock().unwrap();
+            owner.verify_epoch_state(
+                &epoch,
+                &demand.binding,
+                owner.upstream.carrier_dns_generation(),
+            )?;
+            if self.life.stop.is_cancelled() {
+                return Err(error(owner.instance, Stage::Handshake, Reason::Revoked));
+            }
+            lease.attempting();
+            sender.send_request(request, false).map_err(|source| {
+                error(owner.instance, Stage::Handshake, Reason::Io).with_source(source)
+            })?
+        };
         let PreparedStream {
             mut stream,
             read,

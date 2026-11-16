@@ -15,6 +15,7 @@ struct Tx {
     inner: Pin<Box<dyn DatagramTx>>,
     logical: CancellationToken,
     caller: Pin<Box<dyn Future<Output = ()> + Send>>,
+    parent: Pin<Box<dyn Future<Output = ()> + Send>>,
     pending: bool,
 }
 impl DatagramTx for Tx {
@@ -24,7 +25,7 @@ impl DatagramTx for Tx {
         frame: &Datagram,
     ) -> Poll<Result<SendReceipt, SendFailure>> {
         let this = self.get_mut();
-        if this.caller.as_mut().poll(cx).is_ready() || this.logical.is_cancelled() {
+        if this.caller.as_mut().poll(cx).is_ready() || this.parent.as_mut().poll(cx).is_ready() {
             this.logical.cancel();
             let delivery = if this.pending {
                 DeliveryState::Unknown
@@ -44,6 +45,7 @@ struct Rx {
     inner: Pin<Box<dyn DatagramRx>>,
     logical: CancellationToken,
     caller: Pin<Box<dyn Future<Output = ()> + Send>>,
+    parent: Pin<Box<dyn Future<Output = ()> + Send>>,
 }
 impl DatagramRx for Rx {
     fn poll_recv(
@@ -51,7 +53,7 @@ impl DatagramRx for Rx {
         cx: &mut Context<'_>,
     ) -> Poll<Result<Option<Datagram>, ChannelError>> {
         let this = self.get_mut();
-        if this.caller.as_mut().poll(cx).is_ready() || this.logical.is_cancelled() {
+        if this.caller.as_mut().poll(cx).is_ready() || this.parent.as_mut().poll(cx).is_ready() {
             this.logical.cancel();
             return Poll::Ready(Ok(None));
         }
@@ -91,12 +93,14 @@ pub(super) fn guard(
         tx: Box::pin(Tx {
             inner: session.tx,
             logical: logical.clone(),
+            parent: Box::pin(logical.clone().cancelled_owned()),
             caller: Box::pin(caller.clone().cancelled_owned()),
             pending: false,
         }),
         rx: Box::pin(Rx {
             inner: session.rx,
             logical: logical.clone(),
+            parent: Box::pin(logical.clone().cancelled_owned()),
             caller: Box::pin(caller.cancelled_owned()),
         }),
         control: Box::new(Control {

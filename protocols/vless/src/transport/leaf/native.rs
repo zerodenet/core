@@ -5,6 +5,40 @@ use zero_core::{component::ComponentInstanceId, request::Destination};
 use zero_platform_tokio::contract::network::UpstreamBinding;
 use zero_transport::pooled_driver::PoolOptions;
 impl VlessOutboundLeaf {
+    pub(crate) fn preconnect_access(&self) -> Option<super::super::runtime::preconnect::Access> {
+        self.preconnect.clone()
+    }
+    pub(crate) fn preconnect_profile(&self) -> String {
+        format!("vless.preconnect.original.v1:{:?}", self.owned_identity)
+    }
+    pub fn native_preconnect_eligible(&self) -> bool {
+        self.preconnect.as_ref().is_some_and(|access| {
+            access
+                .control()
+                .refresh()
+                .is_ok_and(|control| control.native_eligible())
+        })
+    }
+    pub(crate) async fn open_preconnected_carrier(
+        &self,
+        io: zero_transport::TcpRelayStream,
+        preparation: Option<zero_platform_tokio::controlled_carrier::CarrierPreparation>,
+        instance: ComponentInstanceId,
+    ) -> Result<zero_transport::TcpRelayStream, RuntimeError> {
+        // Warm only the transport. Encryption's per-connection handshake must
+        // still begin when a real Stream/Datagram caller takes this connection.
+        let mut transport = self.transport.clone();
+        transport.set_encryption(None)?;
+        super::super::navigation::open_original_carrier(
+            &transport,
+            instance,
+            false,
+            self.navigation_reality.as_ref(),
+            io,
+            preparation,
+        )
+        .await
+    }
     pub(in crate::transport) async fn open_native_mux_carrier(
         &self,
         io: zero_transport::TcpRelayStream,
@@ -28,6 +62,22 @@ impl VlessOutboundLeaf {
         self
     }
 
+    pub(crate) fn with_native_mux_policy(mut self, tcp: Option<u32>, udp: Option<u32>) -> Self {
+        self.mux_pool = self
+            .mux_pool
+            .scoped(&self.tag, self.owned_identity)
+            .with_native_policy(tcp, udp);
+        self
+    }
+
+    pub(crate) fn with_native_tcp_masks(
+        mut self,
+        masks: zero_transport::finalmask::Profile,
+    ) -> Self {
+        self.transport.final_mask = masks;
+        self
+    }
+
     pub fn native_mux_eligible(&self) -> bool {
         self.mux_pool.native_eligible()
     }
@@ -47,7 +97,10 @@ impl VlessOutboundLeaf {
         limit: NonZeroUsize,
         budget: Duration,
     ) -> Result<PoolOptions, RuntimeError> {
-        let (key, concurrency) = self.protocol.native_mux_plan(&self.server, self.port)?;
+        let (key, concurrency) = self
+            .protocol
+            .native_mux_plan(&self.server, self.port)
+            .or_else(|_| self.protocol.native_xudp_plan(&self.server, self.port))?;
         let address = match zero_core::address::parse_ip_literal(&self.server) {
             Some(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
             Some(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
@@ -91,16 +144,23 @@ impl VlessOutboundLeaf {
                 call,
                 move |raw| async move {
                     let preparation = raw.preparation();
-                    let io = zero_transport::TcpRelayStream::new(
+                    let bypass = raw.transport_bypass_control();
+                    let io = zero_transport::TcpRelayStream::with_transport_bypass_control(
                         zero_transport::pooled_driver::ExclusiveIo::new(raw),
+                        bypass,
                     );
+
                     leaf.open_native_mux_carrier(io, preparation).await
                 },
             )
             .await
     }
+    pub(crate) fn native_udp443_blocked(&self) -> bool {
+        self.protocol.ordinary_parts().1 == Some(crate::flow::FLOW_XTLS_RPRX_VISION)
+    }
     pub(crate) async fn open_native_mux_udp(
         &self,
+        association: zero_core::component::AssociationId,
         context: &zero_platform_tokio::contract::context::OpenContext,
     ) -> Result<
         zero_transport::pooled_driver::datagram::PooledDatagram<
@@ -108,7 +168,7 @@ impl VlessOutboundLeaf {
         >,
         RuntimeError,
     > {
-        let (key, concurrency) = self.protocol.native_mux_plan(&self.server, self.port)?;
+        let (key, concurrency) = self.protocol.native_xudp_plan(&self.server, self.port)?;
         let binding = context.upstream.binding().clone();
         let call = Some((
             zero_platform_tokio::contract::network::CarrierContext {
@@ -121,14 +181,29 @@ impl VlessOutboundLeaf {
         let leaf = self.clone();
         let mut opened = self
             .mux_pool
-            .open_native_udp(key, concurrency, binding, call, move |raw| async move {
-                let preparation = raw.preparation();
-                let io = zero_transport::TcpRelayStream::new(
-                    zero_transport::pooled_driver::ExclusiveIo::new(raw),
-                );
-                leaf.open_native_mux_carrier(io, preparation).await
-            })
+            .open_native_udp_with_id(
+                key,
+                concurrency,
+                binding,
+                call,
+                context
+                    .session_identity()
+                    .map_err(std::io::Error::other)?
+                    .map(|session| session.0.to_be_bytes())
+                    .or_else(|| (association.0 != 0).then(|| association.0.to_be_bytes())),
+                move |raw| async move {
+                    let preparation = raw.preparation();
+                    let bypass = raw.transport_bypass_control();
+                    let io = zero_transport::TcpRelayStream::with_transport_bypass_control(
+                        zero_transport::pooled_driver::ExclusiveIo::new(raw),
+                        bypass,
+                    );
+
+                    leaf.open_native_mux_carrier(io, preparation).await
+                },
+            )
             .await?;
+        opened.io.block_udp443 = self.native_udp443_blocked();
         opened.io.observer = context.observer.clone();
         opened.io.session = context.session_identity().map_err(std::io::Error::other)?;
         Ok(opened)

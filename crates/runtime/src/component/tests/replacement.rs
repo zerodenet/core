@@ -11,6 +11,8 @@ use zero_platform_tokio::contract::lifecycle::TaskClass;
 mod generations;
 #[path = "replacement/host_receiver.rs"]
 mod host_receiver;
+#[path = "replacement/lifecycle.rs"]
+mod lifecycle;
 #[path = "replacement/native.rs"]
 mod native;
 #[path = "replacement/publication.rs"]

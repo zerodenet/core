@@ -1,5 +1,6 @@
 //! Persistent actual listener drivers and carrier resources, outside run futures.
 mod bind;
+mod system_tcp;
 #[cfg(all(test, feature = "datagram-route-runtime"))]
 pub(crate) use bind::tests::test_standard_datagram_listener;
 #[cfg(test)]
@@ -10,8 +11,8 @@ mod observers;
 #[cfg(feature = "raw-ip-runtime")]
 mod packet_source;
 mod source_dependencies;
-#[cfg(feature = "raw-ip-runtime")]
-pub(crate) use packet_source::input_identity as source_input_identity;
+#[cfg(any(feature = "raw-ip-runtime", feature = "managed-stream-runtime"))]
+pub(crate) use source_dependencies::input_identity as source_input_identity;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) mod system_tun;
 pub(crate) use bind::LeasedInbound;
@@ -57,6 +58,8 @@ use zero_platform_tokio::contract::{lifecycle::DynResourceLifecycle, Cancellatio
 #[derive(Default)]
 pub(crate) struct InboundOwnerRegistry {
     entries: Mutex<HashMap<String, Arc<InboundOwner>>>,
+    system_tcp_inputs: Mutex<std::collections::BTreeMap<String, (String, std::net::SocketAddr)>>,
+    system_tcp_next: std::sync::atomic::AtomicU64,
     observers: Arc<observers::ObserverParking>,
     terminals: Mutex<HashMap<String, Arc<InboundTerminal>>>,
     reservations: Mutex<bind::BindReservations>,

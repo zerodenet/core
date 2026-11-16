@@ -1,4 +1,5 @@
 use super::*;
+use zero_config::{OutboundGroupKind, OutboundProtocolConfig};
 
 fn config(relay: &[&str], prefix: serde_json::Value) -> RuntimeConfig {
     RuntimeConfig::parse(&serde_json::json!({
@@ -14,22 +15,22 @@ fn config(relay: &[&str], prefix: serde_json::Value) -> RuntimeConfig {
 
 #[test]
 #[cfg(feature = "vless")]
-fn mixed_legacy_prefix_never_promotes_half_of_the_one_mieru_pool() {
+fn mixed_packet_prefix_keeps_all_profiles_on_the_same_standard_pool() {
     let config = config(
         &["prefix", "pool"],
         serde_json::json!({
             "type":"vless", "server":"127.0.0.1", "port":443,
             "id":"11111111-2222-3333-4444-555555555555",
-            "http_upgrade":{"path":"/transport"}
+            "mkcp":{}
         }),
     );
-    assert!(!production_selected(Some(&config)));
+    assert!(production_selected(Some(&config)));
     let proxy = crate::Proxy::new(config).unwrap();
     let plan = proxy.tcp_runtime_services().components.clone().unwrap();
     for tag in ["pool", "other-pool"] {
         assert!(
-            plan.configured(tag).is_none(),
-            "the same pool must retain one compatibility owner"
+            plan.configured(tag).is_some(),
+            "all profiles retain the one actual standard pool"
         );
     }
 }
@@ -41,10 +42,10 @@ fn mixed_legacy_suffix_cannot_force_an_already_native_pool_back_to_compatibility
         serde_json::json!({
             "type":"vless", "server":"127.0.0.1", "port":443,
             "id":"11111111-2222-3333-4444-555555555555",
-            "http_upgrade":{"path":"/transport"}
+            "mkcp":{}
         }),
     );
-    assert!(!production_selected(Some(&config)));
+    assert!(production_selected(Some(&config)));
 }
 
 #[test]
@@ -54,7 +55,7 @@ fn unrelated_unmigrated_node_does_not_disable_the_actual_mieru_graph() {
         serde_json::json!({
             "type":"vless", "server":"127.0.0.1", "port":443,
             "id":"11111111-2222-3333-4444-555555555555",
-            "http_upgrade":{"path":"/transport"}
+            "mkcp":{}
         }),
     );
     assert!(production_selected(Some(&config)));
@@ -62,7 +63,7 @@ fn unrelated_unmigrated_node_does_not_disable_the_actual_mieru_graph() {
 
 #[cfg(feature = "vmess")]
 #[test]
-fn datagram_only_grpc_role_cannot_qualify_a_stream_prefix() {
+fn paired_grpc_stream_role_qualifies_the_same_complete_mieru_pool() {
     let config = config(
         &["prefix", "pool"],
         serde_json::json!({
@@ -70,7 +71,7 @@ fn datagram_only_grpc_role_cannot_qualify_a_stream_prefix() {
             "id":"11111111-2222-3333-4444-555555555555", "grpc":{"service_names":["transport"]}
         }),
     );
-    assert!(!production_selected(Some(&config)));
+    assert!(production_selected(Some(&config)));
 }
 
 #[test]
@@ -234,14 +235,14 @@ fn an_unselected_nonroot_socks_packet_branch_still_does_not_invent_a_new_udp_cap
                 selected: Some("other-pool".into()),
             },
         });
-    assert!(!production_selected(Some(&config)));
+    assert!(production_selected(Some(&config)));
     let OutboundGroupKind::Selector { outbounds, .. } =
         &mut config.outbound_groups.last_mut().unwrap().group
     else {
         unreachable!()
     };
     outbounds.reverse();
-    assert!(!production_selected(Some(&config)));
+    assert!(production_selected(Some(&config)));
 }
 
 #[test]

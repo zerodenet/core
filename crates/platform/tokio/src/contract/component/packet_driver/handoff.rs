@@ -1,15 +1,26 @@
 //! Compress only originals already held by an actual canonical cached driver.
 //! This is transferred custody, never NativeClosed, user return or refunded N.
 use super::*;
+#[cfg(all(test, feature = "native-packet-origin"))]
+#[path = "tests/cached_input.rs"]
+mod tests;
 impl Record {
-    pub(super) fn release_host_retained_pending(&self, installed: &InstalledRef) {
-        if !self
-            .installed
-            .get()
-            .is_some_and(|same| InstalledRef::ptr_eq(same, installed))
-            || installed.receiver.get().is_none()
-        {
-            return;
+    pub(super) fn release_host_retained_pending(&self) {
+        match self.installed.get() {
+            Some(installed)
+                if installed.receiver.get().is_none()
+                    && !installed
+                        .complete
+                        .load(std::sync::atomic::Ordering::Acquire) =>
+            {
+                return
+            }
+            // Failed preparation can already have handed an original to its
+            // real cached driver without producing a final Datagram at all.
+            // The original grant stays charged until its preparing future has
+            // actually returned; this transfers only the cached input below.
+            None if !self.retiring.load(std::sync::atomic::Ordering::Acquire) => return,
+            _ => {}
         }
         // A bounded best-effort pass holds one existing adoption at a time.
         // Appending/removing another row can postpone observation until the
@@ -24,9 +35,10 @@ impl Record {
                 .get(index)
                 .cloned();
             let Some(original) = original else { break };
-            // The same actual LoanOwner control was strong-installed before
-            // this receiver was confirmed. Check actual cached-driver custody
-            // and its Host-issued owner/generation outside the pending mutex.
+            // A final loan was handed off/returned, or preparation is stopping
+            // before any final loan existed. In every case check this input's
+            // actual cached-driver/LoanOwner custody and its allowed Host
+            // owner/generation outside the pending mutex.
             let transferred = original.transfer_to_cached_driver(self);
             if !transferred {
                 index += 1;

@@ -46,6 +46,16 @@ async fn hysteria2_cancelled_actual_pending_dial_is_cleaned_before_successful_sa
             assert!(pending.as_mut().poll(cx).is_pending(), "a real QUIC Initial was delivered while the original handshake remains pending");
             Poll::Ready(())
         }).await;
+        let plan = services.components.as_ref().unwrap();
+        let native = slot.dependency_instances().iter().find_map(|dependency| {
+            let provider = plan.component(dependency.component)?;
+            (0..provider.recipe.spec().resources.len()).find_map(|ordinal| {
+                provider.original_metadata_owner(ordinal)?.current_original()
+            })
+        }).expect("the actual pending native Metadata original");
+        let initializer = native.initializer_registration().expect("same actual setup task");
+        assert!(!initializer.is_joined(), "actual authentication remains pending");
+        let receiver = native.retained_protocol_receiver().expect("physical input belongs to its live original endpoint driver");
         cancel.cancel();
         let failure = match pending.as_mut().await {
             Err(error) => error,
@@ -76,6 +86,14 @@ async fn hysteria2_cancelled_actual_pending_dial_is_cleaned_before_successful_sa
         stream.write_all(b"ping").await.unwrap();
         let mut payload = [0;4];stream.read_exact(&mut payload).await.unwrap();assert_eq!(&payload,b"ping");
         assert_eq!(authenticated.load(Ordering::SeqCst),1,"cancelled pending state cannot become a second successful authentication");
+        let closed = native.closed().expect("the exact old native closed before successful reopen");
+        assert!(closed.matches(&native) && closed.had_native_acquisition());
+        let joined = initializer.try_joined().expect("same original setup task actually joined");
+        assert!(initializer.matches_joined(&joined) && joined.registration_released());
+        joined.result().unwrap();
+        let driver = receiver.protocol_driver();
+        let joined = driver.try_joined().expect("same old physical Quinn endpoint task joined");
+        assert!(driver.matches_joined(&joined) && joined.registration_released());
         // This incoming remains undriven until the replacement has genuinely
         // succeeded. Peer ACK, timeout or the port being reusable is not used
         // as a substitute for the old pool owner's cleanup chain.

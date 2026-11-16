@@ -15,7 +15,4 @@ mod with_upstream;
 #[cfg(not(feature = "upstream-association-runtime"))]
 mod without_upstream;
 
-pub(crate) use relay::{
-    run_packet_session_udp_relay, run_packet_session_udp_relay_with_dispatch,
-    PacketSessionUdpLoopExit,
-};
+pub(crate) use relay::{run_packet_session_udp_relay_with_dispatch, PacketSessionUdpLoopExit};

@@ -21,6 +21,7 @@ pub(super) struct Candidate {
     pub(super) call: CarrierContext,
     pub(super) client: quinn::ClientConfig,
     pub(super) dns: Option<zero_platform_tokio::contract::dns::DnsGeneration>,
+    pub(super) initializer_cancel: zero_platform_tokio::contract::CancellationToken,
 }
 enum Setup {
     Candidate(Candidate),
@@ -69,6 +70,23 @@ impl Generation {
         }) {
             return Err(error(Stage::Prepare, Reason::Capacity));
         }
+        let callbacks = self.tasks.defer_callbacks();
+        let preparation = match &operation {
+            Setup::Candidate(candidate) => {
+                match self.prepare_original(entry, &mut state, candidate) {
+                    Ok(preparation) => preparation,
+                    Err(source) => {
+                        let failure = SetupFailure::terminal(source);
+                        let source = failure.source.clone();
+                        state.setup_failure = Some(failure);
+                        drop(state);
+                        drop(callbacks);
+                        return Err(ChannelError::retained(source));
+                    }
+                }
+            }
+            Setup::Hop(_) => None,
+        };
         state.initializing = true;
         // A synchronous registration unwind cannot become an empty-task proof.
         state.setup_registration = Some(self.tasks.retirement_observation());
@@ -77,13 +95,30 @@ impl Generation {
         let (admit, admitted) = tokio::sync::oneshot::channel();
         let actual = entry.clone();
         let generation = self.clone();
-        let callbacks = self.tasks.defer_callbacks();
-        let registered = self.tasks.spawn_tracked(TaskClass::Auxiliary, async move {
-            if admitted.await.is_err() { return Ok(()); }
+        let original_stop = state
+            .original_stop
+            .clone()
+            .unwrap_or_else(|| entry.cancel.clone());
+        // Only this one actual initializer observes its requesting caller.
+        // Ready cached authentications keep their existing independent owner.
+        let initializer_cancel = match &operation {
+            Setup::Candidate(candidate) => candidate.initializer_cancel.clone(),
+            Setup::Hop(_) => entry.cancel.clone(),
+        };
+        let work = async move {
+            if admitted.await.is_err() {
+                return Ok(());
+            }
             let work = async {
                 match operation {
-                    Setup::Candidate(candidate) => generation.initialize_candidate(&actual,candidate,end).await.map(|()|true),
-                    Setup::Hop(profile) => generation.rotate(profile,&actual,end).await.map_err(SetupFailure::terminal),
+                    Setup::Candidate(candidate) => generation
+                        .initialize_candidate(&actual, candidate, end)
+                        .await
+                        .map(|()| true),
+                    Setup::Hop(profile) => generation
+                        .rotate(profile, &actual, end)
+                        .await
+                        .map_err(SetupFailure::terminal),
                 }
             };
             let result = tokio::select! { biased;
@@ -92,49 +127,79 @@ impl Generation {
                     Err(source) => Err(SetupFailure::terminal(error(Stage::Prepare,Reason::Timeout).with_source(source))),
                 }),
                 _ = actual.cancel.cancelled() => None,
+                _ = original_stop.cancelled() => None,
+                _ = initializer_cancel.cancelled() => None,
             };
             // The exact operation error is retained in the existing Entry
             // before the real task returns Err and before local/Host receipt.
             let mut state = actual.state.lock().await;
             state.initializing = false;
             match result {
-                Some(Ok(worked)) => { state.setup_worked=worked; Ok(()) },
+                Some(Ok(worked)) => {
+                    state.setup_worked = worked;
+                    Ok(())
+                }
                 Some(Err(failure)) => {
-                    if failure.next_candidate { state.candidate_failures.push(failure.source.clone()); }
+                    if failure.next_candidate {
+                        state.candidate_failures.push(failure.source.clone());
+                    }
                     let source = failure.source.clone();
                     state.setup_failure = Some(failure);
                     Err(ChannelError::retained(source))
                 }
                 None => {
-                    state.setup_failure = Some(SetupFailure::terminal(error(Stage::Prepare,Reason::Revoked)));
+                    let reason = if initializer_cancel.is_cancelled() {
+                        Reason::Cancelled
+                    } else {
+                        Reason::Revoked
+                    };
+                    state.setup_failure =
+                        Some(SetupFailure::terminal(error(Stage::Prepare, reason)));
                     Ok(())
                 }
             }
-        });
+        };
+        let registered = match preparation {
+            Some(preparation) => preparation
+                .spawn_auxiliary(&self.tasks, work)
+                .map(|(permit, caller)| (caller, Some(permit))),
+            None => self
+                .tasks
+                .spawn_tracked(TaskClass::Auxiliary, work)
+                .map(|(_, caller)| (caller, None))
+                .map_err(|source| {
+                    error(
+                        Stage::Prepare,
+                        match source {
+                            zero_platform_tokio::contract::scope::SpawnError::Closing => {
+                                Reason::Revoked
+                            }
+                            zero_platform_tokio::contract::scope::SpawnError::NotStarted => {
+                                Reason::InvalidConfig
+                            }
+                            _ => Reason::Capacity,
+                        },
+                    )
+                    .with_source(source)
+                }),
+        };
         match registered {
-            Ok((_, caller)) => {
+            Ok((caller, permit)) => {
                 state.setup_registration = None;
                 state.caller = Some(caller);
+                if let Some(permit) = permit {
+                    state.permit = Some(permit);
+                }
             }
             Err(source) => {
                 state.setup_registration = None;
                 state.initializing = false;
-                let failure = error(
-                    Stage::Prepare,
-                    match source {
-                        zero_platform_tokio::contract::scope::SpawnError::Closing => {
-                            Reason::Revoked
-                        }
-                        zero_platform_tokio::contract::scope::SpawnError::NotStarted => {
-                            Reason::InvalidConfig
-                        }
-                        _ => Reason::Capacity,
-                    },
-                )
-                .with_source(source);
+                let failure = SetupFailure::terminal(source);
+                let source = failure.source.clone();
+                state.setup_failure = Some(failure);
                 drop(state);
                 drop(callbacks);
-                return Err(failure);
+                return Err(ChannelError::retained(source));
             }
         }
         drop(state);
@@ -147,93 +212,6 @@ impl Generation {
         })
     }
 }
-impl Entry {
-    pub(super) async fn receive_setup(&self, end: Instant) -> Result<(), ChannelError> {
-        let caller = {
-            tokio::time::timeout_at(end, self.state.lock())
-                .await
-                .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?
-                .caller
-                .clone()
-        };
-        let Some(caller) = caller else { return Ok(()) };
-        let joined = tokio::time::timeout_at(end, caller.wait())
-            .await
-            .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?;
-        {
-            let mut state = self.state.lock().await;
-            if state
-                .setup_exit
-                .as_ref()
-                .is_none_or(|previous| !caller.matches_joined(previous))
-            {
-                state.setup_exit = Some(joined.clone());
-                if let Err(source) = joined.result() {
-                    if state.setup_failure.is_none() {
-                        // Panic/registration wrapper faults are real task
-                        // faults, unlike an already retained operation result.
-                        state.retired_application.push(joined.clone());
-                        state.setup_failure = Some(SetupFailure {
-                            source,
-                            next_candidate: false,
-                        });
-                    }
-                }
-            }
-            state.initializing = false;
-        }
-        if joined.result().is_err() {
-            caller
-                .acknowledge_hosted_failure(&joined)
-                .map_err(|source| error(Stage::Close, Reason::Internal).with_source(source))?;
-        }
-        Ok(())
-    }
-    pub(super) async fn wait_setup_ack(&self, end: Instant) -> Result<(), ChannelError> {
-        let caller = { self.state.lock().await.caller.clone() };
-        if let Some(caller) = caller {
-            let joined = tokio::time::timeout_at(end, caller.wait_registration_released())
-                .await
-                .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?;
-            if !caller.matches_joined(&joined) || !joined.registration_released() {
-                return Err(error(Stage::Close, Reason::Internal));
-            }
-        }
-        Ok(())
-    }
-}
-mod candidate;
 
-impl Entry {
-    pub(super) async fn wait_endpoint_ack(&self, end: Instant) -> Result<(), ChannelError> {
-        let receipt = { self.state.lock().await.retiring_registrations.clone() };
-        if let Some(receipt) = receipt {
-            for original in receipt
-                .registrations()
-                .iter()
-                .chain(receipt.related_registrations())
-            {
-                let joined = tokio::time::timeout_at(end, original.wait_registration_released())
-                    .await
-                    .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?;
-                if !original.matches_joined(&joined) || !joined.registration_released() {
-                    return Err(error(Stage::Close, Reason::Internal));
-                }
-            }
-            let old = {
-                let mut state = self.state.lock().await;
-                if state
-                    .retiring_registrations
-                    .as_ref()
-                    .is_some_and(|actual| actual.same_original(&receipt))
-                {
-                    state.retiring_registrations.take()
-                } else {
-                    None
-                }
-            };
-            drop(old);
-        }
-        Ok(())
-    }
-}
+mod candidate;
+mod receive;

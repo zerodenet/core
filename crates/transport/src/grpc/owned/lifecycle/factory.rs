@@ -74,12 +74,27 @@ impl NativePoolFactory {
             .ok_or_else(|| error(instance, Stage::Prepare, Reason::Revoked))?;
         let cancel = context.cancel.child_token();
         let carriers = CarrierOwner::new(instance, options.carrier_limit, &cancel);
+        let tcp_masks = match &options.tcp_masks {
+            Some(raw) => crate::finalmask::Profile::new_owned_from_ref(
+                raw,
+                context
+                    .resources
+                    .carrier_buffer_budget()
+                    .ok_or_else(|| error(instance, Stage::Prepare, Reason::Unsupported))?,
+                context.resources.packet_driver_metadata()?,
+            )
+            .map_err(|source| {
+                error(instance, Stage::Prepare, Reason::Capacity).with_source(source)
+            })?,
+            None => Default::default(),
+        };
         let managed = Managed::new(
             &context,
             options,
             upstream,
             cancel,
             carriers.grants(),
+            tcp_masks,
             #[cfg(feature = "tls")]
             ech_resolver,
         );

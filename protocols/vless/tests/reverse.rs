@@ -59,3 +59,13 @@ fn portal_sends_first_and_ten_second_heartbeats_and_drains_once() {
     assert!(state.draining());
     assert!(state.tick(258).is_none());
 }
+
+#[test]
+fn reverse_header_has_no_routing_destination_and_keeps_the_real_protocol_command() {
+    let uuid = [0x17; 16];
+    let wire = build_request(&uuid, None).unwrap();
+    assert_eq!(wire.len(), 19);
+    assert_eq!(wire[0], 0);
+    assert_eq!(&wire[1..17], &uuid);
+    assert_eq!(&wire[17..], &[0, COMMAND]);
+}

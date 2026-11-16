@@ -23,7 +23,7 @@ impl ComponentFactory for PoolFactory {
     type Options = PoolOptions;
     fn describe(&self, options: &PoolOptions) -> ComponentSpec {
         ComponentSpec {
-            owner: ResourceOwner::Endpoint("mieru.client_pool".into()),
+            owner: ResourceOwner::Component,
             roles: vec![],
             dependencies: vec![],
             static_identity: options.identity.clone(),

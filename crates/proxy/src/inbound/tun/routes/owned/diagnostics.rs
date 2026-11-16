@@ -10,7 +10,9 @@ pub(super) struct RouteDiagnostics {
 }
 struct Record {
     operation: OnceLock<SourceError>,
+    operation_panic: OnceLock<SourceError>,
     cleanup: OnceLock<SourceError>,
+    cleanup_panic: OnceLock<SourceError>,
     files: zero_tun::RouteFileFaults,
     file_error: PacketMetadataError,
 }
@@ -43,7 +45,9 @@ impl RouteDiagnostics {
         let record = PacketMetadataArc::from_prepaid(
             Record {
                 operation: OnceLock::new(),
+                operation_panic: OnceLock::new(),
                 cleanup: OnceLock::new(),
+                cleanup_panic: OnceLock::new(),
                 files,
                 file_error,
             },
@@ -68,10 +72,20 @@ impl RouteDiagnostics {
     pub(super) fn record_operation(&self, source: SourceError) {
         // The actual command waiter also owns its returned error. Preserve the
         // worker's first failed operation, matching its established semantics.
-        let _ = self.record.operation.set(source);
+        let slot = if is_original_panic(&source) {
+            &self.record.operation_panic
+        } else {
+            &self.record.operation
+        };
+        let _ = slot.set(source);
     }
     pub(super) fn record_cleanup(&self, source: SourceError) {
-        let _ = self.record.cleanup.set(source);
+        let slot = if is_original_panic(&source) {
+            &self.record.cleanup_panic
+        } else {
+            &self.record.cleanup
+        };
+        let _ = slot.set(source);
     }
     pub(super) fn unaccepted_failure(&self) -> Option<ChannelError> {
         (self.has_failures() && !self.receipt.is_acknowledged())
@@ -79,7 +93,9 @@ impl RouteDiagnostics {
     }
     fn has_failures(&self) -> bool {
         self.record.operation.get().is_some()
+            || self.record.operation_panic.get().is_some()
             || self.record.cleanup.get().is_some()
+            || self.record.cleanup_panic.get().is_some()
             || self.record.files.has_failures()
     }
     pub(super) fn finish_worker(
@@ -106,7 +122,9 @@ impl std::fmt::Debug for Record {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OriginalRouteWorkerFailures")
             .field("operation", &self.operation.get().is_some())
+            .field("operation_panic", &self.operation_panic.get().is_some())
             .field("cleanup", &self.cleanup.get().is_some())
+            .field("cleanup_panic", &self.cleanup_panic.get().is_some())
             .field("files", &self.files.has_failures())
             .finish()
     }
@@ -114,9 +132,14 @@ impl std::fmt::Debug for Record {
 impl std::fmt::Display for Record {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("original route worker retained its actual failures")?;
-        for source in [self.operation.get(), self.cleanup.get()]
-            .into_iter()
-            .flatten()
+        for source in [
+            self.operation.get(),
+            self.operation_panic.get(),
+            self.cleanup.get(),
+            self.cleanup_panic.get(),
+        ]
+        .into_iter()
+        .flatten()
         {
             write!(f, "; {source}")?;
         }
@@ -130,7 +153,9 @@ impl std::error::Error for Record {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         self.operation
             .get()
+            .or_else(|| self.operation_panic.get())
             .or_else(|| self.cleanup.get())
+            .or_else(|| self.cleanup_panic.get())
             .map(|source| source.as_ref() as &(dyn std::error::Error + 'static))
             .or_else(|| {
                 self.files
@@ -138,4 +163,10 @@ impl std::error::Error for Record {
                     .then(|| self.file_error.as_error())
             })
     }
+}
+
+fn is_original_panic(source: &io::Error) -> bool {
+    source
+        .get_ref()
+        .is_some_and(|source| source.is::<Arc<super::unwind::Panic>>())
 }

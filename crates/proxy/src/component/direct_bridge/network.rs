@@ -7,7 +7,7 @@ use zero_platform_tokio::contract::{
     datagram::{BoxDatagramSession, DatagramRequest},
     network::{CarrierContext, UpstreamBinding, UpstreamOpener},
     stream::BoxStream,
-    BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
+    BoxFuture, ChannelError, Reason,
 };
 
 pub(in crate::component) struct Evidence {
@@ -86,71 +86,15 @@ impl UpstreamOpener for DirectOpener {
 
     fn open_stream(
         &self,
-        binding: &UpstreamBinding,
-        destination: Destination,
+        _: &UpstreamBinding,
+        _: Destination,
         _: CarrierContext,
     ) -> BoxFuture<'_, Result<BoxStream, ChannelError>> {
-        let binding = binding.clone();
-        Box::pin(async move {
-            if !binding.prefix.is_empty() || binding.network_generation.0 != self.generation() {
-                return Err(invalid(
-                    Reason::StalePlan,
-                    "root Direct opener cannot execute a prefix or stale network generation",
-                ));
-            }
-            if destination.address != self.session.target || destination.port != self.session.port {
-                return Err(invalid(
-                    Reason::StalePlan,
-                    "Direct destination differs from the prepared network request",
-                ));
-            }
-            match self
-                .services
-                .connect_direct(&self.session, &binding.dial)
-                .await
-            {
-                Ok(connection) => {
-                    if binding.network_generation.0 != self.generation() {
-                        // No business bytes have been submitted. Drop this stale socket.
-                        return Err(invalid(
-                            Reason::StalePlan,
-                            "network changed during Direct establishment",
-                        ));
-                    }
-                    let local = connection.socket.local_addr().ok();
-                    *self.evidence.lock().expect("Direct observation poisoned") =
-                        Some(Ok(Evidence {
-                            remote: connection.remote,
-                            local,
-                            network: connection.network,
-                        }));
-                    Ok(Box::pin(connection.socket) as BoxStream)
-                }
-                Err(failure) => {
-                    *self.evidence.lock().expect("Direct observation poisoned") =
-                        Some(Err(FailureEvidence {
-                            stage: failure.stage,
-                            network: failure.network,
-                            legacy_error: failure.error.clone(),
-                        }));
-                    let reason = if failure
-                        .source
-                        .as_ref()
-                        .is_some_and(|source| source.kind() == std::io::ErrorKind::TimedOut)
-                    {
-                        Reason::Timeout
-                    } else {
-                        Reason::Io
-                    };
-                    let error = ChannelError::new(Stage::Dial, reason, Impact::Session);
-                    let mut error = match failure.source {
-                        Some(source) => error.with_source(source),
-                        None => error.with_source(failure.error),
-                    };
-                    error.delivery = DeliveryState::NotSubmitted;
-                    Err(error)
-                }
-            }
+        Box::pin(async {
+            Err(invalid(
+                Reason::Unsupported,
+                "Direct proxy callers use their original controlled Stream provider",
+            ))
         })
     }
     fn open_datagram(
@@ -167,9 +111,5 @@ impl UpstreamOpener for DirectOpener {
         })
     }
 }
-
-#[cfg(test)]
-#[path = "tests/network.rs"]
-mod tests;
 
 mod controlled;

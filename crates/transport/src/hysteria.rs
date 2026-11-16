@@ -1,5 +1,10 @@
 //! Hysteria v2 as an authenticated byte-stream carrier (Xray v26.3.27).
 //! The carried protocol owns all target-address and packet framing.
+mod managed;
+mod ownership;
+pub use ownership::OwnershipFamily;
+pub mod owned;
+pub use managed::{ManagedPool, NativeSlot};
 mod client;
 mod dispatch;
 mod masquerade;
@@ -32,6 +37,15 @@ impl std::fmt::Debug for Profile {
     }
 }
 impl Profile {
+    /// The immutable physical-wire rotation plan; no socket or task is created.
+    pub fn hopping(&self) -> Option<&crate::datagram_hop::Profile> {
+        self.hopping.as_ref()
+    }
+    /// Port-hopping requires a distinct original wire controller per hop.
+    pub fn has_port_hopping(&self) -> bool {
+        self.hopping.is_some()
+    }
+
     pub fn with_masquerade(mut self, masquerade: Masquerade) -> Self {
         self.masquerade = masquerade;
         self

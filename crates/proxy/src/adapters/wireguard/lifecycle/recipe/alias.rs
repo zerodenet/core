@@ -42,6 +42,9 @@ impl WireguardAdapter {
         outbound: &OutboundConfig,
         resources: &mut crate::component::ResourcePreparation<'_>,
     ) -> Result<LinkedOutboundOptions, ChannelError> {
+        if let Some(graph) = self.cold_graph(outbound.tag(), resources) {
+            return self.cold_outbound_options(outbound, resources, graph);
+        }
         if matches!(
             outbound.protocol,
             OutboundProtocolConfig::Wireguard {
@@ -85,33 +88,7 @@ impl WireguardAdapter {
         }) {
             return Err(error(Reason::StalePlan));
         }
-        use sha2::{Digest, Sha256};
-        let mut identity = Sha256::new();
-        identity.update(b"zero.wireguard.linked.alias.v1");
-        identity.update(graph.spec.static_identity.as_ref());
-        for encoded in [
-            serde_json::to_vec(&outbound.tag),
-            serde_json::to_vec(&outbound.protocol),
-            serde_json::to_vec(&outbound.dial),
-            serde_json::to_vec(&outbound.udp),
-        ] {
-            let encoded =
-                encoded.map_err(|source| error(Reason::InvalidConfig).with_source(source))?;
-            identity.update((encoded.len() as u64).to_le_bytes());
-            identity.update(encoded);
-        }
-        Ok(LinkedOutboundOptions {
-            graph: super::carrier::Graph::Linked(graph),
-            dependency,
-            spec: ComponentSpec {
-                owner: ResourceOwner::Component,
-                roles: vec![RoleKind::Packet, RoleKind::Stream, RoleKind::Datagram],
-                dependencies: vec![dependency],
-                static_identity: identity.finalize().to_vec().into(),
-                resources: vec![],
-                task_limit: None,
-            },
-        })
+        LinkedOutboundOptions::linked(graph, outbound, dependency)
     }
 }
 impl ComponentFactory for LinkedOutboundFactory {
@@ -266,5 +243,69 @@ impl WireguardAdapter {
             Arc::new(LinkedOutboundFactory),
             Arc::new(options),
         ))
+    }
+}
+
+impl LinkedOutboundOptions {
+    fn linked(
+        graph: Arc<super::component::LinkedStackOptions>,
+        outbound: &OutboundConfig,
+        dependency: ComponentId,
+    ) -> Result<Self, ChannelError> {
+        use sha2::{Digest, Sha256};
+        let mut identity = Sha256::new();
+        identity.update(b"zero.wireguard.linked.alias.v1");
+        identity.update(graph.spec.static_identity.as_ref());
+        for encoded in [
+            serde_json::to_vec(&outbound.tag),
+            serde_json::to_vec(&outbound.protocol),
+            serde_json::to_vec(&outbound.dial),
+            serde_json::to_vec(&outbound.udp),
+        ] {
+            let encoded =
+                encoded.map_err(|source| error(Reason::InvalidConfig).with_source(source))?;
+            identity.update((encoded.len() as u64).to_le_bytes());
+            identity.update(encoded);
+        }
+        Ok(Self {
+            graph: super::carrier::Graph::Linked(graph),
+            dependency,
+            spec: ComponentSpec {
+                owner: ResourceOwner::Component,
+                roles: vec![RoleKind::Packet, RoleKind::Stream, RoleKind::Datagram],
+                dependencies: vec![dependency],
+                static_identity: identity.finalize().to_vec().into(),
+                resources: vec![],
+                task_limit: None,
+            },
+        })
+    }
+}
+impl WireguardAdapter {
+    fn cold_outbound_options(
+        &self,
+        outbound: &OutboundConfig,
+        resources: &crate::component::ResourcePreparation<'_>,
+        graph: super::carrier::Graph,
+    ) -> Result<LinkedOutboundOptions, ChannelError> {
+        let (id, spec) = match &graph {
+            super::carrier::Graph::Linked(root) => (root.resource_id(), root.spec.clone()),
+            super::carrier::Graph::Standalone(root) => {
+                (root.resource.get().copied(), root.spec.clone())
+            }
+        };
+        let id = id.ok_or_else(|| error(Reason::StalePlan))?;
+        if !resources
+            .resources()
+            .any(|entry| entry.component() == id && entry.recipe().spec() == &spec)
+        {
+            return Err(error(Reason::StalePlan));
+        }
+        match graph {
+            super::carrier::Graph::Linked(root) => {
+                LinkedOutboundOptions::linked(root, outbound, id)
+            }
+            super::carrier::Graph::Standalone(root) => LinkedOutboundOptions::standalone(root),
+        }
     }
 }

@@ -1,7 +1,7 @@
 //! Cold ownership tests create no socket, pool driver or protocol task. They
 //! establish reference lifetimes, never physical I/O-close evidence.
 use super::*;
-use crate::runtime::{dns_outbound::ProxyDnsOutboundConnector, Proxy};
+use crate::runtime::Proxy;
 use zero_config::RuntimeConfig;
 
 fn config(label: &str) -> RuntimeConfig {
@@ -16,20 +16,20 @@ fn config(label: &str) -> RuntimeConfig {
 }
 
 #[test]
-fn retained_dns_and_callback_cannot_keep_the_engine_config_or_host_source_alive() {
+fn retained_native_dns_and_node_service_cannot_keep_engine_config_or_host_source_alive() {
     let proxy = Proxy::new(config("first")).unwrap();
     let config = Arc::downgrade(&proxy.engine().config());
     let source = proxy.current_service_source();
-    let callback = ProxyDnsOutboundConnector::new(source.clone());
-    let resolver = proxy.resolver.clone(); // Keep the actual installed callback alive too.
+    let resolver = proxy.resolver.clone();
+    let node = resolver.native_node_service();
     assert!(source.upgrade().unwrap().runtime_services().is_ok());
     drop(proxy);
     assert!(source.upgrade().is_none());
     assert!(
         config.upgrade().is_none(),
-        "resolver callback must not retain Engine's current config"
+        "native resolver must not retain Engine's current config"
     );
-    drop(callback);
+    drop(node);
     assert!(config.upgrade().is_none());
     drop(resolver);
 }

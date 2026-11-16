@@ -1,6 +1,8 @@
 //! Declared completion and sticky task faults are different retained facts.
 //! Native declarations remain unconfirmed without provider-level physical proof.
+mod receive;
 use super::*;
+use futures_util::{stream::FuturesUnordered, StreamExt};
 use std::collections::BTreeSet;
 use zero_core::component::ComponentInstanceId;
 
@@ -24,108 +26,52 @@ impl ComponentPlan {
             .collect();
         let ordered =
             super::replacement::order::close_order(&nodes, &self.borrowing.loan_snapshot().1)?;
-        let retiring: Vec<_> = ordered.iter().map(|id| &nodes[id]).collect();
-        if retiring.len() != instances.len() {
+        if nodes.len() != instances.len() {
             return Err(invalid(
                 Reason::InvalidConfig,
                 "retirement contains an unknown owner",
             ));
         }
-        // Revoke the whole exact subset before its first cleanup suspension.
-        for slot in &retiring {
+        for slot in nodes.values() {
             slot.revoke();
         }
         let mut pending = None;
         let mut blocked: BTreeSet<ComponentInstanceId> = BTreeSet::new();
-        for slot in retiring {
-            let identity = slot.instance_id();
-            if blocked.contains(&identity) {
-                blocked.extend(self.retirement_dependencies(slot));
-                continue;
-            }
-            if self
-                .confirmed_declared_close
-                .lock()
-                .expect("component close proof poisoned")
-                .contains(&identity)
-            {
-                continue;
-            }
-            match slot.shutdown(deadline).await {
-                Ok(mut report) => {
-                    // Persist the actual failure first, then declared completion,
-                    // without an await or a caller-owned temporary in between.
-                    {
-                        let mut failures =
-                            self.failures.lock().expect("component failures poisoned");
-                        for failure in report.failed_tasks.drain(..) {
-                            failures
-                                .entry(plan::FailureKey::Task(failure.id))
-                                .or_insert_with(|| {
-                                    Arc::new(plan::PlanFailure::new(failure, identity))
-                                });
-                        }
-                    }
-                    let mut actual_resource_fault = None;
-                    for failure in &report.resource_failures {
-                        if failure.instance != identity {
-                            return Err(invalid(
-                                Reason::StalePlan,
-                                "resource failure belongs to another actual slot",
-                            ));
-                        }
-                        let actual = {
-                            let mut failures =
-                                self.failures.lock().expect("component failures poisoned");
-                            failures
-                                .entry(plan::FailureKey::Resource(identity, failure.controller))
-                                .or_insert_with(|| {
-                                    Arc::new(plan::PlanFailure::resource(failure.clone()))
-                                })
-                                .clone()
-                        };
-                        actual_resource_fault.get_or_insert_with(|| actual.clone());
-                        // Persist the exact source in the existing canonical archive
-                        // before acknowledging the original provider receipt.
-                        // Publication uses the same row after full real close.
-                        if !actual.receive_resource_ownership(failure) {
-                            return Err(invalid(
-                                Reason::StalePlan,
-                                "resource failure differs from its actual retained archive row",
-                            )
-                            .with_source(Arc::new(plan::PlanFailure::resource(failure.clone()))));
-                        }
-                    }
-                    let complete = report.is_complete();
-                    if complete {
-                        self.confirmed_declared_close
-                            .lock()
-                            .expect("component close proof poisoned")
-                            .insert(identity);
-                    } else {
-                        blocked.extend(self.retirement_dependencies(slot));
-                        pending.get_or_insert_with(|| {
-                            if let Some(actual) = actual_resource_fault {
-                                return actual.retained();
-                            }
-                            let mut error =
-                                invalid(Reason::Timeout, "component cleanup remains unfinished");
-                            error.stage = zero_platform_tokio::contract::Stage::Close;
-                            error.component = Some(slot.id);
-                            error
-                        });
-                    }
-                    let mut evidence = self
-                        .close_evidence
-                        .lock()
-                        .expect("component close evidence poisoned");
-                    let retained = evidence.entry(identity).or_default();
-                    retained.unfinished.clear();
-                    retained.append(report);
+        for group in ordered {
+            if group.iter().any(|id| blocked.contains(id)) {
+                for id in &group {
+                    blocked.extend(self.retirement_dependencies(&nodes[id]));
                 }
-                Err(error) => {
-                    blocked.extend(self.retirement_dependencies(slot));
+                continue;
+            }
+            let mut closing = FuturesUnordered::new();
+            for identity in &group {
+                if self
+                    .confirmed_declared_close
+                    .lock()
+                    .expect("component close proof poisoned")
+                    .contains(identity)
+                {
+                    continue;
+                }
+                let slot = nodes[identity].clone();
+                closing.push(async move {
+                    let result = slot.shutdown(deadline).await;
+                    // Archive inside the awaited original, before it becomes a
+                    // completed stream item that an observer could discard.
+                    self.receive_instance_close(&slot, result)
+                });
+            }
+            let mut incomplete = false;
+            while let Some(result) = closing.next().await {
+                if let Err(error) = result {
+                    incomplete = true;
                     pending.get_or_insert(error);
+                }
+            }
+            if incomplete {
+                for id in &group {
+                    blocked.extend(self.retirement_dependencies(&nodes[id]));
                 }
             }
         }

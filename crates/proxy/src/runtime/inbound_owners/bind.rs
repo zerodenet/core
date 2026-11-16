@@ -24,17 +24,37 @@ impl InboundOwnerRegistry {
         tag: &str,
         config: &Arc<RuntimeConfig>,
         protocols: &ProtocolInventory,
-        mut prepared: PreparedInboundBind,
+        prepared: PreparedInboundBind,
         shutdown: watch::Sender<bool>,
         max_bind_attempts: NonZeroUsize,
     ) -> Result<InboundBindLease, EngineError> {
-        if !config.inbounds.iter().any(|inbound| inbound.tag == tag) {
+        self.reserve_listener_kind(
+            tag,
+            config,
+            protocols,
+            prepared,
+            shutdown,
+            max_bind_attempts,
+            true,
+        )
+    }
+    pub(in crate::runtime::inbound_owners) fn reserve_listener_kind(
+        self: &Arc<Self>,
+        tag: &str,
+        config: &Arc<RuntimeConfig>,
+        protocols: &ProtocolInventory,
+        mut prepared: PreparedInboundBind,
+        shutdown: watch::Sender<bool>,
+        max_bind_attempts: NonZeroUsize,
+        configured: bool,
+    ) -> Result<InboundBindLease, EngineError> {
+        if configured && !config.inbounds.iter().any(|inbound| inbound.tag == tag) {
             return Err(io(
                 "listener reservation is outside its actual configuration",
             ));
         }
-        #[cfg(feature = "raw-ip-runtime")]
-        {
+        #[cfg(any(feature = "raw-ip-runtime", feature = "managed-stream-runtime"))]
+        if configured {
             let input = config
                 .inbounds
                 .iter()
@@ -96,6 +116,7 @@ impl InboundOwnerRegistry {
                 .component_tasks
                 .clone(),
         )?);
+        owner.bind_carrier_host(&protocols.runtime_host());
         #[cfg(feature = "raw-ip-runtime")]
         let requested_ring = prepared
             .resources()
@@ -120,7 +141,10 @@ impl InboundOwnerRegistry {
             .set(dependencies)
             .map_err(|_| io("actual Source dependencies already installed"))?;
         #[cfg(feature = "raw-ip-runtime")]
-        if let Some(input) = config.inbounds.iter().find(|input| input.tag == tag) {
+        if let Some(input) = configured
+            .then(|| config.inbounds.iter().find(|input| input.tag == tag))
+            .flatten()
+        {
             owner
                 .source_tag
                 .set(Arc::from(tag))

@@ -11,9 +11,6 @@ impl PreparedWireguardDevices {
             .profiles
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        for update in self.linked_updates.drain(..) {
-            update.publish();
-        }
         for link in self.next_linked.values() {
             link.publish_endpoint_io();
         }
@@ -42,7 +39,7 @@ impl PreparedWireguardDevices {
         // and the pool's same retiring controllers/joins available for retry.
         for device in &self.stopped {
             if let Err(error) = device.wait_workers_stopped().await {
-                tracing::warn!(%error, "compatibility device publication joined original failed workers");
+                tracing::warn!(%error, "retired device publication joined original failed workers");
             }
         }
         self.stopped.clear();

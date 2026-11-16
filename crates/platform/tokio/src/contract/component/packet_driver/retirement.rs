@@ -2,6 +2,9 @@ use super::*;
 use std::sync::atomic::Ordering;
 impl Record {
     pub(super) fn released(&self) -> bool {
+        if self.preparing.load(Ordering::Acquire) {
+            return false;
+        }
         if self
             .protocols
             .as_ref()
@@ -84,10 +87,10 @@ impl Record {
                         installed.complete.store(true, Ordering::Release);
                     }
                     let result = match self.failed_phase(&self.failures.final_control) {
-                        Some(source) if !control.logical_cleanup_continuation() => Err(source),
                         _ if installed.complete.load(Ordering::Acquire) => {
                             Ok(CloseReport::default())
                         }
+                        Some(source) if !control.logical_cleanup_continuation() => Err(source),
                         _ => self.receive_phase(
                             &self.failures.final_control,
                             control.close(deadline).await,
@@ -108,6 +111,10 @@ impl Record {
                 )),
             }
         }
+        // A failed setup may not produce a final logical controller. Its real
+        // cached input can still return to that exact original donor; an
+        // installed but unreturned final controller remains an independent gate.
+        self.release_host_retained_pending();
         // The same actual logical view returned above. Child global settlement
         // or a sealed actual cached receiver must be positive before this row
         // can disappear; its Source caller ACK remains an independent gate.

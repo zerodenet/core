@@ -70,7 +70,7 @@ impl ComponentSlot {
                     &self.recipe.spec().resources,
                     self.cancel.clone(),
                     tasks.registrar().downgrade(),
-                    originals,
+                    originals.clone(),
                     self.declared_failures.clone(),
                     self.protocol_failures.clone(),
                     self.packet_source.clone(),
@@ -128,7 +128,16 @@ impl ComponentSlot {
                 };
                 let instance = self.recipe.build(context).map_err(Arc::new)?;
                 let protocol_failures = resources.protocol_failure_receiver();
+                if let Some(provider)=&instance.roles.accepted_carriers {
+                    if self.recipe.spec().task_limit.is_some() || !matches!(self.recipe.spec().resources.as_slice(),[zero_platform_tokio::contract::component::ResourceDeclaration::AcceptedCarrierSources{..}])
+                        || instance.roles.stream.is_none() || instance.roles.datagram.is_none()
+                        || instance.roles.inbound.is_some() || instance.roles.packet.is_some() {
+                        return Err(Arc::new(self.failure(Reason::StalePlan,"accepted provider publication differs from actual logical roles")));
+                    }
+                    resources.bind_accepted_carriers(provider.clone()).map_err(Arc::new)?;
+                }
                 Ok(Live {
+                    accepted_carriers: instance.roles.accepted_carriers.clone(),
                     resources,
                     stream: instance
                         .roles

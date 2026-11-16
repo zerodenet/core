@@ -23,7 +23,9 @@ impl ComponentFactory for PoolFactory {
     type Options = PoolOptions;
     fn describe(&self, options: &PoolOptions) -> ComponentSpec {
         ComponentSpec {
-            owner: ResourceOwner::Endpoint("shared.stream_pool".into()),
+            // The canonical component, not its endpoint label, owns the real
+            // driver records, carrier grants and dependent lifecycle.
+            owner: ResourceOwner::Component,
             roles: vec![],
             dependencies: options.dependencies.clone(),
             static_identity: options.identity.clone(),
@@ -106,7 +108,8 @@ impl PoolFactory {
             records: Mutex::new(vec![]),
             changed: Notify::new(),
             connecting: tokio::sync::Mutex::new(()),
-            epoch: Mutex::new(None),
+            openings: Mutex::new(Default::default()),
+            epoch: Mutex::new(Default::default()),
             settled: Mutex::new(Default::default()),
             operations: AtomicUsize::new(0),
         });
@@ -184,24 +187,14 @@ impl ResourceLifecycle for Owner {
         self.pending
             .append(std::mem::take(&mut *self.managed.settled.lock().unwrap()));
         self.pending.unfinished.clear();
-        self.pending.append(self.carriers.shutdown(deadline).await?);
-        let records = self.managed.records.lock().unwrap().clone();
-        for record in records {
-            if let Some(children) = &record.protocols {
-                if !children.wait_returned(deadline).await? {
-                    self.pending.unfinished.push(Unfinished::Resource(
-                        "original child protocol return/Host ACK remains pending".into(),
-                    ));
-                }
-                children.reclaim_returned();
-            }
-            record.release_installed_pending();
-            let pending = record.pending.lock().unwrap().clone();
-            for original in pending {
-                self.pending.append(original.retire(deadline).await?);
-            }
-            record.release_installed_pending();
+        let originals = self.managed.records.lock().unwrap().clone();
+        if !self.managed.retire_originals(originals, deadline).await? {
+            self.pending.unfinished.push(Unfinished::Resource(
+                "consumer original remains before its shorter pool donor".into(),
+            ));
+            return Ok(std::mem::take(&mut self.pending));
         }
+        self.pending.append(self.carriers.shutdown(deadline).await?);
         loop {
             let changed = self.managed.changed.notified();
             tokio::pin!(changed);

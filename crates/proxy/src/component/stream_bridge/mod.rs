@@ -38,6 +38,16 @@ pub(crate) async fn connect(
     prepared: &PreparedTcpCandidate,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
     if prepared.endpoint.is_none() {
+        if slot.recipe.spec().resources.iter().any(|resource| matches!(resource,
+            zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. }
+            | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier { .. })) {
+            let invocation = services.invocation.clone().ok_or_else(|| failure_optional(
+                "request_identity", invalid(Reason::Internal, "Direct Stream requires its actual caller"), None,
+            ))?;
+            return super::direct_bridge::connect_slot(
+                services, session, prepared.tag.as_deref().unwrap_or("direct"), slot, &slot.dial, invocation,
+            ).await;
+        }
         return packet_network::connect(services, session, slot, prepared).await;
     }
     let endpoint = prepared

@@ -9,18 +9,17 @@ pub(super) mod retained;
 use super::{inbound, invalid, PendingLinkedEndpoint, WireguardAdapter, WireguardRawIpPlan};
 use crate::{
     protocol_registry::UpstreamConnectServices,
-    runtime::{
-        raw_ip::{EndpointStackRecipe, RawIpStackOptions},
-        udp_dispatch::packet_owner::PacketCarrierDemand,
-    },
+    runtime::raw_ip::{EndpointStackRecipe, RawIpStackOptions},
 };
 use component::{LinkedStackFactory, LinkedStackOptions};
-pub(super) use invocation::LinkedInvocation;
+pub(super) use invocation::{LinkedBuildContext, LinkedInvocation};
 use std::sync::Arc;
 use zero_config::{InboundConfig, OutboundConfig, OutboundProtocolConfig};
 use zero_core::component::{ComponentId, ComponentInstanceId, NetworkGeneration};
 use zero_engine::EngineError;
-use zero_platform_tokio::contract::{network::UpstreamBinding, scope::TaskRegistrar};
+use zero_platform_tokio::contract::network::UpstreamBinding;
+#[cfg(test)]
+use zero_platform_tokio::contract::scope::TaskRegistrar;
 
 pub(super) const SHARED_NAMESPACE: &str = "actual.assembly.wireguard.linked.peers";
 
@@ -51,8 +50,8 @@ pub(super) struct LinkedEndpointRecipe {
 }
 impl LinkedEndpointRecipe {
     /// No DNS, native handle, task registration or old receiver take occurs.
-    /// Proxy carriers retain their legacy route until their reconnect/control
-    /// graphs can keep originals through every fresh per-demand invocation.
+    /// Outer proxy carriers are retained by the actual Source's registered
+    /// wire and complete per-attempt cleanup book, including reconnects.
     #[cfg(test)]
     pub(super) fn prepare(
         adapter: &WireguardAdapter,
@@ -187,8 +186,9 @@ impl LinkedEndpointRecipe {
                 // endpoint still has native crypto peers in its Source, while
                 // this canonical outbound graph legitimately has zero stacks.
                 settings.stacks.len(),
-                // Node resolution/outer acquisition still belongs to each
-                // configured crypto peer, independently of disabled client IO.
+                // The actual Source declares configured crypto peers even
+                // when no virtual client stack is enabled. This is a layout
+                // bound, never a parallel native-carrier owner.
                 plan.peer_count(),
             )?),
         };
@@ -292,13 +292,14 @@ impl LinkedEndpointRecipe {
         }
         Ok(())
     }
-    /// Library bridge with explicit actual admission. Production canonical
-    /// callers use into_component and the same slot's BuildContext.tasks.
+    /// Fixtures use the same actual graph; production can enter only through
+    /// its canonical ComponentFactory and the same slot's BuildContext.tasks.
+    #[cfg(test)]
     pub(super) async fn start(
         self,
         upstream: &UpstreamConnectServices,
         registrar: &TaskRegistrar,
-        demand: PacketCarrierDemand,
+        demand: LinkedBuildContext,
     ) -> Result<Arc<inbound::LinkedEndpoint>, EngineError> {
         let (graph, invocation) = self.into_parts()?;
         graph.bind(registrar.downgrade())?;

@@ -23,6 +23,7 @@ impl Prepared {
     pub(super) fn install(
         &mut self,
         calls: &PacketDriverCalls,
+        wire: &TaskJoinWitness,
     ) -> Result<ReconnectRef, ChannelError> {
         let failures = ActorFailuresRef::from_prepaid(
             faults::ActorFailures::default(),
@@ -30,6 +31,7 @@ impl Prepared {
         )
         .map_err(|(source, _, _)| memory::memory_error(source))?;
         let value = Reconnect {
+            wire: wire.clone(),
             witness: OnceLock::new(),
             failures,
             observing_failure: Mutex::new(()),

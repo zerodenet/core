@@ -57,17 +57,43 @@ where
     let cancel = context.cancel.child_token();
     let stopping = cancel.clone();
     caller.spawn(TaskClass::Auxiliary, move |_| {
-        driver::run(stream, server, opened, stopping, facts, uuid)
+        driver::run(stream, server, opened, stopping, facts, uuid, None)
     })?;
     Ok(AcceptedRequest::Multiplex(Box::new(Source {
         requests,
-        auth,
+        auth: Some(auth),
+        cancel,
+    })))
+}
+/// The existing driver authenticates the retained Rvs IO before its first
+/// frame. Its original attempt and all logical requests use the real caller's Scope.
+pub(crate) fn reverse_source(
+    stream: BoxStream,
+    server: VlessInboundMuxServer,
+    uuid: [u8; 16],
+    context: &HandshakeContext,
+    facts: InboundConnectionFacts,
+    start: crate::reverse::WorkerAttempt,
+) -> Result<AcceptedRequest, ChannelError> {
+    let caller = context
+        .accepted
+        .as_ref()
+        .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Session))?;
+    let (opened, requests) = mpsc::channel(256);
+    let cancel = context.cancel.child_token();
+    let stopping = cancel.clone();
+    caller.spawn(TaskClass::Auxiliary, move |_| {
+        driver::run(stream, server, opened, stopping, facts, uuid, Some(start))
+    })?;
+    Ok(AcceptedRequest::Multiplex(Box::new(Source {
+        requests,
+        auth: None,
         cancel,
     })))
 }
 struct Source {
     requests: mpsc::Receiver<Request>,
-    auth: SessionAuth,
+    auth: Option<SessionAuth>,
     cancel: CancellationToken,
 }
 impl Drop for Source {
@@ -77,7 +103,7 @@ impl Drop for Source {
 }
 impl RequestMultiplexer for Source {
     fn auth(&self) -> Option<&SessionAuth> {
-        Some(&self.auth)
+        self.auth.as_ref()
     }
     fn close(&mut self, _: &str) {
         self.cancel.cancel();
@@ -203,3 +229,7 @@ mod half_close;
 #[cfg(test)]
 #[path = "standard/tests/cancelled.rs"]
 mod cancelled;
+
+#[cfg(test)]
+#[path = "standard/tests/reverse.rs"]
+mod reverse_tests;

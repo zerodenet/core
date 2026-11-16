@@ -1,7 +1,7 @@
 //! Actual host Source, same registered peer task and original OS endpoints.
 use super::*;
 use crate::runtime::{
-    udp_dispatch::operation::LiveDirectSource,
+    udp_dispatch::LiveDirectSource,
     udp_socket::endpoint::{dispatch::DirectDispatchEndpoint, peer::DirectBoundPeerOptions},
 };
 use std::error::Error;

@@ -187,3 +187,6 @@ async fn a_users_receipt_cannot_replay_another_original_or_another_actual_scope(
     second.control.close().unwrap();
     assert_eq!(native.take_report().main.confirmed_closed, 1);
 }
+
+#[path = "tests/protocol.rs"]
+mod protocol;

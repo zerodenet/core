@@ -13,6 +13,7 @@ pub struct LoanIo {
     cancelled: Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
     // The actual erased IO Box is destroyed before its exact original credit.
     boxing: Option<zero_traits::packet_metadata::PacketMetadataCredit>,
+    bypass: Option<zero_traits::TransportBypassControl>,
 }
 impl LoanIo {
     /// Retain a host's existing custody/revocation wrapper around the same view.
@@ -27,6 +28,7 @@ impl LoanIo {
             state,
             cancelled,
             boxing: None,
+            bypass: None,
         }
     }
     pub(super) fn retain_boxing(
@@ -35,6 +37,16 @@ impl LoanIo {
     ) {
         assert!(self.boxing.is_none(), "one original erased IO allocation");
         self.boxing = Some(credit);
+    }
+    /// Mode facts of the exact raw transport; no IO or native-close authority.
+    pub fn transport_bypass_control(&self) -> Option<zero_traits::TransportBypassControl> {
+        self.bypass.clone()
+    }
+    pub(super) fn set_transport_bypass_control(
+        &mut self,
+        control: Option<zero_traits::TransportBypassControl>,
+    ) {
+        self.bypass = control;
     }
     fn check(&mut self, cx: &mut Context<'_>) -> io::Result<()> {
         if self.cancelled.as_mut().poll(cx).is_ready() {

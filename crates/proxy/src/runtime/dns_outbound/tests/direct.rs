@@ -40,7 +40,6 @@ async fn direct(reject: bool) {
             "route":{"final":{"type":"direct"}}
         }).to_string()).unwrap();
         let proxy = Proxy::new(config.clone()).unwrap();
-        proxy.resolver.set_outbound_connector(Arc::new(NoLegacy));
         let end = || tokio::time::Instant::now()+Duration::from_secs(3);
         let running = proxy.spawn();
         let handle = crate::ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()), proxy.clone());

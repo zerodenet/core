@@ -29,14 +29,15 @@ impl OwnedVlessOutboundTransportPlan {
         if self.browser_dialer_settings.is_some()
             || self.hysteria.is_some()
             || self.mkcp.is_some()
-            || !self.final_mask.tcp().is_empty()
+            || !background && !self.final_mask.tcp().is_empty()
             || !self.final_mask.udp().is_empty()
-            || self.encryption.is_some()
+            || (self.encryption.is_some() && !background)
             || self.download.is_some()
             || self.transport.reality.is_some()
-            || self.transport.ws.is_some()
-            || self.transport.h2.is_some()
-            || self.transport.http_upgrade.is_some()
+            || !background
+                && (self.transport.ws.is_some()
+                    || self.transport.h2.is_some()
+                    || self.transport.http_upgrade.is_some())
             || self.transport.split_http.is_some()
             || self.transport.quic.is_some()
         {
@@ -78,6 +79,11 @@ impl OwnedVlessOutboundTransportPlan {
             },
             carriers,
             streams,
+        )?
+        .with_stream_layers(
+            self.transport.ws.clone(),
+            self.transport.h2.clone(),
+            self.transport.http_upgrade.clone(),
         )
     }
 }

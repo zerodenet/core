@@ -127,23 +127,6 @@ impl TcpExecutionServices {
         self.upstream.connect_upstream_owned(server, port).await
     }
 
-    pub(crate) async fn connect_direct(
-        &self,
-        session: &zero_core::Session,
-        dial_policy: &zero_traits::DialPolicy,
-    ) -> Result<crate::transport::DirectTcpConnection, crate::transport::DirectTcpConnectFailure>
-    {
-        self.upstream
-            .connector
-            .connect_with_policy(
-                session,
-                &self.upstream.resolver,
-                &self.upstream.egress_interface,
-                dial_policy,
-            )
-            .await
-    }
-
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) async fn resolve_packet_targets(
         &self,

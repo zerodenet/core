@@ -113,7 +113,27 @@ async fn hosted_vmess_grpc_pooled_relay_real_mux_loans_share_original_and_preser
                 2,
                 true,
                 true,
-                Box::new(|config| configure(config, std::slice::from_ref(&pool.node), false)),
+                Box::new(|config| {
+                    configure(config, std::slice::from_ref(&pool.node), false);
+                    for node in &mut config.outbounds {
+                        node.dial = serde_json::from_value(
+                            serde_json::json!({"address_family":"only_ipv4"}),
+                        )
+                        .unwrap();
+                    }
+                    config.outbounds.push(
+                        serde_json::from_value(serde_json::json!({
+                            "tag":"plain", "protocol":{"type":"direct"}
+                        }))
+                        .unwrap(),
+                    );
+                    config.outbound_groups.push(
+                        serde_json::from_value(serde_json::json!({
+                            "tag":"unused-branch", "type":"relay", "proxies":["pool","plain"]
+                        }))
+                        .unwrap(),
+                    );
+                }),
             )
             .await;
             assert_standard_relay(&proxy);

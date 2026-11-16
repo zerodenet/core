@@ -116,6 +116,25 @@ impl HostResources {
             }
         };
         native.controls.push(control);
+        let instance = self
+            .metadata
+            .identity
+            .as_ref()
+            .ok_or_else(|| self.denied())?
+            .0;
+        native
+            .controls
+            .last()
+            .unwrap()
+            .register_source_provider(instance, scope.clone())
+            .map_err(|source| {
+                error(
+                    self.component,
+                    Reason::StalePlan,
+                    "Metadata original Source binding failed",
+                )
+                .with_source(source)
+            })?;
         let (issuer, users_claim) = match native
             .controls
             .last_mut()

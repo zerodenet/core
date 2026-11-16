@@ -10,6 +10,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 pub struct CarrierIo {
     pub(super) io: Option<BoxStream>,
     pub(super) slot: Arc<Slot>,
+    pub(super) bypass: Option<zero_traits::TransportBypassControl>,
 }
 impl AsyncRead for CarrierIo {
     fn poll_read(
@@ -79,6 +80,9 @@ pub struct CarrierDriver<I> {
     pub(super) slot: Arc<Slot>,
 }
 impl CarrierIo {
+    pub fn transport_bypass_control(&self) -> Option<zero_traits::TransportBypassControl> {
+        self.bypass.clone()
+    }
     /// Inline wrapping retains the same view guard and original reservation.
     /// A cancelled or failed preparation leaves its controller with the owner.
     pub async fn prepare_stream(

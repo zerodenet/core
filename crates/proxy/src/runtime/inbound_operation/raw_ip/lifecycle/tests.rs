@@ -9,7 +9,6 @@ async fn peer_changes_wake_a_parked_listener_without_packet_io() {
             revision,
             devices: vec![],
             initial_endpoints: vec![],
-            carriers: vec![],
         })
     };
     let (sender, receiver) = watch::channel(state(1));

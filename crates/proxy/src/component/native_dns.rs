@@ -184,11 +184,7 @@ fn prepare_purpose(
     })?;
     #[cfg(feature = "dns")]
     let quic_metadata = provider::quic::metadata_limits(runtime);
-    let roots = if purpose == Purpose::Query {
-        crate::inventory::service::dns_roots(candidate)
-    } else {
-        Vec::new()
-    };
+    let roots = crate::inventory::service::dns_roots_for(candidate, dns);
     let ech = ech::endpoints(candidate)?;
     let peers = zero_dns::native::native_endpoints(dns).map_err(|source| {
         RegistrationError::Options(zero_config::ConfigError::InvalidOutbound(
@@ -266,3 +262,7 @@ mod resolution_call_tests;
 #[cfg(test)]
 #[path = "native_dns/tests/fake_ip_journal.rs"]
 mod fake_ip_journal_tests;
+
+#[cfg(all(test, feature = "dns"))]
+#[path = "native_dns/tests/node_detour.rs"]
+mod node_detour_tests;

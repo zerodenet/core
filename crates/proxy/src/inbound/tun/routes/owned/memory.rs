@@ -89,6 +89,8 @@ impl OwnedRoutes {
                 monitor_io: tokio::sync::Mutex::new(RouteChangeMonitor::prepare()),
                 worker: OnceLock::new(),
                 monitor: OnceLock::new(),
+                #[cfg(test)]
+                cleanup_gate: Mutex::new(None),
             },
             shared_credit,
         )

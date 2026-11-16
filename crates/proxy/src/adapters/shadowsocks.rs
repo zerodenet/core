@@ -7,13 +7,15 @@ use zero_config::{InboundConfig, InboundProtocolConfig, OutboundProtocolConfig};
 use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata};
 
 use crate::adapters::identity::NamedProtocolAdapter;
+#[cfg(not(any(target_os = "linux", windows)))]
 use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput};
+#[cfg(not(any(target_os = "linux", windows)))]
 use crate::runtime::path::TcpPathCategory;
 
 pub(crate) mod component;
 #[cfg(feature = "shadowsocks")]
 mod inbound_component;
-#[cfg(feature = "shadowsocks")]
+#[cfg(all(feature = "shadowsocks", not(any(target_os = "linux", windows))))]
 mod tcp;
 #[cfg(feature = "shadowsocks")]
 pub(crate) mod udp;
@@ -21,7 +23,6 @@ pub(crate) mod udp;
 #[cfg(feature = "shadowsocks")]
 #[derive(Debug)]
 pub(crate) struct ShadowsocksAdapter {
-    pub(crate) native_host: bool,
     inbound_profiles: ShadowsocksInboundProfileStore,
     outbound_state: ::shadowsocks::transport::ShadowsocksTransportState,
 }
@@ -38,7 +39,6 @@ impl Default for ShadowsocksAdapter {
         let bloom = ::shadowsocks::shared::LegacyReplayBudget::new(Some(64 * 1024 * 1024))
             .expect("positive legacy Bloom bitmap byte policy");
         Self {
-            native_host: false,
             inbound_profiles: ShadowsocksInboundProfileStore::with_security_budgets(
                 budget.clone(),
                 udp.clone(),
@@ -181,66 +181,43 @@ impl NamedProtocolAdapter for ShadowsocksAdapter {
     }
 }
 
-#[cfg(feature = "shadowsocks")]
+#[cfg(all(feature = "shadowsocks", not(any(target_os = "linux", windows))))]
 impl ShadowsocksAdapter {
     pub(crate) fn claim_outbound_leaf_impl<'a>(
         &self,
         input: OutboundLeafInput<'a>,
     ) -> Option<OutboundLeafClaim<'a>> {
-        let OutboundLeafInput::Proxy {
-            config, outbound, ..
-        } = input
-        else {
-            return None;
-        };
-        // Plugins keep their explicit process compatibility responsibility.
-        // Native core TCP and UDP already share this adapter's real replay and
-        // association owners; do not expose another ordinary UDP executor.
-        let standard = self.native_host
-            && matches!(
-                &outbound.protocol,
-                OutboundProtocolConfig::Shadowsocks { plugin: None, .. }
-            )
-            && !crate::adapters::mux_prefix::used_by_relay(config, outbound.tag());
-        if standard && !crate::adapters::mux_prefix::used_by_outer_udp(config, outbound.tag()) {
+        let OutboundLeafInput::Proxy { outbound, .. } = input;
+        // Only the explicitly deferred process platform keeps a compatibility
+        // executor. All native profiles use their actual standard factory.
+        if component::native_input(outbound) {
             return None;
         }
         let leaf = transport_leaf(&self.outbound_state, outbound.tag(), &outbound.protocol)?;
-        if standard {
-            return self
-                .udp_packet_path_operation(leaf)
-                .map(|packet_path| OutboundLeafClaim {
-                    tcp_path: TcpPathCategory::Session,
-                    tcp: None,
-                    tcp_relay: None,
-                    udp: None,
-                    udp_relay: None,
-                    #[cfg(feature = "raw-ip-runtime")]
-                    packet: None,
-                    packet_path: Some(packet_path),
-                });
-        }
-        let tcp = std::sync::Arc::new(
-            crate::runtime::tcp_dispatch::operation::SocketTcpOperation {
-                handshake: leaf.clone(),
-            },
-        );
+        let tcp = (!component::stream_input(outbound)).then(|| {
+            std::sync::Arc::new(
+                crate::runtime::tcp_dispatch::operation::SocketTcpOperation {
+                    handshake: leaf.clone(),
+                },
+            )
+        });
         Some(OutboundLeafClaim {
             tcp_path: TcpPathCategory::Session,
             // Native roots are selected from the actual installed role; only
             // unqualified plugin paths retain the compatibility connector.
-            tcp: (!component::native_input(outbound)).then(|| {
+            tcp: tcp.as_ref().map(|tcp| {
                 Ok(tcp.clone()
                     as std::sync::Arc<
                         dyn crate::runtime::tcp_dispatch::operation::PreparedTcpConnectOperation,
                     >)
             }),
-            tcp_relay: Some(Ok(tcp)),
-            udp: Some(self.udp_flow_operation(leaf.clone())),
-            udp_relay: None,
-            #[cfg(feature = "raw-ip-runtime")]
-            packet: None,
-            packet_path: self.udp_packet_path_operation(leaf),
+            tcp_relay: tcp.map(|tcp| {
+                Ok(tcp as std::sync::Arc<
+                    dyn crate::runtime::tcp_dispatch::operation::PreparedTcpRelayOperation,
+                >)
+            }),
+            udp: (!component::packet_input(outbound))
+                .then(|| self.udp_flow_operation(leaf.clone())),
         })
     }
 }
@@ -255,3 +232,7 @@ impl ProtocolMetadata for ShadowsocksAdapter {
 #[cfg(all(test, feature = "raw-ip-runtime"))]
 #[path = "shadowsocks/tests/replay_budget.rs"]
 mod replay_budget_tests;
+
+#[cfg(all(test, feature = "socks5", not(any(target_os = "linux", windows))))]
+#[path = "shadowsocks/tests/role_plugins.rs"]
+mod role_plugin_tests;

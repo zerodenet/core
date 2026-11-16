@@ -126,7 +126,7 @@ impl BorrowedPacketSegment {
         segment.endpoint_claim = Some(claim);
         Ok(segment)
     }
-    pub(in crate::quic::owned) fn bind_endpoint_users(
+    pub(crate) fn bind_endpoint_users(
         &mut self,
         socket: &PacketSocket,
         tasks: TaskRegistrar,
@@ -319,7 +319,7 @@ async fn send_packet(
     }
 }
 
-#[cfg(feature = "split_http")]
+#[cfg(any(feature = "split_http", feature = "hysteria"))]
 impl BorrowedPacketSegment {
     pub(in crate::quic::owned) fn retained_receiver(
         &self,

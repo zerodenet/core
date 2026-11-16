@@ -69,15 +69,16 @@ async fn connect(port: u16, domain: bool) -> TcpStream {
     stream
 }
 async fn exercise(domain: bool) {
+    exercise_mode(domain, "auto").await;
+}
+async fn exercise_mode(domain: bool, mode: &str) {
     let (endpoint, peer_task) = if domain {
         peer::echo_peer_with_dns(zero_traits::IpAddress::V4([198, 51, 100, 10])).await
     } else {
         peer::echo_peer().await
     };
-    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let socks = reserved.local_addr().unwrap().port();
-    drop(reserved);
-    let config = configuration(endpoint, socks, domain);
+    let mut config = configuration(endpoint, 0, domain);
+    config.route.final_mode = serde_json::from_value(serde_json::json!(mode)).unwrap();
     let inbound = config.endpoints[0].inbound_tag();
     let proxy = Proxy::new(config.clone()).unwrap();
     let packet_memory = proxy
@@ -100,6 +101,12 @@ async fn exercise(domain: bool) {
         .apply_runtime_config_and_wait(config, Duration::from_secs(5))
         .await
         .unwrap();
+    let socks_source = proxy
+        .inbound_owners
+        .owner("socks")
+        .expect("actual bound SOCKS source");
+    socks_source.wait_ready().await.unwrap();
+    let socks = socks_source.original_listener_address.get().unwrap().port();
     let snapshot = proxy.engine().runtime_snapshot();
     let source = proxy
         .inbound_owners
@@ -121,6 +128,23 @@ async fn exercise(domain: bool) {
     assert!(original.parent().is_none());
     assert!(original.closed().is_none());
     assert!(!original.driver().unwrap().is_joined());
+    let plan = proxy
+        .protocols
+        .current_components(snapshot.config())
+        .unwrap();
+    let selected = plan.configured("wg").unwrap();
+    assert!(plan.has_device_carrier_provider(selected.role_id()));
+    let (resolved, _) = proxy
+        .engine()
+        .resolve_route_decision(zero_engine::RouteDecision::Route("wg".into()))
+        .unwrap();
+    let zero_engine::ResolvedOutbound::Single(leaf) = resolved else {
+        unreachable!()
+    };
+    assert!(proxy
+        .protocols
+        .claim_outbound_leaf(snapshot.config(), leaf)
+        .is_err());
     let mut client = tokio::time::timeout_at(end(), connect(socks, domain))
         .await
         .unwrap();
@@ -245,3 +269,12 @@ mod full_transmit;
 
 #[path = "production/requested_ring.rs"]
 mod requested_ring;
+
+#[tokio::test]
+async fn strict_packet_canonical_stream_preserves_real_wire_accounting_and_original_close() {
+    exercise_mode(false, "packet").await;
+}
+#[tokio::test]
+async fn strict_packet_canonical_domain_stream_uses_same_actual_dns_and_device_provider() {
+    exercise_mode(true, "packet").await;
+}

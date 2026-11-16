@@ -46,6 +46,7 @@ impl EndpointStackRecipe {
     }
     /// BuildNew is the only phase allowed to consume this recipe.
     /// This does not certify old resources closed; the host must hold that proof.
+    #[cfg(test)]
     pub(crate) fn start(self) -> Result<Arc<SharedRawIpDevice>, EngineError> {
         self.start_with_workers(super::super::workers::DeviceWorkers::new())
     }

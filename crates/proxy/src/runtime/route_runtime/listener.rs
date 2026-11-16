@@ -142,11 +142,11 @@ impl InboundListenerRuntimeFactory {
         if self.restart_sources {
             return Ok(true);
         }
-        #[cfg(feature = "raw-ip-runtime")]
+        #[cfg(any(feature = "raw-ip-runtime", feature = "managed-stream-runtime"))]
         {
             self.shared.source_dependencies_changed(&self.owners, input)
         }
-        #[cfg(not(feature = "raw-ip-runtime"))]
+        #[cfg(not(any(feature = "raw-ip-runtime", feature = "managed-stream-runtime")))]
         {
             let _ = input;
             Ok(false)

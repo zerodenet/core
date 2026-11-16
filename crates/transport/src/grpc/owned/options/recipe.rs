@@ -32,7 +32,7 @@ impl NativePoolOptions {
                     std::io::ErrorKind::Unsupported,
                     "fixed native gRPC requires a literal direct endpoint",
                 )
-                .into())
+                .into());
             }
         };
         let endpoint = Destination::new(address, settings.port);
@@ -121,7 +121,7 @@ impl NativePoolOptions {
                         std::io::ErrorKind::InvalidInput,
                         "conflicting complete native gRPC recipe for the same actual pool",
                     )
-                    .into())
+                    .into());
                 }
                 None => {
                     let identity = next_identity()?;
@@ -156,6 +156,8 @@ impl NativePoolOptions {
             node_dns: None,
             ca: None,
             file_stamp: 0,
+            tcp_masks: None,
+            stream_layers: None,
         })
     }
 }

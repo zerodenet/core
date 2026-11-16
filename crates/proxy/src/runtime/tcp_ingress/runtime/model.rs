@@ -16,6 +16,14 @@ pub(crate) struct TcpIngressRuntime {
 }
 
 impl TcpIngressRuntime {
+    #[cfg(feature = "managed-stream-runtime")]
+    pub(in crate::runtime) fn with_service_instance(
+        mut self,
+        identity: zero_core::component::ComponentInstanceId,
+    ) -> Self {
+        self.services = self.services.with_inbound_instance(identity);
+        self
+    }
     pub(crate) fn new(
         services: TcpRuntimeServices,
         inbound_tag: String,

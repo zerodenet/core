@@ -30,7 +30,7 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
                         zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier { .. })))
             }
             PreparedTcpCandidateExecution::Block { .. } => !matches!(session.target, zero_core::Address::Domain(_)) && !matches!(session.effective_direct_target(), zero_core::Address::Domain(_)),
-            PreparedTcpCandidateExecution::Connect(operation) => operation.controlled_native_coverage(&services, session),
+            PreparedTcpCandidateExecution::Connect(_) => false,
         };
         caller
             .declare_gateway(covered)

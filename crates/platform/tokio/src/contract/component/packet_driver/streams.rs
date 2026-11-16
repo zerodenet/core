@@ -36,7 +36,8 @@ impl super::attempt::PacketDriverPendingCustody {
         original: &CarrierOrigin,
     ) -> Result<PacketDriverStreamGrant, ChannelError> {
         let record = self.record()?;
-        if record.call.cancel.is_cancelled()
+        if record.retiring.load(Ordering::Acquire)
+            || record.call.cancel.is_cancelled()
             || record.caller.is_joined()
             || original.is_retired()
             || !record
@@ -50,7 +51,7 @@ impl super::attempt::PacketDriverPendingCustody {
             .streams
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if record.call.cancel.is_cancelled() {
+        if record.retiring.load(Ordering::Acquire) || record.call.cancel.is_cancelled() {
             return Err(failure(Reason::Revoked));
         }
         if streams.len() >= record.packet_originals.len()

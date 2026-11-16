@@ -1,75 +1,37 @@
 //! Exercise real adapter projections, without a second test-only protocol SPI.
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 use super::fixtures::{compiled_in_outbound_leaves, outbound_leaf_name};
 
 #[test]
-fn packet_path_operations_are_cold_and_shared_across_leaf_clones() {
+fn standard_packet_metadata_is_cold_without_an_executable_claim() {
     assert!(tokio::runtime::Handle::try_current().is_err());
     let registry = crate::register::protocol_registry();
     for (config, leaf, _) in compiled_in_outbound_leaves() {
         let protocol = outbound_leaf_name(&config, &leaf);
-        let claimed = registry.claim_outbound_leaf(&config, leaf);
-        if protocol == "hysteria2" {
-            assert!(
-                claimed.is_err(),
-                "HY2 must not restore its retired compatibility projection"
-            );
+        if !matches!(protocol, "socks5" | "shadowsocks") {
             continue;
         }
-        let claimed = claimed.unwrap();
-        let Some(operation) = claimed.udp_packet_path() else {
-            assert!(!matches!(
-                protocol,
-                "socks5" | "shadowsocks" | "hysteria2" | "vless"
-            ));
-            continue;
-        };
-        let cloned = claimed;
-        let retained = cloned.udp_packet_path().unwrap();
-        assert!(Arc::ptr_eq(&operation, &retained), "{protocol}");
-        let descriptor = retained.carrier_descriptor().unwrap();
-        assert_eq!(descriptor.tag.as_deref(), Some(config.outbounds[0].tag()));
-        assert!(!descriptor.cache_key.is_empty());
-    }
-}
-
-#[test]
-fn packet_path_source_identity_is_fixed_at_the_actual_config_boundary() {
-    assert!(tokio::runtime::Handle::try_current().is_err());
-    let registry = crate::register::protocol_registry();
-    for (mut config, leaf, _) in compiled_in_outbound_leaves() {
-        let protocol = outbound_leaf_name(&config, &leaf);
-        if protocol != "vless" {
-            continue;
-        }
-        // No directory or CA I/O is needed to materialize the source-aware
-        // recipe; the same captured source must reach later execution.
-        config.source_dir = Some(PathBuf::from("/nonexistent/zero-source-a"));
-        let first = registry.claim_outbound_leaf(&config, leaf.clone()).unwrap();
-        let operation = first.udp_packet_path().unwrap();
-        let key = operation.carrier_descriptor().unwrap().cache_key;
-        drop(first);
-        let mut changed = config.clone();
-        changed.source_dir = Some(PathBuf::from("/nonexistent/zero-source-b"));
-        let next = registry.claim_outbound_leaf(&changed, leaf).unwrap();
-        let next = next.udp_packet_path().unwrap();
-        assert_ne!(
-            key,
-            next.carrier_descriptor().unwrap().cache_key,
-            "{protocol}"
+        assert!(registry.claim_outbound_leaf(&config, leaf.clone()).is_err());
+        let metadata = registry
+            .prepare_cold_packet_path_projection(&config, leaf)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            metadata.descriptor.tag.as_deref(),
+            Some(config.outbounds[0].tag())
         );
-        assert_eq!(key, operation.carrier_descriptor().unwrap().cache_key);
+        assert!(!metadata.descriptor.cache_key.is_empty());
+        assert_eq!(metadata.formatter.is_some(), protocol == "shadowsocks");
     }
 }
 
-#[cfg(feature = "shadowsocks")]
 #[test]
 fn cold_ss_formatter_material_is_inert_and_keeps_one_actual_source_clone_family() {
     use zero_core::Address;
     use zero_engine::{OutboundIdentity, ResolvedLeafOutbound};
     assert!(tokio::runtime::Handle::try_current().is_err());
-    let registry = crate::register::protocol_registry();
+    let registry = crate::register::protocol_registry().without_outbound_projection("shadowsocks");
     for mode in [
         None,
         Some("tcp_only"),
@@ -157,7 +119,7 @@ fn nonformatter_metadata_returns_none_before_any_old_projection_or_file_material
 #[test]
 fn cold_socks_source_uses_only_original_base_metadata_without_an_executor_or_associated_suffix() {
     assert!(tokio::runtime::Handle::try_current().is_err());
-    let registry = crate::register::protocol_registry();
+    let registry = crate::register::protocol_registry().without_outbound_projection("socks5");
     let mut actual = 0;
     for (config, leaf, _) in compiled_in_outbound_leaves() {
         if outbound_leaf_name(&config, &leaf) != "socks5" {

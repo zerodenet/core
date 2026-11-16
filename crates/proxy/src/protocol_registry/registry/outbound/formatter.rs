@@ -12,8 +12,8 @@ pub(crate) struct ColdPacketPathProjection {
     pub(crate) formatter: Option<UdpDatagramSource>,
 }
 impl ProtocolRegistry {
-    /// Only registration-proven pure projections are called. Other protocols
-    /// return None before their claim can reread material or mutate a pool.
+    /// Only the registered cold data projection is called. No executable claim
+    /// is constructed; protocols without this metadata return None directly.
     /// Keep the returned actual formatter Arc family through the later build;
     /// it is not a per-tag process-wide association or a fresh second Session.
     pub(crate) fn prepare_cold_packet_path_projection(
@@ -36,30 +36,10 @@ impl ProtocolRegistry {
         let entry = self
             .outbound_protocol_entry(protocol)
             .ok_or_else(|| unsupported_outbound_leaf(protocol))?;
-        if !entry.pure_packet_carrier {
-            return Ok(None);
+        match &entry.packet_projection {
+            Some(project) => project(outbound),
+            None => Ok(None),
         }
-        // Protocol-private grammar still determines whether this exact input
-        // has the old capability (notably UDP-capable plugins return None).
-        let claimed = self.claim_outbound_leaf(config, leaf)?;
-        let Some(operation) = claimed.udp_packet_path() else {
-            return Ok(None);
-        };
-        let Some(descriptor) = operation.carrier_descriptor() else {
-            return Ok(None);
-        };
-        let associated = operation.supports_associated_relay_carrier();
-        let formatter = entry
-            .pure_datagram_formatter
-            .then(|| operation.datagram_source())
-            .flatten();
-        // Do not retain/expose the old operation executor to the Source. It
-        // selects its same configured canonical Datagram slot at actual open.
-        Ok(Some(ColdPacketPathProjection {
-            descriptor,
-            associated,
-            formatter,
-        }))
     }
     #[cfg(test)]
     pub(crate) fn prepare_cold_datagram_source(

@@ -3,7 +3,7 @@
 use super::*;
 use crate::contract::lifecycle::{CloseReport, DynResourceLifecycle};
 mod logical;
-pub use logical::AcceptedResource;
+pub use logical::{AcceptedResource, AcceptedResourceObservation};
 
 /// Totals by the finite declared ordinal, never per-client/resource history.
 /// Actual failed task receipts retain their original identities and sources.

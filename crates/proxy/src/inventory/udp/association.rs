@@ -102,21 +102,16 @@ pub(super) fn prepare_flow(
             },
         )));
     }
-    if mode == zero_engine::RouteMode::Packet {
-        return if slot
-            .recipe
-            .spec()
-            .roles
-            .contains(&zero_platform_tokio::contract::component::RoleKind::Packet)
-        {
-            None
-        } else {
-            Some(Err(crate::runtime::path::missing_udp_route_capability(
-                mode,
-            )))
-        };
+    if mode == zero_engine::RouteMode::Packet && !plan.has_device_carrier_provider(slot.role_id()) {
+        return Some(Err(crate::runtime::path::missing_udp_route_capability(
+            mode,
+        )));
     }
+    // The actual device Datagram owns conversion, flow users and original
+    // receiver joins; no compatibility worker or plan/pool projection escapes.
+    let logical = slot.accepted_carrier_provider().is_some();
     if endpoint.is_none()
+        && !logical
         && (![
             zero_platform_tokio::contract::component::RoleKind::Packet,
             zero_platform_tokio::contract::component::RoleKind::Stream,
@@ -231,7 +226,10 @@ impl DatagramAssociationTarget {
                 "upstream Datagram generation was retired",
             ));
         }
-        if self.endpoint.is_none() && !plan.has_device_carrier_provider(slot.role_id()) {
+        if self.endpoint.is_none()
+            && slot.accepted_carrier_provider().is_none()
+            && !plan.has_device_carrier_provider(slot.role_id())
+        {
             return Err(invalid(
                 Reason::StalePlan,
                 "Datagram device original provider is unavailable",

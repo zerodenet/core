@@ -15,6 +15,14 @@ pub(super) enum Prepared {
     Tcp(tcp::prepared::PreparedTcpOriginal),
 }
 impl Half {
+    pub(super) fn carrier_upstream(
+        &self,
+    ) -> &zero_platform_tokio::contract::network::UpstreamTransport {
+        match self {
+            Self::Quic(g) => &g.upstream,
+            Self::Tcp(g) => &g.upstream,
+        }
+    }
     pub fn from_runtime(runtime: &runtime::Runtime) -> Self {
         match runtime {
             runtime::Runtime::Quic { generation, .. } => Self::Quic(generation.clone()),

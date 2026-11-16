@@ -1,5 +1,5 @@
 use super::super::ProtocolInventory;
-use crate::inventory::ClaimedInventoryLeaf;
+use crate::protocol_registry::ClaimedOutboundLeaf;
 use crate::protocol_registry::UdpAdapterContext;
 use crate::runtime::path::TcpPathCategory;
 use crate::runtime::udp_dispatch::operation::PreparedUdpFlowOperation;
@@ -7,6 +7,7 @@ use crate::runtime::udp_dispatch::FlowFailure;
 use zero_engine::{ResolvedLeafOutbound, RouteMode};
 
 pub(crate) enum PreparedUdpLeafCandidate<'a> {
+    Direct(super::DirectDatagramTarget),
     Block {
         tag: String,
     },
@@ -24,6 +25,15 @@ impl ProtocolInventory {
         candidate: &ResolvedLeafOutbound<'a>,
         mode: RouteMode,
     ) -> Result<super::leaf::PreparedUdpLeafCandidate<'a>, FlowFailure> {
+        if let ResolvedLeafOutbound::Direct {
+            tag,
+            dial_policy,
+            dial_generation,
+        } = candidate
+        {
+            return super::DirectDatagramTarget::prepare(&ctx, *tag, dial_policy, *dial_generation)
+                .map(PreparedUdpLeafCandidate::Direct);
+        }
         #[cfg(feature = "upstream-association-runtime")]
         if mode != RouteMode::Packet {
             if let Some(native) = super::association::prepare(&ctx, candidate) {
@@ -49,10 +59,10 @@ impl ProtocolInventory {
     pub(in crate::inventory) fn prepare_claimed_udp_leaf_candidate<'a>(
         &self,
         ctx: UdpAdapterContext<'a>,
-        claimed: ClaimedInventoryLeaf<'a>,
+        claimed: ClaimedOutboundLeaf<'a>,
         mode: RouteMode,
     ) -> Result<PreparedUdpLeafCandidate<'a>, FlowFailure> {
-        let runtime = claimed.runtime();
+        let runtime = claimed.runtime.clone();
         if !ctx.udp_enabled_for_outbound(runtime.udp_policy_tag.as_deref()) {
             return Err(FlowFailure {
                 stage: "udp_policy",

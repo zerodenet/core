@@ -13,19 +13,16 @@ pub(crate) mod metadata;
 pub(crate) mod mieru;
 #[cfg(feature = "mixed")]
 pub(crate) mod mixed;
-#[cfg(any(feature = "vless", feature = "trojan", feature = "vmess"))]
+#[cfg(any(feature = "wireguard", test))]
 pub(crate) mod mux_prefix;
+pub(crate) mod node_dns;
 pub(crate) mod security_budgets;
 #[cfg(feature = "shadowsocks")]
 pub(crate) mod shadowsocks;
 #[cfg(feature = "socks5")]
 pub(crate) mod socks5;
-#[cfg(any(feature = "vless", feature = "trojan", feature = "vmess"))]
-mod tcp;
 #[cfg(feature = "trojan")]
 pub(crate) mod trojan;
-#[cfg(any(feature = "vless", feature = "vmess", feature = "trojan"))]
-mod udp;
 #[cfg(feature = "vless")]
 pub(crate) mod vless;
 #[cfg(feature = "vmess")]

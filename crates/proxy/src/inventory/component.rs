@@ -5,6 +5,23 @@ use crate::component::{
 use std::sync::Arc;
 use zero_config::RuntimeConfig;
 impl super::ProtocolInventory {
+    pub(crate) fn retiring_accepted_sources(
+        &self,
+        candidate: &Arc<ComponentPlan>,
+    ) -> Vec<zero_core::component::ComponentInstanceId> {
+        self.host.components().retiring_accepted_sources(candidate)
+    }
+    pub(crate) async fn retire_accepted_source_originals(
+        &self,
+        source: zero_core::component::ComponentInstanceId,
+        end: tokio::time::Instant,
+    ) -> Result<(), zero_engine::EngineError> {
+        self.host
+            .components()
+            .retire_accepted_source_originals(source, end)
+            .await
+            .map_err(|source| std::io::Error::other(source).into())
+    }
     pub(crate) fn begin_packet_source_retirement<'a>(
         &'a self,
         candidate: &Arc<ComponentPlan>,
@@ -69,7 +86,7 @@ impl super::ProtocolInventory {
             .await
     }
     /// Read only: historical snapshots cannot prepare or publish a replacement.
-    #[cfg(feature = "raw-ip-runtime")]
+    #[cfg(any(feature = "raw-ip-runtime", feature = "managed-stream-runtime"))]
     pub(crate) fn source_dependency_instances(
         &self,
         config: &Arc<RuntimeConfig>,

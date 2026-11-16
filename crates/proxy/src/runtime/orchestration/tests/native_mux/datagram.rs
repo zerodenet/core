@@ -9,7 +9,9 @@ use zero_platform_tokio::contract::{
     datagram::{recv, send, BoxDatagramSession, DatagramRequest},
     DeliveryState,
 };
+mod modes;
 mod ownership;
+mod preconnect;
 
 mod fixtures;
 use fixtures::*;
@@ -213,3 +215,6 @@ async fn native_mux_datagram_multiple_targets_and_invalid_packets_do_not_change_
     .await
     .unwrap();
 }
+
+#[cfg(all(feature = "socks5", feature = "managed-datagram-runtime"))]
+mod flow;

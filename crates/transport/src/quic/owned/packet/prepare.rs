@@ -11,7 +11,12 @@ impl PacketSegment {
     ) -> Result<Self, Box<RejectedPacketSegment>> {
         Self::prepare_inner(grant, queues, tasks, peer, logical, None)
     }
-    #[cfg(feature = "split_http")]
+    #[cfg(any(
+        feature = "split_http",
+        feature = "mkcp",
+        feature = "hysteria",
+        feature = "quic_h3"
+    ))]
     pub fn prepare_with_endpoint(
         grant: GrantedMetadataListener,
         queues: PacketQueues,
@@ -115,9 +120,17 @@ impl PacketSegment {
             identity: queues.1.clone(),
             graph,
             receiver,
-            #[cfg(feature = "split_http")]
+            #[cfg(any(
+                feature = "split_http",
+                feature = "mkcp",
+                feature = "hysteria",
+                feature = "quic_h3"
+            ))]
             endpoint_users: _endpoint_users,
             source: Some(source),
+            wires: Arc::new(Mutex::new(Default::default())),
+            hop_user: None,
+            hop_receiver: Arc::new(Mutex::new(None)),
             queues: Arc::new(Mutex::new(queues.0)),
             driver: None,
             received: None,

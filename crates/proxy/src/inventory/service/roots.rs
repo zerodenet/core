@@ -6,14 +6,12 @@ pub(crate) struct ServiceRoot {
     pub(crate) datagram: bool,
     pub(crate) dial: zero_traits::DialPolicy,
 }
-pub(crate) fn dns_roots(config: &zero_config::RuntimeConfig) -> Vec<ServiceRoot> {
+pub(crate) fn dns_roots_for(
+    config: &zero_config::RuntimeConfig,
+    dns: Option<&zero_config::DnsConfig>,
+) -> Vec<ServiceRoot> {
     let mut roots = Vec::new();
-    for server in config
-        .runtime
-        .dns
-        .iter()
-        .flat_map(|dns| dns.servers.values())
-    {
+    for server in dns.into_iter().flat_map(|dns| dns.servers.values()) {
         let Some(detour) = server.detour() else {
             continue;
         };
@@ -53,17 +51,24 @@ pub(crate) fn dns_roots(config: &zero_config::RuntimeConfig) -> Vec<ServiceRoot>
                         datagram: false,
                     };
                     if !roots.contains(&root) {
-                        roots.push(root.clone());
+                        roots.push(root);
                     }
-                    if outbound.protocol.runtime_kind() == zero_config::OutboundRuntimeKind::Direct
-                        && matches!(server, zero_config::DnsServerConfig::Udp { .. })
-                    {
-                        let datagram = ServiceRoot {
-                            datagram: true,
-                            ..root
-                        };
-                        if !roots.contains(&datagram) {
-                            roots.push(datagram);
+                }
+                if matches!(server, zero_config::DnsServerConfig::Udp { .. }) {
+                    // A Query adopts the donor's actual Datagram loan at the
+                    // DNS destination. Its logical grant must retain the full
+                    // selected donor policy, independently of that donor's
+                    // physical server/control/BND endpoint and original owner.
+                    if let Some(port) = server.port() {
+                        for address in server.endpoint_addresses().unwrap_or_default() {
+                            let root = ServiceRoot {
+                                endpoint: endpoint(&address.to_string(), port),
+                                datagram: true,
+                                dial: outbound.dial.to_policy(),
+                            };
+                            if !roots.contains(&root) {
+                                roots.push(root);
+                            }
                         }
                     }
                 }

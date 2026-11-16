@@ -42,7 +42,7 @@ fn browser_resource_options_are_never_silently_projected_into_ordinary_websocket
 
 #[cfg(feature = "vmess")]
 #[test]
-fn ordinary_mux_prefix_registration_requires_qualified_root_and_complete_protocol_options() {
+fn ordinary_mux_producer_is_independent_of_business_relay_aliases() {
     let pool = input(r#", "mux_concurrency":2"#);
     let mut config=zero_config::RuntimeConfig::parse(r#"{"outbounds":[{"tag":"last","protocol":{"type":"vmess","server":"127.0.0.1","port":443,"id":"11111111-2222-3333-4444-555555555555","grpc":{"service_names":["udp"]}}}],"route":{"final":{"type":"direct"}}}"#).unwrap();
     config.outbounds.insert(0, pool.clone());
@@ -56,7 +56,7 @@ fn ordinary_mux_prefix_registration_requires_qualified_root_and_complete_protoco
     assert!(!adapter.production_selected(&pool, None, true));
     let mut custom = config.clone();
     custom.outbounds[1].dial.interface = Some("lo0".into());
-    assert!(!adapter.production_selected(&pool, Some(&custom), true));
+    assert!(adapter.production_selected(&pool, Some(&custom), true));
     let mut nested = config.clone();
     nested.outbound_groups.push(
         serde_json::from_value(
@@ -64,7 +64,7 @@ fn ordinary_mux_prefix_registration_requires_qualified_root_and_complete_protoco
         )
         .unwrap(),
     );
-    assert!(!adapter.production_selected(&pool, Some(&nested), true));
+    assert!(adapter.production_selected(&pool, Some(&nested), true));
 }
 
 #[test]

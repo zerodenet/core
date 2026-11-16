@@ -23,6 +23,9 @@ impl HostAdmission {
         &self,
         consumer: (ComponentInstanceId, Arc<()>),
         donors: Vec<(ComponentInstanceId, Arc<()>)>,
+        // Exact cold-bound peers retire together, but still require the same
+        // installed tokens and transition fence as independently owned donors.
+        coupled: &[(ComponentInstanceId, Arc<()>)],
         declared: &LoanEdges,
     ) -> Result<(), ChannelError> {
         let mut view = self.0.write().expect("host admission poisoned");
@@ -39,6 +42,7 @@ impl HostAdmission {
         if view.loan_frozen
             || !installed(consumer.0, &consumer.1)
             || donors.iter().any(|(id, owner)| !installed(*id, owner))
+            || coupled.iter().any(|(id, owner)| !installed(*id, owner))
         {
             return Err(invalid(
                 Reason::StalePlan,

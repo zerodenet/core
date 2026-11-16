@@ -55,6 +55,43 @@ impl TcpIngressRuntime {
         Ok(session)
     }
 
+    /// Active MUX Source replies are already implicit, so inspection may read
+    /// the handed-off byte view before the existing route/relay pipeline.
+    #[cfg(feature = "managed-stream-runtime")]
+    pub(crate) async fn serve_sniffed_service_stream(
+        &self,
+        accepted: Box<dyn AcceptedStream>,
+        authentication: Option<SessionAuth>,
+        identity: zero_engine::SessionIdentity,
+        policy: &crate::runtime::sniff::SniffingPolicy,
+    ) -> Result<(), EngineError> {
+        let mut session = self.accepted_session(accepted.facts(), authentication, &identity)?;
+        let mut stream = accepted
+            .respond(zero_platform_tokio::contract::inbound::ReplyOutcome::LocalChannelReady)
+            .await
+            .map_err(std::io::Error::other)?
+            .ok_or_else(|| {
+                std::io::Error::other("implicit Service stream omitted its actual view")
+            })?;
+        let fake_dns = policy
+            .apply_fake_dns_metadata(self.resolver(), &mut session)
+            .await;
+        let prefix = if session.target_host_source == Some(zero_core::TargetHostSource::FakeIp) {
+            Vec::new()
+        } else {
+            crate::runtime::sniff::sniff_service_stream(policy, &mut session, &mut stream, fake_dns)
+                .await
+        };
+        let replay = crate::transport::ReplayStream::new(stream, prefix);
+        super::super::lifecycle::serve::serve_with_identity(
+            self,
+            session,
+            replay,
+            &crate::runtime::tcp_ingress::NoClientResponseStreamProtocol::new(),
+            Some(&identity),
+        )
+        .await
+    }
     pub(crate) async fn serve_accepted_stream(
         &self,
         accepted: Box<dyn AcceptedStream>,

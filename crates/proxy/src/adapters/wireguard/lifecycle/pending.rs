@@ -1,11 +1,4 @@
 //! Passive identity prepared before any replacement stack or listener starts.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
-    )
-)]
 mod close;
 use super::super::inbound::{LinkedEndpoint, LiveInboundDevice};
 use std::sync::{Arc, OnceLock};
@@ -25,9 +18,18 @@ pub(in crate::adapters::wireguard) struct PeerResources {
     owned: bool,
     graph: std::sync::Mutex<std::sync::Weak<super::recipe::component::LinkedStackOptions>>,
     peer_stacks: Vec<Arc<crate::runtime::raw_ip::EndpointStackOwner>>,
-    peer_carriers: Vec<Arc<crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot>>,
+    peers: usize,
+    // A candidate admission fence, not a native owner or close receipt.
+    cancelled: zero_platform_tokio::contract::CancellationToken,
 }
 impl PendingLinkedEndpoint {
+    pub(super) fn client_peer_count(&self) -> usize {
+        self.resources.peer_stacks.len()
+    }
+    pub(super) fn owns_candidate_originals(&self) -> bool {
+        self.cleanup_owned
+    }
+    #[cfg(test)]
     pub(in crate::adapters::wireguard) fn new(
         listen: ListenConfig,
         live: Arc<LiveInboundDevice>,
@@ -36,7 +38,8 @@ impl PendingLinkedEndpoint {
     }
     /// Pure declaration of exactly the configured peers. The pending map must
     /// retain this object before any peer's owned build can be polled.
-    pub(in crate::adapters::wireguard) fn with_peer_slots(
+    #[cfg(test)]
+    pub(in crate::adapters::wireguard) fn with_peer_stacks(
         listen: ListenConfig,
         live: Arc<LiveInboundDevice>,
         peers: usize,
@@ -47,19 +50,19 @@ impl PendingLinkedEndpoint {
         listen: ListenConfig,
         live: Arc<LiveInboundDevice>,
         stacks: usize,
-        carriers: usize,
+        peers: usize,
     ) -> Result<Self, EngineError> {
-        Self::build(listen, live, stacks, carriers, true)
+        Self::build(listen, live, stacks, peers, true)
     }
     fn build(
         listen: ListenConfig,
         live: Arc<LiveInboundDevice>,
         stacks: usize,
-        carriers: usize,
+        peers: usize,
         owned: bool,
     ) -> Result<Self, EngineError> {
         if stacks > crate::runtime::raw_ip::MAX_RAW_IP_DEVICES
-            || carriers > crate::runtime::raw_ip::MAX_RAW_IP_DEVICES
+            || peers > crate::runtime::raw_ip::MAX_RAW_IP_DEVICES
         {
             return Err(super::invalid("linked endpoint peer owner limit exceeded"));
         }
@@ -73,20 +76,14 @@ impl PendingLinkedEndpoint {
                 peer_stacks: (0..stacks)
                     .map(|_| crate::runtime::raw_ip::EndpointStackOwner::suspended())
                     .collect(),
-                peer_carriers: (0..carriers)
-                    .map(|_| {
-                        crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot::new()
-                    })
-                    .collect(),
+                peers,
+                cancelled: zero_platform_tokio::contract::CancellationToken::new(),
             }),
             cleanup_owned: owned,
         })
     }
-    pub(in crate::adapters::wireguard) fn peer_carrier(
-        &self,
-        peer: usize,
-    ) -> Option<Arc<crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot>> {
-        self.resources.peer_carriers.get(peer).cloned()
+    pub(super) fn cancellation(&self) -> zero_platform_tokio::contract::CancellationToken {
+        self.resources.cancelled.clone()
     }
     pub(in crate::adapters::wireguard) fn peer_stack(
         &self,
@@ -133,15 +130,15 @@ impl PendingLinkedEndpoint {
             .filter(|graph| graph.matches_identity(identity) && self.is_usable())
     }
     pub(super) fn from_ready(link: Arc<LinkedEndpoint>) -> Result<Self, EngineError> {
-        let pending = match link.owned_resources() {
-            Some(resources) => Self {
-                listen: link.listen.clone(),
-                live: link.live.clone(),
-                ready: OnceLock::new(),
-                resources,
-                cleanup_owned: false,
-            },
-            None => Self::new(link.listen.clone(), link.live.clone()),
+        let resources = link.owned_resources().ok_or_else(|| {
+            super::invalid("retained linked endpoint has no actual host resource owner")
+        })?;
+        let pending = Self {
+            listen: link.listen.clone(),
+            live: link.live.clone(),
+            ready: OnceLock::new(),
+            resources,
+            cleanup_owned: false,
         };
         pending.install(link)?;
         Ok(pending)
@@ -154,34 +151,22 @@ impl PendingLinkedEndpoint {
             for owner in &self.resources.peer_stacks {
                 owner.revoke();
             }
-            for owner in &self.resources.peer_carriers {
-                owner.revoke();
-            }
+            self.resources.cancelled.cancel();
         }
     }
     pub(super) fn needs_cleanup(&self) -> bool {
         self.cleanup_owned
             && (self.resources.needs_cleanup()
                 || (self.resources.owned
-                    && self.ready().is_some_and(|link| {
-                        !link.carrier_owners_match(&self.resources.peer_carriers)
-                    })))
+                    && self
+                        .ready()
+                        .is_some_and(|link| !link.matches_declared_peers(self.resources.peers))))
     }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
-        )
-    )]
     pub(in crate::adapters::wireguard) async fn stop_peer_resources(
         &self,
         deadline: tokio::time::Instant,
     ) -> close::PendingPeerCloseReport {
-        let link = self.ready();
-        self.resources
-            .stop_peer_resources(link.as_deref(), deadline)
-            .await
+        self.resources.stop_peer_resources(deadline).await
     }
     pub(in crate::adapters::wireguard) fn listen(&self) -> &ListenConfig {
         &self.listen
@@ -210,7 +195,7 @@ impl PendingLinkedEndpoint {
                     .iter()
                     .zip(&self.resources.peer_stacks)
                     .all(|(device, owner)| device.is_usable() && owner.owns(device))
-                || !link.carrier_owners_match(&self.resources.peer_carriers)
+                || !link.matches_declared_peers(self.resources.peers)
             {
                 return Err(super::invalid(
                     "linked resources do not belong to the declared candidate owners",
@@ -232,13 +217,11 @@ mod tests;
 impl PeerResources {
     fn is_usable(&self) -> bool {
         self.owned
+            && !self.cancelled.is_cancelled()
             && self.peer_stacks.iter().all(|owner| owner.is_open())
-            && self.peer_carriers.iter().all(|owner| owner.is_open())
     }
     fn needs_cleanup(&self) -> bool {
-        self.owned
-            && (self.peer_stacks.iter().any(|owner| owner.needs_cleanup())
-                || self.peer_carriers.iter().any(|owner| owner.needs_cleanup()))
+        self.owned && self.peer_stacks.iter().any(|owner| owner.needs_cleanup())
     }
 }
 

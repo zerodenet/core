@@ -2,7 +2,7 @@
 #[cfg(test)]
 #[path = "catalog/tests/accounting.rs"]
 mod accounting_tests;
-mod cold;
+pub(in crate::component) mod cold;
 mod devices;
 mod discard;
 mod maintenance;
@@ -18,6 +18,7 @@ pub use quiescence::ReplacementUsersPause;
 mod failure_receiver;
 pub(crate) mod replacement;
 pub use replacement::packet_source::PacketSourceRetirement;
+mod accepted_sources;
 mod restoration;
 mod retirement;
 pub mod supervision;

@@ -269,3 +269,6 @@ mod totals;
 
 #[path = "owner/accepted_source_lost.rs"]
 mod accepted_source_lost;
+
+#[path = "owner/literal.rs"]
+mod literal;

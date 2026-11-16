@@ -1,12 +1,12 @@
 //! Transactional device preparation; protocol config stays inside this adapter.
 mod source_selection;
 pub(crate) use recipe::outer::OuterMaterials;
-pub(crate) use source_selection::outer_members_selected;
+pub(crate) use source_selection::{acyclic as outer_graph_acyclic, outer_members_selected};
 
 mod borrowers;
 mod components;
+pub(super) use components::ColdGraphs;
 mod directions;
-mod linked;
 mod pending;
 pub(super) mod pending_map;
 mod prepare;
@@ -43,9 +43,7 @@ use super::{
 };
 use crate::{
     adapters::devices::OutboundDevicePreparationContext,
-    runtime::raw_ip::{
-        ProxiedRawIpWireCarrier, RawIpDevicePool, RawIpOutboundPlan, SharedRawIpDevice,
-    },
+    runtime::raw_ip::{RawIpDevicePool, RawIpOutboundPlan, SharedRawIpDevice},
 };
 
 pub(crate) struct PreparedWireguardDevices {
@@ -55,7 +53,6 @@ pub(crate) struct PreparedWireguardDevices {
     staged: crate::runtime::raw_ip::StagedRawIpDevices,
     linked: Arc<Mutex<LinkedEndpointMap>>,
     next_linked: LinkedEndpointMap,
-    linked_updates: Vec<inbound::LinkedEndpointUpdate>,
     pending: Option<PendingEndpoints>,
     traffic: Vec<zero_engine::PreparedEndpointTraffic>,
     published: bool,
@@ -76,51 +73,36 @@ impl crate::protocol_registry::EndpointControlCapability for WireguardAdapter {
 }
 
 impl WireguardAdapter {
-    #[cfg(test)]
-    pub(crate) async fn prepare_devices(
-        &self,
-        outbounds: &[&OutboundConfig],
-        inbounds: &[InboundConfig],
-        context: OutboundDevicePreparationContext,
-    ) -> Result<PreparedWireguardDevices, EngineError> {
-        self.prepare_devices_inner(outbounds, inbounds, context, None)
-            .await
-    }
     pub(crate) async fn prepare_devices_for_candidate(
         &self,
         config: &zero_config::RuntimeConfig,
         outbounds: &[&OutboundConfig],
-        inbounds: &[InboundConfig],
         context: OutboundDevicePreparationContext,
     ) -> Result<PreparedWireguardDevices, EngineError> {
         let cold = PendingEndpoints::staged(&self.pending_endpoints, config);
         if outbounds.iter().any(|outbound| match &outbound.protocol {
             OutboundProtocolConfig::Wireguard {
                 inbound_tag: Some(tag),
-                outer_udp_proxy: None,
                 ..
             } => !cold
                 .as_ref()
                 .is_some_and(|candidate| candidate.contains_key(tag)),
             OutboundProtocolConfig::Wireguard {
-                inbound_tag: None,
-                outer_udp_proxy: None,
-                ..
+                inbound_tag: None, ..
             } => !cold.as_ref().is_some_and(|candidate| {
                 candidate
                     .standalone
                     .lock()
-                    .unwrap_or_else(|error| error.into_inner())
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .contains_key(&outbound.tag)
             }),
             _ => false,
         }) {
             return Err(invalid(
-                "plain linked WireGuard requires its actual cold component candidate",
+                "selected WireGuard Source requires its same actual cold component candidate",
             ));
         }
-        self.prepare_devices_inner(outbounds, inbounds, context, cold)
-            .await
+        self.prepare_devices_inner(outbounds, context, cold).await
     }
 }
 

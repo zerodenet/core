@@ -37,7 +37,7 @@ impl ComponentCatalog {
                 }
             }
         }
-        if receivers.is_empty() {
+        if receivers.is_empty() && self.retiring_accepted_sources(candidate).is_empty() {
             return Ok(None);
         }
         let transition = self.transition.try_lock().map_err(|_| {

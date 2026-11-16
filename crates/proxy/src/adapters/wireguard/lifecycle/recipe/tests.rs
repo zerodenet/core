@@ -2,10 +2,7 @@ use super::super::pending_map::PendingEndpoints;
 use super::*;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use gotatun::x25519::{PublicKey, StaticSecret};
-use zero_core::request::{ServiceOrigin, ServicePurpose, ServiceRequestFacts};
-use zero_platform_tokio::contract::{
-    context::RequestIdentity, network::CarrierContext, scope::TaskScope, CancellationToken,
-};
+use zero_platform_tokio::contract::{scope::TaskScope, CancellationToken};
 
 fn inputs(endpoint: &str) -> (OutboundConfig, InboundConfig) {
     let peer = STANDARD.encode(PublicKey::from(&StaticSecret::from([2; 32])).as_bytes());
@@ -45,20 +42,10 @@ fn recipe(adapter: &WireguardAdapter, endpoint: &str, generation: u64) -> Linked
 fn deadline() -> tokio::time::Instant {
     tokio::time::Instant::now() + std::time::Duration::from_secs(3)
 }
-fn demand(recipe: &LinkedEndpointRecipe) -> PacketCarrierDemand {
-    PacketCarrierDemand {
-        identity: RequestIdentity::Service(
-            Arc::new(ServiceRequestFacts {
-                origin: ServiceOrigin::Runtime,
-                purpose: ServicePurpose::BackgroundControl,
-            })
-            .into(),
-        ),
-        context: CarrierContext {
-            session: None,
-            deadline: Some(deadline()),
-            cancel: CancellationToken::new(),
-        },
+fn demand(recipe: &LinkedEndpointRecipe) -> LinkedBuildContext {
+    LinkedBuildContext {
+        deadline: Some(deadline()),
+        cancel: CancellationToken::new(),
         binding: recipe.binding(),
     }
 }
@@ -145,6 +132,13 @@ async fn actual_candidate_must_be_installed_before_build_and_cannot_revive_retir
 }
 #[tokio::test]
 async fn cancel_while_real_node_dns_is_pending_cannot_spawn_late_candidate_stacks() {
+    pending_dns_cancel(false).await;
+}
+#[tokio::test]
+async fn actual_linked_caller_cancellation_retains_candidate_until_its_own_release() {
+    pending_dns_cancel(true).await;
+}
+async fn pending_dns_cancel(cancel_caller: bool) {
     let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let mut config = serde_json::json!({"outbounds":[{"tag":"direct","protocol":{"type":"direct"}}],"route":{"final":{"type":"direct"}},"runtime":{}});
     config["runtime"]["dns"] = serde_json::json!({
@@ -178,6 +172,7 @@ async fn cancel_while_real_node_dns_is_pending_cannot_spawn_late_candidate_stack
     let pending = recipe.pending();
     let guard = install(&adapter, &recipe);
     let request = demand(&recipe);
+    let caller = request.cancel.clone();
     let mut scope = TaskScope::suspended(
         tokio::runtime::Handle::current(),
         recipe.task_limit().unwrap(),
@@ -191,9 +186,30 @@ async fn cancel_while_real_node_dns_is_pending_cannot_spawn_late_candidate_stack
         result = &mut starting => { panic!("node DNS completed before its actual pending query: {}", match result { Ok(_) => "unexpected link".to_owned(), Err(error) => error.to_string() }); },
         _ = tokio::time::sleep_until(deadline()) => panic!("actual node DNS query was not emitted"),
     }
-    drop(guard);
-    let result = starting.await;
-    assert!(result.is_err());
+    use std::{future::Future, task::Poll};
+    std::future::poll_fn(|cx| {
+        assert!(starting.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    let cancellation = pending.cancellation();
+    if cancel_caller {
+        caller.cancel();
+        assert!(starting.await.is_err());
+        assert!(
+            !cancellation.is_cancelled(),
+            "the caller cannot revoke the actual candidate owner"
+        );
+        assert!(pending.is_usable());
+        assert!(pending.peer_stack(0).unwrap().device().is_none());
+        assert!(adapter.pending_endpoints.lock().unwrap().is_some());
+        drop(guard);
+    } else {
+        drop(guard);
+        assert!(cancellation.is_cancelled());
+        assert!(starting.await.is_err());
+    }
+    assert!(cancellation.is_cancelled());
     assert!(pending.ready().is_none());
     assert!(!pending.needs_cleanup());
     assert!(!pending.peer_stack(0).unwrap().is_open());

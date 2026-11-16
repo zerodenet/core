@@ -6,6 +6,7 @@ use zero_platform_tokio::contract::{
     context::with_deadline, ChannelError, DeliveryState, Impact, Reason, Stage,
 };
 
+#[cfg(test)]
 pub(crate) async fn open_service_candidates(
     candidates: Vec<SocketAddr>,
     egress: &EgressInterfaceControl,

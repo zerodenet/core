@@ -84,6 +84,7 @@ impl UpstreamOpener for Observer {
         let record = self.record(binding)?;
         let same = matches!(identity, RequestIdentity::Service(actual) if actual.same_owner(&record.identity));
         if !same
+            || record.retiring.load(std::sync::atomic::Ordering::Acquire)
             || record.call.cancel.is_cancelled()
             || call.cancel.is_cancelled()
             || record.caller.is_joined()
@@ -114,10 +115,12 @@ impl UpstreamOpener for Observer {
         adoption: &CarrierAdoption,
     ) -> Result<(), ChannelError> {
         let record = self.record(binding)?;
-        if !record
-            .allowed
-            .iter()
-            .any(|owner| owner.matches_adoption(adoption))
+        if record.retiring.load(std::sync::atomic::Ordering::Acquire)
+            || record.call.cancel.is_cancelled()
+            || !record
+                .allowed
+                .iter()
+                .any(|owner| owner.matches_adoption(adoption))
         {
             return Err(failure(Reason::StalePlan));
         }
@@ -134,7 +137,9 @@ impl UpstreamOpener for Observer {
             .pending
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if record.call.cancel.is_cancelled() {
+        if record.retiring.load(std::sync::atomic::Ordering::Acquire)
+            || record.call.cancel.is_cancelled()
+        {
             return Err(failure(Reason::Revoked));
         }
         if pending.iter().any(|actual| actual.same_slot(&adoption)) {

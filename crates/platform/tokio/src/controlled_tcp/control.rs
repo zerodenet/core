@@ -25,6 +25,11 @@ pub(crate) struct TcpCloseObservation {
     pub(crate) operation_pending: bool,
 }
 impl ControlledTcpControl {
+    pub(crate) fn original_endpoints(
+        &self,
+    ) -> io::Result<(std::net::SocketAddr, std::net::SocketAddr)> {
+        Ok((self.shared.local_addr()?, self.shared.peer_addr()?))
+    }
     /// Stop observation only; it is never an original-close receipt.
     pub fn is_cancelled(&self) -> bool {
         self.shared.cancel.is_cancelled()

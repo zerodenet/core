@@ -84,6 +84,12 @@ impl Receiver {
     }
 }
 impl DirectDispatchEndpoint {
+    pub(crate) fn binding_is_current(&self, session: SessionId) -> bool {
+        self.slots
+            .get(&session)
+            .is_some_and(|slot| slot.tx.bound_current())
+    }
+
     pub(crate) fn new(endpoint: DirectEndpoint, retirement: Arc<RetiredDatagrams>) -> Self {
         Self {
             endpoint,

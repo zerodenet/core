@@ -25,6 +25,8 @@ pub mod h3;
 pub use bidi::OwnedBiStream;
 mod connection;
 mod handle;
+#[cfg(feature = "hysteria")]
+mod hysteria_receiver;
 mod masks;
 mod native;
 mod retirement;

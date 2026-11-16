@@ -1,7 +1,5 @@
 use std::net::SocketAddr;
 
-#[cfg(feature = "managed-stream-runtime")]
-use super::super::MuxSubstreamRuntime;
 use super::model::{InboundRouteRuntime, InboundRouteRuntimeFactory};
 #[cfg(feature = "udp-runtime")]
 use crate::runtime::udp_ingress::UdpIngressRuntime;
@@ -60,19 +58,6 @@ impl InboundRouteRuntime {
         self.udp_runtime
             .with_source_addr(self.source_addr())
             .with_local_addr(self.tcp_runtime.local_addr())
-    }
-
-    #[cfg(feature = "managed-stream-runtime")]
-    pub(crate) fn into_mux_substream_runtime(self) -> MuxSubstreamRuntime {
-        let source_addr = self.tcp_runtime.source_addr();
-        let local_addr = self.tcp_runtime.local_addr();
-        MuxSubstreamRuntime::new(
-            self.tcp_runtime,
-            self.udp_runtime
-                .with_source_addr(source_addr)
-                .with_local_addr(local_addr),
-            self.mux_udp_continuity,
-        )
     }
 }
 

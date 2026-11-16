@@ -18,6 +18,9 @@ use zero_platform_tokio::controlled_carrier::{
 
 mod candidates;
 mod dns;
+#[cfg(test)]
+#[path = "network/tests/legacy.rs"]
+mod legacy;
 #[cfg(any(target_os = "linux", windows))]
 mod process;
 #[cfg(any(target_os = "linux", windows))]
@@ -488,56 +491,20 @@ impl UpstreamOpener for NodeOpener {
         destination: Destination,
         _: CarrierContext,
     ) -> BoxFuture<'_, Result<BoxStream, ChannelError>> {
-        let binding = binding.clone();
-        Box::pin(async move {
-            if !binding.prefix.is_empty()
-                || binding.network_generation.0 != self.generation
-                || self.services.network_generation() != self.generation
-                || destination != self.endpoint
-            {
-                return Err(invalid(
-                    Reason::StalePlan,
-                    "node opener cannot bypass a prefix, endpoint or network generation",
-                ));
-            }
-            if binding.dial != Default::default() {
-                return Err(invalid(
-                    Reason::InvalidConfig,
-                    "non-default dial constraints currently require a direct outbound",
-                ));
-            }
-            let host = match &destination.address {
-                zero_core::Address::Domain(host) => host.clone(),
-                zero_core::Address::Ipv4(ip) => std::net::Ipv4Addr::from(*ip).to_string(),
-                zero_core::Address::Ipv6(ip) => std::net::Ipv6Addr::from(*ip).to_string(),
-            };
-            // The existing node resolver/bootstrap policy is distinct from
-            // business destination DNS. No system-DNS/direct fallback is added.
-            let socket = self
-                .services
-                .connect_upstream_owned(host, destination.port)
-                .await
-                .map_err(|source| {
-                    let mut error = ChannelError::new(Stage::Dial, Reason::Io, Impact::Session)
-                        .with_source(source);
-                    error.delivery = DeliveryState::NotSubmitted;
-                    error.retry = zero_platform_tokio::contract::RetryClass::BeforeSubmission;
-                    error
-                })?;
-            if self.services.network_generation() != self.generation {
-                return Err(invalid(
-                    Reason::StalePlan,
-                    "network changed during node establishment",
-                ));
-            }
-            *self.evidence.lock().expect("node evidence poisoned") = Some(Evidence {
-                remote: socket.peer_addr().map_err(|source| {
-                    ChannelError::new(Stage::Dial, Reason::Io, Impact::Session).with_source(source)
-                })?,
-                local: socket.local_addr().ok(),
-            });
-            Ok(Box::pin(socket) as BoxStream)
-        })
+        #[cfg(test)]
+        {
+            legacy::open_stream(self, binding, destination)
+        }
+        #[cfg(not(test))]
+        {
+            let _ = (binding, destination);
+            Box::pin(async {
+                Err(invalid(
+                    Reason::Unsupported,
+                    "Node metadata supplies only the selected role's original native grant",
+                ))
+            })
+        }
     }
     fn open_datagram(
         &self,
@@ -545,7 +512,7 @@ impl UpstreamOpener for NodeOpener {
         request: DatagramRequest,
         context: CarrierContext,
     ) -> BoxFuture<'_, Result<BoxDatagramSession, ChannelError>> {
-        #[cfg(feature = "udp-runtime")]
+        #[cfg(all(test, feature = "udp-runtime"))]
         {
             let binding = binding.clone();
             Box::pin(async move {
@@ -554,10 +521,15 @@ impl UpstreamOpener for NodeOpener {
                     .await
             })
         }
-        #[cfg(not(feature = "udp-runtime"))]
+        #[cfg(not(all(test, feature = "udp-runtime")))]
         {
             let _ = (binding, request, context);
-            Box::pin(async { Err(invalid(Reason::Unsupported, "UDP runtime is disabled")) })
+            Box::pin(async {
+                Err(invalid(
+                    Reason::Unsupported,
+                    "Node metadata supplies only the selected role's original Datagram grant",
+                ))
+            })
         }
     }
 }

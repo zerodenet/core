@@ -47,6 +47,10 @@ impl LoanOwner {
     pub(super) fn packet_driver_state(&self) -> Arc<State> {
         self.state.clone()
     }
+    /// Unique logical byte-view custody only, never native or task closure.
+    pub fn view_returned(&self) -> bool {
+        self.state.returned.load(Ordering::Acquire)
+    }
     pub fn original(&self) -> &CarrierOrigin {
         &self.original
     }

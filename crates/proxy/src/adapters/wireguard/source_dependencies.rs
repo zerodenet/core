@@ -1,4 +1,4 @@
-//! Actual cold consumer references for the existing TEMP outer packet path.
+//! Actual cold consumer references for the canonical outer packet path.
 //! This does not open that path, select another group, or prove native close.
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -20,6 +20,7 @@ impl WireguardAdapter {
             ));
         }
         let mut sources: SourceComponentDependencies = BTreeMap::new();
+        let admission = zero_engine::EndpointAdmission::from_config(config);
         for outbound in &config.outbounds {
             let OutboundProtocolConfig::Wireguard {
                 inbound_tag: Some(source),
@@ -29,27 +30,30 @@ impl WireguardAdapter {
             else {
                 continue;
             };
+            if !admission.device_enabled(&outbound.tag) {
+                continue;
+            }
             let input = config
                 .inbounds
                 .iter()
                 .find(|input| input.tag == *source)
                 .ok_or_else(|| invalid("actual outer consumer Source is absent"))?;
             let digest = crate::runtime::inbound_owners::source_input_identity(input)?;
-            let graph = self.source_outer_graph_dependency(config, source)?;
-            let mut actual =
-                outer_component_dependencies(config, outer, resources, graph.is_some())?;
-            // The canonical TEMP Source consumes this exact graph's endpoint
+            let graph = self
+                .source_outer_graph_dependency(config, source)?
+                .ok_or_else(|| invalid("outer Source has no actual canonical graph"))?;
+            let mut actual = outer_component_dependencies(config, outer, resources)?;
+            // The canonical Source consumes this exact graph's endpoint
             // IO and virtual client stacks, not only its final outer callee.
             // Keep its actual ordered-path generation in the same dependency
             // graph so reordering/replacement stops the original Source first.
-            // Legacy unconverted candidates have no such actual graph; their
-            // existing external dependencies remain unchanged until activation.
-            if let Some(id) = graph {
-                if !resources.resources().any(|entry| entry.component() == id) {
-                    return Err(invalid("Source outer graph is absent from this cold union"));
-                }
-                actual.insert(id);
+            if !resources
+                .resources()
+                .any(|entry| entry.component() == graph)
+            {
+                return Err(invalid("Source outer graph is absent from this cold union"));
             }
+            actual.insert(graph);
             let entry = sources
                 .entry(source.clone())
                 .or_insert_with(|| (digest, BTreeSet::new()));
@@ -68,7 +72,6 @@ pub(in crate::adapters::wireguard) fn outer_component_dependencies(
     config: &zero_config::RuntimeConfig,
     outer: &str,
     resources: &crate::component::ResourcePreparation<'_>,
-    qualified: bool,
 ) -> Result<BTreeSet<ComponentId>, EngineError> {
     let names: Vec<&str> = if config
         .outbounds
@@ -101,17 +104,11 @@ pub(in crate::adapters::wireguard) fn outer_component_dependencies(
                 ));
             }
             match resources.named_component(name) {
-                Some(actual) => Ok(Some(actual)),
-                None if !qualified => Ok(None), // preserved old grammar has no fabricated native callee
+                Some(actual) => Ok(actual),
                 None => Err(invalid(
                     "outer consumer has no actual component ID in this cold pass",
                 )),
             }
-        })
-        .filter_map(|result| match result {
-            Ok(Some(id)) => Some(Ok(id)),
-            Ok(None) => None,
-            Err(source) => Some(Err(source)),
         })
         .collect()
 }

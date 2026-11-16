@@ -19,14 +19,14 @@ impl Entry {
         // The real setup owns this mutex during IO. Cancellation lets it store
         // its result and release the mutex; never wait its join under that lock.
         self.receive_setup(end).await?;
-        let mut state = tokio::time::timeout_at(end, self.state.lock())
+        let state = tokio::time::timeout_at(end, self.state.lock())
             .await
             .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?;
         if state.closed {
             return Ok(());
         }
-        let retirement = state.retire_endpoint(end).await;
         drop(state);
+        let retirement = self.retire_current_endpoint(end).await;
         self.receive_native_failure().await?;
         retirement?;
         let state = self.state.lock().await;
@@ -47,6 +47,79 @@ impl Entry {
 }
 impl EntryState {
     pub(super) async fn retire_endpoint(&mut self, end: Instant) -> Result<(), ChannelError> {
+        self.retire_protocol_endpoint(end).await?;
+        if let Some(permit) = &self.anchor_permit {
+            permit.close(self.anchor_receipt.as_ref(), self.tasks.as_ref().unwrap())?;
+        }
+        if let Some(permit) = &self.permit {
+            permit.close(self.receipt.as_ref(), self.tasks.as_ref().unwrap())?;
+            // The real phase has returned protocol custody. NativeClosed and
+            // the endpoint/packet registrations still come from this provider.
+            self.retiring_registrations = self.receipt.clone();
+        } else if self
+            .origin
+            .as_ref()
+            .is_some_and(|origin| origin.closed().is_none())
+        {
+            // A failed registration returned its preparation to the Root.
+            // Keep that same original until its no-acquisition close is seen.
+            return Err(error(Stage::Close, Reason::Timeout));
+        }
+        if let Some(permit) = &self.previous_permit {
+            if permit.origin().closed().is_none() {
+                return Err(error(Stage::Close, Reason::Timeout));
+            }
+        }
+        if let Some(segment) = &self.segment {
+            if let Some(exit) = segment.task_exit() {
+                if exit.joined.result().is_err() {
+                    self.retired_application.push(exit.joined.clone());
+                }
+            }
+        }
+        if let Some(exit) = &self.udp_exit {
+            if exit.result().is_err() {
+                self.retired_application.push(exit.clone());
+            }
+        }
+        self.retired_drivers.extend(
+            self.received
+                .drain(..)
+                .filter(|delivery| delivery.joined.result().is_err()),
+        );
+        drop(self.owner.take());
+        self.receiver = None;
+        self.segment = None;
+        self.permit = None;
+        self.origin = None;
+        self.protocol_origin = None;
+        self.anchor_permit = None;
+        self.anchor_receipt = None;
+        self.previous_permit = None;
+        self.retirement = None;
+        self.original_stop = None;
+        self.protocol_closed = false;
+        self.receipt = None;
+        self.unbound = None;
+        self.unstarted = None;
+        self.queues = None;
+        self.udp_join = None;
+        self.udp_exit = None;
+        Ok(())
+    }
+
+    pub(super) async fn retire_protocol_endpoint(
+        &mut self,
+        end: Instant,
+    ) -> Result<(), ChannelError> {
+        tokio::time::timeout_at(end, self.retire_protocol_endpoint_original())
+            .await
+            .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?
+    }
+    pub(super) async fn retire_protocol_endpoint_original(&mut self) -> Result<(), ChannelError> {
+        if self.protocol_closed {
+            return Ok(());
+        }
         if let Some(auth) = &self.auth {
             auth.request_udp_stop();
         }
@@ -67,9 +140,7 @@ impl EntryState {
         }
         if self.udp_exit.is_none() {
             if let Some(witness) = &self.udp_join {
-                let joined = tokio::time::timeout_at(end, witness.wait())
-                    .await
-                    .map_err(|source| error(Stage::Close, Reason::Timeout).with_source(source))?;
+                let joined = witness.wait().await;
                 if joined.result().is_err() {
                     witness
                         .acknowledge_hosted_failure(&joined)
@@ -89,7 +160,12 @@ impl EntryState {
             .unwrap_or_default();
         for task in tasks {
             if !self.received.iter().any(|exit| exit.joined.id() == task) {
-                let exit = self.receiver.as_mut().unwrap().receive(task, end).await?;
+                let exit = self
+                    .receiver
+                    .as_mut()
+                    .unwrap()
+                    .receive_original(task)
+                    .await?;
                 self.received.push(exit);
             }
         }
@@ -99,14 +175,14 @@ impl EntryState {
             }
         }
         if let Some(owner) = &self.owner {
-            let users = owner.shutdown_users(end).await?;
+            let users = owner.shutdown_users_original().await?;
             if !users.users_and_drivers_complete() {
                 return Err(error(Stage::Close, Reason::Timeout));
             }
         }
         if self.permit.is_some() && self.receipt.is_none() {
             if let Some(segment) = &mut self.segment {
-                let (queues, receipt) = segment.retire_final(end).await?;
+                let (queues, receipt) = segment.retire_final_original().await?;
                 self.queues = Some(queues);
                 self.receipt = Some(receipt);
             } else {
@@ -128,43 +204,15 @@ impl EntryState {
                 }
             }
         }
-        if let Some(permit) = &self.permit {
-            permit.close(self.receipt.as_ref(), self.tasks.as_ref().unwrap())?;
-            // NativeClosed is already visible; preserve these exact real
-            // endpoint/packet registrations until outside-lock Host ACK wait.
-            self.retiring_registrations = self.receipt.clone();
+        if let Some(receipt) = self.anchor_receipt.as_ref() {
+            let completed = self
+                .owner
+                .as_ref()
+                .ok_or_else(|| error(Stage::Close, Reason::Internal))?
+                .complete_packet_protocol_receipt(receipt.clone())?;
+            self.anchor_receipt = Some(completed);
         }
-        if let Some(segment) = &self.segment {
-            if let Some(exit) = segment.task_exit() {
-                if exit.joined.result().is_err() {
-                    self.retired_application.push(exit.joined.clone());
-                }
-            }
-        }
-        if let Some(exit) = &self.udp_exit {
-            if exit.result().is_err() {
-                self.retired_application.push(exit.clone());
-            }
-        }
-        // Every original user/driver/native gate above has completed. Success
-        // records are settled facts, not lifetime task history. Failed sources
-        // remain actual owned debt until the host publication consumes them.
-        self.retired_drivers.extend(
-            self.received
-                .drain(..)
-                .filter(|delivery| delivery.joined.result().is_err()),
-        );
-        drop(self.owner.take());
-        self.receiver = None;
-        self.segment = None;
-        self.permit = None;
-        self.origin = None;
-        self.receipt = None;
-        self.unbound = None;
-        self.unstarted = None;
-        self.queues = None;
-        self.udp_join = None;
-        self.udp_exit = None;
+        self.protocol_closed = true;
         Ok(())
     }
 }

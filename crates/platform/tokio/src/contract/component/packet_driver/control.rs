@@ -21,15 +21,15 @@ impl DynChannelControl for StoredControl {
         match self.installed.control.try_lock() {
             Ok(mut control) => {
                 self.installed.observe(&control);
+                if self.installed.complete.load(Ordering::Acquire) {
+                    return Ok(CloseReport::default());
+                }
                 if let Some(source) = self
                     .record
                     .failed_phase(&self.record.failures.final_control)
                     .filter(|_| !control.logical_cleanup_continuation())
                 {
                     return Err(source);
-                }
-                if self.installed.complete.load(Ordering::Acquire) {
-                    return Ok(CloseReport::default());
                 }
                 let result = control.try_close();
                 self.installed.observe(&control);
@@ -55,15 +55,15 @@ impl DynChannelControl for StoredControl {
                 return Ok(pending());
             };
             self.installed.observe(&control);
+            if self.installed.complete.load(Ordering::Acquire) {
+                return Ok(CloseReport::default());
+            }
             if let Some(source) = self
                 .record
                 .failed_phase(&self.record.failures.final_control)
                 .filter(|_| !control.logical_cleanup_continuation())
             {
                 return Err(source);
-            }
-            if self.installed.complete.load(Ordering::Acquire) {
-                return Ok(CloseReport::default());
             }
             let result = control.close(deadline).await;
             self.installed.observe(&control);
@@ -76,9 +76,9 @@ impl Record {
     pub(super) fn request_retirement(&self) {
         // This is the record's child cancellation domain, never its caller's
         // original parent token. Wake callbacks run outside the pending lock.
-        if let Some(installed) = self.installed.get() {
-            self.release_host_retained_pending(installed);
-        }
+        self.retiring
+            .store(true, std::sync::atomic::Ordering::Release);
+        self.release_host_retained_pending();
         self.call.cancel.cancel();
         if let Some(children) = &self.protocols {
             children.request_return();

@@ -2,6 +2,23 @@
 use super::*;
 use zero_platform_tokio::contract::network::UpstreamBinding;
 use zero_transport::{pooled_driver::datagram::PacketIo, RuntimeError};
+impl VlessUdpFlowPlan {
+    pub(crate) fn native_mux_plan(
+        &self,
+        server: &str,
+        port: u16,
+        profile: crate::mux_pool::MuxTransportProfile<'_>,
+    ) -> Result<(crate::mux_pool::PoolKey, u32), Error> {
+        let resume = self.resume();
+        let key = resume
+            .udp_mux_pool_key_from_transport_config(server, port, profile)
+            .ok_or(Error::Config("native XUDP requires an enabled plan"))?;
+        let concurrency = resume
+            .xudp_concurrency()
+            .ok_or(Error::Config("native XUDP concurrency missing"))?;
+        Ok((key, concurrency))
+    }
+}
 impl PreparedVlessUdpFlowPlan {
     pub(crate) fn uses_xudp(&self) -> bool {
         self.plan.resume().mux_flow_enabled()

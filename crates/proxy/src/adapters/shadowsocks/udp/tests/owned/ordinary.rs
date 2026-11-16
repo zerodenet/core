@@ -99,7 +99,7 @@ async fn ordinary_cached_datagrams_keep_one_original_for_reordered_targets_empty
             "outbounds":[{"tag":"ss","protocol":{"type":"shadowsocks","server":"127.0.0.1","port":peer.local_addr().unwrap().port(),"cipher":"aes-128-gcm","password":"ordinary-original"}}],
             "route":{"final":{"type":"route","outbound":"ss"}}
         }).to_string()).unwrap();
-        let codec=super::super::super::transport_leaf(&Default::default(),"ss",&config.outbounds[0].protocol).unwrap().udp_packet_path_plan().unwrap().carrier_codec();
+        let codec=crate::adapters::shadowsocks::transport_leaf(&Default::default(),"ss",&config.outbounds[0].protocol).unwrap().udp_packet_path_plan().unwrap().carrier_codec();
         let proxy=Proxy::new(config).unwrap();let registry=proxy.system_tun_source_registry();let running=proxy.spawn();
         let entry=loop {if let Some(owner)=registry.owner("entry") {break owner;}tokio::task::yield_now().await;};
         entry.wait_ready().await.unwrap();

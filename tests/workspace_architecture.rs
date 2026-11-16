@@ -363,6 +363,7 @@ fn engine_leaf_projection_stops_at_the_inventory_registry_preparation_boundary()
             || relative == Path::new("inventory/device.rs")
             || relative == Path::new("inventory/tcp/selection.rs")
             || relative == Path::new("inventory/udp/leaf.rs")
+            || relative == Path::new("inventory/udp/relay.rs")
             || relative == Path::new("inventory/udp/association.rs")
             || relative == Path::new("inventory/udp/standard_relay.rs")
             || relative == Path::new("protocol_registry/registry/outbound.rs");
@@ -385,7 +386,7 @@ fn engine_leaf_projection_stops_at_the_inventory_registry_preparation_boundary()
     // compatibility claim. The new preparation boundary still performs no I/O
     // and must not interpret protocol-private configuration.
     let selection = read(&proxy.join("inventory/tcp/selection.rs"));
-    assert!(selection.contains("prepare_tcp_relay_chain"));
+    assert!(selection.contains("prepare_tcp_relay_prefix"));
     assert!(selection.contains("native_tcp_candidate"));
     // This existing engine enum variant is an input fact, not the Proxy
     // orchestrator type. Preserve the blanket check for every other use.

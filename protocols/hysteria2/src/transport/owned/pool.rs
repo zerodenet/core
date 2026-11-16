@@ -71,7 +71,12 @@ impl ComponentFactory for PoolFactory {
                 dial: profile.binding.dial.clone(),
                 ports: profile.ports(),
                 limits: options.metadata_limits,
-                max_origins: options.entry_limit,
+                max_origins: n(options.entry_limit.get()
+                    * if profile.leaf.node.udp_hop.is_some() {
+                        2
+                    } else {
+                        1
+                    }),
             })
             .collect::<Vec<_>>();
         if options.prepared_ca.is_none() {
@@ -122,10 +127,15 @@ impl PoolFactory {
         let metadata = options
             .profiles
             .iter()
-            .map(|_| {
+            .map(|profile| {
                 MetadataPoolOwner::new(
                     context.instance(),
-                    options.entry_limit,
+                    n(options.entry_limit.get()
+                        * if profile.leaf.node.udp_hop.is_some() {
+                            2
+                        } else {
+                            1
+                        }),
                     options.metadata_limits,
                     &context.cancel,
                 )
@@ -222,6 +232,17 @@ struct EntryState {
     auth: Option<Arc<OwnedAuthentication>>,
     permit: Option<MetadataPoolPermit>,
     origin: Option<MetadataPoolOrigin>,
+    protocol_origin: Option<MetadataPoolOrigin>,
+    anchor_permit: Option<MetadataPoolPermit>,
+    anchor_receipt: Option<
+        zero_platform_tokio::controlled_datagram::metadata::users::MetadataUsersClosedReceipt,
+    >,
+    previous_permit: Option<MetadataPoolPermit>,
+    // First Root-held protocol continuation persists across actual native
+    // wire replacements; every wire and endpoint still has its own receipts.
+    retirement: Option<zero_platform_tokio::controlled_carrier::CarrierProtocolRetirement>,
+    original_stop: Option<zero_platform_tokio::contract::CancellationToken>,
+    protocol_closed: bool,
     native_sources:
         Option<zero_platform_tokio::controlled_datagram::metadata_pool::MetadataOriginalSources>,
     native_failure: Option<Arc<zero_platform_tokio::contract::lifecycle::ResourceFailure>>,
@@ -296,6 +317,7 @@ mod maintain;
 mod setup;
 
 mod ledger;
+mod original;
 mod owner;
 
 mod material;

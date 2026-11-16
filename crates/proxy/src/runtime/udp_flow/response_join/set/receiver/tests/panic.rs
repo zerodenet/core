@@ -44,7 +44,7 @@ async fn actual_rx_poll_panic_keeps_the_original_box_until_its_real_critical_tas
             .registrar()
             .spawn_tracked(TaskClass::Critical, async move {
                 begun.await.unwrap();
-                let (owner, mut lease) = ResponseSetOwner::new(JoinSet::new());
+                let (owner, mut lease) = ResponseSetOwner::new();
                 lease
                     .install_packet_receiver(
                         &worker_memory,

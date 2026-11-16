@@ -148,7 +148,16 @@ async fn fake_ip_packets_never_escape_through_a_native_wireguard_packet_sink() {
         }]
     }}]);
     value["route"]["final"] = serde_json::json!({"type":"route","outbound":"wg"});
-    let proxy = Proxy::new(RuntimeConfig::parse(&value.to_string()).unwrap()).unwrap();
+    let config = RuntimeConfig::parse(&value.to_string()).unwrap();
+    let proxy = Proxy::new(config.clone()).unwrap();
+    let running = proxy.spawn();
+    crate::ProxyHandle::new(
+        zero_engine::EngineHandle::new(proxy.engine().clone()),
+        proxy.clone(),
+    )
+    .apply_runtime_config_and_wait(config, std::time::Duration::from_secs(5))
+    .await
+    .unwrap();
     let factory = factory(&proxy);
     for query_type in [1, 28] {
         let destination = allocate(&proxy, query_type).await;
@@ -177,4 +186,5 @@ async fn fake_ip_packets_never_escape_through_a_native_wireguard_packet_sink() {
             ..
         }
     ));
+    running.shutdown().await.unwrap();
 }

@@ -175,7 +175,7 @@ impl Shared {
                 .generation
                 .upgrade()
                 .ok_or_else(|| fail(Reason::Revoked))?;
-            let auth = tokio::select! {biased;_=self.stop.cancelled()=>return Err(fail(Reason::Cancelled)),result=generation.acquire(self.profile,self.binding.clone(),Some(self.dns_generation),end)=>result.map_err(|error|SendFailure::new(error,DeliveryState::NotSubmitted))?};
+            let auth = tokio::select! {biased;_=self.stop.cancelled()=>return Err(fail(Reason::Cancelled)),result=generation.acquire(self.profile,self.binding.clone(),Some(self.dns_generation),None,self.stop.clone(),end)=>result.map_err(|error|SendFailure::new(error,DeliveryState::NotSubmitted))?};
             let channel = auth
                 .open_udp()
                 .await

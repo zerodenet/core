@@ -11,7 +11,7 @@ fn candidate(peers: usize) -> Arc<PendingLinkedEndpoint> {
     })).unwrap();
     let adapter = super::super::super::WireguardAdapter::default();
     let live = adapter.passive_inbound_live(&config).unwrap();
-    Arc::new(PendingLinkedEndpoint::with_peer_slots(config.listen, live, peers).unwrap())
+    Arc::new(PendingLinkedEndpoint::with_peer_stacks(config.listen, live, peers).unwrap())
 }
 fn install(owner: &PendingEndpointMap, pending: Arc<PendingLinkedEndpoint>) -> PendingEndpoints {
     PendingEndpoints::install(owner.clone(), HashMap::from([("wg-in".into(), pending)])).unwrap()
@@ -38,7 +38,7 @@ fn abandoned_unstarted_candidate_is_fenced_before_its_map_is_released() {
     drop(guard);
     assert!(owner.lock().unwrap().is_none());
     assert!(!pending.peer_stack(0).unwrap().is_open());
-    assert!(!pending.peer_carrier(0).unwrap().is_open());
+    assert!(pending.cancellation().is_cancelled());
     assert!(pending.peer_stack(0).unwrap().start(recipe()).is_err());
 }
 #[tokio::test]
@@ -108,7 +108,6 @@ fn successful_link_holds_same_original_graph_after_pending_release_without_an_ar
         7,
         pending.listen().clone(),
         pending.live(),
-        vec![],
         vec![],
         vec![],
         sender,

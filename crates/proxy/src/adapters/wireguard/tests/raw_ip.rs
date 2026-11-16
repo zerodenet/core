@@ -399,15 +399,7 @@ async fn raw_ip_staging_failure_keeps_published_device() {
         .unwrap_or_else(|_| panic!("cell initialized twice"));
     let mut active = pool.begin_stage();
     active
-        .insert(
-            "wg".to_owned(),
-            0,
-            [1; 32],
-            1,
-            first_cell.clone(),
-            true,
-            false,
-        )
+        .insert("wg".to_owned(), 0, [1; 32], 1, first_cell.clone(), true)
         .unwrap();
     let _ = pool.publish(active);
     assert!(pool.is_current("wg", 0, [1; 32], 1, &first));
@@ -482,15 +474,7 @@ async fn raw_ip_staging_failure_keeps_published_device() {
         .unwrap_or_else(|_| panic!("cell initialized twice"));
     let mut committed = pool.begin_stage();
     committed
-        .insert(
-            "wg".to_owned(),
-            0,
-            [2; 32],
-            1,
-            replacement_cell,
-            true,
-            false,
-        )
+        .insert("wg".to_owned(), 0, [2; 32], 1, replacement_cell, true)
         .unwrap();
     let _ = pool.publish(committed);
     assert!(pool.health_snapshot("wg", 0, [1; 32]).is_none());

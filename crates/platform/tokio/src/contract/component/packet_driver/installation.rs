@@ -61,6 +61,19 @@ impl PacketDriverCallGrant {
             installed,
         };
         self.installed = true;
+        // Even a completion racing stop installs its actual controller first.
+        // No views escape that stopped attempt, and no rejected late owner is
+        // left only in a temporary return value or Drop-based cleanup claim.
+        if self
+            .record
+            .retiring
+            .load(std::sync::atomic::Ordering::Acquire)
+            || self.record.call.cancel.is_cancelled()
+        {
+            drop(session);
+            self.record.request_retirement();
+            return Err(failure(Reason::Revoked));
+        }
         Ok((session, handoff))
     }
 }

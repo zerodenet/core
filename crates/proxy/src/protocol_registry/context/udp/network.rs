@@ -59,43 +59,6 @@ impl UdpNetworkServices {
             .map_err(Into::into)
     }
 
-    pub(crate) async fn connect_upstream(
-        &self,
-        server: &str,
-        port: u16,
-    ) -> Result<zero_platform_tokio::TokioSocket, zero_transport::RuntimeError> {
-        self.upstream.connect_upstream(server, port).await
-    }
-
-    pub(crate) async fn resolve_udp_peer(
-        &self,
-        address: &zero_core::Address,
-        port: u16,
-        context: &'static str,
-    ) -> Result<
-        (
-            zero_traits::SocketAddress,
-            zero_platform_tokio::TokioDatagramSocket,
-        ),
-        zero_transport::RuntimeError,
-    > {
-        let peer = self
-            .upstream
-            .connector
-            .resolve_address(address, port, self.upstream.resolver.as_ref(), context)
-            .await
-            .map_err(zero_transport::RuntimeError::from)?;
-        let socket = self
-            .upstream
-            .bind_datagram_socket(peer)
-            .await
-            .map_err(zero_transport::RuntimeError::from)?;
-        Ok((
-            zero_platform_tokio::socket_addr_to_socket_address(peer),
-            socket,
-        ))
-    }
-
     pub(crate) async fn bind_direct_datagram_socket(
         &self,
         peer: std::net::SocketAddr,
@@ -137,20 +100,6 @@ impl UdpNetworkServices {
             .map_err(Into::into)
     }
 
-    pub(crate) fn record_control_traffic(
-        &self,
-        session_id: u64,
-        traffic: zero_transport::StreamTraffic,
-    ) {
-        if traffic.is_empty() {
-            return;
-        }
-        self.engine
-            .record_session_outbound_rx(session_id, traffic.read_bytes);
-        self.engine
-            .record_session_outbound_tx(session_id, traffic.written_bytes);
-    }
-
     pub(crate) fn record_association_created(&self) {
         self.engine.record_udp_upstream_association_created();
     }
@@ -165,23 +114,5 @@ impl UdpNetworkServices {
                 self.engine.record_udp_upstream_association_dropped()
             }
         }
-    }
-
-    #[cfg(feature = "managed-datagram-runtime")]
-    pub(crate) async fn build_udp_socket_carrier(
-        &self,
-        server: &str,
-        port: u16,
-        codec: std::sync::Arc<
-            dyn zero_traits::DatagramCodec<zero_core::Address, Error = zero_core::Error>,
-        >,
-    ) -> Result<
-        std::sync::Arc<dyn crate::runtime::udp_flow::packet_path::PacketPathCarrier>,
-        zero_engine::EngineError,
-    > {
-        crate::runtime::udp_flow::packet_path_chain::carriers::udp_socket_carrier::build(
-            self, server, port, codec,
-        )
-        .await
     }
 }

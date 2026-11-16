@@ -1,6 +1,6 @@
 use super::ProtocolRegistry;
 use crate::protocol_registry::InboundServiceCapability;
-use crate::runtime::inbound_service::PreparedInboundServiceOperation;
+use crate::runtime::inbound_service::NativeServiceOperation;
 use std::sync::Arc;
 use zero_config::RuntimeConfig;
 use zero_engine::EngineError;
@@ -15,11 +15,11 @@ impl ProtocolRegistry {
     pub(crate) fn prepare_inbound_services(
         &self,
         config: &RuntimeConfig,
-    ) -> Result<Vec<Box<dyn PreparedInboundServiceOperation>>, EngineError> {
+    ) -> Result<Vec<NativeServiceOperation>, EngineError> {
         let mut prepared = Vec::new();
         for capability in &self.services {
             for outbound in &config.outbounds {
-                prepared.extend(capability.prepare_inbound_service(outbound, config.source_dir())?);
+                prepared.extend(capability.prepare_inbound_service(outbound)?);
             }
         }
         Ok(prepared)

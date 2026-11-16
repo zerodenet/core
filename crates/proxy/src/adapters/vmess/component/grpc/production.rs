@@ -1,6 +1,6 @@
 //! One Node cannot expose compatibility TCP beside its new actual Stream owner.
 use super::*;
-use zero_config::{OutboundGroupKind, RuntimeConfig};
+use zero_config::RuntimeConfig;
 pub(crate) fn streams_selected(
     input: &OutboundConfig,
     candidate: Option<&RuntimeConfig>,
@@ -12,75 +12,28 @@ pub(crate) fn streams_selected(
     ) && candidate.is_some_and(|config| whole_streams_selected(config, native))
 }
 pub(crate) fn whole_streams_selected(config: &RuntimeConfig, native: bool) -> bool {
-    let nodes = config
-        .outbounds
-        .iter()
-        .filter(|node| {
-            matches!(
-                node.protocol,
-                OutboundProtocolConfig::Vmess { grpc: Some(_), .. }
-            )
-        })
-        .collect::<Vec<_>>();
-    !nodes.is_empty()
-        && nodes.into_iter().all(|node| {
-            (if super::super::mux::has_mux(node) {
-                super::super::mux::eligible(node)
-                    && native
-                    && (!super::super::mux::needs_ip_backend(node)
-                        || zero_dns::native::validate_node_config(config.runtime.dns.as_ref())
-                            .is_ok())
-            } else {
-                selected(node, Some(config), native)
-            }) && config.outbound_groups.iter().all(|group| {
-                let OutboundGroupKind::Relay { proxies } = &group.group else {
-                    return true;
-                };
-                proxies.iter().all(|name| {
-                    reaches(
-                        config,
-                        name,
-                        node.tag(),
-                        &mut std::collections::BTreeSet::new(),
-                    )
-                    .is_some_and(|referenced| {
-                        !referenced || (native && !super::super::mux::has_mux(node))
-                    })
+    native
+        && has_grpc_nodes(config)
+        && config
+            .outbounds
+            .iter()
+            .filter(|node| {
+                matches!(
+                    &node.protocol,
+                    OutboundProtocolConfig::Vmess { grpc: Some(_), .. }
+                )
+            })
+            .all(|node| {
+                (if super::super::mux::has_mux(node) {
+                    super::super::mux::eligible(node)
+                        && (!super::super::mux::needs_ip_backend(node)
+                            || crate::adapters::node_dns::validate(config).is_ok())
+                } else {
+                    selected(node, Some(config), native)
                 })
             })
-        })
 }
 
-fn reaches(
-    config: &RuntimeConfig,
-    name: &str,
-    wanted: &str,
-    active: &mut std::collections::BTreeSet<String>,
-) -> Option<bool> {
-    if name == wanted {
-        return Some(true);
-    }
-    if config
-        .outbounds
-        .iter()
-        .any(|outbound| outbound.tag() == name)
-    {
-        return Some(false);
-    }
-    if !active.insert(name.into()) {
-        return None;
-    }
-    let group = config
-        .outbound_groups
-        .iter()
-        .find(|group| group.tag() == name)?;
-    let mut found = false;
-    for child in group.group.members() {
-        found |= reaches(config, child, wanted, active)?;
-    }
-    active.remove(name);
-    Some(found)
-}
 #[cfg(test)]
 mod tests;
 

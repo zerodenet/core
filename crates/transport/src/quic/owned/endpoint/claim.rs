@@ -61,3 +61,38 @@ impl OwnedEndpointOwner {
         self.carrier_graph.as_ref().map(|graph| graph.completion())
     }
 }
+
+impl OwnedEndpointOwner {
+    /// Sealed native Source lineage from its actual endpoint driver and unique
+    /// Metadata user graph, including the existing mask stack in that Scope.
+    pub fn source_carrier_origin(
+        &self,
+    ) -> Result<Option<zero_platform_tokio::controlled_carrier::CarrierOrigin>, ChannelError> {
+        let Native::Hosted(_) = &self.native else {
+            return Ok(None);
+        };
+        let graph = self
+            .users_graph
+            .as_ref()
+            .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
+        let driver = self
+            .drivers
+            .tasks()
+            .into_iter()
+            .find(|id| {
+                matches!(
+                    self.drivers.origin(*id),
+                    Some(super::super::OwnedDriverOrigin::Quinn(
+                        quinn::DriverOrigin::Endpoint
+                    ))
+                )
+            })
+            .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
+        let retained = graph
+            .retained_views(driver, graph, driver)
+            .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
+        retained
+            .carrier_origin()
+            .map_err(|source| error(Stage::Prepare, Reason::StalePlan).with_source(source))
+    }
+}

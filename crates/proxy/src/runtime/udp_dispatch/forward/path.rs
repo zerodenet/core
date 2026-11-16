@@ -32,6 +32,19 @@ impl UdpDispatch {
                 let Some(target_addr) = flow.outbound.direct_target_addr() else {
                     unreachable!("Direct category maps to Direct variant only");
                 };
+                #[cfg(feature = "managed-datagram-runtime")]
+                if let Err(error) = self
+                    .refresh_bound_direct_flow(
+                        &flow.session,
+                        flow.outbound
+                            .direct_policy()
+                            .expect("Direct flow has a dial policy"),
+                    )
+                    .await
+                {
+                    self.fail_flow(flow, started_at, "udp_direct_bound_refresh", &error);
+                    return Err(error);
+                }
                 match self
                     .send_direct_packet(
                         flow.session.id,

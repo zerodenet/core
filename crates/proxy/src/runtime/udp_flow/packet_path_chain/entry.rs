@@ -1,12 +1,10 @@
-use std::sync::Arc;
-
 use tracing::debug;
 use zero_engine::EngineError;
 
 use super::bridge::recv_loop;
+use super::model::PacketPathCarrierRequest;
 use super::model::{Entry, EntryCandidate};
 use crate::protocol_registry::UdpAdapterContext;
-use crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation;
 
 pub(super) fn log_candidate(candidate: &EntryCandidate) {
     let carrier_desc = &candidate.carrier_desc;
@@ -24,7 +22,7 @@ pub(super) fn log_candidate(candidate: &EntryCandidate) {
 
 pub(super) async fn build_entry(
     ctx: UdpAdapterContext<'_>,
-    build_operation: Arc<dyn PreparedUdpPacketPathOperation>,
+    carrier: PacketPathCarrierRequest,
     candidate: EntryCandidate,
     receiver: &super::receiver::Receiver,
 ) -> Result<Entry, EngineError> {
@@ -43,10 +41,7 @@ pub(super) async fn build_entry(
     )?;
     let waiters = super::bridge::Waiters::new(&memory)?;
     let (receiving, scratch) = receiver.prepare_path()?;
-    let path = match crate::component::stream_bridge::datagram::packet_path::StandardPacketPath::build_installed(build_operation.as_ref(), &services).await? {
-        Some(actual) => actual,
-        None => build_operation.build_carrier(services.clone()).await?,
-    };
+    let path = carrier.0.build(services.clone()).await?;
     let codec = candidate.datagram.codec.clone();
     let datagram_desc = candidate.datagram.descriptor();
     let path = super::carriers::observed::wrap(

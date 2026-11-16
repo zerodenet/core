@@ -10,8 +10,6 @@ pub(crate) struct OutboundLeafRuntime {
     pub(crate) tag: Option<String>,
     pub(crate) protocol: String,
     pub(crate) tcp_path: TcpPathCategory,
-    #[cfg_attr(not(feature = "raw-ip-runtime"), allow(dead_code))]
-    pub(crate) dial_policy: zero_traits::DialPolicy,
     #[cfg(any(
         feature = "udp-runtime",
         feature = "tcp-tunnel-runtime",
@@ -26,28 +24,6 @@ pub(crate) struct OutboundLeafRuntime {
 }
 
 impl OutboundLeafRuntime {
-    pub(crate) fn virtual_outbound(tag: &str, protocol: &str, tcp_path: TcpPathCategory) -> Self {
-        Self {
-            tag: Some(tag.to_owned()),
-            protocol: protocol.to_owned(),
-            tcp_path,
-            dial_policy: Default::default(),
-            #[cfg(any(
-                feature = "udp-runtime",
-                feature = "tcp-tunnel-runtime",
-                feature = "tcp-session-runtime",
-                feature = "tcp-transport-session-runtime"
-            ))]
-            // An endpoint-free pool reports availability on each admission.
-            // Dial health cooldowns would hide newly registered workers.
-            health_tag: None,
-            endpoint: None,
-            kernel_tag: None,
-            #[cfg(feature = "udp-runtime")]
-            udp_policy_tag: Some(tag.to_owned()),
-        }
-    }
-
     pub(crate) fn proxy(
         tag: &str,
         protocol: &str,
@@ -59,7 +35,6 @@ impl OutboundLeafRuntime {
             tag: Some(tag.to_owned()),
             protocol: protocol.to_owned(),
             tcp_path,
-            dial_policy: Default::default(),
             #[cfg(any(
                 feature = "udp-runtime",
                 feature = "tcp-tunnel-runtime",
@@ -79,32 +54,11 @@ impl OutboundLeafRuntime {
 }
 
 impl OutboundLeafRuntime {
-    pub(crate) fn direct(tag: Option<&str>, dial_policy: zero_traits::DialPolicy) -> Self {
-        Self {
-            tag: tag.map(str::to_owned),
-            protocol: "direct".to_owned(),
-            tcp_path: TcpPathCategory::Direct,
-            dial_policy,
-            #[cfg(any(
-                feature = "udp-runtime",
-                feature = "tcp-tunnel-runtime",
-                feature = "tcp-session-runtime",
-                feature = "tcp-transport-session-runtime"
-            ))]
-            health_tag: None,
-            endpoint: None,
-            kernel_tag: tag.map(str::to_owned),
-            #[cfg(feature = "udp-runtime")]
-            udp_policy_tag: tag.map(str::to_owned),
-        }
-    }
-
     pub(crate) fn block(tag: Option<&str>) -> Self {
         Self {
             tag: tag.map(str::to_owned),
             protocol: "block".to_owned(),
             tcp_path: TcpPathCategory::Block,
-            dial_policy: Default::default(),
             #[cfg(any(
                 feature = "udp-runtime",
                 feature = "tcp-tunnel-runtime",

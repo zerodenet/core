@@ -174,6 +174,40 @@ impl Shared {
     }
 }
 impl Receive {
+    /// The old hop only receives; it must not reserve a second transmit lane.
+    pub fn prepare_unmasked(book: CarrierBufferBudget) -> io::Result<Self> {
+        let mut working = book.try_working_set(CarrierBufferWorkingShape {
+            receive_scratch_bytes: RECEIVE_BYTES,
+            // The shared two-lane book requires a nonempty lane; one byte
+            // is reserved, never a second datagram transmit working set.
+            transmit_working_bytes: 1,
+            receive_working_bytes: RECEIVE_BYTES,
+        })?;
+        let credit = working
+            .take_receive_scratch()
+            .expect("original receive scratch");
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(RECEIVE_BYTES)
+            .map_err(io::Error::other)?;
+        bytes.resize(RECEIVE_BYTES, 0);
+        Ok(Self {
+            scratch: Scratch {
+                bytes,
+                _credit: credit,
+            },
+            shared: Arc::new(Shared {
+                book,
+                transmit: working.transmit(),
+                receive: working.receive(),
+                needed: AtomicUsize::new(1),
+                ready: Mutex::new(None),
+                codec: Mutex::new(None),
+                masked: false,
+                individual: std::sync::atomic::AtomicBool::new(false),
+            }),
+        })
+    }
     pub fn copy(
         &self,
         bytes: &[u8],

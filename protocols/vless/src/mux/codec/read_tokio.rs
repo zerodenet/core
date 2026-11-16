@@ -7,7 +7,10 @@ pub(crate) enum BufferedFrame {
     Overflow(u16),
 }
 
-async fn header<R: AsyncRead + Unpin>(reader: &mut R) -> Result<(MuxFrame, usize), Error> {
+async fn header<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    reverse: bool,
+) -> Result<(MuxFrame, usize), Error> {
     let mut metadata_len = [0_u8; 2];
     reader
         .read_exact(&mut metadata_len)
@@ -22,7 +25,7 @@ async fn header<R: AsyncRead + Unpin>(reader: &mut R) -> Result<(MuxFrame, usize
         .read_exact(&mut metadata)
         .await
         .map_err(|_| Error::Io("failed to read MUX metadata"))?;
-    let frame = parse_metadata(&metadata, false)?;
+    let frame = parse_metadata(&metadata, reverse)?;
     let data_len = if frame.options & OPTION_DATA != 0 {
         let mut data_len = [0_u8; 2];
         reader
@@ -43,7 +46,14 @@ async fn header<R: AsyncRead + Unpin>(reader: &mut R) -> Result<(MuxFrame, usize
 pub(crate) async fn read_frame_tokio<R: AsyncRead + Unpin>(
     reader: &mut R,
 ) -> Result<MuxFrame, Error> {
-    let (mut frame, length) = header(reader).await?;
+    read_frame_tokio_mode(reader, false).await
+}
+
+pub(crate) async fn read_frame_tokio_mode<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    reverse: bool,
+) -> Result<MuxFrame, Error> {
+    let (mut frame, length) = header(reader, reverse).await?;
     frame.payload.resize(length, 0);
     reader
         .read_exact(&mut frame.payload)
@@ -57,7 +67,7 @@ pub(crate) async fn read_buffered_frame<R: AsyncRead + Unpin, T>(
     backlog: &MuxResponseBacklog,
     capture: impl FnOnce(&MuxFrame) -> T,
 ) -> Result<(BufferedFrame, T), Error> {
-    let (mut frame, length) = header(reader).await?;
+    let (mut frame, length) = header(reader, false).await?;
     // Pin the actual recipient before either byte/FIFO wait can allow SID reuse.
     let recipient = capture(&frame);
     let mut waiter = None;

@@ -1,20 +1,33 @@
 use super::*;
 #[tokio::test]
-async fn ordinary_vmess_grpc_domain_without_native_dns_retains_legacy_udp_selection() {
+async fn ordinary_vmess_grpc_domain_without_dns_document_uses_the_actual_system_node_provider() {
     let dns = Dns::new().await;
     let endpoint = Endpoint::new().await;
     let mut config = endpoint.config(&dns, false);
     config.runtime.dns = None;
     let proxy = Proxy::new(config.clone()).unwrap();
+    let plan = proxy.tcp_runtime_services().components.clone().unwrap();
+    let slot = plan
+        .configured("node")
+        .expect("actual System Node DNS factory");
+    assert!(slot
+        .recipe
+        .spec()
+        .roles
+        .contains(&zero_platform_tokio::contract::component::RoleKind::Stream));
+    assert!(slot
+        .recipe
+        .spec()
+        .roles
+        .contains(&zero_platform_tokio::contract::component::RoleKind::Datagram));
     let (resolved, _) = proxy
         .engine()
         .resolve_route_decision(RouteDecision::Route("node".into()))
         .unwrap();
     let zero_engine::ResolvedOutbound::Single(leaf) = resolved else {
-        panic!("single")
+        unreachable!()
     };
-    let claim = proxy.protocols.claim_outbound_leaf(&config, leaf).unwrap();
-    assert!(claim.into_udp_flow_for_route(RouteMode::Flow).is_ok());
+    assert!(proxy.protocols.claim_outbound_leaf(&config, leaf).is_err());
     dns.close().await;
 }
 

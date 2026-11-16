@@ -3,7 +3,7 @@ use crate::component::{
     direct_bridge::controlled::{ControlledCandidates, ControlledDemand},
     instance::retained,
 };
-use zero_platform_tokio::contract::network::ControlledStreamRequest;
+use zero_platform_tokio::contract::{network::ControlledStreamRequest, Impact, Stage};
 impl DirectOpener {
     pub(super) async fn open_controlled(
         &self,

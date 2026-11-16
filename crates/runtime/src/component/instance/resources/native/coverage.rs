@@ -4,6 +4,7 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::component) enum DeclaredResourceKind {
+    AcceptedSources,
     ControlledOutboundStream,
     ControlledCarrierPool,
     ControlledServiceStream,
@@ -36,6 +37,7 @@ pub(in crate::component) enum DeclaredResourceKind {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::component) enum DeclarationProvider {
+    AcceptedSources(bool),
     File(usize),
     Journal(usize),
     Native(usize),
@@ -60,6 +62,7 @@ pub(in crate::component) struct DeclarationEvidence {
     pub provider: DeclarationProvider,
 }
 pub(super) enum CoverageBinding {
+    AcceptedSources,
     Carrier(DeclaredResourceKind),
     Metadata,
     MetadataPool,
@@ -81,6 +84,7 @@ impl CoverageBinding {
         declaration: &ResourceDeclaration,
     ) -> Result<Self, ChannelError> {
         Ok(match declaration {
+            ResourceDeclaration::AcceptedCarrierSources { .. } => Self::AcceptedSources,
             ResourceDeclaration::ControlledPacketDevice { .. } => Self::PacketDevice,
             ResourceDeclaration::PacketDatagramReads { .. } => Self::PacketReads,
             ResourceDeclaration::LogicalPacketWorkspaces { .. } => Self::LogicalWorkspaces,
@@ -166,6 +170,7 @@ impl CoverageBinding {
         native: &[evidence::NativeIoEvidence],
     ) -> DeclarationEvidence {
         let (kind, provider) = match self {
+            Self::AcceptedSources => (DeclaredResourceKind::AcceptedSources, None),
             Self::Carrier(kind) => (*kind, None),
             Self::Icmp => (DeclaredResourceKind::NativeIcmp, None),
             Self::Metadata => (DeclaredResourceKind::MetadataDatagram, None),
@@ -231,6 +236,11 @@ impl evidence::HostIoEvidence {
                 return false;
             }
             let confirmed = match declaration.provider {
+                DeclarationProvider::AcceptedSources(returned)
+                    if declaration.kind == DeclaredResourceKind::AcceptedSources =>
+                {
+                    returned
+                }
                 #[cfg(any(target_os = "linux", windows))]
                 DeclarationProvider::Process(index)
                     if declaration.kind == DeclaredResourceKind::Process =>

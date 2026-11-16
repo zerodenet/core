@@ -106,10 +106,7 @@ pub(crate) fn selected(
     } else {
         eligible(input)
     }) && (!is_domain(input)
-        || (native
-            && candidate.is_some_and(|c| {
-                zero_dns::native::validate_node_config(c.runtime.dns.as_ref()).is_ok()
-            })))
+        || (native && candidate.is_some_and(|c| crate::adapters::node_dns::validate(c).is_ok())))
 }
 impl super::super::VmessAdapter {
     #[cfg(test)]

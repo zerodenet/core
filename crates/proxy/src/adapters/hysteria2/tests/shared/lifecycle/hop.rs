@@ -6,7 +6,7 @@ use zero_platform_tokio::{
 };
 
 #[tokio::test]
-async fn hysteria2_native_hop_closes_the_actual_old_original_and_new_donors_use_the_current_one() {
+async fn hysteria2_native_hop_closes_the_old_wire_while_both_donors_retain_the_protocol_original() {
     exercise(None).await;
 }
 #[tokio::test]
@@ -96,7 +96,11 @@ async fn exercise(max_entries: Option<usize>) {
             })
             .await;
         assert!(
-            first.closed().unwrap().had_native_acquisition(),
+            first
+                .native_wire_closed()
+                .is_some_and(|closed| closed.matches(&first)
+                    && closed.is_complete()
+                    && closed.had_native_acquisition()),
             "actual previous native receipt must exist before a replacement is observable"
         );
         assert!(
@@ -104,6 +108,14 @@ async fn exercise(max_entries: Option<usize>) {
             "same-binding hop preserves the original stable logical pool root"
         );
         assert!(root.endpoints().unwrap().matches_metadata(&current));
+        let retained = first
+            .retained_driver()
+            .expect("live continued endpoint/wire handoff");
+        assert!(!retained.packet_driver().is_joined() && !retained.protocol_driver().is_joined());
+        assert!(
+            first.closed().is_none(),
+            "wire closure does not finish the actual protocol anchor"
+        );
         echo(&old, b"after hop").await;
         let mut new = open(711).await.unwrap();
         assert!(

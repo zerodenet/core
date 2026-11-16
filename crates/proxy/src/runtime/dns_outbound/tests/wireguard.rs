@@ -83,7 +83,6 @@ async fn start_server_with_business(
     }
     let config = zero_config::RuntimeConfig::parse(&document.to_string()).unwrap();
     let proxy = Proxy::new(config.clone()).unwrap();
-    proxy.resolver.set_outbound_connector(Arc::new(NoLegacy));
     let running = proxy.spawn();
     let handle = crate::ProxyHandle::new(
         zero_engine::EngineHandle::new(proxy.engine().clone()),

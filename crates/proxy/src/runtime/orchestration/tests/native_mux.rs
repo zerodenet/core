@@ -15,8 +15,10 @@ use zero_core::{Address, Network, ProtocolType, Session};
 use zero_engine::{RouteDecision, RouteMode};
 mod cancelled;
 mod cleanup;
+mod cross_protocol;
 #[cfg(feature = "upstream-association-runtime")]
 mod datagram;
+mod recursive;
 mod replacement;
 mod server;
 use server::Server;
@@ -28,6 +30,9 @@ fn config(protocol: &str, port: u16) -> zero_config::RuntimeConfig {
     outbound["server"] = json!("127.0.0.1");
     outbound["port"] = json!(port);
     outbound["mux_concurrency"] = json!(2);
+    if protocol == "vless" {
+        outbound["xudp_concurrency"] = json!(2);
+    }
     outbound["ws"] = json!({"path":"/mux"});
     if protocol == "trojan" {
         outbound["sni"] = json!("localhost");
@@ -57,6 +62,13 @@ async fn start_components(proxy: &Proxy) -> crate::RunningProxy {
     running
 }
 async fn connect(proxy: &Proxy, port: u16) -> Result<crate::transport::TcpRelayStream, String> {
+    connect_target(proxy, port, "a").await
+}
+async fn connect_target(
+    proxy: &Proxy,
+    port: u16,
+    target: &str,
+) -> Result<crate::transport::TcpRelayStream, String> {
     let mut session = Session::new(
         0,
         Address::Ipv4([127, 0, 0, 1]),
@@ -75,13 +87,14 @@ async fn connect(proxy: &Proxy, port: u16) -> Result<crate::transport::TcpRelayS
         .unwrap();
     let (resolved, _) = proxy
         .engine()
-        .resolve_route_decision(RouteDecision::Route("a".into()))
+        .resolve_route_decision(RouteDecision::Route(target.into()))
         .unwrap();
     let prepared = services
         .prepare_tcp_outbound(&resolved, RouteMode::Flow)
         .map_err(|e| e.error.to_string())?;
     assert!(
-        matches!(prepared,PreparedTcpOutbound::Single(ref candidate) if matches!(candidate.execution,PreparedTcpCandidateExecution::Native(_)))
+        matches!(&prepared, PreparedTcpOutbound::Single(candidate) if matches!(candidate.execution,PreparedTcpCandidateExecution::Native(_)))
+            || matches!(&prepared, PreparedTcpOutbound::NativeRelay(_))
     );
     dispatch_tcp_outbound(
         services,
@@ -114,7 +127,23 @@ fn registration(
 #[test]
 fn ordinary_proxy_keeps_unqualified_native_mux_registration_closed() {
     for protocol in ["vless", "vmess", "trojan"] {
-        let proxy = Proxy::new(config(protocol, 1)).unwrap();
+        let mut config = config(protocol, 1);
+        config.outbounds.push(
+            serde_json::from_value(json!({
+                "tag":"unmigrated", "protocol": {
+                    "type":"vless", "server":"127.0.0.1", "port":1,
+                    "id":"11111111-2222-3333-4444-555555555555", "mkcp":{}
+                }
+            }))
+            .unwrap(),
+        );
+        config.outbound_groups.push(
+            serde_json::from_value(json!({
+                "tag":"remaining-caller", "type":"relay", "proxies":["unmigrated","a"]
+            }))
+            .unwrap(),
+        );
+        let proxy = Proxy::new(config).unwrap();
         assert!(proxy
             .tcp_runtime_services()
             .components

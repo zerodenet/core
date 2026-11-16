@@ -155,6 +155,7 @@ impl fmt::Debug for MetadataViewsClosedReceipt {
 #[derive(Clone)]
 pub struct MetadataViewsRetained {
     pub(in crate::controlled_datagram::metadata) original: Arc<Claim>,
+    pub(in crate::controlled_datagram::metadata) endpoint_original: Option<Arc<Claim>>,
     pub(in crate::controlled_datagram::metadata) driver: crate::contract::scope::TaskJoinWitness,
     pub(in crate::controlled_datagram::metadata) protocol: crate::contract::scope::TaskJoinWitness,
 }
@@ -170,5 +171,62 @@ impl MetadataViewIssuer {
     pub(crate) fn validates_receiver(&self, receiver: &MetadataViewsRetained) -> bool {
         Arc::ptr_eq(&self.0, &receiver.original)
             && self.0.scope.same_scope(&receiver.driver.scope_identity())
+    }
+}
+
+impl MetadataViewsRetained {
+    pub(crate) fn same_protocol_family(&self, other: &Self) -> bool {
+        Arc::ptr_eq(
+            self.endpoint_original.as_ref().unwrap_or(&self.original),
+            other.endpoint_original.as_ref().unwrap_or(&other.original),
+        ) && self.protocol.same_registration(&other.protocol)
+    }
+}
+impl MetadataViewIssuer {
+    pub(crate) fn validates_protocol_receiver(&self, receiver: &MetadataViewsRetained) -> bool {
+        Arc::ptr_eq(
+            &self.0,
+            receiver
+                .endpoint_original
+                .as_ref()
+                .unwrap_or(&receiver.original),
+        ) && self.0.scope.same_scope(&receiver.protocol.scope_identity())
+    }
+}
+
+impl MetadataDatagramControl {
+    /// The unique original native controller binds its actual Source before
+    /// transferring views; observers cannot install a different native owner.
+    pub fn register_source_provider(
+        &self,
+        instance: zero_core::component::ComponentInstanceId,
+        scope: crate::contract::scope::TaskScopeIdentity,
+    ) -> std_io::Result<()> {
+        self.shared.check()?;
+        self.shared
+            .socket
+            .entry
+            .register_provider(instance, scope)?;
+        Ok(())
+    }
+}
+impl MetadataViewsRetained {
+    /// Uses this sealed graph's real original and live registered driver.
+    /// Native closure remains with the original Metadata controller.
+    pub fn carrier_origin(
+        &self,
+    ) -> std_io::Result<Option<crate::controlled_carrier::CarrierOrigin>> {
+        let claim = self.endpoint_original.as_ref().unwrap_or(&self.original);
+        let shared = claim
+            .original
+            .upgrade()
+            .ok_or_else(|| std_io::Error::from(std_io::ErrorKind::NotConnected))?;
+        if shared.socket.entry.provider.get().is_none() {
+            return Ok(None);
+        }
+        let original = shared.socket.entry.register_driver(&self.driver)?;
+        Ok(Some(
+            crate::controlled_carrier::CarrierOrigin::from_listener(original),
+        ))
     }
 }

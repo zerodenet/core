@@ -1,13 +1,21 @@
 //! The original route-monitor task drives the single retained SDK job lane.
 use super::*;
+use futures_util::FutureExt;
+use std::panic::AssertUnwindSafe;
 pub(super) async fn run(
     original: PacketMetadataArc<Shared>,
     recovery: mpsc::Receiver<oneshot::Sender<Result<(), String>>>,
 ) -> Result<(), ChannelError> {
-    let result = run_inner(&original, recovery).await;
+    let result = AssertUnwindSafe(run_inner(&original, recovery))
+        .catch_unwind()
+        .await;
     original.closing.store(true, Ordering::Release);
+    original.cancel.cancel();
     let _ = original.jobs.try_send(Job::Close);
-    result
+    match result {
+        Ok(result) => result,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
 }
 async fn run_inner(
     original: &PacketMetadataArc<Shared>,

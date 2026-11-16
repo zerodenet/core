@@ -36,21 +36,24 @@ pub type PooledSession<I> = DatagramSession<Tx<I>, Rx<I>, Control<I>>;
 /// A send queues exactly one whole wire frame, or rejects it before submission.
 pub trait PacketIo: Send + 'static {
     fn send(&mut self, frame: &Datagram) -> io::Result<()>;
+    fn poll_send(&mut self, _cx: &mut Context<'_>, frame: &Datagram) -> Poll<io::Result<()>> {
+        Poll::Ready(self.send(frame))
+    }
     fn poll_recv(&mut self, cx: &mut Context<'_>) -> PacketPoll;
 }
-struct State<I> {
+struct State<I, U> {
     io: Option<I>,
-    usage: Option<PoolUse>,
+    usage: Option<U>,
     views: usize,
 }
-struct Shared<I> {
-    state: Mutex<State<I>>,
+struct Shared<I, U> {
+    state: Mutex<State<I, U>>,
     changed: Notify,
     stop: CancellationToken,
     admission: Arc<SessionAdmission>,
     session: Option<SessionId>,
 }
-impl<I> Shared<I> {
+impl<I, U> Shared<I, U> {
     fn cancellation(&self) -> BoxFuture<'static, ()> {
         let stop = self.stop.clone();
         let admission = self.admission.clone();
@@ -83,20 +86,20 @@ impl<I> Shared<I> {
         self.changed.notify_waiters();
     }
 }
-pub struct Tx<I> {
-    shared: Arc<Shared<I>>,
+pub struct Tx<I, U = PoolUse> {
+    shared: Arc<Shared<I, U>>,
     association: AssociationId,
     limits: DatagramLimits,
     cancel: BoxFuture<'static, ()>,
 }
-pub struct Rx<I> {
-    shared: Arc<Shared<I>>,
+pub struct Rx<I, U = PoolUse> {
+    shared: Arc<Shared<I, U>>,
     association: AssociationId,
     limits: DatagramLimits,
     cancel: BoxFuture<'static, ()>,
 }
-pub struct Control<I> {
-    shared: Arc<Shared<I>>,
+pub struct Control<I, U = PoolUse> {
+    shared: Arc<Shared<I, U>>,
     closed: bool,
 }
 
@@ -108,6 +111,18 @@ pub fn session<I: PacketIo>(
     request: zero_platform_tokio::contract::datagram::DatagramRequest,
     limits: DatagramLimits,
 ) -> Result<PooledSession<I>, ChannelError> {
+    session_with_lease(io, usage, admission, context, request, limits)
+}
+/// Reuse the exact packet/control implementation for another actual logical
+/// custody lease. This creates no physical pool, driver, Scope or native proof.
+pub fn session_with_lease<I: PacketIo, U: Send + 'static>(
+    io: I,
+    usage: U,
+    admission: Arc<SessionAdmission>,
+    context: &zero_platform_tokio::contract::context::OpenContext,
+    request: zero_platform_tokio::contract::datagram::DatagramRequest,
+    limits: DatagramLimits,
+) -> Result<DatagramSession<Tx<I, U>, Rx<I, U>, Control<I, U>>, ChannelError> {
     let shared = Arc::new(Shared {
         state: Mutex::new(State {
             io: Some(io),
@@ -139,7 +154,7 @@ pub fn session<I: PacketIo>(
         limits,
     })
 }
-impl<I: PacketIo> DatagramTx for Tx<I> {
+impl<I: PacketIo, U: Send + 'static> DatagramTx for Tx<I, U> {
     fn poll_send(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -158,7 +173,11 @@ impl<I: PacketIo> DatagramTx for Tx<I> {
             )));
         }
         let mut state = this.shared.state.lock().unwrap();
-        let result = state.io.as_mut().expect("active packet views").send(frame);
+        let result = std::task::ready!(state
+            .io
+            .as_mut()
+            .expect("active packet views")
+            .poll_send(cx, frame));
         Poll::Ready(
             result
                 .map(|()| SendReceipt {
@@ -201,7 +220,7 @@ impl<I: PacketIo> DatagramTx for Tx<I> {
         )
     }
 }
-impl<I: PacketIo> DatagramRx for Rx<I> {
+impl<I: PacketIo, U: Send + 'static> DatagramRx for Rx<I, U> {
     fn poll_recv(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -240,17 +259,17 @@ impl<I: PacketIo> DatagramRx for Rx<I> {
         }
     }
 }
-impl<I> Drop for Tx<I> {
+impl<I, U> Drop for Tx<I, U> {
     fn drop(&mut self) {
         self.shared.return_view();
     }
 }
-impl<I> Drop for Rx<I> {
+impl<I, U> Drop for Rx<I, U> {
     fn drop(&mut self) {
         self.shared.return_view();
     }
 }
-impl<I: Send> ChannelControl for Control<I> {
+impl<I: Send, U: Send> ChannelControl for Control<I, U> {
     fn cancel(&self, _: CloseReason) {
         self.shared.stop.cancel();
     }
@@ -292,7 +311,7 @@ impl<I: Send> ChannelControl for Control<I> {
         Ok(report)
     }
 }
-impl<I> Drop for Control<I> {
+impl<I, U> Drop for Control<I, U> {
     fn drop(&mut self) {
         self.shared.stop.cancel();
     }

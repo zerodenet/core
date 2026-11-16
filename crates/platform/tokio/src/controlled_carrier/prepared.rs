@@ -249,6 +249,7 @@ impl PreparedCarrier {
         }
         let mut carrier = ControlledCarrier {
             io: CarrierIo {
+                bypass: None,
                 io: Some(Box::pin(socket)),
                 slot: self.slot.clone(),
             },

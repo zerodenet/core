@@ -2,8 +2,33 @@
 use super::*;
 use std::net::{IpAddr, SocketAddr};
 use zero_core::Address;
-use zero_platform_tokio::contract::context::{with_deadline, RequestIdentity};
+use zero_platform_tokio::contract::{context::with_deadline, CancellationToken};
 
+/// The current BuildNew caller's bounds and exact root binding. This context
+/// grants no native acquisition and carries no synthetic business/Service fact.
+pub(in crate::adapters::wireguard::lifecycle) struct LinkedBuildContext {
+    pub(in crate::adapters::wireguard::lifecycle) binding: UpstreamBinding,
+    pub(in crate::adapters::wireguard::lifecycle) deadline: Option<tokio::time::Instant>,
+    pub(in crate::adapters::wireguard::lifecycle) cancel: CancellationToken,
+}
+impl LinkedBuildContext {
+    pub(super) fn validate(&self) -> Result<(), EngineError> {
+        if self.cancel.is_cancelled() {
+            return Err(interrupted("linked BuildNew caller cancelled"));
+        }
+        if self
+            .deadline
+            .is_some_and(|end| end <= tokio::time::Instant::now())
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "linked BuildNew caller expired",
+            )
+            .into());
+        }
+        Ok(())
+    }
+}
 pub(in crate::adapters::wireguard::lifecycle) struct LinkedInvocation {
     pub(super) recipe: LinkedEndpointRecipe,
     pub(super) peers: usize,
@@ -12,21 +37,22 @@ pub(in crate::adapters::wireguard::lifecycle) struct ResolvedLinkedInvocation {
     recipe: LinkedEndpointRecipe,
     peers: usize,
     endpoints: Vec<Option<SocketAddr>>,
-    demand: PacketCarrierDemand,
+    demand: LinkedBuildContext,
     egress: zero_platform_tokio::EgressInterfaceControl,
 }
 pub(super) struct ResolvedRequest {
     endpoints: Vec<Option<SocketAddr>>,
-    demand: PacketCarrierDemand,
+    demand: LinkedBuildContext,
     egress: zero_platform_tokio::EgressInterfaceControl,
 }
 impl LinkedInvocation {
     /// Actual Node DNS and original caller deadline/cancellation precede graph
     /// start. Resolving a candidate cannot register one of its stack workers.
+    #[cfg(test)]
     pub(in crate::adapters::wireguard::lifecycle) async fn resolve(
         self,
         upstream: &UpstreamConnectServices,
-        demand: PacketCarrierDemand,
+        demand: LinkedBuildContext,
     ) -> Result<ResolvedLinkedInvocation, EngineError> {
         let request = self.resolve_request(upstream, demand).await?;
         Ok(self.into_resolved(request))
@@ -34,24 +60,21 @@ impl LinkedInvocation {
     pub(super) fn resolve_request<'a>(
         &'a self,
         upstream: &'a UpstreamConnectServices,
-        demand: PacketCarrierDemand,
+        demand: LinkedBuildContext,
     ) -> zero_platform_tokio::contract::BoxFuture<'a, Result<ResolvedRequest, EngineError>> {
         Box::pin(async move {
             demand.validate()?;
-            if !matches!(&demand.identity, RequestIdentity::Service(_))
-                || demand.binding != self.recipe.binding
-            {
+            if demand.binding != self.recipe.binding {
                 return Err(invalid(
-                "linked BuildNew requires its actual Service identity and complete root binding",
-            ));
+                    "linked BuildNew differs from its complete original root binding",
+                ));
             }
             self.recipe.check_staged()?;
-            let owner = self
-                .recipe
-                .pending
-                .peer_carrier(0)
-                .ok_or_else(|| invalid("linked peer declaration is empty"))?;
-            let cancel = demand.context.cancel.clone();
+            if self.recipe.plan.peer_count() == 0 {
+                return Err(invalid("linked peer declaration is empty"));
+            }
+            let cancelled = self.recipe.pending.cancellation();
+            let cancel = demand.cancel.clone();
             let resolution = Box::pin(async {
                 if upstream.egress_generation() != self.recipe.binding.network_generation.0 {
                     return Err(invalid("linked candidate network generation is stale"));
@@ -80,9 +103,9 @@ impl LinkedInvocation {
             });
             let endpoints = tokio::select! {
                 biased;
-                _ = owner.cancelled() => return Err(interrupted("linked candidate was stopped")),
+                _ = cancelled.cancelled() => return Err(interrupted("linked candidate was stopped")),
                 _ = cancel.cancelled() => return Err(interrupted("linked BuildNew caller cancelled")),
-                result = with_deadline(demand.context.deadline, resolution) => result.map_err(|source| EngineError::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, source)))??,
+                result = with_deadline(demand.deadline, resolution) => result.map_err(|source| EngineError::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, source)))??,
             };
             demand.validate()?;
             self.recipe.check_staged()?;
@@ -107,15 +130,14 @@ impl ResolvedLinkedInvocation {
     pub(super) fn validate_retained(
         &self,
         upstream: &UpstreamConnectServices,
-        demand: &PacketCarrierDemand,
+        demand: &LinkedBuildContext,
     ) -> Result<(), EngineError> {
         // A resumed multi-device pass may encounter this completed original.
         // Do not replace its cancellation/deadline or repeat its DNS work.
         self.demand.validate()?;
         demand.validate()?;
         self.recipe.check_staged()?;
-        if !matches!(&demand.identity, RequestIdentity::Service(_))
-            || demand.binding != self.recipe.binding
+        if demand.binding != self.recipe.binding
             || upstream.egress_generation() != self.recipe.binding.network_generation.0
             || self.egress.generation() != self.recipe.binding.network_generation.0
         {
@@ -126,7 +148,7 @@ impl ResolvedLinkedInvocation {
         Ok(())
     }
 
-    pub(super) fn binding(&self) -> UpstreamBinding {
+    pub(in crate::adapters::wireguard::lifecycle) fn binding(&self) -> UpstreamBinding {
         self.recipe.binding.clone()
     }
 
@@ -163,13 +185,12 @@ impl ResolvedLinkedInvocation {
             self.recipe.pending.live(),
             devices,
             self.endpoints,
-            vec![None; self.recipe.plan.peer_count()],
             self.recipe.io,
         ));
         if let Some(outer) = &self.recipe.outer {
             let path = outer_path
                 .ok_or_else(|| invalid("same actual cold outer path was not installed"))?;
-            if path.root_binding.network_generation != self.recipe.binding.network_generation {
+            if path.recipe.binding().network_generation != self.recipe.binding.network_generation {
                 return Err(invalid("actual outer path network generation changed"));
             }
             let layouts = outer.codec_receive_layouts()?;

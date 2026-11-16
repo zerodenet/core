@@ -28,6 +28,7 @@ impl EndpointStackOwner {
     pub(crate) const TASK_LIMIT: usize = super::super::workers::WORKER_LIMIT;
     /// Pure finite declaration. JoinSet construction requires no runtime and
     /// creates none of the actual driver, TCP control or retransmission tasks.
+    #[cfg(test)]
     pub(crate) fn new() -> Arc<Self> {
         Arc::new(Self {
             workers: super::super::workers::DeviceWorkers::new(),

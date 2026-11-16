@@ -7,6 +7,7 @@ use zero_platform_tokio::contract::{
     context::{with_deadline, OpenContext},
     network::CarrierContext,
 };
+pub(super) mod epoch;
 mod prepare;
 mod setup;
 mod stream;
@@ -85,11 +86,6 @@ impl Managed {
                 DeliveryState::NotSubmitted,
             ));
         }
-        let mut network = if owner.options.node() {
-            Some(owner.network.lock().await)
-        } else {
-            None
-        };
         let selected = context.upstream.binding().network_generation;
         let dns_generation = matches!(
             owner.options.base.endpoint.address,
@@ -97,35 +93,16 @@ impl Managed {
         )
         .then(|| context.upstream.carrier_dns_generation())
         .flatten();
-        if network
-            .as_ref()
-            .is_some_and(|network| network.is_some_and(|old| old != (selected, dns_generation)))
-        {
-            // Do not open on a new network while originals on the old network
-            // still have logical users, drivers or unconfirmed native controls.
-            let records = owner.records.lock().unwrap().clone();
-            for record in records {
-                record.stop.cancel();
-            }
-            owner.reap(cleanup_deadline).await?;
-            if !owner.records.lock().unwrap().is_empty() {
-                return Err(owner.admission.error(
-                    session,
-                    Stage::Close,
-                    Reason::StalePlan,
-                    DeliveryState::NotSubmitted,
-                ));
-            }
-        }
-        owner
-            .reap(cleanup_deadline)
-            .await
-            .map_err(|source| owner.admission.attach(source, session))?;
-        if let Some(network) = network.as_mut() {
-            **network = Some((selected, dns_generation));
-        }
         let mut last_connect: Option<ChannelError> = None;
         loop {
+            let mut network = owner
+                .admit_network(
+                    context,
+                    (selected, dns_generation),
+                    last_connect.is_some(),
+                    cleanup_deadline,
+                )
+                .await?;
             // Both typed issuers share this one actual owner budget. A
             // failed or retiring original keeps it until matching cleanup.
             let capacity = owner

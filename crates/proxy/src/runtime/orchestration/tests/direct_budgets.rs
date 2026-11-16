@@ -60,7 +60,7 @@ async fn actual_direct_limits_keep_live_wire_and_replace_only_after_original_clo
         let plan=proxy.protocols.current_components(&proxy.engine().config()).unwrap();
         let old=plan.direct(Some("bounded")).unwrap();
         assert_eq!(old.recipe.spec().task_limit.unwrap().get(),1);
-        assert!(matches!(old.recipe.spec().resources.as_slice(),[ResourceDeclaration::ControlledDirectStream{max_sockets,..}] if max_sockets.get()==1));
+        assert!(matches!(old.recipe.spec().resources.as_slice(),[ResourceDeclaration::ControlledDirectCarrier{max_sockets,..}] if max_sockets.get()==1));
         let echo=TcpListener::bind("127.0.0.1:0").await.unwrap();let target=echo.local_addr().unwrap();
         let (front,back)=tokio::join!(connect(address,target),echo.accept());let mut front=front;let mut back=back.unwrap().0;
         live(&mut front,&mut back).await;

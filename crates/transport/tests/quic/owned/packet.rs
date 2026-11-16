@@ -194,3 +194,6 @@ async fn cancelled_scope_keeps_original_packet_worker_until_final_fifo_drains_an
     assert_eq!(native.take_report().main.confirmed_closed, 1);
     assert!(scope.shutdown(end).await.is_complete());
 }
+
+#[path = "packet_hopping.rs"]
+mod hopping;

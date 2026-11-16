@@ -2,6 +2,7 @@
 use super::*;
 /// Original selected declarations; this moves their existing strong handles.
 pub(super) struct OriginalTargets {
+    pub(super) lineage: Option<MetadataRef<lineage::Lineage>>,
     pub(super) max_pending: usize,
     pub(super) allowed: Arc<[crate::controlled_carrier::CarrierOwnerRegistration]>,
     pub(super) packet_originals: Arc<[CarrierOrigin]>,
@@ -59,6 +60,7 @@ impl PacketDriverCalls {
             binding,
             call,
             OriginalTargets {
+                lineage: None,
                 max_pending,
                 allowed,
                 packet_originals,
@@ -74,11 +76,23 @@ impl PacketDriverCalls {
         targets: OriginalTargets,
     ) -> Result<PacketDriverCallGrant, ChannelError> {
         let OriginalTargets {
+            lineage,
             max_pending,
             allowed,
             packet_originals,
             protocols: protocol_targets,
         } = targets;
+        let lineage = match lineage {
+            Some(lineage)
+                if lineage
+                    .wire
+                    .same_registration(&self.wire_for_actor(caller)?) =>
+            {
+                lineage
+            }
+            Some(_) => return Err(failure(Reason::StalePlan)),
+            None => self.new_lineage(caller)?,
+        };
         let source = self
             .original
             .driver()
@@ -210,7 +224,10 @@ impl PacketDriverCalls {
         let delivery = self.advance_fault_epoch(&calls, &mut retired_epoch)?;
         // Collection is driven separately by the actual owner, outside this lock.
         // A join without registration ACK cannot free a row.
-        if delivery.failed() || self.retiring.load(std::sync::atomic::Ordering::Acquire) {
+        if delivery.failed()
+            || self.retiring.load(std::sync::atomic::Ordering::Acquire)
+            || lineage.retiring.load(std::sync::atomic::Ordering::Acquire)
+        {
             return Err(failure(Reason::Revoked));
         }
         if calls.len() >= self.max_calls.get() {
@@ -223,8 +240,11 @@ impl PacketDriverCalls {
         let failures = Arc::new(faults::RecordFailures::default());
         delivery.register(failures.clone());
         let value = Record {
+            preparing: true.into(),
+            retiring: false.into(),
             original: self.original.clone(),
             caller: caller.clone(),
+            lineage,
             binding,
             identity,
             call: CarrierContext {

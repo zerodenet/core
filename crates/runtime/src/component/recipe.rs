@@ -28,6 +28,7 @@ impl<F: ComponentFactory> BuildRecipe for Prepared<F> {
 #[derive(Clone)]
 pub struct ComponentRecipe {
     spec: Arc<ComponentSpec>,
+    lifecycle_owner: Option<zero_core::component::ComponentId>,
     recipe: Arc<dyn BuildRecipe>,
     bound_datagrams: Arc<[bound_datagram::NativeBinding]>,
     carrier_total: Option<usize>,
@@ -46,6 +47,7 @@ impl ComponentRecipe {
         let spec = Arc::new(factory.describe(&options));
         Self {
             spec,
+            lifecycle_owner: None,
             recipe: Arc::new(Prepared { factory, options }),
             bound_datagrams: Arc::from([]),
             carrier_total: None,
@@ -57,6 +59,18 @@ impl ComponentRecipe {
             packet_path: None,
             packet_metadata_limits: None,
         }
+    }
+    pub(in crate::component) fn lifecycle_owner(
+        &self,
+    ) -> Option<zero_core::component::ComponentId> {
+        self.lifecycle_owner
+    }
+    pub(in crate::component) fn with_lifecycle_owner(
+        mut self,
+        owner: zero_core::component::ComponentId,
+    ) -> Self {
+        self.lifecycle_owner = Some(owner);
+        self
     }
     pub fn spec(&self) -> &ComponentSpec {
         &self.spec

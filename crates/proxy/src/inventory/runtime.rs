@@ -5,103 +5,11 @@ use zero_engine::{EngineError, ResolvedLeafOutbound};
 use super::service::{endpoint, ServiceNode};
 use super::{PreparedTcpCandidateExecution, ProtocolInventory};
 use crate::component::catalog::ComponentPlan;
+use crate::protocol_registry::ClaimedOutboundLeaf;
 use crate::protocol_registry::OutboundAdapterContext;
-use crate::protocol_registry::{ClaimedOutboundLeaf, OutboundLeafRuntime};
-use crate::runtime::tcp_dispatch::operation::{
-    PreparedTcpConnectOperation, PreparedTcpRelayOperation,
-};
-#[cfg(feature = "udp-runtime")]
-use crate::runtime::udp_dispatch::operation::PreparedUdpFlowOperation;
 use crate::transport::TcpOutboundFailure;
 use zero_core::{request::Destination, Address};
 use zero_platform_tokio::contract::dns::DnsQueryRole;
-
-pub(crate) struct ClaimedInventoryLeaf<'a> {
-    claimed: ClaimedOutboundLeaf<'a>,
-}
-
-impl<'a> ClaimedInventoryLeaf<'a> {
-    fn new(claimed: ClaimedOutboundLeaf<'a>) -> Self {
-        Self { claimed }
-    }
-
-    pub(crate) fn runtime(&self) -> OutboundLeafRuntime {
-        self.claimed.runtime.clone()
-    }
-
-    #[cfg(feature = "udp-runtime")]
-    pub(crate) fn into_claimed(self) -> ClaimedOutboundLeaf<'a> {
-        self.claimed
-    }
-
-    pub(crate) fn tcp_connect_for_route(
-        &self,
-        mode: RouteMode,
-    ) -> Result<std::sync::Arc<dyn PreparedTcpConnectOperation>, crate::transport::TcpOutboundFailure>
-    {
-        self.claimed.tcp_connect_for_route(mode)
-    }
-
-    pub(crate) fn tcp_relay_hop(
-        &self,
-    ) -> Result<(String, u16, std::sync::Arc<dyn PreparedTcpRelayOperation>), EngineError> {
-        self.claimed.tcp_relay_hop()
-    }
-
-    #[cfg(feature = "udp-runtime")]
-    pub(crate) fn into_udp_flow_for_route(
-        self,
-        mode: RouteMode,
-    ) -> Result<Box<dyn PreparedUdpFlowOperation + 'a>, crate::runtime::udp_dispatch::FlowFailure>
-    {
-        self.claimed.into_udp_flow_for_route(mode)
-    }
-
-    #[cfg(feature = "raw-ip-runtime")]
-    pub(crate) fn native_packet_returns_correlated(&self) -> bool {
-        self.claimed.native_packet_returns_correlated()
-    }
-
-    #[cfg(feature = "raw-ip-runtime")]
-    pub(crate) fn prepare_packet_route(
-        &self,
-    ) -> Option<std::sync::Arc<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>>
-    {
-        self.claimed.prepare_packet_route()
-    }
-
-    #[cfg(feature = "raw-ip-runtime")]
-    pub(crate) fn prepare_translated_packet_route(
-        &self,
-    ) -> Option<std::sync::Arc<dyn crate::runtime::packet_route::PreparedPacketRouteOperation>>
-    {
-        self.claimed.prepare_translated_packet_route()
-    }
-
-    #[cfg(feature = "raw-ip-runtime")]
-    pub(crate) fn prepare_datagram_exchange(
-        &self,
-    ) -> Option<std::sync::Arc<dyn crate::runtime::packet_route::PreparedDatagramExchangeOperation>>
-    {
-        self.claimed.prepare_datagram_exchange()
-    }
-
-    #[cfg(feature = "raw-ip-runtime")]
-    pub(crate) fn data_plane_sinks(&self) -> crate::runtime::network_graph::PlaneSet {
-        self.claimed.data_plane_sinks()
-    }
-
-    #[cfg(feature = "udp-runtime")]
-    pub(crate) fn udp_packet_path(
-        &self,
-    ) -> Option<
-        std::sync::Arc<
-            dyn crate::runtime::udp_dispatch::packet_path_operation::PreparedUdpPacketPathOperation,
-        >,
-    > {
-        self.claimed.udp_packet_path()
-    }
-}
 
 impl ProtocolInventory {
     pub(in crate::inventory) fn service_node(
@@ -143,16 +51,16 @@ impl ProtocolInventory {
                 };
                 let slot = slot.slot().map_err(failure)?;
                 let Some((host, port)) = candidate.endpoint else {
-                    return Ok(components
-                        .has_device_carrier_provider(slot.role_id())
-                        .then(|| ServiceNode {
-                            dial: slot.dial.clone(),
-                            slot,
-                            tag: candidate.tag,
-                            endpoint: None,
-                            wire_endpoint: None,
-                            role: DnsQueryRole::Node,
-                        }));
+                    return Ok((slot.accepted_carrier_provider().is_some()
+                        || components.has_device_carrier_provider(slot.role_id()))
+                    .then(|| ServiceNode {
+                        dial: slot.dial.clone(),
+                        slot,
+                        tag: candidate.tag,
+                        endpoint: None,
+                        wire_endpoint: None,
+                        role: DnsQueryRole::Node,
+                    }));
                 };
                 Ok(Some(ServiceNode {
                     dial: slot.dial.clone(),
@@ -196,6 +104,53 @@ impl ProtocolInventory {
         components: Option<&crate::component::catalog::ComponentPlan>,
         mode: RouteMode,
     ) -> Option<Result<super::PreparedTcpCandidate, crate::transport::TcpOutboundFailure>> {
+        if let ResolvedLeafOutbound::Direct {
+            tag, dial_policy, ..
+        } = leaf
+        {
+            // Native Direct Packet does not provide Flow conversion. Ordinary
+            // TCP and pool prefixes use the same already-compiled Direct role.
+            if mode == RouteMode::Packet {
+                return Some(Err(crate::runtime::path::missing_tcp_route_capability(
+                    mode,
+                )));
+            }
+            // All executable Direct callers select this same actual host
+            // generation. No claim may construct an unowned socket fallback.
+            let selected = components
+                .ok_or_else(|| {
+                    std::io::Error::other("Direct Stream requires its actual component plan")
+                })
+                .and_then(|plan| plan.direct(*tag).map_err(std::io::Error::other));
+            let slot = match selected {
+                Ok(slot) => slot,
+                Err(source) => {
+                    return Some(Err(TcpOutboundFailure {
+                        stage: "prepare_component",
+                        error: source.into(),
+                        upstream_endpoint: None,
+                        network: None,
+                    }))
+                }
+            };
+            if slot.dial != *dial_policy {
+                return Some(Err(TcpOutboundFailure {
+                    stage: "prepare_component",
+                    error: std::io::Error::other("selected Direct dial generation changed").into(),
+                    upstream_endpoint: None,
+                    network: None,
+                }));
+            }
+            return Some(Ok(super::PreparedTcpCandidate {
+                health_tag: None,
+                tag: Some(tag.unwrap_or("direct").into()),
+                protocol: "direct".into(),
+                endpoint: None,
+                execution: super::PreparedTcpCandidateExecution::Native(
+                    super::tcp::StreamRoleRef::new(&slot),
+                ),
+            }));
+        }
         let ResolvedLeafOutbound::Proxy { identity } = leaf else {
             return None;
         };
@@ -222,24 +177,16 @@ impl ProtocolInventory {
                 message: format!("{reason}: {endpoint}"),
             })));
         }
-        if mode == RouteMode::Packet {
-            return if slot
-                .recipe
-                .spec()
-                .roles
-                .contains(&zero_platform_tokio::contract::component::RoleKind::Packet)
-            {
-                // The existing Packet conversion still selects its actual
-                // device executor; a Stream role cannot substitute for it.
-                None
-            } else {
-                Some(Err(crate::runtime::path::missing_tcp_route_capability(
-                    mode,
-                )))
-            };
+        if mode == RouteMode::Packet && !components?.has_device_carrier_provider(slot.role_id()) {
+            return Some(Err(crate::runtime::path::missing_tcp_route_capability(
+                mode,
+            )));
         }
+        // Device Stream opens the same original stack under the actual caller;
+        // strict Packet no longer constructs a private Flow converter.
         let endpoint = match outbound.protocol.endpoint() {
             Some((server, port)) => Some((server.into(), port)),
+            None if slot.accepted_carrier_provider().is_some() => None,
             None if [zero_platform_tokio::contract::component::RoleKind::Packet,
                      zero_platform_tokio::contract::component::RoleKind::Stream,
                      zero_platform_tokio::contract::component::RoleKind::Datagram]
@@ -250,7 +197,7 @@ impl ProtocolInventory {
             }))),
         };
         Some(Ok(super::PreparedTcpCandidate {
-            health_tag: Some(outbound.tag.clone()),
+            health_tag: endpoint.as_ref().map(|_| outbound.tag.clone()),
             tag: Some(outbound.tag.clone()),
             protocol: outbound.protocol.protocol_name().into(),
             endpoint,
@@ -288,14 +235,18 @@ impl ProtocolInventory {
         use std::sync::Arc;
 
         let admission = zero_engine::EndpointAdmission::from_snapshot(services.snapshot());
+        let execution = services.execution();
+        let components = execution
+            .components
+            .as_deref()
+            .map_err(|source| EngineError::Io(std::io::Error::other(source.clone())))?;
         let packet_paths = self.prepare_device_packet_paths(
             config,
             &admission,
             zero_core::component::NetworkGeneration(services.upstream().egress_generation()),
-            services.execution().components.as_deref().ok(),
+            Some(components),
         )?;
         let context = crate::adapters::devices::OutboundDevicePreparationContext {
-            traffic: services.engine().clone(),
             direct_packet_device: config.runtime.network.direct_packet_device.clone(),
             mtu: config.runtime.network.mtu,
             stack_options: crate::runtime::raw_ip::RawIpStackOptions::from_config_with_packet_root(
@@ -332,20 +283,9 @@ impl ProtocolInventory {
                 config.runtime.effective_packet_return_total_max_frames(),
                 config.runtime.effective_packet_return_total_max_bytes(),
             ),
-            endpoint_bindings: Arc::new(config.endpoint_bindings()),
-            disabled_outbounds: Arc::new(
-                config
-                    .outbounds
-                    .iter()
-                    .filter(|outbound| admission.outbound_denial(&outbound.tag).is_some())
-                    .map(|outbound| outbound.tag.clone())
-                    .collect(),
+            network_generation: zero_core::component::NetworkGeneration(
+                services.upstream().egress_generation(),
             ),
-            upstream: services.upstream(),
-            packet_path_services:
-                crate::protocol_registry::PacketPathExecutionServices::from_tcp_execution(
-                    &services.execution(),
-                ),
             packet_paths: Arc::new(packet_paths),
         };
         self.devices.prepare(config, context, admission).await
@@ -364,11 +304,8 @@ impl ProtocolInventory {
     #[cfg(feature = "managed-stream-runtime")]
     pub(crate) fn prepare_inbound_services(
         &self,
-        config: &RuntimeConfig,
-    ) -> Result<
-        Vec<Box<dyn crate::runtime::inbound_service::PreparedInboundServiceOperation>>,
-        EngineError,
-    > {
+        config: &std::sync::Arc<RuntimeConfig>,
+    ) -> Result<Vec<crate::runtime::inbound_service::NativeServiceOperation>, EngineError> {
         self.registry.prepare_inbound_services(config)
     }
 
@@ -380,7 +317,7 @@ impl ProtocolInventory {
         &self,
         config: &'a RuntimeConfig,
         leaf: ResolvedLeafOutbound<'a>,
-    ) -> Result<ClaimedInventoryLeaf<'a>, EngineError> {
+    ) -> Result<ClaimedOutboundLeaf<'a>, EngineError> {
         if let ResolvedLeafOutbound::Proxy { identity } = &leaf {
             if let Some(outbound) = config.outbounds.get(identity.config_index()) {
                 if let Some((reason, endpoint_id)) =
@@ -393,7 +330,6 @@ impl ProtocolInventory {
                 }
             }
         }
-        let claimed = self.registry.claim_outbound_leaf(config, leaf)?;
-        Ok(ClaimedInventoryLeaf::new(claimed))
+        self.registry.claim_outbound_leaf(config, leaf)
     }
 }

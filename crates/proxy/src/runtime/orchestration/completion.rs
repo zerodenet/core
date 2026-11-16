@@ -78,7 +78,7 @@ impl OrchestrationState {
         }
         // Signal first, then drain all owners within one bounded grace period.
         let drained = tokio::time::timeout(Duration::from_secs(5), async {
-            self.services.shutdown().await;
+            let service_result = self.services.shutdown().await;
             while let Some(task) = self.listeners.join_next().await {
                 super::lifecycle::handle_listener_result(
                     Some(task),
@@ -89,7 +89,7 @@ impl OrchestrationState {
             while let Some(task) = self.urltests.join_next().await {
                 task.map_err(|error| EngineError::Io(std::io::Error::other(error)))??;
             }
-            Ok::<(), EngineError>(())
+            service_result
         })
         .await;
         let cleanup_error = match drained {
@@ -113,7 +113,12 @@ impl OrchestrationState {
         // remain the live consumer of the actual persistent listener Scope;
         // dropping this state returns their same JoinSet to the registry.
         self.urltests.shutdown().await;
-        self.services.shutdown().await;
+        if let Err(error) = self.services.shutdown().await {
+            cleanup_errors.push(format!("Service Scope shutdown failed: {error}"));
+            if result.is_ok() {
+                result = Err(error);
+            }
+        }
         if let Err(error) = proxy
             .inbound_owners
             .shutdown_all_reported(

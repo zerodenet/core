@@ -11,8 +11,14 @@ impl PacketSocket {
             .is_some_and(|memory| memory.book.same_budget(book))
     }
 }
-#[cfg(feature = "split_http")]
+#[cfg(any(
+    feature = "split_http",
+    feature = "mkcp",
+    feature = "hysteria",
+    feature = "quic_h3"
+))]
 impl PacketSegment {
+    #[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
     pub(in crate::quic::owned) fn retained_receiver_views(
         &self,
         socket: &PacketSocket,
@@ -30,7 +36,7 @@ impl PacketSegment {
         }
         self.graph.retained_views(driver, endpoint, protocol)
     }
-    pub(in crate::quic::owned) fn take_endpoint_users(
+    pub(crate) fn take_endpoint_users(
         &mut self,
         socket: &PacketSocket,
         tasks: &TaskRegistrar,
@@ -59,5 +65,28 @@ impl PacketSegment {
             .take()
             .expect("same paired claim endpoint");
         Ok((graph, receiver))
+    }
+}
+
+#[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
+impl PacketSegment {
+    pub(in crate::quic::owned) fn retained_continuation_views(
+        &self,
+        socket: &PacketSocket,
+        endpoint: &MetadataUserGraph<OwnedDriverOrigin, DriverBody>,
+        protocol: zero_core::component::TaskId,
+        previous: &zero_platform_tokio::controlled_datagram::metadata::MetadataViewsRetained,
+    ) -> Option<zero_platform_tokio::controlled_datagram::metadata::MetadataViewsRetained> {
+        if !Arc::ptr_eq(&self.identity, &socket.identity)
+            || !self.identity.names_endpoint(endpoint.drivers())
+        {
+            return None;
+        }
+        let driver = self.driver?;
+        if self.graph.drivers().origin(driver) != Some(OwnedDriverOrigin::Carrier) {
+            return None;
+        }
+        self.graph
+            .retained_continuation_views(driver, endpoint, protocol, previous)
     }
 }

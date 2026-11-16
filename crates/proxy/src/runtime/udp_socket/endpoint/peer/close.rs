@@ -22,6 +22,12 @@ impl DirectEndpointOwner {
             // Scope records this task/source once; this resource reports I/O only.
             peer.joined = Some(joined);
         }
+        self.close_joined_sockets(deadline).await
+    }
+    pub(in super::super) async fn close_joined_sockets(
+        &mut self,
+        deadline: Instant,
+    ) -> Result<CloseReport, ChannelError> {
         let Ok(mut sockets) = timeout_at(deadline, self.shared.sockets.lock()).await else {
             let mut report = CloseReport::default();
             report.unfinished.push(Unfinished::Resource(

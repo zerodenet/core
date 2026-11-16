@@ -45,7 +45,6 @@ impl LinkedEndpoint {
         live: Arc<LiveInboundDevice>,
         devices: Vec<Arc<SharedRawIpDevice>>,
         endpoints: Vec<Option<SocketAddr>>,
-        carriers: Vec<Option<Arc<dyn RawIpWireCarrier>>>,
         recipe: EndpointIoRecipe,
     ) -> Self {
         let peers = Arc::new(EndpointPeerState {
@@ -54,7 +53,6 @@ impl LinkedEndpoint {
             revision: 0,
             devices: devices.clone(),
             initial_endpoints: endpoints,
-            carriers,
         });
         let (io, pending) = match recipe.custody {
             IoCustody::Fresh(packets) => {
@@ -115,7 +113,6 @@ impl LinkedEndpoint {
                 revision,
                 devices: pending.devices.clone(),
                 initial_endpoints: pending.initial_endpoints.clone(),
-                carriers: pending.carriers.clone(),
             }));
         }
     }
@@ -150,41 +147,14 @@ impl LinkedEndpoint {
             .set(resources)
             .map_err(|_| invalid("linked resource owner changed during installation"))
     }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
-        )
-    )]
-    pub(in crate::adapters::wireguard) fn outer_carriers(&self) -> Vec<Arc<dyn RawIpWireCarrier>> {
-        self.declared_peers()
-            .carriers
-            .iter()
-            .flatten()
-            .cloned()
-            .collect()
-    }
-    pub(in crate::adapters::wireguard) fn reused_carriers(
-        &self,
-    ) -> Vec<Option<Arc<dyn RawIpWireCarrier>>> {
-        self.declared_peers().carriers.clone()
-    }
-    pub(in crate::adapters::wireguard) fn carrier_owners_match(
-        &self,
-        owners: &[Arc<crate::runtime::udp_dispatch::packet_owner::PacketCarrierOwnerSlot>],
-    ) -> bool {
+    /// Pure shape consistency only. This issues no native/Scope close proof.
+    pub(in crate::adapters::wireguard) fn matches_declared_peers(&self, count: usize) -> bool {
         let peers = self.declared_peers();
-        peers.carriers.len() <= owners.len()
-            && peers.carriers.iter().zip(owners).all(|(carrier, owner)| {
-                carrier.as_ref().is_none_or(|carrier| {
-                    carrier
-                        .native_owner()
-                        .is_some_and(|actual| Arc::ptr_eq(&actual, owner))
-                })
-            })
+        peers.initial_endpoints.len() == count
+            && (peers.prepared_outer.is_empty() || peers.prepared_outer.len() == count)
     }
     #[allow(clippy::too_many_arguments)]
+    #[cfg(test)]
     pub(in crate::adapters::wireguard) fn new(
         identity: [u8; 32],
         generation: u64,
@@ -192,7 +162,6 @@ impl LinkedEndpoint {
         live: Arc<LiveInboundDevice>,
         devices: Vec<Arc<SharedRawIpDevice>>,
         endpoints: Vec<Option<SocketAddr>>,
-        carriers: Vec<Option<Arc<dyn RawIpWireCarrier>>>,
         sender: watch::Sender<mpsc::Sender<EndpointPacket>>,
         packets: mpsc::Receiver<EndpointPacket>,
     ) -> Self {
@@ -203,7 +172,6 @@ impl LinkedEndpoint {
             live,
             devices,
             endpoints,
-            carriers,
             EndpointIoRecipe::fresh(sender, packets),
         )
     }
@@ -253,7 +221,6 @@ impl LinkedEndpoint {
             revision: previous.revision.wrapping_add(1),
             devices: previous.devices.clone(),
             initial_endpoints: previous.initial_endpoints.clone(),
-            carriers: previous.carriers.clone(),
             outer_memory,
             prepared_outer: paths,
         });

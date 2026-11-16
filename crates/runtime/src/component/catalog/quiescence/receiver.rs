@@ -58,7 +58,7 @@ pub(super) fn retained(
     let transparent = spec.resources.is_empty()
         && spec.task_limit.is_none()
         && donor.dependency_instances().contains(&from);
-    if from != to && !transparent && !depends(old, from, to) {
+    if from != to && !transparent && !slot.same_lifecycle_group(donor) && !depends(old, from, to) {
         return None;
     }
     Some(receiver)

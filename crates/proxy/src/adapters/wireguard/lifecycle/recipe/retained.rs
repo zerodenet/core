@@ -16,7 +16,7 @@ impl RetainedInvocation {
     pub(in crate::adapters::wireguard::lifecycle) fn resolve<'a>(
         &'a mut self,
         upstream: &'a UpstreamConnectServices,
-        demand: PacketCarrierDemand,
+        demand: LinkedBuildContext,
     ) -> zero_platform_tokio::contract::BoxFuture<'a, Result<(), EngineError>> {
         Box::pin(async move {
             match self {
@@ -31,12 +31,7 @@ impl RetainedInvocation {
                 }
                 Self::Installed { binding } => {
                     demand.validate()?;
-                    if demand.binding != *binding
-                        || !matches!(
-                            demand.identity,
-                            zero_platform_tokio::contract::context::RequestIdentity::Service(_)
-                        )
-                    {
+                    if demand.binding != *binding {
                         return Err(invalid(
                             "reused linked demand differs from its actual root binding",
                         ));

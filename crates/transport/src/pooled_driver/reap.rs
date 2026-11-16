@@ -3,6 +3,40 @@ use super::ManagedPool;
 use std::sync::atomic::Ordering;
 use zero_platform_tokio::contract::ChannelError;
 impl ManagedPool {
+    /// Retire one actual exclusive cached original. Idle expiry is not a
+    /// logical handoff; its replacement waits for this exact native receipt.
+    pub async fn retire_connection(
+        &self,
+        record: &std::sync::Arc<super::Physical>,
+        deadline: tokio::time::Instant,
+    ) -> Result<bool, ChannelError> {
+        if !record
+            .owner
+            .upgrade()
+            .is_some_and(|owner| std::ptr::eq(owner.as_ref(), self))
+        {
+            return Err(super::failure(
+                self.instance,
+                zero_platform_tokio::contract::Stage::Close,
+                zero_platform_tokio::contract::Reason::StalePlan,
+            ));
+        }
+        record.stop.cancel();
+        self.settle_failed(record, deadline).await?;
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            record.receive_available();
+            if record.confirmed_closed() {
+                self.harvest();
+                return Ok(true);
+            }
+            if tokio::time::timeout_at(deadline, changed).await.is_err() {
+                return Ok(false);
+            }
+        }
+    }
     pub(super) fn harvest(&self) {
         let mut after = None;
         loop {
@@ -59,5 +93,28 @@ impl ManagedPool {
         }
         self.harvest();
         Ok(())
+    }
+}
+
+impl ManagedPool {
+    /// Actual nested loans use strictly shorter physical bindings. Stop all
+    /// records first, then confirm each consumer before retiring its donor.
+    /// Ordering is not proof: an incomplete original blocks every shorter one.
+    pub(super) async fn retire_originals(
+        &self,
+        mut records: Vec<std::sync::Arc<super::Physical>>,
+        deadline: tokio::time::Instant,
+    ) -> Result<bool, ChannelError> {
+        records.sort_by_key(|record| std::cmp::Reverse(record.binding.prefix.len()));
+        for record in &records {
+            record.stop.cancel();
+        }
+        for record in &records {
+            if !self.retire_connection(record, deadline).await? {
+                return Ok(false);
+            }
+        }
+        self.harvest();
+        Ok(self.records.lock().unwrap().is_empty())
     }
 }

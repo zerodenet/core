@@ -73,7 +73,7 @@ impl OrchestrationState {
                 .map(|inbound| (inbound.tag.clone(), inbound.clone()))
                 .collect(),
             urltests: JoinSet::new(),
-            services: Default::default(),
+            services: proxy.inbound_services.clone(),
             reload_changes,
             source_dir,
             urltest_runtime,
@@ -87,6 +87,8 @@ impl OrchestrationState {
     }
 
     pub(super) async fn start(&mut self, proxy: &Proxy) -> Result<(), EngineError> {
+        self.services.shutdown().await?;
+        self.services.begin_run().await?;
         self.retire_previous_listeners(proxy).await?;
         self.listeners.begin_generation();
         self.publish_starting(proxy, &self.applied_snapshot);
@@ -202,7 +204,7 @@ impl OrchestrationState {
                 proxy.tcp_runtime_services_for_snapshot(snapshot.clone()),
                 self.shutdown_rx.clone(),
             )
-            .await;
+            .await?;
         self.preparing_inbounds.ensure_open()?;
         proxy
             .protocols
@@ -221,9 +223,18 @@ impl OrchestrationState {
         proxy.protocols.finish_device_publication(&config).await?;
         self.inbound_runtime_factory = self.inbound_runtime_factory.clone().without_preparing();
         self.preparing_inbounds = Default::default();
+        proxy
+            .inbound_owners
+            .restore_system_tcp(
+                &proxy.protocols,
+                &config,
+                proxy.tcp_runtime_services_for_snapshot(snapshot.clone()),
+            )
+            .await?;
         self.start_urltests();
         self.publish_endpoint_facts(proxy);
         log_started(proxy, &config);
+        self.services.accept().await;
         proxy.mark_orchestration_ready();
 
         Ok(())

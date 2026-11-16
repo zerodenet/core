@@ -108,6 +108,20 @@ impl PreparedInboundBind {
             address,
         })
     }
+    /// Retain an API caller's complete literal SocketAddr (including IPv6
+    /// scope/flow information) under this exact same declared IP and port.
+    pub(crate) fn with_literal_endpoint(
+        mut self,
+        address: SocketAddr,
+    ) -> Result<Self, EngineError> {
+        if self.address.is_none_or(|expected| {
+            expected.ip() != address.ip() || expected.port() != address.port()
+        }) {
+            return Err(unsupported());
+        }
+        self.address = Some(address);
+        Ok(self)
+    }
     pub(crate) fn with_recovery(mut self, recovery: Arc<dyn super::InboundRecovery>) -> Self {
         self.recovery = Some(recovery);
         self

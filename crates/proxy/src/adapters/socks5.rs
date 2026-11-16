@@ -3,15 +3,11 @@ use zero_config::OutboundProtocolConfig;
 use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata};
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput};
-use crate::runtime::path::TcpPathCategory;
 
 mod component;
 #[cfg(feature = "socks5")]
 pub(crate) mod inbound;
 pub(crate) use component::{component_options, LEGACY_CONNECT_STAGE};
-#[cfg(feature = "socks5")]
-mod tcp;
 #[cfg(feature = "socks5")]
 pub(crate) mod udp;
 
@@ -44,34 +40,6 @@ fn transport_leaf(tag: &str, protocol: &OutboundProtocolConfig) -> Option<Socks5
 impl NamedProtocolAdapter for Socks5Adapter {
     const PROTOCOL_NAME: &'static str = "socks5";
     const FEATURE_NAME: &'static str = "socks5";
-}
-
-#[cfg(feature = "socks5")]
-impl Socks5Adapter {
-    pub(crate) fn claim_outbound_leaf_impl<'a>(
-        &self,
-        input: OutboundLeafInput<'a>,
-    ) -> Option<OutboundLeafClaim<'a>> {
-        let OutboundLeafInput::Proxy { outbound, .. } = input else {
-            return None;
-        };
-        let leaf = transport_leaf(outbound.tag(), &outbound.protocol)?;
-        let tcp = std::sync::Arc::new(
-            crate::runtime::tcp_dispatch::operation::SocketTcpOperation {
-                handshake: leaf.clone(),
-            },
-        );
-        Some(OutboundLeafClaim {
-            tcp_path: TcpPathCategory::Tunnel,
-            tcp: Some(Ok(tcp.clone())),
-            tcp_relay: Some(Ok(tcp)),
-            udp: None,
-            udp_relay: None,
-            #[cfg(feature = "raw-ip-runtime")]
-            packet: None,
-            packet_path: self.udp_packet_path_operation(leaf),
-        })
-    }
 }
 
 #[cfg(feature = "socks5")]

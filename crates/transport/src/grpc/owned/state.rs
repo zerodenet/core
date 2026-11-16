@@ -24,6 +24,7 @@ pub(in crate::grpc) enum Ownership {
 pub(in crate::grpc) struct Managed {
     pub(super) instance: ComponentInstanceId,
     pub(super) options: Arc<NativePoolOptions>,
+    pub(super) tcp_masks: crate::finalmask::Profile,
     pub(super) upstream: UpstreamTransport,
     pub(super) resources:
         std::sync::Weak<dyn zero_platform_tokio::contract::component::ResourceAccess>,
@@ -34,7 +35,14 @@ pub(in crate::grpc) struct Managed {
     pub(super) budget: Arc<super::budget::Budget>,
     pub(super) records: Mutex<Vec<Arc<Physical>>>,
     ready: AtomicBool,
-    pub(super) epoch: Mutex<Option<super::epoch::Epoch>>,
+    pub(super) epoch: Mutex<super::epoch::EpochState>,
+    pub(super) openings: Mutex<
+        std::collections::HashMap<
+            zero_platform_tokio::contract::network::UpstreamBinding,
+            std::sync::Weak<tokio::sync::Mutex<()>>,
+        >,
+    >,
+    pub(super) settled: Mutex<zero_platform_tokio::contract::lifecycle::CloseReport>,
     pub(super) totals: Mutex<Option<super::totals::Active>>,
     #[cfg(feature = "tls")]
     pub(super) ech_resolver: Option<Arc<dyn crate::tls::ech::EchConfigResolver>>,
@@ -139,6 +147,7 @@ impl Managed {
         upstream: UpstreamTransport,
         cancel: CancellationToken,
         grants: CarrierGrants,
+        tcp_masks: crate::finalmask::Profile,
         #[cfg(feature = "tls")] ech_resolver: Option<Arc<dyn crate::tls::ech::EchConfigResolver>>,
     ) -> Arc<Self> {
         let instance = context.instance();
@@ -153,10 +162,13 @@ impl Managed {
             tasks,
             cancel,
             grants,
+            tcp_masks,
             budget: super::budget::Budget::new(options.stream_limit),
             records: Mutex::new(Vec::new()),
             ready: AtomicBool::new(false),
-            epoch: Mutex::new(None),
+            epoch: Mutex::new(Default::default()),
+            openings: Mutex::new(Default::default()),
+            settled: Mutex::new(Default::default()),
             totals: Mutex::new(None),
             #[cfg(feature = "tls")]
             prepared_tls: Mutex::new(None),

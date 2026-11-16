@@ -7,6 +7,7 @@ use crate::{
 #[derive(Clone)]
 pub struct MetadataDriverRetained {
     slot: Weak<Slot>,
+    wire: Weak<Slot>,
     owner: MetadataPoolRegistration,
     views: MetadataViewsRetained,
     protocol: TaskJoinWitness,
@@ -120,6 +121,7 @@ impl MetadataPoolOrigin {
         }
         let retained = MetadataDriverRetained {
             slot: Arc::downgrade(&slot),
+            wire: Arc::downgrade(&slot),
             owner: self.owner().clone(),
             views,
             protocol,
@@ -128,5 +130,122 @@ impl MetadataPoolOrigin {
             &phase,
             ProtocolOriginalReceiver::metadata(retained),
         ))
+    }
+}
+
+impl MetadataDriverRetained {
+    pub(crate) fn wire_is_live(&self) -> bool {
+        self.wire.upgrade().is_some_and(|wire| {
+            wire.native().is_ok_and(|native| {
+                native.transferred
+                    && native.control.is_some()
+                    && !native.wire_closed
+                    && native
+                        .issuer
+                        .as_ref()
+                        .is_some_and(|issuer| issuer.validates_receiver(&self.views))
+            })
+        })
+    }
+    pub(crate) fn same_handoff(&self, other: &Self) -> bool {
+        self.slot.ptr_eq(&other.slot)
+            && self.wire.ptr_eq(&other.wire)
+            && self.views.driver().same_registration(other.views.driver())
+            && self.protocol.same_registration(&other.protocol)
+    }
+    pub(crate) fn continues(&self, previous: &Self) -> bool {
+        self.slot.ptr_eq(&previous.slot)
+            && self.views.same_protocol_family(&previous.views)
+            && self.protocol.same_registration(&previous.protocol)
+            && !self.protocol.is_joined()
+            && !self.views.driver().is_joined()
+            && previous.views.driver().is_joined()
+            && self.wire_is_live()
+            && previous.wire.upgrade().is_some_and(|wire| {
+                wire.native().is_ok_and(|native| {
+                    native.wire_closed
+                        && native
+                            .report
+                            .as_ref()
+                            .is_some_and(|report| report.is_complete())
+                })
+            })
+    }
+}
+
+impl MetadataDriverRetained {
+    pub fn view_handoff(&self) -> &MetadataViewsRetained {
+        &self.views
+    }
+}
+impl MetadataPoolOrigin {
+    /// Advance only this live protocol's actual receiver after its former wire
+    /// has a native close report. The next wire belongs to the very same pool.
+    pub fn prepare_protocol_continuation_receiver(
+        &self,
+        wire: &MetadataPoolOrigin,
+        views: MetadataViewsRetained,
+        retirement: &CarrierProtocolRetirement,
+    ) -> Result<crate::controlled_carrier::ProtocolReceiverPrepared, ChannelError> {
+        let fail = || {
+            error(
+                Reason::StalePlan,
+                "foreign or unclosed metadata continuation",
+            )
+        };
+        let slot = self.slot.upgrade().ok_or_else(fail)?;
+        let next = wire.slot.upgrade().ok_or_else(fail)?;
+        if Arc::ptr_eq(&slot, &next) || !slot.root_bound || !next.root_bound {
+            return Err(fail());
+        }
+        let owner = slot.owner.upgrade().ok_or_else(fail)?;
+        let next_owner = next.owner.upgrade().ok_or_else(fail)?;
+        if !Arc::ptr_eq(&owner, &next_owner) || owner.cancel.is_cancelled() {
+            return Err(fail());
+        }
+        let phase = slot.protocol.lock().unwrap().clone().ok_or_else(fail)?;
+        if retirement.retirement_requested() || !retirement.matches_phase(&phase) {
+            return Err(fail());
+        }
+        let previous = phase.receiver().ok_or_else(fail)?;
+        let actual = previous.metadata_for(self).ok_or_else(fail)?;
+        let bound = owner.state.lock().unwrap().bound.clone().ok_or_else(fail)?;
+        if !bound.scope.resource_open()
+            || bound.host_cancel.is_cancelled()
+            || !bound
+                .scope
+                .same_scope(&views.protocol_driver().scope_identity())
+            || !actual.views.same_protocol_family(&views)
+            || self.binding_snapshot() != wire.binding_snapshot()
+        {
+            return Err(fail());
+        }
+        {
+            let native = slot.native()?;
+            if !native
+                .issuer
+                .as_ref()
+                .is_some_and(|issuer| issuer.validates_protocol_receiver(&views))
+            {
+                return Err(fail());
+            }
+        }
+        let receiver = MetadataDriverRetained {
+            slot: Arc::downgrade(&slot),
+            wire: Arc::downgrade(&next),
+            owner: self.owner().clone(),
+            protocol: views.protocol_driver().clone(),
+            views,
+        };
+        if !receiver.continues(&actual) {
+            return Err(fail());
+        }
+        Ok(
+            crate::controlled_carrier::ProtocolReceiverPrepared::metadata_continuation(
+                &phase,
+                previous,
+                ProtocolOriginalReceiver::metadata(receiver),
+            ),
+        )
     }
 }

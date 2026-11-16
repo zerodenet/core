@@ -9,36 +9,26 @@ fn same_pool_removes_legacy_claims_only_for_the_whole_owning_configuration() {
     assert!(selected(node, Some(&standalone), true));
     assert!(!selected(node, None, true));
     assert!(!selected(node, Some(&standalone), false));
-    let adapter = VlessAdapter {
-        native_node_dns: true,
-        ..Default::default()
-    };
-    assert!(adapter
-        .claim_outbound_leaf_impl(crate::protocol_registry::OutboundLeafInput::Proxy {
-            config: &standalone,
-            outbound: node,
-            endpoint: ("127.0.0.1", 443),
-            source_dir: None,
-        })
-        .is_none());
+    assert!(crate::register::protocol_registry()
+        .claim_outbound_leaf(
+            &standalone,
+            zero_engine::ResolvedLeafOutbound::Proxy {
+                identity: zero_engine::OutboundIdentity::from_config_index(0)
+            }
+        )
+        .is_err());
     let mixed = config(
         serde_json::json!([{ "tag":"choice","type":"selector","outbounds":["other","node"],"selected":"other"},{"tag":"chain","type":"relay","proxies":["other","choice"]}]),
     );
-    assert!(!whole_selected(&mixed, true));
-    let claim = adapter
-        .claim_outbound_leaf_impl(crate::protocol_registry::OutboundLeafInput::Proxy {
-            config: &mixed,
-            outbound: &mixed.outbounds[0],
-            endpoint: ("127.0.0.1", 443),
-            source_dir: None,
-        })
-        .unwrap();
-    assert!(
-        claim.tcp.is_some()
-            && claim.tcp_relay.is_some()
-            && claim.udp.is_some()
-            && claim.udp_relay.is_some()
-    );
+    assert!(whole_selected(&mixed, true));
+    assert!(crate::register::protocol_registry()
+        .claim_outbound_leaf(
+            &mixed,
+            zero_engine::ResolvedLeafOutbound::Proxy {
+                identity: zero_engine::OutboundIdentity::from_config_index(0)
+            }
+        )
+        .is_err());
 }
 #[test]
 fn cold_owner_projects_configured_per_pool_and_registry_budgets_without_starting() {
@@ -147,4 +137,55 @@ fn literal_ech_uses_a_declared_node_query_without_inventing_an_ip_bootstrap_requ
         !whole_selected(&config, true),
         "real Domain ECH bootstrap must use a qualified Node IP backend"
     );
+}
+
+#[test]
+fn grpc_lower_stream_carriers_prepare_one_actual_pool_without_legacy_claims() {
+    for layer in [
+        serde_json::json!({"ws":{"path":"/lower"}}),
+        serde_json::json!({"h2":{"path":"/lower"}}),
+        serde_json::json!({"http_upgrade":{"path":"/lower"}}),
+    ] {
+        let mut candidate = config(serde_json::json!([]));
+        let mut protocol = serde_json::to_value(&candidate.outbounds[0].protocol).unwrap();
+        protocol
+            .as_object_mut()
+            .unwrap()
+            .extend(layer.as_object().unwrap().clone());
+        candidate.outbounds[0].protocol = serde_json::from_value(protocol).unwrap();
+        let adapter = VlessAdapter {
+            native_node_dns: true,
+            ..Default::default()
+        };
+        assert!(whole_selected(&candidate, true));
+        let mut next = 1;
+        let mut allocate = || {
+            let id = zero_core::component::ComponentId(next);
+            next += 1;
+            Ok(id)
+        };
+        let mut resources = ResourcePreparation::new(&mut allocate).with_candidate(&candidate);
+        let factory = Arc::new(pool::Factory::new(Arc::new(
+            crate::component::background::BackgroundNetwork::new(Default::default()),
+        )));
+        let options = adapter
+            .production_mux_options(&candidate.outbounds[0], &mut resources, factory)
+            .unwrap();
+        use zero_platform_tokio::contract::component::ComponentFactory;
+        let roles = super::super::super::mux::Factory.describe(&options);
+        assert_eq!(roles.dependencies.len(), 1);
+        assert_eq!(
+            resources.resources().count(),
+            2,
+            "one actual H2 pool and its existing totals owner"
+        );
+        assert!(crate::register::protocol_registry()
+            .claim_outbound_leaf(
+                &candidate,
+                zero_engine::ResolvedLeafOutbound::Proxy {
+                    identity: zero_engine::OutboundIdentity::from_config_index(0)
+                }
+            )
+            .is_err());
+    }
 }

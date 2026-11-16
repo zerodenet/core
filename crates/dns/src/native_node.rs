@@ -6,6 +6,14 @@ use zero_platform_tokio::contract::{
     dns::{DnsGeneration, DnsQueryContext, DnsRequest, DnsResolution, DnsService},
     BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
 };
+tokio::task_local! {
+    static OPENING_DETOUR: ();
+}
+// Execution context only. This marker supplies no authority: the recursion
+// check also requires the actual current Node query registration and Scope.
+pub(crate) async fn during_detour<T>(work: impl core::future::Future<Output = T>) -> T {
+    OPENING_DETOUR.scope((), work).await
+}
 pub(super) struct NodeQueries {
     pub(super) source: Arc<native::NativeDnsSource>,
     pub(super) coordinator: QueryCoordinator<Vec<IpAddress>>,
@@ -144,6 +152,29 @@ impl DnsService for NodeService {
                 .node_queries
                 .as_ref()
                 .ok_or_else(|| failure(Reason::Unsupported))?;
+            // A Node query may borrow a carrier whose peer returns a dynamic
+            // hostname (for example SOCKS BND.ADDR). That peer cannot recursively
+            // bootstrap through this same original Node query owner. The actual
+            // Scope identity is authoritative, not a purpose string or a fake
+            // SessionId. The marker applies only to detour exchange, preserving
+            // ordinary ECH endpoint bootstrap in this same Node Scope as well as
+            // queries from independent Default/business callers.
+            if OPENING_DETOUR.try_with(|_| ()).is_ok() {
+                if let Ok(caller) = OwnedDnsQueryTasks::current_witness() {
+                    if node
+                        .source
+                        .provider()
+                        .ok()
+                        .and_then(|provider| provider.host_scope())
+                        .is_some_and(|(_, scope)| scope.same_scope(&caller.scope_identity()))
+                    {
+                        return Err(failure(Reason::Unsupported).with_source(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "Node carrier requires recursive resolution in its original query Scope",
+                    )));
+                    }
+                }
+            }
             if dns.snapshot().is_none() {
                 let tasks = node
                     .source

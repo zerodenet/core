@@ -105,11 +105,10 @@ impl Generation {
         }
         // This is the original provider's real native/probe close. No next
         // socket, endpoint or worker is prepared until it confirms this slot.
-        let closed = state
-            .permit
-            .as_ref()
-            .unwrap()
-            .close(state.receipt.as_ref(), &self.tasks);
+        let original = state.origin.as_ref().unwrap();
+        let closed = original
+            .close_native_wire(state.receipt.as_ref().unwrap(), &self.tasks)
+            .and_then(|closed| closed.ok_or_else(|| error(Stage::Close, Reason::Timeout)));
         drop(state);
         entry.receive_native_failure().await?;
         closed?;
@@ -121,7 +120,17 @@ impl Generation {
             .filter(|exit| exit.joined.result().is_err())
             .map(|exit| exit.joined.clone());
         drop(state.segment.take());
-        drop(state.permit.take());
+        if state.anchor_permit.is_none() {
+            state.anchor_permit = state.permit.take();
+            state.anchor_receipt = state.receipt.clone();
+        } else {
+            state
+                .permit
+                .as_ref()
+                .unwrap()
+                .close(state.receipt.as_ref(), &self.tasks)?;
+            state.previous_permit = state.permit.take();
+        }
         state.retiring_registrations = state.receipt.take();
         if let Some(failure) = failure {
             state.retired_application.push(failure.clone());
@@ -183,11 +192,20 @@ impl Generation {
         };
         state.segment = Some(segment);
         state.segment.as_mut().unwrap().start()?;
-        if let Some(auth) = &state.auth {
-            // New donor loans use this acquired original. Previously issued
-            // pool roots retain their own immutable binding/endpoint lineage.
-            *auth.native_origin.lock().unwrap() = state.origin.clone();
-        }
+        let received = state
+            .owner
+            .as_ref()
+            .unwrap()
+            .prepare_native_endpoint_continuation_receiver(
+                state.segment.as_ref().unwrap(),
+                state.protocol_origin.as_ref().unwrap(),
+                state.origin.as_ref().unwrap(),
+                state.retirement.as_ref().unwrap(),
+            )?;
+        received.confirm()?;
+        // Every logical borrower continues to charge the original protocol
+        // anchor. The newly closed wire cannot retire those live logical users.
+        drop(state.previous_permit.take());
         state.next_hop = Some(Instant::now() + hop.next_interval());
         Ok(true)
     }

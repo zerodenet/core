@@ -25,24 +25,44 @@ impl PrefixOpener {
         original_call: CarrierContext,
         service_call: CarrierContext,
     ) -> Result<UpstreamTransport, ChannelError> {
-        let binding = self.context.upstream.binding().clone();
-        let admitted = original.packet_caller(&self.context.identity, &original_call)?;
-        let waiting = preparation
-            .pending_observer(&admitted)?
-            .or_else(|| self.context.upstream.observed_pending_carrier());
-        let pending = PreparingCaller {
+        for_business(
             preparation,
             original,
-            identity: self.context.identity.clone(),
+            self.context.identity.clone(),
             original_call,
             service_call,
-            binding: binding.clone(),
-            waiting,
-        };
-        pending.caller()?;
-        Ok(UpstreamTransport::new(binding, Arc::new(pending)))
+            self.context.upstream.binding().clone(),
+            self.context.upstream.observed_pending_carrier(),
+        )
     }
 }
+
+/// The same finite setup caller used by Stream and Datagram receivers. This
+/// transfers observation only; the selected donor still supplies its actual IO.
+pub(in crate::component::stream_bridge) fn for_business(
+    preparation: CarrierPreparation,
+    original: crate::component::business_carrier::BusinessCarrierRequest,
+    identity: RequestIdentity,
+    original_call: CarrierContext,
+    service_call: CarrierContext,
+    binding: UpstreamBinding,
+    inherited: Option<PendingCarrierObserver>,
+) -> Result<UpstreamTransport, ChannelError> {
+    let admitted = original.packet_caller(&identity, &original_call)?;
+    let waiting = preparation.pending_observer(&admitted)?.or(inherited);
+    let pending = PreparingCaller {
+        preparation,
+        original,
+        identity,
+        original_call,
+        service_call,
+        binding: binding.clone(),
+        waiting,
+    };
+    pending.caller()?;
+    Ok(UpstreamTransport::new(binding, Arc::new(pending)))
+}
+
 impl PreparingCaller {
     fn caller(&self) -> Result<TaskJoinWitness, ChannelError> {
         let admitted = self

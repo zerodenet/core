@@ -50,6 +50,7 @@ impl HostResources {
         original_tasks: Option<zero_platform_tokio::contract::scope::WeakTaskRegistrar>,
         protocol_failures: Arc<failures::DeclaredReceiver>,
     ) -> Result<Arc<Self>, ChannelError> {
+        let accepted = super::accepted::AcceptedSources::new(declarations)?;
         let reads = read_workspaces::ReadDeclarations::new(
             component,
             declarations,
@@ -318,7 +319,8 @@ impl HostResources {
                 ResourceDeclaration::File { path, max_bytes } => {
                     files.declare(component, path, *max_bytes)?
                 }
-                ResourceDeclaration::ControlledJournal { .. }
+                ResourceDeclaration::AcceptedCarrierSources { .. }
+                | ResourceDeclaration::ControlledJournal { .. }
                 | ResourceDeclaration::LogicalPacketWorkspaces { .. }
                 | ResourceDeclaration::PacketDatagramReads { .. }
                 | ResourceDeclaration::BoundOutboundDatagram { .. }
@@ -357,6 +359,7 @@ impl HostResources {
             .map(|declaration| coverage::CoverageBinding::new(component, declaration))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Arc::new(Self {
+            accepted,
             packet_failures: Default::default(),
             packet_calls: std::sync::OnceLock::new(),
             dependency_slots: std::sync::OnceLock::new(),

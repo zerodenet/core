@@ -39,7 +39,9 @@ pub(super) async fn run_inner(
         MAX_CONCURRENT_DNS_QUERIES,
     );
     let mut associations = AssociationRegistry::with_limit(max_associations);
+    #[cfg(test)]
     let mut legacy_tasks = JoinSet::new();
+    #[cfg(test)]
     let mut legacy_dns = JoinSet::new();
     #[cfg(feature = "raw-ip-runtime")]
     let admission = match &owned {
@@ -56,7 +58,10 @@ pub(super) async fn run_inner(
             lost: super::owned::lost_completion,
             receiver: owner.receiver.lock().await,
         }),
+        #[cfg(test)]
         None => task_set::TunTasks::Legacy(&mut legacy_tasks),
+        #[cfg(not(test))]
+        None => unreachable!("actual Source storage and ownership checked above"),
     };
     #[cfg(not(feature = "raw-ip-runtime"))]
     let mut tasks = task_set::TunTasks::Legacy(&mut legacy_tasks);
@@ -65,7 +70,10 @@ pub(super) async fn run_inner(
         Some(owner) => {
             task_set::TunTasks::Owned(owner.dns.lock().await.map_err(std::io::Error::other)?)
         }
+        #[cfg(test)]
         None => task_set::TunTasks::Legacy(&mut legacy_dns),
+        #[cfg(not(test))]
+        None => unreachable!("actual Source storage and ownership checked above"),
     };
     #[cfg(not(feature = "raw-ip-runtime"))]
     let mut dns_tasks = task_set::TunTasks::Legacy(&mut legacy_dns);

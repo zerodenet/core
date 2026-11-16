@@ -3,6 +3,10 @@ use tokio::time::timeout_at;
 impl InboundOwner {
     pub(crate) async fn shutdown(&self, deadline: Instant) -> Result<(), EngineError> {
         self.stop();
+        self.task_access()
+            .drain_accepted_consumers(deadline)
+            .await?;
+        self.stop();
         let resources = self
             .resources
             .lock()

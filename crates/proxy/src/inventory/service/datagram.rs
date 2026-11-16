@@ -66,23 +66,26 @@ impl ProtocolInventory {
             && (components.has_metadata_stream_provider(slot.role_id())
                 || components.has_cached_stream_provider(slot.role_id()))
             && components.stream_dependencies_supported(slot.role_id());
-        // The logical role publishes no native resources of its own. Its
-        // installed background dependency already owns the shared physical
-        // pool, including pending/cancelled setup and the actual driver.
+        // These roles publish no separate native originals. A component with
+        // mixed ordinary and pooled roles keeps its existing Stream DNS path:
+        // the presence of a pool does not prove its Datagram borrows that pool.
         let shared = slot.dial == Default::default()
             && slot.recipe.spec().task_limit.is_none()
-            && slot.recipe.spec().resources.is_empty()
+            && (slot.recipe.spec().resources.is_empty()
+                || slot.accepted_carrier_provider().is_some())
             && components.has_background_carrier_pool(slot.role_id())
             && components.stream_dependencies_supported(slot.role_id());
         // These self-owned donors already retain each physical half in their
         // background Root. Only the remaining SS/SOCKS shape asks this Query
         // to acquire its original: two cached H3 pools are not ambiguous native
         // issuers and must not fall back to Stream DNS framing.
+        // Native SS/SOCKS use the selected recipe's complete policy. The
+        // Query declares its logical endpoint with that same policy; the
+        // actual donor still supplies its own original grants and Scope.
         let mut native = None;
         if !device
             && !metadata
             && !shared
-            && slot.dial == Default::default()
             && components.stream_dependencies_supported(slot.role_id())
         {
             for (ordinal, resource) in slot.recipe.spec().resources.iter().enumerate() {

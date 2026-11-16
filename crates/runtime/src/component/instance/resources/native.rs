@@ -14,7 +14,9 @@ use zero_platform_tokio::contract::{
     BoxFuture, CancellationToken, ChannelError, Reason,
 };
 
+mod accepted;
 pub struct HostResources {
+    accepted: accepted::AcceptedSources,
     packet_failures: zero_platform_tokio::contract::lifecycle::ResourceCleanupFailures,
     packet_calls:
         std::sync::OnceLock<Arc<zero_platform_tokio::contract::component::PacketDriverCalls>>,

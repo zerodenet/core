@@ -13,6 +13,7 @@ impl PacketSegment {
             self.receiver
                 .release_body(self.received.as_ref().unwrap())?;
         }
+        self.release_wire_views();
         let receipt = self
             .graph
             .completion()
@@ -50,6 +51,7 @@ impl PacketSegment {
                 self.received = Some(self.receiver.receive(id, end).await?);
             }
         }
+        self.release_wire_views();
         let completion = self.graph.completion();
         let receipt = if self.identity.endpoint_bound() {
             // Actual endpoint binding is installed before Kernel IO/driver

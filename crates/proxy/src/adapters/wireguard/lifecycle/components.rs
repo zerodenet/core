@@ -1,6 +1,8 @@
 //! Production linked graph recipes and invocations in the actual candidate map.
 use super::*;
+mod cold;
 mod install;
+mod linked;
 mod materials;
 mod memory;
 mod resolve;
@@ -8,6 +10,7 @@ use super::{
     pending_map::PendingEntries,
     recipe::{LinkedEndpointRecipe, LinkedRecipeSettings},
 };
+pub(in crate::adapters::wireguard) use cold::ColdGraphs;
 use std::collections::BTreeSet;
 use zero_core::component::{ComponentId, NetworkGeneration};
 
@@ -155,129 +158,96 @@ impl WireguardAdapter {
         );
         let mut outer_materials = self.retained_outer_materials(config)?;
         outer_materials.extend(inherited);
-        let (standalone, mut deferred) = self.prepare_standalone_resources(
-            config,
-            resources,
-            NetworkGeneration(generation),
-            network
-                .as_ref()
-                .ok_or_else(|| invalid("plain WireGuard requires its actual host network"))?,
-            &options,
-            registry,
-            &mut outer_materials,
-        )?;
-        let mut declared_peers = standalone
-            .values()
-            .try_fold(0_usize, |used, candidate| {
-                used.checked_add(candidate.root.peers.len())
-            })
-            .filter(|used| *used <= crate::runtime::raw_ip::MAX_RAW_IP_DEVICES)
-            .ok_or_else(|| invalid("actual cold WireGuard peer union exceeds the device bound"))?;
-        let mut recipes = Vec::new();
+        // Dependency order applies to cold decoding too: an outer consumer
+        // may decode only the actual already prepared WG donor graph. This
+        // scoped table holds those same owners, and is cleared on every exit.
+        let _cold = self.begin_cold_graphs(config)?;
+        let ordered = super::source_selection::ordered_devices(config, resources)?;
+        let mut standalone = HashMap::new();
+        let mut deferred = BTreeSet::new();
         let mut entries = HashMap::new();
-        for outbound in outbounds {
-            let OutboundProtocolConfig::Wireguard {
-                inbound_tag: Some(tag),
-                ..
-            } = &outbound.protocol
-            else {
-                unreachable!()
-            };
-            let inbound = config
-                .inbounds
-                .iter()
-                .find(|inbound| &inbound.tag == tag)
-                .ok_or_else(|| invalid("linked WireGuard inbound missing"))?;
-            let plan = Arc::new(WireguardRawIpPlan::from_protocol(&outbound.protocol)?);
-            let needs_node_dns = (0..plan.peer_count()).any(|peer| {
-                plan.peer_endpoint(peer)
-                    .is_some_and(|(host, _)| host.parse::<IpAddr>().is_err())
-            });
-            let dependencies = if needs_node_dns {
-                let network = network.as_ref().ok_or_else(|| {
-                    invalid("linked Domain peer requires its actual Node DNS owner")
-                })?;
-                let dns = crate::component::native_dns::prepare_node(resources, network.clone())
-                    .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
-                vec![(dns, resources.reusable_resource_instance(dns))]
-            } else {
-                Vec::new()
-            };
-            // The actual owning cold pass computes the finite outer data and
-            // dependencies; no None default can hide a configured outer path.
-            // The selection above used the existing whole-owning factory
-            // grammar before any named dependency decode. A selected outer
-            // carries this exact accepted material; errors cannot fall back.
-            let outer = super::recipe::outer::OuterPathRecipe::prepare(
-                outbound,
-                resources,
-                registry,
-                config,
-                network.as_ref(),
-                &mut outer_materials,
-            )?;
+        let mut invocations = Vec::new();
+        let mut declared_peers = 0usize;
+        for outbound in ordered {
             if matches!(
-                &outbound.protocol,
+                outbound.protocol,
                 OutboundProtocolConfig::Wireguard {
-                    outer_udp_proxy: Some(_),
+                    inbound_tag: None,
                     ..
                 }
-            ) && outer.is_none()
-            {
-                resources
-                    .omit_unused_device_alias(&outbound.tag)
-                    .map_err(std::io::Error::other)?;
-                continue;
-            }
-            let mut dependencies = dependencies;
-            if let Some(outer) = &outer {
-                for (id, instance) in outer.dependencies(resources) {
-                    if !dependencies.iter().any(|(actual, _)| actual == &id) {
-                        dependencies.push((id, instance));
-                    }
+            ) {
+                let (roots, ids) = self.prepare_standalone_resources(
+                    config,
+                    resources,
+                    NetworkGeneration(generation),
+                    network.as_ref().ok_or_else(|| {
+                        invalid("plain WireGuard requires its actual host network")
+                    })?,
+                    &options,
+                    registry,
+                    &mut outer_materials,
+                    Some(outbound.tag()),
+                )?;
+                for (tag, candidate) in roots {
+                    declared_peers = declared_peers
+                        .checked_add(candidate.root.peers.len())
+                        .ok_or_else(|| invalid("WireGuard peer bound overflow"))?;
+                    self.remember_cold_graph(
+                        &tag,
+                        super::recipe::carrier::Graph::Standalone(candidate.root.clone()),
+                    )?;
+                    standalone.insert(tag, candidate);
                 }
+                deferred.extend(ids);
+            } else {
+                let recipe = self.prepare_linked_recipe(
+                    outbound,
+                    config,
+                    resources,
+                    registry,
+                    generation,
+                    &network,
+                    &options,
+                    &mut outer_materials,
+                )?;
+                let tag = match &outbound.protocol {
+                    OutboundProtocolConfig::Wireguard {
+                        inbound_tag: Some(tag),
+                        ..
+                    } => tag.clone(),
+                    _ => unreachable!(),
+                };
+                let pending = recipe.pending();
+                declared_peers = declared_peers
+                    .checked_add(pending.client_peer_count())
+                    .ok_or_else(|| invalid("WireGuard peer bound overflow"))?;
+                let ready = pending.ready().is_some();
+                let (id, invocation) = recipe.into_component(resources)?;
+                let graph = pending
+                    .actual_graph()
+                    .ok_or_else(|| invalid("prepared WG graph disappeared"))?;
+                self.remember_cold_graph(
+                    outbound.tag(),
+                    super::recipe::carrier::Graph::Linked(graph),
+                )?;
+                let retained = if ready {
+                    super::recipe::retained::RetainedInvocation::Installed {
+                        binding: invocation.binding(),
+                    }
+                } else {
+                    super::recipe::retained::RetainedInvocation::Prepared(Box::new(invocation))
+                };
+                if entries.insert(tag.clone(), pending).is_some() {
+                    return Err(invalid("linked inbound has duplicate actual graph owners"));
+                }
+                invocations.push((tag, retained));
+                deferred.insert(id);
             }
-            let protocol = protocol_identity(&outbound.protocol)
-                .ok_or_else(|| invalid("cannot identify linked WireGuard outbound"))?;
-            let identity = options.identity(match &outer {
-                Some(outer) => outer.device_identity(config, protocol)?,
-                None => protocol,
-            });
-            let peers = self.retained_peer_count(
-                outbound,
-                &config.inbounds,
-                &plan,
-                identity,
-                generation,
-                admission.outbound_denial(&outbound.tag).is_some(),
-            )?;
-            declared_peers = declared_peers
-                .checked_add(peers)
-                .filter(|used| *used <= crate::runtime::raw_ip::MAX_RAW_IP_DEVICES)
-                .ok_or_else(|| {
-                    invalid("actual cold WireGuard peer union exceeds the device bound")
-                })?;
-            let recipe = LinkedEndpointRecipe::prepare_with_resources(
-                self,
-                outbound,
-                inbound,
-                plan,
-                LinkedRecipeSettings {
-                    identity,
-                    network_generation: NetworkGeneration(generation),
-                    stacks: vec![options.clone(); peers],
-                    outer,
-                    dependencies,
-                },
-                resources,
-            )?;
-            if entries
-                .insert(inbound.tag.clone(), recipe.pending())
-                .is_some()
-            {
-                return Err(invalid("linked inbound has duplicate actual graph owners"));
+            if declared_peers > crate::runtime::raw_ip::MAX_RAW_IP_DEVICES {
+                return Err(invalid(
+                    "actual cold WireGuard peer union exceeds the device bound",
+                ));
             }
-            recipes.push(recipe);
         }
         let candidate = match PendingEndpoints::staged(&self.pending_endpoints, config) {
             Some(candidate) => candidate,
@@ -319,8 +289,13 @@ impl WireguardAdapter {
             std::mem::replace(&mut *actual, standalone)
         };
         drop(retired);
-        for recipe in recipes {
-            deferred.insert(recipe.into_retained_component(resources, &candidate)?);
+        for (tag, invocation) in invocations {
+            candidate
+                .invocations
+                .try_lock()
+                .map_err(std::io::Error::other)?
+                .entry(tag)
+                .or_insert(invocation);
         }
         Ok(deferred)
     }

@@ -1,5 +1,4 @@
-//! Pure selection and cold projection; resourceful styles keep their real owner.
-//! gRPC Datagram uses its original native owner; TCP/relay remain compatible.
+//! Cold projection into actual standard Stream/Datagram owners, including gRPC.
 pub(crate) mod grpc;
 pub(crate) mod mux;
 use zero_config::{ConfigError, OutboundConfig, OutboundProtocolConfig};

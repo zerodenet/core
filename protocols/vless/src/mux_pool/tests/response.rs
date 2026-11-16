@@ -199,6 +199,7 @@ async fn actual_partial_logical_read_keeps_byte_credit_until_its_last_byte_is_re
     let mut stream = MuxStreamRelay {
         native_writer: None,
         native_initial: None,
+        native_origin: None,
         write_open: false,
         sid: 7,
         down_rx: Some(rx),

@@ -1,4 +1,5 @@
 //! One cold union pass; activation requires original provider close evidence.
+pub(in crate::component) mod lifecycle;
 use super::*;
 use crate::component::{ResourcePreparation, SharedResourceIdentities};
 use std::collections::BTreeSet;
@@ -68,6 +69,30 @@ impl ComponentCatalog {
     /// Bind recovered recipes through the same actual host admission and
     /// transitive transferred-user roots as ordinary cold preparation.
     pub(super) fn bind_plan_ownership(&self, plan: &ComponentPlan) {
+        let mut lifecycle_groups: BTreeMap<
+            ComponentId,
+            Vec<zero_core::component::ComponentInstanceId>,
+        > = BTreeMap::new();
+        for slot in &plan.order {
+            if let Some(owner) = slot.recipe.lifecycle_owner() {
+                lifecycle_groups
+                    .entry(owner)
+                    .or_default()
+                    .push(slot.instance_id());
+            }
+        }
+        for members in lifecycle_groups.values_mut() {
+            members.sort();
+        }
+        let lifecycle_groups: BTreeMap<_, Arc<[_]>> = lifecycle_groups
+            .into_iter()
+            .map(|(id, members)| (id, members.into()))
+            .collect();
+        for slot in &plan.order {
+            if let Some(owner) = slot.recipe.lifecycle_owner() {
+                slot.bind_lifecycle_group(lifecycle_groups[&owner].clone());
+            }
+        }
         let mut shared: BTreeMap<
             ComponentId,
             Arc<[Arc<crate::component::instance::users::Users>]>,
@@ -260,6 +285,7 @@ impl ComponentCatalog {
         let old = previous
             .map(|(_, plan)| plan.order.as_slice())
             .unwrap_or_default();
+        let nodes = lifecycle::assemble(nodes, &outbounds, config)?;
         let nodes = if restarting {
             freshened_slots(nodes, old)?
         } else {

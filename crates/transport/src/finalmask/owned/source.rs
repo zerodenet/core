@@ -192,6 +192,18 @@ impl<H: InboundHandshake, Make: Fn(Peer) -> H + Send + 'static> InboundSource fo
                 .try_send(state.pending.take().unwrap())
                 .expect("new bounded peer queue");
             state.peers.insert_reserved(remote, sender);
+            let graph = state.graph.as_ref().unwrap();
+            let driver = graph
+                .drivers()
+                .tasks()
+                .into_iter()
+                .next()
+                .ok_or_else(|| failure(Reason::StalePlan))?;
+            let original = graph
+                .retained_views(driver, graph, driver)
+                .ok_or_else(|| failure(Reason::StalePlan))?
+                .carrier_origin()
+                .map_err(|source| failure(Reason::StalePlan).with_source(source))?;
             drop(state);
             let facts = InboundConnectionFacts {
                 original_source: Some(remote),
@@ -200,9 +212,13 @@ impl<H: InboundHandshake, Make: Fn(Peer) -> H + Send + 'static> InboundSource fo
                 sni: None,
             };
             let peer = Peer::new(socket.clone(), remote, packets, permit, facts.clone());
-            return Ok(Some(
-                PendingInbound::new((self.make)(peer)).with_carrier_facts(facts),
-            ));
+            return Ok(Some({
+                let pending = PendingInbound::new((self.make)(peer)).with_carrier_facts(facts);
+                match original {
+                    Some(original) => pending.with_stream_carrier(original),
+                    None => pending,
+                }
+            }));
         }
     }
 }

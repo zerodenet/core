@@ -266,6 +266,37 @@ pub(super) async fn pause_sources<'a>(
     let mut pauses = Vec::new();
     #[cfg(feature = "raw-ip-runtime")]
     let mut mains = Vec::new();
+    // An actual reverse Control worker is not an idle Source. Retire its
+    // precise borrowers/originals under the already retained replacement first;
+    // the ordinary Source idle check below still requires real close receipts.
+    let accepted = proxy.protocols.retiring_accepted_sources(candidate);
+    let early_pause = if accepted.is_empty() {
+        None
+    } else {
+        let pause = Arc::new(
+            proxy
+                .protocols
+                .try_pause_replacement_users(candidate)
+                .map_err(std::io::Error::other)?,
+        );
+        *retirement = proxy
+            .protocols
+            .begin_packet_source_retirement(candidate, pause.clone())
+            .map_err(std::io::Error::other)?;
+        if retirement.is_none() {
+            return Err(std::io::Error::other(
+                "accepted Source retirement lacks its retained StopOld transaction",
+            )
+            .into());
+        }
+        for source in accepted {
+            proxy
+                .protocols
+                .retire_accepted_source_originals(source, deadline)
+                .await?;
+        }
+        Some(pause)
+    };
     for input in &previous.inbounds {
         let Some(original) = proxy.inbound_owners.owner(&input.tag) else {
             continue;
@@ -296,6 +327,17 @@ pub(super) async fn pause_sources<'a>(
             pauses.push(pause);
         }
     }
+    if carrier_changed
+        || proxy
+            .inbound_owners
+            .system_tcp_budget_changed(previous, next)
+    {
+        for (_, original) in proxy.inbound_owners.system_tcp_owners() {
+            if let Some(pause) = original.pause_acquisition_if_idle(deadline).await? {
+                pauses.push(pause);
+            }
+        }
+    }
     #[cfg(feature = "raw-ip-runtime")]
     if packet_changed
         || carrier_changed
@@ -315,20 +357,25 @@ pub(super) async fn pause_sources<'a>(
     // cache. Doing this after the catalog Users check would self-deadlock:
     // its exact BoxPacketSession still owns a charged Packet Lease until here.
     // No component/cached carrier receiver has been revoked in this phase.
-    let user_pause = Arc::new(
-        proxy
-            .protocols
-            .try_pause_replacement_users(candidate)
-            .inspect_err(|source| {
-                #[cfg(test)]
-                eprintln!("actual replacement user preflight after Source Main pause: {source:?}");
-                tracing::debug!(
-                    ?source,
-                    "actual component users remain charged after Source Main pause"
-                );
-            })
-            .map_err(std::io::Error::other)?,
-    );
+    let user_pause = match early_pause {
+        Some(pause) => pause,
+        None => Arc::new(
+            proxy
+                .protocols
+                .try_pause_replacement_users(candidate)
+                .inspect_err(|source| {
+                    #[cfg(test)]
+                    eprintln!(
+                        "actual replacement user preflight after Source Main pause: {source:?}"
+                    );
+                    tracing::debug!(
+                        ?source,
+                        "actual component users remain charged after Source Main pause"
+                    );
+                })
+                .map_err(std::io::Error::other)?,
+        ),
+    };
     #[cfg(feature = "raw-ip-runtime")]
     let direct = if packet_changed || carrier_changed || ring_changed {
         proxy
@@ -376,10 +423,12 @@ pub(super) async fn pause_sources<'a>(
     // Every actual business Source is now fenced and proved idle; only exact
     // cached receivers in this candidate's real StopOld set may be revoked.
     // Persist the replacement before callbacks; cancellation retains all debt.
-    *retirement = proxy
-        .protocols
-        .begin_packet_source_retirement(candidate, user_pause.clone())
-        .map_err(std::io::Error::other)?;
+    if retirement.is_none() {
+        *retirement = proxy
+            .protocols
+            .begin_packet_source_retirement(candidate, user_pause.clone())
+            .map_err(std::io::Error::other)?;
+    }
     #[cfg(feature = "raw-ip-runtime")]
     for (original, main) in mains {
         pauses.push(original.finish_packet_pause(main).await?);
@@ -593,6 +642,7 @@ impl OrchestrationState {
             return self.reject_reload(proxy, rejected, message);
         }
         Box::pin(async move {
+            self.services.discard_prepared().await;
             if self.dns_reload_resources(rejected).is_ok() {
                 self.pending_dns_reload = None;
                 proxy.resolver.discard_prepared_reload();
@@ -623,6 +673,20 @@ impl OrchestrationState {
                 {
                     message.push_str(&format!("; original domain restore failed: {error}"));
                 }
+            }
+            // A cold Source pause can already have returned Service loans even
+            // when no donor was stopped. Restore its accepted recipe directly.
+            if let Err(error) = self
+                .services
+                .restore(
+                    proxy.tcp_runtime_services_for_snapshot(self.applied_snapshot.clone()),
+                    self.shutdown_rx.clone(),
+                )
+                .await
+            {
+                message.push_str(&format!(
+                    "; active Source cold recovery remains unconfirmed: {error}"
+                ));
             }
             self.publish_rejected_endpoints(proxy, rejected, &message);
             proxy.complete_reload(rejected, Err(message));

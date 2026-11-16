@@ -102,6 +102,7 @@ pub(super) async fn client(
     remote: &Remote,
     dns: &crate::dns_fixture::Dns,
     tcp_only_plugin: bool,
+    constrained: bool,
 ) -> (Proxy, crate::RunningProxy, Option<tempfile::TempDir>) {
     let mut protocol =
         serde_json::json!({"type":remote.kind,"server":"127.0.0.1","port":remote.address.port()});
@@ -123,9 +124,14 @@ pub(super) async fn client(
     // SOCKS has two distinct real originals (control TCP plus negotiated UDP).
     // Their actual declaration must hold both; the Query itself still has N1.
     let sockets = if remote.kind == "socks5" { 2 } else { 1 };
+    let dial = if constrained {
+        serde_json::json!({"address_family":"only_ipv4","source_ip":"127.0.0.1"})
+    } else {
+        serde_json::json!({})
+    };
     let config=zero_config::RuntimeConfig::parse(&serde_json::json!({
         "runtime":{"native_stream_max_originals":sockets,"native_dns_max_originals":1,"dns":{"servers":{"node":{"type":"system"},"query":backend},"default_server":"query","policy":{"node_server":"node","address_family":"ipv4_only"}}},
-        "outbounds":[{"tag":"node","protocol":protocol}],"route":{"final":{"type":"direct"}}
+        "outbounds":[{"tag":"node","protocol":protocol,"dial":dial}],"route":{"final":{"type":"direct"}}
     }).to_string()).unwrap();
     let proxy = Proxy::new(config.clone()).unwrap();
     proxy

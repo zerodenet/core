@@ -17,7 +17,9 @@ impl ComponentFactory for NativePoolFactory {
     type Options = NativePoolOptions;
     fn describe(&self, options: &NativePoolOptions) -> ComponentSpec {
         ComponentSpec {
-            owner: ResourceOwner::Endpoint("grpc.client_pool".into()),
+            // Endpoint identity selects reuse; this actual component owns the
+            // pool's originals and Scope together with its dependent roles.
+            owner: ResourceOwner::Component,
             roles: vec![],
             dependencies: options
                 .totals
@@ -203,13 +205,20 @@ impl ResourceLifecycle for Owner {
         if self.claimed {
             GrpcPool(self.pool.clone()).retire();
         }
-        let physical = self.carriers.shutdown(deadline).await;
-        // Foreign originals live in these same physical records, including a
-        // prefix that failed before its loan could be installed in our slot.
-        let pending = self.managed.reap(deadline).await;
+        let records = self.managed.records.lock().unwrap().clone();
+        if !self.managed.retire_originals(records, deadline).await? {
+            let mut report = std::mem::take(&mut *self.managed.settled.lock().unwrap());
+            report.unfinished.push(Unfinished::Resource(
+                "gRPC consumer original precedes its shorter donor".into(),
+            ));
+            return Ok(report);
+        }
+        let mut report = self.carriers.shutdown(deadline).await?;
+        let mut settled = std::mem::take(&mut *self.managed.settled.lock().unwrap());
+        // Actual matching originals above supersede only old pending snapshots.
+        settled.unfinished.clear();
+        report.append(settled);
         self.managed.harvest();
-        let mut report = physical?;
-        pending?;
         if self.managed.physical_unconfirmed() && report.is_complete() {
             report.unfinished.push(Unfinished::Io(
                 "gRPC original carrier lacks a matching close receipt".into(),

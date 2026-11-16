@@ -32,7 +32,6 @@ fn passive_candidate_has_no_ready_resource_and_never_takes_the_actual_packet_rec
         live,
         vec![],
         vec![],
-        vec![],
         sender,
         receiver,
     ));
@@ -58,7 +57,6 @@ fn same_listen_with_different_actual_crypto_history_cannot_be_installed() {
         different,
         vec![],
         vec![],
-        vec![],
         sender,
         receiver,
     ));
@@ -67,32 +65,32 @@ fn same_listen_with_different_actual_crypto_history_cannot_be_installed() {
 }
 
 #[test]
-fn cold_candidate_declares_exact_peer_slots_without_runtime_or_native_acquisition() {
+fn cold_candidate_declares_only_real_peer_stacks_and_a_shared_candidate_fence() {
     assert!(tokio::runtime::Handle::try_current().is_err());
     let (config, live) = candidate();
-    let pending = PendingLinkedEndpoint::with_peer_slots(config.listen, live, 2).unwrap();
-    let first = pending.peer_carrier(0).unwrap();
-    let second = pending.peer_carrier(1).unwrap();
-    assert!(!Arc::ptr_eq(&first, &second));
-    assert!(Arc::ptr_eq(&first, &pending.peer_carrier(0).unwrap()));
-    assert!(pending.peer_carrier(2).is_none());
+    let pending = PendingLinkedEndpoint::with_peer_stacks(config.listen, live, 2).unwrap();
+    assert!(!pending.cancellation().is_cancelled());
     let stack = pending.peer_stack(0).unwrap();
     assert!(Arc::ptr_eq(&stack, &pending.peer_stack(0).unwrap()));
     assert!(!Arc::ptr_eq(&stack, &pending.peer_stack(1).unwrap()));
     assert!(pending.peer_stack(2).is_none());
     assert!(pending.ready().is_none());
-    let report = first.close_native();
-    assert!(report.is_complete());
-    assert_eq!(report.native.confirmed_closed, 0);
-    assert_eq!(report.native.known_no_native, 0);
-    assert!(second.close_native().is_complete());
+    assert!(!pending.needs_cleanup());
+    let cancelled = pending.cancellation();
+    pending.revoke();
+    assert!(cancelled.is_cancelled());
+    assert!(!stack.is_open());
+    assert!(
+        !pending.needs_cleanup(),
+        "a fence does not fabricate native acquisition"
+    );
 }
 
 #[tokio::test]
-async fn same_candidate_joins_declared_original_stacks_before_confirming_unused_native_slots() {
+async fn same_candidate_consumes_real_stack_reports_without_a_native_slot_placeholder() {
     let (config, live) = candidate();
     let pending =
-        PendingLinkedEndpoint::with_peer_slots(config.listen.clone(), live.clone(), 1).unwrap();
+        PendingLinkedEndpoint::with_peer_stacks(config.listen.clone(), live.clone(), 1).unwrap();
     let (sender, mut packets) = mpsc::channel(4);
     let (updates, endpoint) = watch::channel(sender);
     let recipe = crate::runtime::raw_ip::EndpointStackRecipe::prepare(
@@ -135,7 +133,6 @@ async fn same_candidate_joins_declared_original_stacks_before_confirming_unused_
         live,
         vec![device.clone()],
         vec![None],
-        vec![None],
         updates,
         packets,
     ));
@@ -150,8 +147,12 @@ async fn same_candidate_joins_declared_original_stacks_before_confirming_unused_
     assert!(report.is_complete());
     assert!(report.failures.is_empty());
     assert!(stack.is_drained());
-    assert_eq!(report.native.len(), 1);
-    assert_eq!(report.native[0].native.confirmed_closed, 0); // never acquired, no forged close.
+    assert_eq!(report.stacks.len(), 1);
+    assert!(report.stacks[0].is_complete());
+    assert!(
+        report.stacks[0].closed_io.is_empty(),
+        "virtual stack joins cannot mint a physical close receipt"
+    );
     assert!(connecting.await.is_err());
     assert!(pending.stop_peer_resources(deadline).await.is_complete());
 }
@@ -165,14 +166,14 @@ async fn legacy_ready_link_never_inherits_a_noop_candidate_close_grant() {
     assert!(!report.is_complete());
     assert!(!report.workers_drained);
     assert_eq!(report.failures.len(), 1);
-    assert!(report.native.is_empty());
+    assert!(report.stacks.is_empty());
 }
 
 #[tokio::test]
 async fn owned_candidate_cannot_install_an_unrelated_legacy_stack_as_its_original() {
     let (config, live) = candidate();
     let pending =
-        PendingLinkedEndpoint::with_peer_slots(config.listen.clone(), live.clone(), 1).unwrap();
+        PendingLinkedEndpoint::with_peer_stacks(config.listen.clone(), live.clone(), 1).unwrap();
     let other = crate::runtime::raw_ip::EndpointStackOwner::new();
     let (sender, packets) = mpsc::channel(4);
     let (updates, endpoint) = watch::channel(sender);
@@ -192,7 +193,6 @@ async fn owned_candidate_cannot_install_an_unrelated_legacy_stack_as_its_origina
         live,
         vec![device],
         vec![None],
-        vec![None],
         updates,
         packets,
     ));
@@ -201,4 +201,47 @@ async fn owned_candidate_cannot_install_an_unrelated_legacy_stack_as_its_origina
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
     assert!(other.stop(deadline).await.unwrap().is_complete());
     assert!(pending.stop_peer_resources(deadline).await.is_complete());
+}
+
+#[test]
+fn inbound_only_peer_layout_has_a_real_candidate_fence_without_phantom_carriers() {
+    assert!(tokio::runtime::Handle::try_current().is_err());
+    let (config, live) = candidate();
+    let pending = PendingLinkedEndpoint::with_peer_layout(config.listen, live, 0, 2).unwrap();
+    let cancelled = pending.cancellation();
+    assert!(pending.is_usable());
+    assert!(pending.peer_stack(0).is_none());
+    assert!(!pending.needs_cleanup());
+    pending.revoke();
+    assert!(cancelled.is_cancelled());
+    assert!(!pending.is_usable());
+    assert!(!pending.needs_cleanup());
+}
+
+#[test]
+fn borrowed_pending_wrapper_cannot_revoke_the_current_original_graph() {
+    let (config, live) = candidate();
+    let pending =
+        PendingLinkedEndpoint::with_peer_layout(config.listen.clone(), live.clone(), 0, 0).unwrap();
+    let (sender, receiver) = mpsc::channel(1);
+    let (sender, _) = watch::channel(sender);
+    let link = Arc::new(LinkedEndpoint::new(
+        [3; 32],
+        7,
+        config.listen,
+        live,
+        vec![],
+        vec![],
+        sender,
+        receiver,
+    ));
+    pending.install(link.clone()).unwrap();
+    let borrowed = PendingLinkedEndpoint::from_ready(link).unwrap();
+    assert!(pending.same_resources(&borrowed));
+    borrowed.revoke();
+    assert!(!pending.cancellation().is_cancelled());
+    assert!(pending.is_usable());
+    pending.revoke();
+    assert!(borrowed.cancellation().is_cancelled());
+    assert!(!borrowed.is_usable());
 }

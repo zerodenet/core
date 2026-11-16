@@ -1,5 +1,9 @@
 # 控制面兼容性与破坏性变更
 
+SOCKS5 Packet carrier 与 Shadowsocks codec relay 已统一使用实际标准角色图、原 TCP/BND UDP 和原缓存 owner。删除代理内 SOCKS association runtime、PacketPath 操作 SPI、兼容枚举、TCP 前缀里的影子 Datagram 配方和无主 socket/payload builder。TCP-only 插件 UDP 保留其标准非插件原件，UDP-only 插件 TCP 迁到真实标准 Stream/replay owner 且不会启动 UDP 插件进程；进程平台兼容与 TEMP-WG-OUTER-UDP-01 按原要求暂留。公开配置与协议能力不变，协议库独立便捷 API 保留；本轮不编译、不运行测试，不宣告运行验收。
+
+Active VLESS ingress 改为直接使用配置节点的实际标准 Stream generation；无关业务 relay/selector 分支不再决定其生产者资格。VLESS/VMess/Trojan/Mieru 的跨协议调用统一执行标准 Stream/Datagram 与原池 owner，移除代理内 transport leaf、流恢复包装、UDP 最后一跳/双流 SPI 和保留前缀重连工厂。后台 VLESS gRPC 的 TCP mask 由实际 H2 原件执行，完整 dial policy 随原绑定传递。此项不新增公开配置、协议组合或控制面字段；协议库独立兼容 API 保留。回归源码覆盖实际 wire、复用及独立原件/Scope 回执，本轮按要求未编译和执行测试，不能据此宣告完整运行验收。Apple 进程树授权与 TEMP-WG-OUTER-UDP-01 仍单独保留。
+
 
 第二轮控制预算续作保持V1控制信封、事件、命令超时、ACK/revision和CLI/FFI；新增可选
 control消息字段省略不导出。IPC/HTTP/SSE/gRPC消费者与原Connection、Scope和序列化输出
@@ -197,7 +201,7 @@ HTTP 字面量及域名监听使用协议的 `ComponentFactory`/`InboundSource` 
 
 ### WireGuard outer_udp_proxy 临时生命周期例外
 
-2026-10-31 用户确认：既有 `outer_udp_proxy` 及重连历史的兼容生命周期只作为临时方案保留，未来必须纠正。当前换代仍有 30 秒退役宽限，可能短暂并存新旧资源；原始载体的 native 关闭凭据尚未补齐。这条路径不能宣称满足严格的确认停旧后启新，也不能计入完整 native 所有权或整体资源生命周期已完成。
+历史状态（2026-10-31）：用户确认既有 `outer_udp_proxy` 及重连历史的兼容生命周期只作为临时方案保留。当时换代仍有 30 秒退役宽限，可能短暂并存新旧资源；当时的原始载体 native 关闭凭据尚未补齐。当前源码的私有执行链、宽限重叠和旧 slot 支架已移除，现状见 [TEMP-WG 记录](../design/v0.0.3/lifecycle.md#temp-wg-outer-udp-01)，债务仍未关闭。这条路径不能宣称满足严格的确认停旧后启新，也不能计入完整 native 所有权或整体资源生命周期已完成。
 
 本例外不扩大到其他资源，不开放相应普通 native 登记，不新增协议组合，不要求客户端或面板改动。后续由内核补齐实际原始所有者、真实任务退出、转交资源归还与原始关闭凭据，移除兼容换代重叠，并按 TEMP-WG-OUTER-UDP-01 的验收条件关闭债务。旧接口删除或其他路径测试通过均不构成该项完成证据。
 
@@ -1130,3 +1134,716 @@ The runtime SDK adds `ResourceDeclaration::LogicalPacketWorkspaces`, `GrantedLog
 Kernel mask construction now consumes the same Host byte/metadata accounts through `Profile::new_owned_from_ref` and `PreparedMasks::prepare_owned`; `TcpRelayStream::from_client_prepaid` retains the actual erased IO allocation's credit. Immutable material remains with the actual Generation, while mutable framing, queued payload, driver/future and last native waker allocations keep their own custody. The existing Custom/Fragment/Sudoku algorithms, original identity bytes, half-close behavior and explicit standalone library constructors remain. Ordinary mixed XHTTP uses the accepted upload/download endpoint recipes and the same actual shared pool, original providers, Scope and generation; the download direction retains its original unmasked behavior. These Rust API additions change no V1 configuration/export shape or upstream protocol version. New mixed production and wire sources still require their exact-input regressions; neither these additions nor a type check close the remaining outbound/DNS/device caller set.
 
 Kernel SOCKS UDP loans now preserve the actual Multiple-target session and both original TCP/UDP controllers; the BND wire relay remains metadata and never authorizes Fixed payload borrowing. The ordinary Host configuration owner now retains fully confirmed component retirement faults before publication, allowing a subsequent explicit retry while the failed attempt still returns the original typed source. Missing native/Scope/user evidence and a missing real owner remain blocking. Previous diagnostic sources survive until serial coordination unlocks. These changes add no V1 JSON, CLI, FFI, event, revision or billing fields and create no second task owner or pool. Remaining production callers and final candidate qualification are still open.
+
+
+### WireGuard outer carrier retirement: development migration, qualification pending
+
+The linked and standalone WireGuard publication paths now require their actual
+same-candidate standard Host graph. The private peer constructors, independently
+spawned compatibility reconnect worker, weak retiring-history queue and 30-second
+replacement overlap have been removed. There is one strong retiring-original
+queue; replacement and discarded candidates consume actual worker, logical-user
+and native-provider cleanup before another generation can start. A warm link
+without its real retained resource owner cannot be adopted as a qualified graph.
+The retired device context no longer carries an Engine, generic packet-path
+execution services or a partial-native-selection switch into those constructors.
+
+Existing reconnect and endpoint-roaming behavior uses the real Source's bounded
+registered actor and complete per-attempt book. Its cleanup timeout is an
+observer deadline, not permission to overlap or infer close. Shared donors keep
+their own native/provider receipts; software Source joins cannot mint a physical
+ancestor receipt. V1 configuration, CLI, FFI, events, protocol framing and
+client/panel interfaces have no shape changes in this batch.
+
+TEMP-WG-OUTER-UDP-01's implementation exemption is removed. Production regression
+sources cover unchanged reuse, native original replacement/restoration and both
+linked/standalone outer paths. Per user instruction this batch has NOT been
+compiled or tested; the debt is not accepted as verified closed until the exact
+candidate passes original-close, pending-cancellation, failed-cleanup, rollback
+and no-overlap qualification. Historical entries above describe their original
+snapshots and do not re-enable the removed compatibility path.
+
+### WireGuard outer production coverage: Stream donors and packet-only tails
+
+The existing canonical outer Source now prepares the actual last Associated
+Packet root and only its Stream donors. VMess and other Stream-only donors no
+longer need a fabricated Packet capability. Trailing SS framing reuses the
+same cold formatter family and physical root without constructing unused TCP
+prefixes. A single-member Relay uses that same root directly. Selected Source
+preparation failures propagate instead of silently omitting the device path;
+linked Source dependencies require the actual canonical graph and each real
+callee identity.
+
+TCP-only Shadowsocks plugins do not participate in plain UDP framing. On
+platforms without a native Process provider that existing wire uses the owning
+adapter's actual UDP cache through its protocol-owned Datagram-only factory,
+with the same native grants, task owner and original-close conditions. No
+plugin process is spawned or represented as qualified, and the existing TCP
+compatibility executor remains explicit. UDP-capable plugins do not gain an
+outer Packet capability.
+
+Production regression sources cover real VMess Stream -> VLESS Datagram -> SS
+codec wire delivery and replacement for both linked and standalone WireGuard,
+plus the Datagram-only TCP-plugin case on the applicable platforms. These
+sources have NOT been compiled or run. This batch changes no V1 config/API,
+events, CLI, FFI, protocol baseline or client/panel integration. The removed
+30-second overlap remains removed. TEMP-WG-OUTER-UDP-01 is not accepted closed:
+remaining private/whole-pool exclusions and plugin-backed Stream prefixes
+still require their actual producer migration, followed by exact-candidate
+original-close and no-overlap qualification. Rejection is not migration proof.
+
+### Cross-platform process ownership: retain faults after actual close
+
+Linux and Windows outbound SIP003/SIP003U assembly uses the existing native
+Process/ProcessEndpoint provider, original process actor, derived endpoint and
+matching native-close receipts. The shared RuntimeHost process declaration now
+retains the same first original failure even if cleanup completes before the
+first evidence observation. Physical completion never erases that failure or
+turns a failed launch into a successful apply; repeated observations keep the
+same failure identity. Regression source exercises an actual failed native
+launch and consumes the original provider and Scope joins before its first
+Host evidence observation. It has not been compiled or run in this batch.
+
+macOS currently provides the concrete fixed TUN helper owner, not a general
+plugin process-tree/derived-endpoint provider. Other targets without that
+provider do not acquire it through a platform-name alias or a protocol
+declaration. Existing plugin-independent SS UDP retains the same Datagram
+owner; an actual plugin-backed Stream prefix still requires a real provider.
+The macOS kqueue process filter cannot be used to manufacture recursive tree
+proof: Apple's XNU explicitly rejects NOTE_TRACK/NOTE_TRACKERR/NOTE_CHILD with
+ENOTSUP. See the [upstream implementation](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_event.c).
+No PID scan, process-group kill, child wait, fixed delay or TUN-helper receipt
+is substituted for a plugin's full original tree and IO closure. That platform
+implementation remains open; TEMP-WG-OUTER-UDP-01 is not qualified closed.
+No client/panel project, V1 configuration/API, FFI ABI or protocol baseline is
+changed by this fault-retention fix.
+
+### Device persistent prefixes: standard production execution without claims
+
+Device preparation now consumes only outer paths referenced by admitted actual
+devices and the immutable material from their same canonical cold pass. It no
+longer scans every outbound/relay, reconstructs claimed leaves or silently
+builds a compatibility device path. SOCKS/SS cold metadata uses the existing
+registry's direct data projection instead of creating executable operations;
+qualified VLESS/SS no longer preserve a packet-only claim for Source consumers.
+
+Linked WireGuard, standalone WireGuard and their actual retained reconnect
+actors now store a concrete RolePacketPath. Its root opens the standard
+Datagram role, its prefix uses the existing weak-generation native Stream
+chain, and SS tails consume the exact retained cold codec family and prepaid
+receive workspaces. PreparedUdpPacketPathOperation and PreparedTcpRelayPrefix
+are removed from this complete device path, together with their old Source
+binding helpers, duplicate root-binding field and discarded preparation
+branches. Acquisition still uses the same real driver caller, per-attempt
+loan/controller book, original providers and TaskScope; dependency/network
+changes fail before a new open, and actual retirement remains mandatory before
+reconnect or replacement.
+
+The previous description of a trailing SOCKS formatter was incorrect. The
+implemented SOCKS protocol has only a root association, so its original
+non-root Packet restriction is restored; it does not gain an invented codec
+or Associated executor. This introduces no protocol combination or V1
+configuration/API/FFI change. Regression source now disables the executable
+SOCKS/SS claim projections while preparing and refreshing real cold Source
+graphs, retains path-order/dial facts, and checks missing-plan rejection.
+No compilation or tests have run in this batch. Ordinary business TCP/UDP,
+remaining private/whole-pool producers and RetainedSource::Legacy callers are
+still migration work; the macOS plugin provider and exact-candidate native
+close/no-overlap qualification remain open. TEMP-WG-OUTER-UDP-01 is not declared
+closed by this change.
+
+
+### Business UDP packet-codec relays: concrete standard-role execution
+
+Existing packet-codec relay callers now select their complete actual Datagram
+root and native Stream donor graph before creating claims. The same concrete
+RolePacketPath used by device Sources also executes these Business callers,
+without PreparedTcpRelayPrefix, claimed packet operations or a private pool.
+Its weak actual role identities, dial facts and network epoch are checked
+before opening; the cache key also includes intermediate codec identities.
+Business openings retain their actual accepted/raw caller, logical Datagram
+registration, original protocol controller and Host byte/metadata budgets.
+They never borrow a Source grant. Encoded-hop and final-hop accounting and the
+existing response worker/cache retirement path are retained.
+
+The pure final codec is prepared once by the owning adapter cold projection,
+including callers whose prefix remains compatibility-owned. That receiver no
+longer creates a discarded TCP/UDP claim. Intermediate compatibility framing
+uses the same cold projection; PreparedUdpPacketPathOperation::datagram_source
+and the duplicate extend_with_source conversion are deleted. The former
+Source execution through an Associated PreparedTcpRelayPrefix is also removed.
+Existing unqualified prefixes retain their actual compatibility owner; this
+change does not qualify them by weakening admission or add protocol grammar.
+
+Compatibility codec relays now select their actual build root before any TCP
+preparation. Only an Associated root prepares its real shorter Stream donors;
+intermediate and final pure codecs keep one cold adapter family and never
+create TCP candidates or packet operations. The attached Datagram preparation
+of persistent TCP prefixes also skips unused codec operations and duplicate
+TCP-prefix copies. Compatibility recipes retain one executed root and its
+codec suffix instead of a history of shadowed Datagram layers; the actual
+shorter TCP path still retains every required underlay. The old generic extend
+entrypoint and reverse search through executable layers are removed. This does
+not turn codec retention, cache eviction or metadata disposal into original
+close evidence, and existing private/pool admission remains unchanged.
+
+Cold regression source disables the executable SS/SOCKS/VLESS claims, covers
+multi-codec and Associated-prefix selection, distinguishes the network epoch,
+rejects absent original callers and preserves library-prefix selection with
+all intermediate/final SS claims disabled. Additional source checks each
+codec's UDP policy and rejects non-root SOCKS association grammar before any
+donor preparation. These regressions have not been run. No builds,
+compilation, tests, commits or pushes were performed for this batch. Other
+business TCP/UDP compatibility producers, private/whole-pool paths, the macOS
+plugin Process provider and final original-close/no-overlap qualification
+remain open. TEMP-WG-OUTER-UDP-01 is not declared closed.
+
+### HY2 outer Source: actual authenticated-pool original handoff
+
+Non-hopping HY2 WireGuard outer paths now consume cold Packet facts from the
+same named standard Datagram recipe and existing authenticated pool. The pool
+installs its exact Metadata original's protocol cleanup control before its real
+setup task or native IO, and transfers the actual waiting caller's observer.
+Its Packet and Quinn endpoint use the same original paired view/driver graph;
+physical receiver confirmation is distinct from authentication and loan delivery.
+Cached borrowers validate the live original, full endpoint/binding/DNS epoch
+and observer, and cannot revive a retiring original through a historical proof.
+Initializer cancellation stops that original setup; reopening still consumes
+the old protocol/native/user/task receipts. Root-held protocol cleanup waits
+the original operation across observer deadlines and publishes its actual
+user/driver receipt before the native provider closes. No new pool, HY2 claim,
+protocol SPI, task owner or V1 config/API/FFI shape is introduced.
+
+Neutral Rust collaboration surfaces add observation of an already retained
+Metadata original, same-original protocol retirement, and sealed native Quinn
+endpoint receiver preparation. Paired Packet/endpoint ownership is available
+with quic_h3 alone, without relying on unrelated transport feature unions.
+Regression source covers real linked/standalone WG wire delivery, unchanged
+pool reuse, actual original replacement, and cancellation while a genuine
+QUIC handshake is pending. These sources have NOT been compiled or run.
+Hopping HY2 outer custody, other unqualified upstreams and final same-candidate
+close/no-overlap qualification remain open. TEMP-WG-OUTER-UDP-01 is not closed.
+
+
+### Outer upstream follow-up: four implementation changes, two open items
+
+HY2 hopping outer Sources retain the same authenticated protocol original and
+live Quinn endpoint while replaced UDP wires supply their actual native close
+reports and packet registration ACKs. A sealed continuation validates both
+original claims, the exact old receiver and its native closure, the new wire
+in the same pool, the same Packet queues and unchanged actual endpoint driver.
+Receiver publication is atomic against that exact previous handoff. The first
+protocol Root stays charged across hops; final cleanup preserves its original
+packet registration map and adds the actual endpoint driver receipt. Cancelled
+or incomplete cleanup retains the original owner. Rotation creates no second
+pool, reauthentication, timed overlap or inferred native-close evidence.
+
+Encryption-backed VLESS Vision now executes existing WS/H2/HTTP-Upgrade and
+gRPC carriers through standard roles. Encryption bypass retains the underlying
+carrier; framed TLS alone cannot authorize it. The existing implicit Vision
+XUDP role remains distinct from ordinary TCP. Nested gRPC stream carriers run
+inside their existing original initializer/H2 driver, with the same TLS/File/
+ECH owners and complete hashed carrier identity, without another driver owner.
+
+Standalone and outer-backed WireGuard Stream donors use the same canonical
+cold graphs. Preparation follows actual WG dependency order and exposes only
+already-prepared donor owners for same-pass decoding. Its scoped lookup holds
+a weak candidate identity and clears on every exit. Actual named/generation
+bindings, transitive replacement, root-only grammar and cycle rejection remain
+authoritative. The duplicate linked cold conversion is removed; device Source
+execution still uses the concrete standard role path.
+
+Regression source covers real encrypted Vision TCP/XUDP framing, actual gRPC
+lower recipes without compatibility claims, WG donor cold ordering, linked/
+standalone hopping outer delivery, original wire closure while its endpoint
+persists, and receipt enrichment while actual protocol Host ACK is pending.
+These sources have NOT been compiled or run. Only individual Rust files were
+formatted and diff whitespace checked. No V1 configuration/API/events, CLI,
+FFI, protocol baseline, commit, push or client/panel changes are included.
+
+The six-item follow-up is NOT complete. Reverse-enabled VLESS still retains
+its explicit active-Service compatibility owner and private runtime; migrating
+its standard Service/source/tasks/providers remains implementation work. The
+macOS general plugin process-tree/derived-endpoint provider is also absent;
+the fixed TUN helper is not a substitute. Both admission restrictions remain.
+Exact-candidate compilation and actual native/Scope/no-overlap qualification
+remain outstanding. TEMP-WG-OUTER-UDP-01 is not declared closed.
+
+
+### Active reverse ingress: protocol execution before host migration
+
+Rvs worker demand is now separate from the independent-library carrier opener.
+The existing compatibility bridge uses that same protocol demand, serialization,
+retry pacing and status state. It does not create a second demand registry.
+Standard VLESS Stream roles can frame an explicit internal DialedIngress Service
+at the actual configured endpoint, without a synthetic business identity or
+routing domain. They transfer the real control IO before its retained protocol
+preparation awaits the response; ordinary TCP retains its existing behavior. MUX roles borrow
+their same-owner ordinary control role through a weak reference, where that
+actual role exists, instead of sending Rvs through a business MUX substream.
+In a Service relay only the terminal role receives DialedIngress; prefixes
+remain ordinary control tunnels. No reverse-enabled production gate is widened.
+
+The standard request driver now consumes reverse control frames, status and
+reverse source/local metadata in the existing accepted Scope. Control does not
+mint a business identity or enter the route queue. The protocol source does not
+write a second response or wrap Vision a second time. Source construction
+requires the actual accepted caller; the caller still owns its actual loan,
+original provider, scope and retirement. Regression source covers pending real
+authentication on one shared gRPC original, forward/reverse logical loans,
+control-only frames, metadata and actual driver joins, plus pure demand pacing.
+These sources have NOT been compiled or run.
+
+This is not completion of active-Service migration: the production service
+preparer still constructs its private transport runtime and compatibility
+carrier/source. Canonical cold ownership, source ingress identity, carrier
+private tasks, provider receipts and transactional retirement still must be
+completed before its ordinary production gate opens.
+TEMP-WG-OUTER-UDP-01 remains open.
+
+For macOS, Apple's documented es_new_descendants_client is available from
+macOS 27 and requires the Endpoint Security client entitlement. It is not a
+provider for the existing supported generic plugin path or a complete native
+close proof. No Endpoint Security helper, entitlements, minimum OS requirement,
+process-tree/derived-endpoint receipts or plugin admission are introduced here.
+Reference: https://developer.apple.com/documentation/endpointsecurity/es_new_descendants_client(_:_:).md
+
+
+### Active Service task custody and deferred control preparation
+
+Active ingress Main, connection workers and compatibility MUX route tasks now
+register in one bounded HostedScope using the existing RuntimeHost component
+task book. Proxy clones retain that same actual owner independently of an
+interrupted orchestration future. The three private JoinSet owners and their
+abort-based replacement/substream shutdown chain are removed. The original
+MUX EOF grace remains, followed by cooperative cancellation; the external
+host still consumes every actual task join and registration acknowledgement.
+This brings these Service tasks under component_total_max_tasks; it does not
+put carrier-private library workers into that Scope.
+
+Candidate Main grants are reserved cold before stopping current Services.
+Each connection worker also reserves its actual launch before carrier preparation;
+capacity backpressure opens no new carrier and is not a readiness/close proof. A
+quota refusal leaves current work running. Once retirement begins, a timeout
+or interrupted waiter retains the exact original Scope, pending tasks and
+collected TaskJoined/error Arcs. Original failures are retained before Host
+ACK. A separate inline driver consumes those same exits while startup/reload
+is suspended; it starts no observer task and retains no success-history table.
+Requested watch-stop exits are distinguished from unexpected Main exits.
+Failed/unconfirmed Service task retirement blocks resource recovery rather
+than presenting it as a completed cleanup.
+
+Standard VLESS DialedIngress now transfers its actual control IO/controller
+before Rvs protocol preparation can suspend. That same IO retains the real
+preparation future across an interrupted read waiter, sends the target-free
+header, validates the response and applies Vision once. Ordinary TCP retains
+its existing response behavior. The original serialized protocol demand stays
+with the actual accepted driver until the first complete authenticated MUX
+frame. No new pool, native origin, business identity or protocol combination
+is introduced. Regression source covers original pending TCP reads, interrupted
+and expired Scope cleanup, retained failure identity, actual Host ACK/task
+credit, quota refusal before StopOld, inline observation, and a retained gRPC
+loan while the real Rvs response remains pending. None has been compiled/run.
+
+Active-Service migration is still incomplete: its production preparation still
+uses a private VlessTransportRuntime and compatibility carrier/source adapter.
+Canonical factory/dependency assembly, carrier-private task ownership and
+original provider retirement remain required before ordinary admission widens.
+Scope joins do not prove those native resources closed. TEMP-WG-OUTER-UDP-01
+remains open. No commit, push, V1 config/API/FFI or client/panel change is made.
+
+The owner confirmed that no Apple Developer Program team or Endpoint Security
+entitlement is currently available. Optional scripts/macos-es prepares an ES
+client capability probe, explicit-team/profile signing inputs and an enrollment/
+request worksheet. It subscribes to no events, starts no processes or daemon,
+changes no normal runtime admission and always reports the process-tree
+provider as unqualified. No account enrollment, payment, entitlement submission,
+certificate issuance, compilation, signing or installation has occurred. Apple
+approval and signing credentials remain external requirements; a successful ES
+client creation/disposal is not a plugin process-tree or endpoint close receipt.
+
+
+### Active ingress compatibility branches and retired Rust entrypoints
+
+This continuation removes the private active-Service VLESS runtime and its
+old MUX TCP/UDP dispatcher, relay/task chain and MUX-only sniff entrypoint.
+The unused Rust `VlessReverseBridge` / `into_reverse_bridge` API is removed;
+in-process callers must assemble the protocol-owned standard reverse Source
+with the actual canonical Stream dependency. The internal prepared-operation
+trait and source-relative material callback are removed too. Recovery retains
+concrete cold factory recipes in the same persistent Service owner.
+
+Existing `zero-aead-v1` TCP framing and ordinary UDP framing now use actual
+Stream/Datagram factories, including gRPC and framed carriers. This does not
+change Zero AEAD UDP into XUDP. Encrypted Vision Browser/XHTTP configurations
+use their existing actual lower carrier and the standard upper MUX owner;
+preconnect Vision continues through its actual lower preconnect provider.
+The Source hands off the sealed original loan identity. Packet/metadata roots
+without socket addresses retain unknown endpoint facts rather than inventing
+listener endpoints or TCP/UDP admission.
+
+Regression source covers real framed Zero AEAD TCP, encrypted Vision XHTTP,
+Zero AEAD gRPC Datagram loans and interrupted reverse Source cleanup, original
+native/driver receipts, and a native Metadata original without socket endpoint
+facts. Architecture regressions now require absence of the retired executors.
+These sources have NOT been compiled or run. Formatting and whitespace checks
+are source checks only. Unsupported provider graphs fail cold; that rejection
+is not completion of their remaining migration. General macOS plugin process
+tree ownership remains postponed pending Apple authorization. No V1 config,
+API/events, CLI/FFI, protocol baseline, GUI/panel, commit or push changes are
+included. TEMP-WG-OUTER-UDP-01 remains open.
+
+### Virtual reverse providers and their actual cross-protocol borrowers
+
+The endpoint-free `VlessReverse` outbound now selects protocol-owned standard
+Stream/Datagram roles over the same adapter PortalRegistry and original accepted
+MUX workers. Its virtual-only logical TCP/UDP runtime executors are removed.
+TCP and UDP use the existing bounded physical FIFO without per-flow pumps;
+empty datagrams, target changes, source/local metadata and wire framing remain
+in the owning protocol. Ordinary selection and prefix borrowing consume the
+same real installed role generation. This admits virtual reverse roots to the
+existing qualified cross-protocol Stream/Datagram grammar, including cached
+VMess gRPC consumers; it does not create a Packet role or a new relay grammar.
+
+The neutral Rust component contract adds `AcceptedCarrierSources` and the
+concrete `ComponentRoles.accepted_carriers` publication. Custom Rust component
+builders must publish the actual same-Host provider when declaring this resource;
+this is not a public protocol SPI, config option, or fabricated native grant.
+Each provider record retains the original caller, bound accepted resource,
+physical driver witness and issued logical-use counter. Ordinary replacement
+accounts for this resourceful owner. Workers become selectable only after real
+resource/driver/provider publication. Unpublished/failed drivers remain in their
+original Source graph, and cancelled FIFO preparation returns the actual SID.
+
+Source stopping now fences new borrowing before native cancellation, retires
+actual transitive consumers and waits for their transferred views. The existing
+replacement transaction is retained before stopping reverse Control originals;
+ordinary Source acquisition pause still requires its true idle/close state.
+Full Source digests and actual host dependency identities participate in cold
+replacement. Logical resource return, caller/driver registration ACKs and the
+Source's original listener/Metadata native receipts remain separate. Retired
+managed portals are reclaimed only after their actual worker/provider return.
+
+Regression source covers real raw/WS/H2/gRPC reverse traffic, empty and
+multi-target datagrams, pending-IO unique loan return, VMess gRPC borrowing,
+actual mKCP/QUIC originals and Source-budget replacement. These sources have
+NOT been compiled or run; formatting and static checks are not runtime proof.
+Other graphs still excluded by their owning native-provider qualifications,
+including active ingress without a canonical Stream provider, remain unfinished
+migration work. Cold rejection is not completion or feature-preservation proof.
+Apple process-tree authorization and TEMP-WG-OUTER-UDP-01 remain open. No V1
+configuration/API/event, CLI/FFI, protocol baseline, GUI/panel, commit or push
+changes are included.
+
+
+### Native Node DNS detour provider migration
+
+Node DNS now prepares the selected policy's real detour endpoint/dial grants
+and consumes the same standard Stream/Datagram providers, persistent original
+controllers, query cleanup receivers and Scope joins as Default DNS. Domain
+VLESS/VMess/Trojan, Mieru and ordinary relay selection use host-aware Node
+bootstrap validation instead of rejecting every configured detour. Literal
+Direct and protocol donors with independent bootstrap use their existing actual
+factory and original generations; this does not create a second DNS connector,
+private runtime, synthetic business Session, or direct-network fallback.
+
+Literal SOCKS no longer carries an unconditional static Node dependency. Its
+dynamic domain BND capability remains on the same actual Host Node source with
+original query joins and generation fences. A detour carrier resolving itself through its original Node query Scope is
+rejected before starting another query. Donors requiring
+that same Node resolution/ECH owner still require independent bootstrap; DoQ
+detours, Apple process authorization and TEMP-WG-OUTER-UDP-01 remain unfinished.
+
+Regression sources cover actual Direct UDP and SOCKS TCP Node wire I/O,
+pending-query cancellation, original native receipts/Scope ACKs, domain gRPC
+factory selection, and ordinary UDP domain BND with both original SOCKS TCP/UDP
+controllers. Sources were not compiled or executed. No public configuration,
+protocol wire shape, CLI/API/FFI, GUI/panel, commit or push change is included.
+
+
+### TEMP-WG-OUTER-UDP-01: remove retired ownership scaffolding, debt remains open
+
+The proxy-local PacketCarrierOwnerSlot, native UDP socket constructor and their
+isolated tests are deleted. RawIpWireCarrier/PacketPathCarrier no longer project
+native_owner, and LinkedEndpoint/EndpointPeerState no longer accept pre-opened
+carrier objects or expose the old carrier-owner matching path. Actual outer I/O
+continues through the same Source-declared standard Datagram/Stream recipe and
+its existing registered wire, reconnect actor, controller book and providers.
+
+Linked BuildNew retains only its actual binding, caller deadline/cancellation
+and a candidate-owned cancellation fence. Virtual stacks and configured crypto
+peers keep their distinct finite layout bounds, including inbound-only graphs
+with zero client stacks. Linked shutdown consumes each original stack CloseReport;
+it cannot manufacture native receipts from unused slot counters. The original
+Source still separately confirms loan/view return, actual driver/reconnect Scope
+joins/ACKs and every relevant native/controller receipt before replacement.
+
+Regression sources preserve real pending Node DNS cancellation and original
+stack joins, cover borrowed-wrapper fencing and zero-client-stack peers, and
+prevent the deleted native-owner/injected-carrier entries from returning. The
+existing linked/standalone/reconnect wire and original-close regression sources
+remain. None was compiled or run in this batch. Formatting/static inspection is
+not runtime qualification. The canonical lifecycle record and task cards now
+distinguish historical 30-second overlap from current source; TEMP-WG-OUTER-UDP-01
+is explicitly NOT closed. Apple authorization remains deferred. No V1 config,
+wire capability, API/events, CLI/FFI or consumer project change is included.
+
+
+### Native DNS: remove the private connector/exchange chain and bind constrained UDP donors
+
+Proxy construction no longer installs ProxyDnsOutboundConnector. Actual Query
+and Node providers already own production DNS execution; the fake Session0 TCP
+fallback, duplicate Service alias/error wrapper, packet-route DatagramExchange
+SPI and RawIpDatagramOperation are deleted. The remaining runtime/dns_outbound
+module is test-only. Native Stream/Datagram loans, original task/Scope ACKs,
+actual shared pools, cancellation and independent native receipts remain with
+the existing standard Host providers. The standalone zero-dns library connector
+API and its standalone consumers remain available.
+
+Native SOCKS/SS DNS UDP donors now retain the selected full dial policy. The
+same Query owner declares its logical DNS destination under that exact policy,
+while native TCP control/BND UDP and SS wire originals still come from their
+actual owning roles. A non-default policy no longer forces these native
+Datagram donors through Stream DNS merely because their logical grant was
+missing. This does not widen relay grammar, DoQ detours or metadata/shared-pool
+provider admission, and adds no second pool, executor or native ownership claim.
+
+Regression sources extend the real SOCKS/SS UDP and applicable TCP-only-plugin
+fixtures with IPv4/source-IP constraints, cancellation, exact original policy,
+TCP/BND relationships, Query join/ACK and original native-close assertions.
+Ordinary Direct and WG DNS fixtures also exercise the actual constructor
+without replacing an installed compatibility connector. These sources were
+not compiled or run. Other compatibility branches, Apple authorization and
+TEMP-WG-OUTER-UDP-01 runtime qualification are not marked complete. V1 config,
+API/events, CLI/FFI, protocol baseline and consumer projects are unchanged.
+
+
+### Standard Datagram egress: move accepted and continuity callers to their actual native provider
+
+Ordinary native Datagram peers, accepted Stream/MUX Datagram drivers, and
+reconnectable Datagram actors now use the same HostBoundDatagramResources and
+BoundOutboundDatagram contract as the existing granted raw-IP path. Their
+already-installed dispatcher original retains the actual endpoint/native owner;
+the existing registered caller drives the native future inline. No second
+TaskScope, spawned driver, synthetic business identity or pool is added. The
+legacy raw socket constructor/fallback is removed from production dispatch.
+The obsolete automatic packet-session handler executor is deleted; the explicit
+loop retained for old unit fixtures is test-only. Direct's stale removed DNS
+DatagramExchange projection field is also removed.
+
+The caller keeps its existing business routing/DNS/transparent-target decisions,
+full dial policy, preferred source port, zero-length/multiple-target behavior,
+reply guards, isolation and accounting. Continuity reattachments keep the first
+dispatcher's port preference. A network change retires the old actual logical
+association and native view, then re-binds the same business SessionId before
+sending; no extra routed session or payload replay is introduced. Cleanup waits
+for the actual caller join and consumes real native close and returned-view
+observations independently. Existing raw-IP/TUN provider wiring is retained.
+
+Regression sources cover real ordinary Direct and accepted SOCKS wire/control
+traffic, full dial policy, multiple targets, empty packets, same original reuse,
+network handover preserving business identity, and original native/view receipts
+through the installed production cleanup owner. Existing real MUX/continuity
+regressions remain. Per-client-stack queue limits remain on their real stack,
+not reinterpreted as native-socket limits. No public schema, API/events, ABI,
+protocol baseline or consumer project is changed.
+
+This batch is source implementation only: no compile or test execution was
+performed. Formatting and static inspection do not qualify runtime behavior.
+Other private runtimes/compatibility consumers, Apple authorization and
+TEMP-WG-OUTER-UDP-01 runtime qualification remain open; this does not mark the
+whole refactor or its task cards complete.
+
+
+### Native Packet and strict Flow conversion: use the installed original providers
+
+Packet route selection now retains the exact installed role generation with an
+actual ready Source provider. The original raw-IP/TUN main opens and drives that
+standard Packet role with its real facts, memory view and opaque return cookie.
+It no longer constructs a Direct/WireGuard compatibility operation and patches
+in a role afterwards by tag. Native forwarding, opt-in ICMP address translation,
+endpoint return-correlation admission, candidate ordering, fragmentation, hop
+limits, rollback and existing Inner/Outer accounting keep their owning paths.
+
+Strict `packet` TCP/UDP selection now consumes the same actual device Stream and
+Datagram roles used by ordinary Flow, including linked and standalone WG. Those
+roles open the existing client stacks under the original caller and transferred
+user ledger. The private RawIpFlowSource/endpoint projection, RawIpPacketOperation,
+PacketRouteOperations/PreparedPacketRouteOperation SPI, WireGuard claim/profile
+executors, host policy stub and unused declaration-only graph are deleted. Old
+unowned stack opens, local JoinSet constructors, Vec submissions and detached
+route-reply pumps are excluded from production; explicit standalone unit bridges
+remain under test-only sources. The actual pool's preparation, publication,
+original retirement and native/Scope receipts are retained, without a second
+pool, task owner or executor. Deferred Apple plugin compatibility is preserved.
+
+Regression sources use actual published Sources for endpoint/group/policy
+selection and exact provider identity; existing encrypted linked/standalone WG
+wire fixtures also cover strict TCP/UDP/domain flows with their original close,
+caller join and traffic assertions. The real Packet Source regression verifies
+selection of its exact Packet generation. Tests that previously inferred a
+provider from a cold claim now require the actual Source. No compilation or test
+execution was performed. Exact-file formatting and source inspection are not
+runtime acceptance. Apple authorization, TEMP-WG-OUTER-UDP-01 runtime acceptance,
+other remaining compatibility domains and whole-refactor completion stay open.
+No public schema, API/events, ABI, protocol baseline or consumer project changes
+are included.
+
+
+### Ordinary Direct UDP: remove its boxed adapter compatibility entry
+
+Direct UDP inventory selection now transfers the Engine-selected tag, full dial
+policy and policy generation directly to the existing dispatcher. It no longer
+asks DirectAdapter to construct a boxed UDP operation (or an unused TCP
+projection first). DirectUdpFlowOperation, its adapter UDP claim, the obsolete
+claim generation field and the UDP controlled_native_coverage hook are removed.
+Native gateway coverage follows the actual Direct selection and bound provider.
+
+The dispatcher still uses the existing installed Host Bound provider. Its same
+source validates the current published Host/plan, admitted business Session and
+original peer/accepted caller; resolution, source-port preference, empty/multiple
+target sends, policy isolation, accounting and network refresh of the original
+SessionId keep the same execution and native/view/Scope ownership. No new
+provider, task owner, socket group or fallback is introduced. The real Source
+fixture now consumes inventory's actual selection and verifies the adapter has
+no UDP capability; policy/mode and real wire/close regression sources cover the
+new entry. These sources were not compiled or run. Direct TCP compatibility,
+Apple process authorization, TEMP-WG runtime acceptance and the overall refactor
+are not marked complete. Public schema, API/events, ABI and protocol baselines
+are unchanged.
+
+
+### Direct TCP: remove its claimed executor and production untracked fallback
+
+Named and builtin Direct TCP select their actual standard Stream generation.
+DirectTcpConnectOperation, DirectAdapter's executable claim, the Direct/virtual
+claim inputs and runtime projections, and the TCP controlled_native_coverage
+callback are deleted. The production Direct factory no longer has a
+retain_legacy_calls switch: admitted Business, real ProbeCall and borrowed
+Service callers use the existing controlled provider. The bare Proxy
+connect_direct methods/opener are removed; the actual candidate scheduler,
+complete dial policy, transparent-target DNS recovery, error observations and
+original native/Scope ownership are retained. Explicit standalone library
+DirectOptions::validate roles still delegate to their caller-supplied upstream.
+
+Standard fixed-target Direct Datagram open also uses the same original controlled provider,
+transferring that loan's actual TX/RX/control and one return barrier into the
+standard session. Carrier borrowing keeps its Service identity restrictions.
+The ordinary Direct UDP dispatcher still uses its existing Host Bound provider,
+including empty/multiple targets and preferred ports. No independent native
+owner, task Scope, pool or packet pump is added. Original returns, native close,
+accepted/raw caller joins and host acknowledgement remain independent evidence.
+
+### Qualified relay prefixes: retain actual original loans before compatibility receivers
+
+A prefix made of actual standard donor roles now reacquires the exact weak
+role generations and executes the existing standard Stream borrowing pipeline,
+including Direct roots and socket/multiple-hop prefixes. Its original
+accepted/raw/probe pending observer is installed before acquisition; internal
+carrier framing does not invent a business Session. Configured node-name wire
+forms, literal endpoint observations, full policies, non-replayable submitted
+failures and single charging of donor/receiver Outer bytes are preserved.
+Diagnostic work retains its existing health-recording policy. The returned view
+keeps the actual LoanOwner; returning that view is not native-close evidence.
+Explicitly retained process-compatible donors keep their current execution and
+ownership until separately migrated; this does not qualify Apple authorization.
+
+Production Query/Node and active ingress retain their existing original root
+and standard loan methods. The obsolete synthetic Service connect/root wrapper,
+raw open_root_stream and default bare service dialer now live only in explicit
+standalone test fixtures. The original transport library fixtures retain their
+own raw convenience calls outside production Proxy execution.
+
+Regression sources cover real Direct listener forwarding with full policies,
+half-close, exact native receipts, retired weak selection and the actual probe's
+OS error cause; two/three-hop prefix fixtures use real accepted/raw callers,
+authenticated wire peers, rejection without replay, exact accounting and
+original caller/provider cleanup. Old tests which invented a compatibility
+projection for already migrated protocols are replaced. No compile or test
+execution was performed. Exact-file formatting/source checks cannot establish
+runtime acceptance. Apple authorization, TEMP-WG-OUTER-UDP-01 runtime acceptance,
+remaining compatibility responsibilities and the overall refactor stay open.
+Public configuration, API/events, ABI and protocol baselines are unchanged.
+
+Active ingress retains its actual controlled root provider in `service/ingress_root`; only its obsolete bare-stream fallback is test-only. Original grants, current role adoption, native DNS candidates and endpoint evidence remain on that production provider.
+
+HTTP Forward exchanges now retain the original Engine admission returned by
+prepare_session_with_ticket and pass its actual AdmittedBusinessDemand with
+the Source's sequential accepted caller to standard Stream dispatch. This
+preserves per-message identities, keep-alive, policies and bidirectional
+accounting after removal of Direct's raw fallback, without a substitute caller,
+Scope or native owner. The obsolete open_tcp_upstream convenience has no
+production callers and is test-only; production MUX remains on its existing
+standard accepted Source pipeline. Added regression source observes two real
+Forward exchanges on the actual standard Direct native owner, distinct original
+identities, exact byte accounting and matching original close receipts. This
+source has not been compiled or executed.
+
+Existing standard prefix callback APIs now transfer real Stream/Datagram donor
+loans instead of executing a second connect/open path. The returned stream or
+session retains the original LoanOwner/controller and caller pending ledger,
+full binding and wire target, requested Datagram association, empty frames and
+accounting. Parent and additional cancellation retain actual poll wakeups;
+interrupted preparation requests stop through that same token. Half-close does
+not cancel reads, and logical return is separate from native/Scope receipts.
+The former prefix/compatibility executor is deleted.
+
+Concurrent standard Source requests use the actual AcceptedTasks registrar and
+original witnesses exclusively; their local JoinSet fallback is removed.
+Sequential HTTP messages keep their original primary. The unused private tuple
+packet carrier and non-socket managed Datagram resume/rebuild chain are deleted;
+standard providers and protocol-library helpers retain their responsibilities.
+The explicitly deferred SS process socket branch keeps its current owner/state.
+Regression sources use real SOCKS TCP/BND UDP originals and accepted/raw callers
+for callback framing, association/empty frames, half-close and explicitly pending
+read/receive cancellation, plus two concurrent real VMess MUX -> Direct requests
+and matching original close receipts. These sources were not compiled or run.
+
+The public System TCP API now selects its actual standard factory/Source and
+native TCP provider, preserving the listener-local destination and public
+signature. Accepted work uses the original accepted graph and Node grants.
+The private SystemTcpStack/JoinSet executor is removed; standalone stack-library
+helpers remain. Pure API endpoint input survives run restart only after original
+retirement. Source budget edits use actual idle/StopOld/native receipt gates and
+rebuild the accepted graph; route reloads select current standard Node providers.
+Node raw Stream/Datagram convenience execution is test-only, while the deferred
+SS process path keeps its existing platform ownership.
+
+The same original TUN blocking worker now retains operation/cleanup panics,
+stops new work and the monitor, waits the original monitor join, and continues
+closing its original route/PF/File/notification controllers. Only after positive
+native cleanup does it resume the original panic into its actual Scope. A
+cancelled/expired wait or diagnostic acknowledgement does not close those
+originals. Dedicated helper actor and route cleanup responsibilities remain
+separate. Regression sources cover real System/Node forwarding, half-close,
+restart, budget and route replacement, and real route-monitor native cleanup
+across worker panic and cancelled waiting. No compilation or test execution was
+performed; the broader refactor and remaining responsibilities remain open.
+Apple authorization and TEMP-WG-OUTER-UDP-01 runtime acceptance remain deferred.
+No public configuration, API/events, ABI or pinned protocol baseline is changed.
+
+
+### Standard Datagram Flow response ownership
+
+Ordinary standard Datagram Flow replies now poll their original RX continuation
+in the actual association driver instead of spawning one private JoinSet task
+per packet. The same Host prepays the bounded continuation/table storage; each
+read retains its original SessionId, association, destination and PacketBuffer
+across outer-select cancellation. No replacement Scope, native grant or pool is
+created. Exclusive response-lease return releases the original read/view only;
+native provider closure and original Scope consumption remain separate gates.
+The caller's cleanup does not wait for its own join before returning RX custody.
+
+Ordinary response books no longer create a private task set. Explicitly deferred
+SS process responses retain their old implementation and instantiate that set
+only when actually used. The unreachable registered tuple branch/cache is
+removed; tuple convenience execution, raw-IP RetainedTasks and TUN private task
+sets are restricted to explicit standalone fixtures. Production TUN/device work
+continues on its real Source registrars and standard providers.
+
+Regression sources exercise public SOCKS -> VLESS/VMess MUX multi-target and
+empty packets, unsolicited replies, actual pending-RX cancellation and Source
+stop, matching original caller/native/Scope receipts and absence of a private
+response task set. These sources were not compiled or run. Apple authorization,
+TEMP-WG runtime acceptance and the overall refactor remain open. Public config,
+API/events, ABI and pinned protocol baselines are unchanged.

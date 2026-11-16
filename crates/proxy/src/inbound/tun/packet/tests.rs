@@ -10,10 +10,6 @@ use super::{try_forward, IcmpEchoRelay, InboundRouteRuntimeFactory, PacketSessio
 use crate::runtime::{route_runtime::SharedIngressRuntimeServices, Proxy};
 
 mod boundaries;
-#[cfg(feature = "wireguard")]
-mod endpoints;
-#[cfg(feature = "wireguard")]
-mod groups;
 mod owned_echo;
 
 struct Fixture {

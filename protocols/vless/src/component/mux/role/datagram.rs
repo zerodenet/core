@@ -57,7 +57,18 @@ impl Outbound {
     > {
         let session = self.admission.check(&context)?;
         let leaf = self.selected_leaf(&context)?;
-        let opening = leaf.open_native_mux_udp(&context);
+        if leaf.native_udp443_blocked()
+            && matches!(&request.targets,
+            zero_core::request::DatagramTargets::Fixed(target) if target.port == 443)
+        {
+            return Err(self.admission.error(
+                session,
+                Stage::Prepare,
+                Reason::Unsupported,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        let opening = leaf.open_native_mux_udp(request.association, &context);
         let opened=tokio::select! {biased;
             _=self.admission.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Revoked,DeliveryState::Unknown)),
             _=context.cancel.cancelled()=>return Err(self.admission.error(session,Stage::Handshake,Reason::Cancelled,DeliveryState::Unknown)),

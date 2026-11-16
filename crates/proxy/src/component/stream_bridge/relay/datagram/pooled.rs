@@ -198,7 +198,6 @@ pub(super) async fn open(
     let end = invocation
         .deadline
         .unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(5));
-    let role = slot.datagram(end).await?;
     let binding = UpstreamBinding {
         prefix: prepared
             .prefix
@@ -213,6 +212,7 @@ pub(super) async fn open(
         .as_ref()
         .map_err(|source| crate::component::instance::retained(source.clone()))?
         .authorize_carrier_prefix(slot.instance_id(), &binding.prefix)?;
+    let role = slot.datagram(end).await?;
     let tag = prepared.target.tag();
     let (server, port) = prepared.target.endpoint().ok_or_else(|| {
         invalid(

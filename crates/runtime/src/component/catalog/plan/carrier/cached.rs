@@ -3,7 +3,10 @@ use super::*;
 use zero_platform_tokio::contract::component::{ResourceDeclaration as R, RoleKind};
 pub(super) fn installed(slot: &Arc<ComponentSlot>) -> bool {
     let spec = slot.recipe.spec();
-    if !spec.roles.contains(&RoleKind::Stream) {
+    // Private lower owners expose no invented callable role. The exact same
+    // paired declarations and actually installed original providers below
+    // qualify their dependency; public selection still starts at a real role.
+    if !spec.roles.is_empty() && !spec.roles.contains(&RoleKind::Stream) {
         return false;
     }
     let (mut capacity, mut halves, mut metadata, mut minimum) = (None, 0usize, 0usize, 0usize);

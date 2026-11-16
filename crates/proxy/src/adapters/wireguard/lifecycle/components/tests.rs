@@ -225,7 +225,6 @@ async fn production_candidate_owns_cold_invocation_then_installs_only_its_starte
         .prepare_devices_for_candidate(
             &config,
             &config.outbounds.iter().collect::<Vec<_>>(),
-            &config.inbounds,
             super::super::tests::context(&proxy, &config),
         )
         .await
@@ -283,7 +282,6 @@ async fn ordinary_device_preparation_cannot_fall_back_to_private_plain_linked_wo
         .prepare_devices_for_candidate(
             &config,
             &config.outbounds.iter().collect::<Vec<_>>(),
-            &config.inbounds,
             super::super::tests::context(&proxy, &config),
         )
         .await;

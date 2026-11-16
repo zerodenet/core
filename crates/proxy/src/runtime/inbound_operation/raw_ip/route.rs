@@ -31,7 +31,6 @@ pub(super) async fn feed_inner_packet(
     responses: &zero_stack::packet_output::PacketSender,
     echo: &IcmpEchoRelay,
     route: &crate::runtime::route_runtime::InboundRouteRuntimeFactory,
-    ingress_id: u64,
     pins: &mut PacketSessionPins,
     fragments: &mut OwnedFragmentReassembler<FragmentNamespace>,
     tun: Option<&crate::inbound::tun::TunIngressOptions>,
@@ -136,11 +135,9 @@ pub(super) async fn feed_inner_packet(
             PacketRouteTarget::Packet {
                 tag,
                 translated,
-                operation,
                 role,
                 ..
             } => {
-                let generation = route.icmp_egress_generation();
                 let plane = if translated {
                     PacketPlane::TranslatedPacket(tag.clone())
                 } else {
@@ -152,108 +149,57 @@ pub(super) async fn feed_inner_packet(
                 let observer = pins.inner_io(&packet, &plane, peer_identity.clone(), || {
                     route.outbound_inner_io(&tag)
                 });
-                if let Some(role) = role {
-                    let frame = zero_core::packet::IpPacket::new(
-                        std::mem::take(&mut packet),
-                        association.clone(),
-                    )
-                    .expect("validated original or actual reassembly");
-                    let frame = match ingress {
-                        Some(ingress) => frame.with_ingress(ingress),
-                        None => frame,
-                    };
-                    if !pins.admit_standard(&frame, &plane, peer_identity.clone()) {
-                        packet = frame.into_payload();
-                        continue;
-                    }
-                    match packet_roles
-                        .send(
-                            role,
-                            translated,
-                            facts.clone(),
-                            return_mtu,
-                            responses
-                                .wire_memory()
-                                .expect("actual Source main validates memory before IO"),
-                            frame,
-                            route,
-                            source,
-                            observer.clone(),
-                        )
-                        .await
-                    {
-                        Ok(selected_peer) => {
-                            pins.record_observed_key(
-                                packet_key,
-                                plane,
-                                peer_identity.clone(),
-                                selected_peer,
-                                observer,
-                            );
-                            return;
-                        }
-                        Err(failure) => {
-                            pins.reject_unaccepted_key(packet_key, peer_identity.clone());
-                            let retry = failure.failure.delivery
-                                == zero_platform_tokio::contract::DeliveryState::NotSubmitted;
-                            if let Some(original) = failure.packet {
-                                packet = original.into_payload();
-                            }
-                            tracing::debug!(error=%failure.failure, "actual Packet role candidate unavailable");
-                            if !retry || packet.is_empty() {
-                                break;
-                            }
-                            continue;
-                        }
-                    }
-                }
-                let Some(replies) =
-                    pins.replies_for(&packet, &plane, peer_identity.clone(), responses.clone())
-                else {
-                    continue;
+                let frame = zero_core::packet::IpPacket::new(
+                    std::mem::take(&mut packet),
+                    association.clone(),
+                )
+                .expect("validated original or actual reassembly");
+                let frame = match ingress {
+                    Some(ingress) => frame.with_ingress(ingress),
+                    None => frame,
                 };
-                match operation
-                    .forward(
-                        &mut packet,
-                        ingress_id,
-                        replies,
-                        generation,
+                if !pins.admit_standard(&frame, &plane, peer_identity.clone()) {
+                    packet = frame.into_payload();
+                    continue;
+                }
+                match packet_roles
+                    .send(
+                        role,
+                        translated,
+                        facts.clone(),
+                        return_mtu,
+                        responses
+                            .wire_memory()
+                            .expect("actual Source main validates memory before IO"),
+                        frame,
+                        route,
+                        source,
                         observer.clone(),
                     )
                     .await
                 {
-                    Ok(observed) => {
+                    Ok(selected_peer) => {
                         pins.record_observed_key(
                             packet_key,
                             plane,
                             peer_identity.clone(),
-                            observed.peer_identity,
+                            selected_peer,
                             observer,
                         );
-                        if let Some(response) = observed.response {
-                            match responses.allocate_transmit(response.len()) {
-                                Ok(mut owned) => {
-                                    owned.copy_from_slice(&response);
-                                    traffic.send_response(
-                                        responses,
-                                        owned,
-                                        peer_identity.as_deref(),
-                                    );
-                                }
-                                Err(_) => traffic.drop_inner(
-                                    peer_identity.as_deref(),
-                                    zero_api::TrafficDropReason::QueueFull,
-                                ),
-                            }
-                        }
                         return;
                     }
-                    Err(error) => {
+                    Err(failure) => {
                         pins.reject_unaccepted_key(packet_key, peer_identity.clone());
-                        if packet.is_empty() {
+                        let retry = failure.failure.delivery
+                            == zero_platform_tokio::contract::DeliveryState::NotSubmitted;
+                        if let Some(original) = failure.packet {
+                            packet = original.into_payload();
+                        }
+                        tracing::debug!(error=%failure.failure, "actual Packet role candidate unavailable");
+                        if !retry || packet.is_empty() {
                             break;
                         }
-                        tracing::debug!(%error, "packet route candidate unavailable");
+                        continue;
                     }
                 }
             }

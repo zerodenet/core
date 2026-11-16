@@ -1,6 +1,6 @@
 pub(in crate::transport) mod browser_dialer;
 mod grpc_budget;
-pub(in crate::transport) mod preconnect;
+pub(crate) mod preconnect;
 pub(in crate::transport) mod xhttp;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -11,9 +11,11 @@ use super::VlessInboundUserRef;
 
 #[derive(Debug, Clone, Default)]
 pub struct VlessTransportRuntime {
+    pub(crate) carrier_bindings: crate::component::quic::CarrierRegistry,
     pub(crate) client_material: crate::component::material::Registry,
     browser_dialers: browser_dialer::Registry,
     hysteria_pools: Arc<Mutex<HashMap<[u8; 32], zero_transport::hysteria::Pool>>>,
+    hysteria_families: Arc<Mutex<HashMap<String, Arc<zero_transport::hysteria::OwnershipFamily>>>>,
     xhttp_pools: Arc<xhttp::Pools>,
     grpc_pools: Arc<Mutex<HashMap<[u8; 32], zero_transport::grpc::GrpcPool>>>,
     grpc_budget: grpc_budget::RegistryBudget,
@@ -28,12 +30,22 @@ pub struct VlessTransportRuntime {
 impl VlessTransportRuntime {
     pub fn on_config_reloaded(&self) {
         self.browser_dialers.retire();
-        self.portals.retire();
+        self.portals.retire_legacy();
         self.mux_pool.evict_all();
         self.xhttp_pools.retire();
         self.preconnect.retire();
         self.target_probes.retire();
-        for (_, pool) in self.hysteria_pools.lock().unwrap().drain() {
+        let retired_hysteria = {
+            let mut pools = self.hysteria_pools.lock().unwrap();
+            pools
+                .values_mut()
+                .filter_map(|pool| {
+                    let next = pool.next_legacy_generation()?;
+                    Some(std::mem::replace(pool, next))
+                })
+                .collect::<Vec<_>>()
+        };
+        for pool in retired_hysteria {
             pool.retire();
         }
         // Preserve each actual pool's ownership census across publications.
@@ -72,6 +84,9 @@ impl VlessTransportRuntime {
         self.browser_dialers.access(settings)
     }
 
+    pub fn reverse_component_options(&self, tag: &str) -> crate::reverse::component::Options {
+        crate::reverse::component::Options::new(self.portals.clone(), tag)
+    }
     pub fn reverse_portal(&self, tag: &str) -> crate::reverse::Portal {
         self.portals.portal(tag)
     }
@@ -87,13 +102,33 @@ impl VlessTransportRuntime {
         hash.update(tag.as_bytes());
         hash.update(&profile.cache_identity());
         hash.update(identity.as_bytes());
+        let family = {
+            let mut families = self.hysteria_families.lock().unwrap();
+            if let Some(family) = families.get(tag) {
+                family.clone()
+            } else if families.len() < 4096 {
+                families.entry(tag.to_owned()).or_default().clone()
+            } else {
+                // Preserve the finite existing registry: refusal cannot mint
+                // another unrecorded native ownership family on every reload.
+                let pool = zero_transport::hysteria::Pool::default();
+                pool.exclude_native();
+                return pool;
+            }
+        };
         let mut pools = self.hysteria_pools.lock().unwrap();
+        let key = *hash.finalize().as_bytes();
+        if let Some(pool) = pools.get(&key) {
+            return pool.clone();
+        }
         if pools.len() >= 4096 {
-            return Default::default();
+            let pool = zero_transport::hysteria::Pool::in_family(family);
+            pool.exclude_native();
+            return pool;
         }
         pools
-            .entry(*hash.finalize().as_bytes())
-            .or_default()
+            .entry(key)
+            .or_insert_with(|| zero_transport::hysteria::Pool::in_family(family))
             .clone()
     }
     #[cfg(feature = "reality")]

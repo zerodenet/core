@@ -51,6 +51,7 @@ impl Managed {
         if selected.binding() != &demand.binding {
             return Err(error(self.instance, Stage::Prepare, Reason::StalePlan));
         }
+        self.verify_epoch(&demand.binding, selected.carrier_dns_generation())?;
         let io = if demand.binding.prefix.is_empty() {
             if let Some(candidates) = &candidates {
                 let prepared = self
@@ -94,6 +95,7 @@ impl Managed {
         };
         let preparing = io.prepare_driver(|io| async {
             let io = zero_platform_tokio::TcpRelayStream::new(super::carrier::Exclusive::new(io));
+            let io = crate::finalmask::tcp::wrap_prepared(io, self.tcp_masks.tcp(), false).await?;
             #[cfg(feature = "tls")]
             let io = match &self.options.settings.tls {
                 Some(tls) => {
@@ -104,6 +106,26 @@ impl Managed {
                         crate::tls::connect_tls_stream(io, tls, None, &self.options.settings.server)
                             .await?
                     }
+                }
+                None => io,
+            };
+            let io = match &self.options.stream_layers {
+                Some(layers) => {
+                    crate::outbound_stack::connect_layered_transport_stack(
+                        io,
+                        crate::outbound_stack::StreamTransportStack {
+                            tls: None::<&crate::profile::OwnedClientTlsProfile>,
+                            ws: layers.ws.as_ref(),
+                            grpc: None::<&crate::profile::OwnedGrpcProfile>,
+                            h2: layers.h2.as_ref(),
+                            http_upgrade: layers.http_upgrade.as_ref(),
+                            source_dir: None,
+                        },
+                        &self.options.settings.server,
+                        self.options.settings.port,
+                        "gRPC lower stream carriers are mutually exclusive",
+                    )
+                    .await?
                 }
                 None => io,
             };
@@ -127,6 +149,7 @@ impl Managed {
             .await?;
         // Only the actual receiver's installed controller (or an actual cached
         // donor driver) transfers a pending foreign claim out of this record.
+        self.verify_epoch(&demand.binding, selected.carrier_dns_generation())?;
         physical.release_installed_pending();
         Ok(prepared)
     }

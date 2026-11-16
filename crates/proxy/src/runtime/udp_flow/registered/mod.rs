@@ -29,6 +29,9 @@ pub(crate) use upstream::{
 };
 
 #[cfg(feature = "managed-stream-runtime")]
-mod logical;
+pub(in crate::runtime::udp_flow) mod logical;
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) use logical::LogicalConnection;
+
+#[cfg(all(test, feature = "managed-stream-runtime"))]
+pub(crate) use logical::receiver::NativeReceiver as NativeResponseReceiver;

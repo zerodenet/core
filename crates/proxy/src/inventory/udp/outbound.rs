@@ -62,13 +62,35 @@ impl ProtocolInventory {
                         upstream: None,
                     });
                 }
+                let datagram = match chain.last() {
+                    Some(last) => self
+                        .registry
+                        .prepare_cold_packet_path_projection(ctx.config(), last.clone())
+                        .map_err(|error| FlowFailure {
+                            stage: "relay_prepare",
+                            error,
+                            upstream: None,
+                        })?
+                        .and_then(|projection| projection.formatter),
+                    None => None,
+                };
+                if let Some(datagram) = datagram {
+                    let sources =
+                        self.prepare_packet_relay_sources(&ctx, &chain[..chain.len() - 1])?;
+                    if let Some(selected) = self.prepare_standard_packet_relay(
+                        &ctx, session, chain, payload, &datagram, &sources,
+                    ) {
+                        return selected
+                            .map(|selected| PreparedUdpOutbound::Relay(Box::new(selected)));
+                    }
+                    return Err(super::standard_packet::no_carrier());
+                }
                 #[cfg(feature = "managed-stream-runtime")]
                 if let Some(selected) = self.prepare_standard_datagram_relay(&ctx, chain) {
                     return selected
                         .map(|selected| PreparedUdpOutbound::DatagramRelay(Box::new(selected)));
                 }
-                self.prepare_udp_relay_chain(ctx, session, chain, payload)
-                    .map(|selected| PreparedUdpOutbound::Relay(Box::new(selected)))
+                Err(super::standard_packet::no_carrier())
             }
         }
     }

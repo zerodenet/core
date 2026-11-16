@@ -69,6 +69,40 @@ impl ComponentFactory for Factory {
     }
 }
 impl Hysteria2Adapter {
+    pub(crate) fn declare_packet_path(
+        &self,
+        input: &zero_config::OutboundConfig,
+        options: &RoleOptions,
+        resources: &mut ResourcePreparation<'_>,
+    ) -> Result<(), RegistrationError> {
+        let OutboundProtocolConfig::Hysteria2 {
+            server,
+            port,
+            ..
+        } = &input.protocol
+        else {
+            return Err(options_error("expected actual Hysteria2 Packet root"));
+        };
+        if resources.named_component(input.tag()).is_none() {
+            return Ok(());
+        }
+        let address = match zero_core::address::parse_ip_literal(server) {
+            Some(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
+            Some(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
+            None => zero_core::Address::Domain(server.clone()),
+        };
+        let spec = ::hysteria2::transport::owned::RoleFactory.describe(options);
+        resources.declare_named_packet_path(
+            input.tag(),
+            spec.static_identity,
+            zero_runtime::component::PacketPathFacts::new(
+                zero_core::request::Destination::new(address, *port),
+                false,
+            ),
+        )?;
+        Ok(())
+    }
+
     pub(crate) fn outbound_options(
         &self,
         input: &zero_config::OutboundConfig,

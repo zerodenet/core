@@ -79,7 +79,7 @@ async fn replenishment_delay_starts_after_a_queued_connection_is_taken() {
     let registry = Registry::default();
     let pool = registry.create("out", [1; 32], 1).unwrap();
     let opened = Arc::new(AtomicUsize::new(0));
-    pool.0.start(opener(opened.clone()));
+    pool.0.library().unwrap().start(opener(opened.clone()));
     tokio::task::yield_now().await;
     tokio::time::advance(Duration::from_secs(5)).await;
     assert_eq!(opened.load(Ordering::SeqCst), 1);

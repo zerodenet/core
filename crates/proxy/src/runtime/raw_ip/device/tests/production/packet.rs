@@ -43,6 +43,23 @@ async fn ordinary_packet_roles_return_original_source_and_retire_old_graph_witho
         .apply_runtime_config_and_wait(config.clone(), Duration::from_secs(5))
         .await
         .unwrap();
+    let snapshot = proxy.engine().runtime_snapshot();
+    let plan = proxy
+        .protocols
+        .current_components(snapshot.config())
+        .unwrap();
+    let role = plan.configured("wg").unwrap().role_id();
+    assert!(plan.has_packet_provider(role));
+    let route = crate::runtime::route_runtime::InboundRouteRuntimeFactory::new(
+        crate::runtime::route_runtime::SharedIngressRuntimeServices::new(
+            proxy.tcp_runtime_services(),
+        ),
+        input.tag.clone(),
+    );
+    assert!(
+        matches!(route.packet_route_target("198.51.100.10".parse().unwrap(),Some(zero_stack::packet::IPPROTO_UDP)),
+        crate::inventory::PacketRouteTarget::Packet {role:actual,translated:false,..} if actual==role)
+    );
     let input_owner = proxy.inbound_owners.owner(&input.tag).unwrap();
     input_owner.wait_ready().await.unwrap();
     let output_owner = proxy.inbound_owners.owner(&output.tag).unwrap();

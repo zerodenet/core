@@ -148,5 +148,43 @@ impl CarrierLoanRetained {
     }
 }
 
+impl CarrierOwnerRegistration {
+    /// Exact cached receiver of an original that need not have its own driver.
+    /// The LoanOwner and the actual cached driver's IO must both still exist in
+    /// this registered owner. This is custody transfer, never native closure.
+    pub(crate) fn retained_cached_input(
+        &self,
+        input: &CarrierAdoption,
+    ) -> Option<(CarrierLoanRetained, super::CarrierDriverRetained)> {
+        let owner = self.owner.upgrade()?;
+        for index in 0..self.limit().get() {
+            let slot = {
+                let state = owner.state();
+                if !state.live || state.stopped {
+                    return None;
+                }
+                state.slots.get(index).cloned()
+            };
+            let Some(slot) = slot else { break };
+            let receiver = CarrierAdoption { slot };
+            let Some(loan) = receiver.retained_loan() else {
+                continue;
+            };
+            let Some(driver) = receiver.retained_driver() else {
+                continue;
+            };
+            if driver
+                .owner()
+                .is_some_and(|actual| self.same_owner(&actual))
+                && driver.retains(&receiver)
+                && loan.retains(input)
+            {
+                return Some((loan, driver));
+            }
+        }
+        None
+    }
+}
+
 mod accepted;
 pub(crate) use accepted::AcceptedLoanReceiver;

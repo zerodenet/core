@@ -1,4 +1,11 @@
 use super::*;
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum WrappedRoles {
+    Both,
+    Stream,
+    Datagram,
+    Control,
+}
 pub(crate) struct Options<T> {
     pub(super) inner: Arc<T>,
     pub(super) cleanup_network: Option<Arc<crate::component::background::BackgroundNetwork>>,
@@ -8,6 +15,7 @@ pub(crate) struct Options<T> {
     pub(super) node_dns: Option<zero_core::component::ComponentId>,
     pub(super) process: Option<(zero_core::component::ComponentId, std::time::Duration)>,
     pub(super) preparation_jobs: bool,
+    pub(super) roles: WrappedRoles,
 }
 impl<T> Options<T> {
     /// Borrow the same protocol-owned immutable recipe, never a new executor.
@@ -30,8 +38,38 @@ impl<T> Options<T> {
             node_dns: None,
             process: None,
             preparation_jobs: false,
+            roles: WrappedRoles::Both,
         }
     }
+    /// Reuse the exact already-prepared custody options around a protocol's
+    /// combined role recipe. This performs no decode or resource acquisition.
+    pub(crate) fn map_inner<U>(self, map: impl FnOnce(Arc<T>) -> U) -> Options<U> {
+        Options {
+            inner: Arc::new(map(self.inner)),
+            cleanup_network: self.cleanup_network,
+            endpoint: self.endpoint,
+            dial: self.dial,
+            limit: self.limit,
+            node_dns: self.node_dns,
+            process: self.process,
+            preparation_jobs: self.preparation_jobs,
+            roles: self.roles,
+        }
+    }
+    pub(crate) fn for_control_only(mut self) -> Self {
+        self.roles = WrappedRoles::Control;
+        self
+    }
+    pub(crate) fn for_datagram_only(mut self) -> Self {
+        self.roles = WrappedRoles::Datagram;
+        self
+    }
+
+    pub(crate) fn for_stream_only(mut self) -> Self {
+        self.roles = WrappedRoles::Stream;
+        self
+    }
+
     /// Installed only by the actual protocol's owning preparation producer.
     pub(crate) fn with_preparation_jobs(mut self) -> Self {
         self.preparation_jobs = true;
@@ -68,6 +106,7 @@ impl<T> Clone for Options<T> {
             node_dns: self.node_dns,
             process: self.process,
             preparation_jobs: self.preparation_jobs,
+            roles: self.roles,
         }
     }
 }

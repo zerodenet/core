@@ -20,6 +20,7 @@ pub struct PacketDriverTarget {
 pub struct GrantedPacketServiceCaller {
     calls: Arc<PacketDriverCalls>,
     caller: TaskJoinWitness,
+    lineage: MetadataRef<lineage::Lineage>,
     root_binding: UpstreamBinding,
     call: CarrierContext,
     targets: Arc<[PacketDriverTarget]>,
@@ -71,7 +72,9 @@ impl GrantedPacketServiceCaller {
         {
             return Err(failure(Reason::StalePlan));
         }
+        let lineage = calls.new_lineage(caller)?;
         Ok(Self {
+            lineage,
             calls,
             caller: caller.clone(),
             root_binding: binding,
@@ -83,28 +86,37 @@ impl GrantedPacketServiceCaller {
     /// Narrow one original attempt's deadline without changing its actor,
     /// Source provenance, immutable targets or parent cancellation ownership.
     pub fn for_attempt(&self, end: Instant) -> Result<Self, ChannelError> {
-        if self.call.cancel.is_cancelled() || self.caller.is_joined() || Instant::now() >= end {
+        if self.call.cancel.is_cancelled()
+            || self
+                .lineage
+                .retiring
+                .load(std::sync::atomic::Ordering::Acquire)
+            || self.caller.is_joined()
+            || Instant::now() >= end
+        {
             return Err(failure(Reason::Revoked));
         }
         self.calls.collect_retired();
-        let mut blocked = false;
-        for index in 0..self.calls.max_calls.get() {
-            let Some(record) = self.calls.call_at(index) else {
-                break;
-            };
-            if record.caller.same_registration(&self.caller)
-                && record.call.cancel.is_cancelled()
-                && !record.released()
-            {
-                blocked = true;
-                break;
-            }
-        }
+        // ANY retained row is still this call's old use, not permission to
+        // overlap a candidate with it. Provider cleanup runs outside the lock;
+        // only exact lineage metadata is inspected in this admission census.
+        let calls = self
+            .calls
+            .calls
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let blocked = calls
+            .iter()
+            .any(|record| MetadataRef::ptr_eq(&record.lineage, &self.lineage));
         if blocked {
             let mut pending = failure(Reason::Capacity);
             pending.delivery = DeliveryState::Unknown;
             return Err(pending);
         }
+        // The concrete carrier retains its existing single actual setup or
+        // reconnect actor. This census additionally rejects an outstanding
+        // original from that invocation's complete previous history.
+        drop(calls);
         let mut attempt = self.clone();
         attempt.attempt = Some(Arc::new(Attempt {
             records: Mutex::new(Vec::new()),
@@ -155,6 +167,13 @@ impl GrantedPacketServiceCaller {
             + Send
             + 'static,
     {
+        if self
+            .lineage
+            .retiring
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(failure(Reason::Revoked));
+        }
         let template = self.clone();
         self.calls
             .spawn_reconnect(tasks, &self.caller, move |witness| {
@@ -163,12 +182,42 @@ impl GrantedPacketServiceCaller {
                 make(actor)
             })
     }
+    /// Fence this actual carrier call, including all of its reconnects. Other
+    /// peers may share the wire task; their calls retain independent admission.
+    pub fn request_carrier_retirement(&self) {
+        self.calls.request_lineage_retirement(&self.lineage);
+    }
+    /// Retain real joined reconnect faults before a cleanup waiter requires
+    /// their Host ACK. This grants no task-completion or refund authority.
+    pub fn receive_reconnect_failures(&self) -> Option<ChannelError> {
+        self.calls.receive_actor_failures()
+    }
+    /// Pure fault delivery only, not evidence of native/user/task settlement.
+    pub fn cleanup_failures_received(&self) -> bool {
+        self.calls.source_failures.accepted_or_empty()
+    }
+    /// Settle only this actual carrier call's complete attempt history.
+    /// Shared donor originals retain their own Host obligations.
+    pub async fn retire_carrier_attempts(
+        &self,
+        deadline: Instant,
+    ) -> Result<CloseReport, ChannelError> {
+        self.calls
+            .retire_lineage_attempts(&self.lineage, deadline)
+            .await
+    }
+
     pub fn original(&self) -> &CarrierOrigin {
         &self.calls.original
     }
     pub fn caller(&self) -> &TaskJoinWitness {
         &self.caller
     }
+    /// The original Source's cancellation domain, not a replacement token.
+    pub fn cancellation(&self) -> &crate::contract::CancellationToken {
+        &self.call.cancel
+    }
+
     pub fn binding(&self) -> &UpstreamBinding {
         &self.root_binding
     }
@@ -232,6 +281,7 @@ impl GrantedPacketServiceCaller {
             binding.clone(),
             self.call.clone(),
             super::registration::OriginalTargets {
+                lineage: Some(self.lineage.clone()),
                 max_pending: capacity,
                 allowed: originals.into(),
                 packet_originals: packet_originals.into(),

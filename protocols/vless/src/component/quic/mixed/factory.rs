@@ -10,10 +10,12 @@ use zero_platform_tokio::contract::{
 };
 use zero_traits::packet_metadata::PacketMetadataArc;
 pub struct Factory;
-pub(super) struct Shared {
+pub(in crate::component) struct Shared {
     pub options: Arc<Options>,
-    pub upload: opening::Half,
-    pub download: Option<opening::Half>,
+    pub closed: PacketMetadataArc<std::sync::atomic::AtomicBool>,
+    pub cancel: zero_platform_tokio::contract::CancellationToken,
+    pub(super) upload: opening::Half,
+    pub(super) download: Option<opening::Half>,
     pub instance: zero_core::component::ComponentInstanceId,
     pub tasks: TaskRegistrar,
     pub memory: PacketDriverMetadataView,
@@ -38,16 +40,16 @@ impl ComponentFactory for Factory {
         let description = resources::Description::new(options);
         ComponentSpec {
             owner: ResourceOwner::Component,
-            roles: std::iter::once(RoleKind::Stream)
-                .chain(
-                    options
-                        .upload
-                        .protocol()
-                        .flow
-                        .is_none()
-                        .then_some(RoleKind::Datagram),
-                )
-                .collect(),
+            roles: if options.carrier.is_some() {
+                vec![]
+            } else {
+                std::iter::once(RoleKind::Stream)
+                    .chain(
+                        (!crate::flow::is_vision_flow(options.upload.protocol().flow))
+                            .then_some(RoleKind::Datagram),
+                    )
+                    .collect()
+            },
             dependencies: options.dependencies.clone(),
             resources: description.resources,
             static_identity: options.identity.clone(),
@@ -127,6 +129,8 @@ impl Factory {
         let (session, admission) = SessionOwner::new(context.component, &context.cancel);
         let shared = PacketMetadataArc::from_prepaid(
             Shared {
+                closed: crate::component::quic::closed_marker(&memory)?,
+                cancel: context.cancel.child_token(),
                 options,
                 upload: opening::Half::from_runtime(&upload),
                 download: download.as_ref().map(opening::Half::from_runtime),
@@ -148,24 +152,35 @@ impl Factory {
                 started: false,
                 session,
             }),
-            roles: ComponentRoles {
-                stream: Some(zero_platform_tokio::contract::stream::erase_stream(
-                    Outbound {
-                        shared: shared.clone(),
-                        admission: admission.clone(),
-                    },
-                )),
-                datagram: shared.options.upload.protocol().flow.is_none().then(|| {
-                    zero_platform_tokio::contract::datagram::erase_datagram(Outbound {
-                        shared,
-                        admission,
-                    })
-                }),
-                ..Default::default()
+            roles: if shared.options.carrier.is_some() {
+                ComponentRoles::default()
+            } else {
+                ComponentRoles {
+                    stream: Some(zero_platform_tokio::contract::stream::erase_stream(
+                        Outbound {
+                            shared: shared.clone(),
+                            admission: admission.clone(),
+                        },
+                    )),
+                    datagram: (!crate::flow::is_vision_flow(shared.options.upload.protocol().flow))
+                        .then(|| {
+                            zero_platform_tokio::contract::datagram::erase_datagram(Outbound {
+                                shared,
+                                admission,
+                            })
+                        }),
+                    ..Default::default()
+                }
             },
         })
     }
 }
 fn capacity(source: impl std::error::Error + Send + Sync + 'static) -> ChannelError {
     error(Stage::Prepare, Reason::Capacity).with_source(source)
+}
+
+impl Shared {
+    pub(in crate::component) fn carrier_upstream(&self) -> &UpstreamTransport {
+        self.upload.carrier_upstream()
+    }
 }

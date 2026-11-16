@@ -47,7 +47,7 @@ impl ResourceLifecycle for DirectEndpointOwner {
             ));
         }
         #[cfg(feature = "managed-datagram-runtime")]
-        if self.peer.is_some() {
+        if self.peer.is_some() || self.accepted.is_some() {
             state.started = true;
             drop(state);
             self.shared.changed.notify_waiters();
@@ -108,12 +108,25 @@ impl ResourceLifecycle for DirectEndpointOwner {
         if let Some(peer) = &self.peer {
             peer.binding.request_stop();
         }
+        #[cfg(feature = "managed-datagram-runtime")]
+        if self.accepted.is_some() {
+            self.shared.scope_cancel.cancel();
+        }
     }
     async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.revoke(CloseReason::Shutdown);
         #[cfg(feature = "managed-datagram-runtime")]
         if self.peer.is_some() {
             return self.shutdown_peer(deadline).await;
+        }
+        #[cfg(feature = "managed-datagram-runtime")]
+        if let Some(caller) = &self.accepted {
+            timeout_at(deadline, caller.wait())
+                .await
+                .map_err(|source| {
+                    error(Stage::Close, Reason::Timeout, DeliveryState::Unknown).with_source(source)
+                })?;
+            return self.close_joined_sockets(deadline).await;
         }
         let scope = self.scope.as_mut().expect("scope mode owns actual scope");
         scope.begin_shutdown();

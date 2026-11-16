@@ -32,6 +32,7 @@ use zero_platform_tokio::{
 
 mod options;
 pub(crate) use options::Options;
+use options::WrappedRoles;
 pub(crate) struct Factory<F>(pub(crate) F);
 impl<F: ComponentFactory> ComponentFactory for Factory<F> {
     type Options = Options<F::Options>;
@@ -62,6 +63,12 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
         let mut identity = spec.static_identity.to_vec();
         identity.extend_from_slice(b"same-slot-prepared-carrier-v2");
         identity.push(u8::from(options.preparation_jobs));
+        identity.push(match options.roles {
+            WrappedRoles::Both => 0,
+            WrappedRoles::Datagram => 1,
+            WrappedRoles::Stream => 2,
+            WrappedRoles::Control => 3,
+        });
         if options.cleanup_network.is_some() {
             identity.extend_from_slice(b"same-retained-catalog-source-v1");
         }
@@ -142,7 +149,12 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
         let dial = options.dial.clone();
         let transfers = Arc::new(Mutex::new(Vec::new()));
         let mut instance = self.0.build(options.inner.clone(), context)?;
-        let inner = instance.roles.stream.take().ok_or_else(|| {
+        let inner = (if options.roles == WrappedRoles::Datagram {
+            instance.roles.stream.clone()
+        } else {
+            instance.roles.stream.take()
+        })
+        .ok_or_else(|| {
             super::super::instance::invalid(
                 Reason::InvalidConfig,
                 "carrier framing requires the actual Stream role",
@@ -150,6 +162,7 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
         })?;
         let outbound = Outbound {
             inner,
+            control_only: options.roles == WrappedRoles::Control,
             tasks: Some(tasks.clone()),
             cleanup_network: options.cleanup_network.clone(),
             process,
@@ -162,10 +175,12 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
         // Existing native Datagram owners (SS, association/UDP providers) keep
         // their own exact role. Only framing with File-only resources borrows
         // the same actual per-connection Stream original/N.
-        if original
-            .resources
-            .iter()
-            .all(|resource| matches!(resource, ResourceDeclaration::File { .. }))
+        if options.roles != WrappedRoles::Stream
+            && options.roles != WrappedRoles::Control
+            && original
+                .resources
+                .iter()
+                .all(|resource| matches!(resource, ResourceDeclaration::File { .. }))
         {
             if let Some(inner) = instance.roles.datagram.take() {
                 instance.roles.datagram = Some(
@@ -176,7 +191,9 @@ impl<F: ComponentFactory> ComponentFactory for Factory<F> {
                 );
             }
         }
-        instance.roles.stream = Some(erase_stream(outbound));
+        if options.roles != WrappedRoles::Datagram {
+            instance.roles.stream = Some(erase_stream(outbound));
+        }
         instance.lifecycle = erase_lifecycle(Owner {
             inner: instance.lifecycle,
             carrier,

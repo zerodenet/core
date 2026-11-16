@@ -73,7 +73,7 @@ async fn standard_session_sends_multiple_targets_and_empty_packets_without_legac
     let (connection, mut sends, _) = connection();
     let reference = state.register_logical(7, connection);
     let proxy = proxy();
-    let mut tasks = JoinSet::new();
+    let (_responses, mut tasks) = super::super::super::response_join::ResponseSetOwner::new();
     for (target, port, payload) in [
         (Address::Domain("first.test".into()), 53, b"one".as_slice()),
         (Address::Ipv4([203, 0, 113, 7]), 443, &[]),
@@ -96,6 +96,7 @@ async fn standard_session_sends_multiple_targets_and_empty_packets_without_legac
         );
     }
     assert!(tasks.is_empty(), "a send does not start a response worker");
+    assert!(!tasks.has_compatibility_tasks_for_test());
     state.release_session(7);
     assert!(sends.recv().await.is_none());
 }
@@ -111,7 +112,7 @@ async fn replacing_or_releasing_a_session_rejects_old_references_without_legacy_
     // Logical release drops this fixture's sender. This is not a native close receipt.
     assert!(first_sends.recv().await.is_none());
     let proxy = proxy();
-    let mut tasks = JoinSet::new();
+    let (_responses, mut tasks) = super::super::super::response_join::ResponseSetOwner::new();
     let old = flow(7, old, Address::Domain("old.test".into()), 53);
     let result = state
         .forward_existing_managed_flow(&mut tasks, proxy.udp_runtime_services(), (&old, b"old"))

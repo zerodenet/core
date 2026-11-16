@@ -386,11 +386,18 @@ impl CarrierOrigin {
     }
     pub fn endpoints(&self) -> Option<super::CarrierEndpoints> {
         match self.native_origin().observation() {
-            // An unconnected listener has no fixed native peer.
-            OriginalRef::Accepted(_)
-            | OriginalRef::Packet(_)
-            | OriginalRef::LogicalPacket(_)
-            | OriginalRef::Listener(_) => None,
+            OriginalRef::Accepted(original) => {
+                let (local, peer) = original.endpoints()?;
+                Some(super::CarrierEndpoints::accepted(
+                    original.clone(),
+                    local,
+                    peer,
+                ))
+            }
+            // An unconnected listener/device has no fixed native peer.
+            OriginalRef::Packet(_) | OriginalRef::LogicalPacket(_) | OriginalRef::Listener(_) => {
+                None
+            }
             OriginalRef::Carrier(origin) => origin.slot.upgrade()?.state().endpoints.clone(),
             OriginalRef::MetadataPool {
                 owner,

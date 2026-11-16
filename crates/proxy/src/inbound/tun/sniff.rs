@@ -9,7 +9,7 @@ use crate::transport::{RecordingStream, ReplayStream};
 #[cfg(feature = "udp-runtime")]
 mod borrowed;
 
-#[cfg(feature = "udp-runtime")]
+#[cfg(all(feature = "udp-runtime", any(test, feature = "raw-ip-runtime")))]
 pub(super) mod udp;
 
 const TARGET_SNIFF_TIMEOUT: Duration = Duration::from_millis(200);

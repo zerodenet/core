@@ -1,5 +1,5 @@
 //! The accepted XMUX upload/download pair, one actual Slot and Root admission.
-mod factory;
+pub(in crate::component) mod factory;
 mod opening;
 mod options;
 mod resources;

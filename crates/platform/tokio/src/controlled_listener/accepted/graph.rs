@@ -21,7 +21,7 @@ mod protocols;
 mod received_failure;
 mod receiver;
 pub(super) mod resources;
-pub use resources::AcceptedResource;
+pub use resources::{AcceptedResource, AcceptedResourceObservation};
 mod process;
 mod spawn;
 pub use caller::{AcceptedCaller, AcceptedOrigin};
@@ -70,6 +70,7 @@ pub(super) struct Users {
     carrier_cleanup: AsyncMutex<()>,
     protocols: OnceLock<crate::controlled_carrier::ProtocolOriginalChildren>,
     local: OnceLock<std::net::SocketAddr>,
+    carrier_origin: OnceLock<crate::controlled_carrier::CarrierOrigin>,
     pending_acks: Mutex<Vec<TaskJoinWitness>>,
     task_failures: OnceLock<AcceptedTaskFailures>,
     primary_failure: Mutex<Option<AcceptedTaskFailureReservation>>,
@@ -148,6 +149,7 @@ impl Users {
             carrier_cleanup: AsyncMutex::new(()),
             protocols: OnceLock::new(),
             local: OnceLock::new(),
+            carrier_origin: OnceLock::new(),
             pending_acks: Mutex::default(),
             task_failures: task_failures.map_or_else(OnceLock::new, OnceLock::from),
             primary_failure: Mutex::new(primary_failure),

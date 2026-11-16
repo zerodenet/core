@@ -26,7 +26,7 @@ impl Demand {
             // caller once accepted; only its original Entry/Host/related donor
             // may retire its IO. The genuine initializer still observes the
             // original caller below, before its ready/custody handoff.
-            cancel: if generation.options.h3.is_some() {
+            cancel: if generation.options.h3.is_some() || generation.options.hysteria.is_some() {
                 generation.cleanup.child_token()
             } else {
                 context.cancel.clone()

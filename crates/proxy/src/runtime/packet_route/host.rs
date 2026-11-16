@@ -4,14 +4,12 @@ pub(crate) mod pause;
 pub(crate) use pause::{NativeDeviceFenced, NativeDevicePaused};
 #[cfg(test)]
 mod legacy;
-mod policy;
 mod scoped;
 mod session;
 mod task;
 #[cfg(test)]
-use super::{PacketForwardObservation, PreparedPacketRouteOperation};
+use super::PacketForwardObservation;
 use crate::runtime::raw_ip::PacketReturns;
-pub(crate) use policy::PreparedHostPacketOperation;
 use std::{io, sync::Arc, time::Instant};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},

@@ -34,7 +34,7 @@ impl DatagramOutbound for Outbound {
         )?;
         let target = target.clone();
         let bytes = prepared
-            .request(&target, &self.options.prepared.protocol.uuid)
+            .request(&target, &self.options.protocol().uuid)
             .map_err(|source| {
                 self.admission
                     .error(
@@ -46,13 +46,16 @@ impl DatagramOutbound for Outbound {
                     .with_source(source)
             })?;
         let raw = self.acquire(&context).await?;
-        let (io, control, original) = raw.into_controlled_parts()?;
+        let super::super::preconnect::Opened {
+            io,
+            control,
+            original,
+        } = raw;
         // Cached physical acquisition happened in its owning pool's Service
         // task. The actual calling root still needs that original's endpoint
         // facts for this Business/Service invocation; observation grants no IO.
         context.upstream.observe_carrier_origin(&original);
-        let mut io =
-            zero_platform_tokio::TcpRelayStream::new(crate::component::carrier::Carrier::new(io));
+        let mut io = io;
         let handshake = async {
             io.write_all(&bytes).await?;
             io.flush().await

@@ -65,17 +65,63 @@ impl ComponentFactory for Factory {
 pub(crate) fn eligible(input: &OutboundConfig) -> bool {
     matches!(&input.protocol, OutboundProtocolConfig::Vless {
         split_http:Some(http), grpc:None, mkcp:None, hysteria:None, ws:None,
-        testpre:0, mux_concurrency:None, xudp_concurrency:None, reverse_tag:None, reverse_sniffing:None, ..
+        testpre:0, mux_concurrency:None, xudp_concurrency:None,   ..
     } if http.browser_dialer.is_none()
         && http.download_settings.as_ref().is_none_or(|down| down.split_http.browser_dialer.is_none()))
 }
+pub(super) fn carrier_eligible(input: &OutboundConfig) -> bool {
+    let mut carrier = input.clone();
+    let OutboundProtocolConfig::Vless {
+        testpre,
+        mux_concurrency,
+        xudp_concurrency,
+        ..
+    } = &mut carrier.protocol
+    else {
+        return false;
+    };
+    *testpre = 0;
+    *mux_concurrency = None;
+    *xudp_concurrency = None;
+    eligible(&carrier)
+}
 impl super::super::VlessAdapter {
-    pub(crate) fn xhttp_options(
+    pub(super) fn xhttp_options(
         &self,
         input: &OutboundConfig,
         resources: &mut ResourcePreparation<'_>,
         network: Arc<BackgroundNetwork>,
     ) -> Result<super::mux::Options, RegistrationError> {
+        Ok(super::mux::Options::Xhttp(
+            self.xhttp_recipe(input, resources, network, false, None)?,
+        ))
+    }
+    pub(super) fn xhttp_pool_options(
+        &self,
+        input: &OutboundConfig,
+        resources: &mut ResourcePreparation<'_>,
+        network: Arc<BackgroundNetwork>,
+        originals: NonZeroUsize,
+    ) -> Result<
+        (
+            Arc<::vless::component::quic::mixed::Options>,
+            zero_core::component::ComponentId,
+        ),
+        RegistrationError,
+    > {
+        let options = self.xhttp_recipe(input, resources, network, true, Some(originals))?;
+        let inner = options.inner.clone();
+        let owner = resources.share("vless.xhttp.actual_carrier", Arc::new(Factory), options)?;
+        Ok((inner, owner))
+    }
+    fn xhttp_recipe(
+        &self,
+        input: &OutboundConfig,
+        resources: &mut ResourcePreparation<'_>,
+        network: Arc<BackgroundNetwork>,
+        raw: bool,
+        originals: Option<NonZeroUsize>,
+    ) -> Result<Arc<Options>, RegistrationError> {
         let OutboundProtocolConfig::Vless { server, port, .. } = &input.protocol else {
             unreachable!("actual accepted XHTTP selection")
         };
@@ -103,7 +149,8 @@ impl super::super::VlessAdapter {
             ::vless::component::quic::mixed::Policy {
                 runtime: &self.runtime,
                 dial: input.dial.to_policy(),
-                origins: bound(config.effective_native_stream_max_originals())?,
+                origins: originals
+                    .unwrap_or(bound(config.effective_native_stream_max_originals())?),
                 users: bound(config.effective_quic_shared_endpoint_max_users())?,
                 limits: zero_platform_tokio::controlled_datagram::metadata::MetadataLimits {
                     main_sockets: bound(1)?,
@@ -139,27 +186,33 @@ impl super::super::VlessAdapter {
             )?);
         }
         if resources.same_source_as_previous() {
-            if let Some(previous) = resources.previous_named_instance(&input.tag) {
-                if !options
+            for previous in resources.previous_named_resource_instances(&input.tag) {
+                let mut inherited = options
                     .reuse_file_material_from(previous)
-                    .map_err(|source| ConfigError::InvalidOutbound(source.to_string()))?
-                {
+                    .map_err(|source| ConfigError::InvalidOutbound(source.to_string()))?;
+                if !inherited {
                     if let Some(identity) = resources.previous_resource_identity(previous.component)
                     {
-                        options
+                        inherited = options
                             .reuse_cold_file_material_from(identity)
                             .map_err(|source| ConfigError::InvalidOutbound(source.to_string()))?;
                     }
                 }
+                if inherited {
+                    break;
+                }
             }
+        }
+        if raw {
+            options = options.into_carrier_owner(&self.runtime);
         }
         options
             .remember_cold_file_material()
             .map_err(|source| ConfigError::InvalidOutbound(source.to_string()))?;
-        Ok(super::mux::Options::Xhttp(Arc::new(Options {
+        Ok(Arc::new(Options {
             inner: Arc::new(options),
             tag: input.tag.clone(),
             network,
-        })))
+        }))
     }
 }

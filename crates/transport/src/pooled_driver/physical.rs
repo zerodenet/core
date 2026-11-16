@@ -208,6 +208,14 @@ impl Physical {
     pub fn instance(&self) -> zero_core::component::ComponentInstanceId {
         self.original.instance()
     }
+    /// The real waiting setup retains this exact original before its cached
+    /// view transfers. Observation creates no new controller or IO permission.
+    pub fn observe_pending(
+        &self,
+        waiting: &zero_platform_tokio::contract::network::PendingCarrierObserver,
+    ) -> Result<(), ChannelError> {
+        waiting.retain(self.original.clone())
+    }
 }
 /// Lightweight shared custody only; dropping this never issues native proof.
 #[derive(Clone)]

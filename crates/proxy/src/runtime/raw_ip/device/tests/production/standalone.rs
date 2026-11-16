@@ -63,12 +63,16 @@ async fn datagrams(port: u16) -> TcpStream {
     control
 }
 async fn exercise(domain: bool) {
+    exercise_mode(domain, "auto").await;
+}
+async fn exercise_mode(domain: bool, mode: &str) {
     let (endpoint, peer_task) = if domain {
         peer::echo_peer_with_dns(zero_traits::IpAddress::V4([198, 51, 100, 10])).await
     } else {
         peer::echo_peer().await
     };
-    let config = configuration(endpoint, domain);
+    let mut config = configuration(endpoint, domain);
+    config.route.final_mode = serde_json::from_value(serde_json::json!(mode)).unwrap();
     let proxy = Proxy::new(config.clone()).unwrap();
     let memory = proxy
         .protocols
@@ -201,3 +205,12 @@ mod replacement;
 
 #[path = "standalone/outer.rs"]
 mod outer;
+
+#[tokio::test]
+async fn strict_packet_standalone_tcp_and_udp_share_original_device_provider_and_caller_joins() {
+    exercise_mode(false, "packet").await;
+}
+#[tokio::test]
+async fn strict_packet_standalone_domain_flows_preserve_actual_dns_and_original_native_close() {
+    exercise_mode(true, "packet").await;
+}

@@ -8,6 +8,28 @@ impl VlessAdapter {
         candidate: Option<&RuntimeConfig>,
         native: bool,
     ) -> bool {
+        if matches!(input.protocol, OutboundProtocolConfig::VlessReverse) {
+            return true;
+        }
+        if super::super::preconnect::eligible(input) {
+            if !native || candidate.is_none() {
+                return false;
+            }
+            let OutboundProtocolConfig::Vless { server, port, .. } = &input.protocol else {
+                return false;
+            };
+            let refs =
+                super::super::super::outbound_options(&input.tag, (server, *port), &input.protocol)
+                    .expect("owning VLESS projection");
+            return ::vless::transport::VlessOutboundLeaf::from_owned_options_refs(
+                candidate.and_then(|c| c.source_dir()),
+                refs,
+                &self.runtime,
+            )
+            .is_ok_and(|(leaf, _)| {
+                leaf.native_preconnect_eligible() && leaf.native_hysteria_eligible()
+            });
+        }
         if super::super::browser::eligible(input) {
             return native && candidate.is_some();
         }
@@ -15,12 +37,29 @@ impl VlessAdapter {
             return native && candidate.is_some();
         }
         if super::super::quic::eligible(input) {
-            return native && candidate.is_some();
+            if !native || candidate.is_none() {
+                return false;
+            }
+            let OutboundProtocolConfig::Vless { server, port, .. } = &input.protocol else {
+                return false;
+            };
+            let refs = super::super::super::outbound_options(
+                input.tag(),
+                (server, *port),
+                &input.protocol,
+            )
+            .expect("owning VLESS projection");
+            return ::vless::transport::VlessOutboundLeaf::from_owned_options_refs(
+                candidate.and_then(|c| c.source_dir()),
+                refs,
+                &self.runtime,
+            )
+            .is_ok_and(|(leaf, _)| leaf.native_hysteria_eligible());
         }
-        if super::super::grpc::eligible(input) {
+        if super::super::grpc::eligible(input) && !vision(input) {
             return super::super::grpc::selected(input, candidate, native);
         }
-        if super::super::owned_input(input) {
+        if super::super::owned_input(input) && !vision(input) {
             return true;
         }
         let grpc = grpc_eligible(input);
@@ -28,46 +67,32 @@ impl VlessAdapter {
             || if grpc {
                 !super::super::grpc::selected(input, candidate, native)
             } else {
-                let Some(config) = candidate.filter(|_| native && input.dial.is_default()) else {
+                let Some(config) = candidate.filter(|_| native) else {
                     return false;
                 };
-                needs_ip_backend(input)
-                    && zero_dns::native::validate_node_config(config.runtime.dns.as_ref()).is_err()
-                    || crate::adapters::mux_prefix::used_by_relay(config, &input.tag)
-                        && !crate::adapters::mux_prefix::qualified(input, candidate, native)
+                needs_ip_backend(input) && crate::adapters::node_dns::validate(config).is_err()
             }
         {
             return false;
         }
-        let OutboundProtocolConfig::Vless {
-            server,
-            port,
-            mux_concurrency,
-            xudp_concurrency,
-            ..
-        } = &input.protocol
-        else {
+        let OutboundProtocolConfig::Vless { server, port, .. } = &input.protocol else {
             return false;
         };
-        // Do not silently turn ordinary UDP into XUDP, or create a second
-        // differently-sized pool under this one physical owner.
-        if xudp_concurrency.is_none() || xudp_concurrency != mux_concurrency {
-            return false;
-        }
         let refs =
             super::super::super::outbound_options(&input.tag, (server, *port), &input.protocol)
                 .expect("owning vless projection");
-        ::vless::transport::VlessOutboundLeaf::from_options_refs(
+        ::vless::transport::VlessOutboundLeaf::from_owned_options_refs(
             candidate.and_then(|c| c.source_dir()),
             refs,
             &self.runtime,
         )
-        .map(|leaf| leaf.native_mux_eligible())
+        .map(|(leaf, _)| leaf.native_mux_eligible() && leaf.native_hysteria_eligible() &&
+            (!matches!(&input.protocol,OutboundProtocolConfig::Vless{testpre,..} if *testpre!=0) || leaf.native_preconnect_eligible()))
         .unwrap_or(true)
     }
 }
 
-fn needs_ip_backend(input: &OutboundConfig) -> bool {
+pub(crate) fn needs_ip_backend(input: &OutboundConfig) -> bool {
     let OutboundProtocolConfig::Vless { server, tls, .. } = &input.protocol else {
         return false;
     };

@@ -24,7 +24,6 @@ use zero_traits::DialPolicy;
 pub struct DirectOptions {
     pub(super) policy: DialPolicy,
     control: Option<DirectBudgets>,
-    pub(super) retain_legacy_calls: bool,
     #[cfg(feature = "raw-ip-runtime")]
     pub(super) packet: Option<super::packet::standard::Alias>,
 }
@@ -34,13 +33,12 @@ impl DirectOptions {
         Ok(Self {
             policy,
             control: None,
-            retain_legacy_calls: false,
             #[cfg(feature = "raw-ip-runtime")]
             packet: None,
         })
     }
     /// Explicit required capability for library callers. Production decoding
-    /// also retains the separate legacy operation for untracked callers.
+    /// selects this actual controlled provider for every original caller.
     pub fn controlled(
         mut self,
         max_sockets: NonZeroUsize,
@@ -98,15 +96,13 @@ pub fn decode(
     let mut options = DirectOptions::validate(input.dial.to_policy()).map_err(|error| {
         zero_config::ConfigError::InvalidOutbound(format!("outbound `{}` dial: {error}", input.tag))
     })?;
-    // Explicit host ceilings. Only openers carrying an actual tracked caller
-    // select this capability; existing Service/untracked calls retain their
-    // separate legacy operation, never fallback from a failed controlled open.
+    // Explicit host ceilings. Business, diagnostic and borrowed Service calls
+    // all use the actual provider; no untracked native fallback is installed.
     options.control = Some(DirectBudgets {
         max_sockets: NonZeroUsize::new(4096).unwrap(),
         max_refresh_tasks: NonZeroUsize::new(256).unwrap(),
         retirement: Duration::from_secs(5),
     });
-    options.retain_legacy_calls = true;
     Ok(options)
 }
 pub(super) struct Outbound {
@@ -128,9 +124,6 @@ impl ComponentFactory for DirectFactory {
     type Options = DirectOptions;
     fn describe(&self, options: &Self::Options) -> ComponentSpec {
         let mut static_identity = format!("{:?}", options.policy).into_bytes();
-        if options.retain_legacy_calls {
-            static_identity.extend_from_slice(b"legacy-callers");
-        }
         if let Some(control) = &options.control {
             static_identity.extend_from_slice(b"controlled");
             static_identity.extend_from_slice(&control.retirement.as_nanos().to_be_bytes());
@@ -276,10 +269,7 @@ impl StreamOutbound for Outbound {
             deadline: context.deadline,
             cancel: context.cancel.clone(),
         };
-        let selected_control = self.control.as_ref().filter(|_| {
-            !self.options.retain_legacy_calls || context.upstream.supports_controlled_stream()
-        });
-        let open = match selected_control {
+        let open = match self.control.as_ref() {
             Some(control) => context.upstream.open_controlled_stream(
                 zero_platform_tokio::contract::network::ControlledStreamRequest {
                     destination: request.destination,

@@ -27,7 +27,7 @@ pub(super) fn spawn(
         entry.retirement.request_retirement();
         return Err(error(Stage::Prepare, Reason::Unsupported));
     }
-    let view = if generation.options.h3.is_some() {
+    let view = if generation.options.h3.is_some() || generation.options.hysteria.is_some() {
         // This actual declaration is ControlledCarrierPool{datagram:true};
         // its unique physical IO is held by the original packet/H3 graph.
         // Plain ServiceDatagram keeps its original taskless transferred view.
@@ -129,6 +129,12 @@ async fn initialize(
     let (socket, queues) =
         PacketSocket::prepare_with_budget_for_masks(peer, generation.buffers.clone(), &plan)
             .map_err(|source| error(Stage::Prepare, Reason::Capacity).with_source(source))?;
+    if options.mkcp.is_some() {
+        return super::mkcp::borrowed(
+            generation, entry, grant, view, caller, demand, index, peer, socket, queues, plan,
+        )
+        .await;
+    }
     let mut client = options
         .protocol
         .material
@@ -142,6 +148,11 @@ async fn initialize(
             &mut client,
             profile.options.xmux.h_keep_alive_period,
         );
+    }
+    if let Some((profile, _)) = &options.hysteria {
+        client.transport_config(Arc::new(profile.transport(false).map_err(|source| {
+            error(Stage::Prepare, Reason::InvalidConfig).with_source(source)
+        })?));
     }
     let issuer = demand.issuer(generation, &grant, caller)?;
     let target = candidates.select(index, issuer)?;
@@ -216,6 +227,8 @@ async fn initialize(
             peer,
             options
                 .profile
+                .as_ref()
+                .expect("actual QUIC carrier")
                 .server_name
                 .as_deref()
                 .unwrap_or(&options.protocol.server),

@@ -45,7 +45,6 @@ fn staged_raw_ip_devices_reject_over_limit_without_publishing() {
                 1,
                 Arc::new(OnceCell::new()),
                 false,
-                false,
             )
             .unwrap();
     }
@@ -57,11 +56,10 @@ fn staged_raw_ip_devices_reject_over_limit_without_publishing() {
             1,
             Arc::new(OnceCell::new()),
             false,
-            false,
         )
         .is_err());
     assert_eq!(staged.len(), MAX_RAW_IP_DEVICES);
-    assert!(pool.cell_for("wg", 0, [1; 32], 1).is_err());
+    assert!(pool.reusable_cell("wg", 0, [1; 32], 1).is_none());
 }
 
 #[cfg(feature = "wireguard")]

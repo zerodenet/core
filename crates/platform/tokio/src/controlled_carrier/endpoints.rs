@@ -13,6 +13,7 @@ pub struct CarrierEndpoints {
 }
 #[derive(Clone)]
 pub(super) enum EndpointOriginal {
+    Accepted(crate::controlled_listener::accepted::AcceptedTcpCarrierOrigin),
     Carrier(Weak<Slot>),
     Metadata(crate::controlled_datagram::metadata_pool::MetadataPoolOrigin),
 }
@@ -20,11 +21,29 @@ impl std::fmt::Debug for EndpointOriginal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::Carrier(_) => "Carrier",
+            Self::Accepted(_) => "Accepted",
             Self::Metadata(_) => "Metadata",
         })
     }
 }
 impl CarrierEndpoints {
+    pub(super) fn accepted(
+        original: crate::controlled_listener::accepted::AcceptedTcpCarrierOrigin,
+        local: SocketAddr,
+        peer: SocketAddr,
+    ) -> Self {
+        Self {
+            origin: EndpointOriginal::Accepted(original),
+            local: Some(local),
+            peer,
+        }
+    }
+    pub fn matches_accepted(
+        &self,
+        original: &crate::controlled_listener::accepted::AcceptedTcpCarrierOrigin,
+    ) -> bool {
+        matches!(&self.origin,EndpointOriginal::Accepted(actual) if actual.same_original(original))
+    }
     pub(super) fn metadata(
         original: crate::controlled_datagram::metadata_pool::MetadataPoolOrigin,
         local: SocketAddr,

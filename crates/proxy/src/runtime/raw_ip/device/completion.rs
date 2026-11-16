@@ -2,6 +2,17 @@
 use zero_engine::EngineError;
 
 impl super::SharedRawIpDevice {
+    pub(crate) async fn close_logical_carrier(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), EngineError> {
+        self.carrier
+            .as_ref()
+            .ok_or_else(|| std::io::Error::other("logical device lost its actual wire"))?
+            .close_logical(deadline)
+            .await
+    }
+
     /// Consume actual driver and client TCP handles; preserve their original
     /// failure in this device's persistent owner for subsequent cleanup retries.
     /// This does not certify closure of the carrier's native I/O.

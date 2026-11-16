@@ -289,6 +289,9 @@ impl InboundOwner {
             return false;
         }
         self.physically_closed.store(true, Ordering::Release);
+        if let Some(host) = self.carrier_host.get().and_then(std::sync::Weak::upgrade) {
+            host.components().release_accepted_source(self.identity);
+        }
         true
     }
     #[cfg(test)]

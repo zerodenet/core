@@ -22,10 +22,21 @@ fn compiled_in_outbound_leaf_variants_have_expected_protocol_owners() {
         );
 
         let claimed = registry.claim_outbound_leaf(&config, leaf.clone());
-        if protocol == "hysteria2" {
+        if matches!(
+            protocol,
+            "hysteria2"
+                | "vless"
+                | "vmess"
+                | "trojan"
+                | "mieru"
+                | "socks5"
+                | "shadowsocks"
+                | "wireguard"
+                | "direct"
+        ) {
             assert!(
                 claimed.is_err(),
-                "HY2 must only execute its registered standard roles"
+                "migrated protocol must execute its registered standard roles"
             );
             continue;
         }
@@ -85,10 +96,21 @@ fn udp_compatibility_claims_exclude_migrated_datagram_roles() {
     for (config, leaf, expected_claims) in compiled_in_outbound_leaves() {
         let protocol = outbound_leaf_name(&config, &leaf);
         let claimed = registry.claim_outbound_leaf(&config, leaf.clone());
-        if protocol == "hysteria2" {
+        if matches!(
+            protocol,
+            "hysteria2"
+                | "vless"
+                | "vmess"
+                | "trojan"
+                | "mieru"
+                | "socks5"
+                | "shadowsocks"
+                | "wireguard"
+                | "direct"
+        ) {
             assert!(
                 claimed.is_err(),
-                "HY2 must only execute its registered standard roles"
+                "migrated protocol must execute its registered standard roles"
             );
             continue;
         }
@@ -97,55 +119,25 @@ fn udp_compatibility_claims_exclude_migrated_datagram_roles() {
                 .as_ref()
                 .map(|claim| claim.has_udp_flow_capability())
                 .ok(),
-            Some(expected_claims == 1 && !matches!(protocol, "wireguard" | "socks5")),
+            Some(expected_claims == 1 && !matches!(protocol, "wireguard" | "socks5" | "direct")),
             "{} legacy udp-flow lookup must exclude migrated standard roles",
             protocol
         );
     }
 }
 
-#[cfg(feature = "wireguard")]
-#[test]
-fn wireguard_packet_leaf_supplies_executable_flow_conversion() {
-    let registry = crate::register::protocol_registry();
-    let (config, leaf, _) = compiled_in_outbound_leaves()
-        .into_iter()
-        .find(|(config, leaf, _)| outbound_leaf_name(config, leaf) == "wireguard")
-        .expect("WireGuard fixture");
-    for mode in [zero_engine::RouteMode::Packet, zero_engine::RouteMode::Flow] {
-        let claimed = registry
-            .claim_outbound_leaf(&config, leaf.clone())
-            .expect("claim WireGuard");
-        assert!(claimed.tcp_connect_for_route(mode).is_ok());
-        assert!(claimed.into_udp_flow_for_route(mode).is_ok());
-    }
-}
-
 #[cfg(feature = "udp-runtime")]
 #[test]
-fn packet_path_leaf_lookup_matches_claim_time_packet_path_projection() {
+fn packet_path_metadata_does_not_require_an_outbound_executor() {
     let registry = crate::register::protocol_registry();
-
     for (config, leaf, _) in compiled_in_outbound_leaves() {
         let protocol = outbound_leaf_name(&config, &leaf);
-        let expected_packet_path =
-            matches!(protocol, "socks5" | "hysteria2" | "shadowsocks" | "vless");
-        let claimed = registry.claim_outbound_leaf(&config, leaf.clone());
-        if protocol == "hysteria2" {
-            assert!(
-                claimed.is_err(),
-                "HY2 must only execute its registered standard roles"
-            );
-            continue;
-        }
+        let projection = registry
+            .prepare_cold_packet_path_projection(&config, leaf)
+            .unwrap();
         assert_eq!(
-            claimed
-                .as_ref()
-                .map(|claim| claim.has_udp_packet_path_capability())
-                .ok(),
-            Some(expected_packet_path),
-            "{} claimed packet-path lookup should only expose adapters with packet-path claim-time projection",
-            protocol
+            projection.is_some(),
+            matches!(protocol, "socks5" | "shadowsocks")
         );
     }
 }

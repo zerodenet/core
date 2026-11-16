@@ -264,7 +264,9 @@ impl<H: InboundHandshake, Make: Fn(OwnedIncoming) -> H + Send + 'static> Inbound
                 incoming=with_deadline(context.deadline,handle.accept_incoming_wait()),if admit=>{
                     let incoming=incoming.map_err(|e|failure(Reason::Timeout).with_source(e))??;
                     let facts=InboundConnectionFacts{original_source:Some(incoming.remote_address()),effective_source:Some(incoming.remote_address()),local_endpoint:Some(incoming.local_addr()),sni:None};
-                    return Ok(Some(PendingInbound::new((self.make)(incoming)).with_carrier_facts(facts)));
+                    let original=state.owner.as_ref().unwrap().source_carrier_origin()?;
+                    let pending=PendingInbound::new((self.make)(incoming)).with_carrier_facts(facts);
+                    return Ok(Some(match original {Some(original)=>pending.with_stream_carrier(original),None=>pending}));
                 }
             }
         }

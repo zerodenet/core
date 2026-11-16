@@ -146,7 +146,7 @@ impl VmessMuxConnectionPool {
             self.scope
         );
         let _operation = owner.operation()?;
-        let _connecting = owner.serialize().await?;
+        let _connecting = owner.serialize_binding(&binding).await?;
         owner.prepare_epoch(&profile, &binding).await?;
         let selected = binding.clone();
         let opening = owner.clone();

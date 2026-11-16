@@ -20,6 +20,12 @@ impl PendingHttp3 {
     pub fn task_id(&self) -> TaskId {
         self.task
     }
+    #[cfg(feature = "hysteria")]
+    pub(crate) fn original_registration(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::scope::TaskJoinWitness> {
+        self.original.upgrade()?.live_registration(self.task)
+    }
     /// Cancel-safe wait: the original handoff remains owned on interruption.
     /// The separate original DriverExitReceiver must still receive real joins.
     pub async fn ready(&mut self) -> Result<RequestSender, ChannelError> {

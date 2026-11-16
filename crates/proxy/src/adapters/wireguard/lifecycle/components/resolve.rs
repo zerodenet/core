@@ -1,10 +1,6 @@
 //! Resolve only this actual cold candidate before deferred device startup.
 use super::*;
-use zero_platform_tokio::contract::{
-    context::RequestIdentity,
-    network::{CarrierContext, UpstreamBinding},
-    CancellationToken,
-};
+use zero_platform_tokio::contract::{network::UpstreamBinding, CancellationToken};
 impl WireguardAdapter {
     pub(crate) async fn resolve_component_resources(
         &self,
@@ -94,19 +90,9 @@ impl WireguardAdapter {
             invocation
                 .resolve(
                     upstream,
-                    crate::runtime::udp_dispatch::packet_owner::PacketCarrierDemand {
-                        identity: RequestIdentity::Service(
-                            Arc::new(zero_core::request::ServiceRequestFacts {
-                                origin: zero_core::request::ServiceOrigin::Runtime,
-                                purpose: zero_core::request::ServicePurpose::BackgroundControl,
-                            })
-                            .into(),
-                        ),
-                        context: CarrierContext {
-                            session: None,
-                            deadline: Some(deadline),
-                            cancel: cancel.clone(),
-                        },
+                    super::super::recipe::LinkedBuildContext {
+                        deadline: Some(deadline),
+                        cancel: cancel.clone(),
                         binding: UpstreamBinding {
                             prefix: Vec::new(),
                             dial: outbound.dial.to_policy(),

@@ -20,6 +20,72 @@ impl std::ops::Deref for TcpRuntimeServices {
     }
 }
 impl TcpRuntimeServices {
+    #[cfg(feature = "managed-stream-runtime")]
+    pub(crate) fn service_inventory(&self) -> ProtocolInventory {
+        self.protocols.clone()
+    }
+    #[cfg(feature = "managed-stream-runtime")]
+    pub(crate) fn service_identity(
+        &self,
+    ) -> Result<zero_core::component::ComponentInstanceId, zero_engine::EngineError> {
+        self.protocols.allocate_resource_identity()
+    }
+    #[cfg(feature = "managed-stream-runtime")]
+    pub(crate) fn service_original_budgets(&self) -> Arc<zero_runtime::HostOriginalBudgets> {
+        self.protocols.runtime_host().original_budgets()
+    }
+    #[cfg(feature = "managed-stream-runtime")]
+    pub(crate) fn service_node(
+        &self,
+        tag: &str,
+    ) -> Result<crate::inventory::service::ServiceNode, zero_engine::EngineError> {
+        let components = self.execution.components.as_ref().map_err(|source| {
+            std::io::Error::other(crate::component::instance::retained(source.clone()))
+        })?;
+        let id = self
+            .execution
+            .snapshot
+            .plan()
+            .target_id(tag)
+            .ok_or_else(|| std::io::Error::other("missing configured active Stream donor"))?;
+        let (resolved, _) = self
+            .execution
+            .engine
+            .resolve_target_id_in_snapshot(&self.execution.snapshot, id)
+            .ok_or_else(|| std::io::Error::other("active Stream donor is unavailable"))?;
+        let plan = self
+            .protocols
+            .prepare_service_stream(
+                OutboundAdapterContext::new(self.execution.config()),
+                &resolved,
+                components,
+            )
+            .map_err(|failure| failure.error)?;
+        match plan {
+            Some(crate::inventory::service::ServicePlan::Single(node))
+                if node.endpoint.is_some()
+                    && components.has_stream_loan_provider(node.slot.role_id()) =>
+            {
+                Ok(node)
+            }
+            _ => Err(std::io::Error::other(
+                "active ingress requires its actual canonical Stream loan provider",
+            )
+            .into()),
+        }
+    }
+
+    #[cfg(feature = "managed-stream-runtime")]
+    pub(crate) fn service_task_budget(
+        &self,
+    ) -> Arc<zero_platform_tokio::contract::scope::TaskRegistrationBudget> {
+        self.protocols
+            .runtime_host()
+            .original_budgets()
+            .component_tasks
+            .clone()
+    }
+
     pub(crate) fn with_datagram_returns(
         mut self,
         returns: Arc<crate::component::datagram_retirement::DatagramReturns>,
@@ -327,29 +393,6 @@ impl TcpRuntimeServices {
             resolved,
             mode,
             components,
-        )
-    }
-
-    #[cfg(feature = "udp-runtime")]
-    pub(crate) async fn dispatch_prepared_tcp_relay_carrier(
-        &self,
-        prepared: crate::inventory::PreparedTcpRelayChain,
-    ) -> Result<crate::transport::RelayCarrier, crate::transport::TcpOutboundFailure> {
-        crate::runtime::tcp_dispatch::relay::dispatch_prepared_tcp_relay_carrier(
-            self.execution(),
-            prepared,
-        )
-        .await
-    }
-
-    #[cfg(feature = "udp-runtime")]
-    pub(crate) fn prepare_lazy_tcp_relay_carrier<'a>(
-        &self,
-        prepared: crate::inventory::PreparedTcpRelayChain,
-    ) -> crate::runtime::tcp_dispatch::operation::LazyTcpRelayCarrier<'a> {
-        crate::runtime::tcp_dispatch::relay::prepare_lazy_tcp_relay_carrier(
-            self.execution(),
-            prepared,
         )
     }
 }

@@ -62,6 +62,8 @@ pub enum ServicePurpose {
     DnsQuery,
     Bootstrap,
     BackgroundControl,
+    /// A runtime-owned active connection that supplies inbound requests.
+    DialedIngress,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

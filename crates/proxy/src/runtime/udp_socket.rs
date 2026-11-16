@@ -78,6 +78,7 @@ struct DirectUdpSocketBinding {
 impl DirectUdpSockets {
     /// Cold opt-in by the real accepted driver. Selection/reuse stays the same;
     /// original reservations now precede native creation and registration.
+    #[cfg(test)]
     pub(crate) fn with_native_originals(mut self, limit: std::num::NonZeroUsize) -> Self {
         assert!(self.sockets.is_empty());
         self.native_owner =
@@ -86,6 +87,7 @@ impl DirectUdpSockets {
     }
     /// A dispatcher need not use Direct or either native address family.
     /// Defer every socket bind until a policy-checked destination is known.
+    #[cfg(test)]
     pub(crate) fn new(
         services: crate::protocol_registry::UdpNetworkServices,
         preferred_port: Option<u16>,

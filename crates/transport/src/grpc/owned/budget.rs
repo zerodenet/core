@@ -111,6 +111,27 @@ impl Budget {
         self.harvest();
         self.records.lock().unwrap().len()
     }
+    pub(super) async fn wait_physical_returned(
+        &self,
+        physical: &Arc<Physical>,
+        end: Instant,
+    ) -> Result<bool, ChannelError> {
+        let mut after = None;
+        while let Some(record) = self.next_record(after) {
+            after = Some(Arc::as_ptr(&record) as usize);
+            let belongs = record
+                .state
+                .lock()
+                .unwrap()
+                .physical
+                .as_ref()
+                .is_some_and(|actual| Arc::ptr_eq(actual, physical));
+            if belongs && !record.wait_returned(end).await?.is_complete() {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
 }
 impl Record {
     pub(super) fn complete(&self) -> bool {

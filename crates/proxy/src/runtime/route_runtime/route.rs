@@ -11,3 +11,6 @@ pub(crate) use model::{InboundRouteRuntime, InboundRouteRuntimeFactory};
 mod source;
 #[cfg(feature = "managed-datagram-runtime")]
 pub(in crate::runtime) use source::DatagramContinuityHost;
+
+#[cfg(feature = "managed-stream-runtime")]
+mod service_sniffing;

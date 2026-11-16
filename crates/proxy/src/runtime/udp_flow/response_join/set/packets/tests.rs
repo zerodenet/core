@@ -23,7 +23,7 @@ async fn finite_packet_responses_keep_original_host_tickets_through_delivery_and
 ) {
     let (_proxy, memory) = fixture();
     let baseline = memory.metadata.snapshot().occupied;
-    let (owner, mut lease) = ResponseSetOwner::new(JoinSet::new());
+    let (owner, mut lease) = ResponseSetOwner::new();
     let sender = lease.packet_sender(&memory).unwrap();
     let maximum = memory.bytes.limits().max_queue_packets;
     for index in 0..maximum {
@@ -78,7 +78,7 @@ async fn finite_packet_responses_keep_original_host_tickets_through_delivery_and
 async fn packet_inbox_rejects_foreign_host_and_real_native_panic_still_wins_before_ready_data() {
     let (_proxy, memory) = fixture();
     let (_foreign, foreign) = fixture();
-    let (owner, mut lease) = ResponseSetOwner::new(JoinSet::new());
+    let (owner, mut lease) = ResponseSetOwner::new();
     let sender = lease.packet_sender(&memory).unwrap();
     assert!(lease.packet_sender(&foreign).is_err());
     sender.send(packet(&memory, 19)).unwrap();

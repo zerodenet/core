@@ -53,7 +53,13 @@
 
 #[cfg(feature = "udp-runtime")]
 mod backoff;
+#[cfg(feature = "udp-runtime")]
+mod direct;
 mod dispatch;
+#[cfg(feature = "managed-datagram-runtime")]
+pub(crate) use direct::DirectSocketSource;
+#[cfg(all(test, feature = "managed-datagram-runtime"))]
+pub(crate) use direct::LiveDirectSource;
 #[cfg(feature = "udp-runtime")]
 mod socket;
 #[cfg(feature = "managed-datagram-runtime")]
@@ -85,6 +91,4 @@ pub(crate) mod operation;
         reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
     )
 )]
-pub(crate) mod packet_owner;
-pub(crate) mod packet_path_operation;
 pub(crate) mod relay;

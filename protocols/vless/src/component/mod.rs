@@ -5,6 +5,7 @@ mod connect;
 mod datagram;
 pub mod grpc;
 pub mod inbound;
+mod masks;
 pub(crate) mod material;
 #[cfg(feature = "reality")]
 pub mod mux;
@@ -12,7 +13,9 @@ pub(crate) mod navigation;
 mod options;
 mod ordinary_datagram;
 mod owner;
+pub mod preconnect;
 pub mod quic;
+mod request;
 mod transport;
 pub use options::Options;
 use std::sync::Arc;
@@ -40,6 +43,7 @@ struct Outbound {
     tasks: TaskRegistrar,
     ech_resolver: Option<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>,
     datagram_budget: Option<datagram::Budget>,
+    masks: zero_transport::finalmask::Profile,
 }
 impl ComponentFactory for Factory {
     type Options = Options;
@@ -47,7 +51,7 @@ impl ComponentFactory for Factory {
         ComponentSpec {
             owner: ResourceOwner::Component,
             roles: std::iter::once(RoleKind::Stream)
-                .chain(options.flow.is_none().then_some(RoleKind::Datagram))
+                .chain((!crate::flow::is_vision_flow(options.flow)).then_some(RoleKind::Datagram))
                 .collect(),
             dependencies: vec![],
             static_identity: options.identity.clone(),
@@ -70,7 +74,7 @@ impl ComponentFactory for Factory {
         options: Arc<Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
-        self.build_owned(options, context, None, None)
+        self.build_owned(options, context, None, None, None)
     }
 }
 impl Factory {
@@ -80,7 +84,7 @@ impl Factory {
         context: BuildContext,
         resolver: Arc<dyn zero_transport::tls::ech::EchConfigResolver>,
     ) -> Result<ComponentInstance, BuildError> {
-        self.build_owned(options, context, Some(resolver), None)
+        self.build_owned(options, context, Some(resolver), None, None)
     }
     /// Installed Kernel assembly supplies this actual Host's mandatory book.
     /// Old explicit independent-library constructors retain their original duty.
@@ -91,7 +95,17 @@ impl Factory {
         resolver: Arc<dyn zero_transport::tls::ech::EchConfigResolver>,
     ) -> Result<ComponentInstance, BuildError> {
         let budget = datagram::Budget::from_resources(context.resources.as_ref())?;
-        self.build_owned(options, context, Some(resolver), Some(budget))
+        self.build_owned(options, context, Some(resolver), Some(budget), None)
+    }
+    pub(crate) fn build_hosted(
+        &self,
+        options: Arc<Options>,
+        context: BuildContext,
+        resolver: Option<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>,
+        masks: Option<zero_transport::finalmask::Profile>,
+    ) -> Result<ComponentInstance, BuildError> {
+        let budget = datagram::Budget::from_resources(context.resources.as_ref())?;
+        self.build_owned(options, context, resolver, Some(budget), masks)
     }
     fn build_owned(
         &self,
@@ -99,7 +113,14 @@ impl Factory {
         context: BuildContext,
         resolver: Option<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>,
         datagram_budget: Option<datagram::Budget>,
+        masks: Option<zero_transport::finalmask::Profile>,
     ) -> Result<ComponentInstance, BuildError> {
+        let masks = masks::prepare(
+            &options,
+            context.resources.as_ref(),
+            datagram_budget.is_some(),
+            masks,
+        )?;
         let (session, admission) = SessionOwner::new(context.component, &context.cancel);
         let dynamic = options
             .tls
@@ -141,13 +162,14 @@ impl Factory {
                 cancel: context.cancel.clone(),
             }),
             roles: ComponentRoles {
-                datagram: options.flow.is_none().then(|| {
+                datagram: (!crate::flow::is_vision_flow(options.flow)).then(|| {
                     zero_platform_tokio::contract::datagram::erase_datagram(Outbound {
                         options: options.clone(),
                         admission: admission.clone(),
                         tasks: context.tasks.clone(),
                         ech_resolver: resolver.clone(),
                         datagram_budget: datagram_budget.clone(),
+                        masks: masks.clone(),
                     })
                 }),
                 stream: Some(erase_stream(Outbound {
@@ -156,6 +178,7 @@ impl Factory {
                     tasks: context.tasks,
                     ech_resolver: resolver,
                     datagram_budget,
+                    masks,
                 })),
                 ..Default::default()
             },
@@ -186,22 +209,19 @@ impl StreamOutbound for Outbound {
                 DeliveryState::NotSubmitted,
             ));
         }
-        let bytes = crate::outbound::build_tcp_request_to(
-            &request.destination.address,
-            request.destination.port,
-            &self.options.uuid,
-            self.options.flow,
-        )
-        .map_err(|source| {
-            self.admission
-                .error(
-                    session,
-                    Stage::Prepare,
-                    Reason::InvalidConfig,
-                    DeliveryState::NotSubmitted,
-                )
-                .with_source(source)
-        })?;
+        let bytes = self
+            .options
+            .stream_request(&request, &context)
+            .map_err(|source| {
+                self.admission
+                    .error(
+                        session,
+                        Stage::Prepare,
+                        Reason::InvalidConfig,
+                        DeliveryState::NotSubmitted,
+                    )
+                    .with_source(source)
+            })?;
         let io = self.open_transport(&context, session).await?;
         connect::submit(&self.options, &self.admission, session, context, io, bytes).await
     }

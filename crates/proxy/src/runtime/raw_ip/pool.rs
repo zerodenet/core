@@ -2,7 +2,7 @@ mod health_query;
 mod retirement;
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex, Weak},
+    sync::{Arc, Mutex},
 };
 
 use tokio::sync::OnceCell;
@@ -23,14 +23,11 @@ struct PoolState {
     entries: HashMap<(String, usize), CachedDevice>,
     unresolved_endpoints: HashMap<(String, usize), [u8; 32]>,
     retiring: VecDeque<Arc<SharedRawIpDevice>>,
-    compatibility_retiring: VecDeque<(String, Weak<SharedRawIpDevice>)>,
-    compatibility_stopping: Vec<Arc<SharedRawIpDevice>>,
     shutdown: bool,
 }
 
 #[derive(Clone)]
 struct CachedDevice {
-    compatibility: bool,
     identity: [u8; 32],
     egress_generation: u64,
     cell: Arc<OnceCell<Arc<SharedRawIpDevice>>>,
@@ -39,7 +36,7 @@ struct CachedDevice {
 pub(crate) struct StagedRawIpDevices {
     owner: Arc<Mutex<PoolState>>,
     entries: HashMap<(String, usize), CachedDevice>,
-    new_devices: Vec<(Arc<SharedRawIpDevice>, bool)>,
+    new_devices: Vec<Arc<SharedRawIpDevice>>,
     published: bool,
     committed: bool,
 }
@@ -167,17 +164,7 @@ impl RawIpDevicePool {
             .map(|entry| entry.cell.clone())
     }
 
-    pub(crate) fn cell_for(
-        &self,
-        tag: &str,
-        peer_index: usize,
-        identity: [u8; 32],
-        egress_generation: u64,
-    ) -> Result<Arc<OnceCell<Arc<SharedRawIpDevice>>>, EngineError> {
-        self.reusable_cell(tag, peer_index, identity, egress_generation)
-            .ok_or_else(|| invalid("raw-IP peer device is not active"))
-    }
-
+    #[cfg(test)]
     pub(crate) fn is_current(
         &self,
         tag: &str,
@@ -220,56 +207,11 @@ impl RawIpDevicePool {
                 continue;
             }
             if let Some(device) = entry.cell.get() {
-                if entry.compatibility {
-                    // Explicitly retained existing outer_udp_proxy behavior.
-                    // Grace expiry and worker joins are NOT native-close proof.
-                    if state.entries.keys().any(|(tag, _)| tag == &key.0) {
-                        device.retire_after(std::time::Duration::from_secs(30));
-                        state
-                            .compatibility_retiring
-                            .push_back((key.0, Arc::downgrade(device)));
-                    } else {
-                        device.close_now();
-                        stopped.push(device.clone());
-                        state.compatibility_stopping.push(device.clone());
-                    }
-                } else {
-                    device.close_now();
-                    state.retiring.push_back(device.clone());
-                    stopped.push(device.clone());
-                }
+                device.close_now();
+                state.retiring.push_back(device.clone());
+                stopped.push(device.clone());
             }
         }
-        let active_tags = state
-            .entries
-            .keys()
-            .map(|(tag, _)| tag.clone())
-            .collect::<std::collections::HashSet<_>>();
-        let mut compatibility = std::mem::take(&mut state.compatibility_retiring);
-        compatibility.retain(|(tag, weak)| {
-            let Some(device) = weak.upgrade() else {
-                return false;
-            };
-            if !active_tags.contains(tag) {
-                device.close_now();
-                stopped.push(device.clone());
-                state.compatibility_stopping.push(device);
-                false
-            } else {
-                true
-            }
-        });
-        while compatibility.len() > MAX_RAW_IP_DEVICES {
-            if let Some(device) = compatibility
-                .pop_front()
-                .and_then(|(_, weak)| weak.upgrade())
-            {
-                device.close_now();
-                stopped.push(device.clone());
-                state.compatibility_stopping.push(device);
-            }
-        }
-        state.compatibility_retiring = compatibility;
         staged.published = true;
         stopped
     }
@@ -283,10 +225,6 @@ impl StagedRawIpDevices {
         );
         self.committed = true;
     }
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "existing bounded device entry records original identity, generation and compatibility disposition separately"
-    )]
     pub(crate) fn insert(
         &mut self,
         tag: String,
@@ -295,7 +233,6 @@ impl StagedRawIpDevices {
         egress_generation: u64,
         cell: Arc<OnceCell<Arc<SharedRawIpDevice>>>,
         is_new: bool,
-        compatibility: bool,
     ) -> Result<(), EngineError> {
         if self.entries.len() >= MAX_RAW_IP_DEVICES {
             return Err(invalid("raw-IP device limit exceeded"));
@@ -304,14 +241,13 @@ impl StagedRawIpDevices {
             let device = cell
                 .get()
                 .ok_or_else(|| invalid("raw-IP device not prepared"))?;
-            self.new_devices.push((device.clone(), compatibility));
+            self.new_devices.push(device.clone());
         }
         if self
             .entries
             .insert(
                 (tag, peer_index),
                 CachedDevice {
-                    compatibility,
                     identity,
                     egress_generation,
                     cell,
@@ -333,7 +269,7 @@ impl Drop for StagedRawIpDevices {
     fn drop(&mut self) {
         if !self.committed {
             let mut state = self.owner.lock().unwrap_or_else(|e| e.into_inner());
-            for (device, compatibility) in &self.new_devices {
+            for device in &self.new_devices {
                 if self.published {
                     // A failed commit may have activated a fresh candidate.
                     // Remove only those exact originals, never borrowed current
@@ -346,11 +282,7 @@ impl Drop for StagedRawIpDevices {
                     });
                 }
                 device.close_now();
-                if *compatibility {
-                    state.compatibility_stopping.push(device.clone());
-                } else {
-                    state.retiring.push_back(device.clone());
-                }
+                state.retiring.push_back(device.clone());
             }
         }
     }

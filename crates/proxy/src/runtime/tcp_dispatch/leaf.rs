@@ -25,8 +25,8 @@ pub(crate) async fn dispatch_tcp(
             .with_admitted_business_identity(session, demand)?,
         None => runtime.runtime_services(),
     };
-    // Existing multiplex/control callers without an actual B admission retain
-    // their previous path; an accepted primary is not borrowed as a MUX user.
+    // Bind this request's original admission and actual Source caller.
+    // Concurrent MUX requests retain their own accepted child caller.
     let services = if business_admitted {
         services.with_accepted_caller(runtime.accepted_caller())?
     } else {

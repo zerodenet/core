@@ -1,8 +1,7 @@
-//! Concurrent requests register in the actual accepted entry when it exists.
-//! Local tasks remain a compatibility owner, never native-close evidence.
+//! Every concurrent request uses its actual Source accepted registrar.
+//! Witness futures observe the original tasks; they are not another executor.
 use super::super::model::InboundRouteRuntime;
 use futures_util::{stream::FuturesUnordered, StreamExt};
-use tokio::task::JoinSet;
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::inbound::PendingInbound;
 use zero_platform_tokio::{
@@ -10,28 +9,19 @@ use zero_platform_tokio::{
     AcceptedTasks,
 };
 
-pub(super) enum Requests {
-    Local(JoinSet<()>),
-    Owned {
-        registrar: AcceptedTasks,
-        joined: FuturesUnordered<BoxFuture<'static, ()>>,
-    },
+pub(super) struct Requests {
+    registrar: AcceptedTasks,
+    joined: FuturesUnordered<BoxFuture<'static, ()>>,
 }
 impl Requests {
-    pub(super) fn new(registrar: Option<AcceptedTasks>) -> Self {
-        match registrar {
-            Some(registrar) => Self::Owned {
-                registrar,
-                joined: FuturesUnordered::new(),
-            },
-            None => Self::Local(JoinSet::new()),
+    pub(super) fn new(registrar: AcceptedTasks) -> Self {
+        Self {
+            registrar,
+            joined: FuturesUnordered::new(),
         }
     }
     pub(super) fn len(&self) -> usize {
-        match self {
-            Self::Local(tasks) => tasks.len(),
-            Self::Owned { joined, .. } => joined.len(),
-        }
+        self.joined.len()
     }
     pub(super) fn spawn(
         &mut self,
@@ -39,39 +29,23 @@ impl Requests {
         pending: PendingInbound,
         cancel: CancellationToken,
     ) -> Result<(), ChannelError> {
-        match self {
-            Self::Local(tasks) => {
-                tasks.spawn(run(runtime, pending, cancel));
-            }
-            Self::Owned { registrar, joined } => {
-                let (_, witness) =
-                    registrar.spawn(TaskClass::Auxiliary, move |tasks| async move {
-                        let runtime = runtime.with_accepted_tasks(tasks)?;
-                        run(runtime, pending, cancel).await;
-                        Ok(())
-                    })?;
-                joined.push(Box::pin(async move {
-                    let _original_join = witness.wait().await;
-                }));
-            }
-        }
+        let (_, witness) = self
+            .registrar
+            .spawn(TaskClass::Auxiliary, move |tasks| async move {
+                let runtime = runtime.with_accepted_tasks(tasks)?;
+                run(runtime, pending, cancel).await;
+                Ok(())
+            })?;
+        self.joined.push(Box::pin(async move {
+            let _original_join = witness.wait().await;
+        }));
         Ok(())
     }
     pub(super) async fn join_next(&mut self) {
-        match self {
-            Self::Local(tasks) => {
-                if let Some(Err(error)) = tasks.join_next().await {
-                    if !error.is_cancelled() {
-                        tracing::error!(%error, "standard inbound request panicked");
-                    }
-                }
-            }
-            Self::Owned { joined, .. } => {
-                joined.next().await;
-            }
-        }
+        self.joined.next().await;
     }
 }
+
 async fn run(runtime: InboundRouteRuntime, pending: PendingInbound, cancel: CancellationToken) {
     tokio::select! { biased;
         _ = cancel.cancelled() => {},

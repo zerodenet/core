@@ -11,8 +11,10 @@ use zero_platform_tokio::{
     controlled_carrier::{CarrierBufferBudget, CarrierGrants, CarrierOwner},
 };
 pub struct Factory;
-pub(super) struct Shared {
+pub(in crate::component) struct Shared {
     pub options: Arc<Options>,
+    pub instance: ComponentInstanceId,
+    pub closed: PacketMetadataArc<std::sync::atomic::AtomicBool>,
     pub dependency: ComponentInstanceId,
     pub resources: Arc<dyn ResourceAccess>,
     pub tasks: TaskRegistrar,
@@ -38,15 +40,16 @@ impl ComponentFactory for Factory {
     fn describe(&self, options: &Options) -> ComponentSpec {
         ComponentSpec {
             owner: ResourceOwner::Component,
-            roles: std::iter::once(RoleKind::Stream)
-                .chain(
-                    options
-                        .protocol
-                        .flow
-                        .is_none()
-                        .then_some(RoleKind::Datagram),
-                )
-                .collect(),
+            roles: if options.carrier.is_some() {
+                vec![]
+            } else {
+                std::iter::once(RoleKind::Stream)
+                    .chain(
+                        (!crate::flow::is_vision_flow(options.protocol.flow))
+                            .then_some(RoleKind::Datagram),
+                    )
+                    .collect()
+            },
             dependencies: options.dependency.into_iter().collect(),
             static_identity: options.identity.clone(),
             resources: vec![ResourceDeclaration::ControlledCarrierPool {
@@ -89,6 +92,8 @@ impl ComponentFactory for Factory {
         let (session, admission) = SessionOwner::new(context.component, &context.cancel);
         let shared = PacketMetadataArc::from_prepaid(
             Shared {
+                instance: context.instance(),
+                closed: crate::component::quic::closed_marker(&memory)?,
                 options,
                 dependency,
                 upstream,
@@ -110,20 +115,26 @@ impl ComponentFactory for Factory {
                 session,
                 registered: false,
             }),
-            roles: ComponentRoles {
-                stream: Some(zero_platform_tokio::contract::stream::erase_stream(
-                    Outbound {
-                        shared: shared.clone(),
-                        admission: admission.clone(),
-                    },
-                )),
-                datagram: shared.options.protocol.flow.is_none().then(|| {
-                    zero_platform_tokio::contract::datagram::erase_datagram(Outbound {
-                        shared,
-                        admission,
-                    })
-                }),
-                ..Default::default()
+            roles: if shared.options.carrier.is_some() {
+                ComponentRoles::default()
+            } else {
+                ComponentRoles {
+                    stream: Some(zero_platform_tokio::contract::stream::erase_stream(
+                        Outbound {
+                            shared: shared.clone(),
+                            admission: admission.clone(),
+                        },
+                    )),
+                    datagram: (!crate::flow::is_vision_flow(shared.options.protocol.flow)).then(
+                        || {
+                            zero_platform_tokio::contract::datagram::erase_datagram(Outbound {
+                                shared,
+                                admission,
+                            })
+                        },
+                    ),
+                    ..Default::default()
+                }
             },
         })
     }
@@ -144,7 +155,11 @@ impl ResourceLifecycle for Owner {
             .provider
             .dialer(self.shared.dependency)?;
         self.carrier.start(end).await?;
-        self.session.start(end).await
+        self.session.start(end).await?;
+        if let Some(carrier) = &self.shared.options.carrier {
+            carrier.install_browser(&self.shared)?;
+        }
+        Ok(())
     }
     fn revoke(&self, reason: CloseReason) {
         self.session.revoke(reason);
@@ -177,6 +192,11 @@ impl ResourceLifecycle for Owner {
         let mut report = self.carrier.shutdown(end).await?;
         report.append(self.session.shutdown(end).await?);
         table::Table::reap(&self.shared.entries);
+        if report.is_complete() {
+            self.shared
+                .closed
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
         Ok(report)
     }
 }

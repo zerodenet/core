@@ -2,23 +2,34 @@ use super::{Control, PortalHeartbeat, CONTROL_DOMAIN, MONITOR_INTERVAL, PORTAL_I
 use crate::{mux::MuxResponseBacklogPolicy, mux_pool::MuxPoolConn};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Mutex, Weak,
+    Arc, Mutex,
 };
 use tokio::io::{AsyncRead, AsyncWrite};
-use zero_core::{Address, Error, Session, UdpFlowPacket};
+mod attach;
+pub mod component;
+mod ownership;
+use zero_core::{Error, Session, UdpFlowPacket};
 
 /// The configured virtual outbound owns the admitted reverse connections.
 /// Prepared leaves retain this pool, never a proxy registry or configuration.
 #[derive(Clone, Default)]
-pub struct Portal(Arc<State>);
+pub struct Portal(pub(super) Arc<State>);
 #[derive(Default)]
-struct State {
-    workers: Mutex<Vec<Arc<Worker>>>,
-    retired: AtomicBool,
+pub(super) struct State {
+    pub(super) workers: Mutex<Vec<Arc<Worker>>>,
+    pub(super) retired: AtomicBool,
+    pub(super) managed: AtomicBool,
+    pub(super) ready: AtomicBool,
+    pub(super) generation: Mutex<Option<zero_core::component::ComponentInstanceId>>,
+    pub(super) provider:
+        std::sync::OnceLock<Arc<zero_platform_tokio::controlled_carrier::AcceptedCarrierProvider>>,
 }
-struct Worker {
+pub(super) struct Worker {
     connection: Arc<MuxPoolConn>,
     draining: AtomicBool,
+    custody: Arc<ownership::Custody>,
+    resource: std::sync::OnceLock<Arc<zero_platform_tokio::AcceptedResource>>,
+    origin: Option<zero_platform_tokio::controlled_carrier::CarrierOrigin>,
 }
 impl core::fmt::Debug for Portal {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -30,89 +41,42 @@ impl core::fmt::Debug for Portal {
 impl Portal {
     pub fn retire(&self) {
         self.0.retired.store(true, Ordering::Release);
-        for worker in self.0.workers.lock().unwrap().drain(..) {
+        let workers = self.0.workers.lock().unwrap().clone();
+        for worker in workers {
             worker.connection.close();
         }
     }
 
-    /// Called only after runtime has granted admission to the authenticated
-    /// control session. The returned guard owns removal and transport teardown.
-    pub(crate) fn attach<S>(
+    fn lease(
         &self,
-        stream: S,
-        backlog: MuxResponseBacklogPolicy,
-    ) -> Result<PortalRegistration, Error>
-    where
-        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
-    {
-        let (registration, driver) = self.prepare_attach(stream, backlog, None)?;
-        tokio::spawn(driver);
-        Ok(registration)
+        worker: &Worker,
+    ) -> Result<ownership::Lease, zero_platform_tokio::contract::ChannelError> {
+        let actual = match self.0.provider.get() {
+            Some(provider) => {
+                let driver = worker
+                    .custody
+                    .driver
+                    .lock()
+                    .unwrap()
+                    .clone()
+                    .ok_or_else(|| {
+                        component::error(
+                            zero_platform_tokio::contract::Stage::Prepare,
+                            zero_platform_tokio::contract::Reason::StalePlan,
+                        )
+                    })?;
+                Some(provider.borrow_driver(&driver)?)
+            }
+            None => None,
+        };
+        Ok(worker.custody.lease(actual))
     }
-
-    pub(crate) fn attach_scoped<S>(
-        &self,
-        stream: S,
-        backlog: MuxResponseBacklogPolicy,
-        caller: &zero_platform_tokio::AcceptedCaller,
-    ) -> Result<PortalRegistration, Error>
-    where
-        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
-    {
-        let (registration, driver) = self.prepare_attach(stream, backlog, Some(caller.clone()))?;
-        caller
-            .spawn(
-                zero_platform_tokio::contract::scope::TaskClass::Auxiliary,
-                move |_| async move {
-                    driver.await;
-                    Ok(())
-                },
-            )
-            .map_err(|_| Error::Io("Rvs original driver registration failed"))?;
-        Ok(registration)
-    }
-
-    fn prepare_attach<S>(
-        &self,
-        stream: S,
-        backlog: MuxResponseBacklogPolicy,
-        caller: Option<zero_platform_tokio::AcceptedCaller>,
-    ) -> Result<(PortalRegistration, zero_transport::pooled_driver::Driver), Error>
-    where
-        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
-    {
-        let mut workers = self.0.workers.lock().unwrap();
+    fn reserve_worker(&self) -> Result<(Arc<Worker>, u16), Error> {
         if self.0.retired.load(Ordering::Acquire) {
             return Err(Error::Io("Rvs portal retired"));
         }
-        workers.retain(|worker| !worker.connection.closed());
-        let (mut connection, driver) =
-            MuxPoolConn::prepare(stream, &[0; 16], u16::MAX as u32, None, backlog, false);
-        connection.inbound_caller = caller;
-        let worker = Arc::new(Worker {
-            connection: Arc::new(connection),
-            draining: AtomicBool::new(false),
-        });
-        let sid = worker
-            .connection
-            .try_reserve_stream_id()
-            .ok_or(Error::Io("Rvs control admission failed"))?;
-        let (_, sender, receiver) = worker.connection.open_udp_stream_with_id(sid, None)?;
-        workers.push(worker.clone());
-        Ok((
-            PortalRegistration {
-                owner: Arc::downgrade(&self.0),
-                worker,
-                sender: Some(sender),
-                receiver: Some(receiver),
-            },
-            driver,
-        ))
-    }
-
-    fn reserve(&self) -> Result<(Arc<MuxPoolConn>, u16), Error> {
         let mut workers = self.0.workers.lock().unwrap();
-        workers.retain(|worker| !worker.connection.closed());
+        workers.retain(|worker| !worker.custody.confirmed());
         // Prefer the least loaded non-draining worker, then allow an existing
         // draining worker while the bridge establishes its replacement.
         for allow_draining in [false, true] {
@@ -122,6 +86,14 @@ impl Portal {
                 .collect();
             candidates.sort_by_key(|worker| worker.connection.active_connections());
             for worker in candidates {
+                if self.0.provider.get().is_some_and(|provider| {
+                    worker
+                        .origin
+                        .as_ref()
+                        .is_none_or(|origin| !provider.contains(origin))
+                }) {
+                    continue;
+                }
                 if worker
                     .connection
                     .inbound_caller
@@ -131,7 +103,7 @@ impl Portal {
                     continue;
                 }
                 if let Some(sid) = worker.connection.try_reserve_stream_id() {
-                    return Ok((worker.connection.clone(), sid));
+                    return Ok(((*worker).clone(), sid));
                 }
             }
         }
@@ -142,7 +114,8 @@ impl Portal {
         &self,
         session: &Session,
     ) -> Result<impl AsyncRead + AsyncWrite + Unpin + Send + 'static, Error> {
-        let (connection, sid) = self.reserve()?;
+        let (worker, sid) = self.reserve_worker()?;
+        let connection = &worker.connection;
         connection.open_tcp_stream_with_origin(
             sid,
             session.port,
@@ -154,7 +127,8 @@ impl Portal {
         &self,
         session: &Session,
     ) -> Result<crate::udp::VlessUdpFlowConnection, Error> {
-        let (connection, sid) = self.reserve()?;
+        let (worker, sid) = self.reserve_worker()?;
+        let connection = &worker.connection;
         let (_, sender, receiver) = connection.open_udp_stream_with_origin(
             sid,
             None,
@@ -168,21 +142,16 @@ impl Portal {
 }
 
 pub struct PortalRegistration {
-    owner: Weak<State>,
     worker: Arc<Worker>,
     sender: Option<tokio::sync::mpsc::UnboundedSender<UdpFlowPacket>>,
     receiver: Option<tokio::sync::mpsc::Receiver<crate::mux_pool::MuxDownlink<UdpFlowPacket>>>,
+    native_control: Option<crate::mux_pool::native::DatagramIo>,
 }
 impl Drop for PortalRegistration {
     fn drop(&mut self) {
         self.worker.connection.close();
-        if let Some(owner) = self.owner.upgrade() {
-            owner
-                .workers
-                .lock()
-                .unwrap()
-                .retain(|worker| !Arc::ptr_eq(worker, &self.worker));
-        }
+        // The persistent portal and original accepted graph retain custody
+        // until actual views and this driver's original join are confirmed.
     }
 }
 impl PortalRegistration {
@@ -211,19 +180,27 @@ impl PortalRegistration {
                 _ = &mut idle => return Err(Error::Io("Rvs portal control idle timeout")),
                 _ = ticker.tick(), if !heartbeat.draining() => {
                     if let Some(control) = heartbeat.tick(self.worker.connection.total_connections()) {
-                        self.send_control(control)?;
+                        self.send_control(control).await?;
                         idle.as_mut().reset(tokio::time::Instant::now() + PORTAL_IDLE_TIMEOUT);
                     }
                     if heartbeat.draining() {
                         self.worker.draining.store(true, Ordering::Release);
                         self.sender.take();
                         self.receiver.take();
+                        self.native_control.take();
                     }
                 }
             }
         }
     }
-    fn send_control(&self, message: Control) -> Result<(), Error> {
+    async fn send_control(&mut self, message: Control) -> Result<(), Error> {
+        if let Some(control) = &mut self.native_control {
+            let payload = message.into_packet();
+            std::future::poll_fn(|cx| control.poll_control(cx, &payload))
+                .await
+                .map_err(|_| Error::Io("Rvs original control send failed"))?;
+            return Ok(());
+        }
         self.sender
             .as_ref()
             .ok_or(Error::Io("Rvs control is closed"))?

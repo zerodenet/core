@@ -26,10 +26,26 @@ struct View(Arc<Shared>);
 struct Control {
     shared: Arc<Shared>,
     original: CarrierOrigin,
+    driver: zero_platform_tokio::contract::scope::TaskJoinWitness,
     done: bool,
 }
 impl PooledStream {
     pub fn into_stream_loan(self) -> Result<StreamLoan, ChannelError> {
+        let (io, control, original) = self.into_controlled_parts()?;
+        Ok(StreamLoan::new(io, control, original))
+    }
+    /// Transfer the same logical controller before protocol framing suspends.
+    /// The donor's real original and driver remain in its installed pool.
+    pub fn into_controlled_parts(
+        self,
+    ) -> Result<
+        (
+            BoxStream,
+            zero_platform_tokio::contract::lifecycle::BoxChannelControl,
+            CarrierOrigin,
+        ),
+        ChannelError,
+    > {
         if self.origin.is_retired() || self.origin.driver().is_none() {
             return Err(super::failure(
                 self.origin.instance(),
@@ -37,15 +53,59 @@ impl PooledStream {
                 zero_platform_tokio::contract::Reason::Revoked,
             ));
         }
+        let driver = self
+            .origin
+            .driver()
+            .expect("checked physical driver")
+            .clone();
+        self.controlled_with_driver(driver)
+    }
+    /// Actual accepted Source driver; its weak original and same-Scope witness
+    /// remain distinct from native close and do not authorize a new listener.
+    pub fn into_stream_loan_from_accepted_driver(
+        self,
+        driver: zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<StreamLoan, ChannelError> {
+        if self.origin.is_retired()
+            || driver.is_joined()
+            || !(self
+                .origin
+                .accepted()
+                .is_some_and(|source| source.scope_identity().same_scope(&driver.scope_identity()))
+                || self.origin.listener().is_some_and(|source| {
+                    source.owner().scope().same_scope(&driver.scope_identity())
+                }))
+        {
+            return Err(super::failure(
+                self.origin.instance(),
+                zero_platform_tokio::contract::Stage::Prepare,
+                zero_platform_tokio::contract::Reason::StalePlan,
+            ));
+        }
+        let (io, control, original) = self.controlled_with_driver(driver)?;
+        Ok(StreamLoan::new(io, control, original))
+    }
+    fn controlled_with_driver(
+        self,
+        driver: zero_platform_tokio::contract::scope::TaskJoinWitness,
+    ) -> Result<
+        (
+            BoxStream,
+            zero_platform_tokio::contract::lifecycle::BoxChannelControl,
+            CarrierOrigin,
+        ),
+        ChannelError,
+    > {
         let shared = Arc::new(Shared {
             io: Mutex::new(Some(self.io)),
             stop: CancellationToken::new(),
         });
-        Ok(StreamLoan::new(
+        Ok((
             Box::pin(View(shared.clone())),
             Box::new(Control {
                 shared,
                 original: self.origin.clone(),
+                driver,
                 done: false,
             })
             .into(),
@@ -143,8 +203,7 @@ impl DynChannelControl for Control {
                 Ok(Err(_)) => {
                     // A dead writer must be settled by the actual donor driver,
                     // never by a fabricated successful shutdown or dropped task.
-                    let driver = self.original.driver().expect("original driver");
-                    tokio::time::timeout_at(deadline, driver.wait())
+                    tokio::time::timeout_at(deadline, self.driver.wait())
                         .await
                         .is_ok()
                 }

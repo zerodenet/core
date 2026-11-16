@@ -8,8 +8,6 @@ mod carrier;
 mod context;
 mod datagram;
 mod snapshot;
-#[cfg(feature = "managed-stream-runtime")]
-pub(crate) mod tuple_flow;
 
 #[cfg(any(
     feature = "upstream-association-runtime",
@@ -20,9 +18,6 @@ pub(crate) use carrier::{
     packet_path_carrier_descriptor, packet_path_carrier_descriptor_from_build,
     PacketPathCarrierDescriptorBuild,
 };
-#[cfg(feature = "upstream-association-runtime")]
-#[allow(unused_imports)]
-pub(crate) use carrier::{packet_path_payload_carrier, PacketPathPayloadTransport};
 #[allow(unused_imports)]
 pub(crate) use carrier::{packet_path_source, PacketPathCarrier, PacketPathCarrierDescriptor};
 #[cfg(feature = "udp-runtime")]

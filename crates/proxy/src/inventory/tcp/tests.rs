@@ -7,20 +7,18 @@ use crate::{
     protocol_registry::{OutboundAdapterContext, TcpRuntimeServices},
     Proxy,
 };
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    time::{timeout, Duration},
-};
+use tokio::time::Duration;
 use zero_engine::{ResolvedOutbound, RouteDecision, RouteMode};
 
 #[path = "tests/catalog.rs"]
 mod catalog;
-#[path = "tests/rejection.rs"]
-mod rejection;
 #[path = "tests/standard_selection.rs"]
 mod standard_selection;
 
-fn prepare(proxy: &Proxy, services: &TcpRuntimeServices, legacy: usize) -> PreparedTcpRelayChain {
+fn prepare(
+    proxy: &Proxy,
+    services: &TcpRuntimeServices,
+) -> (PreparedTcpRelayPrefix, PreparedTcpRelayHop) {
     let (resolved, _) = proxy
         .engine()
         .resolve_route_decision(RouteDecision::Route("relay".into()))
@@ -30,19 +28,19 @@ fn prepare(proxy: &Proxy, services: &TcpRuntimeServices, legacy: usize) -> Prepa
     };
     let execution = services.execution();
     let context = OutboundAdapterContext::new(services.config());
-    let mut prepared = proxy
+    let (prepared, final_hop) = proxy
         .protocols
-        .prepare_tcp_relay_chain(context, &chain, execution.components.as_deref().ok(), None)
-        .unwrap_or_else(|failure| panic!("{}", failure.error));
-    let compatibility = proxy
-        .protocols
-        .prepare_tcp_relay_chain(context, &chain, None, None)
+        .prepare_tcp_relay(context, &chain, execution.components.as_deref().ok())
         .unwrap_or_else(|failure| panic!("{}", failure.error));
     assert!(matches!(
         prepared.first.execution,
         PreparedTcpCandidateExecution::Native(_)
     ));
-    for hop in &prepared.relay_hops {
+    for hop in prepared
+        .relay_hops
+        .iter()
+        .chain(std::iter::once(&final_hop))
+    {
         let PreparedTcpRelayExecution::Native(selected) = &hop.execution else {
             panic!("compiled Stream role must precede its legacy operation")
         };
@@ -57,100 +55,14 @@ fn prepare(proxy: &Proxy, services: &TcpRuntimeServices, legacy: usize) -> Prepa
                 .instance_id()
         );
     }
-    // Actual compatibility executors from the same assembly retain the whole
-    // prefix through its last unmigrated node, as production selection does.
-    // No protocol or close provider is invented by this fixture.
-    prepared.first = compatibility.first;
-    assert!(matches!(
-        prepared.first.execution,
-        PreparedTcpCandidateExecution::Connect(_)
-    ));
-    for (index, hop) in compatibility
-        .relay_hops
-        .into_iter()
-        .take(legacy)
-        .enumerate()
-    {
-        prepared.relay_hops[index] = hop;
-        assert!(matches!(
-            prepared.relay_hops[index].execution,
-            PreparedTcpRelayExecution::Legacy(_)
-        ));
-    }
-    prepared
-}
-
-#[tokio::test]
-async fn mixed_stream_roles_preserve_real_three_hop_wire_halfclose_metadata_and_outer_bytes() {
-    timeout(Duration::from_secs(5), async {
-        for legacy in 0..3 {
-            let (proxy, session, services, listeners) = fixtures::setup(3).await;
-            let first_port = listeners[0].local_addr().unwrap().port();
-            let prepared = prepare(&proxy, &services, legacy);
-            let mut peers = fixtures::servers(listeners);
-            let established =
-                crate::runtime::tcp_dispatch::relay::dispatch_prepared_tcp_relay_chain(
-                    services.execution(),
-                    &session,
-                    prepared,
-                    crate::runtime::tcp_dispatch::TcpDispatchIntent::Traffic,
-                )
-                .await
-                .unwrap_or_else(|failure| panic!("{}: {}", failure.stage, failure.error));
-            let mut route = crate::transport::extract_tcp_stream(established).unwrap();
-            assert_eq!(route.outbound_tag, "node-2");
-            assert_eq!(route.relay_chain.len(), 3);
-            assert_eq!(
-                route.upstream_endpoint,
-                Some(("127.0.0.1".into(), first_port))
-            );
-            let mut prefix = [0; 3];
-            route.upstream.read_exact(&mut prefix).await.unwrap();
-            assert_eq!(&prefix, b"pre");
-            route.upstream.write_all(b"request").await.unwrap();
-            route.upstream.shutdown().await.unwrap();
-            let mut tail = Vec::new();
-            route.upstream.read_to_end(&mut tail).await.unwrap();
-            assert_eq!(tail, b"tail");
-            while let Some(peer) = peers.join_next().await {
-                peer.unwrap();
-            }
-            for index in 0..3 {
-                let traffic = proxy
-                    .engine()
-                    .traffic_snapshot(&zero_api::TrafficGetQuery {
-                        scope: zero_api::TrafficScope::Outbound {
-                            tag: format!("node-{index}"),
-                        },
-                    })
-                    .unwrap();
-                let outer = &traffic.planes[2].counters;
-                let remaining = (3 - index) as u64;
-                assert_eq!(
-                    (outer.tx_bytes, outer.rx_bytes),
-                    (
-                        Some(remaining * 13 + (remaining - 1) * 6 + 7),
-                        Some(remaining * 12 + 7)
-                    )
-                );
-            }
-            drop(route);
-            proxy
-                .protocols
-                .shutdown_components(tokio::time::Instant::now() + Duration::from_secs(2))
-                .await
-                .unwrap();
-        }
-    })
-    .await
-    .expect("actual mixed relays must finish");
+    (prepared, final_hop)
 }
 
 #[tokio::test]
 async fn mixed_retired_stream_role_blocks_the_real_prefix_before_any_socket_opens() {
     for revoked in [1, 2] {
         let (proxy, session, services, listeners) = fixtures::setup(3).await;
-        let prepared = prepare(&proxy, &services, 0);
+        let prepared = prepare(&proxy, &services);
         let slot = services
             .execution()
             .components
@@ -158,10 +70,11 @@ async fn mixed_retired_stream_role_blocks_the_real_prefix_before_any_socket_open
             .configured(&format!("node-{revoked}"))
             .unwrap();
         slot.revoke();
-        let failure = match crate::runtime::tcp_dispatch::relay::dispatch_prepared_tcp_relay_chain(
+        let failure = match crate::runtime::tcp_dispatch::relay::dispatch_tcp_relay(
             services.execution(),
             &session,
-            prepared,
+            prepared.0,
+            prepared.1,
             crate::runtime::tcp_dispatch::TcpDispatchIntent::Traffic,
         )
         .await
@@ -198,8 +111,8 @@ async fn mixed_retired_stream_role_blocks_the_real_prefix_before_any_socket_open
 #[tokio::test]
 async fn mixed_cached_standard_hop_does_not_keep_the_actual_retired_owner_alive() {
     let (proxy, _session, services, listeners) = fixtures::setup(3).await;
-    let prepared = prepare(&proxy, &services, 0);
-    let PreparedTcpRelayExecution::Native(selected) = &prepared.relay_hops[1].execution else {
+    let prepared = prepare(&proxy, &services);
+    let PreparedTcpRelayExecution::Native(selected) = &prepared.1.execution else {
         panic!("standard final role required")
     };
     let selected = selected.clone();

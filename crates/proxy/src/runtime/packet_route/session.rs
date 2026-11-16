@@ -32,6 +32,7 @@ struct RoutePin {
     accepted: bool,
     managed: Option<zero_engine::PacketRouteLease>,
     control: Option<zero_engine::PacketRouteControl>,
+    #[cfg(test)]
     replies: Option<zero_stack::packet_output::PacketSender>,
     standard: Option<standard::StandardRoute>,
 }
@@ -49,6 +50,9 @@ pub(crate) struct PacketSessionPins {
     management_changed: std::sync::Arc<tokio::sync::Notify>,
 }
 
+#[cfg(test)]
+#[path = "session/tests/legacy_reply.rs"]
+mod legacy_reply;
 mod management;
 mod standard;
 
@@ -266,6 +270,7 @@ impl PacketSessionPins {
                 accepted: true,
                 managed: None,
                 control: None,
+                #[cfg(test)]
                 replies: None,
                 standard: None,
             },

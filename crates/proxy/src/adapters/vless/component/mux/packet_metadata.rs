@@ -12,9 +12,11 @@ pub(crate) fn declare_packet_path(
     // Read only the actual prepared owning options. No second claim/leaf,
     // private configuration reparse, CA/File read or new association occurs.
     let (endpoint, associated) = match options {
+        Options::Reverse(_) => return Ok(()),
         Options::Ordinary(options, _) => options.inner_options().packet_path_metadata(),
         Options::Mux(options) => options.packet_path_metadata(),
-        Options::Grpc(options) => options.packet_path_metadata(),
+        Options::Mixed(options, _) => options.inner_options().packet_path_metadata(),
+        Options::Pooled(options) => options.packet_path_metadata(),
         Options::Quic(options) => options.inner.packet_path_metadata(),
         Options::Xhttp(options) => options.inner.packet_path_metadata(),
         // Browser has no accepted relay-prefix executor. Preserve that actual

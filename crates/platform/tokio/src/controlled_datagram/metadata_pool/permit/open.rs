@@ -146,7 +146,8 @@ impl MetadataPoolPermit {
             return Err(error(Reason::StalePlan, "metadata network changed"));
         }
         let mut native = self.0.native()?;
-        if native.attempted
+        if native.wire_closed
+            || native.attempted
             || self.0.closed.get().is_some()
             || self
                 .0

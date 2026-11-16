@@ -3,7 +3,7 @@ mod acquire;
 mod delivery;
 mod diagnostics;
 mod entry;
-mod factory;
+pub(in crate::component) mod factory;
 mod http;
 mod options;
 mod pending;

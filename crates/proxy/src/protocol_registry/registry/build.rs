@@ -6,6 +6,13 @@ use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput, ProtocolSup
 type OutboundLeafClaimFn<T> =
     for<'a> fn(&T, OutboundLeafInput<'a>) -> Option<OutboundLeafClaim<'a>>;
 
+#[cfg(any(feature = "socks5", feature = "shadowsocks"))]
+type PacketPathProjectionFn<T> =
+    fn(
+        &T,
+        &zero_config::OutboundConfig,
+    ) -> Result<Option<super::ColdPacketPathProjection>, zero_engine::EngineError>;
+
 struct ProjectedOutboundClaimer<T> {
     adapter: Arc<T>,
     claim: OutboundLeafClaimFn<T>,
@@ -31,39 +38,6 @@ impl ProtocolRegistry {
     ) where
         T: ProtocolSupportCapability + 'static,
     {
-        self.register_standard_protocol_metadata(adapter, claim, false, false);
-    }
-    #[cfg(feature = "shadowsocks")]
-    pub(crate) fn register_standard_datagram_formatter<T>(
-        &mut self,
-        adapter: Arc<T>,
-        claim: OutboundLeafClaimFn<T>,
-    ) where
-        T: ProtocolSupportCapability + 'static,
-    {
-        self.register_standard_protocol_metadata(adapter, Some(claim), true, true);
-    }
-    #[cfg(feature = "socks5")]
-    pub(crate) fn register_standard_packet_carrier<T>(
-        &mut self,
-        adapter: Arc<T>,
-        claim: OutboundLeafClaimFn<T>,
-    ) where
-        T: ProtocolSupportCapability + 'static,
-    {
-        self.register_standard_protocol_metadata(adapter, Some(claim), false, true);
-    }
-    fn register_standard_protocol_metadata<T>(
-        &mut self,
-        adapter: Arc<T>,
-        claim: Option<OutboundLeafClaimFn<T>>,
-        pure_datagram_formatter: bool,
-        pure_packet_carrier: bool,
-    ) where
-        T: ProtocolSupportCapability + 'static,
-    {
-        #[cfg(not(feature = "udp-runtime"))]
-        let _ = (pure_datagram_formatter, pure_packet_carrier);
         assert!(
             !adapter.has_inbound() || self.inbounds.has_factory(adapter.name()),
             "standard inbound requires its actual component factory"
@@ -71,9 +45,7 @@ impl ProtocolRegistry {
         self.push_registered_entry(super::RegisteredProtocolEntry {
             support: adapter.clone(),
             #[cfg(feature = "udp-runtime")]
-            pure_datagram_formatter,
-            #[cfg(feature = "udp-runtime")]
-            pure_packet_carrier,
+            packet_projection: None,
             outbound: claim.map(|claim| {
                 Arc::new(ProjectedOutboundClaimer {
                     adapter: adapter.clone(),
@@ -81,6 +53,23 @@ impl ProtocolRegistry {
                 }) as Arc<dyn super::OutboundLeafClaimer>
             }),
         });
+    }
+    /// Existing optional cold projection, separate from executable claims.
+    /// Calling it cannot construct TCP/UDP operations or select another pool.
+    #[cfg(any(feature = "socks5", feature = "shadowsocks"))]
+    pub(crate) fn register_standard_packet_carrier<T>(
+        &mut self,
+        adapter: Arc<T>,
+        claim: Option<OutboundLeafClaimFn<T>>,
+        projection: PacketPathProjectionFn<T>,
+    ) where
+        T: ProtocolSupportCapability + 'static,
+    {
+        self.register_standard_protocol(adapter.clone(), claim);
+        self.entries
+            .last_mut()
+            .expect("same registered protocol")
+            .packet_projection = Some(Arc::new(move |input| projection(adapter.as_ref(), input)));
     }
     #[cfg(test)]
     pub(crate) fn without_outbound_projection(mut self, protocol: &str) -> Self {

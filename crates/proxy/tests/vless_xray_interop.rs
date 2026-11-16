@@ -424,7 +424,9 @@ async fn xray_xudp_reattaches_zero_dispatch_after_carrier_reset() {
     let zero_vless_port = free_port();
     let reset_proxy_port = free_port();
     let xray_socks_port = free_port();
-    let echo_port = free_udp_port();
+    // Retain the actual bound UDP original until its worker takes ownership.
+    let echo_socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let echo_port = echo_socket.local_addr().unwrap().port();
     let payloads: [&[u8]; 2] = [b"xudp-before-carrier-reset", b"xudp-after-carrier-reset"];
     let packets = [(echo_port, payloads[0]), (echo_port, payloads[1])];
 
@@ -444,7 +446,21 @@ async fn xray_xudp_reattaches_zero_dispatch_after_carrier_reset() {
     let mut xray = XrayProcess::start(xray_bin, &xray_config, &material);
     wait_for_listener(xray_socks_port).await;
 
-    let echo = spawn_udp_echo_count(echo_port, payloads.len()).await;
+    let echo = tokio::spawn(async move {
+        let mut bytes = [0; 65535];
+        let mut original_source = None;
+        for _ in 0..payloads.len() {
+            let (size, source) = echo_socket.recv_from(&mut bytes).await.unwrap();
+            if let Some(original) = original_source {
+                assert_eq!(
+                    source, original,
+                    "XUDP reattachment keeps the actual Direct UDP original/source port"
+                );
+            }
+            original_source = Some(source);
+            echo_socket.send_to(&bytes[..size], source).await.unwrap();
+        }
+    });
     let mut first_session_id = None;
     let echoed = timeout(
         Duration::from_secs(15),

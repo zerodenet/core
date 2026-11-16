@@ -2,7 +2,7 @@
 use super::*;
 
 #[tokio::test]
-async fn mixed_factory_only_stream_suffix_needs_no_tcp_claim_and_keeps_the_legacy_pool_prefix() {
+async fn factory_only_stream_suffix_keeps_qualified_native_pools_with_unrelated_mkcp_aliases() {
     let mut listeners = Vec::new();
     for _ in 0..3 {
         listeners.push(tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap());
@@ -22,10 +22,10 @@ async fn mixed_factory_only_stream_suffix_needs_no_tcp_claim_and_keeps_the_legac
                 {"tag":"first","protocol":{"type":"socks5","server":"127.0.0.1","port":ports[0]}},
                 {"tag":"pooled","protocol":{"type":"mieru","server":"127.0.0.1","port":ports[1],"username":"test-user","password":"test-password"}},
                 {"tag":"last","protocol":{"type":"socks5","server":"127.0.0.1","port":ports[2]}},
-                {"tag":"unmigrated","protocol":{"type":"vless","server":"127.0.0.1","port":ports[0],"id":"11111111-2222-3333-4444-555555555555","http_upgrade":{"path":"/transport"}}}
+                {"tag":"unmigrated","protocol":{"type":"vless","server":"127.0.0.1","port":ports[0],"id":"11111111-2222-3333-4444-555555555555","mkcp":{}}}
             ],
             "outbound_groups":[
-                {"tag":"relay","type":"relay","proxies":members},
+                {"tag":"relay","type":"relay","proxies":members.clone()},
                 {"tag":"unmigrated-relay","type":"relay","proxies":["unmigrated","pooled"]}
             ],
             "route":{"final":{"type":"route","outbound":"relay"}}
@@ -67,47 +67,32 @@ async fn mixed_factory_only_stream_suffix_needs_no_tcp_claim_and_keeps_the_legac
                 .as_ref()
                 .unwrap()
                 .configured("pooled")
-                .is_none(),
-            "the same pool retains its complete legacy executor while a real HTTP-upgrade prefix remains unmigrated"
+                .is_some(),
+            "an unrelated alias cannot demote the adapter's actual pool"
         );
         let (resolved, _) = proxy
             .engine()
             .resolve_route_decision(RouteDecision::Route("relay".into()))
             .unwrap();
-        let PreparedTcpOutbound::Relay(prepared) = services
+        let PreparedTcpOutbound::NativeRelay(selected) = services
             .prepare_tcp_outbound(&resolved, RouteMode::Flow)
             .unwrap_or_else(|failure| panic!("{}", failure.error))
         else {
-            panic!("actual mixed relay required")
+            panic!("actual standard chain required");
         };
-        assert!(matches!(
-            prepared.first.execution,
-            PreparedTcpCandidateExecution::Connect(_)
-        ));
-        if retain_prefix {
-            assert!(
-                matches!(
-                    prepared.relay_hops[0].execution,
-                    PreparedTcpRelayExecution::Legacy(_)
-                ),
-                "legacy pool retains its entire existing carrier prefix"
+        assert_eq!(selected.nodes.len(), members.len());
+        for node in &selected.nodes {
+            assert_eq!(
+                node.slot.instance(),
+                execution
+                    .components
+                    .as_ref()
+                    .unwrap()
+                    .configured(&node.tag)
+                    .unwrap()
+                    .instance_id()
             );
         }
-        let PreparedTcpRelayExecution::Native(selected) =
-            &prepared.relay_hops.last().unwrap().execution
-        else {
-            panic!("factory-only final Stream fell back to a legacy TCP claim")
-        };
-        assert_eq!(
-            selected.instance(),
-            execution
-                .components
-                .as_ref()
-                .unwrap()
-                .configured("last")
-                .unwrap()
-                .instance_id()
-        );
         for listener in &listeners {
             let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
             assert!(

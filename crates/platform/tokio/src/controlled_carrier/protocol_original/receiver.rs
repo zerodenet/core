@@ -135,6 +135,10 @@ pub struct ProtocolReceiverPrepared {
 }
 enum Publication {
     Phase(std::sync::Weak<crate::original_protocol::Phase>),
+    MetadataContinuation {
+        phase: std::sync::Weak<crate::original_protocol::Phase>,
+        previous: ProtocolOriginalReceiver,
+    },
     Accepted {
         original: crate::controlled_listener::accepted::AcceptedTcpCarrierOrigin,
         proof: crate::controlled_carrier::AcceptedLoanReceiver,
@@ -153,6 +157,17 @@ impl ProtocolReceiverPrepared {
     pub fn confirm(self) -> Result<ProtocolOriginalReceiver, ChannelError> {
         let phase = match self.publication {
             Publication::Phase(phase) => phase,
+            Publication::MetadataContinuation { phase, previous } => {
+                let phase = phase.upgrade().ok_or_else(|| {
+                    ChannelError::new(
+                        crate::contract::Stage::Prepare,
+                        crate::contract::Reason::Revoked,
+                        crate::contract::Impact::Component,
+                    )
+                })?;
+                phase.advance_metadata_receiver(&previous, self.receiver.clone())?;
+                return Ok(self.receiver);
+            }
             Publication::Accepted { original, proof } => {
                 original.install_receiver(proof)?;
                 return Ok(self.receiver);
@@ -264,5 +279,29 @@ impl CarrierAdoption {
         }
         let receiver = ProtocolOriginalReceiver::carrier(keeper.clone(), keeper.driver().clone());
         Ok(ProtocolReceiverPrepared::new(&phase, receiver))
+    }
+}
+
+impl ProtocolOriginalReceiver {
+    pub(crate) fn same_metadata_handoff(&self, other: &Self) -> bool {
+        matches!((&self.original, &other.original), (Receiver::Metadata(a), Receiver::Metadata(b)) if a.same_handoff(b))
+    }
+    pub(crate) fn continues_metadata(&self, previous: &Self) -> bool {
+        matches!((&self.original, &previous.original), (Receiver::Metadata(a), Receiver::Metadata(b)) if a.continues(b))
+    }
+}
+impl ProtocolReceiverPrepared {
+    pub(crate) fn metadata_continuation(
+        phase: &Arc<crate::original_protocol::Phase>,
+        previous: ProtocolOriginalReceiver,
+        receiver: ProtocolOriginalReceiver,
+    ) -> Self {
+        Self {
+            publication: Publication::MetadataContinuation {
+                phase: Arc::downgrade(phase),
+                previous,
+            },
+            receiver,
+        }
     }
 }

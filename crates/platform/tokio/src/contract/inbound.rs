@@ -69,12 +69,14 @@ impl<T: InboundHandshake> DynHandshake for Handshake<T> {
     }
 }
 
-/// Owns the unhanded connection. Dropping it closes that connection.
+/// Owns the unhanded connection or continuation. Drop returns custody and may
+/// request stop; the original owner still needs actual native/Scope receipts.
 pub struct PendingInbound {
     handshake: Box<dyn DynHandshake>,
     admission: Option<TcpAdmission>,
     peer: Option<udp::DatagramPeerAdmission>,
     carrier: Option<super::context::InboundConnectionFacts>,
+    stream_carrier: Option<crate::controlled_carrier::CarrierOrigin>,
     packet: Option<crate::controlled_datagram::listener::DatagramListenerIdentity>,
     device: Option<super::component::PacketDeviceIdentity>,
 }
@@ -85,6 +87,7 @@ impl PendingInbound {
             admission: None,
             peer: None,
             carrier: None,
+            stream_carrier: None,
             packet: None,
             device: None,
         }
@@ -116,6 +119,18 @@ impl PendingInbound {
         &self,
     ) -> Option<&crate::controlled_datagram::listener::DatagramListenerIdentity> {
         self.packet.as_ref()
+    }
+    /// The actual logical Stream loan supplied by the selected standard role.
+    /// This observes sealed lineage only; it grants neither native IO nor close.
+    pub fn with_stream_carrier(
+        mut self,
+        original: crate::controlled_carrier::CarrierOrigin,
+    ) -> Self {
+        self.stream_carrier = Some(original);
+        self
+    }
+    pub fn stream_carrier(&self) -> Option<&crate::controlled_carrier::CarrierOrigin> {
+        self.stream_carrier.as_ref()
     }
     pub fn complete(
         self,

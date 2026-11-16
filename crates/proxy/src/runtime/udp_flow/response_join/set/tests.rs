@@ -19,7 +19,7 @@ async fn pending(future: impl Future) {
 #[tokio::test]
 async fn actual_receiver_set_survives_cancelled_cleanup_and_lease_drop_until_the_same_join_consumer(
 ) {
-    let (owner, mut lease) = ResponseSetOwner::new(JoinSet::new());
+    let (owner, mut lease) = ResponseSetOwner::new();
     let record = ResponseTask::new();
     let (_sender, receiver) = oneshot::channel::<Packet>();
     let (entered, receiving) = oneshot::channel();
@@ -40,13 +40,13 @@ async fn actual_receiver_set_survives_cancelled_cleanup_and_lease_drop_until_the
     assert!(closed.matches(&owner));
     assert_eq!(closed.joined_tasks(), 1);
     assert!(record.wait_joined().await.failure().is_some());
-    let (foreign, _lease) = ResponseSetOwner::new(JoinSet::new());
+    let (foreign, _lease) = ResponseSetOwner::new();
     assert!(!closed.matches(&foreign));
     assert!(owner.shutdown(deadline()).await.unwrap().matches(&owner));
 }
 #[tokio::test]
 async fn delivered_body_failure_is_the_original_arc_and_does_not_erase_actual_join_closure() {
-    let (owner, mut lease) = ResponseSetOwner::new(JoinSet::new());
+    let (owner, mut lease) = ResponseSetOwner::new();
     let record = ResponseTask::new();
     owner.evidence.spawn(&mut lease, &record, async {
         Err(EngineError::Io(std::io::Error::from_raw_os_error(10013)))
@@ -93,7 +93,7 @@ impl Drop for CallerWaker {
 }
 #[tokio::test]
 async fn cancelled_native_join_wait_removes_the_strong_caller_waker_before_native_set_shutdown() {
-    let (owner, mut lease) = ResponseSetOwner::new(JoinSet::new());
+    let (owner, mut lease) = ResponseSetOwner::new();
     lease.spawn(std::future::pending());
     let dropped = Arc::new(AtomicBool::new(false));
     let callback = Arc::new(CallerWaker {
@@ -118,7 +118,7 @@ async fn cancelled_native_join_wait_removes_the_strong_caller_waker_before_nativ
 
 #[tokio::test]
 async fn first_ordinary_body_error_does_not_mask_a_later_original_fatal_panic() {
-    let (owner, mut lease) = ResponseSetOwner::new(JoinSet::new());
+    let (owner, mut lease) = ResponseSetOwner::new();
     lease.spawn(async { Err(EngineError::Io(std::io::Error::from_raw_os_error(10013))) });
     let body = lease
         .join_next_with_id()
@@ -142,7 +142,7 @@ async fn first_ordinary_body_error_does_not_mask_a_later_original_fatal_panic() 
 }
 #[tokio::test]
 async fn expected_revoke_keeps_actual_cancel_source_but_unexpected_cancel_is_fatal() {
-    let (owner, mut lease) = ResponseSetOwner::new(JoinSet::new());
+    let (owner, mut lease) = ResponseSetOwner::new();
     lease.spawn(std::future::pending());
     owner.revoke();
     let expected = lease.join_next_with_id().await.unwrap().unwrap_err();
@@ -150,7 +150,7 @@ async fn expected_revoke_keeps_actual_cancel_source_but_unexpected_cancel_is_fat
     assert!(owner.first_fatal_failure().is_none());
     drop(lease);
     assert!(owner.shutdown(deadline()).await.unwrap().matches(&owner));
-    let (owner, mut lease) = ResponseSetOwner::new(JoinSet::new());
+    let (owner, mut lease) = ResponseSetOwner::new();
     lease.spawn(std::future::pending());
     lease.abort_all(); // original task was aborted outside owner/record revoke
     let unexpected = lease.join_next_with_id().await.unwrap().unwrap_err();

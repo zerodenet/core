@@ -1,25 +1,14 @@
 //! Prepared TCP operation contracts plus focused executor modules.
 //!
-//! The root stays as a facade so direct, socket, and transport-leaf
+//! The root stays as a facade so direct and socket
 //! execution do not regrow into one large implementation bucket.
 
 mod contract;
-mod direct;
 #[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]
 mod socket;
-#[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]
-mod transport;
 
 pub(crate) use contract::{
     LazyTcpRelayCarrier, PreparedTcpConnectOperation, PreparedTcpRelayOperation,
 };
-pub(crate) use direct::DirectTcpConnectOperation;
 #[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]
 pub(crate) use socket::{SocketTcpHandshake, SocketTcpOperation};
-#[cfg(any(feature = "tcp-tunnel-runtime", feature = "tcp-session-runtime"))]
-pub(crate) use transport::TransportLeafTcpOperation;
-
-#[cfg(feature = "managed-stream-runtime")]
-mod logical;
-#[cfg(feature = "managed-stream-runtime")]
-pub(crate) use logical::LogicalTcpConnectOperation;

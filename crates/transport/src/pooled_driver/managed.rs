@@ -34,7 +34,9 @@ pub struct ManagedPool {
     pub(super) records: Mutex<Vec<Arc<Physical>>>,
     pub(super) changed: Notify,
     pub(super) connecting: tokio::sync::Mutex<()>,
-    pub(super) epoch: Mutex<Option<super::epoch::Epoch>>,
+    pub(super) openings:
+        Mutex<std::collections::HashMap<UpstreamBinding, std::sync::Weak<tokio::sync::Mutex<()>>>>,
+    pub(super) epoch: Mutex<super::epoch::EpochState>,
     pub(super) settled: Mutex<zero_platform_tokio::contract::lifecycle::CloseReport>,
     pub(super) operations: AtomicUsize,
 }
@@ -69,12 +71,6 @@ impl ManagedPool {
     /// nor authority; acquisition still validates and adopts the strong owner.
     pub fn stream_dependency(&self) -> Option<ComponentInstanceId> {
         self.stream_dependency
-    }
-    pub async fn serialize(&self) -> Result<tokio::sync::MutexGuard<'_, ()>, crate::RuntimeError> {
-        tokio::select! { biased;
-            _ = self.cancel.cancelled() => Err(std::io::Error::other(failure(self.instance, Stage::Prepare, Reason::Revoked)).into()),
-            result = tokio::time::timeout(self.options.open_budget, self.connecting.lock()) => result.map_err(|source| std::io::Error::new(std::io::ErrorKind::TimedOut, source).into()),
-        }
     }
     pub(super) fn ready(&self) -> bool {
         self.ready.load(Ordering::Acquire)
@@ -160,29 +156,9 @@ impl ManagedPool {
         let prepare = Arc::new(Mutex::new(Some(prepare)));
         loop {
             self.reap_ready().map_err(std::io::Error::other)?;
-            if self.records.lock().unwrap().len() >= self.options.limit.get() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::WouldBlock,
-                    "live or retiring carrier pool is full",
-                )
-                .into());
-            }
-            let mut grant = self.grants.reserve().map_err(std::io::Error::other)?;
-            let view = if self.options.preparation_jobs {
-                grant.claim_preparing_driver_view().map(|(view, _)| view)
-            } else {
-                grant.claim_driver_view()
-            }
-            .map_err(std::io::Error::other)?;
-            let record = Physical::new(
-                grant.adoption(),
-                grant.cancellation(),
-                view,
-                self,
-                binding.clone(),
-            )
-            .map_err(std::io::Error::other)?;
-            self.records.lock().unwrap().push(record.clone());
+            let (grant, record) = self
+                .install_original(binding, self.options.preparation_jobs)
+                .map_err(std::io::Error::other)?;
             let opening = Opening(record.clone());
             let waiting = waiting
                 .clone()

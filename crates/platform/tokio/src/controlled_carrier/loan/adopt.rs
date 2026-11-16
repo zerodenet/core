@@ -67,6 +67,7 @@ impl CarrierGrant {
         crate::controlled_carrier::users::acquired(&self.slot);
         self.transferred = true;
         let io = CarrierIo {
+            bypass: loan.io.transport_bypass_control(),
             io: Some(Box::pin(loan.io)),
             slot: self.slot.clone(),
         };

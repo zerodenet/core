@@ -78,6 +78,12 @@ pub enum DeviceOwnership {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResourceDeclaration {
+    /// Finite logical carriers from actual accepted Sources in this same Host.
+    /// Native acquisition/close and accepted driver ACK remain with those Sources.
+    AcceptedCarrierSources {
+        max_sources: NonZeroUsize,
+    },
+
     /// Host-owned service targets, restricted to these protocol-prepared endpoints.
     /// Originals and driver joins remain in the actual accepted resource graph.
     InboundTargets {
@@ -1057,6 +1063,10 @@ impl BuildContext {
 
 #[derive(Default)]
 pub struct ComponentRoles {
+    /// Actual accepted Source custody, published with real executable roles.
+    /// This issues no native grant; the Slot binds the same Host Root before start.
+    pub accepted_carriers: Option<Arc<crate::controlled_carrier::AcceptedCarrierProvider>>,
+
     pub stream: Option<Arc<dyn DynStreamOutbound>>,
     pub datagram: Option<Arc<dyn DynDatagramOutbound>>,
     pub packet: Option<Arc<dyn DynPacketOutbound>>,

@@ -8,7 +8,6 @@ pub(crate) mod inbound;
 mod inbound_state;
 pub(crate) mod lifecycle;
 mod observation;
-mod packet;
 mod source_dependencies;
 mod udp;
 
@@ -28,8 +27,6 @@ use zero_traits::{
 };
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput};
-use crate::runtime::path::TcpPathCategory;
 use crate::runtime::raw_ip::RawIpDevicePool;
 
 type InboundDeviceKey = (String, [u8; 32]);
@@ -47,11 +44,11 @@ pub(crate) struct WireguardAdapter {
     inbound_devices: Mutex<InboundDeviceMap>,
     linked_endpoints: Arc<Mutex<LinkedEndpointMap>>,
     pending_endpoints: PendingEndpointMap,
+    cold_graphs: Mutex<Option<lifecycle::ColdGraphs>>,
 }
 
 struct CachedProfile {
     graph: Option<std::sync::Weak<lifecycle::StandaloneStackOptions>>,
-    packet: crate::runtime::packet_route::PacketRouteOperations,
     identity: [u8; 32],
     device_identity: [u8; 32],
     plan: Arc<udp::WireguardRawIpPlan>,
@@ -196,43 +193,6 @@ impl WireguardAdapter {
             self.pending_endpoints.clone(),
             limits,
         )?)
-    }
-
-    pub(crate) fn claim_outbound_leaf_impl<'a>(
-        &self,
-        input: OutboundLeafInput<'a>,
-    ) -> Option<OutboundLeafClaim<'a>> {
-        let OutboundLeafInput::Virtual { outbound } = input else {
-            return None;
-        };
-        if !matches!(outbound.protocol, OutboundProtocolConfig::Wireguard { .. }) {
-            return None;
-        }
-        let identity = protocol_identity(&outbound.protocol)?;
-        let packet = self
-            .profiles
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&outbound.tag)
-            .filter(|cached| cached.identity == identity)
-            .map(|cached| cached.packet.clone());
-        let packet = match packet {
-            Some(packet) => packet,
-            None => {
-                let plan =
-                    Arc::new(udp::WireguardRawIpPlan::from_protocol(&outbound.protocol).ok()?);
-                self.packet_operations(&outbound.tag, identity, plan)
-            }
-        };
-        Some(OutboundLeafClaim {
-            tcp_path: TcpPathCategory::Session,
-            tcp: None,
-            tcp_relay: None,
-            udp: None,
-            udp_relay: None,
-            packet: Some(packet),
-            packet_path: None,
-        })
     }
 }
 

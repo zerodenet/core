@@ -195,14 +195,14 @@ impl Drop for Restore {
         drop(old);
     }
 }
-pub(super) struct Boundary<O> {
-    future: Pin<Box<dyn Future<Output = O> + Send>>,
+pub(super) struct Boundary<'a, O> {
+    future: Pin<Box<dyn Future<Output = O> + Send + 'a>>,
     broker: Arc<Broker>,
     slot: Arc<Mutex<Option<Payload>>>,
 }
-impl<O> Boundary<O> {
+impl<'a, O> Boundary<'a, O> {
     pub(super) fn new(
-        future: Pin<Box<dyn Future<Output = O> + Send>>,
+        future: Pin<Box<dyn Future<Output = O> + Send + 'a>>,
         broker: Arc<Broker>,
     ) -> Self {
         Self {
@@ -212,7 +212,7 @@ impl<O> Boundary<O> {
         }
     }
 }
-impl<O> Future for Boundary<O> {
+impl<O> Future for Boundary<'_, O> {
     type Output = O;
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();

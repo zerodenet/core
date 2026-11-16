@@ -65,25 +65,3 @@ impl OwnedEndpointOwner {
             .prepare_protocol_receiver(keeper, id, retirement)
     }
 }
-
-impl OwnedEndpointOwner {
-    pub fn new_packet_endpoint(
-        socket: super::super::packet::PacketSocket,
-        segment: &mut super::super::packet::PacketSegment,
-        registrar: TaskRegistrar,
-        limits: OwnedEndpointLimits,
-    ) -> Result<(Self, DriverExitReceiver), ChannelError> {
-        let (graph, receiver) = segment.take_endpoint_users(&socket, &registrar, limits)?;
-        let drivers = QuinnDriverOwner::from_ledger(graph.drivers().clone());
-        let users = graph.users().clone();
-        let (owner, receiver) = Self::construct_users(
-            Native::Packet(socket),
-            drivers,
-            users,
-            receiver,
-            Some(graph),
-        );
-        owner.bind_packet_segment(segment)?;
-        Ok((owner, receiver))
-    }
-}

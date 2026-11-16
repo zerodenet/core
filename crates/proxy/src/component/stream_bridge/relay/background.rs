@@ -24,7 +24,7 @@ impl BackgroundPath<'_> {
         services: &TcpExecutionServices,
         waiting: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
     ) -> Result<UpstreamTransport, ChannelError> {
-        self.select_observed_with_identity(services, waiting, None)
+        self.select_observed_with_identity(services, waiting, None, true)
             .await
     }
     pub(crate) async fn select_observed_with_identity(
@@ -32,6 +32,7 @@ impl BackgroundPath<'_> {
         services: &TcpExecutionServices,
         waiting: Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
         identity: Option<RequestIdentity>,
+        record_health: bool,
     ) -> Result<UpstreamTransport, ChannelError> {
         if identity
             .as_ref()
@@ -121,13 +122,13 @@ impl BackgroundPath<'_> {
             }
         };
         for (index, node) in nodes.iter().enumerate() {
-            if index != 0 && node.slot.recipe.spec().resources.iter().any(|resource| matches!(resource,
+            if index != 0 && (services.components.as_ref().is_ok_and(|plan| plan.has_stream_loan_provider(node.slot.role_id())) || node.slot.recipe.spec().resources.iter().any(|resource| matches!(resource,
                 zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { .. }
                 | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool { .. }
                 | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeCarrier { .. }
                 | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeStream { .. }
                 | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledServiceStream { .. }
-                | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier { .. })) {
+                | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier { .. }))) {
                 services
                     .components
                     .as_ref()
@@ -204,7 +205,7 @@ impl BackgroundPath<'_> {
                 },
             )?;
             opener.service_identity = identity.clone();
-            opener.health = (index == 0).then(|| {
+            opener.health = (index == 0 && record_health).then(|| {
                 FirstHopHealth::new(
                     services.engine(),
                     &services.snapshot_handle(),

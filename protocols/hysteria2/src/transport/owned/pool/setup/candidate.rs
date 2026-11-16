@@ -12,7 +12,10 @@ impl Generation {
         if state.candidates.is_none() {
             let mut resolve = candidate.call;
             resolve.deadline = None;
-            resolve.cancel = entry.cancel.clone();
+            resolve.cancel = state
+                .original_stop
+                .clone()
+                .unwrap_or_else(|| entry.cancel.clone());
             let candidates = tokio::time::timeout_at(
                 end,
                 candidate

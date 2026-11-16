@@ -1,32 +1,23 @@
 use std::collections::HashMap;
-use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
-use tokio::sync::{mpsc, oneshot, watch};
-use zero_platform_tokio::TcpRelayStream;
 use zero_transport::RuntimeError;
 
-const CONNECTION_LIFETIME: Duration = Duration::from_secs(2 * 60);
-const REPLENISH_DELAY: Duration = Duration::from_millis(200);
-
-struct ReadyConnection {
-    stream: TcpRelayStream,
-    expires_at: tokio::time::Instant,
-    _taken: oneshot::Sender<()>,
-}
+mod library;
+use library::Library;
 
 struct Pool {
+    control: zero_transport::pooled_driver::PoolControl,
+    #[cfg(feature = "reality")]
+    native: Mutex<std::sync::Weak<crate::component::preconnect::Native>>,
     capacity: usize,
-    started: AtomicBool,
-    ready_tx: mpsc::Sender<ReadyConnection>,
-    ready_rx: tokio::sync::Mutex<mpsc::Receiver<ReadyConnection>>,
-    cancelled: watch::Sender<bool>,
+    retired: AtomicBool,
+    library: Mutex<Option<Arc<Library>>>,
 }
 
 #[derive(Clone)]
-pub(in crate::transport) struct Access(Arc<Pool>);
+pub struct Access(Arc<Pool>);
 
 impl std::fmt::Debug for Access {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -42,6 +33,7 @@ type PoolKey = (String, [u8; 32], u32);
 #[derive(Default)]
 struct State {
     pools: Mutex<HashMap<PoolKey, Arc<Pool>>>,
+    control: zero_transport::pooled_driver::PoolControl,
 }
 
 #[derive(Clone, Default)]
@@ -73,14 +65,13 @@ impl Registry {
         if let Some(pool) = pools.get(&key) {
             return Some(Access(pool.clone()));
         }
-        let (ready_tx, ready_rx) = mpsc::channel(capacity);
-        let (cancelled, _) = watch::channel(false);
         let pool = Arc::new(Pool {
+            #[cfg(feature = "reality")]
+            native: Mutex::new(std::sync::Weak::new()),
+            control: self.0.control.scoped(format!("{key:?}").into()),
             capacity,
-            started: AtomicBool::new(false),
-            ready_tx,
-            ready_rx: tokio::sync::Mutex::new(ready_rx),
-            cancelled,
+            retired: false.into(),
+            library: Mutex::new(None),
         });
         pools.insert(key, pool.clone());
         Some(Access(pool))
@@ -94,9 +85,17 @@ impl Registry {
 impl State {
     fn retire(&self) {
         let mut pools = self.pools.lock().unwrap_or_else(|error| error.into_inner());
-        for (_, pool) in pools.drain() {
+        pools.retain(|_, pool| {
+            if pool
+                .control
+                .refresh()
+                .is_ok_and(|control| control.has_host_owner())
+            {
+                return true;
+            }
             pool.retire();
-        }
+            false
+        });
     }
 }
 
@@ -107,162 +106,99 @@ impl Drop for State {
             .get_mut()
             .unwrap_or_else(|error| error.into_inner());
         for (_, pool) in pools.drain() {
-            pool.retire();
+            if !pool
+                .control
+                .refresh()
+                .is_ok_and(|control| control.has_host_owner())
+            {
+                pool.retire();
+            }
         }
     }
 }
 
 impl Access {
-    pub(in crate::transport) async fn take<Open, OpenFuture>(
+    #[cfg(feature = "reality")]
+    pub(crate) fn install_native(
         &self,
-        open: Open,
-    ) -> Result<TcpRelayStream, RuntimeError>
-    where
-        Open: Clone + Fn() -> OpenFuture + Send + Sync + 'static,
-        OpenFuture: Future<Output = Result<TcpRelayStream, RuntimeError>> + Send + 'static,
-    {
-        if *self.0.cancelled.borrow() {
-            return Err(retired_error());
+        native: &Arc<crate::component::preconnect::Native>,
+    ) -> Result<(), RuntimeError> {
+        let mut installed = self.0.native.lock().unwrap();
+        if self.0.retired.load(Ordering::Acquire) {
+            return Err(std::io::Error::other("preconnect entry retired before start").into());
         }
-        self.0.start(open);
-        let mut cancelled = self.0.cancelled.subscribe();
-        if *cancelled.borrow() {
-            return Err(retired_error());
+        *installed = Arc::downgrade(native);
+        Ok(())
+    }
+    #[cfg(feature = "reality")]
+    pub(crate) fn native(
+        &self,
+        expected: zero_core::component::ComponentInstanceId,
+    ) -> Result<Arc<crate::component::preconnect::Native>, RuntimeError> {
+        if self.0.retired.load(Ordering::Acquire) {
+            return Err(std::io::Error::other("preconnect entry retired").into());
         }
-        let mut ready = tokio::select! {
-            guard = self.0.ready_rx.lock() => guard,
-            _ = cancelled.changed() => return Err(retired_error()),
-        };
-        loop {
-            if *cancelled.borrow() {
-                ready.close();
-                while ready.try_recv().is_ok() {}
-                return Err(retired_error());
-            }
-            let connection = tokio::select! {
-                connection = ready.recv() => connection,
-                _ = cancelled.changed() => {
-                    ready.close();
-                    while ready.try_recv().is_ok() {}
-                    return Err(retired_error());
-                }
-            };
-            let Some(connection) = connection else {
-                return Err(retired_error());
-            };
-            if tokio::time::Instant::now() < connection.expires_at {
-                return Ok(connection.stream);
-            }
-        }
+        let owner = self.0.control.refresh()?.managed()?;
+        let native = self
+            .0
+            .native
+            .lock()
+            .unwrap()
+            .upgrade()
+            .filter(|native| native.instance() == expected && owner.instance() == expected)
+            .ok_or_else(|| std::io::Error::other("preconnect original generation unavailable"))?;
+        Ok(native)
+    }
+    #[cfg(feature = "reality")]
+    pub(crate) fn control(&self) -> &zero_transport::pooled_driver::PoolControl {
+        &self.0.control
+    }
+    #[cfg(feature = "reality")]
+    pub(crate) fn capacity(&self) -> usize {
+        self.0.capacity
     }
 }
 
 impl Pool {
-    fn start<Open, OpenFuture>(&self, open: Open)
-    where
-        Open: Clone + Fn() -> OpenFuture + Send + Sync + 'static,
-        OpenFuture: Future<Output = Result<TcpRelayStream, RuntimeError>> + Send + 'static,
-    {
-        if *self.cancelled.borrow() {
-            return;
+    fn library(&self) -> Result<Arc<Library>, RuntimeError> {
+        if self.retired.load(Ordering::Acquire) {
+            return Err(std::io::Error::other("preconnect entry retired").into());
         }
-        if self
-            .started
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return;
+        // A previous native key becomes cold only after PoolFactory consumed
+        // its matching original/users/Scope receipts. A stale control cannot
+        // bypass that census, and unconfirmed owners remain Owned.
+        self.control.refresh()?.enter_legacy()?;
+        let mut library = self.library.lock().unwrap();
+        if self.retired.load(Ordering::Acquire) {
+            return Err(std::io::Error::other("preconnect entry retired").into());
         }
-        for _ in 0..self.capacity {
-            if *self.cancelled.borrow() {
-                return;
-            }
-            let ready = self.ready_tx.clone();
-            let mut cancelled = self.cancelled.subscribe();
-            let open = open.clone();
-            tokio::spawn(async move {
-                if *cancelled.borrow() {
-                    return;
-                }
-                loop {
-                    if *cancelled.borrow() {
-                        break;
-                    }
-                    let permit = tokio::select! {
-                        permit = ready.reserve() => match permit {
-                            Ok(permit) => permit,
-                            Err(_) => break,
-                        },
-                        _ = cancelled.changed() => break,
-                    };
-                    if *cancelled.borrow() {
-                        drop(permit);
-                        break;
-                    }
-                    let stream = tokio::select! {
-                        result = open() => result,
-                        _ = cancelled.changed() => break,
-                    };
-                    match stream {
-                        Ok(stream) => {
-                            if *cancelled.borrow() {
-                                drop(permit);
-                                break;
-                            }
-                            let (taken, receipt) = oneshot::channel();
-                            permit.send(ReadyConnection {
-                                stream,
-                                expires_at: tokio::time::Instant::now() + CONNECTION_LIFETIME,
-                                _taken: taken,
-                            });
-                            // Match the reference's unbuffered handoff: the
-                            // replenish delay begins when a caller takes or
-                            // discards this connection, not when it is queued.
-                            tokio::select! {
-                                _ = receipt => {}
-                                _ = cancelled.changed() => break,
-                            }
-                            tokio::select! {
-                                _ = tokio::time::sleep(REPLENISH_DELAY) => {}
-                                _ = cancelled.changed() => break,
-                            }
-                        }
-                        Err(error) => {
-                            drop(permit);
-                            tracing::warn!(error = %error, "VLESS pre-connect failed");
-                            tokio::task::yield_now().await;
-                        }
-                    }
-                }
-            });
-        }
+        Ok(library
+            .get_or_insert_with(|| Arc::new(Library::new(self.capacity)))
+            .clone())
     }
-
     fn retire(&self) {
-        self.cancelled.send_replace(true);
-        if let Ok(mut ready) = self.ready_rx.try_lock() {
-            ready.close();
-            while ready.try_recv().is_ok() {}
+        self.retired.store(true, Ordering::Release);
+        #[cfg(feature = "reality")]
+        if let Some(native) = self.native.lock().unwrap().upgrade() {
+            native.stop();
+        }
+        if let Some(library) = self.library.lock().unwrap().as_ref() {
+            library.retire();
         }
     }
 }
-
 impl Drop for Pool {
     fn drop(&mut self) {
-        self.cancelled.send_replace(true);
-        let ready = self.ready_rx.get_mut();
-        ready.close();
-        while ready.try_recv().is_ok() {}
+        self.retire();
     }
 }
 
-fn retired_error() -> RuntimeError {
-    RuntimeError::Io(std::io::Error::new(
-        std::io::ErrorKind::Interrupted,
-        "VLESS preconnect pool retired",
-    ))
-}
-
+#[cfg(test)]
+use library::{CONNECTION_LIFETIME, REPLENISH_DELAY};
+#[cfg(test)]
+use std::time::Duration;
+#[cfg(test)]
+use zero_platform_tokio::TcpRelayStream;
 #[cfg(test)]
 #[path = "../../../tests/transport/preconnect.rs"]
 mod tests;

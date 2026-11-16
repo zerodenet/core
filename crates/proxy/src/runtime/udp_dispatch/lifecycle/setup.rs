@@ -25,9 +25,14 @@ impl UdpDispatch {
         let direct_socket = DispatchDirectSockets::new(&runtime, preferred_port).await?;
         #[cfg(feature = "raw-ip-runtime")]
         if let Some(native) = runtime.native() {
-            if let DispatchDirectSockets::Bound(socket) = &direct_socket {
+            let registration = match &direct_socket {
+                DispatchDirectSockets::Bound(socket) => socket.registration(),
+                #[cfg(test)]
+                DispatchDirectSockets::Legacy(_) => None,
+            };
+            if let Some(registration) = registration {
                 native
-                    .observe_datagram(socket.registration())
+                    .observe_datagram(registration)
                     .map_err(std::io::Error::other)?;
             }
         }

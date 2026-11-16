@@ -47,27 +47,9 @@ impl ManagedPool {
         self.reap_fixed(deadline)
             .await
             .map_err(std::io::Error::other)?;
-        if self.records.lock().unwrap().len() >= self.options.limit.get() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::WouldBlock,
-                "live or retiring carrier pool is full",
-            )
-            .into());
-        }
-        let mut grant = self.grants.reserve().map_err(std::io::Error::other)?;
-        let view = grant.claim_driver_view().map_err(std::io::Error::other)?;
-        let record = Physical::new(
-            grant.adoption(),
-            grant.cancellation(),
-            view,
-            self,
-            binding.clone(),
-        )
-        .map_err(std::io::Error::other)?;
-        {
-            let mut records = self.records.lock().unwrap();
-            records.push(record.clone());
-        }
+        let (grant, record) = self
+            .install_original(binding, false)
+            .map_err(std::io::Error::other)?;
         let _opening = Opening(record.clone());
         let preparing = async {
             let selected = self

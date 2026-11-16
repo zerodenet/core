@@ -30,7 +30,71 @@ impl DatagramOutbound for Outbound {
         context: OpenContext,
     ) -> Result<zero_platform_tokio::controlled_carrier::loan::DatagramLoan, ChannelError> {
         let session = self.state.check(&context)?;
-        if session.is_some() || context.upstream.binding().dial != self.options.policy {
+        if session.is_some() {
+            return Err(self.state.error(
+                session,
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        self.open_original(request, context).await
+    }
+    async fn open(
+        &self,
+        request: DatagramRequest,
+        context: OpenContext,
+    ) -> Result<DatagramSession<Self::Tx, Self::Rx, Self::Control>, ChannelError> {
+        let session = self.state.check(&context)?;
+        let opened = if self.control.is_some() {
+            // Transfer the existing original TX/RX/controller and its one
+            // return barrier. No packet pump, native owner or executor is made.
+            self.open_original(request, context.clone())
+                .await
+                .map_err(|source| self.state.attach(source, session))?
+                .into_session()
+                .0
+        } else {
+            // Explicit standalone library roles use the caller's own upstream;
+            // production decoding always installs the controlled provider.
+            if context.upstream.binding().dial != self.options.policy {
+                return Err(self.state.error(
+                    session,
+                    Stage::Prepare,
+                    Reason::StalePlan,
+                    DeliveryState::NotSubmitted,
+                ));
+            }
+            let carrier = CarrierContext {
+                session,
+                deadline: context.deadline,
+                cancel: context.cancel.clone(),
+            };
+            tokio::select! {biased;
+                _=self.state.cancelled()=>return Err(during_open(&self.state,session,Reason::Revoked)),
+                _=context.cancel.cancelled()=>return Err(during_open(&self.state,session,Reason::Cancelled)),
+                result=with_deadline(context.deadline,context.upstream.open_datagram(request,carrier))=>result.map_err(|source|during_open(&self.state,session,Reason::Timeout).with_source(source))?,
+            }.map_err(|error|self.state.attach(error,session))?
+        };
+        if let Some(observer) = &context.observer {
+            observer.record(session, ConnectFact::CarrierReady);
+        }
+        Ok(DatagramSession {
+            tx: opened.tx,
+            rx: opened.rx,
+            control: Control(opened.control),
+            limits: opened.limits,
+        })
+    }
+}
+impl Outbound {
+    async fn open_original(
+        &self,
+        request: DatagramRequest,
+        context: OpenContext,
+    ) -> Result<zero_platform_tokio::controlled_carrier::loan::DatagramLoan, ChannelError> {
+        let session = self.state.check(&context)?;
+        if context.upstream.binding().dial != self.options.policy {
             return Err(self.state.error(
                 session,
                 Stage::Prepare,
@@ -59,7 +123,7 @@ impl DatagramOutbound for Outbound {
                 destination,
                 association: request.association,
                 context: CarrierContext {
-                    session: None,
+                    session,
                     deadline: context.deadline,
                     cancel: context.cancel.clone(),
                 },
@@ -73,47 +137,5 @@ impl DatagramOutbound for Outbound {
             _ = context.cancel.cancelled() => Err(during_open(&self.state, session, Reason::Cancelled)),
             result = with_deadline(context.deadline, opening) => result.map_err(|source| during_open(&self.state, session, Reason::Timeout).with_source(source))?,
         }
-    }
-    async fn open(
-        &self,
-        request: DatagramRequest,
-        context: OpenContext,
-    ) -> Result<DatagramSession<Self::Tx, Self::Rx, Self::Control>, ChannelError> {
-        let session = self.state.check(&context)?;
-        if self.control.is_some() && !self.options.retain_legacy_calls {
-            return Err(self.state.error(
-                session,
-                Stage::Prepare,
-                Reason::Unsupported,
-                DeliveryState::NotSubmitted,
-            ));
-        }
-        if context.upstream.binding().dial != self.options.policy {
-            return Err(self.state.error(
-                session,
-                Stage::Prepare,
-                Reason::StalePlan,
-                DeliveryState::NotSubmitted,
-            ));
-        }
-        let carrier = CarrierContext {
-            session,
-            deadline: context.deadline,
-            cancel: context.cancel.clone(),
-        };
-        let opened=tokio::select! { biased;
-            _=self.state.cancelled()=>return Err(during_open(&self.state,session,Reason::Revoked)),
-            _=context.cancel.cancelled()=>return Err(during_open(&self.state,session,Reason::Cancelled)),
-            result=with_deadline(context.deadline,context.upstream.open_datagram(request,carrier))=>result.map_err(|source|during_open(&self.state,session,Reason::Timeout).with_source(source))?,
-        }.map_err(|error|self.state.attach(error,session))?;
-        if let Some(observer) = &context.observer {
-            observer.record(session, ConnectFact::CarrierReady);
-        }
-        Ok(DatagramSession {
-            tx: opened.tx,
-            rx: opened.rx,
-            control: Control(opened.control),
-            limits: opened.limits,
-        })
     }
 }

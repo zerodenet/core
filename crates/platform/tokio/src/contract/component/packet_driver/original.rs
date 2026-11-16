@@ -48,6 +48,12 @@ impl PendingOriginal {
                         actual.same_owner(&owner) && actual.matches_adoption(&self.adoption)
                     })
             })
+        }) || record.allowed.iter().any(|owner| {
+            // A real borrowed TCP/UDP input can have no independent driver.
+            // Its exact LoanOwner is installed in an allowed cached receiver,
+            // whose original driver retains that IO. Same Scope/endpoint or a
+            // per-connection Service receiver alone cannot supply this proof.
+            owner.retained_cached_input(&self.adoption).is_some()
         });
         if retained {
             self.transferred

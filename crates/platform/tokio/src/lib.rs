@@ -13,11 +13,12 @@ use tokio_socket::Storage as TcpStorage;
 mod controlled_listener;
 pub mod file;
 pub use controlled_listener::{
-    AcceptedCaller, AcceptedOrigin, AcceptedPeerScope, AcceptedResource, AcceptedTaskFailureCursor,
-    AcceptedTaskFailureRegistration, AcceptedTaskFailureReservation, AcceptedTaskFailureView,
-    AcceptedTaskFailures, AcceptedTasks, AcceptedTcp, AcceptedTcpCarrierOrigin, AcceptedTcpClaim,
-    AcceptedTcpClosed, AcceptedTcpEvidence, AcceptedTcpNativeClosed, AcceptedTcpStream,
-    AcceptedTcpTaskReceiver, AcceptedTcpUsers, ControlledTcpListener, ControlledTcpListenerControl,
+    AcceptedCaller, AcceptedOrigin, AcceptedPeerScope, AcceptedResource,
+    AcceptedResourceObservation, AcceptedTaskFailureCursor, AcceptedTaskFailureRegistration,
+    AcceptedTaskFailureReservation, AcceptedTaskFailureView, AcceptedTaskFailures, AcceptedTasks,
+    AcceptedTcp, AcceptedTcpCarrierOrigin, AcceptedTcpClaim, AcceptedTcpClosed,
+    AcceptedTcpEvidence, AcceptedTcpNativeClosed, AcceptedTcpStream, AcceptedTcpTaskReceiver,
+    AcceptedTcpUsers, ControlledTcpListener, ControlledTcpListenerControl,
     ControlledTcpListenerOwner,
 };
 #[cfg(feature = "host-network-stats")]

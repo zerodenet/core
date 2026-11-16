@@ -49,61 +49,21 @@ impl super::super::ProtocolInventory {
             final_slot.recipe.spec().resources.iter().any(|resource| {
                 matches!(resource, ResourceDeclaration::ControlledNodeStream { .. })
             });
-        // An existing background pool must consume its own standard Datagram
-        // role. Its persistent provider, not a legacy claim or this request,
-        // retains and opens the actual physical carrier.
-        let node_original =
-            final_slot.recipe.spec().resources.iter().any(|resource| {
-                matches!(resource, ResourceDeclaration::ControlledNodeCarrier { .. })
-            }) && final_slot.recipe.spec().resources.iter().all(|resource| {
-                matches!(
-                    resource,
-                    ResourceDeclaration::ControlledNodeCarrier { .. }
-                        | ResourceDeclaration::File { .. }
-                )
-            });
-        if node_original
-            && !final_slot
-                .recipe
-                .spec()
-                .resources
-                .iter()
-                .enumerate()
-                .any(|(ordinal, resource)| match resource {
-                    ResourceDeclaration::ControlledNodeCarrier { max_sockets, .. } => final_slot
-                        .original_carrier_owner(ordinal)
-                        .is_some_and(|owner| {
-                            owner.instance() == final_slot.instance_id()
-                                && owner.limit() == *max_sockets
-                        }),
-                    _ => false,
-                })
+        // A standard receiver is never reinterpreted as a compatibility pool.
+        // Select the same actual installed original graph used by Stream loans;
+        // its protocol and Host keep physical custody through all UDP callers.
+        let pooled = !node_business && plan.has_stream_loan_provider(final_slot.role_id());
+        if (node_business && !plan.has_node_stream_provider(final_slot.role_id()))
+            || (!node_business && !pooled)
+            || !plan.stream_dependencies_supported(final_slot.role_id())
         {
             return Some(Err(failure(
                 std::io::Error::other(crate::component::instance::invalid(
                     zero_platform_tokio::contract::Reason::Revoked,
-                    "canonical Datagram original provider is not ready",
+                    "standard Datagram receiver lacks its actual original provider",
                 ))
                 .into(),
             )));
-        }
-        let pooled = node_original
-            || !node_business
-                && final_slot.recipe.spec().roles.contains(&RoleKind::Stream)
-                && final_slot.recipe.spec().task_limit.is_none()
-                && !final_slot.recipe.spec().dependencies.is_empty()
-                && final_slot.recipe.spec().resources.iter().all(|resource| {
-                    matches!(
-                        resource,
-                        ResourceDeclaration::File { .. }
-                            | ResourceDeclaration::ControlledNodeCarrier { .. }
-                            | ResourceDeclaration::ControlledCarrierPool { datagram: true, .. }
-                    )
-                })
-                && plan.has_background_carrier_pool(final_slot.role_id())
-                && plan.stream_dependencies_supported(final_slot.role_id());
-        if !node_business && !pooled {
-            return None;
         }
         let mut nodes = Vec::new();
         let mut borrowed = None;
@@ -122,6 +82,32 @@ impl super::super::ProtocolInventory {
                 };
             let spec = node.slot.recipe.spec();
             if node.endpoint.is_none() {
+                if node.slot.accepted_carrier_provider().is_some() && nodes.is_empty() {
+                    borrowed = Some(nodes.len());
+                    nodes.push(node);
+                    continue;
+                }
+                let direct = spec.resources.iter().any(|resource| {
+                    matches!(
+                        resource,
+                        ResourceDeclaration::ControlledDirectStream { .. }
+                            | ResourceDeclaration::ControlledDirectCarrier { .. }
+                    )
+                });
+                if direct && nodes.is_empty() {
+                    if !plan.has_stream_loan_provider(node.slot.role_id()) {
+                        return Some(Err(failure(
+                            std::io::Error::other(crate::component::instance::invalid(
+                                zero_platform_tokio::contract::Reason::Revoked,
+                                "Direct prefix lacks its original native provider",
+                            ))
+                            .into(),
+                        )));
+                    }
+                    borrowed = Some(nodes.len());
+                    nodes.push(node);
+                    continue;
+                }
                 // This is the canonical device selected by the same host,
                 // including while its original source is still starting.
                 // A cold source must not cause a second legacy PacketFlow.
@@ -146,45 +132,38 @@ impl super::super::ProtocolInventory {
                 nodes.push(node);
                 continue;
             }
-            if node.dial != Default::default()
-                || !spec.roles.contains(&RoleKind::Stream)
-                || spec.resources.iter().any(|resource| {
-                    !matches!(
-                        resource,
-                        ResourceDeclaration::File { .. }
-                            | ResourceDeclaration::ControlledCarrierPool { .. }
-                            | ResourceDeclaration::ControlledNodeCarrier { .. }
-                            | ResourceDeclaration::ControlledAssociationPool { .. }
-                    )
-                })
-            {
-                return None;
-            }
-            if (spec.task_limit.is_some()
-                && !plan.has_preparing_node_carrier_provider(node.slot.role_id()))
+            if !spec.roles.contains(&RoleKind::Stream)
                 || !plan.stream_dependencies_supported(node.slot.role_id())
             {
-                return None;
+                return Some(Err(failure(
+                    std::io::Error::other(crate::component::instance::invalid(
+                        zero_platform_tokio::contract::Reason::Unsupported,
+                        "selected Datagram prefix has no supported standard Stream loan path",
+                    ))
+                    .into(),
+                )));
             }
-            if (!spec.dependencies.is_empty() && plan.has_carrier_provider(node.slot.role_id()))
-                || (borrowed.is_none()
-                    && spec
-                        .resources
-                        .iter()
-                        .any(|r| matches!(r, ResourceDeclaration::ControlledCarrierPool { .. })))
-            {
+            if plan.has_stream_loan_provider(node.slot.role_id()) {
+                // Borrow the complete prefix through its last actual owner.
+                // A per-connection Node original is not an inline framing-only
+                // hop: it transfers the same authentic StreamLoan as a pool.
                 borrowed = Some(nodes.len());
+            } else if spec.task_limit.is_some() {
+                return Some(Err(failure(
+                    std::io::Error::other(crate::component::instance::invalid(
+                        zero_platform_tokio::contract::Reason::Revoked,
+                        "selected prefix task owner has no installed original provider",
+                    ))
+                    .into(),
+                )));
             }
             nodes.push(node);
-        }
-        if final_slot.dial != Default::default() {
-            return None;
         }
         if nodes[0]
             .endpoint
             .as_ref()
             .is_some_and(|endpoint| matches!(endpoint.address, zero_core::Address::Domain(_)))
-            && zero_dns::native::validate_node_config(ctx.config().runtime.dns.as_ref()).is_err()
+            && crate::adapters::node_dns::validate(ctx.config()).is_err()
         {
             return None;
         }

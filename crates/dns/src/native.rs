@@ -24,7 +24,9 @@ pub use open_failure::NativeDnsQuicOpenFailure;
 pub use wire::native_quic_endpoints;
 #[cfg(feature = "doh")]
 pub(crate) use wire::Attempt;
-pub use wire::{native_endpoints, validate_node_config, validate_node_server};
+pub use wire::{
+    native_endpoints, validate_node_config, validate_node_config_with_detours, validate_node_server,
+};
 #[cfg(feature = "doq")]
 pub struct NativeDnsQuicLoan {
     pub io: zero_platform_tokio::TcpRelayStream,

@@ -1,53 +1,70 @@
-//! Actual instance dependencies, including retained generations of the same ID.
+//! Groups retain exact member instances and every external dependency edge.
 use super::*;
 pub(in crate::component::catalog) fn close_order(
     nodes: &BTreeMap<ComponentInstanceId, Arc<ComponentSlot>>,
     loans: &crate::component::admission::borrowing::LoanEdges,
-) -> Result<Vec<ComponentInstanceId>, ChannelError> {
-    let mut pending = BTreeMap::new();
-    let mut consumers: BTreeMap<ComponentInstanceId, Vec<ComponentInstanceId>> = BTreeMap::new();
+) -> Result<Vec<Vec<ComponentInstanceId>>, ChannelError> {
+    let mut membership = BTreeMap::new();
+    let mut groups = BTreeMap::<ComponentInstanceId, Vec<ComponentInstanceId>>::new();
     for (&identity, slot) in nodes {
-        let mut count = 0usize;
-        let required: BTreeSet<_> = slot
-            .dependency_instances()
+        let members = slot
+            .lifecycle_group()
+            .map_or_else(|| vec![identity], |group| group.to_vec());
+        if members.iter().any(|member| !nodes.contains_key(member)) {
+            return Err(invalid(
+                Reason::StalePlan,
+                "retirement cannot split an actual lifecycle group",
+            ));
+        }
+        let owner = *members.first().unwrap();
+        if let Some(previous) = groups.insert(owner, members.clone()) {
+            if previous != members {
+                return Err(invalid(
+                    Reason::StalePlan,
+                    "lifecycle group instances disagree",
+                ));
+            }
+        }
+        membership.insert(identity, owner);
+    }
+    let mut dependencies = BTreeMap::<_, BTreeSet<_>>::new();
+    for (&identity, slot) in nodes {
+        let owner = membership[&identity];
+        let required = dependencies.entry(owner).or_default();
+        for dependency in slot.dependency_instances().iter().copied().chain(
+            loans
+                .iter()
+                .filter(|(from, _)| *from == identity)
+                .map(|(_, to)| *to),
+        ) {
+            if let Some(&donor) = membership.get(&dependency) {
+                if donor != owner {
+                    required.insert(donor);
+                }
+            }
+        }
+    }
+    let mut ordered = Vec::new();
+    while !dependencies.is_empty() {
+        let ready: Vec<_> = dependencies
             .iter()
-            .copied()
-            .chain(
-                loans
-                    .iter()
-                    .filter(|(from, _)| *from == identity)
-                    .map(|(_, to)| *to),
-            )
+            .filter_map(|(id, deps)| deps.is_empty().then_some(*id))
             .collect();
-        for dependency in &required {
-            // Dependencies retained in current are outside this retirement.
-            if nodes.contains_key(dependency) {
-                count += 1;
-                consumers.entry(*dependency).or_default().push(identity);
+        if ready.is_empty() {
+            return Err(invalid(
+                Reason::InvalidConfig,
+                "retiring lifecycle groups contain an external dependency cycle",
+            ));
+        }
+        for id in &ready {
+            dependencies.remove(id);
+            ordered.push(groups.remove(id).unwrap());
+        }
+        for dependencies in dependencies.values_mut() {
+            for id in &ready {
+                dependencies.remove(id);
             }
         }
-        pending.insert(identity, count);
-    }
-    let mut ready: BTreeSet<_> = pending
-        .iter()
-        .filter_map(|(&id, &count)| (count == 0).then_some(id))
-        .collect();
-    let mut ordered = Vec::with_capacity(nodes.len());
-    while let Some(identity) = ready.pop_first() {
-        ordered.push(identity);
-        for consumer in consumers.get(&identity).into_iter().flatten() {
-            let count = pending.get_mut(consumer).unwrap();
-            *count -= 1;
-            if *count == 0 {
-                ready.insert(*consumer);
-            }
-        }
-    }
-    if ordered.len() != nodes.len() {
-        return Err(invalid(
-            Reason::InvalidConfig,
-            "retiring instance dependency graph contains a cycle",
-        ));
     }
     ordered.reverse();
     Ok(ordered)

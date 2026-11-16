@@ -36,11 +36,15 @@ impl ResourceLifecycle for Owner {
             download.start_originals(end).await?;
         }
         self.session.start(end).await?;
+        if let Some(carrier) = &self.shared.options.carrier {
+            carrier.install_xhttp(&self.shared)?;
+        }
         self.started = true;
         Ok(())
     }
     fn revoke(&self, reason: CloseReason) {
         self.session.revoke(reason);
+        self.shared.cancel.cancel();
         self.upload.revoke();
         if let Some(download) = &self.download {
             download.revoke();
@@ -81,6 +85,11 @@ impl ResourceLifecycle for Owner {
         report.append(down?);
         entry::Table::reap(&self.shared.entries);
         report.append(self.session.shutdown(end).await?);
+        if report.is_complete() {
+            self.shared
+                .closed
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
         Ok(report)
     }
 }

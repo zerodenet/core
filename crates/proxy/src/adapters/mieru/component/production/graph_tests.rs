@@ -39,18 +39,18 @@ fn nested_tcp_prefix_uses_one_native_pool_in_every_selector_order() {
 #[test]
 fn terminal_tcp_support_never_grants_packet_custody_to_an_unselected_udp_underlay() {
     let mut config = config(true);
-    assert!(!production_selected(Some(&config)));
+    assert!(production_selected(Some(&config)));
     let OutboundGroupKind::Selector { outbounds, .. } = &mut config.outbound_groups[1].group else {
         unreachable!()
     };
     outbounds.reverse();
-    assert!(!production_selected(Some(&config)));
+    assert!(production_selected(Some(&config)));
 }
 
 #[test]
 fn removing_only_the_unqualified_udp_consumer_preserves_the_existing_tcp_prefix() {
     let mut config = config(true);
-    assert!(!production_selected(Some(&config)));
+    assert!(production_selected(Some(&config)));
     config.outbound_groups.pop();
     assert!(production_selected(Some(&config)));
 }

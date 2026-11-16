@@ -6,8 +6,6 @@ use zero_traits::{
 };
 
 use crate::adapters::identity::NamedProtocolAdapter;
-use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput};
-use crate::runtime::path::TcpPathCategory;
 
 mod datagram;
 pub(crate) mod factory;
@@ -43,80 +41,6 @@ impl NamedProtocolAdapter for DirectAdapter {
             });
         }
         Ok(())
-    }
-}
-
-impl DirectAdapter {
-    pub(crate) fn claim_outbound_leaf_impl<'a>(
-        &self,
-        input: OutboundLeafInput<'a>,
-    ) -> Option<OutboundLeafClaim<'a>> {
-        let OutboundLeafInput::Direct {
-            tag,
-            dial_policy,
-            dial_generation,
-        } = input
-        else {
-            return None;
-        };
-        #[cfg(feature = "udp-runtime")]
-        let policy_tag = tag.map(str::to_owned);
-        #[cfg(not(feature = "udp-runtime"))]
-        let _ = dial_generation;
-        let configured_tag = tag.map(str::to_owned);
-        let tag = tag.unwrap_or("direct").to_owned();
-        let tcp = std::sync::Arc::new(
-            crate::runtime::tcp_dispatch::operation::DirectTcpConnectOperation {
-                tag: tag.clone(),
-                configured_tag,
-                dial_policy: dial_policy.clone(),
-            },
-        );
-        Some(OutboundLeafClaim {
-            #[cfg(not(feature = "udp-runtime"))]
-            _lifetime: std::marker::PhantomData,
-            tcp_path: TcpPathCategory::Direct,
-            tcp: Some(Ok(tcp)),
-            tcp_relay: None,
-            #[cfg(feature = "udp-runtime")]
-            udp: Some(Ok(Box::new(
-                crate::runtime::udp_dispatch::operation::DirectUdpFlowOperation {
-                    tag,
-                    policy_tag,
-                    dial_policy: dial_policy.clone(),
-                    dial_generation,
-                },
-            ))),
-            #[cfg(feature = "udp-runtime")]
-            udp_relay: None,
-            #[cfg(feature = "udp-runtime")]
-            #[cfg(feature = "raw-ip-runtime")]
-            packet: self
-                .packet
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_ref()
-                .filter(|d| dial_policy == zero_traits::DialPolicy::default() && d.usable())
-                .map(|device| {
-                    #[cfg(not(test))]
-                    let _ = device;
-                    crate::runtime::packet_route::PacketRouteOperations {
-                        native: std::sync::Arc::new(
-                            crate::runtime::packet_route::host::PreparedHostPacketOperation {
-                                #[cfg(test)]
-                                device: device.clone(),
-                                dial_policy: dial_policy.clone(),
-                            },
-                        ),
-                        translated: None,
-                        datagram: None,
-                        flow: None,
-                        correlated_returns: false,
-                    }
-                }),
-            #[cfg(feature = "udp-runtime")]
-            packet_path: None,
-        })
     }
 }
 

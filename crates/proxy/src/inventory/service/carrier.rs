@@ -31,27 +31,16 @@ impl ProtocolInventory {
                     // The cold graph must contain an integrated carrier provider;
                     // taskless framing alone still uses the caller's DNS original.
                     let borrowed = components.has_device_carrier_provider(slot.role_id())
-                        || (spec.task_limit.is_none()
-                            || components.has_preparing_node_carrier_provider(slot.role_id())
-                            || components.has_node_stream_provider(slot.role_id())
-                            || components.has_metadata_stream_provider(slot.role_id())
-                            || components.has_cached_stream_provider(slot.role_id()))
-                            && components.has_carrier_provider(slot.role_id())
+                        || components.has_stream_loan_provider(slot.role_id())
                             && components.stream_dependencies_supported(slot.role_id());
-                    if slot.dial != Default::default() && !direct
+                    if relay && (slot.dial != Default::default() || direct)
                         || !spec.roles.contains(&RoleKind::Stream)
                         || !direct
                             && !borrowed
                             && (spec.task_limit.is_some()
                                 || !spec.dependencies.is_empty()
                                 || !spec.resources.iter().all(|resource| {
-                                    matches!(
-                                        resource,
-                                        ResourceDeclaration::ControlledCarrierPool {
-                                            datagram: false,
-                                            ..
-                                        } | ResourceDeclaration::File { .. }
-                                    )
+                                    matches!(resource, ResourceDeclaration::File { .. })
                                 }))
                     {
                         return false;
@@ -67,9 +56,13 @@ impl ProtocolInventory {
                 TargetKind::LoadBalance(group) => {
                     pending.extend(group.members().iter().map(|id| (*id, relay)))
                 }
-                TargetKind::Relay(group) => {
-                    pending.extend(group.chain().iter().map(|id| (*id, true)))
-                }
+                TargetKind::Relay(group) => pending.extend(
+                    group
+                        .chain()
+                        .iter()
+                        .enumerate()
+                        .map(|(index, id)| (*id, relay || index != 0)),
+                ),
                 TargetKind::Fallback(group) => {
                     pending.extend(group.members().iter().map(|id| (*id, relay)))
                 }

@@ -10,6 +10,7 @@ impl PacketReturns {
     ) -> io::Result<()> {
         self.register_observed(source, ingress_id, replies, None, None)
     }
+    #[cfg(test)]
     pub(crate) fn register_observed(
         &self,
         source: IpAddr,

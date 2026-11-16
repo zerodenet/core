@@ -17,11 +17,17 @@ impl Fixture {
         ]);
         config["outbound_groups"] = serde_json::json!([{"tag":"outer-chain","type":"relay","proxies":["outer-socks","outer-ss"]}]);
         let config = Arc::new(zero_config::RuntimeConfig::parse(&config.to_string()).unwrap());
+        Self::with_config(config)
+    }
+    fn with_config(config: Arc<zero_config::RuntimeConfig>) -> Self {
         let network = Arc::new(crate::component::background::BackgroundNetwork::new(
             zero_platform_tokio::EgressInterfaceControl::default(),
         ));
         let (registry, factories, devices) =
             crate::register::compiled_registries_with_background(Some(network.clone()));
+        let registry = registry
+            .without_outbound_projection("socks5")
+            .without_outbound_projection("shadowsocks");
         devices
             .wireguard
             .as_ref()
@@ -137,4 +143,72 @@ async fn actual_unbuilt_source_refresh_reuses_exact_formatter_family_and_accepte
         .devices
         .release_component_resources(&actual.config)
         .unwrap();
+}
+
+#[cfg(feature = "vless")]
+#[tokio::test]
+async fn wireguard_stream_donors_are_prepared_before_their_outer_consumers_in_one_cold_host() {
+    for linked in [false, true] {
+        for proxied in [false, true] {
+            let mut config = serde_json::to_value(configuration()).unwrap();
+            let mut donor = config["outbounds"][0].clone();
+            donor["tag"] = "wg-donor".into();
+            if linked {
+                let mut input = config["inbounds"][0].clone();
+                input["tag"] = "donor-in".into();
+                input["listen"]["port"] = 51830.into();
+                config["inbounds"].as_array_mut().unwrap().push(input);
+                donor["protocol"]["inbound_tag"] = "donor-in".into();
+            } else {
+                donor["protocol"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("inbound_tag");
+            }
+            if proxied {
+                donor["protocol"]["outer_udp_proxy"] = "socks-root".into();
+            }
+            config["outbounds"][0]["protocol"]["outer_udp_proxy"] = "wg-prefix".into();
+            config["outbounds"].as_array_mut().unwrap().extend([
+                donor,
+                serde_json::json!({"tag":"vless-root","protocol":{"type":"vless","server":"127.0.0.1","port":443,"id":"actual-wg-prefix"}}),
+                serde_json::json!({"tag":"socks-root","protocol":{"type":"socks5","server":"127.0.0.1","port":1080}}),
+            ]);
+            config["outbound_groups"] = serde_json::json!([{"tag":"wg-prefix","type":"relay","proxies":["wg-donor","vless-root"]}]);
+            let actual = Fixture::with_config(Arc::new(
+                zero_config::RuntimeConfig::parse(&config.to_string()).unwrap(),
+            ));
+            let plan = actual.prepare();
+            let consumer = plan.configured("wg-out").unwrap();
+            let donor = plan.configured("wg-donor").unwrap();
+            let consumer_root = plan
+                .device_component(consumer.recipe.spec().dependencies[0])
+                .unwrap();
+            assert!(consumer_root
+                .recipe
+                .spec()
+                .dependencies
+                .contains(&donor.instance_id().component));
+            assert!(donor
+                .recipe
+                .spec()
+                .roles
+                .contains(&zero_platform_tokio::contract::component::RoleKind::Stream));
+            assert!(
+                actual
+                    .devices
+                    .wireguard
+                    .as_ref()
+                    .unwrap()
+                    .cold_graphs
+                    .lock()
+                    .unwrap()
+                    .is_none(),
+                "cold lookup cannot pin the actual graph beyond its original preparation pass"
+            );
+            let roots = actual.host.original_budgets();
+            assert_eq!(roots.carrier.snapshot().charged, 0);
+            assert_eq!(roots.packet.native().occupied.frames, 0);
+        }
+    }
 }

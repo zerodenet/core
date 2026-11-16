@@ -467,6 +467,9 @@ impl OwnedVlessOutboundTransportPlan {
                 .map_err(|_| zero_core::Error::Config("invalid VLESS encryption key"))?;
         Ok(())
     }
+    pub(crate) fn owned_encryption(&self) -> Option<crate::encryption::EncryptionClient> {
+        self.encryption.clone()
+    }
     pub(crate) async fn encrypt(
         &self,
         stream: TcpRelayStream,
@@ -498,6 +501,33 @@ impl OwnedVlessOutboundTransportPlan {
 
     pub(in crate::transport) fn uses_datagrams(&self) -> bool {
         self.mkcp.is_some() || self.uses_quic()
+    }
+    pub(in crate::transport) fn plain_owned_hysteria_parts(
+        &self,
+    ) -> Option<(
+        zero_transport::hysteria::Profile,
+        zero_transport::hysteria::Pool,
+        VlessQuicClientProfile,
+    )> {
+        if self.uses_browser_dialer() {
+            return None;
+        }
+        Some((
+            self.hysteria.clone()?,
+            self.hysteria_pool.clone()?,
+            self.transport.quic.clone()?,
+        ))
+    }
+    pub(in crate::transport) fn plain_owned_mkcp_parts(
+        &self,
+    ) -> Option<(
+        zero_transport::mkcp::Settings,
+        Option<OwnedClientTlsProfile>,
+    )> {
+        if self.uses_browser_dialer() || self.hysteria.is_some() {
+            return None;
+        }
+        Some((self.mkcp?, self.transport.tls.clone()))
     }
     pub(in crate::transport) fn plain_owned_quic_profile(&self) -> Option<VlessQuicClientProfile> {
         if self.browser_ws

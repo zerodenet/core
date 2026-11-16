@@ -13,6 +13,14 @@ use zero_core::Network;
 #[tokio::test]
 async fn ordinary_packet_chain_returns_real_dynamic_bnd_originals_and_survives_first_business_end()
 {
+    packet_chain(false).await;
+}
+#[cfg(feature = "dns")]
+#[tokio::test]
+async fn literal_socks_keeps_actual_domain_bnd_node_queries_without_a_false_cold_dependency() {
+    packet_chain(true).await;
+}
+async fn packet_chain(domain_bnd: bool) {
     timeout(Duration::from_secs(25),async {
         let listener=TcpListener::bind("127.0.0.1:0").await.unwrap();
         let physical=UdpSocket::bind("127.0.0.1:0").await.unwrap();
@@ -26,6 +34,19 @@ async fn ordinary_packet_chain_returns_real_dynamic_bnd_originals_and_survives_f
             "outbound_groups":[{"tag":"chain","type":"relay","proxies":["carrier","ss"]}],
             "route":{"final":{"type":"route","outbound":"chain"}}
         }).to_string()).unwrap();
+        #[cfg(feature="dns")]
+        let mut config = config;
+        #[cfg(feature="dns")]
+        let node_query = if domain_bnd {
+            let mut dns = crate::dns_fixture::Dns::new().await;
+            config.runtime.dns = Some(dns.config());
+            Some(tokio::spawn(async move {
+                let request = dns.request().await;
+                assert_eq!(zero_dns::udp::parse_dns_question(&request.query).unwrap().domain,"actual.dynamic.bnd.test");
+                request.answer(false,false);
+                dns
+            }))
+        } else { None };
         let codec=crate::adapters::shadowsocks::transport_leaf(&Default::default(),"ss",&config.outbounds[1].protocol).unwrap().udp_packet_path_plan().unwrap().carrier_codec();
         let phase=Arc::new(AtomicUsize::new(0));
         let peer_phase=phase.clone();
@@ -33,7 +54,8 @@ async fn ordinary_packet_chain_returns_real_dynamic_bnd_originals_and_survives_f
             let (tcp,_)=listener.accept().await.unwrap(); peer_phase.store(1,Ordering::SeqCst);
             let mut control=zero_platform_tokio::TokioSocket::new(tcp);
             assert!(matches!(socks5::Socks5Inbound.accept_command(&mut control).await.unwrap(),socks5::Socks5Request::UdpAssociate(_)));
-            socks5::Socks5Inbound.send_success_response_with_bound(&mut control,&Address::Ipv4([127,0,0,1]),bnd.port()).await.unwrap();
+            let address = if domain_bnd {Address::Domain("actual.dynamic.bnd.test".into())} else {Address::Ipv4([127,0,0,1])};
+            socks5::Socks5Inbound.send_success_response_with_bound(&mut control,&address,bnd.port()).await.unwrap();
             peer_phase.store(2,Ordering::SeqCst);
             let mut control=control.into_inner().unwrap();
             let wire=socks5::udp::Socks5InboundUdpCodec;
@@ -56,6 +78,11 @@ async fn ordinary_packet_chain_returns_real_dynamic_bnd_originals_and_survives_f
             let mut tail=Vec::new();control.read_to_end(&mut tail).await.unwrap();assert!(tail.is_empty());control.shutdown().await.unwrap();
         });
         let proxy=Proxy::new(config).unwrap();
+        for index in 0..2 {
+            assert!(proxy.protocols.claim_outbound_leaf(proxy.engine().config().as_ref(),
+                zero_engine::ResolvedLeafOutbound::Proxy {identity:zero_engine::OutboundIdentity::from_config_index(index)}
+            ).is_err(), "ordinary Packet roots and codec suffixes cannot reconstruct a private runtime");
+        }
         let registry=proxy.system_tun_source_registry();let running=proxy.spawn();
         let incoming=loop {if let Some(owner)=registry.owner("entry") {break owner;}tokio::task::yield_now().await;};
         incoming.wait_ready().await.unwrap();
@@ -65,7 +92,11 @@ async fn ordinary_packet_chain_returns_real_dynamic_bnd_originals_and_survives_f
         let (control,socket,relay)=associate(endpoint).await;
         send(&socket,relay,1,b"first").await;receive_observed(&socket,1,b"first",&proxy,&phase,&peer).await;
         send(&socket,relay,2,b"").await;receive_observed(&socket,2,b"",&proxy,&phase,&peer).await;
+        #[cfg(feature="dns")]
+        let node_query = match node_query { Some(query) => Some(query.await.unwrap()), None => None };
         let plan=proxy.tcp_runtime_services().components.clone().unwrap();
+        assert!(plan.configured("carrier").unwrap().recipe.spec().dependencies.is_empty(),
+            "the literal carrier retains its actual runtime BND resolver without a false static Node edge");
         let carrier=plan.configured("carrier").unwrap().original_carrier_owner(0).unwrap();
         let observations=carrier.observe().unwrap();
         assert_eq!(observations.slots().len(),2,"dynamic SOCKS BND retains its actual TCP control and UDP original");
@@ -102,6 +133,8 @@ async fn ordinary_packet_chain_returns_real_dynamic_bnd_originals_and_survives_f
         assert!(carrier.closed().unwrap().matches(&carrier));assert!(carrier.users_closed().unwrap().matches(&carrier));
         let terminal=incoming.terminal().expect("actual Source joins and native cleanup before publication");
         assert_eq!(terminal.identity(),incoming.identity());assert!(terminal.joined_tasks()>=2);assert!(terminal.task_failures().is_empty());
+        #[cfg(feature="dns")]
+        if let Some(dns) = node_query {dns.close().await;}
     }).await.unwrap();
 }
 

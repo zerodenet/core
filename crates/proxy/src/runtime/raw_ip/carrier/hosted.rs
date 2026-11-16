@@ -51,9 +51,6 @@ impl HostedRawIpWireCarrier {
 }
 #[async_trait]
 impl RawIpWireCarrier for HostedRawIpWireCarrier {
-    fn background_drained(&self) -> bool {
-        true
-    }
     fn stop_background(&self) -> Option<CarrierWorkerCompletion> {
         Some(Box::pin(async { Ok(()) }))
     }

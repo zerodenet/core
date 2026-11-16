@@ -116,5 +116,23 @@ pub(in crate::runtime) async fn run(
     } else {
         runtime.readiness()
     };
-    crate::runtime::inbound_owners::InboundReady::poll_optional(ready, work).await
+    let result = crate::runtime::inbound_owners::InboundReady::poll_optional(ready, work).await;
+    if let Some(host) = source_host {
+        // Keep the real source, route cancellation guard and original Scope
+        // alive on unfinished retirement. Host shutdown exposes the same debt;
+        // a timeout cannot drop the donor underneath a cached consumer driver.
+        loop {
+            if host
+                .drain_accepted_consumers(
+                    tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                )
+                .await
+                .is_ok()
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+    result
 }

@@ -160,11 +160,11 @@ impl PacketPathCarrier for Path {
         let handoff = self
             .handoff
             .as_ref()
-            .filter(|handoff| handoff.matches_receiver(driver))
+            .filter(|handoff| handoff.allows_retirement(driver))
             .ok_or_else(|| {
                 invalid(
                     Reason::StalePlan,
-                    "carrier retirement does not name its actual installed wire",
+                    "carrier retirement does not name its actual Source wire",
                 )
             })?;
         // Cancel only this attempt. The original wire/reconnect token stays
@@ -205,18 +205,10 @@ impl PacketPathCarrier for Path {
                 .send_codec_buffered(target, port, payload, &mut buffers, &mut copy)
                 .await;
         }
-        // Business paths retain their actual logical controller in the same
-        // Host's pre-I/O reservation. Explicit library paths keep their old
-        // owned controller. Neither branch borrows a Source grant.
-        let frame = if let Some(memory) = &self.memory {
-            memory.datagram(self.association, target, port, payload)?
-        } else {
-            zero_core::packet::Datagram {
-                association: self.association,
-                address: Destination::new(target.clone(), port),
-                payload: payload.to_vec().into(),
-            }
-        };
+        // The actual Business reservation owns this path after Source handoff
+        // was handled above. No anonymous Service packet allocation remains.
+        let memory = self.memory.as_ref().expect("actual Business Packet memory");
+        let frame = memory.datagram(self.association, target, port, payload)?;
         let mut tx = self.tx.lock().await;
         let mut control = self.control.lock().await;
         let tx = tx.as_mut().ok_or_else(|| {
@@ -236,6 +228,14 @@ impl PacketPathCarrier for Path {
         Ok(())
     }
     async fn recv_from(&self, bytes: &mut [u8]) -> Result<usize, EngineError> {
+        self.recv_from_with_source(bytes)
+            .await
+            .map(|(size, _)| size)
+    }
+    async fn recv_from_with_source(
+        &self,
+        bytes: &mut [u8],
+    ) -> Result<(usize, Option<std::net::SocketAddr>), EngineError> {
         let mut rx = self.rx.lock().await;
         let rx = rx.as_mut().ok_or_else(|| {
             failure(invalid(
@@ -252,6 +252,12 @@ impl PacketPathCarrier for Path {
                     "standard packet-path receiver closed",
                 ))
             })?;
+        if frame.association != self.association {
+            return Err(failure(invalid(
+                Reason::StalePlan,
+                "packet returned to another original association",
+            )));
+        }
         if frame.payload.len() > bytes.len() {
             return Err(failure(invalid(
                 Reason::Capacity,
@@ -259,7 +265,13 @@ impl PacketPathCarrier for Path {
             )));
         }
         bytes[..frame.payload.len()].copy_from_slice(&frame.payload);
-        Ok(frame.payload.len())
+        Ok((
+            frame.payload.len(),
+            crate::runtime::udp_flow::packet_path::packet_path_source(
+                &frame.address.address,
+                frame.address.port,
+            ),
+        ))
     }
 }
 impl Drop for Path {

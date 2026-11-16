@@ -121,6 +121,10 @@ impl HostResources {
                         .map(super::coverage::DeclarationProvider::PacketReads)
                         .unwrap_or(super::coverage::DeclarationProvider::Unaccounted);
                 }
+                if matches!(binding, coverage::CoverageBinding::AcceptedSources) {
+                    proof.provider =
+                        coverage::DeclarationProvider::AcceptedSources(self.accepted.returned());
+                }
                 if matches!(binding, coverage::CoverageBinding::Icmp) && icmp.is_some() {
                     proof.provider = coverage::DeclarationProvider::Icmp;
                 }

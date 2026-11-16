@@ -96,6 +96,33 @@ impl Connection {
             self.input_segment(segment, now);
         }
     }
+    /// The original receive scratch/one-frame parse peak is prepaid. Charge
+    /// only data which will enter reliable storage, so ACK/control continues
+    /// to release sender payloads even when the shared byte book is full.
+    pub fn input_budgeted(
+        &mut self,
+        mut bytes: &[u8],
+        now: u32,
+        memory: &super::memory::Memory,
+    ) -> std::io::Result<()> {
+        while !bytes.is_empty() {
+            let Ok(mut segment) = Segment::decode(&mut bytes) else {
+                break;
+            };
+            if segment.conv != self.conv {
+                break;
+            }
+            if let Body::Data { payload, .. } = &mut segment.body {
+                match memory.copy(payload) {
+                    Ok(paid) => *payload = paid,
+                    Err(source) if source.kind() == std::io::ErrorKind::WouldBlock => continue,
+                    Err(source) => return Err(source),
+                }
+            }
+            self.input_segment(segment, now);
+        }
+        Ok(())
+    }
     fn input_segment(&mut self, segment: Segment, now: u32) {
         self.last_incoming = now;
         if segment.option & CLOSE != 0 {

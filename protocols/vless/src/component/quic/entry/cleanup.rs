@@ -8,6 +8,47 @@ impl Owners {
         if state.cleanup_complete {
             return Ok(CloseReport::default());
         }
+        // Stop and receive the actual rotation actor and any short native
+        // initializer before reading the final wire set. Their original slots
+        // remain retained even if rotation stopped between two synchronous steps.
+        let hopping_tasks = state
+            .hopping
+            .as_ref()
+            .map(|hop| (hop.actor.clone(), hop.initializer.clone()));
+        if let Some((actor, initializer)) = hopping_tasks {
+            drop(state);
+            for task in actor.into_iter().chain(initializer) {
+                let joined = task.wait().await;
+                if !task.matches_joined(&joined) {
+                    return Err(error(Stage::Close, Reason::StalePlan));
+                }
+                if let Err(source) = joined.result() {
+                    self.diagnostics.operation(ChannelError::retained(source));
+                    task.acknowledge_hosted_failure(&joined).map_err(|source| {
+                        error(Stage::Close, Reason::Internal).with_source(source)
+                    })?;
+                }
+                let mut stored = self.state.lock().await;
+                let hop = stored.hopping.as_mut().unwrap();
+                if hop
+                    .actor
+                    .as_ref()
+                    .is_some_and(|actor| actor.matches_joined(&joined))
+                {
+                    hop.joined = Some(joined);
+                }
+            }
+            state = self.state.lock().await;
+            if let Some(hop) = state.hopping.as_mut() {
+                hop.return_pending();
+            }
+            if let Some(Segment::Native(segment)) = state.segment.as_mut() {
+                segment.seal_paused_queues();
+            }
+            if let Some(queues) = state.queues.as_mut() {
+                queues.seal_unserved();
+            }
+        }
         if let Some(tcp) = state.tcp.as_ref() {
             tcp.stop();
         }
@@ -35,6 +76,9 @@ impl Owners {
                     .map_err(|source| error(Stage::Close, Reason::Internal).with_source(source))?;
             }
             state = self.state.lock().await;
+        }
+        if let Some(owner) = state.mkcp.as_mut() {
+            owner.retire_protocol_original().await?;
         }
         if let Some(owner) = state.endpoint.as_ref() {
             owner.begin_shutdown();
@@ -74,7 +118,10 @@ impl Owners {
                 .unwrap()
                 .release_body(received.last().unwrap())?;
         }
-        if state.endpoint.is_none() && matches!(state.segment, Some(Segment::Borrowed(_))) {
+        if state.endpoint.is_none()
+            && state.mkcp.is_none()
+            && matches!(state.segment, Some(Segment::Borrowed(_)))
+        {
             let Some(Segment::Borrowed(segment)) = state.segment.as_mut() else {
                 unreachable!()
             };
@@ -83,18 +130,24 @@ impl Owners {
             let completion = state
                 .endpoint
                 .as_ref()
-                .and_then(|owner| owner.borrowed_users_completion())
-                .ok_or_else(|| error(Stage::Close, Reason::Internal))?;
-            let receipt = completion
-                .try_owned_closed()
-                .ok_or_else(|| error(Stage::Close, Reason::Internal))?;
+                .and_then(|owner| owner.borrowed_users_completion());
+            let receipt = if let Some(owner) = state.mkcp.as_ref() {
+                owner.borrowed_users_closed()
+            } else {
+                completion.and_then(|completion| completion.try_owned_closed())
+            }
+            .ok_or_else(|| error(Stage::Close, Reason::Internal))?;
             let Some(Segment::Borrowed(segment)) = state.segment.as_mut() else {
                 unreachable!()
             };
             let returned = segment.return_protocol_queues_original(receipt).await?;
             state.borrowed_joined = returned.joined;
             state.queues = Some(returned.queues);
-        } else if let Some(Segment::Native(segment)) = state.segment.as_mut() {
+        } else if state.native_users.is_none() && matches!(state.segment, Some(Segment::Native(_)))
+        {
+            let Some(Segment::Native(segment)) = state.segment.as_mut() else {
+                unreachable!()
+            };
             let (queues, receipt) = segment.retire_final_original().await?;
             state
                 .native_origin
@@ -102,6 +155,7 @@ impl Owners {
                 .expect("same actual native issuer")
                 .retain_users_receipt(&receipt, &self.tasks)?;
             state.queues = Some(queues);
+            state.native_users = Some(receipt);
         } else if state.unbound.is_some() {
             let origin = state
                 .native_origin
@@ -113,6 +167,25 @@ impl Owners {
             )?;
             drop(state.unbound.take());
         }
+        if let Some(receipt) = state.native_users.as_ref() {
+            let original = state
+                .native_origin
+                .as_ref()
+                .expect("same native wire issuer");
+            if original.close_native_wire(receipt, &self.tasks)?.is_none() {
+                return Ok(CloseReport {
+                    unfinished: vec![
+                        zero_platform_tokio::contract::lifecycle::Unfinished::Resource(
+                            "same QUIC native wire retains original close debt".into(),
+                        ),
+                    ],
+                    ..Default::default()
+                });
+            }
+        }
+        if let Some(hop) = state.hopping.as_mut() {
+            hop.close_previous(&self.tasks).await?;
+        }
         // Do not wait for this phase from its own borrowed adoption. Root now
         // resumes native/LoanOwner closure and the independent real Host ACKs.
         let tcp_masks = state.tcp_masks.take();
@@ -120,6 +193,7 @@ impl Owners {
         let tcp = state.tcp.take();
         let segment = state.segment.take();
         let endpoint = state.endpoint.take();
+        let mkcp = state.mkcp.take();
         let receiver = state.receiver.take();
         let queues = state.queues.take();
 
@@ -129,6 +203,7 @@ impl Owners {
         drop(tcp);
         drop(segment);
         drop(endpoint);
+        drop(mkcp);
         drop(receiver);
         drop(queues);
         if let Some(children) = self.protocols.get() {

@@ -37,6 +37,11 @@ pub struct PoolControl {
     pub(super) scope: Arc<Scope>,
 }
 impl PoolControl {
+    /// Includes stopped owners with outstanding native/users/task debts.
+    /// The sole transition out of Owned requires actual confirmed retirement.
+    pub fn has_host_owner(&self) -> bool {
+        matches!(&*self.scope.0.lock().unwrap(), Mode::Owned(_))
+    }
     pub fn refresh(&self) -> Result<Self, crate::RuntimeError> {
         let key = self
             .key

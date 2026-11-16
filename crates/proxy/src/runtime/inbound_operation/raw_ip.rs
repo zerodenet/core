@@ -241,7 +241,6 @@ pub(crate) struct EndpointPeerState {
     pub(crate) revision: u64,
     pub(crate) devices: Vec<Arc<SharedRawIpDevice>>,
     pub(crate) initial_endpoints: Vec<Option<SocketAddr>>,
-    pub(crate) carriers: Vec<Option<Arc<dyn RawIpWireCarrier>>>,
     pub(crate) prepared_outer: Vec<Option<crate::adapters::devices::PreparedDevicePacketPath>>,
     pub(crate) outer_memory: Vec<Option<Arc<[Arc<[std::num::NonZeroUsize]>]>>>,
 }

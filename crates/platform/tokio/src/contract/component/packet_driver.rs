@@ -33,6 +33,7 @@ mod memory;
 mod original;
 mod recovery;
 pub use memory::{PacketDriverSendBuffers, PacketDriverSendCopy};
+mod lineage;
 mod pending;
 mod protocols;
 mod registration;
@@ -77,8 +78,13 @@ pub struct PacketDriverCalls {
     copy_workspaces: OnceLock<Arc<[memory::WireCopy]>>,
 }
 struct Record {
+    // The one consuming grant owns the actual preparing future. Returning it
+    // ends producer custody only, never the native/control obligations below.
+    preparing: std::sync::atomic::AtomicBool,
+    retiring: std::sync::atomic::AtomicBool,
     original: CarrierOrigin,
     caller: TaskJoinWitness,
+    lineage: MetadataRef<lineage::Lineage>,
     binding: UpstreamBinding,
     identity: crate::contract::context::ServiceFactsOwner,
     call: CarrierContext,
@@ -191,6 +197,11 @@ impl PacketDriverDatagramHandoff {
                 .is_some_and(|driver| driver.same_registration(actual))
         };
         if !valid
+            || self
+                .record
+                .retiring
+                .load(std::sync::atomic::Ordering::Acquire)
+            || self.record.call.cancel.is_cancelled()
             || actual.is_joined()
             || !actual.scope_identity().resource_open()
             || !self
@@ -205,7 +216,7 @@ impl PacketDriverDatagramHandoff {
             if !previous.same_registration(actual) {
                 return Err(failure(Reason::StalePlan));
             }
-            self.record.release_host_retained_pending(&self.installed);
+            self.record.release_host_retained_pending();
             return Ok(());
         }
         #[cfg(feature = "native-packet-origin")]
@@ -214,7 +225,7 @@ impl PacketDriverDatagramHandoff {
             .receiver
             .set(actual.clone())
             .map_err(|_| failure(Reason::StalePlan))?;
-        self.record.release_host_retained_pending(&self.installed);
+        self.record.release_host_retained_pending();
         Ok(())
     }
     /// Cleanup may run before a failed candidate could confirm its receiver.
@@ -245,8 +256,36 @@ impl PacketDriverDatagramHandoff {
     /// Original attempt closure only. The shared Source/ancestor keeps its
     /// independent Scope/native obligations; no task exit is synthesized.
     pub async fn wait_closed(&self, deadline: Instant) -> Result<CloseReport, ChannelError> {
-        self.record.close(deadline).await
+        let outcome = self.record.close(deadline).await;
+        if self.record.released()
+            && outcome
+                .as_ref()
+                .err()
+                .is_none_or(|source| self.record.source_failures.owns(source))
+        {
+            if let Some(failure) = self
+                .record
+                .source_failures
+                .closed_failure(self.record.original.instance())
+            {
+                // Fresh positive evidence supersedes earlier unfinished
+                // observations of THIS attempt. Preserve its exact canonical
+                // fault in the Source archive; acceptance alone proves no IO.
+                let mut report = outcome.unwrap_or_default();
+                report.unfinished.clear();
+                if !report
+                    .resource_failures
+                    .iter()
+                    .any(|same| Arc::ptr_eq(same, &failure))
+                {
+                    report.resource_failures.push(failure);
+                }
+                return Ok(report);
+            }
+        }
+        outcome
     }
+
     pub fn association(&self) -> AssociationId {
         self.installed.association
     }

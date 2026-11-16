@@ -268,7 +268,6 @@ pub(in crate::runtime) async fn run(
         "actual Packet Source main initialized before real route-loop poll: {:?}",
         facts.inbound
     );
-    let ingress_id = crate::runtime::packet_route::next_ingress_id();
     let mut pins = route.packet_statistics_pins();
     let mut fragments = fragments;
     let mut device_generation = None;
@@ -316,7 +315,7 @@ pub(in crate::runtime) async fn run(
                 if device_generation!=Some(received.return_association.correlation) { fragments.reset();device_generation=Some(received.return_association.correlation); }
                 let ingress=received.ingress().ok_or_else(||std::io::Error::other("packet source omitted endpoint facts"))?;
                 let peer=received.return_association.peer.as_ref().map(|id|id.0.clone());let traffic=observer.traffic.lock().unwrap().clone();
-                super::route::feed_inner_packet(received,facts.clone(),source_host,&packet_roles,ingress.local_destination,&traffic,peer,ingress.mtu,link_mtu,&tcp,&udp,&response_tx,&echo,&route,ingress_id,&mut pins,&mut fragments,tun.as_ref()).await;
+                super::route::feed_inner_packet(received,facts.clone(),source_host,&packet_roles,ingress.local_destination,&traffic,peer,ingress.mtu,link_mtu,&tcp,&udp,&response_tx,&echo,&route,&mut pins,&mut fragments,tun.as_ref()).await;
             }
             _=packet_roles.retired(), if closing_packet_roles.is_none()=>{
                 let same = packet_roles.clone();

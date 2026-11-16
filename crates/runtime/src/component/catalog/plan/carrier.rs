@@ -46,6 +46,9 @@ impl ComponentPlan {
         }
         let mut seen = std::collections::BTreeSet::new();
         let mut capacity = 0usize;
+        let mut accepted_capacity = 0usize;
+        let mut accepted_hosts =
+            Vec::<Arc<zero_platform_tokio::controlled_carrier::AcceptedCarrierProvider>>::new();
         while let Some(id) = pending.pop() {
             if !seen.insert(id) {
                 continue;
@@ -55,6 +58,21 @@ impl ComponentPlan {
                 .iter()
                 .find(|slot| slot.instance_id() == id)
                 .ok_or_else(|| invalid(Reason::StalePlan, "pending provider changed"))?;
+            if let Some(provider) = slot.accepted_carrier_provider() {
+                if !accepted_hosts
+                    .iter()
+                    .any(|actual| actual.shares_host(&provider))
+                {
+                    accepted_capacity = accepted_capacity
+                        .checked_add(provider.capacity().ok_or_else(|| {
+                            invalid(Reason::StalePlan, "accepted Source provider expired")
+                        })?)
+                        .ok_or_else(|| {
+                            invalid(Reason::Capacity, "accepted original capacity overflow")
+                        })?;
+                    accepted_hosts.push(provider);
+                }
+            }
             for resource in &slot.recipe.spec().resources {
                 let limit = match resource {
                     R::ControlledServiceStream { max_sockets, .. }
@@ -76,7 +94,10 @@ impl ComponentPlan {
             }
             pending.extend(self.retirement_dependencies(slot));
         }
-        Ok(capacity)
+        // Accepted books use this same Host's total original bound. It already
+        // includes the native providers visited above; adding both would count
+        // the same Root twice and can reject an otherwise valid finite graph.
+        Ok(capacity.max(accepted_capacity))
     }
 
     /// Actual installed dynamic background stream/packet pools. Metadata QUIC roots do
@@ -85,6 +106,9 @@ impl ComponentPlan {
         let Some(selected) = self.role_slot(role) else {
             return false;
         };
+        if selected.accepted_carrier_provider().is_some() {
+            return true;
+        }
         let mut pending = vec![selected.instance_id()];
         let mut seen = std::collections::BTreeSet::new();
         while let Some(id) = pending.pop() {
@@ -139,12 +163,51 @@ impl ComponentPlan {
             .is_some_and(|slot| cached::installed(&slot))
     }
 
+    /// Current installed original providers for the standard carrier-loan path.
+    /// This authorizes selection only; protocol loans still return their actual
+    /// controller/original and cleanup must independently consume its receipts.
+    pub fn has_stream_loan_provider(&self, role: zero_core::component::RoleInstanceId) -> bool {
+        if self.has_preparing_node_carrier_provider(role)
+            || self.has_node_stream_provider(role)
+            || self.has_background_carrier_pool(role)
+            || self.has_device_carrier_provider(role)
+        {
+            return true;
+        }
+        let Some(selected) = self.role_slot(role) else {
+            return false;
+        };
+        if selected.accepted_carrier_provider().is_some() {
+            return true;
+        }
+        let mut pending = vec![selected.instance_id()];
+        let mut seen = std::collections::BTreeSet::new();
+        while let Some(id) = pending.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            let Some(slot) = self.order.iter().find(|slot| slot.instance_id() == id) else {
+                return false;
+            };
+            // Roleless cached/metadata owners retain their own original issuer;
+            // no synthetic RoleId is needed to validate that direct dependency.
+            if metadata::installed(slot) || cached::installed(slot) {
+                return true;
+            }
+            pending.extend(slot.dependency_instances());
+        }
+        false
+    }
+
     /// Planning prerequisite only; actual borrowing still validates the original
     /// registration and executable role before using its transferred stream.
     pub fn has_carrier_provider(&self, role: zero_core::component::RoleInstanceId) -> bool {
         let Some(selected) = self.role_slot(role) else {
             return false;
         };
+        if selected.accepted_carrier_provider().is_some() {
+            return true;
+        }
         let mut pending = vec![selected.instance_id()];
         let mut seen = std::collections::BTreeSet::new();
         while let Some(id) = pending.pop() {
@@ -178,6 +241,9 @@ impl ComponentPlan {
             let Some(slot) = self.order.iter().find(|slot| slot.instance_id() == id) else {
                 return false;
             };
+            if slot.accepted_carrier_provider().is_some() {
+                continue;
+            }
             // This is only the exact declared same-job pair. Actual endpoint
             // demand still checks the direct dependency, original grant and
             // both started slots through ensure_process_endpoint_use.
@@ -274,6 +340,12 @@ impl ComponentPlan {
             )
         };
         let selected = self.role_slot(role).ok_or_else(fail)?;
+        if selected
+            .accepted_carrier_provider()
+            .is_some_and(|provider| provider.contains(origin))
+        {
+            return Ok(());
+        }
         let mut pending = vec![selected.instance_id()];
         let mut visited = std::collections::BTreeSet::new();
         while let Some(id) = pending.pop() {

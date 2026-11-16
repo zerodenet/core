@@ -9,6 +9,17 @@ pub async fn send_request<S: AsyncSocket>(
     uuid: &[u8; 16],
     flow: Option<&str>,
 ) -> Result<usize, Error> {
+    let request = build_request(uuid, flow)?;
+    stream
+        .write_all(&request)
+        .await
+        .map_err(|_| Error::Io("failed to write Rvs request"))?;
+    Ok(request.len())
+}
+
+/// Build the target-free control header before acquiring a carrier. The same
+/// bytes are used by independent-library and installed standard Stream roles.
+pub fn build_request(uuid: &[u8; 16], flow: Option<&str>) -> Result<Vec<u8>, Error> {
     #[cfg(feature = "reality")]
     let addons = crate::flow::encode_addons(flow)?;
     #[cfg(not(feature = "reality"))]
@@ -23,9 +34,5 @@ pub async fn send_request<S: AsyncSocket>(
     request.extend_from_slice(uuid);
     request.extend_from_slice(&addons);
     request.push(super::COMMAND);
-    stream
-        .write_all(&request)
-        .await
-        .map_err(|_| Error::Io("failed to write Rvs request"))?;
-    Ok(request.len())
+    Ok(request)
 }

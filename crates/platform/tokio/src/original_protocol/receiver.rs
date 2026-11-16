@@ -93,3 +93,37 @@ impl CarrierProtocolRetirement {
         }
     }
 }
+
+impl Phase {
+    pub(crate) fn advance_metadata_receiver(
+        &self,
+        previous: &ProtocolOriginalReceiver,
+        next: ProtocolOriginalReceiver,
+    ) -> Result<(), ChannelError> {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !self.root_bound
+            || state.complete
+            || state.retirement_started
+            || !state
+                .receiver
+                .as_ref()
+                .is_some_and(|actual| actual.same_metadata_handoff(previous))
+            || next.instance() != self.instance
+            || !next.continues_metadata(previous)
+        {
+            return Err(ChannelError::new(
+                crate::contract::Stage::Prepare,
+                crate::contract::Reason::StalePlan,
+                crate::contract::Impact::Component,
+            ));
+        }
+        let old = state.receiver.replace(next);
+        drop(state);
+        drop(old);
+        self.wake();
+        Ok(())
+    }
+}

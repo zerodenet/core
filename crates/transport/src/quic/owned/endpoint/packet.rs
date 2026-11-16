@@ -14,3 +14,129 @@ impl OwnedEndpointOwner {
         segment.bind_endpoint(socket, self.drivers.registration_ledger())
     }
 }
+
+#[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
+impl OwnedEndpointOwner {
+    /// The native packet view has reached this exact live Quinn endpoint
+    /// driver. Authentication and logical caller delivery remain separate.
+    pub fn prepare_native_endpoint_receiver(
+        &self,
+        segment: &super::super::packet::PacketSegment,
+        origin: &zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOrigin,
+        retirement: &zero_platform_tokio::controlled_carrier::CarrierProtocolRetirement,
+    ) -> Result<zero_platform_tokio::controlled_carrier::ProtocolReceiverPrepared, ChannelError>
+    {
+        self.shared.check()?;
+        if self.shared.phase.load(Ordering::Acquire) != 2 {
+            return Err(error(Stage::Prepare, Reason::StalePlan));
+        }
+        let id = self
+            .drivers
+            .tasks()
+            .into_iter()
+            .find(|id| {
+                self.drivers.origin(*id)
+                    == Some(super::super::OwnedDriverOrigin::Quinn(
+                        quinn::DriverOrigin::Endpoint,
+                    ))
+            })
+            .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
+        let Native::Packet(socket) = &self.native else {
+            return Err(error(Stage::Prepare, Reason::StalePlan));
+        };
+        let graph = self
+            .users_graph
+            .as_ref()
+            .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
+        let views = segment
+            .retained_receiver_views(socket, graph, id)
+            .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
+        origin.prepare_protocol_receiver(views, retirement)
+    }
+
+    pub fn new_packet_endpoint(
+        socket: super::super::packet::PacketSocket,
+        segment: &mut super::super::packet::PacketSegment,
+        registrar: TaskRegistrar,
+        limits: OwnedEndpointLimits,
+    ) -> Result<(Self, DriverExitReceiver), ChannelError> {
+        let (graph, receiver) = segment.take_endpoint_users(&socket, &registrar, limits)?;
+        let drivers = QuinnDriverOwner::from_ledger(graph.drivers().clone());
+        let users = graph.users().clone();
+        let (owner, receiver) = Self::construct_users(
+            Native::Packet(socket),
+            drivers,
+            users,
+            receiver,
+            Some(graph),
+        );
+        owner.bind_packet_segment(segment)?;
+        Ok((owner, receiver))
+    }
+}
+
+#[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
+impl OwnedEndpointOwner {
+    pub fn prepare_native_endpoint_continuation_receiver(
+        &self,
+        segment: &super::super::packet::PacketSegment,
+        original: &zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOrigin,
+        wire: &zero_platform_tokio::controlled_datagram::metadata_pool::MetadataPoolOrigin,
+        retirement: &zero_platform_tokio::controlled_carrier::CarrierProtocolRetirement,
+    ) -> Result<zero_platform_tokio::controlled_carrier::ProtocolReceiverPrepared, ChannelError>
+    {
+        self.shared.check()?;
+        if self.shared.phase.load(Ordering::Acquire) != 2 {
+            return Err(error(Stage::Prepare, Reason::StalePlan));
+        }
+        let previous = original
+            .retained_driver()
+            .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
+        let id = self
+            .drivers
+            .tasks()
+            .into_iter()
+            .find(|id| {
+                self.drivers.origin(*id)
+                    == Some(super::super::OwnedDriverOrigin::Quinn(
+                        quinn::DriverOrigin::Endpoint,
+                    ))
+            })
+            .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
+        let Native::Packet(socket) = &self.native else {
+            return Err(error(Stage::Prepare, Reason::StalePlan));
+        };
+        let graph = self
+            .users_graph
+            .as_ref()
+            .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
+        let views = segment
+            .retained_continuation_views(socket, graph, id, previous.view_handoff())
+            .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
+        original.prepare_protocol_continuation_receiver(wire, views, retirement)
+    }
+    /// Complete the first wire's receipt with this same endpoint's actual final
+    /// driver map. Returning a later wire never substitutes for that first claim.
+    pub fn complete_packet_protocol_receipt(
+        &self,
+        receipt: zero_platform_tokio::controlled_datagram::metadata::users::MetadataUsersClosedReceipt,
+    ) -> Result<
+        zero_platform_tokio::controlled_datagram::metadata::users::MetadataUsersClosedReceipt,
+        ChannelError,
+    > {
+        let graph = self
+            .users_graph
+            .as_ref()
+            .ok_or_else(|| error(Stage::Close, Reason::StalePlan))?;
+        if !graph.receipt_names_original(&receipt) {
+            return Err(error(Stage::Close, Reason::StalePlan));
+        }
+        let drivers = graph
+            .drivers()
+            .owned_registration_completion()
+            .ok_or_else(|| error(Stage::Close, Reason::Timeout))?;
+        receipt
+            .with_related_driver_receipt(drivers)
+            .map_err(|_| error(Stage::Close, Reason::StalePlan))
+    }
+}

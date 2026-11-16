@@ -69,14 +69,14 @@ fn selected_custom_id_is_parsed_by_protocol_and_invalid_id_never_falls_back() {
     assert!(component_options(&input).is_err());
 }
 #[test]
-fn reverse_input_cannot_be_projected_into_an_ordinary_outbound_role() {
+fn reverse_source_uses_the_same_standard_outbound_role_instead_of_a_private_runtime() {
     let mut input = input("");
     let OutboundProtocolConfig::Vless { reverse_tag, .. } = &mut input.protocol else {
         unreachable!()
     };
     *reverse_tag = Some("virtual-ingress".into());
-    assert!(!native_input(&input));
-    assert!(component_options(&input).is_err());
+    assert!(native_input(&input));
+    assert!(component_options(&input).is_ok());
 }
 
 #[test]
@@ -147,7 +147,7 @@ fn reality_ordinary_recipe_requires_its_real_preparation_owner_and_preserves_lib
 
 #[cfg(feature = "vmess")]
 #[test]
-fn ordinary_mux_prefix_registration_requires_qualified_root_and_complete_protocol_options() {
+fn ordinary_mux_producer_is_independent_of_business_relay_aliases() {
     let pool = input(r#", "mux_concurrency":2,"xudp_concurrency":2"#);
     let mut config=zero_config::RuntimeConfig::parse(r#"{"outbounds":[{"tag":"last","protocol":{"type":"vmess","server":"127.0.0.1","port":443,"id":"11111111-2222-3333-4444-555555555555","grpc":{"service_names":["udp"]}}}],"route":{"final":{"type":"direct"}}}"#).unwrap();
     config.outbounds.insert(0, pool.clone());
@@ -161,7 +161,7 @@ fn ordinary_mux_prefix_registration_requires_qualified_root_and_complete_protoco
     assert!(!adapter.production_selected(&pool, None, true));
     let mut custom = config.clone();
     custom.outbounds[1].dial.interface = Some("lo0".into());
-    assert!(!adapter.production_selected(&pool, Some(&custom), true));
+    assert!(adapter.production_selected(&pool, Some(&custom), true));
     let mut nested = config.clone();
     nested.outbound_groups.push(
         serde_json::from_value(
@@ -169,13 +169,15 @@ fn ordinary_mux_prefix_registration_requires_qualified_root_and_complete_protoco
         )
         .unwrap(),
     );
-    assert!(!adapter.production_selected(&pool, Some(&nested), true));
+    assert!(adapter.production_selected(&pool, Some(&nested), true));
     for extra in [
         r#", "mux_concurrency":2"#,
         r#", "mux_concurrency":2,"xudp_concurrency":3"#,
     ] {
         let input = input(extra);
-        assert!(!adapter.production_selected(&input, Some(&config), true));
+        let mut complete = config.clone();
+        complete.outbounds[0] = input.clone();
+        assert!(adapter.production_selected(&input, Some(&complete), true));
     }
 }
 
@@ -184,7 +186,7 @@ fn ordinary_mux_prefix_registration_requires_qualified_root_and_complete_protoco
 mod material;
 
 #[test]
-fn ordinary_encryption_uses_standard_roles_without_promoting_unmigrated_pool_profiles() {
+fn ordinary_mux_and_grpc_keep_encryption_in_protocol_framing() {
     use base64::Engine;
     let server = ::vless::encryption::EncryptionServer::new(
         ::vless::encryption::config::EncryptionConfig::server(&format!(
@@ -218,7 +220,13 @@ fn ordinary_encryption_uses_standard_roles_without_promoting_unmigrated_pool_pro
             ", \"encryption\":{}{extra}",
             serde_json::to_string(&profile).unwrap()
         ));
-        assert!(!grpc::eligible(&pooled));
-        assert!(!mux::eligible(&pooled));
+        assert_eq!(grpc::eligible(&pooled), extra.contains("grpc"));
+        assert!(mux::eligible(&pooled));
     }
 }
+
+#[cfg(feature = "socks5")]
+mod framed;
+
+#[cfg(feature = "socks5")]
+mod reverse;

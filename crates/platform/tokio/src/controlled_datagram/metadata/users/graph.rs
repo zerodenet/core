@@ -118,6 +118,7 @@ impl<O: DriverKind, B: Send + Sync + 'static> MetadataUserGraph<O, B> {
         Some(
             crate::controlled_datagram::metadata::MetadataViewsRetained {
                 original: self.0.views.0.clone(),
+                endpoint_original: None,
                 driver,
                 protocol,
             },
@@ -242,5 +243,61 @@ impl MetadataUsersClosedReceipt {
     /// Same original unique native view claim; read-only, not IO/ACK authority.
     pub fn same_original(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.views.0, &other.views.0)
+    }
+}
+
+impl<O: DriverKind, B: Send + Sync + 'static> MetadataUserGraph<O, B> {
+    /// The same live protocol registration persists while its unique Packet
+    /// queues move to another native wire. Both original claims remain sealed.
+    pub fn retained_continuation_views(
+        &self,
+        driver: zero_core::component::TaskId,
+        endpoint: &Self,
+        protocol: zero_core::component::TaskId,
+        previous: &crate::controlled_datagram::metadata::MetadataViewsRetained,
+    ) -> Option<crate::controlled_datagram::metadata::MetadataViewsRetained> {
+        let original = previous
+            .endpoint_original
+            .as_ref()
+            .unwrap_or(&previous.original);
+        if !Arc::ptr_eq(original, &endpoint.0.views.0) {
+            return None;
+        }
+        let driver = self.0.drivers.live_registration(driver)?;
+        let protocol = endpoint.0.drivers.live_registration(protocol)?;
+        if !protocol.same_registration(previous.protocol_driver())
+            || !protocol
+                .scope_identity()
+                .same_scope(&driver.scope_identity())
+        {
+            return None;
+        }
+        Some(
+            crate::controlled_datagram::metadata::MetadataViewsRetained {
+                original: self.0.views.0.clone(),
+                endpoint_original: Some(original.clone()),
+                driver,
+                protocol,
+            },
+        )
+    }
+    pub fn receipt_names_original(&self, receipt: &MetadataUsersClosedReceipt) -> bool {
+        Arc::ptr_eq(&self.0.views.0, &receipt.views.0)
+    }
+}
+
+impl MetadataUsersClosedReceipt {
+    /// Enrich the same original wire receipt only with its later sealed
+    /// protocol driver ledger. Its original packet registration stays intact.
+    pub(crate) fn with_later_protocol_receipt(&self, later: &Self) -> Option<Self> {
+        if !self.same_original(later)
+            || self.related_registrations.is_some()
+            || later.related_registrations.is_none()
+        {
+            return None;
+        }
+        let mut completed = self.clone();
+        completed.related_registrations = later.related_registrations.clone();
+        Some(completed)
     }
 }

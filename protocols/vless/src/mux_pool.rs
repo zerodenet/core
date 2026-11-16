@@ -89,6 +89,7 @@ pub struct MuxConnectionPool {
     control: zero_transport::pooled_driver::PoolControl,
     pool: Arc<Mutex<PoolEntries>>,
     scope: Option<Arc<str>>,
+    native_policy: Option<(Option<u32>, Option<u32>)>,
 }
 
 struct PoolKeyConfig {
@@ -438,6 +439,7 @@ impl MuxConnectionPool {
             pool: Arc::new(Mutex::new(HashMap::new())),
             scope: None,
             control: Default::default(),
+            native_policy: None,
         }
     }
 
@@ -451,6 +453,7 @@ impl MuxConnectionPool {
             // changes; the actual cache scope still includes the full profile.
             control: self.control.scoped(Arc::from(tag)),
             scope: Some(scope),
+            native_policy: self.native_policy,
         }
     }
 
@@ -790,6 +793,7 @@ impl MuxPoolConn {
         Ok(MuxStreamRelay {
             native_writer: None,
             native_initial: None,
+            native_origin: None,
             write_open: true,
             sid,
             down_rx: Some(down_rx),
@@ -865,7 +869,7 @@ impl MuxPoolConn {
         Some(sid)
     }
 
-    fn release_stream(self: &Arc<Self>, sid: u16) {
+    pub(crate) fn release_stream(self: &Arc<Self>, sid: u16) {
         self.streams.lock().unwrap().remove(&sid);
         let mut active = self.active.lock().unwrap();
         *active = active.saturating_sub(1);
@@ -907,6 +911,7 @@ impl MuxPoolConn {
 struct MuxStreamRelay {
     native_writer: Option<zero_transport::pooled_driver::datagram_queue::PacketWriter>,
     native_initial: Option<(u16, Address)>,
+    native_origin: Option<crate::mux::origin::Origin>,
     write_open: bool,
     sid: u16,
     down_rx: Option<mpsc::Receiver<MuxDownlink<Vec<u8>>>>,

@@ -15,13 +15,21 @@ impl UdpFlowStartContext<'_> {
         payload: &[u8],
         connection: LogicalConnection,
     ) -> Result<FlowStartResult, FlowFailure> {
-        let sent = connection
-            .send(session, payload)
-            .await
-            .map_err(|mut failure| {
-                failure.upstream = upstream.clone();
-                failure
+        connection
+            .install_response(&mut self.state.chain_tasks)
+            .map_err(|error| FlowFailure {
+                stage: "udp_datagram_receive",
+                error,
+                upstream: upstream.clone(),
             })?;
+        let sent = match connection.send(session, payload).await {
+            Ok(sent) => sent,
+            Err(mut failure) => {
+                connection.return_failed_open(&mut self.state.chain_tasks);
+                failure.upstream = upstream.clone();
+                return Err(failure);
+            }
+        };
         let remote = connection.observed_remote();
         let managed = self
             .state

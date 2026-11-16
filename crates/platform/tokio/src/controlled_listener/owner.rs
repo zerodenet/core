@@ -76,6 +76,37 @@ impl ControlledTcpListenerOwner {
         )
     }
 
+    /// Cold refinement of one declared literal, preserving its actual IP/port
+    /// while retaining API-supplied IPv6 zone/flow facts before any acquisition.
+    pub fn refine_literal_endpoint(&mut self, address: SocketAddr) -> Result<(), ChannelError> {
+        let state = self
+            .control
+            .shared
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if self.resolution_port.is_some()
+            || self.addresses.len() != 1
+            || self.addresses[0].ip() != address.ip()
+            || self.addresses[0].port() != address.port()
+            || self.acquired
+            || self.acquisition_source.is_some()
+            || state.raw.is_some()
+            || state.listener.is_some()
+            || state.attempt.is_some()
+            || state.confirmed != 0
+            || state.retired
+            || state.closed
+            || state.error.is_some()
+        {
+            return Err(denied(
+                Reason::InvalidConfig,
+                "literal listener refinement changed its declaration or acquired original",
+            ));
+        }
+        self.addresses = Arc::from([address]);
+        Ok(())
+    }
     fn construct(
         declaration: &ResourceDeclaration,
         max_bind_attempts: NonZeroUsize,

@@ -19,7 +19,10 @@ impl PrefixOpener {
             self.borrow_datagram_request(
                 binding,
                 endpoint,
-                self.request_destination.clone(),
+                DatagramRequest {
+                    association: next_association()?,
+                    targets: DatagramTargets::Fixed(self.request_destination.clone()),
+                },
                 self.service_identity.clone().unwrap_or_else(|| {
                     RequestIdentity::Service(
                         Arc::new(ServiceRequestFacts {
@@ -63,7 +66,10 @@ impl PrefixOpener {
                 .borrow_datagram_request(
                     binding,
                     target.endpoint().clone(),
-                    numeric,
+                    DatagramRequest {
+                        association: next_association()?,
+                        targets: DatagramTargets::Fixed(numeric),
+                    },
                     target.identity().clone(),
                     target.call().clone(),
                 )
@@ -71,11 +77,11 @@ impl PrefixOpener {
             Ok(target.with_loan(loan))
         })
     }
-    async fn borrow_datagram_request(
+    pub(super) async fn borrow_datagram_request(
         &self,
         binding: UpstreamBinding,
         endpoint: Destination,
-        request_destination: Destination,
+        request: DatagramRequest,
         identity: RequestIdentity,
         call: CarrierContext,
     ) -> Result<DatagramLoan, ChannelError> {
@@ -101,33 +107,40 @@ impl PrefixOpener {
                 )
             })?
             .slot()?;
+        if binding.prefix.last() != Some(&slot.role_id()) {
+            return Err(self.interrupted(&call, Reason::StalePlan));
+        }
         let deadline = call
             .deadline
             .unwrap_or_else(|| tokio::time::Instant::now() + std::time::Duration::from_secs(5));
         let role = slot.datagram(deadline).await?;
-        static NEXT: AtomicU64 = AtomicU64::new(1);
-        let mut id = NEXT.load(Ordering::Relaxed);
-        let id = loop {
-            let next = id.checked_add(1).ok_or_else(|| {
-                invalid(
-                    Reason::Capacity,
-                    "background association identity exhausted",
-                )
-            })?;
-            match NEXT.compare_exchange_weak(id, next, Ordering::Relaxed, Ordering::Relaxed) {
-                Ok(_) => break id,
-                Err(actual) => id = actual,
-            }
+        // A persistent receiver borrows under its own Service call, including
+        // when this donor was originally selected by Business. Rebuild only the
+        // already selected shorter path with the actual pending-original ledger;
+        // never let a pool retain that business request's upstream authority.
+        let waiting = self.context.upstream.observed_pending_carrier();
+        let upstream = if waiting.is_some() || self.context.session_identity()?.is_some() {
+            self.select_shorter(&call, waiting).await?
+        } else {
+            self.context.upstream.clone()
         };
-        let request = DatagramRequest {
-            association: AssociationId(id),
-            targets: DatagramTargets::Fixed(request_destination),
-        };
+        if binding.network_generation.0 != self.network.network_generation()
+            || call.cancel.is_cancelled()
+        {
+            let reason = if call.cancel.is_cancelled() {
+                Reason::Cancelled
+            } else {
+                Reason::StalePlan
+            };
+            let mut failure = self.interrupted(&call, reason);
+            failure.delivery = DeliveryState::NotSubmitted;
+            return Err(failure);
+        }
         let context = OpenContext {
             identity,
             deadline: call.deadline,
             cancel: call.cancel.clone(),
-            upstream: self.context.upstream.clone(),
+            upstream,
             observer: None,
         };
         let attempt = tokio::select! {biased;_=call.cancel.cancelled()=>return Err(self.interrupted(&call,Reason::Cancelled)),result=with_deadline(call.deadline,role.open_carrier(request,context))=>result.map_err(|source|self.interrupted(&call,Reason::Timeout).with_source(source))?};
@@ -144,4 +157,22 @@ impl PrefixOpener {
         }
         Ok(loan)
     }
+}
+
+fn next_association() -> Result<AssociationId, ChannelError> {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    let mut id = NEXT.load(Ordering::Relaxed);
+    let id = loop {
+        let next = id.checked_add(1).ok_or_else(|| {
+            invalid(
+                Reason::Capacity,
+                "background association identity exhausted",
+            )
+        })?;
+        match NEXT.compare_exchange_weak(id, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => break id,
+            Err(actual) => id = actual,
+        }
+    };
+    Ok(AssociationId(id))
 }

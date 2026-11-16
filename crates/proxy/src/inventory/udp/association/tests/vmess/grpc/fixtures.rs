@@ -243,12 +243,10 @@ pub(super) fn assert_no_legacy_udp(proxy: &Proxy) {
     let zero_engine::ResolvedOutbound::Single(leaf) = resolved else {
         panic!("single")
     };
-    let claim = proxy.protocols.claim_outbound_leaf(&config, leaf).unwrap();
     assert!(
-        claim.tcp_connect_for_route(RouteMode::Flow).is_err(),
-        "the whole qualified Node uses its original Managed Stream owner"
+        proxy.protocols.claim_outbound_leaf(&config, leaf).is_err(),
+        "the actual standard Node retires its complete compatibility projection"
     );
-    assert!(claim.into_udp_flow_for_route(RouteMode::Flow).is_err());
 }
 
 pub(super) async fn exercise_datagram(proxy: Proxy, server: Server, payloads: Vec<Vec<u8>>) {

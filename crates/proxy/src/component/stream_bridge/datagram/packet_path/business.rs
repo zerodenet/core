@@ -100,12 +100,13 @@ pub(super) async fn open_root(
     )))
 }
 
-/// Same actual flat relay and independent association lifetime. The protocol
-/// sees the original Business facts; the physical prefix uses its existing
-/// legitimate background selection and real PendingOpen observer.
-pub(super) async fn open_associated(
+/// The actual standard graph retains its original business caller, which pays and registers its
+/// logical association before any background carrier can open.
+pub(super) async fn open_selected_associated(
     services: &PacketPathExecutionServices,
-    prefix: &crate::inventory::PreparedTcpRelayPrefix,
+    slot: Arc<ComponentSlot>,
+    nodes: Vec<crate::inventory::service::ServiceNode>,
+    binding: UpstreamBinding,
     descriptor: &PacketPathCarrierDescriptor,
 ) -> Result<Arc<dyn PacketPathCarrier>, EngineError> {
     use crate::component::stream_bridge::relay::background::BackgroundPath;
@@ -120,12 +121,6 @@ pub(super) async fn open_associated(
         .components
         .as_ref()
         .map_err(|source| failure(crate::component::instance::retained(source.clone())))?;
-    let (slot, nodes, binding) = super::relay::associated_selection(
-        plan,
-        prefix,
-        descriptor,
-        NetworkGeneration(execution.upstream().network_generation()),
-    )?;
     plan.authorize_carrier_prefix(slot.instance_id(), &binding.prefix)
         .map_err(failure)?;
     let mut roles = binding.prefix.clone();

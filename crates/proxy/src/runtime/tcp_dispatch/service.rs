@@ -5,11 +5,13 @@ mod datagram;
 pub(crate) use datagram::connect_carrier_datagram;
 mod receipt;
 pub(crate) use binding::NativeDnsBinding;
+#[cfg(test)]
+#[path = "service/tests/legacy_connect.rs"]
+mod legacy_connect;
+#[path = "service/ingress_root.rs"]
 mod root;
 use crate::{
-    component::{
-        instance::retained, legacy_stream::LegacyStream, stream_bridge::relay::prefix::PrefixOpener,
-    },
+    component::{instance::retained, stream_bridge::relay::prefix::PrefixOpener},
     inventory::{
         service::{ServiceNode, ServicePlan},
         ProtocolInventory,
@@ -17,21 +19,22 @@ use crate::{
     protocol_registry::{OutboundAdapterContext, TcpExecutionServices, TcpRuntimeServices},
     transport::TcpOutboundFailure,
 };
-pub(crate) use receipt::{ServiceBinding, ServiceConnected};
+#[cfg(test)]
+pub(crate) use legacy_connect::connect;
+pub(crate) use receipt::ServiceBinding;
+#[cfg(test)]
+pub(crate) use receipt::ServiceConnected;
 use std::{sync::Arc, time::Duration};
 use zero_core::{
     component::NetworkGeneration,
     request::{Destination, ServiceOrigin, ServicePurpose, ServiceRequestFacts},
 };
 use zero_engine::ResolvedOutbound;
-use zero_platform_tokio::{
-    contract::{
-        context::{with_deadline, OpenContext, RequestIdentity},
-        network::{CarrierContext, UpstreamBinding, UpstreamTransport},
-        stream::ConnectRequest,
-        ChannelError, DeliveryState, Impact, Reason, Stage,
-    },
-    TcpRelayStream,
+use zero_platform_tokio::contract::{
+    context::{OpenContext, RequestIdentity},
+    network::{CarrierContext, UpstreamBinding, UpstreamTransport},
+    stream::ConnectRequest,
+    ChannelError, DeliveryState, Impact, Reason, Stage,
 };
 
 pub(crate) fn prepare(
@@ -56,106 +59,50 @@ pub(crate) fn prepare(
     )
 }
 
-pub(crate) async fn connect(
-    services: TcpExecutionServices,
-    destination: Destination,
-    plan: ServicePlan,
-    purpose: ServicePurpose,
-    context: CarrierContext,
-) -> Result<ServiceConnected, ChannelError> {
-    if context.session.is_some() {
-        return Err(failure(Reason::InvalidConfig));
-    }
-    if context.cancel.is_cancelled() {
-        return Err(failure(Reason::Cancelled));
-    }
-    if context
-        .deadline
-        .is_some_and(|end| tokio::time::Instant::now() >= end)
-    {
-        return Err(failure(Reason::Timeout));
-    }
-    let operation = async {
-        match plan {
-            ServicePlan::Single(node) => {
-                chain(&services, &destination, vec![node], purpose, &context).await
-            }
-            ServicePlan::Relay(nodes) => {
-                chain(&services, &destination, nodes, purpose, &context).await
-            }
-            ServicePlan::Fallback(nodes) => {
-                let mut last = None;
-                for node in nodes {
-                    match chain(&services, &destination, vec![node], purpose, &context).await {
-                        Ok(io) => return Ok(io),
-                        Err(error) => {
-                            if !error.retry_permitted() {
-                                return Err(error);
-                            }
-                            last = Some(error);
-                        }
-                    }
-                }
-                Err(last.unwrap_or_else(|| failure(Reason::InvalidConfig)))
-            }
-        }
-    };
-    tokio::select! {biased;
-        _=context.cancel.cancelled()=>Err(interrupted(Reason::Cancelled)),
-        result=with_deadline(context.deadline,operation)=>result.map_err(|source|interrupted(Reason::Timeout).with_source(source))?,
-    }
-}
-
-async fn chain(
+/// Active ingress borrows the actual selected generation and its original
+/// provider. The protocol Source retains the returned logical controller.
+pub(crate) async fn connect_ingress(
     services: &TcpExecutionServices,
     destination: &Destination,
-    nodes: Vec<ServiceNode>,
-    purpose: ServicePurpose,
+    node: ServiceNode,
     call: &CarrierContext,
-) -> Result<ServiceConnected, ChannelError> {
-    let first = nodes
-        .first()
-        .ok_or_else(|| failure(Reason::InvalidConfig))?;
-    let physical = first
-        .endpoint
-        .clone()
-        .or_else(|| nodes.get(1).and_then(|node| node.endpoint.clone()))
-        .unwrap_or_else(|| destination.clone());
-    let network = match &first.tag {
-        Some(tag) => services.upstream_observed(tag),
-        None => services.upstream(),
-    };
-    let generation = NetworkGeneration(network.network_generation());
-    let network_updates = network.network_updates();
+) -> Result<zero_platform_tokio::controlled_carrier::loan::StreamLoan, ChannelError> {
+    if call.session.is_some() || node.endpoint.as_ref() != Some(destination) {
+        return Err(failure(Reason::StalePlan));
+    }
+    let network = node.tag.as_ref().map_or_else(
+        || services.upstream(),
+        |tag| services.upstream_observed(tag),
+    );
     let binding = UpstreamBinding {
         prefix: vec![],
-        dial: first.dial.clone(),
-        network_generation: generation,
+        dial: node.dial.clone(),
+        network_generation: NetworkGeneration(network.network_generation()),
     };
-    let root = Arc::new(root::RootOpener {
-        services: network,
-        binding: binding.clone(),
-        endpoint: physical,
-        role: first.role,
-        evidence: Arc::default(),
-        source: services.current_source.clone(),
-        selected: first.slot.role_id(),
-        call: call.clone(),
-        candidates: tokio::sync::Mutex::new(None),
-    });
-    let upstream = UpstreamTransport::new(binding, root.clone());
-    let io = connect_stream(services, destination, &nodes, purpose, call, upstream).await?;
-    let evidence = root
-        .take_evidence()
-        .ok_or_else(|| failure(Reason::Internal))?;
-    Ok(ServiceConnected {
-        stream: TcpRelayStream::from_client(LegacyStream::new(
-            io,
-            Some(evidence.local),
-            evidence.peer,
-        )),
-        binding: ServiceBinding::new(&nodes, destination.clone(), generation, network_updates)?,
-    })
+    let upstream = UpstreamTransport::new(
+        binding.clone(),
+        Arc::new(root::RootOpener {
+            services: network,
+            binding,
+            endpoint: destination.clone(),
+            #[cfg(test)]
+            role: node.role,
+            evidence: Arc::default(),
+            source: services.current_source.clone(),
+            selected: node.slot.role_id(),
+            call: call.clone(),
+            candidates: tokio::sync::Mutex::new(None),
+        }),
+    );
+    connect_carrier_stream(
+        services,
+        destination,
+        &[node],
+        ServicePurpose::DialedIngress,
+        call,
+        upstream,
+    )
+    .await
 }
 
 /// Execute the actual standard roles over the caller's original I/O provider.
@@ -230,24 +177,41 @@ async fn prepare_stream_path(
         })
         .into(),
     );
+    let prefix_identity = if purpose == ServicePurpose::DialedIngress && nodes.len() > 1 {
+        RequestIdentity::Service(
+            Arc::new(ServiceRequestFacts {
+                origin: ServiceOrigin::Runtime,
+                purpose: ServicePurpose::BackgroundControl,
+            })
+            .into(),
+        )
+    } else {
+        identity.clone()
+    };
     let mut prefix = Vec::with_capacity(nodes.len());
     for (index, (node, role)) in nodes.iter().zip(roles).enumerate() {
         // A Service receiver is a real transitive consumer just like a
         // Business receiver. Register that dependency before its acquisition,
         // so replacement drains it before retiring the shorter prefix owner.
-        if !prefix.is_empty() && node.slot.recipe.spec().resources.iter().any(|resource| matches!(resource,
+        if !prefix.is_empty() && (services.components.as_ref().is_ok_and(|plan| plan.has_stream_loan_provider(node.slot.role_id())) || node.slot.recipe.spec().resources.iter().any(|resource| matches!(resource,
             zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { .. }
             | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledAssociationPool { .. }
             | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeCarrier { .. }
             | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeStream { .. }
             | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledServiceStream { .. }
-            | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier { .. })) {
+            | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledMetadataCarrier { .. }))) {
             services.components.as_ref().map_err(|source| {
                 failure(Reason::Revoked).with_source(retained(source.clone()))
             })?.authorize_carrier_prefix(node.slot.instance_id(), &prefix)?;
         }
         let context = OpenContext {
-            identity: identity.clone(),
+            // Only the terminal role speaks the active ingress protocol. A
+            // VLESS prefix still opens an ordinary tunnel to that real peer.
+            identity: if index + 1 == nodes.len() {
+                identity.clone()
+            } else {
+                prefix_identity.clone()
+            },
             deadline: call.deadline,
             cancel: call.cancel.clone(),
             observer: None,

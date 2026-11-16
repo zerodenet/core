@@ -7,7 +7,8 @@ use zero_core::component::TaskId;
 #[cfg(feature = "native-packet-origin")]
 mod metadata;
 pub(super) struct Reconnect {
-    witness: OnceLock<TaskJoinWitness>,
+    pub(super) wire: TaskJoinWitness,
+    pub(super) witness: OnceLock<TaskJoinWitness>,
     failures: ActorFailuresRef,
     observing_failure: Mutex<()>,
     failure_delivery: OnceLock<Arc<faults::Delivery>>,
@@ -59,7 +60,7 @@ impl Reconnect {
     }
 }
 impl PacketDriverCalls {
-    fn original_actor(&self, actual: &TaskJoinWitness) -> bool {
+    pub(super) fn original_actor(&self, actual: &TaskJoinWitness) -> bool {
         if let Some(logical) = self.original.logical_packet() {
             logical
                 .drivers()
@@ -124,9 +125,10 @@ impl PacketDriverCalls {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let delivery = self.advance_fault_epoch(&calls, &mut retired_epoch)?;
         #[cfg(feature = "native-packet-origin")]
-        let actor = metadata.install(self)?;
+        let actor = metadata.install(self, wire)?;
         #[cfg(not(feature = "native-packet-origin"))]
         let actor = Arc::new(Reconnect {
+            wire: wire.clone(),
             witness: OnceLock::new(),
             failures: Arc::new(faults::ActorFailures::default()),
             observing_failure: Mutex::new(()),

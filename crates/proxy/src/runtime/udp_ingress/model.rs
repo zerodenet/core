@@ -1,4 +1,6 @@
 use crate::protocol_registry::{TcpRuntimeServices, UdpRuntimeServices};
+#[cfg(feature = "managed-datagram-runtime")]
+mod direct;
 mod inspection;
 
 #[derive(Clone)]
@@ -18,9 +20,16 @@ pub(crate) struct UdpIngressRuntime {
     bound_direct_budget: Option<crate::runtime::udp_dispatch::BoundDirectBudget>,
     #[cfg(feature = "managed-datagram-runtime")]
     direct_peer_driver: Option<crate::runtime::udp_socket::endpoint::peer::DirectPeerDriverSlot>,
+    #[cfg(feature = "managed-datagram-runtime")]
+    inline_direct: bool,
+    #[cfg(feature = "managed-datagram-runtime")]
+    inline_direct_cancel: Option<zero_platform_tokio::contract::CancellationToken>,
+    #[cfg(feature = "managed-datagram-runtime")]
+    direct_preferred_port: Option<Option<u16>>,
 }
 
 impl UdpIngressRuntime {
+    #[cfg(test)]
     pub(crate) fn accepted_native_socket_limit(&self) -> Option<std::num::NonZeroUsize> {
         // Independent kernel-egress budget, not borrowed from accepted TCP
         // slots, listener bind attempts or the global logical-controller cap.
@@ -75,6 +84,9 @@ impl UdpIngressRuntime {
         )
     }
 
+    pub(crate) fn accepted_caller(&self) -> Option<&zero_platform_tokio::AcceptedCaller> {
+        self.accepted_caller.as_ref()
+    }
     pub(crate) fn with_accepted_caller(
         mut self,
         caller: zero_platform_tokio::AcceptedCaller,
@@ -107,6 +119,12 @@ impl UdpIngressRuntime {
             bound_direct_budget: None,
             #[cfg(feature = "managed-datagram-runtime")]
             direct_peer_driver: None,
+            #[cfg(feature = "managed-datagram-runtime")]
+            inline_direct: false,
+            #[cfg(feature = "managed-datagram-runtime")]
+            inline_direct_cancel: None,
+            #[cfg(feature = "managed-datagram-runtime")]
+            direct_preferred_port: None,
         }
     }
 
@@ -145,6 +163,12 @@ impl UdpIngressRuntime {
             bound_direct_budget: self.bound_direct_budget,
             #[cfg(feature = "managed-datagram-runtime")]
             direct_peer_driver: self.direct_peer_driver.clone(),
+            #[cfg(feature = "managed-datagram-runtime")]
+            inline_direct: self.inline_direct,
+            #[cfg(feature = "managed-datagram-runtime")]
+            inline_direct_cancel: self.inline_direct_cancel.clone(),
+            #[cfg(feature = "managed-datagram-runtime")]
+            direct_preferred_port: self.direct_preferred_port,
         }
     }
 
@@ -164,6 +188,12 @@ impl UdpIngressRuntime {
             bound_direct_budget: self.bound_direct_budget,
             #[cfg(feature = "managed-datagram-runtime")]
             direct_peer_driver: self.direct_peer_driver.clone(),
+            #[cfg(feature = "managed-datagram-runtime")]
+            inline_direct: self.inline_direct,
+            #[cfg(feature = "managed-datagram-runtime")]
+            inline_direct_cancel: self.inline_direct_cancel.clone(),
+            #[cfg(feature = "managed-datagram-runtime")]
+            direct_preferred_port: self.direct_preferred_port,
         }
     }
 
@@ -227,35 +257,6 @@ impl UdpIngressRuntime {
     ) -> Option<&crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration>
     {
         self.native.as_ref()
-    }
-    /// Explicit actual caller grant. No default budget is inferred from peer count.
-    #[cfg(feature = "managed-datagram-runtime")]
-    pub(crate) fn with_bound_direct_budget(
-        mut self,
-        budget: crate::runtime::udp_dispatch::BoundDirectBudget,
-    ) -> Self {
-        self.bound_direct_budget = Some(budget);
-        self
-    }
-    #[cfg(feature = "managed-datagram-runtime")]
-    pub(crate) fn bound_direct_budget(
-        &self,
-    ) -> Option<crate::runtime::udp_dispatch::BoundDirectBudget> {
-        self.bound_direct_budget
-    }
-    #[cfg(feature = "managed-datagram-runtime")]
-    pub(crate) fn with_direct_peer_driver(
-        mut self,
-        slot: crate::runtime::udp_socket::endpoint::peer::DirectPeerDriverSlot,
-    ) -> Self {
-        self.direct_peer_driver = Some(slot);
-        self
-    }
-    #[cfg(feature = "managed-datagram-runtime")]
-    pub(crate) fn direct_peer_driver(
-        &self,
-    ) -> Option<&crate::runtime::udp_socket::endpoint::peer::DirectPeerDriverSlot> {
-        self.direct_peer_driver.as_ref()
     }
     pub(crate) fn with_local_addr(mut self, local: Option<std::net::SocketAddr>) -> Self {
         self.local_addr = local;

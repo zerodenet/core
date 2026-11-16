@@ -7,6 +7,7 @@ use crate::runtime::raw_ip::tasks::{
 use std::future::Future;
 #[cfg(not(feature = "raw-ip-runtime"))]
 use tokio::task::JoinError;
+#[cfg(test)]
 use tokio::task::JoinSet;
 #[cfg(not(feature = "raw-ip-runtime"))]
 pub(super) trait TunTaskOutput: Send + 'static {}
@@ -14,6 +15,7 @@ pub(super) trait TunTaskOutput: Send + 'static {}
 impl<T: Send + 'static> TunTaskOutput for T {}
 use zero_engine::EngineError;
 pub(super) enum TunTasks<'a, T: TunTaskOutput> {
+    #[cfg(test)]
     Legacy(&'a mut JoinSet<T>),
     #[cfg(feature = "raw-ip-runtime")]
     Scoped(super::scoped::ScopedTasks<'a, T>),
@@ -23,6 +25,7 @@ pub(super) enum TunTasks<'a, T: TunTaskOutput> {
 impl<T: TunTaskOutput> TunTasks<'_, T> {
     pub(super) fn len(&self) -> usize {
         match self {
+            #[cfg(test)]
             Self::Legacy(tasks) => tasks.len(),
             #[cfg(feature = "raw-ip-runtime")]
             Self::Scoped(tasks) => tasks.scope.group.occupied().max(tasks.receiver.len()),
@@ -53,6 +56,7 @@ impl<T: TunTaskOutput> TunTasks<'_, T> {
         Fut: Future<Output = T> + Send + 'static,
     {
         match self {
+            #[cfg(test)]
             Self::Legacy(tasks) => {
                 tasks.spawn(make(None));
                 Ok(())
@@ -75,6 +79,7 @@ impl<T: TunTaskOutput> TunTasks<'_, T> {
         Fut: Future<Output = T> + Send + 'static,
     {
         match self {
+            #[cfg(test)]
             Self::Legacy(tasks) => {
                 tasks.spawn(make(None));
                 Ok(())
@@ -90,6 +95,7 @@ impl<T: TunTaskOutput> TunTasks<'_, T> {
     }
     pub(super) async fn next_completion(&mut self) -> Option<Result<T, JoinError>> {
         match self {
+            #[cfg(test)]
             Self::Legacy(tasks) => {
                 #[cfg(feature = "raw-ip-runtime")]
                 {

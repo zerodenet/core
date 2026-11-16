@@ -18,7 +18,7 @@ impl InboundPeerTasks {
             .filter(|binding| binding.original_process_retired_for_test())
             .count()
     }
-    pub(in crate::runtime::inbound_owners) fn bind_task_failures(
+    pub(in crate::runtime) fn bind_task_failures(
         &mut self,
         receiver: zero_platform_tokio::AcceptedTaskFailures,
     ) -> Result<(), ChannelError> {

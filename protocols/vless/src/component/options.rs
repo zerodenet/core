@@ -14,8 +14,10 @@ use zero_transport::profile::{
     OwnedWebSocketProfile,
 };
 
+#[derive(Clone)]
 pub struct Options {
     pub(super) material: Option<Arc<super::material::Material>>,
+    pub(super) masks: Option<zero_transport::finalmask::Settings>,
     pub(super) endpoint: Destination,
     pub(super) server: String,
     pub(super) uuid: [u8; 16],
@@ -40,6 +42,19 @@ impl fmt::Debug for Options {
     }
 }
 impl Options {
+    pub(in crate::component) fn framing_only(&self) -> Self {
+        let mut framing = self.clone();
+        framing.material = None;
+        framing.masks = None;
+        framing.reality = None;
+        framing.tls = None;
+        framing.ws = None;
+        framing.grpc = None;
+        framing.h2 = None;
+        framing.http_upgrade = None;
+        framing
+    }
+
     /// The owning adapter projects this private actual task responsibility.
     /// It neither selects an executor nor grants a Scope/IO capability.
     pub fn requires_preparation_jobs(&self) -> bool {
@@ -109,11 +124,6 @@ impl Options {
             .flow
             .map(crate::flow::parse_flow)
             .transpose()?;
-        if flow.is_some() && !crate::flow::is_vision_flow(flow) {
-            return Err(Error::Unsupported(
-                "VLESS flow requires its protocol stream integration",
-            ));
-        }
         // The actual component recipe owns the bounded resumption ticket. This
         // state has no driver or native I/O; every handshake uses the caller's
         // original carrier and the same cancellation/deadline as the transport.
@@ -127,13 +137,9 @@ impl Options {
             .map(crate::encryption::EncryptionClient::new)
             .transpose()
             .map_err(|_| Error::Config("invalid VLESS Encryption client keys"))?;
-        if input.grpc.is_some() && encryption.is_some() {
-            return Err(Error::Unsupported(
-                "VLESS encrypted gRPC requires its original shared pool owner",
-            ));
-        }
         if crate::flow::is_vision_flow(flow)
-            && ((input.tls.is_none() && input.protocol.reality.is_none() && encryption.is_none())
+            && encryption.is_none()
+            && ((input.tls.is_none() && input.protocol.reality.is_none())
                 || input.ws.is_some()
                 || input.grpc.is_some()
                 || input.h2.is_some()
@@ -143,7 +149,7 @@ impl Options {
                 "Vision requires a real switchable TLS or Encryption carrier",
             ));
         }
-        if input.protocol.testpre != 0 || (flow.is_none() && !input.protocol.testseed.is_empty()) {
+        if input.protocol.testpre != 0 {
             return Err(Error::Unsupported(
                 "VLESS preconnect/padding requires its owning lifecycle",
             ));
@@ -151,7 +157,10 @@ impl Options {
         let testseed = crate::validation::normalize_vision_testseed(input.protocol.testseed)
             .map_err(Error::Config)?;
         if input.protocol.quic.is_some()
-            || input.final_mask.is_some()
+            || input
+                .final_mask
+                .as_ref()
+                .is_some_and(|settings| !settings.udp.is_empty())
             || input.mkcp.is_some()
             || input.hysteria.is_some()
             || input.download.is_some()
@@ -166,7 +175,7 @@ impl Options {
         }
         if [
             input.ws.is_some(),
-            input.grpc.is_some(),
+            input.grpc.is_some() && !managed_grpc,
             input.h2.is_some(),
             input.http_upgrade.is_some(),
         ]
@@ -271,11 +280,17 @@ impl Options {
             // Full profile participates in this keyed, process-local equality
             // hint; PreparedRealityClient's Debug intentionally omits keys.
             format!("{:?}", input.protocol.reality).hash(&mut hash);
+            input
+                .final_mask
+                .as_ref()
+                .map(zero_transport::finalmask::Profile::settings_identity)
+                .hash(&mut hash);
             dial.hash(&mut hash);
             identity.extend_from_slice(&hash.finish().to_le_bytes());
         }
         Ok(Self {
             material: None,
+            masks: input.final_mask,
             endpoint,
             server: input.server.into(),
             uuid,

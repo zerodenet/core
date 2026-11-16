@@ -4,8 +4,9 @@ use crate::component::ServiceAdmission;
 use tokio::sync::watch;
 use zero_core::component::RoleInstanceId;
 
+#[cfg(test)]
 pub(crate) struct ServiceConnected {
-    pub(crate) stream: TcpRelayStream,
+    pub(crate) stream: zero_platform_tokio::TcpRelayStream,
     pub(crate) binding: ServiceBinding,
 }
 #[derive(Debug)]

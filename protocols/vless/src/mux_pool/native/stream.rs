@@ -22,6 +22,7 @@ impl StreamReservation {
             stream: Some(MuxStreamRelay {
                 native_writer: None,
                 native_initial: Some((port, address.clone())),
+                native_origin: None,
                 // No NEW is accepted while this actual stream waits for its FIFO
                 // control permit. Drop only returns this real SID/downlink.
                 write_open: false,
@@ -32,6 +33,10 @@ impl StreamReservation {
                 conn: connection,
             }),
         }
+    }
+    pub(super) fn with_origin(mut self, origin: crate::mux::origin::Origin) -> Self {
+        self.stream.as_mut().unwrap().native_origin = Some(origin);
+        self
     }
     pub(super) async fn open(mut self) -> Result<MuxStreamRelay, RuntimeError> {
         let stream = self.stream.as_ref().unwrap();
@@ -54,8 +59,12 @@ impl MuxStreamRelay {
             (&mut self.native_writer, &self.native_initial)
         {
             std::task::ready!(writer.poll_ready(cx))?;
-            let initial = encode_mux_new_stream(self.sid, crate::mux::NETWORK_TCP, *port, address)
-                .map_err(io::Error::other)?;
+            let mut initial =
+                encode_mux_new_stream(self.sid, crate::mux::NETWORK_TCP, *port, address)
+                    .map_err(io::Error::other)?;
+            if let Some(origin) = &self.native_origin {
+                origin.append(&mut initial).map_err(io::Error::other)?;
+            }
             writer.send(initial)?;
             self.native_initial = None;
         }

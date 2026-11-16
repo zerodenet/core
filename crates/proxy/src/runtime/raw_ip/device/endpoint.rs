@@ -77,6 +77,7 @@ impl SharedRawIpDevice {
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn start_on_endpoint_with_options(
         local_addresses: Vec<IpAddr>,
         mtu: u16,

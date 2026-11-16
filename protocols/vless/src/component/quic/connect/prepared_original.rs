@@ -57,21 +57,25 @@ impl PreparedOriginal {
             owners_header,
         )
         .map_err(|(source, _, _)| error(Stage::Prepare, Reason::Capacity).with_source(source))?;
-        if generation.options.h3.is_some() {
+        if generation.options.h3.is_some() || generation.options.hysteria.is_some() {
             let _ = owners.protocols.set(
                 zero_platform_tokio::controlled_carrier::ProtocolOriginalChildren::new(
                     generation.metadata_memory.clone(),
                     generation.options.origins.get(),
                 ),
             );
-            owners.state.lock().await.h3 = Some(
-                zero_transport::split_http::PreparedXhttp3::new(
-                    generation.buffers.clone(),
-                    generation.metadata_memory.clone(),
-                    generation.options.users,
-                )
-                .map_err(|source| error(Stage::Prepare, Reason::Capacity).with_source(source))?,
-            );
+            if generation.options.h3.is_some() {
+                owners.state.lock().await.h3 = Some(
+                    zero_transport::split_http::PreparedXhttp3::new(
+                        generation.buffers.clone(),
+                        generation.metadata_memory.clone(),
+                        generation.options.users,
+                    )
+                    .map_err(|source| {
+                        error(Stage::Prepare, Reason::Capacity).with_source(source)
+                    })?,
+                );
+            }
         }
         let control_memory = generation.memory(PacketMetadataLayout::boxed::<ProtocolControl>())?;
         let control =
@@ -83,6 +87,13 @@ impl PreparedOriginal {
         let upstream = demand.upstream.clone();
         let binding = upstream.binding().clone();
 
+        // The existing Hysteria hopping wire is outermost-only. A pool may
+        // borrow its Stream/Datagram above it, but hopping cannot itself borrow
+        // a lower Datagram (the legacy carrier rejects that same grammar).
+        if generation.options.hopping().is_some() && !binding.prefix.is_empty() {
+            owners.set_actor(None);
+            return Err(error(Stage::Prepare, Reason::Unsupported));
+        }
         let (entry, kind, before) = if binding.prefix.is_empty() {
             let (preparation, retirement) = generation
                 .metadata
@@ -161,6 +172,9 @@ impl PreparedOriginal {
             kind,
             before,
         })
+    }
+    pub(in crate::component::quic) fn original_entry(&self) -> PacketMetadataArc<Entry> {
+        self.entry.clone()
     }
     pub(super) fn start(
         self,

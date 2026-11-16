@@ -16,7 +16,6 @@ pub(crate) use returns::ReturnSource;
 pub(crate) use standard_packet::PacketSubmission;
 #[cfg(test)]
 mod tests;
-mod translation;
 mod wire;
 pub(crate) use wire::{PendingNativeWire, WireStackRecipe};
 mod workers;
@@ -35,7 +34,9 @@ use zero_api::OutboundDeviceHealthSnapshot;
 use zero_engine::EngineError;
 #[cfg(test)]
 use zero_platform_tokio::TokioDatagramSocket;
-use zero_stack::{client_udp::ClientUdpStack, ClientTcpStack, FragmentReassembler, UserTcpStream};
+#[cfg(test)]
+use zero_stack::UserTcpStream;
+use zero_stack::{client_udp::ClientUdpStack, ClientTcpStack, FragmentReassembler};
 
 #[cfg(test)]
 use super::DirectRawIpWireCarrier;
@@ -105,23 +106,6 @@ impl SharedRawIpDevice {
         })?
     }
 
-    pub(crate) fn retire_after(&self, grace: Duration) {
-        if self.retired.swap(true, Ordering::AcqRel) {
-            return;
-        }
-        let closed = self.closed.clone();
-        let task = self.task.clone();
-        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-            runtime.spawn(async move {
-                tokio::time::sleep(grace).await;
-                closed.store(true, Ordering::Release);
-                task.abort();
-            });
-        } else {
-            self.close_now();
-        }
-    }
-
     pub(crate) fn close_now(&self) {
         self.retired.store(true, Ordering::Release);
         self.closed.store(true, Ordering::Release);
@@ -145,6 +129,7 @@ impl SharedRawIpDevice {
             .snapshot(tag, peer_index, self.is_closed())
     }
 
+    #[cfg(test)]
     pub(crate) fn forward_packets(
         &self,
         packets: &mut Vec<zero_traits::PacketBuffer>,
@@ -197,6 +182,7 @@ impl SharedRawIpDevice {
         self.bind_udp_observed(local_ip, None)
     }
 
+    #[cfg(test)]
     pub(crate) fn bind_udp_observed(
         &self,
         local_ip: IpAddr,
@@ -211,6 +197,7 @@ impl SharedRawIpDevice {
         self.udp.bind_observed(local_ip, observer)
     }
 
+    #[cfg(test)]
     pub(crate) async fn open_tcp_observed(
         &self,
         local_ip: IpAddr,
@@ -223,6 +210,7 @@ impl SharedRawIpDevice {
         self.open_tcp_for_flow(local_ip, destination, observer, None)
             .await
     }
+    #[cfg(test)]
     pub(crate) fn spawn_packet_worker(
         &self,
         worker: std::pin::Pin<
@@ -231,9 +219,11 @@ impl SharedRawIpDevice {
     ) -> Result<(), EngineError> {
         self.task.spawn_driver(worker)
     }
+    #[cfg(test)]
     pub(crate) fn flow_users(&self) -> Option<Arc<crate::runtime::packet_flow::FlowUsers>> {
         self.task.flow_users()
     }
+    #[cfg(test)]
     pub(crate) async fn open_tcp_for_flow(
         &self,
         local_ip: IpAddr,

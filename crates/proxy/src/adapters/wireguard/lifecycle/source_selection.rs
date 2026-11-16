@@ -1,6 +1,10 @@
 //! Select only existing whole-owning factories before cold dependency work.
-//! Missing advanced grammar keeps its existing executor, never a partial recipe.
+//! Every selected Source requires its complete original-owning dependency graph;
+//! absence never authorizes a private device constructor or a partial recipe.
 use super::*;
+mod order;
+pub(crate) use order::acyclic;
+pub(super) use order::ordered_devices;
 pub(crate) fn outer_members_selected(
     outbound: &OutboundConfig,
     config: &zero_config::RuntimeConfig,

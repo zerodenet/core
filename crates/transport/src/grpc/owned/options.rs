@@ -36,6 +36,14 @@ pub struct NativePoolOptions {
     pub(super) file_stamp: u64,
     pub(super) totals: Option<RootUse>,
     pub(super) node_dns: Option<zero_core::component::ComponentId>,
+    pub(super) tcp_masks: Option<Arc<crate::finalmask::Settings>>,
+    pub(super) stream_layers: Option<Arc<StreamLayers>>,
+}
+#[derive(Debug)]
+pub(super) struct StreamLayers {
+    pub ws: Option<crate::profile::OwnedWebSocketProfile>,
+    pub h2: Option<crate::profile::OwnedH2Profile>,
+    pub http_upgrade: Option<crate::profile::OwnedHttpUpgradeProfile>,
 }
 impl std::fmt::Debug for NativePoolOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -72,6 +80,15 @@ impl NativePoolOptions {
     }
     fn refresh_identity(&mut self) {
         let mut identity = self.base_identity.to_vec();
+        if let Some(masks) = &self.tcp_masks {
+            identity.extend_from_slice(b"grpc.actual-inline-tcp-masks.v1");
+            identity.extend_from_slice(&crate::finalmask::Profile::settings_identity(masks));
+        }
+        if let Some(layers) = &self.stream_layers {
+            identity.extend_from_slice(b"grpc.actual-inline-stream-layers.v1");
+            use blake2::{Blake2s256, Digest};
+            identity.extend_from_slice(&Blake2s256::digest(format!("{layers:?}").as_bytes()));
+        }
         if self.scoped_preparation {
             identity.extend_from_slice(b"grpc.scoped-preparation.v1");
         }
@@ -123,6 +140,25 @@ impl NativePoolOptions {
             dependency,
             proposal,
         });
+        self.refresh_identity();
+        Ok(self)
+    }
+    /// The same cached H2 original applies inline TCP masks before TLS. UDP
+    /// decorators remain with their dedicated original driver, never this cache.
+    pub fn with_tcp_masks(
+        mut self,
+        masks: crate::finalmask::Settings,
+    ) -> Result<Self, RuntimeError> {
+        if !masks.udp.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "gRPC inline masks cannot acquire UDP drivers",
+            )
+            .into());
+        }
+        if !masks.tcp.is_empty() {
+            self.tcp_masks = Some(Arc::new(masks));
+        }
         self.refresh_identity();
         Ok(self)
     }
@@ -201,4 +237,40 @@ pub(in crate::grpc) struct Recipe {
 pub(super) struct RootUse {
     pub(super) dependency: zero_core::component::ComponentId,
     pub(super) proposal: super::TotalsProposal,
+}
+
+impl NativePoolOptions {
+    /// The already selected lower carrier executes inside this same original's
+    /// initializer and H2 driver. No socket, task or second pool is created.
+    pub fn with_stream_layers(
+        mut self,
+        ws: Option<crate::profile::OwnedWebSocketProfile>,
+        h2: Option<crate::profile::OwnedH2Profile>,
+        http_upgrade: Option<crate::profile::OwnedHttpUpgradeProfile>,
+    ) -> Result<Self, RuntimeError> {
+        if [ws.is_some(), h2.is_some(), http_upgrade.is_some()]
+            .into_iter()
+            .filter(|present| *present)
+            .count()
+            > 1
+            || ws.is_some() && !cfg!(feature = "ws")
+            || h2.is_some() && !cfg!(feature = "h2")
+            || http_upgrade.is_some() && !cfg!(feature = "http_upgrade")
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "gRPC lower stream carrier is unavailable or ambiguous",
+            )
+            .into());
+        }
+        if ws.is_some() || h2.is_some() || http_upgrade.is_some() {
+            self.stream_layers = Some(Arc::new(StreamLayers {
+                ws,
+                h2,
+                http_upgrade,
+            }));
+        }
+        self.refresh_identity();
+        Ok(self)
+    }
 }

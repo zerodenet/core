@@ -8,7 +8,7 @@ pub(super) struct PacketIdentity {
     endpoint: Mutex<Option<EndpointDrivers>>,
 }
 impl PacketSegment {
-    pub(in crate::quic::owned) fn bind_endpoint(
+    pub(crate) fn bind_endpoint(
         &self,
         socket: &PacketSocket,
         drivers: EndpointDrivers,
@@ -32,7 +32,7 @@ impl PacketSegment {
     }
 }
 impl PacketIdentity {
-    #[cfg(feature = "split_http")]
+    #[cfg(any(feature = "split_http", feature = "hysteria", feature = "quic_h3"))]
     pub(in crate::quic::owned) fn names_endpoint(&self, actual: &EndpointDrivers) -> bool {
         self.endpoint
             .lock()

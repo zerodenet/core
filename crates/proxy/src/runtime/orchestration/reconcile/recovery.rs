@@ -23,8 +23,11 @@ impl OrchestrationState {
             self.preparing_inbounds = Default::default();
             // Failed/cancelled binds retain their original native owners. Drain
             // those candidates before rebuilding any last-good dependency or TUN.
+            self.services.discard_prepared().await;
+            let service_retired = self.services.suspend_for_replacement().await;
             let retired = retire_rejected_bindings(&self.inbound_runtime_factory).await;
-            let mut can_restore = retired.is_ok();
+            let mut can_restore =
+                service_retired.is_ok() && retired.is_ok() && self.services.recovery_permitted();
             #[cfg(feature = "raw-ip-runtime")]
             let discarded = proxy
                 .protocols
@@ -58,6 +61,14 @@ impl OrchestrationState {
                 .engine
                 .restore_staged_snapshot(previous.clone(), false);
             let mut acknowledgement = message;
+            if !self.services.recovery_permitted() {
+                acknowledgement.push_str("; Service task transition failed or retirement is unconfirmed; resource recovery deferred");
+            }
+            if let Err(error) = service_retired {
+                acknowledgement.push_str(&format!(
+                    "; active Source cleanup remains unconfirmed: {error}"
+                ));
+            }
             if let Err(error) = retired {
                 acknowledgement
                     .push_str(&format!("; candidate cleanup remains unconfirmed: {error}"));
@@ -274,9 +285,12 @@ impl OrchestrationState {
                 }
                 .await;
                 match result {
-                    Err(error) => acknowledgement.push_str(&format!(
-                        "; component recovery publication remains unconfirmed: {error}"
-                    )),
+                    Err(error) => {
+                        can_restore = false;
+                        acknowledgement.push_str(&format!(
+                            "; component recovery publication remains unconfirmed: {error}"
+                        ));
+                    }
                     Ok(()) => {
                         #[cfg(feature = "raw-ip-runtime")]
                         if let Err(error) = proxy
@@ -294,6 +308,35 @@ impl OrchestrationState {
                             ));
                         }
                     }
+                }
+            }
+            if can_restore {
+                if let Err(error) = proxy
+                    .inbound_owners
+                    .restore_system_tcp(
+                        &proxy.protocols,
+                        &previous_config,
+                        proxy.tcp_runtime_services_for_snapshot(self.applied_snapshot.clone()),
+                    )
+                    .await
+                {
+                    can_restore = false;
+                    acknowledgement
+                        .push_str(&format!("; System TCP recovery remains owned: {error}"));
+                }
+            }
+            if can_restore {
+                if let Err(error) = self
+                    .services
+                    .restore(
+                        proxy.tcp_runtime_services_for_snapshot(self.applied_snapshot.clone()),
+                        self.shutdown_rx.clone(),
+                    )
+                    .await
+                {
+                    acknowledgement.push_str(&format!(
+                        "; active Source recovery remains unconfirmed: {error}"
+                    ));
                 }
             }
             self.publish_endpoint_facts(proxy);

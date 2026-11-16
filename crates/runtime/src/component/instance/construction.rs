@@ -45,6 +45,7 @@ impl ComponentSlot {
             generation,
             recipe,
             dependencies,
+            lifecycle_group: OnceLock::new(),
             dependency_slots: OnceLock::new(),
             legacy_connect_stage,
             dial,

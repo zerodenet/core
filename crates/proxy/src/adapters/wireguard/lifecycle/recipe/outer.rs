@@ -68,6 +68,9 @@ impl OuterPathRecipe {
                 .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
             ordered.push((name.clone(), id));
         }
+        resources
+            .prepare_lifecycle_domain(&names)
+            .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
         let identities: Arc<[Arc<[u8]>]> = names
             .iter()
             .map(|name| {
@@ -139,8 +142,13 @@ impl OuterPathRecipe {
                 values
             }
         };
-        if projections.iter().any(Option::is_none) {
-            return Ok(None); // actual existing packet-path grammar is absent
+        if projections.last().is_none_or(Option::is_none) {
+            // The receiver must have actual Packet facts. Earlier Stream-only
+            // donors deliberately have None: they supply the Associated root's
+            // actual Stream prefix, not an invented Datagram capability.
+            return Err(invalid(
+                "selected outer receiver has no same-pass Packet path facts",
+            ));
         }
         // The first actual root is opened through its standard Datagram role;
         // only subsequent formatter layers use this same association family.
@@ -229,7 +237,7 @@ impl OuterPathRecipe {
 }
 
 impl OuterPathRecipe {
-    /// Same last-Base/Associated suffix as PreparedDatagramRelayCarrier::build.
+    /// The same actual root and trailing cold codec suffix as RolePacketPath.
     /// A nonformatter remains the existing associated/native root boundary;
     /// this metadata never grants capability to an unsupported operation.
     pub(in crate::adapters::wireguard) fn supplemental_memory(

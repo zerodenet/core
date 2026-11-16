@@ -14,7 +14,10 @@ use zero_traits::packet_metadata::{PacketMetadataArc, PacketMetadataLayout};
 pub(super) mod before;
 mod borrowed;
 mod demand;
+pub(in crate::component::quic) mod hopping;
+mod hysteria;
 mod initialized;
+mod mkcp;
 mod native;
 pub(in crate::component::quic) mod prepared_original;
 mod ready;
@@ -28,7 +31,7 @@ impl Generation {
             return Err(error(Stage::Prepare, Reason::Cancelled));
         }
         let demand = demand::Demand::new(generation, context).await?;
-        Self::acquire_demand(generation, context, demand, None).await
+        Self::acquire_demand(generation, context, demand, None, None).await
     }
     pub(in crate::component::quic) async fn acquire_prepared(
         prepared: prepared_original::PreparedOriginal,
@@ -36,13 +39,22 @@ impl Generation {
     ) -> Result<Initialized, ChannelError> {
         let generation = prepared.generation.clone();
         let demand = prepared.demand.clone();
-        Self::acquire_demand(&generation, context, demand, Some(prepared)).await
+        Self::acquire_demand(&generation, context, demand, Some(prepared), None).await
+    }
+    pub(in crate::component::quic) async fn acquire_hysteria(
+        generation: &PacketMetadataArc<Self>,
+        context: &OpenContext,
+        slot: &zero_transport::hysteria::NativeSlot,
+    ) -> Result<Initialized, ChannelError> {
+        let demand = demand::Demand::new(generation, context).await?;
+        Self::acquire_demand(generation, context, demand, None, Some(slot)).await
     }
     async fn acquire_demand(
         generation: &PacketMetadataArc<Self>,
         context: &OpenContext,
         demand: PacketMetadataArc<demand::Demand>,
         mut initial: Option<prepared_original::PreparedOriginal>,
+        hysteria_slot: Option<&zero_transport::hysteria::NativeSlot>,
     ) -> Result<Initialized, ChannelError> {
         let mut index = 0;
         loop {
@@ -87,6 +99,9 @@ impl Generation {
                 .await?;
                 prepared
             };
+            if let Some(slot) = hysteria_slot {
+                slot.install_original(prepared.original_entry().retirement.clone())?;
+            }
             let (entry, receiver) = prepared.start(index)?;
             let pending = Pending(Some(entry.clone()));
             let wait = async {
@@ -130,6 +145,8 @@ impl Generation {
             // returned logical XHTTP duplex, exactly once.
             let io = match io {
                 Ready::H3(client) => Ready::H3(client),
+                Ready::Hysteria(client) => Ready::Hysteria(client),
+                Ready::Stream(io) if generation.options.carrier.is_some() => Ready::Stream(io),
                 Ready::Stream(io) => {
                     let encrypted = generation.options.plan.encrypt(io);
                     let io = with_deadline(context.deadline, encrypted)

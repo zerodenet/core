@@ -18,7 +18,9 @@ use zero_core::component::ComponentInstanceId;
 mod binding;
 mod completion;
 mod receiver;
+mod wire;
 pub use receiver::MetadataDriverRetained;
+pub use wire::MetadataWireClosed;
 mod icmp;
 pub use completion::{MetadataPoolRegistrationObservation, MetadataPoolRegistrationReleased};
 pub use icmp::{MetadataIcmpAttempt, MetadataIcmpAuthorization, MetadataIcmpMemory};
@@ -106,6 +108,7 @@ struct Native {
     confirmed: Option<super::metadata::users::MetadataUsersClosedReceipt>,
     unbound: Option<(super::metadata::MetadataViewClaim, TaskRegistrar)>,
     acquired_confirmed: bool,
+    wire_closed: bool,
     attempted: bool,
     endpoints: Option<(std::net::SocketAddr, std::net::SocketAddr)>,
     binding: Option<MetadataPoolBinding>,

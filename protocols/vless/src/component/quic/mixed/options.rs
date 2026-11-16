@@ -1,4 +1,5 @@
 //! One accepted upload/download recipe, with its actual material handles.
+mod carrier;
 mod cold;
 use super::super::*;
 use crate::transport::{OwnedXhttpHalf, OwnedXhttpKind, VlessOutboundLeaf, VlessTransportRuntime};
@@ -20,6 +21,7 @@ pub struct Options {
     pub(super) plan: crate::transport::OwnedVlessOutboundTransportPlan,
     pub(super) origins: NonZeroUsize,
     pub(super) identity: Arc<[u8]>,
+    pub(super) carrier: Option<crate::component::quic::TransportCarrier>,
     pub(super) dependencies: Vec<zero_core::component::ComponentId>,
     recipe: Arc<[u8]>,
     dimensions: [usize; 4],
@@ -133,6 +135,7 @@ impl Options {
             origins: policy.origins,
             identity: identity.into(),
             dependencies: Vec::new(),
+            carrier: None,
             recipe: cold_recipe,
             dimensions: [
                 policy.origins.get(),
@@ -171,6 +174,7 @@ impl Half {
                     protocol,
                     identity,
                     h3: Some((pool, profile)),
+                    hysteria: None,
                 },
                 policy.runtime,
                 policy.dial.clone(),
@@ -243,6 +247,7 @@ impl Half {
         let material_key: Arc<[u8]> = key.into();
         let mut protocol = crate::component::Options {
             material: None,
+            masks: None,
             endpoint,
             server,
             uuid: protocol.0,

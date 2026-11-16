@@ -24,9 +24,9 @@ struct SystemTunObserver {
 pub(super) struct ObserverParking {
     parked: Mutex<Option<ObserverBatch>>,
     needs_retirement: AtomicBool,
-    // The API permits one System TUN owner. This is its original observer
-    // awaiting transfer into the same exclusive JoinSet, never a second set.
-    system_tun: Mutex<Option<SystemTunObserver>>,
+    // Original API Source observers awaiting the same exclusive JoinSet.
+    // Their native/task custody stays in the existing registry, never here.
+    system_tun: Mutex<Vec<SystemTunObserver>>,
     changed: tokio::sync::Notify,
 }
 impl Default for ObserverParking {
@@ -38,7 +38,7 @@ impl Default for ObserverParking {
                 failure: None,
             })),
             needs_retirement: AtomicBool::new(false),
-            system_tun: Mutex::new(None),
+            system_tun: Mutex::new(Vec::new()),
             changed: tokio::sync::Notify::new(),
         }
     }
@@ -83,12 +83,16 @@ impl ObserverParking {
         exit: Option<SystemTunProjection>,
     ) -> Result<(), EngineError> {
         let mut pending = self.system_tun.lock().unwrap();
-        if pending.is_some() {
-            return Err(
-                std::io::Error::other("original System TUN observer awaits transfer").into(),
-            );
+        if pending
+            .iter()
+            .any(|entry| Arc::ptr_eq(&entry.owner, &owner))
+        {
+            return Err(std::io::Error::other(
+                "original API Source observer already awaits transfer",
+            )
+            .into());
         }
-        *pending = Some(SystemTunObserver { owner, exit });
+        pending.push(SystemTunObserver { owner, exit });
         self.needs_retirement.store(true, Ordering::Release);
         drop(pending);
         self.changed.notify_one();
@@ -97,8 +101,8 @@ impl ObserverParking {
 }
 impl ListenerObservers {
     fn transfer_system_tun(&mut self) {
-        let pending = self.parking.system_tun.lock().unwrap().take();
-        if let Some(SystemTunObserver { owner, exit }) = pending {
+        let pending = std::mem::take(&mut *self.parking.system_tun.lock().unwrap());
+        for SystemTunObserver { owner, exit } in pending {
             self.owned
                 .as_mut()
                 .expect("live lease")
@@ -118,7 +122,7 @@ impl ListenerObservers {
     }
     pub(crate) fn is_empty(&self) -> bool {
         self.owned.as_ref().expect("live lease").tasks.is_empty()
-            && self.parking.system_tun.lock().unwrap().is_none()
+            && self.parking.system_tun.lock().unwrap().is_empty()
     }
     /// The steady orchestration waits even without configured listeners, so a
     /// dynamic source joins through this original consumer while it is active.

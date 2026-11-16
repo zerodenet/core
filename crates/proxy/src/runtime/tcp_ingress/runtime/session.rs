@@ -46,6 +46,7 @@ impl TcpIngressRuntime {
         apply_kernel_rate_limits_from_config(self.services.config(), session, &self.inbound_tag);
     }
 
+    #[cfg(test)]
     pub(crate) async fn prepare_session(&self, session: &mut Session) -> Result<(), EngineError> {
         self.prepare_session_with_ticket(session, None)
             .await

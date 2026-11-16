@@ -31,11 +31,13 @@ impl ComponentFactory for Factory {
             ResourceDeclaration::ControlledMetadataCarrier {
                 endpoint: options.protocol.endpoint.clone(),
                 dial: options.protocol.dial.clone(),
-                ports: vec![],
+                ports: options
+                    .hopping()
+                    .map_or_else(Vec::new, |hop| hop.ports().to_vec()),
                 limits: options.limits,
-                max_origins: options.origins,
+                max_origins: options.metadata_origins(),
             },
-            if options.h3.is_some() {
+            if options.h3.is_some() || options.hysteria.is_some() {
                 ResourceDeclaration::ControlledCarrierPool {
                     endpoint: options.protocol.endpoint.clone(),
                     dial: options.protocol.dial.clone(),
@@ -64,23 +66,20 @@ impl ComponentFactory for Factory {
         }
         ComponentSpec {
             owner: ResourceOwner::Component,
-            roles: std::iter::once(RoleKind::Stream)
-                .chain(
-                    options
-                        .protocol
-                        .flow
-                        .is_none()
-                        .then_some(RoleKind::Datagram),
-                )
-                .collect(),
+            roles: if options.carrier.is_some() {
+                vec![]
+            } else {
+                std::iter::once(RoleKind::Stream)
+                    .chain(
+                        (!crate::flow::is_vision_flow(options.protocol.flow))
+                            .then_some(RoleKind::Datagram),
+                    )
+                    .collect()
+            },
             dependencies: options.dependencies.clone(),
             static_identity: options.identity.clone(),
             resources,
-            task_limit: Some(n(options
-                .origins
-                .get()
-                .checked_mul(2 + options.drivers())
-                .expect("validated task peak"))),
+            task_limit: Some(n(options.native_task_peak())),
         }
     }
     fn build(
@@ -98,6 +97,13 @@ impl Factory {
         context: BuildContext,
         resolver: Option<Arc<dyn zero_transport::tls::ech::EchConfigResolver>>,
     ) -> Result<ComponentInstance, BuildError> {
+        if options
+            .hysteria
+            .as_ref()
+            .is_some_and(|(_, pool)| !pool.native_eligible())
+        {
+            return Err(error(Stage::Prepare, Reason::Unsupported));
+        }
         let (session, admission) = SessionOwner::new(context.component, &context.cancel);
         let buffers = context
             .resources
@@ -114,7 +120,12 @@ impl Factory {
             .background_carrier
             .ok_or_else(|| error(Stage::Prepare, Reason::InvalidConfig))?;
         let carrier = CarrierOwner::new(instance, options.origins, &cleanup);
-        let metadata = MetadataPoolOwner::new(instance, options.origins, options.limits, &cleanup)?;
+        let metadata = MetadataPoolOwner::new(
+            instance,
+            options.metadata_origins(),
+            options.limits,
+            &cleanup,
+        )?;
         if buffers.limits() != options.buffers {
             return Err(error(Stage::Prepare, Reason::StalePlan));
         }
@@ -129,6 +140,7 @@ impl Factory {
         let generation = PacketMetadataArc::from_prepaid(
             entry::Generation {
                 instance,
+                closed: crate::component::quic::closed_marker(&metadata_memory)?,
                 cleanup,
                 metadata,
                 carrier: carrier.grants(),
@@ -136,6 +148,7 @@ impl Factory {
                 tasks: context.tasks,
                 upstream,
                 options,
+                hysteria: std::sync::OnceLock::new(),
                 cancel: context.cancel.child_token(),
                 buffers,
                 masks,
@@ -154,18 +167,23 @@ impl Factory {
                 started: false,
                 failures,
             }),
-            roles: ComponentRoles {
-                stream: Some(erase_stream(Outbound {
-                    generation: generation.clone(),
-                    admission: admission.clone(),
-                })),
-                datagram: generation.options.protocol.flow.is_none().then(|| {
-                    erase_datagram(Outbound {
-                        generation,
-                        admission,
-                    })
-                }),
-                ..Default::default()
+            roles: if generation.options.carrier.is_some() {
+                ComponentRoles::default()
+            } else {
+                ComponentRoles {
+                    stream: Some(erase_stream(Outbound {
+                        generation: generation.clone(),
+                        admission: admission.clone(),
+                    })),
+                    datagram: (!crate::flow::is_vision_flow(generation.options.protocol.flow))
+                        .then(|| {
+                            erase_datagram(Outbound {
+                                generation,
+                                admission,
+                            })
+                        }),
+                    ..Default::default()
+                }
             },
         })
     }
@@ -200,7 +218,25 @@ impl ResourceLifecycle for Owner {
         }
         generation.metadata.start()?;
         self.carrier.start(end).await?;
-        self.session.start(end).await
+        if let Some((_, pool)) = &generation.options.hysteria {
+            if generation.hysteria.get().is_none() {
+                let owner = pool.install_owner(
+                    generation.instance,
+                    generation.tasks.scope_identity(),
+                    generation.options.origins,
+                    generation.metadata_memory.clone(),
+                )?;
+                generation
+                    .hysteria
+                    .set(owner)
+                    .map_err(|_| error(Stage::Prepare, Reason::StalePlan))?;
+            }
+        }
+        self.session.start(end).await?;
+        if let Some(carrier) = &generation.options.carrier {
+            carrier.install(generation)?;
+        }
+        Ok(())
     }
     fn revoke(&self, reason: CloseReason) {
         self.session.revoke(reason);
@@ -213,10 +249,26 @@ impl ResourceLifecycle for Owner {
         }
         // Neither a slot cancel nor CarrierOwner.revoke may cut off a final
         // accepted queue. Installed Root phases own those cleanup futures.
+        if let Some(pool) = self.generation.hysteria.get() {
+            pool.stop();
+        }
         self.generation.request_retirement();
     }
     async fn shutdown(&mut self, end: Instant) -> Result<CloseReport, BuildError> {
         self.revoke(CloseReason::Shutdown);
+        if let Some(pool) = self.generation.hysteria.get() {
+            match tokio::time::timeout_at(end, pool.shutdown_original()).await {
+                Ok(result) => result?,
+                Err(_) => {
+                    return Ok(CloseReport {
+                        unfinished: vec![Unfinished::Resource(
+                            "Hysteria cached originals remain Root-held".into(),
+                        )],
+                        ..Default::default()
+                    })
+                }
+            }
+        }
         // Existing Root pollers drive all rows concurrently. This observer does
         // not run another close future or wait any actor from its own body.
         let waiting = async {
@@ -257,6 +309,9 @@ impl ResourceLifecycle for Owner {
         self.generation.reap();
         report.append(self.session.shutdown(end).await?);
         if report.is_complete() {
+            self.generation
+                .closed
+                .store(true, std::sync::atomic::Ordering::Release);
             self.generation.cleanup.cancel();
         }
         Ok(report)

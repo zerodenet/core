@@ -32,6 +32,8 @@ impl OwnedVlessOutboundTransportPlan {
             }
             return self.open_relay(io).await;
         };
+        let io =
+            zero_transport::finalmask::tcp::wrap_prepared(io, self.final_mask.tcp(), false).await?;
         let prepared = bound.material.prepare(bound.resolver.as_deref()).await?;
         let io = prepared.connect(io).await?;
         let io = zero_transport::outbound_stack::connect_layered_transport_stack(

@@ -329,21 +329,34 @@ async fn standard_outbound_selection_needs_no_compatibility_claim_for_stream_dat
         if slot.recipe.packet_path_facts().is_some()
             && slot.recipe.spec().roles.contains(&RoleKind::Datagram)
         {
-            let ResolvedOutbound::Single(leaf) = &resolved else {
-                unreachable!()
+            let facts = slot.recipe.packet_path_facts().unwrap();
+            let server = match &facts.endpoint.address {
+                zero_core::Address::Domain(name) => name.clone(),
+                zero_core::Address::Ipv4(ip) => std::net::Ipv4Addr::from(*ip).to_string(),
+                zero_core::Address::Ipv6(ip) => std::net::Ipv6Addr::from(*ip).to_string(),
             };
-            let path = proxy
-                .protocols
-                .optional_tcp_packet_path(OutboundAdapterContext::new(&config), leaf, Some(plan))
-                .expect("same prepared factory supplies packet carrier facts");
-            assert_eq!(
-                path.carrier_descriptor().unwrap().tag.as_deref(),
-                Some("node")
-            );
-            assert_eq!(
-                path.supports_associated_relay_carrier(),
-                slot.recipe.packet_path_facts().unwrap().associated,
-            );
+            let projection = crate::protocol_registry::ColdPacketPathProjection {
+                descriptor: crate::runtime::udp_flow::packet_path::PacketPathCarrierDescriptor {
+                    tag: Some("node".into()),
+                    server,
+                    port: facts.endpoint.port,
+                    cache_key: format!("actual:{:?}", slot.role_id()),
+                },
+                associated: facts.associated,
+                formatter: None,
+            };
+            let path =
+                crate::component::stream_bridge::datagram::packet_path::RolePacketPath::prepare(
+                    &slot,
+                    &projection,
+                    None,
+                    plan,
+                    zero_core::component::NetworkGeneration(proxy.egress_interface.generation()),
+                )
+                .unwrap();
+            assert_eq!(path.descriptor().tag.as_deref(), Some("node"));
+            assert!(path.binding().prefix.is_empty());
+            assert_eq!(path.binding().dial, slot.dial);
         }
         let mut context = std::task::Context::from_waker(std::task::Waker::noop());
         assert!(

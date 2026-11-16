@@ -43,10 +43,15 @@ struct RegisteredProtocolEntry {
     outbound: Option<Arc<dyn OutboundLeafClaimer>>,
     // Cold material declaration only. It grants no IO, native, Scope or route.
     #[cfg(feature = "udp-runtime")]
-    pure_datagram_formatter: bool,
-    #[cfg(feature = "udp-runtime")]
-    pure_packet_carrier: bool,
+    packet_projection: Option<Arc<PacketPathProjection>>,
 }
+
+#[cfg(feature = "udp-runtime")]
+type PacketPathProjection = dyn Fn(
+        &zero_config::OutboundConfig,
+    ) -> Result<Option<ColdPacketPathProjection>, zero_engine::EngineError>
+    + Send
+    + Sync;
 
 impl fmt::Debug for ProtocolRegistry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

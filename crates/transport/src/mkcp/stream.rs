@@ -115,6 +115,33 @@ pub(super) fn connection(
     MkcpStream,
     impl Future<Output = io::Result<()>> + Send + 'static,
 )> {
+    connection_inner(socket, peer, conv, settings, input, None)
+}
+#[cfg(feature = "quic")]
+pub(super) fn connection_owned(
+    socket: zero_platform_tokio::PacketSocket,
+    peer: SocketAddr,
+    conv: u16,
+    settings: Settings,
+    input: Input,
+    memory: super::memory::Memory,
+) -> io::Result<(
+    MkcpStream,
+    impl Future<Output = io::Result<()>> + Send + 'static,
+)> {
+    connection_inner(socket, peer, conv, settings, input, Some(memory))
+}
+fn connection_inner(
+    socket: zero_platform_tokio::PacketSocket,
+    peer: SocketAddr,
+    conv: u16,
+    settings: Settings,
+    input: Input,
+    memory: Option<super::memory::Memory>,
+) -> io::Result<(
+    MkcpStream,
+    impl Future<Output = io::Result<()>> + Send + 'static,
+)> {
     let local = socket.local_addr()?;
     let (client, server) =
         tokio::io::duplex(settings.write_buffer_bytes.clamp(65536, 2 * 1024 * 1024) as usize);
@@ -126,7 +153,9 @@ pub(super) fn connection(
             peer,
             close: Some(close_tx),
         },
-        drive(socket, peer, conv, settings, input, server, close_rx),
+        drive(
+            socket, peer, conv, settings, input, server, close_rx, memory,
+        ),
     ))
 }
 async fn drive(
@@ -137,6 +166,7 @@ async fn drive(
     mut input: Input,
     stream: DuplexStream,
     mut closed: oneshot::Receiver<()>,
+    memory: Option<super::memory::Memory>,
 ) -> io::Result<()> {
     let mut state = Connection::new(conv, settings);
     let started = tokio::time::Instant::now();
@@ -147,6 +177,7 @@ async fn drive(
     let mut application = vec![0; settings.mss()];
     let mut offset = 0;
     let mut local_closed = false;
+    let mut transmit_credit = None;
     while !state.finished() {
         let ready = state.receiver.front().unwrap_or_default();
         tokio::select! {
@@ -154,14 +185,25 @@ async fn drive(
             incoming=input.receive(&mut packet)=>{
                 let now=started.elapsed().as_millis() as u32;
                 match incoming? {
-                    Received::Buffer(n)=>state.input(&packet[..n],now),
+                    Received::Buffer(n)=>match &memory {
+                        Some(memory)=>state.input_budgeted(&packet[..n],now,memory)?,
+                        None=>state.input(&packet[..n],now),
+                    },
                     Received::Owned(packet)=>state.input_owned(packet,now),
                 }
             }
-            read=reader.read(&mut application),if !local_closed && state.writable()=>{
+            credit=async { memory.as_ref().unwrap().book.reserve(settings.mss()).await },
+                if !local_closed && state.writable() && memory.is_some() && transmit_credit.is_none()=>{
+                transmit_credit=Some(credit?);
+            }
+            read=reader.read(&mut application),if !local_closed && state.writable()
+                && (memory.is_none() || transmit_credit.is_some())=>{
                 match read {
                     Ok(0)|Err(_)=>{local_closed=true;state.close(started.elapsed().as_millis() as u32);}
-                    Ok(n)=>state.write(Bytes::copy_from_slice(&application[..n])),
+                    Ok(n)=>state.write(match &memory {
+                        Some(memory)=>memory.copy_prepaid(&application[..n],transmit_credit.take().unwrap()),
+                        None=>Bytes::copy_from_slice(&application[..n]),
+                    }),
                 }
             }
             written=writer.write(&ready[offset..]),if !ready.is_empty() && state.can_read() && !local_closed=>{

@@ -1,16 +1,15 @@
 //! Build persistent packet paths for protocol devices from concrete outbound tags.
 pub(super) mod publication;
+mod source;
 
 use std::{collections::HashMap, sync::Arc};
 
 use sha2::{Digest, Sha256};
-use zero_config::{OutboundGroupKind, RuntimeConfig};
+use zero_config::RuntimeConfig;
 use zero_engine::EngineError;
 
-use super::{PreparedTcpRelayPrefix, ProtocolInventory};
+use super::ProtocolInventory;
 use crate::adapters::devices::PreparedDevicePacketPath;
-use crate::protocol_registry::OutboundAdapterContext;
-use crate::runtime::udp_dispatch::packet_path_operation::PreparedDatagramRelayCarrier;
 
 type PacketPaths = HashMap<String, PreparedDevicePacketPath>;
 
@@ -68,166 +67,63 @@ impl ProtocolInventory {
         network_generation: zero_core::component::NetworkGeneration,
         components: Option<&crate::component::catalog::ComponentPlan>,
     ) -> Result<PacketPaths, EngineError> {
-        let mut paths: PacketPaths = HashMap::new();
-        let formatter_materials = self.devices.prepared_outer_materials(config)?;
-        for (index, outbound) in config.outbounds.iter().enumerate() {
-            if !outbound.udp.enabled || admission.outbound_denial(&outbound.tag).is_some() {
-                continue;
-            }
-            let leaf = zero_engine::ResolvedLeafOutbound::Proxy {
-                identity: zero_engine::OutboundIdentity::from_config_index(index),
-            };
-            let operation = match formatter_materials.get(&outbound.tag) {
-                Some(values) => self.prepared_source_packet_path(
-                    components,
-                    values.first().and_then(Option::as_ref),
-                )?,
-                None => self.optional_tcp_packet_path(
-                    OutboundAdapterContext::new(config),
-                    &leaf,
-                    components,
-                ),
-            };
-            if let Some(operation) = operation {
-                paths.insert(
-                    outbound.tag.clone(),
-                    PreparedDevicePacketPath {
-                        operation,
-                        identity: path_identity(config, &[index])?,
-                        root_binding: root_binding(outbound, network_generation),
-                    },
-                );
-            }
+        // Only actual device consumers need persistent Packet recipes. Walking
+        // every outbound/alias here used to expose unrelated legacy pools and
+        // prepare TCP/UDP operations beside already selected native owners.
+        let required = config
+            .outbounds
+            .iter()
+            .filter(|outbound| admission.device_enabled(outbound.tag()))
+            .filter_map(|outbound| match &outbound.protocol {
+                zero_config::OutboundProtocolConfig::Wireguard {
+                    outer_udp_proxy: Some(tag),
+                    ..
+                } => Some(tag.as_str()),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        if required.is_empty() {
+            return Ok(HashMap::new());
         }
-        for group in &config.outbound_groups {
-            let OutboundGroupKind::Relay { proxies } = &group.group else {
-                continue;
-            };
-            let indices = proxies
-                .iter()
-                .map(|tag| {
-                    config
-                        .outbounds
-                        .iter()
-                        .position(|outbound| outbound.tag == *tag)
-                })
-                .collect::<Option<Vec<_>>>();
-            let Some(indices) = indices else {
-                continue;
-            };
-            let Some(&first) = indices.first() else {
-                continue;
-            };
-            if indices.iter().any(|&index| {
-                !config.outbounds[index].udp.enabled
-                    || admission
-                        .outbound_denial(&config.outbounds[index].tag)
-                        .is_some()
-            }) {
-                continue;
+        let plan = components
+            .ok_or_else(|| invalid("device Packet paths require their actual candidate plan"))?;
+        let materials = self.devices.prepared_outer_materials(config)?;
+        let mut paths = HashMap::with_capacity(required.len());
+        for tag in required {
+            let sources = materials.get(tag).ok_or_else(|| {
+                invalid(format!(
+                    "outer Packet path `{tag}` has no same-candidate standard material"
+                ))
+            })?;
+            let indices = source::indices(config, tag)?;
+            for index in &indices {
+                let input = &config.outbounds[*index];
+                if !input.udp.enabled {
+                    return Err(invalid(format!(
+                        "outer Packet path `{tag}` uses UDP-disabled outbound `{}`",
+                        input.tag()
+                    )));
+                }
+                if let Some((reason, endpoint)) = admission.outbound_denial(input.tag()) {
+                    return Err(invalid(format!("{reason}: {endpoint}")));
+                }
             }
-            let Ok(operation) = self.prepare_relay_device_packet_path(
+            let operation = self.prepare_role_packet_path(
                 config,
                 &indices,
-                components,
-                formatter_materials
-                    .get(&group.tag)
-                    .map(|values| values.as_ref()),
-            ) else {
-                continue;
-            };
-            let binding = if formatter_materials.contains_key(&group.tag) {
-                operation.source_binding(
-                    components.ok_or_else(|| {
-                        invalid("prepared Source path has no actual candidate plan")
-                    })?,
-                    network_generation,
-                )?
-            } else {
-                root_binding(&config.outbounds[first], network_generation)
-            };
+                plan,
+                network_generation,
+                sources,
+            )?;
             paths.insert(
-                group.tag.clone(),
+                tag.to_owned(),
                 PreparedDevicePacketPath {
-                    operation: Arc::new(operation),
+                    recipe: Arc::new(operation),
                     identity: path_identity(config, &indices)?,
-                    root_binding: binding,
                 },
             );
         }
         Ok(paths)
-    }
-
-    fn prepare_relay_device_packet_path(
-        &self,
-        config: &RuntimeConfig,
-        indices: &[usize],
-        components: Option<&crate::component::catalog::ComponentPlan>,
-        sources: Option<&[Option<crate::protocol_registry::ColdPacketPathProjection>]>,
-    ) -> Result<PreparedDatagramRelayCarrier, EngineError> {
-        let leaves = indices
-            .iter()
-            .map(|index| zero_engine::ResolvedLeafOutbound::Proxy {
-                identity: zero_engine::OutboundIdentity::from_config_index(*index),
-            })
-            .collect::<Vec<_>>();
-        let prepared = match sources {
-            Some(values) => self.prepare_device_tcp_relay_chain(
-                OutboundAdapterContext::new(config),
-                &leaves,
-                components,
-                values,
-            ),
-            None => self.prepare_tcp_relay_chain(
-                OutboundAdapterContext::new(config),
-                &leaves,
-                components,
-                None,
-            ),
-        }
-        .map_err(|failure| failure.error)?;
-        let final_hop = prepared
-            .relay_hops
-            .last()
-            .expect("validated relay group has at least two members");
-        let final_operation = match sources {
-            Some(values) => self
-                .prepared_source_packet_path(components, values.last().and_then(Option::as_ref))?,
-            None => self.optional_tcp_packet_path(
-                OutboundAdapterContext::new(config),
-                leaves.last().unwrap(),
-                components,
-            ),
-        }
-        .ok_or_else(|| {
-            invalid("outer UDP relay final hop has no original packet-path capability")
-        })?;
-        let prefix = PreparedTcpRelayPrefix {
-            first: prepared.first,
-            datagram_prefixes: prepared.datagram_prefixes.clone(),
-            relay_hops: prepared.relay_hops[..prepared.relay_hops.len() - 1].to_vec(),
-            final_tag: final_hop.tag.clone(),
-            final_protocol: final_hop.protocol.clone(),
-            final_server: final_hop.server.clone(),
-            final_port: final_hop.port,
-        };
-        match sources {
-            Some(values) => PreparedDatagramRelayCarrier::extend_with_source(
-                prepared.datagram_prefixes.last().cloned().flatten(),
-                final_operation,
-                prefix,
-                values
-                    .last()
-                    .and_then(Option::as_ref)
-                    .and_then(|value| value.formatter.clone()),
-            ),
-            None => PreparedDatagramRelayCarrier::extend(
-                prepared.datagram_prefixes.last().cloned().flatten(),
-                final_operation,
-                prefix,
-            ),
-        }
-        .ok_or_else(|| invalid("outer UDP relay has no bidirectional packet path"))
     }
 }
 
@@ -259,18 +155,6 @@ fn invalid(message: impl ToString) -> EngineError {
     EngineError::Io(std::io::Error::other(message.to_string()))
 }
 
-fn root_binding(
-    outbound: &zero_config::OutboundConfig,
-    network_generation: zero_core::component::NetworkGeneration,
-) -> zero_platform_tokio::contract::network::UpstreamBinding {
-    zero_platform_tokio::contract::network::UpstreamBinding {
-        // These are concrete static first-hop carrier plans, not an execution
-        // of a native role prefix. An associated/control plan remains opt-in.
-        prefix: Vec::new(),
-        dial: outbound.dial.to_policy(),
-        network_generation,
-    }
-}
 #[cfg(test)]
 mod tests;
 

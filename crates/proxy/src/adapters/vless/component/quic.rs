@@ -1,4 +1,4 @@
-//! Actual plain-QUIC owning recipe; other real carrier selections stay explicit.
+//! Actual packet-carrier recipe; mKCP and QUIC share host original ownership.
 use super::*;
 use crate::component::{
     background::{BackgroundCarrier, BackgroundNetwork},
@@ -54,9 +54,62 @@ impl ComponentFactory for Factory {
     }
 }
 pub(crate) fn eligible(input: &OutboundConfig) -> bool {
-    matches!(&input.protocol,OutboundProtocolConfig::Vless {quic:Some(_),grpc:None,split_http,mkcp:None,hysteria:None,testpre:0,mux_concurrency:None,xudp_concurrency:None,reverse_tag:None,reverse_sniffing:None,ws,..}
-        if ws.as_ref().is_none_or(|ws|ws.browser_dialer.is_none())
+    matches!(
+        &input.protocol,
+        OutboundProtocolConfig::Vless {
+            flow,
+            quic: Some(_),
+            hysteria: Some(_),
+            grpc: None,
+            split_http: None,
+            mkcp: None,
+            testpre: 0,
+            mux_concurrency: None,
+            xudp_concurrency: None,
+
+            ..
+        } if flow.as_deref().is_none_or(|value|value=="zero-aead-v1")
+    ) || matches!(&input.protocol,OutboundProtocolConfig::Vless {flow,quic:Some(_),grpc:None,split_http,mkcp:None,hysteria:None,testpre:0,mux_concurrency:None,xudp_concurrency:None,ws,..}
+        if flow.as_deref().is_none_or(|value|value=="zero-aead-v1") && ws.as_ref().is_none_or(|ws|ws.browser_dialer.is_none())
         && split_http.as_ref().is_none_or(|http|http.browser_dialer.is_none() && http.download_settings.is_none()))
+        || matches!(
+            &input.protocol,
+            OutboundProtocolConfig::Vless {
+                flow,
+                mkcp: Some(_),
+                quic: None,
+                hysteria: None,
+                grpc: None,
+                split_http: None,
+                testpre: 0,
+                mux_concurrency: None,
+                xudp_concurrency: None,
+
+                ..
+            } if flow.as_deref().is_none_or(|value|value=="zero-aead-v1")
+        )
+}
+pub(super) fn carrier_eligible(input: &OutboundConfig) -> bool {
+    let mut carrier = input.clone();
+    let OutboundProtocolConfig::Vless {
+        testpre,
+        mux_concurrency,
+        xudp_concurrency,
+        flow,
+        split_http,
+        ..
+    } = &mut carrier.protocol
+    else {
+        return false;
+    };
+    if split_http.is_some() {
+        return false;
+    }
+    *testpre = 0;
+    *mux_concurrency = None;
+    *xudp_concurrency = None;
+    *flow = None;
+    eligible(&carrier)
 }
 impl super::super::VlessAdapter {
     pub(crate) fn quic_options(
@@ -65,14 +118,45 @@ impl super::super::VlessAdapter {
         resources: &mut ResourcePreparation<'_>,
         network: Arc<BackgroundNetwork>,
     ) -> Result<super::mux::Options, RegistrationError> {
+        Ok(super::mux::Options::Quic(
+            self.packet_options(input, resources, network, false, None)?,
+        ))
+    }
+    pub(super) fn packet_pool_options(
+        &self,
+        input: &OutboundConfig,
+        resources: &mut ResourcePreparation<'_>,
+        network: Arc<BackgroundNetwork>,
+        originals: NonZeroUsize,
+    ) -> Result<
+        (
+            Arc<::vless::component::quic::Options>,
+            zero_core::component::ComponentId,
+        ),
+        RegistrationError,
+    > {
+        let options = self.packet_options(input, resources, network, true, Some(originals))?;
+        let inner = options.inner.clone();
+        let owner = resources.share("vless.packet.actual_carrier", Arc::new(Factory), options)?;
+        Ok((inner, owner))
+    }
+    fn packet_options(
+        &self,
+        input: &OutboundConfig,
+        resources: &mut ResourcePreparation<'_>,
+        network: Arc<BackgroundNetwork>,
+        raw: bool,
+        originals: Option<NonZeroUsize>,
+    ) -> Result<Arc<Options>, RegistrationError> {
         let OutboundProtocolConfig::Vless {
             server,
             port,
-            quic: Some(quic),
+            quic,
+            tls,
             ..
         } = &input.protocol
         else {
-            unreachable!("same actual QUIC selection")
+            unreachable!("same actual packet-carrier selection")
         };
         let config = resources
             .candidate()
@@ -89,8 +173,9 @@ impl super::super::VlessAdapter {
             ConfigError::InvalidOutbound(format!("outbound `{}`: {source}", input.tag))
         })?;
         let bound = |value| {
-            NonZeroUsize::new(value)
-                .ok_or_else(|| ConfigError::InvalidRuntime("zero actual QUIC dimension".into()))
+            NonZeroUsize::new(value).ok_or_else(|| {
+                ConfigError::InvalidRuntime("zero actual packet-carrier dimension".into())
+            })
         };
         let limits = zero_platform_tokio::controlled_datagram::metadata::MetadataLimits {
             main_sockets: bound(1)?,
@@ -105,7 +190,7 @@ impl super::super::VlessAdapter {
             &leaf,
             &self.runtime,
             input.dial.to_policy(),
-            bound(config.effective_native_stream_max_originals())?,
+            originals.unwrap_or(bound(config.effective_native_stream_max_originals())?),
             bound(config.effective_quic_shared_endpoint_max_users())?,
             limits,
             resources.candidate().and_then(|config| config.source_dir()),
@@ -116,7 +201,7 @@ impl super::super::VlessAdapter {
         })?
         .ok_or_else(|| {
             ConfigError::InvalidOutbound(format!(
-                "outbound `{}` actual earlier carrier differs from plain QUIC",
+                "outbound `{}` actual earlier carrier differs from the packet recipe",
                 input.tag
             ))
         })?;
@@ -129,11 +214,17 @@ impl super::super::VlessAdapter {
                 },
             )
             .map_err(|source| ConfigError::InvalidRuntime(source.to_string()))?;
-        let tls = zero_traits::ClientTlsProfile::tls_options(quic.as_ref());
+        let tls = match (quic, tls) {
+            (Some(quic), _) => Some(zero_traits::ClientTlsProfile::tls_options(quic.as_ref())),
+            (_, Some(tls)) => Some(zero_traits::ClientTlsProfile::tls_options(tls.as_ref())),
+            _ => None,
+        };
         let ech = tls
-            .ech
-            .source()
-            .map_err(|source| ConfigError::InvalidOutbound(source.into()))?;
+            .as_ref()
+            .map(|tls| tls.ech.source())
+            .transpose()
+            .map_err(|source| ConfigError::InvalidOutbound(source.into()))?
+            .flatten();
         if zero_core::address::parse_ip_literal(server).is_none()
             || matches!(ech, Some(zero_traits::EchConfigSource::Dns { .. }))
         {
@@ -141,27 +232,33 @@ impl super::super::VlessAdapter {
             options = options.with_node_dns(node);
         }
         if resources.same_source_as_previous() {
-            if let Some(previous) = resources.previous_named_instance(&input.tag) {
-                let inherited = options
+            for previous in resources.previous_named_resource_instances(&input.tag) {
+                let mut inherited = options
                     .reuse_file_material_from(previous)
                     .map_err(|source| ConfigError::InvalidOutbound(source.to_string()))?;
                 if !inherited {
                     if let Some(identity) = resources.previous_resource_identity(previous.component)
                     {
-                        options
+                        inherited = options
                             .reuse_cold_file_material_from(identity)
                             .map_err(|source| ConfigError::InvalidOutbound(source.to_string()))?;
                     }
                 }
+                if inherited {
+                    break;
+                }
             }
+        }
+        if raw {
+            options = options.into_carrier_owner(&self.runtime);
         }
         options
             .remember_cold_file_material()
             .map_err(|source| ConfigError::InvalidOutbound(source.to_string()))?;
-        Ok(super::mux::Options::Quic(Arc::new(Options {
+        Ok(Arc::new(Options {
             inner: Arc::new(options),
             tag: input.tag.clone(),
             network,
-        })))
+        }))
     }
 }

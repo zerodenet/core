@@ -33,6 +33,8 @@ pub(crate) use readiness::InboundReady;
 mod accepted;
 mod acquisition;
 mod client_failures;
+#[cfg(feature = "managed-stream-runtime")]
+mod service;
 pub(in crate::runtime) use acquisition::AcquisitionPause;
 mod cleanup_fault;
 #[cfg(feature = "managed-datagram-runtime")]
@@ -94,6 +96,8 @@ pub(crate) struct InboundOwner {
     )>,
     shutdown: watch::Sender<bool>,
     cancel: CancellationToken,
+    carrier_host: Arc<OnceLock<std::sync::Weak<crate::runtime::RuntimeHost>>>,
+    accepted_drained: Arc<AtomicBool>,
     scope: AsyncMutex<TaskScope>,
     registrar: TaskRegistrar,
     resources: Mutex<Vec<Arc<Resource>>>,
@@ -133,10 +137,11 @@ struct MainRegistration {
 }
 #[derive(Clone)]
 pub(crate) struct InboundTaskAccess {
+    carrier_host: Arc<OnceLock<std::sync::Weak<crate::runtime::RuntimeHost>>>,
+    accepted_drained: Arc<AtomicBool>,
     acquisition: Arc<acquisition::Acquisition>,
     #[cfg(feature = "managed-datagram-runtime")]
     peer_groups: std::sync::Weak<Mutex<Vec<Arc<super::InboundPeerTasks>>>>,
-    #[cfg(any(feature = "managed-datagram-runtime", feature = "raw-ip-runtime"))]
     pub(super) identity: ComponentInstanceId,
     registrar: TaskRegistrar,
     #[cfg(feature = "raw-ip-runtime")]
@@ -148,7 +153,7 @@ pub(crate) struct InboundTaskAccess {
         Mutex<Option<crate::runtime::inbound_operation::raw_ip::PacketSourceContext>>,
     >,
     cancel: CancellationToken,
-    shutdown: watch::Sender<bool>,
+    shutdown: Option<watch::Sender<bool>>,
 }
 impl InboundTaskAccess {
     #[cfg(feature = "raw-ip-runtime")]
@@ -231,8 +236,12 @@ impl InboundTaskAccess {
         self.registrar.downgrade()
     }
     pub(crate) fn request_stop(&self) {
-        self.cancel.cancel();
-        self.shutdown.send_replace(true);
+        if !self.defer_accepted_stop() {
+            self.cancel.cancel();
+        }
+        if let Some(shutdown) = &self.shutdown {
+            shutdown.send_replace(true);
+        }
     }
 
     pub(crate) fn cancellation(&self) -> CancellationToken {
@@ -333,6 +342,8 @@ impl InboundOwner {
             icmp_probe: OnceLock::new(),
             shutdown,
             cancel: CancellationToken::new(),
+            carrier_host: Arc::default(),
+            accepted_drained: Arc::new(AtomicBool::new(false)),
             scope: AsyncMutex::new(scope),
             registrar,
             resources: Mutex::new(Vec::new()),
@@ -418,6 +429,41 @@ impl InboundOwner {
         }));
         Ok(())
     }
+    #[cfg(all(
+        test,
+        feature = "managed-stream-runtime",
+        feature = "managed-datagram-runtime"
+    ))]
+    pub(crate) fn native_response_readers_for_test(
+        &self,
+    ) -> Vec<
+        zero_traits::packet_metadata::PacketMetadataArc<
+            crate::runtime::udp_flow::registered::NativeResponseReceiver,
+        >,
+    > {
+        let groups = self.peers.lock().unwrap().clone();
+        groups
+            .iter()
+            .flat_map(|group| group.bindings_for_test())
+            .filter_map(|binding| binding.responses_for_test())
+            .flat_map(|owner| owner.native_readers_for_test())
+            .collect()
+    }
+    #[cfg(all(
+        test,
+        feature = "managed-stream-runtime",
+        feature = "managed-datagram-runtime"
+    ))]
+    pub(crate) fn response_books_for_test(
+        &self,
+    ) -> Vec<Arc<crate::runtime::udp_flow::response_join::ResponseSetOwner>> {
+        let groups = self.peers.lock().unwrap().clone();
+        groups
+            .iter()
+            .flat_map(|group| group.bindings_for_test())
+            .filter_map(|binding| binding.responses_for_test())
+            .collect()
+    }
     #[cfg(all(test, feature = "managed-datagram-runtime"))]
     pub(crate) fn peer_tasks_for_test(&self) -> Arc<super::InboundPeerTasks> {
         self.peers
@@ -434,10 +480,11 @@ impl InboundOwner {
     }
     pub(crate) fn task_access(&self) -> InboundTaskAccess {
         InboundTaskAccess {
+            carrier_host: self.carrier_host.clone(),
+            accepted_drained: self.accepted_drained.clone(),
             acquisition: self.acquisition.clone(),
             #[cfg(feature = "managed-datagram-runtime")]
             peer_groups: Arc::downgrade(&self.peers),
-            #[cfg(any(feature = "managed-datagram-runtime", feature = "raw-ip-runtime"))]
             identity: self.identity,
             registrar: self.registrar.clone(),
             #[cfg(feature = "raw-ip-runtime")]
@@ -447,7 +494,7 @@ impl InboundOwner {
             #[cfg(feature = "raw-ip-runtime")]
             packet_source: Arc::downgrade(&self.packet_source),
             cancel: self.cancel.clone(),
-            shutdown: self.shutdown.clone(),
+            shutdown: Some(self.shutdown.clone()),
         }
     }
     #[cfg(feature = "managed-datagram-runtime")]
@@ -536,11 +583,16 @@ impl InboundOwner {
             .take();
         drop(unstarted); // Known NoTask only; no native/Scope close claim.
         self.ready.wake();
-        self.cancel.cancel();
+        let deferred = self.task_access().defer_accepted_stop();
+        if !deferred {
+            self.cancel.cancel();
+        }
         self.shutdown.send_replace(true);
         #[cfg(feature = "managed-datagram-runtime")]
         for peers in self.peers.lock().expect("peer owners poisoned").iter() {
-            peers.begin_shutdown();
+            if !deferred {
+                peers.begin_shutdown();
+            }
         }
     }
     fn result(&self) -> Result<(), EngineError> {
@@ -625,5 +677,38 @@ impl InboundOwner {
         &self,
     ) -> Option<crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits> {
         self.raw_source_limits.get().copied()
+    }
+}
+
+impl InboundOwner {
+    pub(crate) fn bind_carrier_host(&self, host: &Arc<crate::runtime::RuntimeHost>) {
+        let _ = self.carrier_host.set(Arc::downgrade(host));
+    }
+}
+impl InboundTaskAccess {
+    fn defer_accepted_stop(&self) -> bool {
+        if self.accepted_drained.load(Ordering::Acquire) {
+            return false;
+        }
+        self.carrier_host
+            .get()
+            .and_then(std::sync::Weak::upgrade)
+            .is_some_and(|host| host.components().fence_accepted_source(self.identity))
+    }
+    pub(in crate::runtime) async fn drain_accepted_consumers(
+        &self,
+        end: Instant,
+    ) -> Result<(), EngineError> {
+        if self.accepted_drained.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        if let Some(host) = self.carrier_host.get().and_then(std::sync::Weak::upgrade) {
+            host.components()
+                .drain_accepted_source(self.identity, end)
+                .await
+                .map_err(std::io::Error::other)?;
+        }
+        self.accepted_drained.store(true, Ordering::Release);
+        Ok(())
     }
 }

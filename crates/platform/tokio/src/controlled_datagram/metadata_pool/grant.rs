@@ -147,6 +147,7 @@ impl MetadataPoolGrants {
                     confirmed: None,
                     unbound: None,
                     acquired_confirmed: false,
+                    wire_closed: false,
                     attempted: false,
                     endpoints: None,
                     binding: None,

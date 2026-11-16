@@ -69,11 +69,10 @@ impl PreparedGrpc {
         THttp: HttpUpgradeTransportProfile + ?Sized,
         TSplit: SplitHttpTransportProfile + ?Sized,
     {
-        if input.grpc.is_none() || input.protocol.flow.is_some() || input.protocol.reality.is_some()
-        {
+        if input.grpc.is_none() || input.protocol.reality.is_some() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
-                "managed gRPC requires ordinary VLESS without flow/REALITY",
+                "managed gRPC requires its actual carrier without REALITY",
             )
             .into());
         }
@@ -81,14 +80,24 @@ impl PreparedGrpc {
         // still rejects gRPC; only this explicitly resource-bound recipe admits it.
         let protocol = Options::from_options_refs_inner(input.clone(), dial.clone(), true)
             .map_err(|source| std::io::Error::new(std::io::ErrorKind::InvalidInput, source))?;
-        let leaf = VlessOutboundLeaf::from_options_refs(source_dir, input, runtime)
-            .map_err(|source| std::io::Error::new(std::io::ErrorKind::InvalidInput, source))?;
+        let masks = input.final_mask.clone().unwrap_or_default();
+        let leaf = if background {
+            VlessOutboundLeaf::from_owned_options_refs(source_dir, input, runtime)
+                .map(|(leaf, _)| leaf)
+        } else {
+            VlessOutboundLeaf::from_options_refs(source_dir, input, runtime)
+        }
+        .map_err(|source| std::io::Error::new(std::io::ErrorKind::InvalidInput, source))?;
         let pool = if background {
             leaf.background_grpc_options(runtime, dial, carriers, streams)?
         } else {
             leaf.native_grpc_options(runtime, dial, carriers, streams)?
         };
-        Ok(Self { protocol, pool })
+        let pool = pool.with_tcp_masks(masks)?;
+        Ok(Self {
+            protocol: protocol.framing_only(),
+            pool,
+        })
     }
     pub fn reuse_file_material_from(
         &mut self,
@@ -130,7 +139,7 @@ impl PreparedGrpc {
         identity.extend_from_slice(&super::PoolFactory.describe(&self.pool).static_identity);
         identity.extend_from_slice(&pool_owner.0.to_le_bytes());
         StreamOptions {
-            prepared: self,
+            source: Source::Grpc(self),
             pool_owner,
             identity: identity.into(),
         }
@@ -138,15 +147,77 @@ impl PreparedGrpc {
 }
 #[derive(Debug)]
 pub struct StreamOptions {
-    pub(super) prepared: PreparedGrpc,
+    pub(super) source: Source,
     pub(super) pool_owner: ComponentId,
     pub(super) identity: Arc<[u8]>,
+}
+#[derive(Debug)]
+pub(super) enum Source {
+    Carrier {
+        pool: super::super::quic::TransportCarrier,
+        protocol: Arc<Options>,
+    },
+    Grpc(PreparedGrpc),
+    Preconnect {
+        pool: crate::transport::PreconnectPool,
+        protocol: Arc<Options>,
+    },
 }
 
 impl StreamOptions {
     /// Native gRPC delegates the old whole leaf instead of exposing a second
     /// old claim. Its real cold protocol recipe retains these same semantics.
     pub fn packet_path_metadata(&self) -> (zero_core::request::Destination, bool) {
-        (self.prepared.protocol.endpoint.clone(), true)
+        (self.protocol().endpoint.clone(), true)
+    }
+    pub(in crate::component) fn protocol(&self) -> &Options {
+        match &self.source {
+            Source::Grpc(prepared) => &prepared.protocol,
+            Source::Preconnect { protocol, .. } | Source::Carrier { protocol, .. } => protocol,
+        }
+    }
+    pub(in crate::component) fn from_preconnect(
+        prepared: Arc<super::super::preconnect::PreparedPreconnect>,
+        pool_owner: ComponentId,
+    ) -> Self {
+        let mut identity = super::super::preconnect::PoolFactory
+            .describe(&prepared)
+            .static_identity
+            .to_vec();
+        identity.extend_from_slice(b"vless.preconnected.stream-datagram");
+        identity.extend_from_slice(&pool_owner.0.to_le_bytes());
+        Self {
+            source: Source::Preconnect {
+                pool: prepared.pool_handle(),
+                protocol: prepared.protocol_arc(),
+            },
+            pool_owner,
+            identity: identity.into(),
+        }
+    }
+    pub(in crate::component) fn from_carrier(
+        pool: super::super::quic::TransportCarrier,
+        protocol: Arc<Options>,
+        identity: Arc<[u8]>,
+        pool_owner: ComponentId,
+    ) -> Self {
+        let mut identity = identity.to_vec();
+        identity.extend_from_slice(b"vless.packet.stream-datagram");
+        identity.extend_from_slice(&pool_owner.0.to_le_bytes());
+        Self {
+            source: Source::Carrier { pool, protocol },
+            pool_owner,
+            identity: identity.into(),
+        }
+    }
+    pub(super) fn matches(
+        &self,
+        instance: zero_core::component::ComponentInstanceId,
+    ) -> Result<(), zero_platform_tokio::contract::ChannelError> {
+        match &self.source {
+            Source::Grpc(prepared) => prepared.pool.matches(instance),
+            Source::Preconnect { pool, .. } => pool.matches(instance),
+            Source::Carrier { pool, .. } => pool.matches(instance),
+        }
     }
 }

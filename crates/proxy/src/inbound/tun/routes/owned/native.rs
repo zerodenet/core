@@ -95,6 +95,13 @@ impl Native {
     pub(super) fn diagnostics(&self) -> super::diagnostics::RouteDiagnostics {
         self.diagnostics.clone()
     }
+    #[cfg(target_os = "macos")]
+    pub(super) fn requires_helper(&self) -> bool {
+        !self.spec.addresses.is_empty()
+            || self.spec.strict_route
+            || self.spec.dns_hijack
+            || self.leak.is_some()
+    }
     pub fn install(
         &mut self,
         name: String,

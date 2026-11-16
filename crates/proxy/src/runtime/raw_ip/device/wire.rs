@@ -6,6 +6,7 @@ pub(super) use carrier::Carrier;
 pub(crate) use native::PendingNativeWire;
 pub(super) use native::{NativeWireInput, WireReads};
 enum WireOriginal {
+    #[cfg(test)]
     Existing(Arc<dyn RawIpWireCarrier>),
     Hosted(NativeWireInput),
     Logical(NativeWireInput),
@@ -155,6 +156,7 @@ impl SharedRawIpDevice {
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn start_metered(
         local_addresses: Vec<IpAddr>,
         mtu: u16,
@@ -185,6 +187,7 @@ impl SharedRawIpDevice {
         task: Arc<workers::DeviceWorkers>,
     ) -> Result<Arc<Self>, EngineError> {
         let (carrier, input): (Carrier, Option<NativeWireInput>) = match original {
+            #[cfg(test)]
             WireOriginal::Existing(carrier) => (Carrier::Existing(carrier), None),
             WireOriginal::Hosted(mut input) | WireOriginal::Logical(mut input) => {
                 input.workers = Arc::downgrade(&task);

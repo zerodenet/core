@@ -8,6 +8,9 @@ mod wire;
 pub use config::Settings;
 
 mod client;
+mod memory;
+#[cfg(feature = "quic")]
+pub mod owned;
 mod peer;
 mod scoped_peer;
 mod stream;

@@ -25,7 +25,7 @@ impl DatagramOutbound for Outbound {
             ));
         };
 
-        if self.options.flow.is_some()
+        if crate::flow::is_vision_flow(self.options.flow)
             || target.port == 0
             || context.upstream.binding().dial != self.options.dial
         {

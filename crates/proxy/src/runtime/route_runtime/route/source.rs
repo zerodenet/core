@@ -137,7 +137,12 @@ impl InboundRouteRuntime {
                 }
                 return Ok(());
             }
-            let mut tasks = tasks::Requests::new(self.accepted_tasks());
+            // All production Sources install this actual original before
+            // protocol completion. Concurrent users never acquire local tasks.
+            let registrar = self.accepted_tasks().ok_or_else(|| {
+                std::io::Error::other("concurrent Source omitted its original accepted registrar")
+            })?;
+            let mut tasks = tasks::Requests::new(registrar);
             let mut ended = false;
             while !ended || tasks.len() != 0 {
                 tokio::select! {
@@ -222,6 +227,13 @@ impl InboundRouteRuntime {
                 let (identity, authentication) = identity.ok_or_else(|| {
                     std::io::Error::other("business stream did not mint its actual identity")
                 })?;
+                #[cfg(feature = "managed-stream-runtime")]
+                if let Some(policy) = runtime.service_sniffing.as_ref() {
+                    return runtime
+                        .tcp_runtime
+                        .serve_sniffed_service_stream(request, authentication, identity, policy)
+                        .await;
+                }
                 runtime
                     .tcp_runtime
                     .serve_accepted_stream(request, authentication, identity)
@@ -244,6 +256,15 @@ impl InboundRouteRuntime {
                 let (identity, authentication) = identity.ok_or_else(|| {
                     std::io::Error::other("business Datagram did not mint its actual identity")
                 })?;
+                #[cfg(feature = "managed-stream-runtime")]
+                let request = match runtime.service_sniffing.as_ref() {
+                    Some(policy) => super::service_sniffing::datagram(
+                        request,
+                        policy.clone(),
+                        runtime.udp_runtime(),
+                    )?,
+                    None => request,
+                };
                 datagram::run(runtime, request, identity, authentication, cancel).await
             }
             AcceptedRequest::Control(control) => {

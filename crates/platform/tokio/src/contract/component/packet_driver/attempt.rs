@@ -50,6 +50,11 @@ impl Drop for PacketDriverCallGrant {
         if !self.installed {
             self.record.request_retirement();
         }
+        // The unique preparing grant has now returned. Native, logical,
+        // provider and task debts remain in the original record until proven.
+        self.record
+            .preparing
+            .store(false, std::sync::atomic::Ordering::Release);
     }
 }
 
@@ -61,7 +66,10 @@ impl PacketDriverPendingCustody {
         let Some(record) = self.record.upgrade() else {
             return false;
         };
-        if record.call.cancel.is_cancelled() || record.original.is_retired() {
+        if record.retiring.load(std::sync::atomic::Ordering::Acquire)
+            || record.call.cancel.is_cancelled()
+            || record.original.is_retired()
+        {
             return false;
         }
         let witness = record
