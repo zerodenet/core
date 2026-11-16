@@ -121,7 +121,7 @@ impl HttpClient {
     }
 }
 mod scoped;
-fn tls_config(insecure: bool) -> io::Result<rustls::ClientConfig> {
+pub(crate) fn tls_config(insecure: bool) -> io::Result<rustls::ClientConfig> {
     let roots = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     let mut tls = rustls::ClientConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),

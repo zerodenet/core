@@ -84,8 +84,11 @@ pub enum ResourceDeclaration {
         max_sources: NonZeroUsize,
     },
 
-    /// Host-owned service targets, restricted to these protocol-prepared endpoints.
-    /// Originals and driver joins remain in the actual accepted resource graph.
+    /// Dynamic internal service endpoints in the same actual Source Scope.
+    ComponentTargets {
+        max_sockets: NonZeroUsize,
+    },
+    /// Exact protocol-prepared endpoints in the actual accepted resource graph.
     InboundTargets {
         endpoints: Vec<zero_traits::FallbackEndpoint>,
         max_sockets: NonZeroUsize,
@@ -703,6 +706,20 @@ pub trait ResourceAccess: Send + Sync {
             super::Reason::Unsupported,
             super::Impact::Component,
         ))
+    }
+    fn open_component_stream(
+        &self,
+        _driver: &TaskJoinWitness,
+        _tasks: &super::scope::WeakTaskRegistrar,
+        _endpoint: zero_traits::FallbackEndpoint,
+    ) -> BoxFuture<'_, Result<crate::TcpRelayStream, BuildError>> {
+        Box::pin(async {
+            Err(super::ChannelError::new(
+                super::Stage::Prepare,
+                super::Reason::Unsupported,
+                super::Impact::Component,
+            ))
+        })
     }
     fn open_inbound_stream(
         &self,

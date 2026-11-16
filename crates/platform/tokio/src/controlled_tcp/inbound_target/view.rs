@@ -19,7 +19,14 @@ struct View {
 impl Drop for View {
     fn drop(&mut self) {
         let stream = self.stream.take();
-        let returned = Returned(self.core.returned.clone());
+        let returned = Returned {
+            returned: self.core.returned.clone(),
+            stop: self
+                .core
+                .pool
+                .component_service
+                .then(|| self.core.stop.clone()),
+        };
         drop(stream);
         drop(returned);
     }
@@ -69,9 +76,15 @@ impl zero_traits::AsyncSocket for View {
     }
 }
 
-struct Returned(CancellationToken);
+struct Returned {
+    returned: CancellationToken,
+    stop: Option<CancellationToken>,
+}
 impl Drop for Returned {
     fn drop(&mut self) {
-        self.0.cancel();
+        if let Some(stop) = &self.stop {
+            stop.cancel();
+        }
+        self.returned.cancel();
     }
 }

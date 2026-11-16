@@ -24,6 +24,7 @@ pub struct Options {
 
     listen: std::net::SocketAddr,
     server: quinn::ServerConfig,
+    tls_material: Vec<Arc<zero_transport::tls::source::PreparedServer>>,
     masks: Vec<zero_transport::finalmask::udp::Mask>,
     profile: Hysteria2AuthenticatedInboundProfile,
     store: crate::inbound::Hysteria2InboundProfileStore,
@@ -158,26 +159,36 @@ impl Options {
             sites.push((http, website.clone()));
         }
         if let Some(https) = https {
-            sites.push((https, website.with_tls(&bind)?));
+            sites.push((https, website.with_standard_tls(&bind)?));
         }
-        Ok(Self {
-            listen,
-            server: bind.server_config()?,
-            masks: bind.masks(),
-            profile,
-            store,
-            tag: tag.into(),
-            sites,
-            identity: identity.into(),
-            work_tasks: NonZeroUsize::new(520).unwrap(),
-            work_resources: 257,
-            source_limits: InboundSourceLimits::default(),
-            metadata_probes: NonZeroUsize::new(2).unwrap(),
-            metadata_attempts: NonZeroUsize::new(8).unwrap(),
-            metadata_sends: NonZeroUsize::new(2).unwrap(),
-            quic_connections: NonZeroUsize::new(8192).unwrap(),
-            quic_users: NonZeroUsize::new(65536).unwrap(),
-        })
+        let (server, material) = bind.server_config()?;
+        let mut tls_material = vec![material];
+        tls_material.extend(sites.iter().filter_map(|(_, site)| site.tls_material()));
+        Ok(
+            Self {
+                tls_material,
+                listen,
+                server,
+                masks: bind.masks(),
+                profile,
+                store,
+                tag: tag.into(),
+                sites,
+                identity: identity.into(),
+                work_tasks: NonZeroUsize::new(520).unwrap(),
+                work_resources: 257,
+                source_limits: InboundSourceLimits::default(),
+                metadata_probes: NonZeroUsize::new(2).unwrap(),
+                metadata_attempts: NonZeroUsize::new(8).unwrap(),
+                metadata_sends: NonZeroUsize::new(2).unwrap(),
+                quic_connections: NonZeroUsize::new(8192).unwrap(),
+                quic_users: NonZeroUsize::new(65536).unwrap(),
+            },
+            options.tls_material.clone(),
+            tls_resources,
+            tls_tasks,
+            tls_cancel,
+        )
     }
 }
 pub struct Factory;
@@ -223,20 +234,25 @@ impl ComponentFactory for Factory {
                 max_sockets: options.source_limits.target_sockets,
             });
         }
-        ComponentSpec {
+        let mut spec = ComponentSpec {
             owner: ResourceOwner::Component,
             roles: vec![RoleKind::Inbound],
             dependencies: vec![],
             static_identity: options.metadata_identity(),
             task_limit: Some(n(options.quic_drivers())),
             resources,
-        }
+        };
+        zero_transport::tls::source::declare(&mut spec, &options.tls_material);
+        spec
     }
     fn build(
         &self,
         options: Arc<Options>,
         context: BuildContext,
     ) -> Result<ComponentInstance, BuildError> {
+        let tls_resources = context.resources.clone();
+        let tls_tasks = context.tasks.clone();
+        let tls_cancel = context.cancel.clone();
         let mut profile = options.profile.clone();
         profile.protocol = options.store.publish(&options.tag, &profile.protocol);
         let resources = context.resources.clone();
@@ -281,7 +297,7 @@ impl ComponentFactory for Factory {
             owners.push(erase_lifecycle(owner));
             sources.push(erase_inbound(source));
         }
-        Ok(ComponentInstance {
+        zero_transport::tls::source::wrap(ComponentInstance {
             lifecycle: erase_lifecycle(source::Lifecycle { owners }),
             roles: ComponentRoles {
                 inbound: Some(erase_inbound(source::Group { sources })),

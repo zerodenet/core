@@ -233,3 +233,12 @@ mod dns_wire;
     feature = "hysteria2"
 ))]
 mod standard_stream;
+
+#[cfg(all(
+    feature = "socks5",
+    feature = "vless",
+    feature = "trojan",
+    feature = "vmess",
+    feature = "hysteria2"
+))]
+mod tls_refresh;

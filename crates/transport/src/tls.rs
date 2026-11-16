@@ -27,6 +27,7 @@ mod groups;
 mod ocsp;
 mod refresh;
 mod server;
+pub mod source;
 mod verifier;
 pub use server::server as build_server_config;
 mod peek;

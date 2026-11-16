@@ -244,6 +244,8 @@ fn valid_associations(resources: &[ResourceDeclaration]) -> bool {
     let mut associations = false;
     let mut targets = false;
     let mut tree = false;
+    let mut component_targets = false;
+    let mut files = std::collections::BTreeSet::new();
     resources.iter().all(|resource| match resource {
         ResourceDeclaration::DatagramAssociations {
             max_associations,
@@ -255,6 +257,16 @@ fn valid_associations(resources: &[ResourceDeclaration]) -> bool {
                 .get()
                 .checked_mul(max_tasks_per_association.get())
                 .is_some()
+        }
+        ResourceDeclaration::File { path, max_bytes } => {
+            !path.as_os_str().is_empty()
+                && *max_bytes > 0
+                && max_bytes.checked_add(1).is_some()
+                && files.insert(path.clone())
+        }
+        ResourceDeclaration::ComponentTargets { .. } if !component_targets => {
+            component_targets = true;
+            true
         }
         ResourceDeclaration::FileTree { root, .. } if !tree => {
             tree = true;

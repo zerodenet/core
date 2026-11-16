@@ -8,6 +8,7 @@ use zero_transport::http_server::{HttpExchange, HttpHandler, RequestContext};
 pub struct Hysteria2Website {
     masquerade: Masquerade,
     tls: Option<tokio_rustls::TlsAcceptor>,
+    tls_material: Option<Arc<zero_transport::tls::source::PreparedServer>>,
     quic_port: u16,
     redirect_port: Option<u16>,
 }
@@ -16,15 +17,33 @@ impl Hysteria2Website {
         Self {
             masquerade,
             tls: None,
+            tls_material: None,
             quic_port,
             redirect_port,
         }
+    }
+    pub(crate) fn tls_material(&self) -> Option<Arc<zero_transport::tls::source::PreparedServer>> {
+        self.tls_material.clone()
+    }
+    pub(crate) fn with_standard_tls(
+        mut self,
+        plan: &super::Hysteria2InboundBindPlan,
+    ) -> Result<Self, zero_transport::RuntimeError> {
+        let material = plan.website_tls_material()?;
+        let zero_transport::tls::TlsAcceptor::Rustls(acceptor) = material.acceptor() else {
+            return Err(std::io::Error::other("Hysteria2 website requires rustls").into());
+        };
+        self.tls = Some(acceptor);
+        self.tls_material = Some(material);
+        self.redirect_port = None;
+        Ok(self)
     }
     pub fn with_tls(
         mut self,
         plan: &super::Hysteria2InboundBindPlan,
     ) -> Result<Self, zero_transport::RuntimeError> {
         self.tls = Some(plan.website_tls()?);
+        self.tls_material = None;
         self.redirect_port = None;
         Ok(self)
     }

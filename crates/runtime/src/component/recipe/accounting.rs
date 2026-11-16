@@ -11,6 +11,7 @@ pub(in crate::component) fn owns_carrier_custody(spec: &ComponentSpec) -> bool {
                 | R::LogicalPacketWorkspaces { .. }
                 | R::ControlledJournal { .. }
                 | R::InboundTargets { .. }
+                | R::ComponentTargets { .. }
                 | R::TcpListener { .. }
                 | R::ListenerHandoff { .. }
                 | R::DatagramListener { .. }

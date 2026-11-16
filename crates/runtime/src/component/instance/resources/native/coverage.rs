@@ -29,6 +29,7 @@ pub(in crate::component) enum DeclaredResourceKind {
     AcceptedDatagram,
     DatagramAssociations,
     InboundTargets,
+    ComponentTargets,
     Process,
     Device,
     BackgroundCarrier,
@@ -141,6 +142,9 @@ impl CoverageBinding {
             }
             // This requires the actual accepted entry's original provider.
             // A normal catalog declaration alone must never qualify it.
+            ResourceDeclaration::ComponentTargets { .. } => {
+                Self::Unaccounted(DeclaredResourceKind::ComponentTargets)
+            }
             ResourceDeclaration::InboundTargets { .. } => {
                 Self::Unaccounted(DeclaredResourceKind::InboundTargets)
             }

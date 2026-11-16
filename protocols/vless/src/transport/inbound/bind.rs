@@ -69,7 +69,15 @@ impl VlessInboundBindPlan {
     pub(crate) fn masks(&self) -> Vec<zero_transport::finalmask::udp::Mask> {
         self.final_mask.udp().to_vec()
     }
-    pub(crate) fn server_config(&self) -> Result<quic::QuicServerConfig, RuntimeError> {
+    pub(crate) fn server_config(
+        &self,
+    ) -> Result<
+        (
+            quic::QuicServerConfig,
+            std::sync::Arc<zero_transport::tls::source::PreparedServer>,
+        ),
+        RuntimeError,
+    > {
         let profile = zero_transport::profile::OwnedServerTlsProfile {
             options: self.quic_tls_options.clone(),
             cert_path: self
@@ -91,11 +99,17 @@ impl VlessInboundBindPlan {
             t.datagram_receive_buffer_size(Some(65536));
             t
         };
-        quic::server_config(
+        let mut profile = profile;
+        profile.alpn = self
+            .quic_alpn_protocols
+            .iter()
+            .map(|value| String::from_utf8(value.clone()).map_err(io::Error::other))
+            .collect::<Result<_, _>>()?;
+        let material = zero_transport::tls::source::PreparedServer::new(
             &profile,
             self.source_dir.as_deref(),
-            &self.quic_alpn_protocols,
-            transport,
-        )
+            true,
+        )?;
+        Ok((material.quic_config(transport)?, material))
     }
 }

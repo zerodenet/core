@@ -16,6 +16,7 @@ use zero_platform_tokio::contract::{
 };
 pub struct Options {
     source_limits: InboundSourceLimits,
+    tls_material: Arc<zero_transport::tls::source::PreparedServer>,
 
     listen: Destination,
     request: Mutex<Option<PreparedVmessInboundListenerRequest>>,
@@ -81,7 +82,9 @@ impl Options {
             private_identity.hash(&mut hash);
             identity.extend_from_slice(&hash.finish().to_le_bytes());
         }
+        let tls_material = request.tls_material();
         Self {
+            tls_material,
             listen,
             request: Mutex::new(Some(request)),
             identity: identity.into(),
@@ -95,7 +98,7 @@ pub struct Factory;
 impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
-        ComponentSpec {
+        let mut spec = ComponentSpec {
             owner: ResourceOwner::Component,
             roles: vec![RoleKind::Inbound],
             dependencies: vec![],
@@ -112,7 +115,9 @@ impl ComponentFactory for Factory {
                     max_resources_per_socket: options.work_resources,
                 }),
             }],
-        }
+        };
+        zero_transport::tls::source::declare(&mut spec, &[options.tls_material.clone()]);
+        spec
     }
     fn build(
         &self,
@@ -130,6 +135,10 @@ impl ComponentFactory for Factory {
             ChannelError::new(Stage::Prepare, Reason::InvalidConfig, Impact::Component)
                 .with_source(source)
         })?;
+        let tls_resources = context.resources.clone();
+        let tls_tasks = context.tasks.clone();
+        let tls_cancel = context.cancel.clone();
+        let tls_material = request.tls_material();
         let (lifecycle, source) = tcp::source(
             options.listen.clone(),
             context.resources,
@@ -139,13 +148,19 @@ impl ComponentFactory for Factory {
                 socket,
             },
         );
-        Ok(ComponentInstance {
-            lifecycle: erase_lifecycle(lifecycle),
-            roles: ComponentRoles {
-                inbound: Some(erase_inbound(source)),
-                ..Default::default()
+        zero_transport::tls::source::wrap(
+            ComponentInstance {
+                lifecycle: erase_lifecycle(lifecycle),
+                roles: ComponentRoles {
+                    inbound: Some(erase_inbound(source)),
+                    ..Default::default()
+                },
             },
-        })
+            vec![tls_material],
+            tls_resources,
+            tls_tasks,
+            tls_cancel,
+        )
     }
 }
 struct Connection {

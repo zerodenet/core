@@ -35,6 +35,7 @@ struct Pool {
     root: Weak<CarrierOriginalTotals>,
     permits: Arc<Semaphore>,
     endpoints: Arc<[FallbackEndpoint]>,
+    component_service: bool,
     cancel: CancellationToken,
 }
 #[derive(Clone)]
@@ -54,8 +55,36 @@ impl InboundTargetSocketPool {
             root: Arc::downgrade(root),
             permits: Arc::new(Semaphore::new(limit.get())),
             endpoints,
+            component_service: false,
             cancel,
         }))
+    }
+    pub fn new_component(
+        instance: ComponentInstanceId,
+        scope: ScopeRetirementObservation,
+        root: &Arc<CarrierOriginalTotals>,
+        limit: NonZeroUsize,
+        cancel: CancellationToken,
+    ) -> Self {
+        Self(Arc::new(Pool {
+            instance,
+            scope,
+            root: Arc::downgrade(root),
+            permits: Arc::new(Semaphore::new(limit.get())),
+            endpoints: Arc::from([]),
+            component_service: true,
+            cancel,
+        }))
+    }
+    pub fn reserve_component_graph(
+        &self,
+        driver: &TaskJoinWitness,
+        endpoint: &FallbackEndpoint,
+    ) -> Result<Arc<InboundTargetNativeOwner>, ChannelError> {
+        if driver.is_joined() {
+            return Err(failure(Stage::Prepare, Reason::Revoked));
+        }
+        self.reserve(&driver.scope_identity(), endpoint, true)
     }
     /// One composite custody reservation includes the exact retained candidate
     /// controllers and its sole real actor. This unit is not a descriptor count.
@@ -64,10 +93,19 @@ impl InboundTargetSocketPool {
         scope: &TaskScopeIdentity,
         endpoint: &FallbackEndpoint,
     ) -> Result<Arc<InboundTargetNativeOwner>, ChannelError> {
-        if !self.0.scope.scope_identity().same_scope(scope)
+        self.reserve(scope, endpoint, false)
+    }
+    fn reserve(
+        &self,
+        scope: &TaskScopeIdentity,
+        endpoint: &FallbackEndpoint,
+        component: bool,
+    ) -> Result<Arc<InboundTargetNativeOwner>, ChannelError> {
+        if self.0.component_service != component
+            || !self.0.scope.scope_identity().same_scope(scope)
             || !scope.resource_open()
             || !scope.registration_open()
-            || !self.0.endpoints.contains(endpoint)
+            || (!component && !self.0.endpoints.contains(endpoint))
             || self.0.cancel.is_cancelled()
         {
             return Err(failure(Stage::Prepare, Reason::Revoked));
@@ -146,12 +184,13 @@ impl InboundTargetNativeOwner {
         F: FnOnce(crate::AcceptedTasks) -> Fut,
         Fut: std::future::Future<Output = Result<(), ChannelError>> + Send + 'static,
     {
-        if !self
-            .0
-            .pool
-            .scope
-            .scope_identity()
-            .same_scope(&caller.scope_identity())
+        if self.0.pool.component_service
+            || !self
+                .0
+                .pool
+                .scope
+                .scope_identity()
+                .same_scope(&caller.scope_identity())
         {
             return Err(failure(Stage::Prepare, Reason::StalePlan));
         }
@@ -164,6 +203,33 @@ impl InboundTargetNativeOwner {
             Err(source) => {
                 self.registration_rejected();
                 Err(source)
+            }
+        }
+    }
+    pub fn register_component_actor(
+        &self,
+        tasks: &crate::contract::scope::WeakTaskRegistrar,
+        work: impl std::future::Future<Output = Result<(), ChannelError>> + Send + 'static,
+    ) -> Result<(zero_core::component::TaskId, TaskJoinWitness), ChannelError> {
+        if !self.0.pool.component_service
+            || !self
+                .0
+                .pool
+                .scope
+                .scope_identity()
+                .same_scope(&tasks.scope_identity())
+        {
+            return Err(failure(Stage::Prepare, Reason::StalePlan));
+        }
+        self.begin_registration()?;
+        match tasks.spawn_tracked(crate::contract::scope::TaskClass::Critical, work) {
+            Ok((id, witness)) => {
+                self.bind_driver(witness.clone())?;
+                Ok((id, witness))
+            }
+            Err(source) => {
+                self.registration_rejected();
+                Err(failure(Stage::Prepare, Reason::Capacity).with_source(source))
             }
         }
     }

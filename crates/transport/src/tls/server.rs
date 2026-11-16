@@ -186,6 +186,16 @@ pub fn server(
         .collect::<Result<Vec<_>, _>>()?;
     let authorities =
         super::refresh::Authorities::new(authorities, authority_files, provider.clone(), &options);
+    assemble(profile, quic, provider, certificates, authorities)
+}
+pub(super) fn assemble(
+    profile: &(impl ServerTlsProfile + ?Sized),
+    quic: bool,
+    provider: Arc<rustls::crypto::CryptoProvider>,
+    certificates: super::refresh::Certificates,
+    authorities: super::refresh::Authorities,
+) -> io::Result<rustls::ServerConfig> {
+    let options = profile.tls_options();
     let mut config = rustls::ServerConfig::builder_with_provider(provider.clone())
         .with_protocol_versions(&versions(&options.parameters, quic)?)
         .map_err(invalid)?
@@ -218,6 +228,27 @@ pub(super) fn load(
 
     let certs = load_certs(&resolve_path(base_dir, &files.cert_path)).map_err(invalid)?;
     let key = load_private_key(&resolve_path(base_dir, &files.key_path)).map_err(invalid)?;
+    let ocsp = files.ocsp_path.as_deref().map(std::fs::read).transpose()?;
+    from_parsed(certs, key, ocsp, provider)
+}
+pub(super) fn from_material(
+    material: &super::source::FileMaterial,
+    provider: &rustls::crypto::CryptoProvider,
+) -> io::Result<Certificate> {
+    let files = &material.files;
+    let certs = super::certificates::parse_certs(
+        std::io::Cursor::new(&material.cert),
+        files.cert_path.as_ref(),
+    )?;
+    let key = super::certificates::parse_private_key(&material.key, files.key_path.as_ref())?;
+    from_parsed(certs, key, material.ocsp.clone(), provider)
+}
+fn from_parsed(
+    certs: Vec<rustls::pki_types::CertificateDer<'static>>,
+    key: rustls::pki_types::PrivateKeyDer<'static>,
+    ocsp: Option<Vec<u8>>,
+    provider: &rustls::crypto::CryptoProvider,
+) -> io::Result<Certificate> {
     let mut key = CertifiedKey::from_der(certs, key, provider).map_err(invalid)?;
     let (_, parsed) =
         x509_parser::parse_x509_certificate(key.end_entity_cert().map_err(invalid)?.as_ref())
@@ -242,9 +273,7 @@ pub(super) fn load(
         );
     }
     let not_after = parsed.validity().not_after.timestamp();
-    if let Some(path) = &files.ocsp_path {
-        key.ocsp = Some(std::fs::read(resolve_path(base_dir, path))?);
-    }
+    key.ocsp = ocsp;
     Ok(Certificate {
         names,
         key: Arc::new(key),

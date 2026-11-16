@@ -9,12 +9,12 @@ use foreign_types::ForeignTypeRef;
 use openssl::{
     pkey::PKey,
     ssl::{
-        AlpnError, NameType, SniError, SslContext, SslContextBuilder, SslContextRef, SslFiletype,
-        SslMethod, SslSessionCacheMode,
+        AlpnError, NameType, SniError, SslContext, SslContextBuilder, SslContextRef, SslMethod,
+        SslSessionCacheMode,
     },
     x509::X509,
 };
-use zero_traits::{ServerTlsProfile, TlsCertificateFiles, TlsCertificateUsage};
+use zero_traits::{ServerTlsProfile, TlsCertificateUsage};
 
 use crate::profile::OwnedServerTlsProfile;
 
@@ -65,6 +65,26 @@ pub(super) fn build_prepared(
     profile: &OwnedServerTlsProfile,
     base_dir: Option<&Path>,
 ) -> io::Result<PreparedContext> {
+    let materials = certificate_files(profile, base_dir)?
+        .into_iter()
+        .map(|files| {
+            let cert = std::fs::read(&files.cert_path)?;
+            let key = std::fs::read(&files.key_path)?;
+            let ocsp = files.ocsp_path.as_deref().map(std::fs::read).transpose()?;
+            Ok(super::super::source::FileMaterial {
+                files,
+                cert,
+                key,
+                ocsp,
+            })
+        })
+        .collect::<io::Result<Vec<_>>>()?;
+    build_material(profile, &materials)
+}
+pub(crate) fn build_material(
+    profile: &OwnedServerTlsProfile,
+    materials: &[super::super::source::FileMaterial],
+) -> io::Result<PreparedContext> {
     let options = profile.tls_options();
     ztls::settings::validate_server(&options, false).map_err(io::Error::other)?;
     if profile.server_fingerprint().is_some() {
@@ -72,10 +92,10 @@ pub(super) fn build_prepared(
             "OpenSSL TLS does not apply rustls server fingerprint presets",
         ));
     }
-    let files = certificate_files(profile, base_dir)?;
+    let files: Vec<_> = materials.iter().collect();
     let (authority_files, certificate_files): (Vec<_>, Vec<_>) = files
         .into_iter()
-        .partition(|file| file.usage == TlsCertificateUsage::AuthorityIssue);
+        .partition(|file| file.files.usage == TlsCertificateUsage::AuthorityIssue);
     if authority_files.is_empty() && certificate_files.is_empty() {
         return Err(invalid(
             "OpenSSL TLS server has no certificate or issuing authority",
@@ -84,15 +104,17 @@ pub(super) fn build_prepared(
     let authorities: Arc<Vec<Arc<crate::tls::authority::Authority>>> = Arc::new(
         authority_files
             .iter()
-            .map(|file| crate::tls::authority::Authority::load_for_issuance(file).map(Arc::new))
+            .map(|file| {
+                crate::tls::authority::Authority::from_material(&file.files, &file.cert, &file.key)
+                    .map(Arc::new)
+            })
             .collect::<io::Result<Vec<_>>>()?,
     );
     let mut ocsp_targets = Vec::new();
     let mut primary_names = Vec::new();
     let mut alternatives = Vec::with_capacity(certificate_files.len().saturating_sub(1));
     for (index, file) in certificate_files.iter().enumerate() {
-        let certificate =
-            X509::from_pem(&std::fs::read(&file.cert_path)?).map_err(io::Error::other)?;
+        let certificate = X509::from_pem(&file.cert).map_err(io::Error::other)?;
         let names = certificate_names(&certificate);
         if index == 0 {
             primary_names = names;
@@ -101,10 +123,15 @@ pub(super) fn build_prepared(
         }
     }
     let alternatives: Arc<Vec<(Vec<String>, SslContext)>> = Arc::new(alternatives);
-    let mut primary = build_context_builder(profile, certificate_files.first(), &mut ocsp_targets)?;
+    let mut primary = build_context_builder(
+        profile,
+        certificate_files.first().copied(),
+        &mut ocsp_targets,
+    )?;
     let reject_unknown = options.reject_unknown_sni;
     let issued = Arc::new(Mutex::new(IssuedContextCache::default()));
     let issued_profile = profile.clone();
+    let has_certificates = !certificate_files.is_empty();
     primary.set_servername_callback(move |ssl, _alert| {
         let name = ssl
             .servername(NameType::HOST_NAME)
@@ -158,7 +185,7 @@ pub(super) fn build_prepared(
             }
             return Err(SniError::ALERT_FATAL);
         }
-        if certificate_files.is_empty() {
+        if !has_certificates {
             return Err(SniError::ALERT_FATAL);
         }
         if reject_unknown {
@@ -176,7 +203,7 @@ pub(super) fn build_prepared(
 
 fn build_context(
     profile: &(impl ServerTlsProfile + ?Sized),
-    files: &TlsCertificateFiles,
+    files: &super::super::source::FileMaterial,
     ocsp_targets: &mut Vec<super::ocsp::OcspTarget>,
 ) -> io::Result<SslContext> {
     Ok(build_context_builder(profile, Some(files), ocsp_targets)?.build())
@@ -184,7 +211,7 @@ fn build_context(
 
 fn build_context_builder(
     profile: &(impl ServerTlsProfile + ?Sized),
-    files: Option<&TlsCertificateFiles>,
+    files: Option<&super::super::source::FileMaterial>,
     ocsp_targets: &mut Vec<super::ocsp::OcspTarget>,
 ) -> io::Result<SslContextBuilder> {
     let options = profile.tls_options();
@@ -192,14 +219,32 @@ fn build_context_builder(
     super::parameters::apply(&mut builder, &options.parameters)?;
     builder.set_read_ahead(false);
     if let Some(files) = files {
+        let mut chain = X509::stack_from_pem(&files.cert)
+            .map_err(io::Error::other)?
+            .into_iter();
         builder
-            .set_certificate_chain_file(&files.cert_path)
+            .set_certificate(
+                &chain
+                    .next()
+                    .ok_or_else(|| invalid("empty TLS certificate chain"))?,
+            )
             .map_err(io::Error::other)?;
+        for certificate in chain {
+            builder
+                .add_extra_chain_cert(certificate)
+                .map_err(io::Error::other)?;
+        }
         builder
-            .set_private_key_file(&files.key_path, SslFiletype::PEM)
+            .set_private_key(&PKey::private_key_from_pem(&files.key).map_err(io::Error::other)?)
             .map_err(io::Error::other)?;
         builder.check_private_key().map_err(io::Error::other)?;
-        super::ocsp::apply(&mut builder, files, ocsp_targets)?;
+        super::ocsp::apply_material(
+            &mut builder,
+            &files.files,
+            &files.cert,
+            files.ocsp.as_deref(),
+            ocsp_targets,
+        )?;
     }
     let protocols = encode_alpn(profile.alpn())?;
     if !protocols.is_empty() {

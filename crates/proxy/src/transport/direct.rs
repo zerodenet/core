@@ -396,8 +396,8 @@ impl DirectConnector {
             return Err(failure);
         };
         // Keep the original fresh-task-stack boundary. A controlled provider
-        // registers this exact future in its same canonical owner/Scope instead
-        // of importing the legacy JoinSet executor into native ownership.
+        // may register this exact future in its canonical provider Scope. Other
+        // Source service callers poll it inline in their actual original task.
         let refresh_work = {
             let refresh = refresh.clone();
             let resolver = Arc::clone(resolver);
@@ -439,7 +439,7 @@ impl DirectConnector {
                     domain = refresh.domain,
                     host_source = refresh.host_source,
                     error = %error,
-                    "trusted-domain candidate refresh task failed; retaining original direct failure"
+                    "trusted-domain candidate refresh continuation failed; retaining original direct failure"
                 );
                 return Err(failure);
             }

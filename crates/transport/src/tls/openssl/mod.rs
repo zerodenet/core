@@ -1,9 +1,9 @@
-mod certificates;
+pub(crate) mod certificates;
 mod client;
 mod context;
 mod ech;
 mod ffi;
-mod ocsp;
+pub(crate) mod ocsp;
 mod parameters;
 pub(crate) mod quic;
 mod server;

@@ -58,7 +58,8 @@ fn declared(
     assert_eq!(limits.write_pollers.get(), drivers + users + 1);
     assert_eq!(
         prepared.into_recipe().spec().task_limit.unwrap().get(),
-        drivers
+        drivers + 1,
+        "actual Source also owns its original TLS refresh worker"
     );
 }
 fn closed(owner: &crate::runtime::inbound_owners::InboundOwner) {

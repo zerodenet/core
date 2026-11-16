@@ -30,6 +30,7 @@ use zero_platform_tokio::contract::{
 mod limits;
 pub struct Options {
     source_limits: InboundSourceLimits,
+    tls_material: Vec<Arc<zero_transport::tls::source::PreparedServer>>,
 
     listen: Destination,
     udp: bool,
@@ -64,7 +65,9 @@ impl Options {
             identity.extend_from_slice(&hasher.finish().to_le_bytes());
         }
         let work_tasks = NonZeroUsize::new(520 + prepared.session_tasks()).unwrap();
+        let tls_material = prepared.tls_material();
         Self {
+            tls_material,
             targets: prepared.target_endpoints(),
             file_root: prepared.file_root(),
             udp: prepared.uses_mkcp(),
@@ -108,7 +111,9 @@ impl Options {
             .map_err(std::io::Error::other)?;
         self.packet_masks = plan.masks();
         zero_transport::finalmask::owned::validate(&self.packet_masks)?;
-        self.quic = Some(plan.server_config()?);
+        let (server, material) = plan.server_config()?;
+        self.tls_material.push(material);
+        self.quic = Some(server);
         Ok(self)
     }
     fn masked_mkcp(&self) -> bool {
@@ -136,7 +141,7 @@ pub struct Factory;
 impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
-        ComponentSpec {
+        let mut spec = ComponentSpec {
             owner: ResourceOwner::Component,
             roles: vec![RoleKind::Inbound],
             dependencies: vec![],
@@ -197,7 +202,9 @@ impl ComponentFactory for Factory {
                 }
                 resources
             },
-        }
+        };
+        zero_transport::tls::source::declare(&mut spec, &options.tls_material);
+        spec
     }
     fn build(
         &self,

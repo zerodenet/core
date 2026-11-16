@@ -69,6 +69,24 @@ impl Authority {
         let certificates = load_certs(files.cert_path.as_ref()).map_err(invalid)?;
         let key = load_private_key(files.key_path.as_ref()).map_err(invalid)?;
 
+        Self::from_parsed(files, certificates, key)
+    }
+    pub(super) fn from_material(
+        files: &zero_traits::TlsCertificateFiles,
+        cert: &[u8],
+        key: &[u8],
+    ) -> io::Result<Self> {
+        Self::from_parsed(
+            files,
+            super::certificates::parse_certs(std::io::Cursor::new(cert), files.cert_path.as_ref())?,
+            super::certificates::parse_private_key(key, files.key_path.as_ref())?,
+        )
+    }
+    fn from_parsed(
+        files: &zero_traits::TlsCertificateFiles,
+        certificates: Vec<rustls::pki_types::CertificateDer<'static>>,
+        key: PrivateKeyDer<'static>,
+    ) -> io::Result<Self> {
         // Validate both the key format and its relationship with the authority
         // certificate before replacing a last-known-good refresh value.
         let rcgen_key = KeyPair::try_from(&key).map_err(invalid)?;

@@ -33,7 +33,26 @@ impl CandidateRefresh {
     }
 }
 pub(crate) type RefreshFuture = BoxFuture<'static, io::Result<Vec<SocketAddr>>>;
-pub(crate) type RefreshResult = Result<io::Result<Vec<SocketAddr>>, tokio::task::JoinError>;
+pub(crate) type RefreshResult = Result<io::Result<Vec<SocketAddr>>, io::Error>;
+struct RefreshPanic(std::sync::Mutex<Box<dyn std::any::Any + Send + 'static>>);
+impl std::fmt::Debug for RefreshPanic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, f)
+    }
+}
+impl std::fmt::Display for RefreshPanic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let payload = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(message) = payload.downcast_ref::<String>() {
+            return f.write_str(message);
+        }
+        if let Some(message) = payload.downcast_ref::<&'static str>() {
+            return f.write_str(message);
+        }
+        f.write_str("trusted-domain refresh panicked with its retained original payload")
+    }
+}
+impl std::error::Error for RefreshPanic {}
 pub(crate) trait CandidateOpener: Sync {
     type Socket: Send;
     fn local(&self, _: &Self::Socket, observed: Option<SocketAddr>) -> Option<SocketAddr> {
@@ -41,12 +60,14 @@ pub(crate) trait CandidateOpener: Sync {
     }
     fn refresh(&self, task: RefreshFuture, _: CandidateRefresh) -> BoxFuture<'_, RefreshResult> {
         Box::pin(async move {
-            let mut tasks = tokio::task::JoinSet::new();
-            tasks.spawn(task);
-            tasks
-                .join_next()
+            use futures_util::FutureExt;
+            // The real Source/Direct caller already owns this continuation and
+            // its DNS provider. Poll it there; cancellation drops that original
+            // wait without spawning/aborting a second private task owner.
+            std::panic::AssertUnwindSafe(task)
+                .catch_unwind()
                 .await
-                .expect("one trusted-domain refresh task is registered")
+                .map_err(|payload| io::Error::other(RefreshPanic(std::sync::Mutex::new(payload))))
         })
     }
     fn open<'a>(
@@ -101,3 +122,7 @@ impl CandidateOpener for LegacyCandidateOpener {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/candidate_refresh.rs"]
+mod tests;

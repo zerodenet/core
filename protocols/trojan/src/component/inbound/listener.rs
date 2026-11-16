@@ -98,7 +98,7 @@ pub struct Factory;
 impl ComponentFactory for Factory {
     type Options = Options;
     fn describe(&self, options: &Options) -> ComponentSpec {
-        ComponentSpec {
+        let mut spec = ComponentSpec {
             owner: ResourceOwner::Component,
             roles: vec![RoleKind::Inbound],
             dependencies: vec![],
@@ -115,7 +115,9 @@ impl ComponentFactory for Factory {
                     max_resources_per_socket: options.work_resources,
                 }),
             }],
-        }
+        };
+        zero_transport::tls::source::declare(&mut spec, &[options.request.tls_material()]);
+        spec
     }
     fn build(
         &self,
@@ -130,6 +132,10 @@ impl ComponentFactory for Factory {
             .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component))?;
         // The real host builds only after StopOld. Cold decode never publishes.
         let request = options.request.clone().with_profile(update.commit());
+        let tls_resources = context.resources.clone();
+        let tls_tasks = context.tasks.clone();
+        let tls_cancel = context.cancel.clone();
+        let tls_material = request.tls_material();
         let (lifecycle, source) = tcp::source(
             options.listen.clone(),
             context.resources,
@@ -139,13 +145,19 @@ impl ComponentFactory for Factory {
                 socket,
             },
         );
-        Ok(ComponentInstance {
-            lifecycle: erase_lifecycle(lifecycle),
-            roles: ComponentRoles {
-                inbound: Some(erase_inbound(source)),
-                ..Default::default()
+        zero_transport::tls::source::wrap(
+            ComponentInstance {
+                lifecycle: erase_lifecycle(lifecycle),
+                roles: ComponentRoles {
+                    inbound: Some(erase_inbound(source)),
+                    ..Default::default()
+                },
             },
-        })
+            vec![tls_material],
+            tls_resources,
+            tls_tasks,
+            tls_cancel,
+        )
     }
 }
 struct Connection {

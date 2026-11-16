@@ -25,6 +25,7 @@ pub(super) struct OwnedVlessInboundTransportPlan {
     pub(super) target_connector: Option<zero_transport::handshake_target::Connector>,
     pub(super) final_mask: zero_transport::finalmask::Profile,
     pub(super) tls_acceptor: Option<tls::TlsAcceptor>,
+    pub(super) tls_material: Option<std::sync::Arc<tls::source::PreparedServer>>,
     pub(super) decryption: Option<crate::encryption::EncryptionServer>,
     reality: Option<crate::reality::VlessRealityServerProfile>,
     ws: Option<OwnedWebSocketProfile>,
@@ -165,14 +166,16 @@ impl OwnedVlessInboundTransportPlan {
             }
             owned
         });
+        let tls_material = tls
+            .as_ref()
+            .map(|profile| tls::source::PreparedServer::new(profile, source_dir, false))
+            .transpose()?;
         Ok(Self {
             target_connector: None,
             final_mask: Default::default(),
             decryption: None,
-            tls_acceptor: zero_transport::inbound_stack::build_optional_tls_acceptor(
-                source_dir,
-                tls.as_ref(),
-            )?,
+            tls_acceptor: tls_material.as_ref().map(|material| material.acceptor()),
+            tls_material,
             reality,
             ws: ws.map(OwnedWebSocketProfile::from_profile),
             grpc: grpc.map(OwnedGrpcProfile::from_profile),
@@ -224,6 +227,7 @@ impl OwnedVlessInboundTransportPlan {
             tls_acceptor,
             reality,
             ws,
+            tls_material: _,
             grpc: _,
             h2,
             http_upgrade,

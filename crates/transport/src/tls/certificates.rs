@@ -37,6 +37,17 @@ pub(super) fn parse_certs(
     Ok(certs)
 }
 
+pub(super) fn parse_private_key(bytes: &[u8], path: &Path) -> io::Result<PrivateKeyDer<'static>> {
+    rustls_pemfile::private_key(&mut std::io::Cursor::new(bytes))?.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "tls private key `{}` contains no private key",
+                path.display()
+            ),
+        )
+    })
+}
 pub(super) fn load_private_key(path: &Path) -> io::Result<PrivateKeyDer<'static>> {
     let file = File::open(path).map_err(|source| {
         io::Error::new(

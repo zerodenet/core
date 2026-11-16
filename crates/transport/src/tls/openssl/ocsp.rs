@@ -10,9 +10,10 @@ use openssl::ssl::SslContextBuilder;
 use rustls::pki_types::CertificateDer;
 
 #[derive(Clone)]
-pub(super) struct OcspTarget {
-    certificates: Arc<Vec<CertificateDer<'static>>>,
-    staple: Arc<RwLock<Option<Vec<u8>>>>,
+pub(crate) struct OcspTarget {
+    pub(crate) source: std::path::PathBuf,
+    pub(crate) certificates: Arc<Vec<CertificateDer<'static>>>,
+    pub(crate) staple: Arc<RwLock<Option<Vec<u8>>>>,
     pub(super) interval: Duration,
 }
 
@@ -63,16 +64,18 @@ impl OcspTarget {
     }
 }
 
-pub(super) fn apply(
+pub(super) fn apply_material(
     builder: &mut SslContextBuilder,
     files: &zero_traits::TlsCertificateFiles,
+    cert: &[u8],
+    ocsp: Option<&[u8]>,
     targets: &mut Vec<OcspTarget>,
 ) -> io::Result<()> {
     let automatic = files.ocsp_stapling_secs != 0 && files.ocsp_path.is_none();
     if !automatic && files.ocsp_path.is_none() {
         return Ok(());
     }
-    let initial = files.ocsp_path.as_deref().map(std::fs::read).transpose()?;
+    let initial = ocsp.map(<[u8]>::to_vec);
     if let Some(staple) = &initial {
         OcspResponse::from_der(staple).map_err(io::Error::other)?;
     }
@@ -91,8 +94,12 @@ pub(super) fn apply(
         })
         .map_err(io::Error::other)?;
     if automatic {
-        let certificates = super::super::certificates::load_certs(Path::new(&files.cert_path))?;
+        let certificates = super::super::certificates::parse_certs(
+            std::io::Cursor::new(cert),
+            Path::new(&files.cert_path),
+        )?;
         targets.push(OcspTarget {
+            source: files.cert_path.clone().into(),
             certificates: Arc::new(certificates),
             staple,
             interval: Duration::from_secs(files.ocsp_stapling_secs),

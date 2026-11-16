@@ -121,6 +121,14 @@ impl PreparedVlessInboundListenerRequest {
         self.request = self.request.bind_host_masks(resources)?;
         Ok(self)
     }
+    pub(crate) fn tls_material(&self) -> Vec<Arc<zero_transport::tls::source::PreparedServer>> {
+        self.request
+            .transport
+            .tls_material
+            .iter()
+            .cloned()
+            .collect()
+    }
     pub(crate) fn session_tasks(&self) -> usize {
         if self.request.transport.split_http_registry.is_some() {
             zero_transport::split_http::SplitHttpRegistry::MAX_SESSIONS

@@ -11,7 +11,10 @@ impl SessionIdentitySource for Ids {
         self.allocate()
     }
 }
-struct Resources(Mutex<Option<ControlledTcpListener>>);
+struct Resources(
+    Mutex<Option<ControlledTcpListener>>,
+    Arc<zero_platform_tokio::file::declared::DeclaredFileReads>,
+);
 impl ResourceAccess for Resources {
     fn listen_tcp(
         &self,
@@ -25,10 +28,10 @@ impl ResourceAccess for Resources {
     }
     fn read_file(
         &self,
-        _: std::path::PathBuf,
-        _: usize,
+        path: std::path::PathBuf,
+        bound: usize,
     ) -> BoxFuture<'_, Result<Vec<u8>, ChannelError>> {
-        Box::pin(async { unreachable!() })
+        self.1.read(path, bound)
     }
     fn listen_datagram(
         &self,
@@ -58,6 +61,8 @@ pub(super) struct Host {
     pub stop: CancellationToken,
     pub portal: crate::reverse::Portal,
     internal_tasks: usize,
+    tls_workers: usize,
+    reads: Arc<zero_platform_tokio::file::declared::DeclaredFileReads>,
 }
 impl Host {
     pub async fn new(grpc: bool) -> Self {
@@ -66,9 +71,15 @@ impl Host {
     pub async fn with_request(request: VlessInboundListenerRequest) -> Self {
         let nz = |n| NonZeroUsize::new(n).unwrap();
         let runtime = crate::transport::VlessTransportRuntime::default();
+        let prepared = request.prepare_publication(&runtime, "source");
+        let tls_workers = prepared
+            .tls_material()
+            .iter()
+            .filter(|plan| plan.task_slots() != 0)
+            .count();
         let options = Arc::new(crate::component::inbound::listener::Options::new(
             Destination::new(Address::Ipv4([127, 0, 0, 1]), 0),
-            request.prepare_publication(&runtime, "source"),
+            prepared,
             b"complete test identity",
         ));
         let factory = crate::component::inbound::listener::Factory;
@@ -77,6 +88,19 @@ impl Host {
         let mut scope = TaskScope::new(tokio::runtime::Handle::current(), nz(520 + internal_tasks));
         scope.enable_registration().unwrap();
         let stop = CancellationToken::new();
+        let reads = Arc::new(
+            zero_platform_tokio::file::declared::DeclaredFileReads::new(
+                spec.resources.iter().filter_map(|resource| match resource {
+                    ResourceDeclaration::File { path, max_bytes } => {
+                        Some((path.clone(), *max_bytes))
+                    }
+                    _ => None,
+                }),
+                stop.clone(),
+            )
+            .unwrap(),
+        );
+        reads.activate();
         let mut original = ControlledTcpListenerOwner::new_with_accepted_graph(
             &spec.resources[0],
             nz(1),
@@ -98,7 +122,7 @@ impl Host {
                     generation: ResourceGeneration(1),
                     dependencies: Arc::from([]),
                     roles: Default::default(),
-                    resources: Arc::new(Resources(Mutex::new(Some(listener)))),
+                    resources: Arc::new(Resources(Mutex::new(Some(listener)), reads.clone())),
                     tasks: if spec.task_limit.is_some() {
                         scope.registrar()
                     } else {
@@ -122,6 +146,8 @@ impl Host {
             stop,
             portal: runtime.reverse_portal("portal"),
             internal_tasks,
+            tls_workers,
+            reads,
         }
     }
     pub async fn accept(
@@ -196,9 +222,9 @@ impl Host {
             internal_joined, self.internal_tasks,
             "only the actual declared Source workers bypass the accepted-task receiver"
         );
-        assert!(joined >= minimum);
+        assert!(joined >= minimum + self.tls_workers);
         if let Some(exact) = exact {
-            assert_eq!(joined, exact);
+            assert_eq!(joined, exact + self.tls_workers);
         }
         let report = self
             .instance
@@ -207,6 +233,12 @@ impl Host {
             .await
             .unwrap();
         assert!(report.is_complete());
+        assert!(self
+            .reads
+            .shutdown(Instant::now() + Duration::from_secs(3))
+            .await
+            .unwrap()
+            .is_complete());
         self.original
             .cancel(zero_platform_tokio::contract::CloseReason::Shutdown);
         let report = self

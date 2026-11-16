@@ -1,6 +1,46 @@
 //! Bounded automatic OCSP retrieval using the shared verified HTTP carrier.
 mod request;
 use crate::http_client::HttpClient;
+pub(super) enum Client<'a> {
+    Library(&'a HttpClient),
+    Hosted {
+        resources: &'a dyn zero_platform_tokio::contract::component::ResourceAccess,
+        driver: &'a zero_platform_tokio::contract::scope::TaskJoinWitness,
+        tasks: &'a zero_platform_tokio::contract::scope::WeakTaskRegistrar,
+    },
+}
+impl Client<'_> {
+    async fn send(
+        &self,
+        request: http::Request<Bytes>,
+        limit: usize,
+    ) -> io::Result<http::Response<Vec<u8>>> {
+        match self {
+            Self::Hosted {
+                resources,
+                driver,
+                tasks,
+            } => super::source::http_client::send(*resources, driver, tasks, request, limit).await,
+            Self::Library(client) => {
+                let mut response = client.send(request).await?;
+                let mut bytes = Vec::new();
+                if !matches!(response.status().as_u16(), 301..=303 | 307 | 308)
+                    && response.status().is_success()
+                {
+                    while let Some(chunk) = response.body_mut().data().await? {
+                        if chunk.len() > limit.saturating_sub(bytes.len()) {
+                            return Err(invalid("OCSP HTTP response exceeds size limit"));
+                        }
+                        bytes.extend_from_slice(&chunk);
+                    }
+                }
+                let mut result = http::Response::builder().status(response.status());
+                *result.headers_mut().unwrap() = response.headers().clone();
+                result.body(bytes).map_err(io::Error::other)
+            }
+        }
+    }
+}
 use bytes::Bytes;
 use std::{io, time::Duration};
 
@@ -8,7 +48,7 @@ fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 async fn fetch(
-    client: &HttpClient,
+    client: &Client<'_>,
     uri: &str,
     body: Option<Vec<u8>>,
     limit: usize,
@@ -25,11 +65,12 @@ async fn fetch(
                 .method(http::Method::POST)
                 .header(http::header::CONTENT_TYPE, "application/ocsp-request");
         }
-        let mut response = client
+        let response = client
             .send(
                 request
                     .body(Bytes::from(body.clone().unwrap_or_default()))
                     .map_err(io::Error::other)?,
+                limit,
             )
             .await?;
         if matches!(response.status().as_u16(), 301..=303 | 307 | 308) {
@@ -51,13 +92,7 @@ async fn fetch(
         if !response.status().is_success() {
             return Err(invalid("OCSP HTTP response was not successful"));
         }
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response.body_mut().data().await? {
-            if chunk.len() > limit.saturating_sub(bytes.len()) {
-                return Err(invalid("OCSP HTTP response exceeds size limit"));
-            }
-            bytes.extend_from_slice(&chunk);
-        }
+        let bytes = response.into_body();
         if bytes.is_empty() {
             return Err(invalid("empty OCSP HTTP response"));
         }
@@ -67,6 +102,12 @@ async fn fetch(
 }
 pub(super) async fn retrieve(
     client: &HttpClient,
+    certificates: &[rustls::pki_types::CertificateDer<'_>],
+) -> io::Result<Vec<u8>> {
+    retrieve_with(&Client::Library(client), certificates).await
+}
+pub(super) async fn retrieve_with(
+    client: &Client<'_>,
     certificates: &[rustls::pki_types::CertificateDer<'_>],
 ) -> io::Result<Vec<u8>> {
     tokio::time::timeout(Duration::from_secs(20), async {

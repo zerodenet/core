@@ -91,7 +91,7 @@ async fn assert_automatic_ocsp_staple(
         ..Default::default()
     });
     let context = super::super::super::OpenSslServerContext::build(&profile, None).unwrap();
-    let runtime = std::sync::Arc::downgrade(&context.runtime);
+    let runtime = std::sync::Arc::downgrade(&context.state);
     let response = OcspResponse::create(OcspResponseStatus::UNAUTHORIZED, None)
         .unwrap()
         .to_der()
@@ -121,11 +121,12 @@ async fn assert_automatic_ocsp_staple(
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             let prepared = context
-                .runtime
+                .state
                 .current
                 .read()
                 .unwrap_or_else(|error| error.into_inner())
-                .clone();
+                .clone()
+                .unwrap();
             if prepared.ocsp_targets[0].current().as_deref() == Some(response.as_slice()) {
                 break;
             }

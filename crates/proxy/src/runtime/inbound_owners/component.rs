@@ -32,6 +32,7 @@ pub(in crate::runtime) use datagram::PeerSourceContext;
 #[derive(Clone)]
 pub(in crate::runtime) struct PeerSourceContext;
 
+mod cleanup;
 mod resources;
 use resources::{BoundResources, Lifecycle};
 impl InboundInstallContext {
@@ -245,12 +246,32 @@ impl InboundInstallContext {
                 targets::Targets::new(
                     declaration,
                     upstream
+                        .clone()
                         .ok_or_else(|| std::io::Error::other("inbound target services absent"))?,
                     self.entry.identity(),
                     self.entry.accepted_registrar(),
                     &self.protocols.runtime_host().original_budgets().carrier,
                     self.entry.task_access().cancellation(),
                 )
+            })
+            .transpose()?;
+        let component_targets = auxiliary
+            .iter()
+            .find_map(|resource| match resource {
+                ResourceDeclaration::ComponentTargets { max_sockets } => Some(*max_sockets),
+                _ => None,
+            })
+            .map(|limit| {
+                Ok::<_, EngineError>(targets::component::ComponentTargets::new(
+                    limit,
+                    upstream
+                        .clone()
+                        .ok_or_else(|| std::io::Error::other("component target services absent"))?,
+                    self.entry.identity(),
+                    self.entry.accepted_registrar(),
+                    &self.protocols.runtime_host().original_budgets().carrier,
+                    self.entry.task_access().cancellation(),
+                ))
             })
             .transpose()?;
         let tasks = if metadata.is_some() || recipe.spec().task_limit.is_some() {
@@ -313,6 +334,17 @@ impl InboundInstallContext {
             process,
             extra_tcp: Mutex::new(extra_tcp),
             files,
+            reads: zero_platform_tokio::file::declared::DeclaredFileReads::for_component(
+                identity,
+                auxiliary.iter().filter_map(|resource| match resource {
+                    ResourceDeclaration::File { path, max_bytes } => {
+                        Some((path.clone(), *max_bytes))
+                    }
+                    _ => None,
+                }),
+                self.entry.task_access().cancellation(),
+            )
+            .map_err(std::io::Error::other)?,
             icmp_carrier: metadata.is_some()
                 && auxiliary
                     .iter()
@@ -320,6 +352,7 @@ impl InboundInstallContext {
             metadata,
             carrier,
             targets,
+            component_targets,
             #[cfg(feature = "managed-datagram-runtime")]
             udp,
             address: destination.clone(),
@@ -343,6 +376,8 @@ impl InboundInstallContext {
                                 | ResourceDeclaration::InboundTargets { .. }
                                 | ResourceDeclaration::NativeIcmp { .. }
                                 | ResourceDeclaration::FileTree { .. }
+                                | ResourceDeclaration::File { .. }
+                                | ResourceDeclaration::ComponentTargets { .. }
                                 | ResourceDeclaration::TcpListener { .. }
                         )
                     }) =>
@@ -396,6 +431,7 @@ impl InboundInstallContext {
         self.entry.install_resource(
             identity,
             erase_lifecycle(Lifecycle {
+                collected: Default::default(),
                 protocol: instance.lifecycle,
                 resources,
             }),

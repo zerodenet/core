@@ -18,6 +18,7 @@ pub struct VmessInboundListenerRequest {
 #[derive(Clone)]
 struct PreparedMaterial {
     tls_acceptor: tls::TlsAcceptor,
+    tls_material: std::sync::Arc<tls::source::PreparedServer>,
     ws: Option<OwnedWebSocketProfile>,
     grpc: Option<OwnedGrpcProfile>,
     protocol_name: &'static str,
@@ -30,6 +31,9 @@ pub struct PreparedVmessInboundListenerRequest {
     update: super::runtime::PreparedVmessInboundProfile,
 }
 impl PreparedVmessInboundListenerRequest {
+    pub(crate) fn tls_material(&self) -> std::sync::Arc<tls::source::PreparedServer> {
+        self.material.tls_material.clone()
+    }
     pub fn activate(self) -> Result<VmessInboundListenerRequest, RuntimeError> {
         let profile = self.update.activate()?;
         Ok(VmessInboundListenerRequest {
@@ -40,6 +44,9 @@ impl PreparedVmessInboundListenerRequest {
 }
 
 impl VmessInboundListenerRequest {
+    pub(crate) fn tls_material(&self) -> std::sync::Arc<tls::source::PreparedServer> {
+        self.material.tls_material.clone()
+    }
     pub const ERROR_PROTOCOL_NAME: &'static str = "vmess";
     pub const UDP_PROTOCOL: &'static str = "vmess_udp";
     pub const MUX_PROTOCOL: &'static str = "vmess_mux";
@@ -82,12 +89,14 @@ impl VmessInboundListenerRequest {
             (None, None) => "vmess",
         };
 
+        let tls_material = tls::source::PreparedServer::new(
+            tls.ok_or_else(|| io::Error::other("vmess requires TLS"))?,
+            source_dir,
+            false,
+        )?;
         let material = PreparedMaterial {
-            tls_acceptor: zero_transport::inbound_stack::build_required_tls_acceptor(
-                source_dir,
-                tls,
-                "vmess requires TLS",
-            )?,
+            tls_acceptor: tls_material.acceptor(),
+            tls_material,
             ws: ws.map(OwnedWebSocketProfile::from_profile),
             grpc: grpc.map(OwnedGrpcProfile::from_profile),
             protocol_name,
@@ -238,9 +247,10 @@ impl VmessInboundListenerRequest {
     }
 
     async fn accept_carrier(&self, socket: TokioSocket) -> Result<TcpRelayStream, RuntimeError> {
+        let acceptor = self.material.tls_material.library_acceptor()?;
         zero_transport::inbound_stack::accept_tls_inbound_stream_stack(
             socket,
-            &self.material.tls_acceptor,
+            &acceptor,
             InboundStreamStack {
                 ws: self.material.ws.as_ref(),
                 grpc: self.material.grpc.as_ref(),

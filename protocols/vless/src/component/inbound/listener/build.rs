@@ -20,12 +20,22 @@ pub(super) fn source(
         .activate();
     drop(prepared);
     let maintenance = request.prepare_decryption_maintenance(context.cancel.child_token())?;
+    let tls_resources = context.resources.clone();
+    let tls_tasks = context.tasks.clone();
+    let tls_cancel = context.cancel.clone();
     let tasks = context.tasks.clone();
     let instance = carriers(&options, request, context)?;
-    Ok(match maintenance {
+    let instance = match maintenance {
         Some(actual) => super::maintenance::attach(instance, actual, tasks),
         None => instance,
-    })
+    };
+    zero_transport::tls::source::wrap(
+        instance,
+        options.tls_material.clone(),
+        tls_resources,
+        tls_tasks,
+        tls_cancel,
+    )
 }
 fn carriers(
     options: &Options,

@@ -1866,3 +1866,59 @@ stop, matching original caller/native/Scope receipts and absence of a private
 response task set. These sources were not compiled or run. Apple authorization,
 TEMP-WG runtime acceptance and the overall refactor remain open. Public config,
 API/events, ABI and pinned protocol baselines are unchanged.
+
+
+### Standard Source TLS material, OCSP and candidate refresh ownership
+
+VLESS/Trojan/VMess TCP TLS, VLESS/Hysteria2 QUIC and Hysteria2 HTTPS websites
+now prepare passive material recipes through their actual standard factories.
+Cold preparation does not read certificate/key/OCSP files or start workers. The
+installed Source declares exact bounded File grants, loads the initial material
+before listener start, and publishes each real refresh worker/witness in its
+original finite TaskScope. Both Rustls and OpenSSL snapshots are passive; the
+old production private refresh/OCSP holders and eager material-loader calls are
+removed from these factory paths. Explicit standalone protocol-library loaders
+retain their existing convenience behavior in separate library-only modules;
+selected standard Sources cannot adopt them or fall back to them.
+
+The repeatable File provider retains each actual PendingFileRead and blocking
+JoinHandle across cancellation. Reacquisition follows the original join and
+explicit native close disposition. Typed faults retain their original source
+and actual Source ResourceFailure identity independently of positive closure
+receipts. Blocking native file joins and file-close receipts are separate from
+refresh-worker Scope joins. Files use a conservative finite internal 16 MiB
+per-file bound; unified resource-limit configuration remains unfinished.
+
+Automatic OCSP uses the real declared ComponentTargets provider over the
+existing native TCP/DNS/candidate graph and original Source custody. The live
+refresh witness and taskful weak registrar authorize acquisition; no independent
+HTTP connection pool or replacement Scope is created. HTTP/1, verified HTTPS,
+H2, issuer retrieval, redirects, POST handling, response bounds and the existing
+20-second retrieval deadline remain supported. Redirects retire the previous
+original before reusing native capacity. Connection futures run in the actual
+refresh continuation; H2 helpers and native target actors use that Source's
+finite Scope. Certificate reload and OCSP retrieval are independently polled
+continuations in that original worker, preserving material rotation during a
+withheld OCSP response. Dynamic Source service access does not qualify unrelated
+ordinary catalog resources.
+
+Transport retains the existing SNI/multi-certificate/CA issuance, ALPN, backend,
+reload-interval and one-time-loading policies. Failed material refresh retains
+last-good state; automatic staples survive replacement only for the same leaf.
+The Source shutdown now progresses protocol and ancillary native owners together
+and durably collects each result before another suspension, so a protocol error
+or cancelled waiter cannot discard other originals' consumed receipts. The same
+production candidate path also removes its one-task private DNS refresh JoinSet:
+the existing caller drives the original continuation and retains its error or
+original panic payload.
+
+Regression sources cover actual granted File reads and cancelled native jobs,
+both TLS backends with signed handshakes/last-good replacement, actual standard
+TCP proxy forwarding and QUIC certificate rotation, issuer/redirect/staple wire
+behavior, certificate rotation during explicitly pending original OCSP I/O
+followed by Source stop, and
+original candidate-caller/native/Scope identity. They have not been compiled or
+run. Only touched-file formatting and source consistency were checked. No public
+configuration shape, control API/event schema, FFI ABI or pinned protocol baseline
+was changed. Apple authorization, TEMP-WG-OUTER-UDP-01 runtime acceptance and the overall
+refactor remain open; this is implementation progress, not runtime acceptance.

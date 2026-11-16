@@ -16,7 +16,9 @@ pub(super) struct BoundResources {
     pub(super) process: Option<Arc<crate::component::instance::HostResources>>,
     pub(super) extra_tcp: Mutex<Vec<(Destination, ControlledTcpListener)>>,
     pub(super) files: Option<files::FileTrees>,
+    pub(super) reads: zero_platform_tokio::file::declared::DeclaredFileReads,
     pub(super) targets: Option<targets::Targets>,
+    pub(super) component_targets: Option<targets::component::ComponentTargets>,
     pub(super) metadata: Option<Arc<crate::component::instance::HostResources>>,
     pub(super) icmp_carrier: bool,
     pub(super) carrier: Option<Arc<std::sync::OnceLock<std::net::SocketAddr>>>,
@@ -377,8 +379,24 @@ impl ResourceAccess for BoundResources {
                 .ok_or_else(denied)
         })
     }
-    fn read_file(&self, _: PathBuf, _: usize) -> BoxFuture<'_, Result<Vec<u8>, BuildError>> {
-        Box::pin(async { Err(denied()) })
+    fn open_component_stream(
+        &self,
+        driver: &zero_platform_tokio::contract::scope::TaskJoinWitness,
+        tasks: &zero_platform_tokio::contract::scope::WeakTaskRegistrar,
+        endpoint: zero_traits::FallbackEndpoint,
+    ) -> BoxFuture<'_, Result<zero_platform_tokio::TcpRelayStream, BuildError>> {
+        let driver = driver.clone();
+        let tasks = tasks.clone();
+        Box::pin(async move {
+            self.component_targets
+                .as_ref()
+                .ok_or_else(denied)?
+                .open(&driver, &tasks, endpoint)
+                .await
+        })
+    }
+    fn read_file(&self, path: PathBuf, bound: usize) -> BoxFuture<'_, Result<Vec<u8>, BuildError>> {
+        self.reads.read(path, bound)
     }
     fn listen_datagram(
         &self,
@@ -406,63 +424,11 @@ impl ResourceAccess for BoundResources {
 pub(super) struct Lifecycle {
     pub(super) protocol: Box<dyn DynResourceLifecycle>,
     pub(super) resources: Arc<BoundResources>,
+    pub(super) collected: Mutex<super::cleanup::Collected>,
 }
-struct StartAccess<'a>(&'a AtomicBool);
+pub(super) struct StartAccess<'a>(pub(super) &'a AtomicBool);
 impl Drop for StartAccess<'_> {
     fn drop(&mut self) {
         self.0.store(false, Ordering::Release);
-    }
-}
-impl ResourceLifecycle for Lifecycle {
-    async fn start(&mut self, deadline: Instant) -> Result<(), BuildError> {
-        self.resources.starting.store(true, Ordering::Release);
-        let _access = StartAccess(&self.resources.starting);
-        let _metadata_access = self
-            .resources
-            .metadata
-            .as_ref()
-            .map(|r| r.activate(deadline))
-            .transpose()?;
-        let _process_access = self
-            .resources
-            .process
-            .as_ref()
-            .map(|r| r.activate(deadline))
-            .transpose()?;
-        if let Some(handoff) = &self.resources.handoff {
-            handoff.release_public(deadline).await?;
-        }
-        if let Some(files) = &self.resources.files {
-            files.start(deadline).await?;
-        }
-        self.protocol.start(deadline).await
-    }
-    fn revoke(&self, reason: CloseReason) {
-        self.protocol.revoke(reason);
-        #[cfg(feature = "managed-datagram-runtime")]
-        if let Some(udp) = &self.resources.udp {
-            udp.revoke();
-        }
-    }
-    async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, BuildError> {
-        self.resources.starting.store(false, Ordering::Release);
-        let view = self
-            .resources
-            .listener
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
-        drop(view);
-        self.resources.extra_tcp.lock().unwrap().clear();
-        drop(self.resources.primary_udp.lock().unwrap().take());
-        let mut report = self.protocol.shutdown(deadline).await?;
-        if let Some(files) = &self.resources.files {
-            report.append(files.shutdown(deadline).await?);
-        }
-        #[cfg(feature = "managed-datagram-runtime")]
-        if let Some(udp) = &self.resources.udp {
-            report.append(udp.close(deadline)?);
-        }
-        Ok(report)
     }
 }

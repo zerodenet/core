@@ -1,4 +1,5 @@
 //! Same accepted graph and actor, with persistent concrete Host native custody.
+pub(super) mod component;
 mod native;
 use super::*;
 use crate::protocol_registry::UpstreamConnectServices;

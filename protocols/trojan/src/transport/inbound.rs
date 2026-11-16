@@ -13,6 +13,7 @@ use super::options::{TrojanInboundOptionsRef, TrojanInboundUserRef};
 pub struct TrojanInboundListenerRequest {
     profile: crate::inbound::TrojanInboundProfile,
     tls_acceptor: TlsAcceptor,
+    tls_material: std::sync::Arc<zero_transport::tls::source::PreparedServer>,
     ws: Option<OwnedWebSocketProfile>,
     grpc: Option<OwnedGrpcProfile>,
     protocol_name: &'static str,
@@ -31,6 +32,11 @@ pub enum TrojanInboundAcceptedRoute {
 }
 
 impl TrojanInboundListenerRequest {
+    pub(crate) fn tls_material(
+        &self,
+    ) -> std::sync::Arc<zero_transport::tls::source::PreparedServer> {
+        self.tls_material.clone()
+    }
     pub const ERROR_PROTOCOL_NAME: &'static str = "trojan";
     pub const UDP_PROTOCOL: &'static str = "trojan_udp";
     pub const MUX_PROTOCOL: &'static str = "trojan_mux";
@@ -40,7 +46,7 @@ impl TrojanInboundListenerRequest {
 
     fn new(
         profile: crate::inbound::TrojanInboundProfile,
-        tls_acceptor: TlsAcceptor,
+        tls_material: std::sync::Arc<zero_transport::tls::source::PreparedServer>,
         ws: Option<OwnedWebSocketProfile>,
         grpc: Option<OwnedGrpcProfile>,
         protocol_name: &'static str,
@@ -48,7 +54,8 @@ impl TrojanInboundListenerRequest {
     ) -> Self {
         Self {
             profile,
-            tls_acceptor,
+            tls_acceptor: tls_material.acceptor(),
+            tls_material,
             ws,
             grpc,
             protocol_name,
@@ -82,10 +89,10 @@ impl TrojanInboundListenerRequest {
         };
         Ok(Self::new(
             profile,
-            zero_transport::inbound_stack::build_required_tls_acceptor(
+            zero_transport::tls::source::PreparedServer::new(
+                tls.ok_or_else(|| std::io::Error::other("trojan requires TLS"))?,
                 source_dir,
-                tls,
-                "trojan requires TLS",
+                false,
             )?,
             ws.map(OwnedWebSocketProfile::from_profile),
             grpc.map(OwnedGrpcProfile::from_profile),
@@ -249,9 +256,10 @@ impl TrojanInboundListenerRequest {
     }
 
     async fn accept_stream(&self, socket: TokioSocket) -> Result<TcpRelayStream, RuntimeError> {
+        let acceptor = self.tls_material.library_acceptor()?;
         zero_transport::inbound_stack::accept_tls_inbound_stream_stack(
             socket,
-            &self.tls_acceptor,
+            &acceptor,
             InboundStreamStack {
                 ws: self.ws.as_ref(),
                 grpc: self.grpc.as_ref(),

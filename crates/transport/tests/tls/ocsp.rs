@@ -72,17 +72,29 @@ async fn ocsp_http_preserves_post_on_redirect_and_bounds_response_body() {
     });
     let client = HttpClient::new().unwrap();
     assert_eq!(
-        fetch(&client, &url, Some(b"request".to_vec()), 6)
-            .await
-            .unwrap(),
+        fetch(
+            &Client::Library(&client),
+            &url,
+            Some(b"request".to_vec()),
+            6
+        )
+        .await
+        .unwrap(),
         b"staple"
     );
-    assert!(fetch(&client, &url, Some(b"request".to_vec()), 6)
-        .await
-        .is_err());
-    assert!(fetch(&client, "file:///issuer.der", None, 1024)
-        .await
-        .is_err());
+    assert!(fetch(
+        &Client::Library(&client),
+        &url,
+        Some(b"request".to_vec()),
+        6
+    )
+    .await
+    .is_err());
+    assert!(
+        fetch(&Client::Library(&client), "file:///issuer.der", None, 1024)
+            .await
+            .is_err()
+    );
     server.await.unwrap();
 }
 

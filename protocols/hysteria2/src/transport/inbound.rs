@@ -59,6 +59,21 @@ impl Hysteria2InboundBindPlan {
         }
     }
 
+    pub(crate) fn website_tls_material(
+        &self,
+    ) -> Result<std::sync::Arc<zero_transport::tls::source::PreparedServer>, RuntimeError> {
+        Ok(zero_transport::tls::source::PreparedServer::new(
+            &zero_transport::profile::OwnedServerTlsProfile {
+                options: Default::default(),
+                cert_path: self.cert_path.clone(),
+                key_path: self.key_path.clone(),
+                alpn: vec!["h2".into(), "http/1.1".into()],
+                server_fingerprint: None,
+            },
+            self.source_dir.as_deref(),
+            false,
+        )?)
+    }
     pub(crate) fn website_tls(&self) -> Result<tokio_rustls::TlsAcceptor, RuntimeError> {
         match zero_transport::tls::build_tls_acceptor(
             &zero_transport::profile::OwnedServerTlsProfile {
@@ -80,7 +95,15 @@ impl Hysteria2InboundBindPlan {
         }
     }
 
-    pub(crate) fn server_config(&self) -> Result<quinn::ServerConfig, RuntimeError> {
+    pub(crate) fn server_config(
+        &self,
+    ) -> Result<
+        (
+            quinn::ServerConfig,
+            std::sync::Arc<zero_transport::tls::source::PreparedServer>,
+        ),
+        RuntimeError,
+    > {
         let profile = zero_transport::profile::OwnedServerTlsProfile {
             options: Default::default(),
             cert_path: self.cert_path.clone(),
@@ -88,12 +111,20 @@ impl Hysteria2InboundBindPlan {
             alpn: Vec::new(),
             server_fingerprint: None,
         };
-        zero_transport::quic::server_config(
+        let mut profile = profile;
+        profile.alpn = inbound_quic_alpn_protocols()
+            .iter()
+            .map(|value| String::from_utf8(value.clone()).map_err(std::io::Error::other))
+            .collect::<Result<_, _>>()?;
+        let material = zero_transport::tls::source::PreparedServer::new(
             &profile,
             self.source_dir.as_deref(),
-            &inbound_quic_alpn_protocols(),
-            super::congestion::transport(self.settings)?,
-        )
+            true,
+        )?;
+        Ok((
+            material.quic_config(super::congestion::transport(self.settings)?)?,
+            material,
+        ))
     }
     pub(crate) fn masks(&self) -> Vec<zero_transport::finalmask::udp::Mask> {
         self.masks.clone()
