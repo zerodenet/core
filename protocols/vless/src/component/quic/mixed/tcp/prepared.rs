@@ -39,10 +39,9 @@ impl PreparedTcpOriginal {
             // A cached physical original has its own finite setup, even when
             // its first business caller has no deadline. Select the real
             // prefix with that same deadline before any donor can acquire IO.
-            deadline: Some(context.deadline.map_or_else(
-                || tokio::time::Instant::now() + std::time::Duration::from_secs(30),
-                |deadline| deadline,
-            )),
+            deadline: Some(context.deadline.unwrap_or_else(|| {
+                tokio::time::Instant::now() + std::time::Duration::from_secs(30)
+            })),
             cancel: generation.cleanup.child_token(),
         };
         let selecting = match context.upstream.observed_pending_carrier() {
