@@ -9,7 +9,7 @@ use crate::{TunInterfaceOptions, TunRuntimeOptions};
 pub(super) const TUN_PRIVILEGE_MESSAGE: &str =
     "TUN startup requires elevated host operating-system network privileges";
 
-pub(super) fn execute_tun_start(
+pub(super) async fn start(
     handle: &ProxyHandle,
     cmd: &zero_api::TunStartCommand,
 ) -> zero_api::ApiResult<zero_api::CommandResponse> {
@@ -85,32 +85,28 @@ pub(super) fn execute_tun_start(
     let strict_route = cmd.strict_route;
     let dns_hijack = cmd.dns_hijack;
 
-    with_current_runtime("no tokio runtime available for TUN command", |rt| {
-        rt.block_on(async move {
-            proxy
-                .start_tun(
-                    TunInterfaceOptions {
-                        name: name.as_deref(),
-                        addr: &addr,
-                        mask: &mask,
-                        secondary_addr: secondary_addr.as_deref(),
-                    },
-                    mtu,
-                    &tag,
-                    TunRuntimeOptions {
-                        auto_route,
-                        include_cidrs,
-                        exclude_cidrs,
-                        dual_stack,
-                        strict_route,
-                        dns_hijack,
-                    },
-                )
-                .await
-                .map(|_| zero_api::CommandResponse::accepted())
-                .map_err(map_tun_start_error)
-        })
-    })
+    proxy
+        .start_tun(
+            TunInterfaceOptions {
+                name: name.as_deref(),
+                addr: &addr,
+                mask: &mask,
+                secondary_addr: secondary_addr.as_deref(),
+            },
+            mtu,
+            &tag,
+            TunRuntimeOptions {
+                auto_route,
+                include_cidrs,
+                exclude_cidrs,
+                dual_stack,
+                strict_route,
+                dns_hijack,
+            },
+        )
+        .await
+        .map(|_| zero_api::CommandResponse::accepted())
+        .map_err(map_tun_start_error)
 }
 
 pub(super) fn map_tun_start_error(error: EngineError) -> zero_api::ApiError {
@@ -130,35 +126,47 @@ pub(super) fn map_tun_start_error(error: EngineError) -> zero_api::ApiError {
     zero_api::ApiError::new(zero_api::ApiErrorCode::Internal, error.to_string())
 }
 
+pub(super) async fn stop(handle: &ProxyHandle) -> zero_api::ApiResult<zero_api::CommandResponse> {
+    handle
+        .proxy
+        .stop_tun()
+        .await
+        .map(|_| zero_api::CommandResponse::accepted())
+        .map_err(|error| {
+            zero_api::ApiError::new(zero_api::ApiErrorCode::Internal, error.to_string())
+        })
+}
+
+pub(super) async fn recover(
+    handle: &ProxyHandle,
+) -> zero_api::ApiResult<zero_api::CommandResponse> {
+    handle
+        .proxy
+        .recover_tun()
+        .await
+        .map(|_| zero_api::CommandResponse::accepted())
+        .map_err(map_tun_start_error)
+}
+
+pub(super) fn execute_tun_start(
+    handle: &ProxyHandle,
+    cmd: &zero_api::TunStartCommand,
+) -> zero_api::ApiResult<zero_api::CommandResponse> {
+    with_current_runtime("no tokio runtime available for TUN command", |rt| {
+        rt.block_on(start(handle, cmd))
+    })
+}
 pub(super) fn execute_tun_stop(
     handle: &ProxyHandle,
 ) -> zero_api::ApiResult<zero_api::CommandResponse> {
-    let proxy = handle.proxy.clone();
-
     with_current_runtime("no tokio runtime available for TUN command", |rt| {
-        rt.block_on(async move {
-            proxy
-                .stop_tun()
-                .await
-                .map(|_| zero_api::CommandResponse::accepted())
-                .map_err(|error| {
-                    zero_api::ApiError::new(zero_api::ApiErrorCode::Internal, error.to_string())
-                })
-        })
+        rt.block_on(stop(handle))
     })
 }
-
 pub(super) fn execute_tun_recover(
     handle: &ProxyHandle,
 ) -> zero_api::ApiResult<zero_api::CommandResponse> {
     with_current_runtime("no tokio runtime available for TUN command", |rt| {
-        rt.block_on(async {
-            handle
-                .proxy
-                .recover_tun()
-                .await
-                .map(|_| zero_api::CommandResponse::accepted())
-                .map_err(map_tun_start_error)
-        })
+        rt.block_on(recover(handle))
     })
 }

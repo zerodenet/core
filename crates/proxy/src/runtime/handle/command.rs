@@ -1,3 +1,4 @@
+mod asynchronous;
 mod diagnostics;
 mod dispatch;
 mod endpoint;

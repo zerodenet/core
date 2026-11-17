@@ -43,3 +43,6 @@ async fn embedded_lookup_caller_drop_retains_same_async_command_and_both_actual_
 
 #[path = "tests/target.rs"]
 mod target;
+
+#[path = "tests/maintenance.rs"]
+mod maintenance;

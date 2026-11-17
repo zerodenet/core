@@ -19,7 +19,7 @@ pub(super) async fn execute(
             .drive_component_supervision(settle(observation))
             .await
     };
-    let result = match super::diagnostics::asynchronous(handle.clone(), command) {
+    let result = match super::asynchronous::prepare(handle.clone(), command) {
         Ok(work) => match current {
             Some(current) => current.run_async(work, complete).await,
             None => {

@@ -90,7 +90,7 @@ fn unix_timestamp_ms() -> u64 {
         .as_millis() as u64
 }
 
-pub(super) fn execute_diagnostics_dns_cache(
+pub(super) async fn dns_cache(
     handle: &ProxyHandle,
     cmd: &zero_api::DiagnosticsDnsCacheCommand,
 ) -> zero_api::ApiResult<zero_api::CommandResponse> {
@@ -98,56 +98,52 @@ pub(super) fn execute_diagnostics_dns_cache(
     let domain = cmd.domain.clone();
     let limit = cmd.limit.unwrap_or(256);
 
-    with_current_runtime("no tokio runtime available for dns_cache command", |rt| {
-        rt.block_on(async move {
-            let resolver = &proxy.resolver;
-            let enabled = resolver.cache_enabled();
-            let result = if let Some(domain) = domain {
-                match resolver.inspect_cache(&domain).await {
-                    Some((addresses, ttl_seconds)) => serde_json::json!({
-                        "enabled": enabled,
-                        "domain": domain,
-                        "hit": true,
-                        "addresses": addresses,
-                        "ttl_seconds": ttl_seconds,
-                    }),
-                    None => serde_json::json!({
-                        "enabled": enabled,
-                        "domain": domain,
-                        "hit": false,
-                        "addresses": [],
-                        "ttl_seconds": null,
-                    }),
-                }
-            } else {
-                let entries: Vec<_> = resolver
-                    .list_cache(limit)
-                    .await
-                    .into_iter()
-                    .map(|(domain, addresses, ttl_seconds)| {
-                        serde_json::json!({
-                            "domain": domain,
-                            "addresses": addresses,
-                            "ttl_seconds": ttl_seconds,
-                        })
-                    })
-                    .collect();
-                let count = entries.len();
+    let resolver = &proxy.resolver;
+    let enabled = resolver.cache_enabled();
+    let result = if let Some(domain) = domain {
+        match resolver.inspect_cache(&domain).await {
+            Some((addresses, ttl_seconds)) => serde_json::json!({
+                "enabled": enabled,
+                "domain": domain,
+                "hit": true,
+                "addresses": addresses,
+                "ttl_seconds": ttl_seconds,
+            }),
+            None => serde_json::json!({
+                "enabled": enabled,
+                "domain": domain,
+                "hit": false,
+                "addresses": [],
+                "ttl_seconds": null,
+            }),
+        }
+    } else {
+        let entries: Vec<_> = resolver
+            .list_cache(limit)
+            .await
+            .into_iter()
+            .map(|(domain, addresses, ttl_seconds)| {
                 serde_json::json!({
-                    "enabled": enabled,
-                    "entries": entries,
-                    "count": count,
+                    "domain": domain,
+                    "addresses": addresses,
+                    "ttl_seconds": ttl_seconds,
                 })
-            };
-            Ok(zero_api::CommandResponse {
-                accepted: true,
-                result: Some(result),
             })
+            .collect();
+        let count = entries.len();
+        serde_json::json!({
+            "enabled": enabled,
+            "entries": entries,
+            "count": count,
         })
+    };
+    Ok(zero_api::CommandResponse {
+        accepted: true,
+        result: Some(result),
     })
 }
 
-pub(super) fn execute_diagnostics_fakeip_lookup(
+pub(super) async fn fakeip_lookup(
     handle: &ProxyHandle,
     cmd: &zero_api::DiagnosticsFakeipLookupCommand,
 ) -> zero_api::ApiResult<zero_api::CommandResponse> {
@@ -155,61 +151,71 @@ pub(super) fn execute_diagnostics_fakeip_lookup(
     let domain = cmd.domain.clone();
     let ip = cmd.ip.clone();
 
+    let resolver = &proxy.resolver;
+    let enabled = resolver.fake_ip_enabled();
+    let stats = resolver.fake_ip_stats().await.map(|stats| {
+        serde_json::json!({
+            "allocations": stats.allocations,
+            "expirations": stats.expirations,
+            "evictions": stats.evictions,
+            "exhaustions": stats.exhaustions,
+            "collisions": stats.collisions,
+            "reverse_misses": stats.reverse_misses,
+            "live_mappings": stats.live_mappings,
+            "retired_addresses": stats.retired_addresses,
+            "capacity": stats.capacity,
+        })
+    });
+    let result = if let Some(domain) = domain {
+        let fake_ip = resolver.lookup_fake_ip_domain(&domain).await;
+        serde_json::json!({
+            "enabled": enabled,
+            "domain": domain,
+            "fake_ip": fake_ip,
+            "stats": stats,
+        })
+    } else if let Some(ip) = ip {
+        let domain = match parse_ip_address(&ip) {
+            Some(addr) => resolver.lookup_fake_ip(&addr).await,
+            None => {
+                return Err(zero_api::ApiError::new(
+                    zero_api::ApiErrorCode::InvalidArgument,
+                    format!("invalid ip `{ip}`"),
+                ));
+            }
+        };
+        serde_json::json!({
+            "enabled": enabled,
+            "ip": ip,
+            "domain": domain,
+            "stats": stats,
+        })
+    } else {
+        return Err(zero_api::ApiError::new(
+            zero_api::ApiErrorCode::InvalidArgument,
+            "fakeip_lookup requires `domain` or `ip`",
+        ));
+    };
+    Ok(zero_api::CommandResponse {
+        accepted: true,
+        result: Some(result),
+    })
+}
+pub(super) fn execute_diagnostics_dns_cache(
+    handle: &ProxyHandle,
+    cmd: &zero_api::DiagnosticsDnsCacheCommand,
+) -> zero_api::ApiResult<zero_api::CommandResponse> {
+    with_current_runtime("no tokio runtime available for dns_cache command", |rt| {
+        rt.block_on(dns_cache(handle, cmd))
+    })
+}
+pub(super) fn execute_diagnostics_fakeip_lookup(
+    handle: &ProxyHandle,
+    cmd: &zero_api::DiagnosticsFakeipLookupCommand,
+) -> zero_api::ApiResult<zero_api::CommandResponse> {
     with_current_runtime(
         "no tokio runtime available for fakeip_lookup command",
-        |rt| {
-            rt.block_on(async move {
-                let resolver = &proxy.resolver;
-                let enabled = resolver.fake_ip_enabled();
-                let stats = resolver.fake_ip_stats().await.map(|stats| {
-                    serde_json::json!({
-                        "allocations": stats.allocations,
-                        "expirations": stats.expirations,
-                        "evictions": stats.evictions,
-                        "exhaustions": stats.exhaustions,
-                        "collisions": stats.collisions,
-                        "reverse_misses": stats.reverse_misses,
-                        "live_mappings": stats.live_mappings,
-                        "retired_addresses": stats.retired_addresses,
-                        "capacity": stats.capacity,
-                    })
-                });
-                let result = if let Some(domain) = domain {
-                    let fake_ip = resolver.lookup_fake_ip_domain(&domain).await;
-                    serde_json::json!({
-                        "enabled": enabled,
-                        "domain": domain,
-                        "fake_ip": fake_ip,
-                        "stats": stats,
-                    })
-                } else if let Some(ip) = ip {
-                    let domain = match parse_ip_address(&ip) {
-                        Some(addr) => resolver.lookup_fake_ip(&addr).await,
-                        None => {
-                            return Err(zero_api::ApiError::new(
-                                zero_api::ApiErrorCode::InvalidArgument,
-                                format!("invalid ip `{ip}`"),
-                            ));
-                        }
-                    };
-                    serde_json::json!({
-                        "enabled": enabled,
-                        "ip": ip,
-                        "domain": domain,
-                        "stats": stats,
-                    })
-                } else {
-                    return Err(zero_api::ApiError::new(
-                        zero_api::ApiErrorCode::InvalidArgument,
-                        "fakeip_lookup requires `domain` or `ip`",
-                    ));
-                };
-                Ok(zero_api::CommandResponse {
-                    accepted: true,
-                    result: Some(result),
-                })
-            })
-        },
+        |rt| rt.block_on(fakeip_lookup(handle, cmd)),
     )
 }
 

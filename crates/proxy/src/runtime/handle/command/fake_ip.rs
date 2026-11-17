@@ -4,7 +4,7 @@ use super::super::util::parse_ip_address;
 use super::super::ProxyHandle;
 use super::runtime::with_current_runtime;
 
-pub(super) fn execute_fake_ip_clear(
+pub(super) async fn clear(
     handle: &ProxyHandle,
     cmd: &zero_api::FakeIpClearCommand,
 ) -> zero_api::ApiResult<zero_api::CommandResponse> {
@@ -31,50 +31,53 @@ pub(super) fn execute_fake_ip_clear(
     };
     let proxy = handle.proxy.clone();
 
+    let enabled = proxy.resolver.fake_ip_enabled();
+    let cleared = proxy
+        .resolver
+        .clear_fake_ip(target)
+        .await
+        .map_err(|error| {
+            let code = if error.kind() == std::io::ErrorKind::InvalidInput {
+                zero_api::ApiErrorCode::InvalidArgument
+            } else {
+                zero_api::ApiErrorCode::Internal
+            };
+            zero_api::ApiError::new(code, error.to_string())
+        })?
+        .unwrap_or_default();
+    tracing::info!(
+        scope,
+        domain = domain.as_deref(),
+        ip = ip.as_deref(),
+        removed_mappings = cleared.removed_mappings,
+        removed_addresses = cleared.removed_addresses,
+        live_mappings = cleared.live_mappings,
+        retired_addresses = cleared.retired_addresses,
+        "cleared Fake-IP mappings"
+    );
+    Ok(zero_api::CommandResponse {
+        accepted: true,
+        result: Some(serde_json::json!({
+            "core_instance_id": proxy.engine().core_instance_id(),
+            "config_revision": proxy.engine().config_revision(),
+            "enabled": enabled,
+            "scope": scope,
+            "domain": domain,
+            "ip": ip,
+            "removed_mappings": cleared.removed_mappings,
+            "removed_addresses": cleared.removed_addresses,
+            "live_mappings": cleared.live_mappings,
+            "retired_addresses": cleared.retired_addresses,
+        })),
+    })
+}
+
+pub(super) fn execute_fake_ip_clear(
+    handle: &ProxyHandle,
+    cmd: &zero_api::FakeIpClearCommand,
+) -> zero_api::ApiResult<zero_api::CommandResponse> {
     with_current_runtime(
         "no tokio runtime available for fakeip.clear command",
-        |rt| {
-            rt.block_on(async move {
-                let enabled = proxy.resolver.fake_ip_enabled();
-                let cleared = proxy
-                    .resolver
-                    .clear_fake_ip(target)
-                    .await
-                    .map_err(|error| {
-                        let code = if error.kind() == std::io::ErrorKind::InvalidInput {
-                            zero_api::ApiErrorCode::InvalidArgument
-                        } else {
-                            zero_api::ApiErrorCode::Internal
-                        };
-                        zero_api::ApiError::new(code, error.to_string())
-                    })?
-                    .unwrap_or_default();
-                tracing::info!(
-                    scope,
-                    domain = domain.as_deref(),
-                    ip = ip.as_deref(),
-                    removed_mappings = cleared.removed_mappings,
-                    removed_addresses = cleared.removed_addresses,
-                    live_mappings = cleared.live_mappings,
-                    retired_addresses = cleared.retired_addresses,
-                    "cleared Fake-IP mappings"
-                );
-                Ok(zero_api::CommandResponse {
-                    accepted: true,
-                    result: Some(serde_json::json!({
-                        "core_instance_id": proxy.engine().core_instance_id(),
-                        "config_revision": proxy.engine().config_revision(),
-                        "enabled": enabled,
-                        "scope": scope,
-                        "domain": domain,
-                        "ip": ip,
-                        "removed_mappings": cleared.removed_mappings,
-                        "removed_addresses": cleared.removed_addresses,
-                        "live_mappings": cleared.live_mappings,
-                        "retired_addresses": cleared.retired_addresses,
-                    })),
-                })
-            })
-        },
+        |rt| rt.block_on(clear(handle, cmd)),
     )
 }
