@@ -105,6 +105,8 @@ pub(crate) fn log_session_failed(
     error: &EngineError,
     upstream: Option<(&str, u16)>,
 ) {
+    tracing::debug!(session_id = session.id, sources = %super::sources::Sources(error),
+        "session failure retained causes");
     let establishment = establishment_failure(error);
     let stage = establishment.map_or(stage, |failure| failure.stage);
     let upstream = establishment

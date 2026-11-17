@@ -14,6 +14,8 @@ pub(crate) fn log_listener_connection_error(
     remote_addr: &impl std::fmt::Debug,
     error: &EngineError,
 ) {
+    debug!(inbound_tag, protocol, stage, sources = %super::sources::Sources(error),
+        "inbound failure retained causes");
     if is_transient_disconnect(error) {
         debug!(inbound_tag, ?remote_addr, protocol, stage, error = %error,
             "connection closed before request completed");

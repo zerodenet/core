@@ -277,7 +277,7 @@ impl OrchestrationState {
                         // is now physically absent. Continue to bind last-good afresh.
                         continue;
                     }
-                    warn!(%error, reason = "listener_reload_rollback_error", "failed to restore last-known-good listeners after reload failure");
+                    warn!(%error, sources = %crate::logging::sources::Sources(&error), reason = "listener_reload_rollback_error", "failed to restore last-known-good listeners after reload failure");
                     acknowledgement.push_str(&format!("; listener rollback failed: {error}"));
                     can_restore = false;
                     break;

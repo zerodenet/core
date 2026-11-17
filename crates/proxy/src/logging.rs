@@ -4,6 +4,7 @@ mod group;
 mod listener;
 mod rate_limit;
 mod session;
+pub(crate) mod sources;
 #[cfg(feature = "upstream-association-runtime")]
 mod udp_upstream;
 
