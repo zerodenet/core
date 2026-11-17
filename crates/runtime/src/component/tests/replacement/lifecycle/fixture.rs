@@ -23,7 +23,9 @@ fn limits() -> MetadataLimits {
     MetadataLimits {
         main_sockets: n(1),
         probe_sockets: n(1),
-        probe_attempts_per_initialization: n(1),
+        // GSO and GRO each may try IPv6 then IPv4 on the real host. This
+        // fixture tests coupled retirement, not single-probe rejection.
+        probe_attempts_per_initialization: n(4),
         concurrent_send_calls: n(1),
         write_pollers: n(1),
     }
