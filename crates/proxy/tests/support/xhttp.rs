@@ -241,16 +241,27 @@ pub async fn interop_options(
         Ok::<_, std::io::Error>(())
     })
     .await;
-    if let Some(forwarder) = download_forwarder {
-        forwarder.abort();
-        assert!(download_connections.load(std::sync::atomic::Ordering::SeqCst) > 0);
+    if !matches!(result, Ok(Ok(()))) {
+        eprintln!("XHTTP business result before fixture teardown: mode={mode} zero_client={zero_client} tls={tls} result={result:?}");
     }
-    drop(tap);
     // Keep the real remote peer alive while the original Zero owner stops and
     // confirms its HTTP drivers. Killing Xray first injects a peer crash into
     // this wire-interop case and correctly retains BrokenPipe as a task fault.
     let shutdown = zero.shutdown().await;
     xray.kill();
+    drop(tap);
+    if let Some(forwarder) = download_forwarder {
+        forwarder.abort();
+        assert!(download_connections.load(std::sync::atomic::Ordering::SeqCst) > 0);
+    }
+    if let Err(error) = &shutdown {
+        let mut source: Option<&(dyn std::error::Error + 'static)> = Some(error);
+        for depth in 0..24 {
+            let Some(error) = source else { break };
+            eprintln!("XHTTP original shutdown cause[{depth}]: {error}");
+            source = error.source();
+        }
+    }
     shutdown.unwrap();
     if let Some(relay) = relay {
         relay.shutdown().await.unwrap();

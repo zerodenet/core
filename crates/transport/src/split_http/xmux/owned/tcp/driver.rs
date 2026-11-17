@@ -78,6 +78,11 @@ pub(super) async fn run(
             );
         }
         tokio::select! {biased;
+            // stop() has already destroyed the logical HTTP bodies. Do not
+            // poll Hyper against those revoked bodies on a later wake. Native
+            // closure and the real driver join remain the original Root's
+            // separate gates; errors observed before stop remain errors.
+            _=state.runtime.stopped.cancelled()=>return Ok(()),
             result=driver.inner.as_mut()=>break result,
             _=state.runtime.run()=>return Ok(()),
             _=&mut changed=>{},
