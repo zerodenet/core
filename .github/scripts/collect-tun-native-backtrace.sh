@@ -5,7 +5,8 @@ directory=${RUNNER_TEMP:?}/zero-tun-cores
 output=${RUNNER_TEMP:?}/zero-tun-backtraces
 mkdir -p "$output"
 shopt -s nullglob
-for core in "$directory"/core.zero.*; do
+# Linux %e is the crashing task's comm, which can be tokio-rt-worker.
+for core in "$directory"/core.*; do
     name=$(basename "$core")
     sudo gdb --batch \
         -ex 'set print frame-arguments none' \
