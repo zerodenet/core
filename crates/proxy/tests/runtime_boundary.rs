@@ -3921,9 +3921,7 @@ fn udp_flow_state_root_stays_facade_only() {
 #[test]
 fn udp_flow_managed_root_stays_facade_only() {
     let root = read(&proxy_src().join("runtime/udp_flow/managed/mod.rs"));
-    for declaration in ["mod connection;"] {
-        assert!(root.contains(declaration));
-    }
+    assert!(root.contains("mod connection;"));
     assert!(!root.contains("struct Connection"));
     assert!(!root.contains("async fn send"));
     assert!(!root.contains("fn supports_"));
