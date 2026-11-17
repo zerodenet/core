@@ -191,6 +191,10 @@ fn privileged_tun_ipv4_direct_udp_dns_does_not_self_capture() {
     assert!(dns_target.is_ipv4(), "DNS target must be IPv4");
     let direct_config = direct_udp_config_json(listen_port, true);
     let stopped_config = direct_udp_config_json(listen_port, false);
+    let idle = RuntimeConfig::parse(&direct_config)
+        .unwrap()
+        .runtime
+        .udp_upstream_idle_timeout_seconds;
     let direct_path = directory.path().join("direct-udp.json");
     let stopped_path = directory.path().join("stopped.json");
     std::fs::write(&direct_path, &direct_config).unwrap();
@@ -204,10 +208,8 @@ fn privileged_tun_ipv4_direct_udp_dns_does_not_self_capture() {
         assert_direct_udp_dns_through_tun(dns_target);
         assert_tun_udp_flow_growth_bounded(binary, &socket, dns_target, &flow_ids_before);
 
-        run_cli(
-            binary,
-            ["reload", path(&stopped_path), "--socket", path(&socket)],
-        );
+        wait_for_tun_udp_user_return(binary, &socket, dns_target, idle);
+        reload_after_originals_settle(binary, &stopped_path, &socket);
         wait_for_tun(binary, &socket, false, false);
         assert_tun_os_cleanup(&tun_name);
         assert_route_journals_clean(&direct_path);
@@ -1963,6 +1965,29 @@ fn assert_tun_udp_flow_growth_bounded(
     );
 }
 
+// UDP socket Drop sends no EOF. Observe the actual default-policy user return
+// before requesting withdrawal. Zero active users is not native-close evidence:
+// reload still has to consume the original provider and Scope receipts.
+fn wait_for_tun_udp_user_return(
+    binary: &str,
+    socket: &std::path::Path,
+    target: SocketAddr,
+    idle_seconds: u64,
+) {
+    let deadline = Instant::now() + Duration::from_secs(idle_seconds + 5);
+    loop {
+        let output = run_cli_output(binary, ["status", "--json", "--socket", path(socket)]);
+        let snapshot: serde_json::Value = serde_json::from_str(&output).unwrap();
+        let active = tun_udp_active_flow_count(&snapshot, target);
+        if active == 0 {
+            return;
+        }
+        assert!(Instant::now() < deadline,
+            "default-policy UDP users did not return: idle={idle_seconds}s active={active}: {output}");
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
 fn tun_udp_active_flow_count(snapshot: &serde_json::Value, target: SocketAddr) -> usize {
     snapshot["runtime"]["active_sessions"]
         .as_array()
@@ -2199,7 +2224,7 @@ fn reload_after_originals_settle(binary: &str, config: &std::path::Path, socket:
         );
         assert!(
             Instant::now() < deadline,
-            "original Source did not settle after real HTTP EOF: {error}\n{status}"
+            "original Source did not settle after real user return: {error}\n{status}"
         );
         eprintln!("TUN withdrawal still waits for actual original users/Scope receipts");
         thread::sleep(Duration::from_millis(25));
