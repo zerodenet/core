@@ -25,7 +25,6 @@ mod selection;
 mod standalone;
 pub(super) use pending::{PeerResources, PendingLinkedEndpoint};
 use pending_map::PendingEndpoints;
-pub(super) use standalone::StandaloneStackOptions;
 
 use std::{
     collections::HashMap,
