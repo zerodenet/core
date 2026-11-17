@@ -36,27 +36,38 @@ import re
 
 text = re.sub(r"\x1b\[[0-9;]*m", "", Path(sys.argv[1]).read_text(errors="replace"))
 lines = text.splitlines()
-# Preserve every Rust failure block even when --no-fail-fast continues other targets.
-selected = []
-collecting = False
-for line in lines:
-    if line == "failures:":
-        collecting = True
-    if collecting:
-        selected.append(line)
-    if collecting and "error: test failed" in line:
-        collecting = False
-if not selected:
-    selected = lines[-80:]
-elif not any(line.startswith("---- ") for line in selected):
-    # --nocapture prints each panic before the final failures list. Preserve
-    # its actual source instead of annotating only the failed test names.
-    panics = []
-    for index, line in enumerate(lines):
-        if line.startswith("thread ") and "panicked at" in line:
-            panics.extend(lines[index:index + 18])
-    selected = panics + selected
-message = "\n".join(selected).encode()[-24000:]
+# Keep early sources and late summaries when parallel --nocapture output or
+# --no-fail-fast produces more than one annotation budget. A tail-only slice
+# discarded the original cached-driver error before a later timeout appeared.
+def bounded(items, limit):
+    items = list(dict.fromkeys(items))
+    raw = "\n".join(items).encode()
+    if len(raw) <= limit:
+        return raw
+    half = (limit - 40) // 2
+    return raw[:half] + b"\n... original log excerpt omitted ...\n" + raw[-half:]
+
+panics = []
+facts = []
+summary = []
+for index, line in enumerate(lines):
+    if line.startswith("thread ") and "panicked at" in line:
+        panics.append("\n".join(lines[index:index + 8]))
+    if line.startswith("error[") or line.startswith("error: could not compile"):
+        facts.append("\n".join(lines[index:index + 8]))
+    elif any(marker in line for marker in (
+        "session failed", "sources=", "original shutdown cause[",
+        "operation failed stage=", "TUN state deadline", "TUN state rejected",
+        "process terminating with fatal error",
+    )):
+        facts.append(line)
+    if (line == "failures:" or line.startswith("test result: FAILED")
+            or line.startswith("error: test failed")
+            or re.match(r"^    [A-Za-z_][A-Za-z_0-9:]*$", line)):
+        summary.append(line)
+message = b"\n".join((bounded(panics, 12000), bounded(facts, 9000), bounded(summary, 3000)))
+if not message.strip():
+    message = bounded(lines[-80:], 24000)
 # Actions truncates each annotation to 4 KiB; split before escaping workflow syntax.
 parts = [message[i:i + 3000].decode(errors="replace") for i in range(0, len(message), 3000)]
 for index, part in enumerate(parts, 1):

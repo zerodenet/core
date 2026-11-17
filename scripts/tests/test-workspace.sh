@@ -51,6 +51,26 @@ status=$?
 set -e
 [[ "$status" == 7 ]]
 grep -q '::error .*actual original close source was retained' "$scratch/nocapture.log"
+# A later timeout must not erase the first actual protocol/provider source.
+set +e
+bash "$root/.github/scripts/test-workspace.sh" bash -c '
+    echo "thread first_case panicked at first.rs:17:3:"
+    echo "first original provider failure"
+    for ((i=0; i<1000; i++)); do echo "parallel noisy trace $i with enough text to overflow the annotation tail"; done
+    echo "thread last_case panicked at last.rs:29:3:"
+    echo "last original timeout"
+    echo "failures:"
+    echo "    first_case"
+    echo "    last_case"
+    echo "test result: FAILED. 0 passed; 2 failed;"
+    echo "error: test failed"
+    exit 7
+' > "$scratch/multiple-failures.log"
+status=$?
+set -e
+[[ "$status" == 7 ]]
+grep -q '::error .*first original provider failure' "$scratch/multiple-failures.log"
+grep -q '::error .*last original timeout' "$scratch/multiple-failures.log"
 rm "$scratch/args"
 set +e
 ZERO_TEST_METADATA_EXIT=13 bash "$entry" > "$scratch/layout-failure.log" 2>&1
