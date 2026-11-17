@@ -119,11 +119,11 @@ impl Connections {
         &self,
         group: &GroupRef,
         factory: &OwnedXhttpCarrierFactory,
+        kind: super::owned_connect::OwnedConnectionKind,
     ) -> io::Result<Connection> {
-        self.select_owned(group, group.connection_kind())
-            .await?
-            .finish(factory)
-            .await
+        // A new request group has no physical connection yet. Carry the real
+        // selected version through rotation before polling its same factory.
+        self.select_owned(group, kind).await?.finish(factory).await
     }
     pub(super) async fn acquire(
         &self,

@@ -54,12 +54,6 @@ impl Group {
             _ => false,
         }
     }
-    pub(super) fn connection_kind(&self) -> super::owned_connect::OwnedConnectionKind {
-        self.kind
-            .get()
-            .copied()
-            .unwrap_or(super::owned_connect::OwnedConnectionKind::Multiplexed)
-    }
     pub(super) fn bind_connection_kind(
         &self,
         kind: super::owned_connect::OwnedConnectionKind,

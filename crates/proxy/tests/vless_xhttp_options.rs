@@ -8,17 +8,21 @@ async fn xhttp_shared_original_borrows_real_socks_prefix_without_a_business_dead
     // Public SOCKS sessions have no request deadline. The physical XHTTP
     // initializer must select a finite Service call without borrowing their
     // business identity or losing the original donor/controller cleanup.
-    for tls in [false, true] {
-        interop_options(
-            "stream-up",
-            true,
-            tls,
-            // One-use physical carriers force the cached HTTP driver to borrow
-            // another real donor after its initial business caller has returned.
-            json!({"xmux":{"max_connections":1,"c_max_reuse_times":1,"h_max_request_times":1}}),
-            json!({"_test_relay":true}),
-        )
-        .await;
+    // Each mode rotates real physical originals; the new group must keep
+    // the selected H1/H2 kind while its caller still owns actual donor debt.
+    for mode in ["stream-up", "packet-up"] {
+        for tls in [false, true] {
+            interop_options(
+                mode,
+                true,
+                tls,
+                // One-use physical carriers force the cached HTTP driver to borrow
+                // another real donor after its initial business caller has returned.
+                json!({"xmux":{"max_connections":1,"c_max_reuse_times":1,"h_max_request_times":1}}),
+                json!({"_test_relay":true}),
+            )
+            .await;
+        }
     }
 }
 #[test]

@@ -8,7 +8,7 @@ pub(in crate::split_http) struct Sender {
     pub(super) pool: XhttpClientPool,
     pub(super) factory: OwnedXhttpCarrierFactory,
     pub(super) usage: UsageRef,
-    pub(super) owned: bool,
+    pub(super) owned_kind: Option<super::owned_connect::OwnedConnectionKind>,
     pub(super) owner: Option<OwnerKey>,
     pub(super) logical: Option<owned::OwnedLogicalReturn>,
 }
@@ -41,11 +41,13 @@ impl Sender {
                     .map_err(io::Error::other)
             })
             .transpose()?;
-        let response_use = self.owned.then(|| group::ResponseUse::new(group.clone()));
-        let mut connection = if self.owned {
+        let response_use = self
+            .owned_kind
+            .map(|_| group::ResponseUse::new(group.clone()));
+        let mut connection = if let Some(kind) = self.owned_kind {
             group
                 .connections
-                .acquire_owned(&group, &self.factory)
+                .acquire_owned(&group, &self.factory, kind)
                 .await?
         } else {
             group.connections.acquire(&group, &self.factory).await?

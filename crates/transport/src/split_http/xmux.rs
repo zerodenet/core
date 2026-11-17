@@ -176,7 +176,7 @@ impl XhttpClientPool {
             pool: self.clone(),
             factory: factory.into(),
             usage,
-            owned: false,
+            owned_kind: None,
             owner: None,
             logical: None,
         };
@@ -199,7 +199,7 @@ impl XhttpClientPool {
                     pool: download.pool.clone(),
                     factory: download.factory.into(),
                     usage,
-                    owned: false,
+                    owned_kind: None,
                     owner: None,
                     logical: None,
                 },
