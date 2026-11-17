@@ -16,7 +16,8 @@ pub trait UpstreamOpener: Send + Sync {
             super::super::Stage::Prepare,
             super::super::Reason::Unsupported,
             super::super::Impact::Component,
-        ))
+        )
+        .with_source(missing::<Self>("reserve_preparation_job")))
     }
     /// Exact same-Host Process dependency and the aggregate's existing UDP
     /// original. Session admission is not inferred from this metadata request.
@@ -27,7 +28,8 @@ pub trait UpstreamOpener: Send + Sync {
     ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierDatagram, ChannelError>> {
         Box::pin(async {
             let mut error =
-                ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+                ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
+                    .with_source(missing::<Self>("acquire_process_endpoint_datagram"));
             error.delivery = DeliveryState::NotSubmitted;
             Err(error)
         })
@@ -41,7 +43,8 @@ pub trait UpstreamOpener: Send + Sync {
         _: ProcessEndpointStreamRequest,
     ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierIo, ChannelError>> {
         Box::pin(async {
-            let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Session);
+            let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Session)
+                .with_source(missing::<Self>("acquire_process_endpoint_stream"));
             error.delivery = DeliveryState::NotSubmitted;
             Err(error)
         })
@@ -53,7 +56,8 @@ pub trait UpstreamOpener: Send + Sync {
         _: &crate::contract::context::RequestIdentity,
         _: &CarrierContext,
     ) -> Result<crate::contract::scope::TaskJoinWitness, ChannelError> {
-        let mut failure = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Session);
+        let mut failure = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Session)
+            .with_source(missing::<Self>("packet_caller"));
         failure.delivery = DeliveryState::NotSubmitted;
         Err(failure)
     }
@@ -79,7 +83,8 @@ pub trait UpstreamOpener: Send + Sync {
         _: &UpstreamBinding,
         _: &crate::controlled_carrier::CarrierAdoption,
     ) -> Result<(), ChannelError> {
-        let mut failure = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+        let mut failure = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
+            .with_source(missing::<Self>("validate_pending_carrier"));
         failure.delivery = DeliveryState::NotSubmitted;
         Err(failure)
     }
@@ -91,11 +96,10 @@ pub trait UpstreamOpener: Send + Sync {
         _: &UpstreamBinding,
         _: &crate::controlled_carrier::ProtocolOriginal,
     ) -> Result<(), ChannelError> {
-        Err(ChannelError::new(
-            Stage::Prepare,
-            Reason::Unsupported,
-            Impact::Component,
-        ))
+        Err(
+            ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
+                .with_source(missing::<Self>("validate_pending_protocol_original")),
+        )
     }
 
     /// Resolve a selected inner Packet/Flow destination using the actual host
@@ -113,11 +117,10 @@ pub trait UpstreamOpener: Send + Sync {
         Result<crate::controlled_carrier::loan::ServiceDatagramTargetLoan, ChannelError>,
     > {
         Box::pin(async {
-            Err(ChannelError::new(
-                Stage::Prepare,
-                Reason::Unsupported,
-                Impact::Component,
-            ))
+            Err(
+                ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
+                    .with_source(missing::<Self>("borrow_service_datagram_candidate")),
+            )
         })
     }
     fn resolve_service_datagram_candidates(
@@ -129,11 +132,10 @@ pub trait UpstreamOpener: Send + Sync {
         Result<crate::controlled_carrier::loan::BorrowedDatagramCandidates, ChannelError>,
     > {
         Box::pin(async {
-            Err(ChannelError::new(
-                Stage::Prepare,
-                Reason::Unsupported,
-                Impact::Component,
-            ))
+            Err(
+                ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
+                    .with_source(missing::<Self>("resolve_service_datagram_candidates")),
+            )
         })
     }
     /// Resolve a selected inner Packet/Flow destination using the actual host
@@ -146,11 +148,10 @@ pub trait UpstreamOpener: Send + Sync {
         _: CarrierContext,
     ) -> BoxFuture<'_, Result<Vec<std::net::SocketAddr>, ChannelError>> {
         Box::pin(async {
-            Err(ChannelError::new(
-                Stage::Prepare,
-                Reason::Unsupported,
-                Impact::Session,
-            ))
+            Err(
+                ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Session)
+                    .with_source(missing::<Self>("resolve_packet_target")),
+            )
         })
     }
     /// Resolve a protocol-negotiated Datagram peer under an already acquired
@@ -165,7 +166,8 @@ pub trait UpstreamOpener: Send + Sync {
     ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierCandidates, ChannelError>> {
         Box::pin(async {
             let mut error =
-                ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+                ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
+                    .with_source(missing::<Self>("resolve_related_datagram"));
             error.delivery = DeliveryState::NotSubmitted;
             Err(error)
         })
@@ -190,11 +192,10 @@ pub trait UpstreamOpener: Send + Sync {
         _binding: &UpstreamBinding,
         _original: crate::controlled_carrier::ProtocolOriginal,
     ) -> Result<(), ChannelError> {
-        Err(ChannelError::new(
-            Stage::Prepare,
-            Reason::Unsupported,
-            Impact::Component,
-        ))
+        Err(
+            ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
+                .with_source(missing::<Self>("retain_protocol_original")),
+        )
     }
     fn has_pending_carrier_observer(&self) -> bool {
         false
@@ -207,7 +208,8 @@ pub trait UpstreamOpener: Send + Sync {
         _: &UpstreamBinding,
         adoption: crate::controlled_carrier::CarrierAdoption,
     ) -> Result<(), ChannelError> {
-        let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+        let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
+            .with_source(missing::<Self>("retain_pending_carrier"));
         error.component = Some(adoption.instance().component);
         error.delivery = DeliveryState::NotSubmitted;
         Err(error)
@@ -220,7 +222,8 @@ pub trait UpstreamOpener: Send + Sync {
     ) -> BoxFuture<'_, Result<crate::controlled_carrier::loan::DatagramLoan, ChannelError>> {
         Box::pin(async {
             let mut error =
-                ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+                ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
+                    .with_source(missing::<Self>("borrow_datagram"));
             error.delivery = DeliveryState::NotSubmitted;
             Err(error)
         })
@@ -236,7 +239,8 @@ pub trait UpstreamOpener: Send + Sync {
         _: Option<UpstreamBinding>,
         _: CarrierContext,
     ) -> BoxFuture<'_, Result<UpstreamTransport, ChannelError>> {
-        let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+        let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
+            .with_source(missing::<Self>("select_background_carrier"));
         error.delivery = DeliveryState::NotSubmitted;
         Box::pin(async move { Err(error) })
     }
@@ -250,7 +254,8 @@ pub trait UpstreamOpener: Send + Sync {
     ) -> BoxFuture<'_, Result<UpstreamTransport, ChannelError>> {
         Box::pin(async {
             let mut error =
-                ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+                ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
+                    .with_source(missing::<Self>("select_background_carrier_observed"));
             error.delivery = DeliveryState::NotSubmitted;
             Err(error)
         })
@@ -263,7 +268,8 @@ pub trait UpstreamOpener: Send + Sync {
         _: Destination,
         _: CarrierContext,
     ) -> BoxFuture<'_, Result<crate::controlled_carrier::loan::StreamLoan, ChannelError>> {
-        let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+        let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
+            .with_source(missing::<Self>("borrow_stream"));
         error.delivery = DeliveryState::NotSubmitted;
         Box::pin(async move { Err(error) })
     }
@@ -278,7 +284,8 @@ pub trait UpstreamOpener: Send + Sync {
         _: Destination,
         _: CarrierContext,
     ) -> BoxFuture<'_, Result<crate::controlled_carrier::CarrierCandidates, ChannelError>> {
-        let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+        let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
+            .with_source(missing::<Self>("resolve_controlled_carrier"));
         error.delivery = DeliveryState::NotSubmitted;
         Box::pin(async move { Err(error) })
     }
@@ -291,7 +298,8 @@ pub trait UpstreamOpener: Send + Sync {
         _: CarrierContext,
         grant: crate::controlled_carrier::CarrierGrant,
     ) -> Result<crate::controlled_carrier::CarrierDatagram, ChannelError> {
-        let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+        let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
+            .with_source(missing::<Self>("prepare_controlled_datagram"));
         error.component = Some(grant.instance().component);
         error.delivery = DeliveryState::NotSubmitted;
         Err(error)
@@ -311,7 +319,8 @@ pub trait UpstreamOpener: Send + Sync {
     ) -> BoxFuture<'_, Result<crate::controlled_carrier::loan::DatagramLoan, ChannelError>> {
         Box::pin(async {
             let mut error =
-                ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+                ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
+                    .with_source(missing::<Self>("open_controlled_datagram_loan"));
             error.delivery = DeliveryState::NotSubmitted;
             Err(error)
         })
@@ -324,7 +333,8 @@ pub trait UpstreamOpener: Send + Sync {
         _: &UpstreamBinding,
         request: ControlledStreamRequest,
     ) -> BoxFuture<'_, Result<crate::controlled_carrier::loan::StreamLoan, ChannelError>> {
-        let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+        let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
+            .with_source(missing::<Self>("open_controlled_stream_loan"));
         error.component = Some(request.grants.instance().component);
         error.session = request.context.session;
         error.delivery = DeliveryState::NotSubmitted;
@@ -338,7 +348,8 @@ pub trait UpstreamOpener: Send + Sync {
         _: &UpstreamBinding,
         request: ControlledStreamRequest,
     ) -> BoxFuture<'_, Result<BoxStream, ChannelError>> {
-        let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+        let mut error = ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
+            .with_source(missing::<Self>("open_controlled_stream"));
         error.component = Some(request.grants.instance().component);
         error.session = request.context.session;
         error.delivery = DeliveryState::NotSubmitted;
@@ -378,7 +389,8 @@ pub trait UpstreamOpener: Send + Sync {
         grant: crate::controlled_carrier::CarrierGrant,
     ) -> Result<crate::controlled_carrier::PreparedCarrier, ChannelError> {
         let mut error =
-            super::ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component);
+            super::ChannelError::new(Stage::Prepare, Reason::Unsupported, Impact::Component)
+                .with_source(missing::<Self>("prepare_controlled_stream"));
         error.component = Some(grant.instance().component);
         error.delivery = DeliveryState::NotSubmitted;
         Err(error.with_source(std::io::Error::other(
@@ -397,4 +409,12 @@ pub trait UpstreamOpener: Send + Sync {
         request: DatagramRequest,
         context: CarrierContext,
     ) -> BoxFuture<'_, Result<BoxDatagramSession, ChannelError>>;
+}
+
+// Identify the exact missing bridge without logging endpoints or credentials.
+fn missing<T: ?Sized>(operation: &str) -> std::io::Error {
+    std::io::Error::other(format!(
+        "upstream {operation} is not implemented for {}",
+        std::any::type_name::<T>()
+    ))
 }
