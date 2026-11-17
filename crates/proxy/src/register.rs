@@ -29,8 +29,10 @@ pub(crate) fn compiled_registries_with_network(
 ) {
     let _ = &background;
     // Cold and allocation-free until an individual compiled adapter requests it.
+    #[cfg(feature = "browser-dialer-runtime")]
     let browser_registry =
         std::sync::LazyLock::new(zero_transport::browser_dialer::registry::Registry::default);
+    #[cfg(feature = "browser-dialer-runtime")]
     let _ = &browser_registry;
     use zero_traits::ProtocolMetadata;
     let direct_adapter = Arc::new(crate::adapters::direct::DirectAdapter::default());

@@ -27,6 +27,7 @@ managed-stream-runtime = ["managed-udp-runtime", "udp-response-runtime"]
 raw-ip-runtime = ["zero-runtime/raw-ip-runtime", "zero-stack/packet-memory", "managed-datagram-runtime", "managed-stream-runtime", "tcp-session-runtime", "dep:sha2"]
 upstream-association-runtime = ["udp-response-runtime"]
 tls-ech-runtime = ["zero-transport/tls", "zero-dns/udp", "zero-dns/doh"]
+browser-dialer-runtime = ["zero-transport/ws"]
 tcp-tunnel-runtime = []
 standard-stream-inbound-runtime = []
 tcp-session-runtime = []
@@ -42,6 +43,7 @@ authenticated-quic-inbound-runtime = [
     "transport_quic",
 ]
 vless = [
+    "browser-dialer-runtime",
     "managed-datagram-runtime",
     "standard-stream-inbound-runtime",
     "datagram-route-runtime",    "managed-stream-runtime",
@@ -72,6 +74,7 @@ shadowsocks = [
     "shadowsocks/blake3",
 ]
 trojan = [
+    "browser-dialer-runtime",
     "standard-stream-inbound-runtime",
     "managed-datagram-runtime",
     "managed-stream-runtime",
@@ -83,6 +86,7 @@ trojan = [
     "dep:tokio-rustls",
 ]
 vmess = [
+    "browser-dialer-runtime",
     "tls-ech-runtime",
     "standard-stream-inbound-runtime",
     "managed-datagram-runtime",
