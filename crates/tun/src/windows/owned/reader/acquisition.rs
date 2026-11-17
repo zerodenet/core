@@ -4,12 +4,12 @@ use crate::TunDevice;
 use std::net::IpAddr;
 pub enum OwnedWintunRequest {
     Create {
-        name: Option<String>,
+        name: Option<Arc<str>>,
         addresses: Vec<(IpAddr, IpAddr)>,
         mtu: u16,
     },
     Existing {
-        interface: String,
+        interface: Arc<str>,
         addresses: Vec<IpAddr>,
         mtu: u16,
     },

@@ -12,8 +12,11 @@ pub(in crate::route) struct RouteLease {
         crate::route::RouteFileFaults,
         crate::packet_memory::PacketMetadataArc<crate::route::file_originals::Attempt>,
     )>,
+    #[cfg(target_os = "macos")]
     owner_attempted: bool,
+    #[cfg(target_os = "macos")]
     owner_retired: bool,
+    #[cfg(target_os = "macos")]
     close_reported: bool,
 }
 impl std::fmt::Debug for RouteLease {
@@ -88,8 +91,11 @@ impl RouteLease {
                 metadata,
                 file_io: None,
                 failures: None,
+                #[cfg(target_os = "macos")]
                 owner_attempted: false,
+                #[cfg(target_os = "macos")]
                 owner_retired: false,
+                #[cfg(target_os = "macos")]
                 close_reported: false,
             });
         }
@@ -112,8 +118,11 @@ impl RouteLease {
             metadata,
             file_io: None,
             failures: None,
+            #[cfg(target_os = "macos")]
             owner_attempted: false,
+            #[cfg(target_os = "macos")]
             owner_retired: false,
+            #[cfg(target_os = "macos")]
             close_reported: false,
         })
     }

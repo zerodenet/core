@@ -2173,3 +2173,11 @@ metering consumer scopes are recorded in resource-configuration.md. This is a
 source review with regression sources, not compiled or runtime-qualified
 closure. No configuration fields, control wire schema, FFI ABI, VM or Apple
 authorization prerequisite are added. TEMP-WG runtime acceptance stays deferred.
+
+### Windows native TUN request names
+
+The Rust-only `OwnedWintunRequest::Create::name` and `Existing::interface`
+fields now share `Arc<str>` values with the original `PacketDeviceBinding`.
+Rust callers supplying `String` values can convert them with `Into::into`.
+Configuration and control wire shapes, the original SDK task and its native
+close requirements are unchanged.

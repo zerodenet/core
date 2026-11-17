@@ -66,6 +66,7 @@ impl Owner {
         rows.push(value);
         Ok(())
     }
+    #[cfg(any(target_os = "macos", test))]
     pub(super) fn reserve_slot<T>(&mut self, rows: &mut Vec<T>) -> Result<(), PacketMemoryError> {
         if rows.len() == rows.capacity() {
             self.grow(rows)?;

@@ -50,8 +50,11 @@ impl RouteLease {
             metadata: Some(memory.clone()),
             file_io,
             failures: Some((files.faults.clone(), attempt)),
+            #[cfg(target_os = "macos")]
             owner_attempted: false,
+            #[cfg(target_os = "macos")]
             owner_retired: false,
+            #[cfg(target_os = "macos")]
             close_reported: false,
         });
         let lease = files.pending.as_mut().unwrap();
