@@ -102,6 +102,14 @@ impl Recovery {
         limits: crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits,
     ) -> Result<PreparedInboundBind, EngineError> {
         let binding = self.select(inbound, restore)?;
+        self.prepare_selected(inbound, binding, limits)
+    }
+    fn prepare_selected(
+        &self,
+        inbound: &InboundConfig,
+        binding: Binding,
+        limits: crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits,
+    ) -> Result<PreparedInboundBind, EngineError> {
         let operation = Options::new_with_limits(
             inbound,
             self.live.clone(),
@@ -129,6 +137,22 @@ impl InboundRecovery for Recovery {
             &config.runtime,
         )
         .map_err(std::io::Error::other)?;
+        let admission = zero_engine::EndpointAdmission::from_config(config);
+        let linked = config.outbounds.iter().any(|outbound| {
+            admission.device_enabled(&outbound.tag)
+                && matches!(&outbound.protocol,
+                    zero_config::OutboundProtocolConfig::Wireguard { inbound_tag: Some(tag), .. }
+                    if tag == &inbound.tag)
+        });
+        if !linked {
+            // Unlinking removes the virtual outbound dependency, while the
+            // same crypto and native inbound capability remain. Its retained
+            // capsule may name the old, now retired linked graph. Select the
+            // accepted config's standalone source, never revive that graph.
+            return self
+                .prepare_selected(&inbound, Binding::Standalone, limits)
+                .map(Some);
+        }
         self.prepare(&inbound, restore, limits).map(Some)
     }
 

@@ -4,6 +4,63 @@ use gotatun::x25519::{PublicKey, StaticSecret};
 use zero_config::RuntimeConfig;
 use zero_platform_tokio::contract::component::ResourceDeclaration;
 
+#[test]
+fn unlinked_config_recovery_keeps_crypto_without_reviving_the_old_link_dependency() {
+    let adapter = super::super::super::WireguardAdapter::default();
+    let inbound = config();
+    let live = adapter.passive_inbound_live(&inbound).unwrap();
+    let incarnation = live.incarnation();
+    let (sender, receiver) = tokio::sync::mpsc::channel(1);
+    let (sender, _) = watch::channel(sender);
+    let link = Arc::new(LinkedEndpoint::new(
+        [3; 32],
+        7,
+        inbound.listen.clone(),
+        live.clone(),
+        vec![],
+        vec![],
+        sender,
+        receiver,
+    ));
+    let capsule = Recovery::new(
+        &inbound,
+        live.clone(),
+        Binding::Ready(link),
+        adapter.pending_endpoints.clone(),
+        crate::runtime::inbound_operation::raw_ip::RawIpSourceLimits::default(),
+    )
+    .unwrap();
+    let mut rejected_listen = inbound.listen.clone();
+    rejected_listen.port = 51821;
+    let rejected = Arc::new(super::super::super::lifecycle::PendingLinkedEndpoint::new(
+        rejected_listen,
+        live.clone(),
+    ));
+    *adapter.pending_endpoints.lock().unwrap() = Some(Arc::new(
+        crate::adapters::wireguard::lifecycle::pending_map::PendingEntries::new(
+            std::collections::HashMap::from([(inbound.tag.clone(), rejected)]),
+        ),
+    ));
+    assert!(capsule.prepare_restore(inbound.clone(), None).is_err());
+    let accepted = RuntimeConfig::parse(
+        &serde_json::json!({
+            "inbounds": [inbound], "route": {"final": {"type": "direct"}}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let restored = capsule
+        .prepare_in_config(accepted.inbounds[0].clone(), &accepted, true)
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        restored.resources()[0],
+        ResourceDeclaration::DatagramListener { .. }
+    ));
+    assert_eq!(live.incarnation(), incarnation);
+    assert!(!live.listener_active());
+}
+
 fn config() -> InboundConfig {
     serde_json::from_value(serde_json::json!({
         "tag":"wg", "listen":{"address":"127.0.0.1","port":0},

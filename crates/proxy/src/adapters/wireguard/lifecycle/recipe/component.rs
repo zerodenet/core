@@ -114,6 +114,16 @@ impl LinkedStackOptions {
         &self,
         resources: &crate::component::ResourcePreparation<'_>,
     ) -> bool {
+        // A stopped Source revoked this graph's exact prepaid memory grant.
+        // Rebuild the virtual stacks through the normal confirmed replacement;
+        // their old immutable view cannot be rebound to another original.
+        if self
+            .source_memory
+            .get()
+            .is_some_and(|memory| memory.check_open().is_err())
+        {
+            return false;
+        }
         let candidate_limit = resources
             .candidate()
             .map(|candidate| candidate.runtime.effective_carrier_max_total_originals());
