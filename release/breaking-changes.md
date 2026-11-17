@@ -1607,6 +1607,18 @@ distinguish historical 30-second overlap from current source; TEMP-WG-OUTER-UDP-
 is explicitly NOT closed. Apple authorization remains deferred. No V1 config,
 wire capability, API/events, CLI/FFI or consumer project change is included.
 
+2026-11-17 runtime follow-up: the selected native macOS default-stack candidate
+now runs standalone/linked SOCKS UDP and SOCKS-to-SS paths, repeated MTU
+replacement, actual outer-process reconnect, failed-bind recovery and pending
+startup cancellation. Fixes retain the original owner/Scope/provider gates;
+staged recovery generations take precedence over retired current generations
+for the same configuration. Actual post-start device preparation shares the
+phase cancellation instead of waiting for a withheld remote handshake.
+Runtime stack sizes and close conditions are unchanged. Disconnect-window UDP
+loss remains observable. See [the scoped runtime record](resource-configuration.md#default-stack-native-runtime-follow-up)
+for the frozen binary/lock hashes and actual coverage. No code-level test
+targets were executed. TEMP-WG-OUTER-UDP-01 is still explicitly NOT closed.
+
 
 ### Native DNS: remove the private connector/exchange chain and bind constrained UDP donors
 
@@ -2091,14 +2103,73 @@ classification, alongside real plain Browser/MUX and signed TLS forwarding.
 Only touched-file formatting/source checks are intended here; compilation,
 tests, privileged and low-resource runtime acceptance remain unperformed.
 
-### macOS plugin backend choice: Linux VM
+### macOS plugin VM choice withdrawn; native behavior retained
 
-The owner selected a Linux VM to retain complete process-tree isolation without
-Apple Developer enrollment or Endpoint Security authorization. Docker Desktop's
-existing Linux VM was started; no plugin image/container was built or run.
-release/macos-plugin-vm.md records the actual host/guest original ownership,
-endpoint authorization, binary compatibility and confirmed replacement duties.
-The ES probe is optional historical preparation. The VM provider and its macOS
-production migration are unfinished; existing plugin capabilities and ownership
-remain until the replacement is implemented. This choice does not close
-TEMP-WG-OUTER-UDP-01 or overall refactor/runtime qualification.
+On 2026-11-16 the owner withdrew the earlier Linux VM choice. A mandatory VM
+would change deployment and require Linux builds of existing native plugins,
+which is outside the intended lifecycle/ownership refactor. The uncommitted VM
+source and regression sources were archived outside the checkout; their module
+export and added dependency were removed. No plugin image/container was built
+or run, and no VM provider had reached the production catalog.
+
+At withdrawal, macOS retained its configured native plugin behavior and
+compatibility ownership pending the native migration recorded below. VM execution, Linux plugin
+rebuilds, Apple Developer enrollment and Endpoint Security authorization are not
+prerequisites. Direct-child reaping, Stream/Datagram native close and Scope joins
+remain explicit facts; no arbitrary descendant-containment receipt is implied.
+Windows Job Object and Linux native providers are retained. See
+release/macos-plugin-lifecycle.md. Neither native migration nor
+TEMP-WG-OUTER-UDP-01 runtime qualification is marked complete.
+
+### Native macOS plugins and retirement of executable compatibility projections
+
+The macOS plugin production path now uses a platform-owned native Child under
+the existing ComponentFactory/Process/Stream/Datagram host. Command, arguments,
+environment, readiness, TCP/UDP framing, half-close and protocol-owned replay
+state remain native. ProcessChildClosed attests the actual reaped child and its
+original actor join, independently of derived socket/user receipts; it does not
+claim arbitrary descendant containment. Linux/Windows keep their existing
+ProcessTreeClosed backends. No VM or Apple authorization is required.
+
+The last SS socket TCP/UDP executors, executable protocol claimer registration,
+private Datagram resume manager, prepared operation SPIs, recursive relay with
+Session0 and compatibility stream facade are removed. Ordinary, nested and DNS
+callers select actual standard roles and retain original loans/controllers.
+Block remains an engine route fact. Protocol-library convenience APIs remain
+separate. Health/error completion follows the actual attempt; tests no longer
+use a Block result as a successful connection probe.
+
+The existing process_max_jobs and process_max_jobs_per_instance fields now cover
+macOS plugin children and TUN helpers in one retained root, including pending,
+failed and retiring work. Defaults remain 64 total and one per instance. These
+are job limits, not OS thread/PID/descendant limits. Warm limit changes retire the
+actual old originals and Scope ACKs before the same root installs the new cap.
+No second helper budget, eager plugin launch or configuration-shape change is
+introduced. Existing File/TLS policy and Stream/MUX/task-root limits remain
+authoritative.
+
+Source/format checks only: no compilation, tests or runtime acceptance are
+claimed. Whole resource-configuration closure and TEMP-WG-OUTER-UDP-01 runtime
+acceptance remain open.
+
+### Resource configuration and control/metering source review
+
+UDP upstream idle policy now follows the published Engine configuration for
+existing clones and subsequent activity. Status and guarded control output use
+the same captured snapshot as their revision. Explicit library builder
+overrides keep their existing behavior; uncommitted or rejected candidates do
+not install their timeout. Checked scheduling preserves very large accepted
+timeouts without monotonic-clock overflow; unschedulable expiry never returns
+an association slot or implies original closure.
+
+Application event-network preparation now includes shared component-task total
+changes as well as carrier totals. The original Epoch's native controllers,
+Scope joins and ACKs retire before the Host installs either replacement
+policy. Target delivery remains paused under the same accepted application
+attempt, with its existing failure and compensation semantics.
+
+The configuration/owner paths and HTTP/IPC/gRPC/embedded/Engine-only FFI and
+metering consumer scopes are recorded in resource-configuration.md. This is a
+source review with regression sources, not compiled or runtime-qualified
+closure. No configuration fields, control wire schema, FFI ABI, VM or Apple
+authorization prerequisite are added. TEMP-WG runtime acceptance stays deferred.
