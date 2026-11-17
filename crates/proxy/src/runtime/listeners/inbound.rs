@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use crate::runtime::inbound_owners::ListenerObservers;
 use tokio::sync::watch;
-use tokio::task::JoinSet;
 use tracing::{info, warn};
 mod apply;
 mod plan;
@@ -24,7 +24,7 @@ pub(in crate::runtime) struct InboundReconcileState<'a> {
     pub listener_stops: &'a mut HashMap<String, watch::Sender<bool>>,
     pub active_inbounds: &'a mut HashMap<String, InboundConfig>,
     pub expected_listener_exits: &'a mut usize,
-    pub listeners: &'a mut JoinSet<Result<(), EngineError>>,
+    pub listeners: &'a mut ListenerObservers,
 }
 
 pub(in crate::runtime) async fn bind_inbound_listener(

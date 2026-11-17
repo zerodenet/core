@@ -8,7 +8,7 @@ pub(in crate::runtime) fn spawn_inbound_listener(
     inbound: &InboundConfig,
     bound: PendingInbound,
     shutdown_tx: watch::Sender<bool>,
-    listeners: &mut JoinSet<Result<(), EngineError>>,
+    listeners: &mut ListenerObservers,
 ) -> Result<std::sync::Arc<crate::runtime::inbound_owners::InboundOwner>, EngineError> {
     spawn_inbound_listener_with_state(
         protocols,
@@ -30,7 +30,7 @@ pub(super) fn spawn_inbound_listener_with_state(
     inbound: &InboundConfig,
     bound: PendingInbound,
     shutdown_tx: watch::Sender<bool>,
-    listeners: &mut JoinSet<Result<(), EngineError>>,
+    listeners: &mut ListenerObservers,
     rollback: bool,
 ) -> Result<std::sync::Arc<crate::runtime::inbound_owners::InboundOwner>, EngineError> {
     let _ = (protocols, source_dir);

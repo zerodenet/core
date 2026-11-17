@@ -11,7 +11,7 @@ pub(super) fn spawn(
     runtime_factory: &InboundListenerRuntimeFactory,
     inbound: &InboundConfig,
     shutdown: watch::Sender<bool>,
-    listeners: &mut JoinSet<Result<(), EngineError>>,
+    listeners: &mut ListenerObservers,
     rollback: bool,
 ) -> Result<Arc<InboundOwner>, EngineError> {
     let owner = installed.owner();

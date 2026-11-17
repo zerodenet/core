@@ -61,7 +61,7 @@ pub(super) struct Fixture {
     pub(super) rollback: InboundListenerRuntimeFactory,
     pub(super) active: HashMap<String, InboundConfig>,
     pub(super) stops: HashMap<String, watch::Sender<bool>>,
-    pub(super) observers: JoinSet<Result<(), EngineError>>,
+    pub(super) observers: crate::runtime::inbound_owners::ListenerObservers,
     pub(super) exits: usize,
     pub(super) gate: Gate,
     pub(super) originals: Vec<Arc<InboundOwner>>,
@@ -113,7 +113,7 @@ impl Fixture {
         });
         let mut stops = HashMap::new();
         let mut active = HashMap::new();
-        let mut observers = JoinSet::new();
+        let mut observers = proxy.inbound_owners.take_listener_observers().unwrap();
         let mut originals = Vec::new();
         for (index, port) in ports.into_iter().enumerate() {
             let inbound = &old.inbounds[index];

@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn ordinary_source_network_refresh_uses_the_same_host_without_recovery_alias_authority() {
-    let inventory = ProtocolInventory::default();
+    let inventory = crate::inventory::ProtocolInventory::default();
     let config =
         Arc::new(RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap());
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);

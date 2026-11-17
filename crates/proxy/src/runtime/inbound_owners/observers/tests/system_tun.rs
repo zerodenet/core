@@ -50,18 +50,20 @@ async fn requested_system_source_stop_keeps_steady_supervision_waiting_after_ori
         assert!(futures_util::poll!(&mut waiting).is_pending());
         owner.task_access().request_stop();
         remote.shutdown().await.unwrap();
-        while !owner.scope_closed.load(Ordering::Acquire) {
-            assert!(futures_util::poll!(&mut waiting).is_pending());
-            tokio::task::yield_now().await;
-        }
-        assert!(futures_util::poll!(&mut waiting).is_pending());
-        let joined = original
-            .try_joined()
-            .expect("original main was actually received");
-        assert!(original.matches_joined(&joined));
+        let joined = tokio::select! {
+            result = &mut waiting => panic!("planned original became a listener failure: {result:?}"),
+            joined = original.wait_registration_released() => joined,
+        };
+        assert!(original.matches_joined(&joined) && joined.registration_released());
         joined.result().unwrap();
         drop(waiting);
-        assert!(observers.is_empty());
+        loop {
+            let mut waiting = Box::pin(observers.join_next_running());
+            assert!(futures_util::poll!(&mut waiting).is_pending());
+            drop(waiting);
+            if observers.is_empty() { break; }
+            tokio::task::yield_now().await;
+        }
         proxy
             .inbound_owners
             .confirm_shutdown(
