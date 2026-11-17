@@ -1,4 +1,4 @@
-//! Same actor and original process tree; library direct-child seam stays explicit.
+//! Same actor and original native child; tree containment stays backend-specific.
 use super::*;
 use std::{
     num::NonZeroUsize,
@@ -14,7 +14,7 @@ use zero_platform_tokio::contract::{
 #[derive(Default)]
 struct Grant {
     starts: AtomicUsize,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(unix, windows))]
     originals: std::sync::Mutex<Vec<Arc<zero_platform_tokio::owned_process::OwnedProcess>>>,
 }
 fn denied<T: Send + 'static>() -> BoxFuture<'static, Result<T, ChannelError>> {
@@ -35,7 +35,7 @@ impl ResourceAccess for Grant {
             datagram: endpoint,
         })
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(unix, windows))]
     fn prepare_owned_process(
         &self,
         request: ProcessRequest,
@@ -142,13 +142,13 @@ async fn inbound_single_actor_matches_scope_join_and_its_actual_native_backend_c
         let joined = actor.wait().await;
         assert!(actor.matches_joined(&joined));
         assert!(owner.shared.state.lock().unwrap().exited.is_some());
-        #[cfg(target_os = "linux")]
+        #[cfg(any(unix, windows))]
         {
             let originals = grant.originals.lock().unwrap();
             assert_eq!(originals.len(), 1);
             let receipt = originals[0]
                 .closed()
-                .expect("actual tree/parent-fd close after actor join");
+                .expect("actual backend-native original close after actor join");
             assert!(receipt.matches(&originals[0]) && receipt.had_native_acquisition());
         }
 

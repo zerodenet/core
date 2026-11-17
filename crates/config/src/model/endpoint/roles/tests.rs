@@ -5,9 +5,9 @@ fn canonical_and_shared_legacy_endpoint_roles_preserve_exact_union_without_new_s
     let key = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
     // Metadata only: this exercises the same binding projection, no native grant.
     let config:RuntimeConfig=serde_json::from_value(serde_json::json!({
-  "endpoints":[{"tag":"canon-雪","listen":{"host":"127.0.0.1","port":0},"protocol":{"type":"wireguard","private_key":key,"addresses":["10.0.0.1/32"],"peers":[]}}],
-  "inbounds":[{"tag":"shared","listen":{"host":"127.0.0.1","port":0},"protocol":{"type":"wireguard","private_key":key,"addresses":["10.0.0.2/32"],"peers":[]}},
-   {"tag":"alone","listen":{"host":"127.0.0.1","port":0},"protocol":{"type":"wireguard","private_key":key,"addresses":["10.0.0.3/32"],"peers":[]}}],
+  "endpoints":[{"tag":"canon-雪","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"wireguard","private_key":key,"addresses":["10.0.0.1/32"],"peers":[]}}],
+  "inbounds":[{"tag":"shared","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"wireguard","private_key":key,"addresses":["10.0.0.2/32"],"peers":[]}},
+   {"tag":"alone","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"wireguard","private_key":key,"addresses":["10.0.0.3/32"],"peers":[]}}],
   "outbounds":[{"tag":"a","protocol":{"type":"wireguard","private_key":key,"addresses":["10.0.0.4/32"],"peers":[],"inbound_tag":"shared"}},
    {"tag":"b","protocol":{"type":"wireguard","private_key":key,"addresses":["10.0.0.5/32"],"peers":[],"inbound_tag":"shared"}},
    {"tag":"solo","protocol":{"type":"wireguard","private_key":key,"addresses":["10.0.0.6/32"],"peers":[]}}]

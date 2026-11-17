@@ -42,6 +42,7 @@ impl ResourceAccess for Files {
 async fn peer(plan: &PreparedServer, trust: rustls::RootCertStore) -> Vec<u8> {
     let (client, server) = tokio::io::duplex(4096);
     let acceptor = plan.acceptor();
+    let (release, held) = tokio::sync::oneshot::channel();
     let server = tokio::spawn(async move {
         let mut io = super::super::accept_tls_handshake(&acceptor, server)
             .await
@@ -50,6 +51,7 @@ async fn peer(plan: &PreparedServer, trust: rustls::RootCertStore) -> Vec<u8> {
         io.read_exact(&mut bytes).await.unwrap();
         io.write_all(&bytes).await.unwrap();
         io.shutdown().await.unwrap();
+        held.await.unwrap();
     });
     let config = rustls::ClientConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
@@ -71,6 +73,7 @@ async fn peer(plan: &PreparedServer, trust: rustls::RootCertStore) -> Vec<u8> {
     io.read_exact(&mut echo).await.unwrap();
     assert_eq!(echo, [b'x']);
     io.shutdown().await.unwrap();
+    release.send(()).unwrap();
     server.await.unwrap();
     leaf
 }

@@ -12,6 +12,8 @@ fn n(value: usize) -> NonZeroUsize {
     NonZeroUsize::new(value).unwrap()
 }
 struct Provider {
+    buffers: zero_platform_tokio::controlled_carrier::CarrierBufferBudget,
+    metadata: zero_platform_tokio::contract::component::PacketDriverMetadataView,
     native: Mutex<MetadataOwner>,
     control: Mutex<Option<MetadataDatagramControl>>,
     issuer: Mutex<Option<MetadataViewIssuer>>,
@@ -19,6 +21,17 @@ struct Provider {
     scope: zero_platform_tokio::contract::scope::TaskScopeIdentity,
 }
 impl ResourceAccess for Provider {
+    fn carrier_buffer_budget(
+        &self,
+    ) -> Option<zero_platform_tokio::controlled_carrier::CarrierBufferBudget> {
+        Some(self.buffers.clone())
+    }
+    fn packet_driver_metadata(
+        &self,
+    ) -> Result<zero_platform_tokio::contract::component::PacketDriverMetadataView, ChannelError>
+    {
+        Ok(self.metadata.clone())
+    }
     fn listen_metadata_datagram(
         &self,
         request: MetadataDatagramRequest,
@@ -99,6 +112,9 @@ async fn full_original_driver_quota_still_honors_accept_deadline_and_closes_real
             write_pollers: n(2),
         };
         let provider = Arc::new(Provider {
+            buffers: Default::default(),
+            metadata: Arc::new(zero_tun::packet_memory::PacketReturnTotals::default())
+                .driver_metadata_view(),
             native: Mutex::new(MetadataOwner::new(limits).unwrap()),
             control: Mutex::new(None),
             issuer: Mutex::new(None),

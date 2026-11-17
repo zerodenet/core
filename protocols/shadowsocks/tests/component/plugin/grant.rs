@@ -9,7 +9,7 @@ pub(super) struct Grant {
     #[cfg(any(target_os = "linux", windows))]
     pub(super) actor:
         std::sync::Mutex<Option<zero_platform_tokio::contract::scope::TaskJoinWitness>>,
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     pub(super) originals:
         std::sync::Mutex<Vec<Arc<zero_platform_tokio::owned_process::OwnedProcess>>>,
     #[cfg(any(target_os = "linux", windows))]
@@ -87,12 +87,13 @@ impl ResourceAccess for Grant {
         }
         Some(self.retirement.get()?.clone())
     }
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     fn prepare_owned_process(
         &self,
         request: zero_platform_tokio::contract::component::ProcessRequest,
         tasks: &zero_platform_tokio::contract::scope::TaskRegistrar,
     ) -> Result<Arc<zero_platform_tokio::owned_process::OwnedProcess>, BuildError> {
+        #[cfg(any(target_os = "linux", windows))]
         if self.retirement.get().is_some_and(|observer| {
             !observer.scope.matches(tasks) || !observer.scope.resource_open()
         }) {

@@ -2,7 +2,7 @@ use super::*;
 use crate::transport::plugin::fixtures::{config, PendingProbe, StartupMarker};
 use crate::validation::PluginMode;
 #[tokio::test]
-async fn plugin_pool_reload_keeps_active_leases_and_exit_is_not_silently_restarted() {
+async fn plugin_pool_reload_retains_the_same_active_original_and_exit_is_not_silently_restarted() {
     let pool = PluginPool::default();
     let old = pool.plan("127.0.0.1", 9999, config());
     let lease = old.acquire(true).await.unwrap().unwrap();
@@ -17,7 +17,10 @@ async fn plugin_pool_reload_keeps_active_leases_and_exit_is_not_silently_restart
     lease.check().unwrap();
     let new = pool.plan("127.0.0.1", 9999, config());
     let replacement = new.acquire(true).await.unwrap().unwrap();
-    assert!(!Arc::ptr_eq(&lease, &replacement));
+    assert!(
+        Arc::ptr_eq(&lease, &replacement),
+        "clear cannot forget an active library child and launch an unowned duplicate"
+    );
     lease.child.lock().unwrap().start_kill().unwrap();
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         while lease.check().is_ok() {
