@@ -43,6 +43,8 @@ test('build, dependency, workflow and native changes require full coverage', () 
     'Cargo.toml', 'Cargo.lock', 'crates/dns/Cargo.toml', 'protocols/http/build.rs',
     'Cross.toml', 'rust-toolchain.toml', '.cargo/config.toml',
     '.github/workflows/ci.yml', '.github/actions/ci-scope/scope.mjs',
+    '.github/scripts/tun-e2e-core-runner.sh',
+    '.github/scripts/collect-tun-native-backtrace.sh',
     'scripts/prepare-wintun.ps1', 'crates/platform/tokio/src/lib.rs',
     'crates/transport/src/tls.rs', 'crates/runtime/src/host.rs', 'crates/ztls/src/lib.rs',
     'vendor/quinn-proto/src/connection/pacing.rs', 'vendor/h3-quinn/src/lib.rs',

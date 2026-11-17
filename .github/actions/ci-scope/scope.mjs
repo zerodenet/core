@@ -29,6 +29,8 @@ export function selectScope(paths) {
   const qualificationPolicyChanged = relevant.some(path =>
     path === '.github/workflows/ci.yml'
     || path === '.github/workflows/tun-e2e.yml'
+    || path.startsWith('.github/scripts/tun-')
+    || path.startsWith('.github/scripts/collect-tun-')
     || path.startsWith('.github/actions/ci-scope/'));
   // Keep native/crypto/transport changes on the compatibility gate. Ordinary
   // domain logic is tested on Linux; scheduled/manual runs check every surface.
