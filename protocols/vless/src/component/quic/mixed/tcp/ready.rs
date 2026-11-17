@@ -29,6 +29,19 @@ impl PendingTcpOriginal {
         };
         match setup.outcome {
             setup::Outcome::Ready(input) => {
+                // Owners received the protocol's actual setup result above;
+                // the original carrier separately retains that same native
+                // Auxiliary receipt. Host ACK alone does not publish this
+                // carrier's preparation. Consume its real receipt before
+                // handing the input to the physical HTTP driver.
+                let accepted = setup
+                    .adoption
+                    .accept_auxiliary()
+                    .await?
+                    .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
+                if !self.caller.matches_joined(&accepted) || !accepted.registration_released() {
+                    return Err(error(Stage::Prepare, Reason::StalePlan));
+                }
                 let prepared = self
                     .entry
                     .owners

@@ -15,8 +15,8 @@ use zero_platform_tokio::{
     contract::{component::ResourceDeclaration, scope::TaskScope, CancellationToken},
     controlled_carrier::CarrierOriginalTotals,
     controlled_datagram::{metadata::MetadataLimits, metadata_pool::MetadataPoolOwner},
-    packet_memory::{PacketMetadataLayout, PacketReturnTotals},
 };
+use zero_tun::packet_memory::{PacketMetadataLayout, PacketReturnTotals};
 #[tokio::test]
 async fn actual_pending_initializer_panic_is_retained_before_local_acceptance_and_root_return() {
     actual(true).await;
