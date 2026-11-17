@@ -36,12 +36,15 @@ async fn caller_without_application_reads_drives_real_h2_capacity_and_end_then_r
         let (first_tx,first_rx)=oneshot::channel();let (release_tx,release_rx)=oneshot::channel();
         let server=tokio::spawn(async move{
             let (peer,_)=listener.accept().await.unwrap();
-            let mut builder=h2::server::Builder::new();builder.initial_window_size(1);
+            // A withheld 1 KiB window still proves actual Pending and repeated
+            // credit updates, without making a 256 KiB transfer require one
+            // WINDOW_UPDATE round trip per byte under concurrent CI load.
+            let mut builder=h2::server::Builder::new();builder.initial_window_size(1024);
             let mut connection=builder.handshake(peer).await.unwrap();
             let (mut request,mut response)=connection.accept().await.unwrap().unwrap();
             assert_eq!(request.uri().path(),"/original");assert_eq!(request.headers()["host"],"original.test");
             let application=async move{
-                let first=request.body_mut().data().await.unwrap().unwrap();assert!(!first.is_empty());
+                let first=request.body_mut().data().await.unwrap().unwrap();assert!(!first.is_empty() && first.len()<=1024);
                 actual.store(first.len(),Ordering::SeqCst);server_phase.store(1,Ordering::SeqCst);first_tx.send(first.len()).unwrap();release_rx.await.unwrap();
                 request.body_mut().flow_control().release_capacity(first.len()).unwrap();
                 let mut received=first.len();
