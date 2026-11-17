@@ -122,7 +122,7 @@ async fn standalone_outer_doh_shares_real_pool_while_one_query_cancels_and_physi
         assert!(!actual.task.is_joined() && child.closed().is_none());
         client
             .close(
-                std::slice::from_ref(&child),
+                std::slice::from_ref(child),
                 std::slice::from_ref(&actual.task),
             )
             .await;

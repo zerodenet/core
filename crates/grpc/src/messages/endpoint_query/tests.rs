@@ -36,6 +36,10 @@ impl EventSource for NoDto {
         unreachable!()
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "exercise the actual tonic Status response without an extra error allocation"
+)]
 async fn query(
     client: &mut tonic::client::Grpc<tonic::transport::Channel>,
     request: &zero_api::QueryRequest,

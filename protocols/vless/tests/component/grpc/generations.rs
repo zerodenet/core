@@ -57,6 +57,12 @@ async fn legacy_reload_cannot_revoke_a_native_role_but_its_actual_owner_retireme
     );
     let (pool, tasks) = assembly.close().await;
     assert!(pool.is_complete());
-    assert!(pool.closed_io.is_empty());
-    assert!(tasks.exited_tasks.is_empty());
+    assert_eq!(
+        pool.closed_io.len(),
+        1,
+        "the pre-retirement connect acquired one actual original"
+    );
+    assert_eq!(pool.exited_tasks, tasks.exited_tasks);
+    assert_eq!(tasks.exited_tasks.len(), 1);
+    assert!(tasks.is_complete() && tasks.failed_tasks.is_empty());
 }
