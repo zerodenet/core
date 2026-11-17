@@ -105,6 +105,14 @@ jobs:
           rustup target add thumbv7em-none-eabi
           cargo check --target thumbv7em-none-eabi -p zero-traits -p zero-core
 
+      - name: Retain selected workspace lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-lock-${{ github.run_id }}
+          path: Cargo.lock
+          if-no-files-found: error
+          overwrite: true
+
       - name: Verify round2 lock was unchanged
         if: always() && env.ZERO_ROUND2 == 'true'
         shell: bash
@@ -129,6 +137,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ env.ZERO_ROUND2 == 'true' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Restore selected workspace lockfile
+        uses: actions/download-artifact@v4
+        with:
+          name: workspace-lock-${{ github.run_id }}
 
       - name: Freeze round2 source and lock inputs
         if: env.ZERO_ROUND2 == 'true'
@@ -190,6 +203,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ env.ZERO_ROUND2 == 'true' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Restore selected workspace lockfile
+        uses: actions/download-artifact@v4
+        with:
+          name: workspace-lock-${{ github.run_id }}
 
       - name: Freeze round2 source and lock inputs
         if: env.ZERO_ROUND2 == 'true'
@@ -257,6 +275,11 @@ jobs:
         with:
           ref: ${{ env.ZERO_ROUND2 == 'true' && github.event.pull_request.head.sha || github.sha }}
 
+      - name: Restore selected workspace lockfile
+        uses: actions/download-artifact@v4
+        with:
+          name: workspace-lock-${{ github.run_id }}
+
       - name: Freeze round2 source and lock inputs
         if: env.ZERO_ROUND2 == 'true'
         uses: ./.github/actions/round2-inputs
@@ -322,6 +345,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ env.ZERO_ROUND2 == 'true' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Restore selected workspace lockfile
+        uses: actions/download-artifact@v4
+        with:
+          name: workspace-lock-${{ github.run_id }}
 
       - name: Freeze round2 source and lock inputs
         if: env.ZERO_ROUND2 == 'true'
@@ -392,6 +420,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ env.ZERO_ROUND2 == 'true' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Restore selected workspace lockfile
+        uses: actions/download-artifact@v4
+        with:
+          name: workspace-lock-${{ github.run_id }}
 
       - name: Freeze round2 source and lock inputs
         if: env.ZERO_ROUND2 == 'true'
