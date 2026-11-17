@@ -94,11 +94,16 @@ async fn compatibility_conversion_requires_capacity_and_preserves_observation() 
     let observer: Arc<dyn IoObserver> = Arc::new(Observer);
     let (tx, mut rx) = mpsc::channel::<ObservedPacket>(1);
     let output = PacketSender::from(tx).with_observer(Some(observer.clone()));
-    output.try_send_buffer(owner(&drops, &conversions)).unwrap();
+    let original = owner(&drops, &conversions);
+    let pointer = original.as_ptr();
+    output.try_send_buffer(original).unwrap();
     let packet = rx.recv().await.unwrap();
     assert!(Arc::ptr_eq(packet.observer.as_ref().unwrap(), &observer));
+    assert_eq!(packet.packet.as_ptr(), pointer);
     assert_eq!(packet.packet, vec![0x5a; 148]);
-    assert_eq!(conversions.load(Ordering::Relaxed), 2);
+    assert_eq!(conversions.load(Ordering::Relaxed), 1);
+    assert_eq!(drops.load(Ordering::Relaxed), 2);
+    drop(packet);
     assert_eq!(drops.load(Ordering::Relaxed), 3);
 }
 
