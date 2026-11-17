@@ -23,7 +23,6 @@ pub(super) fn requested_ring_declaration(
 }
 pub(crate) use super::source_dependencies::input_identity;
 impl InboundOwnerRegistry {
-    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
     pub(in crate::runtime) fn packet_source_memory(
         &self,
         input: &zero_config::InboundConfig,
@@ -73,7 +72,7 @@ impl InboundOwnerRegistry {
     }
 }
 
-#[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+#[cfg(feature = "datagram-route-runtime")]
 impl InboundOwnerRegistry {
     pub(in crate::runtime) fn packet_driver_candidate(
         &self,
@@ -134,7 +133,6 @@ impl InboundOwnerRegistry {
     }
 }
 
-#[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
 impl InboundOwnerRegistry {
     /// Match the actual installed/preparing Source, not a second native cell.
     /// This projects lineage only; neither registration nor projection is Ready.
