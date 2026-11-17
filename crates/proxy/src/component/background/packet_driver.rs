@@ -4,9 +4,26 @@ use super::*;
 mod receive;
 pub(crate) use receive::PacketCodecReceiveGroups;
 use zero_platform_tokio::contract::component::GrantedPacketServiceCaller;
+// Unsizing the same weak allocation cuts auto-trait expansion through
+// Source -> inventory -> device -> reconnect -> Source. This is only the
+// existing current-generation lookup, never a new owner or provider registry.
+trait PacketDriverServices: Send + Sync {
+    fn current(
+        self: Arc<Self>,
+        caller: &GrantedPacketServiceCaller,
+    ) -> Result<crate::protocol_registry::TcpRuntimeServices, ChannelError>;
+}
+impl PacketDriverServices for CurrentServiceSource {
+    fn current(
+        self: Arc<Self>,
+        caller: &GrantedPacketServiceCaller,
+    ) -> Result<crate::protocol_registry::TcpRuntimeServices, ChannelError> {
+        CurrentServiceSource::packet_driver_services(&self, caller)
+    }
+}
 #[derive(Clone)]
 pub(crate) struct PacketPathExecutionSource {
-    services: Weak<CurrentServiceSource>,
+    services: Weak<dyn PacketDriverServices>,
     caller: Arc<GrantedPacketServiceCaller>,
     resources: Weak<dyn zero_platform_tokio::contract::component::ResourceAccess>,
     receive: Option<PacketCodecReceiveGroups>,
@@ -32,6 +49,7 @@ impl PacketPathExecutionSource {
         caller: GrantedPacketServiceCaller,
         resources: Weak<dyn zero_platform_tokio::contract::component::ResourceAccess>,
     ) -> Self {
+        let services: Weak<dyn PacketDriverServices> = services;
         Self {
             services,
             caller: Arc::new(caller),
@@ -164,7 +182,7 @@ impl PacketPathExecutionSource {
             .upgrade()
             .ok_or_else(|| std::io::Error::other("Packet driver Host retired"))?;
         let services = source
-            .packet_driver_services(&self.caller)
+            .current(&self.caller)
             .map_err(std::io::Error::other)?;
         let end = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
         let attempt = Arc::new(
