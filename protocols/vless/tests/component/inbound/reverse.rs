@@ -39,13 +39,20 @@ async fn standard_reverse_tcp_udp_share_original_scope_and_retire_held_logical_v
                         },
                         identities: Arc::new(NoBusiness),
                         deadline: Instant::now() + Duration::from_secs(3),
-                        cancel: stop,
+                        cancel: stop.clone(),
                     })
                     .await?;
                 let AcceptedRequest::Control(control) = request else {
                     panic!("reverse control")
                 };
-                control.run().await.map_err(datagram::failure)
+                // The actual proxy Control executor retains this same
+                // accepted caller and stops the running control on Source
+                // cancellation. Keep that host contract in the library
+                // fixture; Scope cancellation alone is not a control exit.
+                tokio::select! {
+                    _ = stop.cancelled() => Ok(()),
+                    result = control.run() => result.map_err(datagram::failure),
+                }
             })
             .unwrap();
         // Use the real wire handshake rather than exposing a private mux constructor.

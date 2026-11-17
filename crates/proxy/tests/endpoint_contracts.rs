@@ -1,4 +1,5 @@
 //! Endpoint regression modules share one fixture and one integration executable.
+#![recursion_limit = "256"]
 #![cfg(feature = "wireguard")]
 
 #[cfg(feature = "socks5")]
