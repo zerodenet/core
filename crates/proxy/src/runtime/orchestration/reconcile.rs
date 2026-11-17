@@ -169,6 +169,8 @@ impl OrchestrationState {
         let components = match prepared {
             Ok(plan) => plan,
             Err(error) => {
+                warn!(%error, sources = %crate::logging::sources::Sources(error.as_ref()),
+                    "configuration cold component preparation rejected");
                 self.reject_before_start(proxy, &new_snapshot, error.to_string(), budget_changed)
                     .await;
                 return;
@@ -282,6 +284,8 @@ impl OrchestrationState {
                 Ok(pauses) => Some(pauses),
                 Err(error) => {
                     let cold_only = source_retirement.is_none();
+                    warn!(%error, sources = %crate::logging::sources::Sources(&error), cold_only,
+                        "configuration Source retirement preparation rejected");
                     #[cfg(test)]
                     eprintln!(
                         "actual Source idle/receiver retirement barrier, cold_only={cold_only}: {error:?}"
