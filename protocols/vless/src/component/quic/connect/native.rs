@@ -198,7 +198,8 @@ async fn initialize(
             )?),
             None => None,
         };
-        let segment = match if options.hysteria.is_some() {
+        let paired_endpoint = options.h3.is_some() || options.hysteria.is_some();
+        let segment = match if paired_endpoint {
             PacketSegment::prepare_with_endpoint(
                 state.unbound.take().unwrap(),
                 queues,
@@ -233,7 +234,7 @@ async fn initialize(
             drivers: n(drivers),
             users: options.users,
         };
-        let (owner, receiver) = if options.h3.is_some() || options.hysteria.is_some() {
+        let (owner, receiver) = if paired_endpoint {
             let Some(Segment::Native(segment)) = state.segment.as_mut() else {
                 unreachable!()
             };
@@ -255,7 +256,11 @@ async fn initialize(
         let Some(Segment::Native(segment)) = segment.as_mut() else {
             unreachable!()
         };
-        endpoint.bind_packet_segment(segment)?;
+        if !paired_endpoint {
+            // The paired native constructor already binds these same original
+            // queues and driver ledger before returning its retained owner.
+            endpoint.bind_packet_segment(segment)?;
+        }
         endpoint.start_prepared_masks(plan, icmp)?;
         segment.start()?;
         endpoint.start(Default::default(), None, Some(client))?
