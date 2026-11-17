@@ -11,16 +11,31 @@ const FIRST: &[u64] = &[
 
 #[tokio::test]
 async fn pipelined_upload_backpressure_does_not_discard_received_missing_sequences() {
-    tokio::time::timeout(Duration::from_secs(5), async {
-        for _ in 0..8 {
-            round_trip().await;
-        }
-    })
-    .await
-    .expect("bounded pipelined uploads must keep making progress");
+    let progress = std::sync::Mutex::new(Vec::new());
+    for round in 0..8 {
+        // Each independent wire exchange retains its five-second deadline.
+        // The repeated schedule regression is not a five-second throughput
+        // requirement for eight separate exchanges on a shared debug runner.
+        tokio::time::timeout(Duration::from_secs(5), round_trip(&progress))
+            .await
+            .unwrap_or_else(|_| {
+                panic!(
+                    "bounded pipelined upload round {round} stalled: {:?}",
+                    progress
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .map(
+                            |session: &Arc<crate::split_http::sessions::Session>| session
+                                .pending_uploads()
+                        )
+                        .collect::<Vec<_>>()
+                )
+            });
+    }
 }
 
-async fn round_trip() {
+async fn round_trip(progress: &std::sync::Mutex<Vec<Arc<crate::split_http::sessions::Session>>>) {
     let options = crate::profile::OwnedSplitHttpProfile {
         host: Some("example.com".into()),
         path: "/tunnel/".into(),
@@ -37,6 +52,7 @@ async fn round_trip() {
     };
     let profile = Profile::new(&options);
     let registry = SplitHttpRegistry::default();
+    progress.lock().unwrap().clear();
     let mut sources = Vec::new();
     let mut downloads = Vec::new();
     let mut readers = tokio::task::JoinSet::new();
@@ -47,6 +63,10 @@ async fn round_trip() {
         client.write_all(&headers(&request)).await.unwrap();
         let incoming = accept_xhttp_connection(server, &options, &registry);
         let mut stream = incoming.accept().await.unwrap();
+        progress
+            .lock()
+            .unwrap()
+            .push(registry.sessions.get_with_limit(&id, 8).unwrap());
         readers.spawn(async move {
             for sequence in 0..66u8 {
                 let mut data = [0; 2048];

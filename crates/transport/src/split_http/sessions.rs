@@ -39,6 +39,26 @@ pub(super) struct Session {
     pub(super) life: LifetimeRef,
 }
 impl Session {
+    #[cfg(test)]
+    pub(in crate::split_http) fn pending_uploads(&self) -> String {
+        let state = self.state.lock().unwrap();
+        format!(
+            "next={} eof={} heap={:?} incoming={:?} waiting={:?}",
+            state.next,
+            state.eof,
+            state.packets.keys().collect::<Vec<_>>(),
+            state
+                .incoming
+                .iter()
+                .map(|(seq, _)| seq)
+                .collect::<Vec<_>>(),
+            state
+                .waiting
+                .iter()
+                .map(|(seq, packet)| (*seq, packet.lock().unwrap().is_some()))
+                .collect::<Vec<_>>()
+        )
+    }
     fn new(budget: Arc<Semaphore>, max_posts: usize) -> Self {
         Self {
             max_posts,
