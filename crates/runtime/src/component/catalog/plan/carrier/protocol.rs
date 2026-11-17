@@ -15,20 +15,17 @@ impl ComponentPlan {
                 "protocol original has no matching actual owning role/provider/Scope",
             )
         };
-        // This contract is the installed per-call owning role, not permission
-        // to retire an anonymous shared pool through a mere dependency path.
+        // Observe only this owning role or its exact direct canonical provider.
+        // The installed original/Scope checks below remain mandatory; walking
+        // an arbitrary dependency path never qualifies an anonymous pool.
         let owning = self.role_slot(role).ok_or_else(fail)?;
-        // Browser control sockets belong to the actual roleless provider,
-        // which is a direct canonical dependency of this owning role. This
-        // branch still requires its exact installed receiver below; a numeric
-        // dependency, listener declaration or equal Scope cannot issue it.
-        let slot = if original.accepted().is_some() && owning.instance_id() != original.instance() {
-            if !owning
-                .recipe
-                .spec()
-                .dependencies
-                .contains(&original.instance().component)
-            {
+        // Browser control and shared authenticated metadata endpoints have
+        // real roleless providers. Both retain their own original controller;
+        // observing setup handoff does not transfer shared retirement.
+        let slot = if (original.accepted().is_some() || original.metadata().is_some())
+            && owning.instance_id() != original.instance()
+        {
+            if !owning.dependency_instances().contains(&original.instance()) {
                 return Err(fail());
             }
             self.order
@@ -95,6 +92,17 @@ impl ComponentPlan {
                     continue;
                 };
                 for (ordinal, declaration) in provider.recipe.spec().resources.iter().enumerate() {
+                    if let R::ControlledMetadataCarrier { max_origins, .. } = declaration {
+                        if provider.original_metadata_owner(ordinal).is_some() {
+                            capacity =
+                                capacity.checked_add(max_origins.get()).ok_or_else(|| {
+                                    invalid(
+                                        Reason::Capacity,
+                                        "pending metadata original capacity overflow",
+                                    )
+                                })?;
+                        }
+                    }
                     if let R::TcpListener {
                         accepted: Some(limits),
                         ..

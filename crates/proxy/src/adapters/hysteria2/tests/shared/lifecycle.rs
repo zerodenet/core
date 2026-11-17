@@ -81,6 +81,14 @@ async fn hysteria2_identity_isolation_and_historical_role_revocation_use_actual_
                 {"tag":"isolated","protocol":{"type":"hysteria2","server":"127.0.0.1","port":server.port,"password":"p","insecure":true}}],
             "route":{"final":{"type":"route","outbound":"hy"}}
         }).to_string()).unwrap()).unwrap();start(&proxy).await;
+        let plan = proxy.tcp_runtime_services().execution().components.as_ref().unwrap().clone();
+        let primary = plan.configured("hy").unwrap().role_id();
+        let isolated = plan.configured("isolated").unwrap().role_id();
+        let capacity = plan.protocol_original_capacity(&[primary]).unwrap();
+        assert!(capacity > 0, "the installed shared metadata provider must fund real pending originals");
+        assert_eq!(capacity, plan.protocol_original_capacity(&[isolated]).unwrap());
+        assert_eq!(capacity, plan.protocol_original_capacity(&[primary, isolated, primary]).unwrap(),
+            "the same actual provider is charged once across role aliases");
         let first=connect(&proxy,"hy").await;let same=connect(&proxy,"hy").await;assert_eq!(server.authenticated.load(Ordering::SeqCst),1);
         let isolated=connect(&proxy,"isolated").await;assert_eq!(server.authenticated.load(Ordering::SeqCst),2,"tag is part of the actual authentication/pool identity");
         let plan=proxy.tcp_runtime_services().execution().components.as_ref().unwrap().clone();let slot=plan.configured("hy").unwrap();let historical=slot.stream(end()).await.unwrap();
