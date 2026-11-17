@@ -8,7 +8,6 @@ use crate::runtime::{
 use std::{future::Future, task::Poll};
 use tokio::{
     net::TcpListener,
-    task::JoinSet,
     time::{timeout, Duration},
 };
 fn original(error: &EngineError) -> Arc<ChannelError> {
@@ -57,7 +56,7 @@ async fn late_production_spawn_confirms_actual_tcp_close_and_zero_task_receipts_
     let owner = lease.owner();
     phase.begin_shutdown();
     let (stop, _) = watch::channel(false);
-    let mut observers = JoinSet::new();
+    let mut observers = proxy.inbound_owners.take_listener_observers().unwrap();
     let error = match crate::runtime::listeners::spawn_inbound_listener(
         &proxy.protocols,
         None,

@@ -22,6 +22,10 @@ pub(super) struct Command {
     cleanup: OnceLock<std::sync::Arc<std::io::Error>>,
 }
 impl Record {
+    #[expect(
+        clippy::result_large_err,
+        reason = "preserve the original Tonic status without an unbudgeted error Box or wire contract change"
+    )]
     pub(crate) async fn execute<H>(
         &self,
         handle: H,

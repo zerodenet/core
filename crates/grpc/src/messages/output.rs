@@ -61,6 +61,10 @@ pub(super) fn frame_length(payload: usize) -> io::Result<usize> {
         .ok_or_else(|| io::Error::other("gRPC response length overflow"))
 }
 impl Record {
+    #[expect(
+        clippy::result_large_err,
+        reason = "preserve the original Tonic status without an unbudgeted error Box or wire contract change"
+    )]
     pub(crate) async fn json(&self, value: Payload<'_>) -> Result<Vec<u8>, tonic::Status> {
         let mut count = Counter(0);
         value

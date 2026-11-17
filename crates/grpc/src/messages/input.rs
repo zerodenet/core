@@ -15,6 +15,10 @@ pub(crate) struct Input {
     repeated_strings: bool,
 }
 impl Input {
+    #[expect(
+        clippy::result_large_err,
+        reason = "preserve the original Tonic status without an unbudgeted error Box or wire contract change"
+    )]
     pub(crate) fn new(
         inner: Incoming,
         original: Arc<Record>,
@@ -30,6 +34,10 @@ impl Input {
             repeated_strings: path == "/zero.api.v1.Control/Subscribe",
         })
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "preserve the original Tonic status without an unbudgeted error Box or wire contract change"
+    )]
     fn observe(&mut self, mut bytes: &[u8]) -> Result<(), tonic::Status> {
         while !bytes.is_empty() {
             if self.remaining != 0 {

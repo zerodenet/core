@@ -22,6 +22,10 @@ tokio::task_local! {
 pub(super) fn current() -> Option<std::sync::Arc<Record>> {
     CURRENT.try_with(Clone::clone).ok()
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "preserve the original Tonic status without an unbudgeted error Box or wire contract change"
+)]
 pub(super) fn request<T>(
     request: &tonic::Request<T>,
 ) -> Result<Option<std::sync::Arc<Record>>, tonic::Status> {

@@ -20,6 +20,10 @@ pub(super) struct Lifetime {
     pub(super) encoder: Mutex<(ControlBudgetPermit, usize)>,
 }
 impl Record {
+    #[expect(
+        clippy::result_large_err,
+        reason = "preserve the original Tonic status without an unbudgeted error Box or wire contract change"
+    )]
     pub(super) fn start_input(&self) -> Result<(), tonic::Status> {
         let mut input = self
             .input
@@ -40,6 +44,10 @@ impl Record {
     pub(crate) fn prepay_json(&self, raw: &[u8], query: bool) -> std::io::Result<()> {
         super::json_input::prepay(self, raw, query)
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "preserve the original Tonic status without an unbudgeted error Box or wire contract change"
+    )]
     pub(super) fn input_message(
         &self,
         bytes: usize,

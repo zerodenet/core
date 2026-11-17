@@ -9,7 +9,7 @@ use crate::runtime::route_runtime::InboundListenerRuntimeFactory;
 #[cfg(feature = "socks5")]
 use std::collections::HashMap;
 #[cfg(feature = "socks5")]
-use tokio::{sync::watch, task::JoinSet};
+use tokio::sync::watch;
 #[cfg(feature = "socks5")]
 use zero_config::{InboundConfig, RuntimeConfig};
 #[cfg(feature = "socks5")]

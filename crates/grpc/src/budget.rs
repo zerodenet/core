@@ -133,17 +133,17 @@ pub(super) fn reserve(
     }
 }
 
+type MessageCharge = (
+    Option<ControlBudgetPermit>,
+    Option<Arc<crate::messages::output::Lease>>,
+);
+
 pub(super) fn reserve_message(
     owner: &Subscriptions,
     original: Option<&Arc<crate::messages::Record>>,
     bytes: usize,
     closed: impl Fn() -> bool,
-) -> io::Result<
-    Option<(
-        Option<ControlBudgetPermit>,
-        Option<Arc<crate::messages::output::Lease>>,
-    )>,
-> {
+) -> io::Result<Option<MessageCharge>> {
     let Some(original) = original else {
         return reserve(owner, bytes, closed)
             .map(|charge| charge.map(|charge| (Some(charge), None)));

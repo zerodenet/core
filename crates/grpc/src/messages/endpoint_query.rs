@@ -12,6 +12,10 @@ pub(crate) enum PreparedProxyQuery<'a> {
     QueryError(zero_proxy::ProxyEndpointQueryError<'a>),
 }
 impl PreparedProxyQuery<'_> {
+    #[expect(
+        clippy::result_large_err,
+        reason = "preserve the original Tonic status without an unbudgeted error Box or wire contract change"
+    )]
     pub(crate) async fn finish(self, original: &Record) -> Result<Vec<u8>, tonic::Status> {
         match self {
             Self::Ready(result) => result,

@@ -4,6 +4,10 @@ pub(super) enum Subscriber<S> {
     Engine(zero_engine::EventSubscriber),
     Standalone(S),
 }
+#[expect(
+    clippy::large_enum_variant,
+    reason = "retain the original prepaid Engine event inline without another allocation"
+)]
 pub(super) enum Event {
     Original(zero_engine::RetainedEvent),
     Standalone(Box<zero_api::RawApiEvent>),

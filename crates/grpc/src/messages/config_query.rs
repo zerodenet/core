@@ -194,6 +194,10 @@ impl AsRef<[u8]> for StatusHeader {
         self.original.as_bytes()
     }
 }
+#[expect(
+    clippy::result_large_err,
+    reason = "preserve the original Tonic status without an unbudgeted error Box or wire contract change"
+)]
 fn prepare(
     original: &Record,
     engine: &zero_engine::EngineHandle,
