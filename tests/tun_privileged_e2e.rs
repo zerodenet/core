@@ -83,10 +83,7 @@ fn privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery() {
             assert_tcp_through_tun(tcp_target);
         }
 
-        run_cli(
-            binary,
-            ["reload", path(&stopped_path), "--socket", path(&socket)],
-        );
+        reload_after_originals_settle(binary, &stopped_path, &socket);
         wait_for_tun(binary, &socket, false, false);
         assert_tun_os_cleanup(&recovered_name);
         assert_route_journals_clean(&direct_path);
@@ -2142,6 +2139,38 @@ fn flow_ceiling_counts_only_target_tun_udp_sessions_across_lifecycle_states() {
 
 fn run_cli<const N: usize>(binary: &str, arguments: [&str; N]) {
     let _ = run_cli_output(binary, arguments);
+}
+
+fn reload_after_originals_settle(binary: &str, config: &std::path::Path, socket: &std::path::Path) {
+    // Native close and the Source's original Scope ACK can follow application
+    // EOF. Keep the strict busy refusal; success still requires the real host's
+    // unchanged retirement gate, rather than assuming EOF is a close receipt.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let output = Command::new(binary)
+            .args(["reload", path(config), "--socket", path(socket)])
+            .output()
+            .unwrap();
+        if output.status.success() {
+            return;
+        }
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            error.contains("Prepare: Capacity"),
+            "TUN withdrawal failed: {error}"
+        );
+        let status = tun_status(binary, socket);
+        assert!(
+            status.contains("tun: running") && status.contains("healthy=true"),
+            "busy refusal must preserve the running original Source: {status}"
+        );
+        assert!(
+            Instant::now() < deadline,
+            "original Source did not settle after real HTTP EOF: {error}\n{status}"
+        );
+        eprintln!("TUN withdrawal still waits for actual original users/Scope receipts");
+        thread::sleep(Duration::from_millis(25));
+    }
 }
 
 fn run_cli_output<const N: usize>(binary: &str, arguments: [&str; N]) -> String {

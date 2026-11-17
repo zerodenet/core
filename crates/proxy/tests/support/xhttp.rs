@@ -246,8 +246,12 @@ pub async fn interop_options(
         assert!(download_connections.load(std::sync::atomic::Ordering::SeqCst) > 0);
     }
     drop(tap);
+    // Keep the real remote peer alive while the original Zero owner stops and
+    // confirms its HTTP drivers. Killing Xray first injects a peer crash into
+    // this wire-interop case and correctly retains BrokenPipe as a task fault.
+    let shutdown = zero.shutdown().await;
     xray.kill();
-    zero.shutdown().await.unwrap();
+    shutdown.unwrap();
     if let Some(relay) = relay {
         relay.shutdown().await.unwrap();
     }
