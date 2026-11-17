@@ -10,6 +10,8 @@ mod devices;
 mod endpoint;
 mod lifecycle;
 mod logging;
+#[cfg(feature = "raw-ip-runtime")]
+mod network_change;
 mod pending_dns;
 mod reconcile;
 pub(in crate::runtime) use reconcile::budget_barrier::{

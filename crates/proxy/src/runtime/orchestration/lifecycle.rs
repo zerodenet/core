@@ -96,24 +96,14 @@ where
     tokio::pin!(shutdown);
     loop {
         #[cfg(feature = "raw-ip-runtime")]
-        let network_change = {
-            let retry_at = state.device_retry_at;
-            let changes = &mut state.egress_updates;
-            async move {
-                tokio::select! {
-                    Ok(()) = changes.changed() => {},
-                    _ = async {
-                        if let Some(deadline) = retry_at {
-                            tokio::time::sleep_until(deadline).await;
-                        } else {
-                            std::future::pending::<()>().await;
-                        }
-                    } => {},
-                }
-            }
-        };
+        let network_change = super::network_change::wait(
+            proxy.host.apply_lock(),
+            &mut state.egress_updates,
+            state.device_generation,
+            state.device_retry_at,
+        );
         #[cfg(not(feature = "raw-ip-runtime"))]
-        let network_change = std::future::pending::<()>();
+        let network_change = std::future::pending::<tokio::sync::OwnedMutexGuard<()>>();
 
         tokio::select! {
             failure = proxy.statistics.observe_failure() => {
@@ -181,7 +171,8 @@ where
                     Err(error) => warn!(error = %error, "retired Datagram close remains owned"),
                 }
             }
-            _ = network_change => {
+            network_guard = network_change => {
+                let _network_guard = network_guard;
                 #[cfg(feature = "raw-ip-runtime")]
                 {
                     let preparing = state.preparing_inbounds.clone();
