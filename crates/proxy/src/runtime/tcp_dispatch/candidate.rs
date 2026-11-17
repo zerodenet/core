@@ -24,11 +24,21 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
     {
         let covered = match &prepared.execution {
             PreparedTcpCandidateExecution::Native(selected) => {
-                selected.slot().is_ok_and(|slot| !matches!(session.target, zero_core::Address::Domain(_)) && !matches!(session.effective_direct_target(), zero_core::Address::Domain(_))
+                // TUN sniffing retains a domain for routing/accounting while
+                // Direct still opens the original literal IP. Qualify that
+                // actual gateway, not the descriptive sniffed target. A real
+                // domain Direct lookup remains a separate DNS obligation.
+                selected.slot().is_ok_and(|slot| !matches!(session.effective_direct_target(), zero_core::Address::Domain(_))
                     && slot.recipe.spec().resources.iter().any(|declaration| matches!(declaration,
                         zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier { .. })))
             }
-            PreparedTcpCandidateExecution::Block { .. } => !matches!(session.target, zero_core::Address::Domain(_)) && !matches!(session.effective_direct_target(), zero_core::Address::Domain(_)),
+            PreparedTcpCandidateExecution::Block { .. } => {
+                !matches!(session.target, zero_core::Address::Domain(_))
+                    && !matches!(
+                        session.effective_direct_target(),
+                        zero_core::Address::Domain(_)
+                    )
+            }
         };
         caller
             .declare_gateway(covered)

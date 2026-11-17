@@ -83,6 +83,7 @@ fn privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery() {
             assert_tcp_through_tun(tcp_target);
         }
 
+        assert_tun_http_sniff_preserved(binary, &socket, tcp_target);
         reload_after_originals_settle(binary, &stopped_path, &socket);
         wait_for_tun(binary, &socket, false, false);
         assert_tun_os_cleanup(&recovered_name);
@@ -2140,6 +2141,32 @@ fn flow_ceiling_counts_only_target_tun_udp_sessions_across_lifecycle_states() {
 
 fn run_cli<const N: usize>(binary: &str, arguments: [&str; N]) {
     let _ = run_cli_output(binary, arguments);
+}
+
+fn assert_tun_http_sniff_preserved(binary: &str, socket: &std::path::Path, target: SocketAddr) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let output = run_cli_output(binary, ["status", "--json", "--socket", path(socket)]);
+        let snapshot: serde_json::Value = serde_json::from_str(&output).unwrap();
+        if snapshot["runtime"]["recent_completed_sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|flow| {
+                flow["inbound_tag"] == "tun-e2e"
+                    && flow["network"] == "tcp"
+                    && flow["target"]["value"] == "example.com"
+                    && flow["port"] == u64::from(target.port())
+            })
+        {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "real HTTP Host sniff must remain visible before original Source retirement"
+        );
+        thread::sleep(Duration::from_millis(25));
+    }
 }
 
 fn reload_after_originals_settle(binary: &str, config: &std::path::Path, socket: &std::path::Path) {
