@@ -1,10 +1,12 @@
 mod ownership;
+mod weak;
 use super::*;
 use crate::grpc::{pool::State, GrpcPool};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
+pub(super) use weak::WeakManaged;
 use zero_platform_tokio::{
     contract::{
         network::UpstreamTransport,
@@ -50,7 +52,7 @@ pub(in crate::grpc) struct Managed {
     pub(super) prepared_tls: Mutex<Option<crate::tls::OwnedPreparedClient>>,
 }
 pub(super) struct Physical {
-    pub(super) owner: std::sync::Weak<Managed>,
+    pub(super) owner: WeakManaged,
     pub(super) binding: zero_platform_tokio::contract::network::UpstreamBinding,
     pub(super) pending: Mutex<Vec<CarrierAdoption>>,
     pub(super) protocols: Option<crate::protocol_pending::Children>,

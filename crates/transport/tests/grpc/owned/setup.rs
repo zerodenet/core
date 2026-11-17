@@ -46,6 +46,8 @@ async fn real_scoped_preparation_returns_same_task_credit_before_the_original_h2
         second.write_all(b"2").await.unwrap();second.flush().await.unwrap();second.read_exact(&mut byte).await.unwrap();assert_eq!(byte,*b"2");
         assert_eq!(managed.records.lock().unwrap().len(),1);
         assert!(Arc::ptr_eq(&first.life.physical,&second.life.physical));
+        assert!(Arc::ptr_eq(&managed,&first.life.physical.owner.upgrade().unwrap()));
+        assert!(Arc::ptr_eq(&managed,&second.life.physical.owner.upgrade().unwrap()));
         drop(first);drop(second);
         let (native,tasks)=fixture.close().await;
         assert!(native.is_complete()&&tasks.is_complete());

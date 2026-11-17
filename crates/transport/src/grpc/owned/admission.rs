@@ -101,7 +101,7 @@ impl Managed {
             }
         };
         let physical = Arc::new(Physical {
-            owner: Arc::downgrade(self),
+            owner: state::WeakManaged::new(self),
             binding: demand.binding.clone(),
             pending: Mutex::new(Vec::new()),
             protocols,
