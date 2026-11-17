@@ -96,21 +96,41 @@ impl Pending {
             .retirement
             .original_receiver()
             .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
-        if !self
-            .anchor
-            .get()
-            .is_some_and(|anchor| anchor.binding() == binding)
-            || generation.cancel.is_cancelled()
-            || parent.owners.stop.is_cancelled()
-            || !receiver.protocol_driver().same_registration(&self.driver)
-            || receiver.instance() != generation.instance
-            || self.driver.is_joined()
-            || !self
-                .driver
-                .native_task_id()
-                .is_some_and(|id| Some(id) == tokio::task::try_id())
-        {
-            return Err(error(Stage::Prepare, Reason::StalePlan));
+        let checks = [
+            (
+                self.anchor
+                    .get()
+                    .is_some_and(|anchor| anchor.binding() == binding),
+                "cached driver pending binding changed",
+            ),
+            (
+                !generation.cancel.is_cancelled(),
+                "cached driver generation was cancelled",
+            ),
+            (
+                !parent.owners.stop.is_cancelled(),
+                "cached driver parent was stopped",
+            ),
+            (
+                receiver.protocol_driver().same_registration(&self.driver),
+                "cached driver original registration changed",
+            ),
+            (
+                receiver.instance() == generation.instance,
+                "cached driver original instance changed",
+            ),
+            (!self.driver.is_joined(), "cached driver already joined"),
+            (
+                self.driver
+                    .native_task_id()
+                    .is_some_and(|id| Some(id) == tokio::task::try_id()),
+                "cached pending receiver was called outside its original native driver",
+            ),
+        ];
+        if let Some((_, reason)) = checks.into_iter().find(|(valid, _)| !valid) {
+            return Err(
+                error(Stage::Prepare, Reason::StalePlan).with_source(std::io::Error::other(reason))
+            );
         }
         Ok((generation, parent))
     }
