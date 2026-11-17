@@ -70,7 +70,7 @@ impl DatagramConnection {
                 .await
             }
             None => {
-                crate::component::stream_bridge::datagram::open_packet_flow(
+                crate::component::stream_bridge::datagram::open_source_flow(
                     &execution,
                     &slot,
                     target.tag(),

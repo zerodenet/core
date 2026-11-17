@@ -106,7 +106,8 @@ impl BackgroundPath<'_> {
                         target,root_binding,crate::component::direct_bridge::background::Caller {business:None,call:Some(call.clone()),waiting},
                     )?.1
                 } else {
-                if !plan.has_device_carrier_provider(first.slot.role_id()) {
+                if !plan.has_device_carrier_provider(first.slot.role_id())
+                    && first.slot.accepted_carrier_provider().is_none() {
                     return Err(invalid(
                         Reason::Revoked,
                         "Packet prefix actual source is not ready",

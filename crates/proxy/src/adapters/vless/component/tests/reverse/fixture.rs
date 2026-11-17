@@ -92,6 +92,12 @@ pub(super) async fn pair_with_bridge_graph(
     let plan = portal.tcp_runtime_services().components.clone().unwrap();
     let slot = plan.configured("portal").unwrap();
     let provider = slot.accepted_carrier_provider().unwrap();
+    // The production entry must select this genuine accepted-source provider;
+    // a virtual reverse owner has no Packet device or native node endpoint.
+    assert!(!plan.has_device_carrier_provider(slot.role_id()));
+    assert!(!slot.recipe.spec().roles.contains(
+        &zero_platform_tokio::contract::component::RoleKind::Packet
+    ));
     timeout(Duration::from_secs(5), async {
         while provider.originals().is_empty() {
             tokio::task::yield_now().await;

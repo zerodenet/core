@@ -180,9 +180,9 @@ pub(crate) async fn open_flow(
 ) -> Result<Opened, ChannelError> {
     open_with_accounting(services, slot, tag, endpoint, request, false).await
 }
-/// One existing Packet stack session, without inventing a native node endpoint.
+/// One existing device or accepted-source session, without a native node endpoint.
 #[cfg(feature = "managed-stream-runtime")]
-pub(crate) async fn open_packet_flow(
+pub(crate) async fn open_source_flow(
     services: &TcpExecutionServices,
     slot: &Arc<ComponentSlot>,
     tag: &str,
@@ -199,10 +199,12 @@ pub(crate) async fn open_packet_flow(
         .components
         .as_ref()
         .map_err(|error| crate::component::instance::retained(error.clone()))?;
-    if !plan.has_device_carrier_provider(slot.role_id()) {
+    if !plan.has_device_carrier_provider(slot.role_id())
+        && slot.accepted_carrier_provider().is_none()
+    {
         return Err(invalid(
             Reason::StalePlan,
-            "Packet Datagram source is not actually live",
+            "endpoint-free Datagram lacks its live original provider",
         ));
     }
     let network = services.upstream_observed(tag);

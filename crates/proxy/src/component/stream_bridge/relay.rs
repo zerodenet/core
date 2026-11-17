@@ -164,7 +164,8 @@ pub(crate) async fn connect(
                 ).map_err(normalize)?;
                 (Some(RootEvidence::Direct(root)),upstream)
             } else {
-            if !plan.has_device_carrier_provider(first_slot.role_id()) {
+            if !plan.has_device_carrier_provider(first_slot.role_id())
+                && first_slot.accepted_carrier_provider().is_none() {
                 return Err(normalize(invalid(
                     Reason::Revoked,
                     "Packet relay original source is not ready",

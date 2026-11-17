@@ -206,10 +206,12 @@ pub(super) async fn connect(
         .components
         .as_ref()
         .map_err(|source| failure(super::super::instance::retained(source.clone())))?;
-    if !plan.has_device_carrier_provider(slot.role_id()) {
+    if !plan.has_device_carrier_provider(slot.role_id())
+        && slot.accepted_carrier_provider().is_none()
+    {
         return Err(failure(invalid(
             Reason::StalePlan,
-            "Packet carrier lacks its live actual source",
+            "endpoint-free Stream lacks its live original provider",
         )));
     }
     let invocation = services.invocation.as_ref().ok_or_else(|| {
@@ -299,7 +301,8 @@ pub(in crate::component::stream_bridge) fn business_transport(
     if !binding.prefix.is_empty()
         || binding.dial != slot.dial
         || binding.network_generation.0 != services.upstream().network_generation()
-        || !plan.has_device_carrier_provider(slot.role_id())
+        || (!plan.has_device_carrier_provider(slot.role_id())
+            && slot.accepted_carrier_provider().is_none())
     {
         return Err(invalid(
             Reason::StalePlan,
