@@ -20,7 +20,10 @@ use std::{
 use zero_platform_tokio::contract::{
     component::*, scope::TaskRegistrar, ChannelError, Impact, Reason, Stage,
 };
+#[track_caller]
 fn error(stage: Stage, reason: Reason) -> ChannelError {
+    tracing::debug!(?stage, ?reason, location = %std::panic::Location::caller(),
+        "QUIC component operation failed");
     ChannelError::new(stage, reason, Impact::Component)
 }
 fn n(value: usize) -> NonZeroUsize {

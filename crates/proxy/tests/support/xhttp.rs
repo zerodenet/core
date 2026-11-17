@@ -44,7 +44,7 @@ pub async fn interop_options(
         .remove("_test_server_name")
         .and_then(|v| v.as_str().map(str::to_owned))
         .unwrap_or_else(|| "localhost".into());
-    init_logs("zero_proxy=warn,vless=warn");
+    init_logs("zero_proxy=warn,vless=debug,zero_transport=debug");
     let binary = std::env::var("XRAY_BIN").expect("XRAY_BIN must point to official v26.3.27");
     let version = std::process::Command::new(&binary)
         .arg("version")

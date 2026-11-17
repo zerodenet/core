@@ -29,7 +29,7 @@ pub(crate) fn log_listener_connection_error(
             Some(FailureLogDecision::Warn { suppressed }) => suppressed,
             None => 0,
         };
-        warn!(inbound_tag, ?remote_addr, protocol, stage, error = %error,
+        warn!(inbound_tag, ?remote_addr, protocol, stage, error = %error, sources = %super::sources::Sources(error),
             suppressed_failures, "connection failed");
     }
 }
