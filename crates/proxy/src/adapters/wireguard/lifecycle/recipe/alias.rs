@@ -190,7 +190,7 @@ impl WireguardAdapter {
                 profile
                     .graph
                     .as_ref()
-                    .and_then(std::sync::Weak::upgrade)
+                    .and_then(|graph| graph.upgrade())
                     .map(|root| (tag.clone(), root))
             })
             .collect::<std::collections::HashMap<_, _>>();
