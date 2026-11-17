@@ -3,7 +3,7 @@ pub(in crate::component) mod background;
 pub(super) mod controlled;
 pub(super) mod network;
 mod source;
-use super::instance::{invalid, retained};
+use super::instance::invalid;
 use crate::{
     protocol_registry::TcpExecutionServices,
     transport::{EstablishedTcpOutbound, TcpOutboundFailure},
@@ -140,14 +140,14 @@ pub(in crate::component) async fn connect_slot(
             .with_business(
                 super::business_carrier::BusinessCarrierRequest::new(
                     services.engine(),
-                    &slot,
+                    slot,
                     &invocation,
                 )
                 .map_err(|error| failure("prepare_component", error))?,
             )
             .with_probe(
                 controlled::ProbeRequest::new(
-                    &slot,
+                    slot,
                     &invocation,
                     Destination::new(session.target.clone(), session.port),
                 )

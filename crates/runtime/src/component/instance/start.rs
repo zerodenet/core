@@ -16,7 +16,7 @@ impl ComponentSlot {
             return Err(self.failure(Reason::Timeout, "component start deadline elapsed"));
         }
         self.check_host_installation()?;
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         {
             let _admission = self
                 .owned_start_gate
@@ -83,7 +83,7 @@ impl ComponentSlot {
                 if let Some(source) = self.node_dns_source.get() {
                     resources.bind_node_dns_source(source.clone());
                 }
-                #[cfg(any(target_os = "linux", windows))]
+                #[cfg(any(unix, windows))]
                 if let Some(paid) = self.prepaid_process.get() {
                     resources
                         .install_prepaid_process(paid.clone())
@@ -126,6 +126,10 @@ impl ComponentSlot {
                     cancel: self.cancel.child_token(),
                     background_carrier: None,
                 };
+                tracing::debug!(
+                    identity = ?self.instance_id(),
+                    "component original build admitted"
+                );
                 let instance = self.recipe.build(context).map_err(Arc::new)?;
                 let protocol_failures = resources.protocol_failure_receiver();
                 if let Some(provider)=&instance.roles.accepted_carriers {

@@ -1,6 +1,10 @@
 //! Move the actual queue element and its existing reservation through encoding.
 use super::*;
 pub struct RetainedEvent(Original);
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the original state stays in its existing reserved envelope without adding a per-variant unbudgeted Box"
+)]
 enum Original {
     Queued(crate::observability::QueuedEvent),
     Initial(super::initial::InitialEvent),

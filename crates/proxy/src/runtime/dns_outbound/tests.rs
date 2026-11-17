@@ -108,30 +108,40 @@ async fn proxy_executes_dns_detour_in_its_actual_host_without_recursive_resoluti
 }
 
 #[cfg(feature = "socks5")]
+#[path = "tests/service.rs"]
 mod service;
 
 #[cfg(feature = "socks5")]
+#[path = "tests/doh_binding.rs"]
 mod doh_binding;
 
+#[path = "tests/direct.rs"]
 mod direct;
 
 #[cfg(feature = "vmess")]
+#[path = "tests/vmess_grpc.rs"]
 mod vmess_grpc;
 
 #[cfg(feature = "vless")]
+#[path = "tests/ech.rs"]
 mod ech;
 
 #[cfg(feature = "vless")]
+#[path = "tests/vless_grpc.rs"]
 mod vless_grpc;
 
 #[cfg(all(feature = "wireguard", feature = "raw-ip-runtime"))]
+#[path = "tests/wireguard.rs"]
 mod wireguard;
 
 #[cfg(feature = "vless")]
+#[path = "tests/vless_stream.rs"]
 mod vless_stream;
 
-#[cfg(all(feature = "shadowsocks", target_os = "linux"))]
+#[cfg(all(feature = "shadowsocks", unix))]
+#[path = "tests/sip.rs"]
 mod sip;
 
 #[cfg(any(feature = "socks5", feature = "shadowsocks"))]
+#[path = "tests/native_datagram.rs"]
 mod native_datagram;

@@ -165,7 +165,7 @@ impl ProcessDeclarations {
                 {
                     if !job.reported {
                         if closed.had_native_acquisition() {
-                            report.closed_io.push(format!("component {} process declaration {} actual tree and original descriptors closed", component.0, entry.ordinal));
+                            report.closed_io.push(format!("component {} process declaration {} actual native process and derived originals closed", component.0, entry.ordinal));
                         }
                         job.reported = true;
                     }

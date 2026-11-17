@@ -14,6 +14,7 @@ pub(crate) enum TcpDispatchIntent {
     DiagnosticProbe,
     /// DNS outcomes belong to the resolver's fallback chain and do not alter
     /// business-traffic carrier observations.
+    #[cfg(test)]
     DnsDetour,
 }
 

@@ -12,9 +12,8 @@ fn standard_packet_metadata_is_cold_without_an_executable_claim() {
         if !matches!(protocol, "socks5" | "shadowsocks") {
             continue;
         }
-        assert!(registry.claim_outbound_leaf(&config, leaf.clone()).is_err());
         let metadata = registry
-            .prepare_cold_packet_path_projection(&config, leaf)
+            .prepare_cold_packet_path_projection(&config.outbounds[0])
             .unwrap()
             .unwrap();
         assert_eq!(
@@ -29,9 +28,8 @@ fn standard_packet_metadata_is_cold_without_an_executable_claim() {
 #[test]
 fn cold_ss_formatter_material_is_inert_and_keeps_one_actual_source_clone_family() {
     use zero_core::Address;
-    use zero_engine::{OutboundIdentity, ResolvedLeafOutbound};
     assert!(tokio::runtime::Handle::try_current().is_err());
-    let registry = crate::register::protocol_registry().without_outbound_projection("shadowsocks");
+    let registry = crate::register::protocol_registry();
     for mode in [
         None,
         Some("tcp_only"),
@@ -43,11 +41,8 @@ fn cold_ss_formatter_material_is_inert_and_keeps_one_actual_source_clone_family(
             protocol["plugin"] = serde_json::json!({"command":"this-program-must-not-be-started-during-cold-formatting","mode":mode});
         }
         let config=zero_config::RuntimeConfig::parse(&serde_json::json!({"outbounds":[{"tag":"cold","protocol":protocol}],"route":{"final":{"type":"direct"}}}).to_string()).unwrap();
-        let leaf = || ResolvedLeafOutbound::Proxy {
-            identity: OutboundIdentity::from_config_index(0),
-        };
         let material = registry
-            .prepare_cold_packet_path_projection(&config, leaf())
+            .prepare_cold_packet_path_projection(&config.outbounds[0])
             .unwrap();
         if matches!(mode, Some("udp_only" | "tcp_and_udp")) {
             assert!(
@@ -83,7 +78,7 @@ fn cold_ss_formatter_material_is_inert_and_keeps_one_actual_source_clone_family(
             vec![65536, 255]
         );
         let independent = registry
-            .prepare_cold_datagram_source(&config, leaf())
+            .prepare_cold_datagram_source(&config.outbounds[0])
             .unwrap()
             .unwrap();
         assert!(
@@ -97,7 +92,7 @@ fn cold_ss_formatter_material_is_inert_and_keeps_one_actual_source_clone_family(
 #[test]
 fn nonformatter_metadata_returns_none_before_any_old_projection_or_file_material() {
     assert!(tokio::runtime::Handle::try_current().is_err());
-    let registry = crate::register::protocol_registry().without_outbound_projection("vless");
+    let registry = crate::register::protocol_registry();
     for (config, leaf, _) in compiled_in_outbound_leaves() {
         if outbound_leaf_name(&config, &leaf) != "vless" {
             continue;
@@ -105,11 +100,11 @@ fn nonformatter_metadata_returns_none_before_any_old_projection_or_file_material
         // Calling the removed projection would be a real error. The cold
         // metadata path must return None before invoking that execution owner.
         assert!(registry
-            .prepare_cold_datagram_source(&config, leaf.clone())
+            .prepare_cold_datagram_source(&config.outbounds[0])
             .unwrap()
             .is_none());
         assert!(registry
-            .prepare_cold_packet_path_projection(&config, leaf)
+            .prepare_cold_packet_path_projection(&config.outbounds[0])
             .unwrap()
             .is_none());
     }
@@ -119,14 +114,14 @@ fn nonformatter_metadata_returns_none_before_any_old_projection_or_file_material
 #[test]
 fn cold_socks_source_uses_only_original_base_metadata_without_an_executor_or_associated_suffix() {
     assert!(tokio::runtime::Handle::try_current().is_err());
-    let registry = crate::register::protocol_registry().without_outbound_projection("socks5");
+    let registry = crate::register::protocol_registry();
     let mut actual = 0;
     for (config, leaf, _) in compiled_in_outbound_leaves() {
         if outbound_leaf_name(&config, &leaf) != "socks5" {
             continue;
         }
         let material = registry
-            .prepare_cold_packet_path_projection(&config, leaf)
+            .prepare_cold_packet_path_projection(&config.outbounds[0])
             .unwrap()
             .unwrap();
         assert_eq!(

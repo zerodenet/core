@@ -51,7 +51,7 @@ mod running;
 pub(crate) mod sniff;
 // Direct and standard inbound streams also recover DNS targets.
 mod target;
-#[cfg(feature = "raw-ip-runtime")]
+#[cfg(all(test, feature = "raw-ip-runtime"))]
 pub(crate) use target::resolve_packet_targets;
 pub(crate) mod tcp_dispatch;
 pub(crate) mod tcp_ingress;

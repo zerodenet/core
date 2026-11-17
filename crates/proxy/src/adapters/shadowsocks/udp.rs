@@ -1,6 +1,4 @@
 //! Cold codec metadata and standard cached Datagram integration.
-#[cfg(not(any(target_os = "linux", windows)))]
-mod plugin;
 use super::ShadowsocksAdapter;
 use crate::runtime::udp_flow::packet_path::{
     packet_path_carrier_descriptor_from_build, udp_datagram_source_from_build,
@@ -74,6 +72,6 @@ impl ShadowsocksAdapter {
 #[cfg(all(test, feature = "socks5"))]
 #[path = "udp/tests/owned/ordinary.rs"]
 mod ordinary_tests;
-#[cfg(all(test, feature = "socks5", any(target_os = "linux", windows)))]
+#[cfg(all(test, feature = "socks5", any(unix, windows)))]
 #[path = "udp/tests/owned/sip.rs"]
 mod sip_tests;

@@ -18,11 +18,6 @@ impl UdpSessionFlows {
         self.snapshot_borrowed(target, port, client_session_id, None)
     }
 
-    pub(crate) fn snapshot_key(&self, key: &UdpFlowKey) -> Option<UdpFlowSnapshot> {
-        self.flows
-            .get_key_value(key)
-            .map(|(key, flow)| flow.snapshot(key.clone()))
-    }
     pub(crate) fn snapshot_borrowed(
         &self,
         target: &Address,

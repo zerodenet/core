@@ -8,8 +8,8 @@ fn end() -> Instant {
 }
 
 #[tokio::test]
-async fn actual_host_process_budget_retains_pending_original_and_requires_tree_actor_and_native_closes(
-) {
+async fn actual_host_process_budget_retains_pending_original_and_requires_actor_and_native_closes()
+{
     let mut scope = TaskScope::new(
         tokio::runtime::Handle::current(),
         NonZeroUsize::new(1).unwrap(),
@@ -57,7 +57,10 @@ async fn actual_host_process_budget_retains_pending_original_and_requires_tree_a
         .spawn_tracked(TaskClass::Critical, async move {
             actual.start(begun.await.unwrap()).unwrap();
             actual.wait_started(end()).await.unwrap();
+            #[cfg(any(target_os = "linux", windows))]
             let mut stopped = Box::pin(actual.wait_tree_ended(end()));
+            #[cfg(all(unix, not(target_os = "linux")))]
+            let mut stopped = Box::pin(actual.wait_child_ended(end()));
             assert!(
                 std::future::poll_fn(|cx| Poll::Ready(stopped.as_mut().poll(cx).is_pending()))
                     .await

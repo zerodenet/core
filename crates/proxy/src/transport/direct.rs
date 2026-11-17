@@ -281,7 +281,19 @@ impl DirectConnector {
         ))
     }
 
-    async fn resolve_target_addrs_at_generation(
+    fn resolve_target_addrs_at_generation<'a>(
+        &'a self,
+        session: &'a Session,
+        resolver: &'a DnsSystem,
+        egress: &'a EgressInterfaceControl,
+        policy: &'a zero_traits::DialPolicy,
+    ) -> zero_platform_tokio::contract::BoxFuture<'a, Result<DirectTargetResolution, Error>> {
+        // DNS preparation must not enlarge every literal-IP UDP relay poll.
+        // Keep the original resolver, generation check and caller custody.
+        Box::pin(self.resolve_target_addrs_at_generation_inner(session, resolver, egress, policy))
+    }
+
+    async fn resolve_target_addrs_at_generation_inner(
         &self,
         session: &Session,
         resolver: &DnsSystem,
@@ -503,6 +515,7 @@ impl DirectConnector {
         }
     }
 
+    #[cfg(test)]
     pub(crate) async fn resolve_address(
         &self,
         address: &Address,

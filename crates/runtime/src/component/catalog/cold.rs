@@ -389,7 +389,7 @@ pub(super) fn validate_executors(
 ) -> Result<(), ChannelError> {
     use zero_platform_tokio::contract::component::ResourceDeclaration as R;
     crate::component::instance::packet_datagram_read_spec(&spec.resources, usize::MAX)?;
-    let process_provider = cfg!(any(target_os = "linux", windows))
+    let process_provider = cfg!(any(unix, windows))
         && crate::component::instance::demand_process_endpoint_ordinal(spec).is_some();
     let unsupported = spec.resources.iter().any(|resource| {
         if matches!(resource, R::Process { .. } | R::ProcessEndpoint { .. }) {

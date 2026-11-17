@@ -5,7 +5,7 @@ use std::{
     sync::Condvar,
     thread::JoinHandle,
 };
-use zero_traits::packet_metadata::{PacketMetadataArc, PacketMetadataLayout};
+use zero_traits::packet_metadata::PacketMetadataArc;
 
 #[derive(Default)]
 pub(super) struct Signal {

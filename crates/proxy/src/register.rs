@@ -28,8 +28,10 @@ pub(crate) fn compiled_registries_with_network(
     Arc<crate::adapters::devices::Devices>,
 ) {
     let _ = &background;
-    #[cfg(any(feature = "vless", feature = "vmess", feature = "trojan"))]
-    let browser_registry = zero_transport::browser_dialer::registry::Registry::default();
+    // Cold and allocation-free until an individual compiled adapter requests it.
+    let browser_registry =
+        std::sync::LazyLock::new(zero_transport::browser_dialer::registry::Registry::default);
+    let _ = &browser_registry;
     use zero_traits::ProtocolMetadata;
     let direct_adapter = Arc::new(crate::adapters::direct::DirectAdapter::default());
     let mut components = crate::component::ComponentRegistry::default();
@@ -145,7 +147,6 @@ pub(crate) fn compiled_registries_with_network(
             .expect("unique SOCKS5 inbound component registration");
         registry.register_standard_packet_carrier(
             Arc::new(Socks5Adapter),
-            None,
             Socks5Adapter::cold_packet_path_projection,
         );
     }
@@ -168,7 +169,7 @@ pub(crate) fn compiled_registries_with_network(
                 },
             )
             .expect("unique HTTP inbound component registration");
-        registry.register_standard_protocol(Arc::new(HttpConnectAdapter), None);
+        registry.register_standard_protocol(Arc::new(HttpConnectAdapter));
     }
     #[cfg(feature = "vless")]
     {
@@ -317,7 +318,7 @@ pub(crate) fn compiled_registries_with_network(
             )
             .expect("unique standard VLESS inbound registration");
         registry.register_inbound_service(adapter.clone());
-        registry.register_standard_protocol(adapter, None);
+        registry.register_standard_protocol(adapter);
     }
     #[cfg(feature = "hysteria2")]
     {
@@ -385,12 +386,12 @@ pub(crate) fn compiled_registries_with_network(
                 .expect("unique standard Hysteria2 outbound registration");
             components.set_legacy_connect_stage("hysteria2", "connect_upstream_hysteria2");
         }
-        registry.register_standard_protocol(adapter, None);
+        registry.register_standard_protocol(adapter);
     }
     #[cfg(feature = "shadowsocks")]
     {
         use crate::adapters::shadowsocks::ShadowsocksAdapter;
-        let mut adapter = ShadowsocksAdapter::default();
+        let adapter = ShadowsocksAdapter::default();
         let adapter = Arc::new(adapter);
         let inbound_adapter = adapter.clone();
         registry
@@ -433,16 +434,8 @@ pub(crate) fn compiled_registries_with_network(
             )
             .expect("unique Shadowsocks component registration");
         components.set_legacy_connect_stage("shadowsocks", "connect_upstream_shadowsocks");
-        #[cfg(any(target_os = "linux", windows))]
         registry.register_standard_packet_carrier(
             adapter,
-            None,
-            ShadowsocksAdapter::cold_packet_path_projection,
-        );
-        #[cfg(not(any(target_os = "linux", windows)))]
-        registry.register_standard_packet_carrier(
-            adapter,
-            Some(ShadowsocksAdapter::claim_outbound_leaf_impl),
             ShadowsocksAdapter::cold_packet_path_projection,
         );
     }
@@ -555,7 +548,7 @@ pub(crate) fn compiled_registries_with_network(
                 },
             )
             .expect("unique Trojan standard inbound registration");
-        registry.register_standard_protocol(adapter, None);
+        registry.register_standard_protocol(adapter);
     }
     #[cfg(feature = "vmess")]
     {
@@ -686,7 +679,7 @@ pub(crate) fn compiled_registries_with_network(
                 },
             )
             .expect("unique standard VMess inbound registration");
-        registry.register_standard_protocol(adapter, None);
+        registry.register_standard_protocol(adapter);
     }
     #[cfg(feature = "mieru")]
     {
@@ -741,7 +734,7 @@ pub(crate) fn compiled_registries_with_network(
                 crate::adapters::mieru::component::production_selected(candidate)
             });
         }
-        registry.register_standard_protocol(adapter, None);
+        registry.register_standard_protocol(adapter);
     }
     #[cfg(feature = "wireguard")]
     {
@@ -802,7 +795,7 @@ pub(crate) fn compiled_registries_with_network(
                 _ => false,
             },
         );
-        registry.register_standard_protocol(adapter, None);
+        registry.register_standard_protocol(adapter);
     }
     #[cfg(feature = "mixed")]
     {
@@ -823,7 +816,7 @@ pub(crate) fn compiled_registries_with_network(
                 },
             )
             .expect("unique mixed inbound component registration");
-        registry.register_standard_protocol(Arc::new(MixedAdapter), None);
+        registry.register_standard_protocol(Arc::new(MixedAdapter));
     }
     #[cfg(feature = "udp-runtime")]
     {
@@ -832,11 +825,11 @@ pub(crate) fn compiled_registries_with_network(
         {
             devices.direct = Some(adapter.clone());
         }
-        registry.register_standard_protocol(adapter, None);
+        registry.register_standard_protocol(adapter);
     }
     #[cfg(not(feature = "udp-runtime"))]
     {
-        registry.register_standard_protocol(direct_adapter, None);
+        registry.register_standard_protocol(direct_adapter);
     }
     // Every adapter must exist before the one actual Packet Root is injected.
     // The same network source contains only weak current services.

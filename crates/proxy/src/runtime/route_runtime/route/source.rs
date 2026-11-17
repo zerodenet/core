@@ -171,7 +171,17 @@ impl InboundRouteRuntime {
             Ok(())
         })
     }
-    pub(in crate::runtime) async fn complete_request(
+    pub(in crate::runtime) fn complete_request(
+        self,
+        pending: PendingInbound,
+        cancel: CancellationToken,
+    ) -> BoxFuture<'static, Result<(), EngineError>> {
+        // The actual accepted task keeps this one operation. Do not copy the
+        // complete Stream/Message/Datagram graph through each spawn wrapper.
+        Box::pin(self.complete_request_inner(pending, cancel))
+    }
+
+    async fn complete_request_inner(
         self,
         pending: PendingInbound,
         cancel: CancellationToken,

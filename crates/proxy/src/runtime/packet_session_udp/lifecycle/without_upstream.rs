@@ -22,7 +22,12 @@ where
         let (direct_sock, chain_tasks, cancel_rx) = dispatch.poll_sockets();
 
         select! {
-            _ = tokio::time::sleep_until(*last_activity + context.timeout) => {
+            _ = async {
+                match last_activity.checked_add(context.timeout) {
+                    Some(deadline) => tokio::time::sleep_until(deadline).await,
+                    None => std::future::pending().await,
+                }
+            } => {
                 tracing::info!(
                     inbound_tag = context.inbound_tag,
                     protocol = context.protocol,

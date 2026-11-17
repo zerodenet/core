@@ -85,10 +85,6 @@ impl CurrentServiceSource {
             .ok_or_else(|| unavailable("proxy runtime is shutting down"))
     }
     #[cfg(feature = "raw-ip-runtime")]
-    pub(super) fn egress_generation(&self) -> u64 {
-        self.egress_interface.generation()
-    }
-
     /// Observe retained cleanup custody without preparing the Engine's pending
     /// configuration or admitting a caller against a historical role.
     pub(crate) fn validate_owned_carrier_adoption(

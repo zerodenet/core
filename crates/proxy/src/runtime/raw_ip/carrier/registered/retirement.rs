@@ -124,6 +124,13 @@ impl State {
         // This call's controls, exclusive originals and returned donor custody
         // are settled. Unchanged shared pools remain live under their owners;
         // replacing them still consumes their independent Host native receipts.
+        tracing::debug!(
+            wire = ?self.wire.task_id(),
+            exited_tasks = report.exited_tasks.len(),
+            closed_io = report.closed_io.len(),
+            released_resources = report.released_resources.len(),
+            "raw-IP outer originals closed and wire registration released"
+        );
         self.closed.store(true, Ordering::Release);
         Ok(())
     }

@@ -11,7 +11,7 @@ mod relay;
 #[cfg(feature = "hysteria2")]
 mod hysteria2;
 
-#[cfg(all(feature = "shadowsocks", not(any(target_os = "linux", windows))))]
+#[cfg(all(feature = "shadowsocks", not(any(unix, windows))))]
 mod datagram_only;
 
 fn config(peer: SocketAddr, outer: Option<SocketAddr>, linked: bool) -> RuntimeConfig {
@@ -131,7 +131,10 @@ async fn linked_and_standalone_outer_replacement_consumes_old_scope_and_same_nat
             .apply_runtime_config_and_wait(outer_config, Duration::from_secs(5))
             .await
             .unwrap();
-        let source = outer.inbound_owners.owner("outer-in").unwrap();
+        let source = outer
+            .system_tun_source_registry()
+            .owner("outer-in")
+            .unwrap();
         source.wait_ready().await.unwrap();
         let endpoint = *source.original_listener_address.get().unwrap();
         let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
@@ -188,7 +191,10 @@ async fn actual_source_reconnect_keeps_the_wire_and_closes_previous_native_befor
         .apply_runtime_config_and_wait(outer_config.clone(), Duration::from_secs(5))
         .await
         .unwrap();
-    let source = outer.inbound_owners.owner("outer-in").unwrap();
+    let source = outer
+        .system_tun_source_registry()
+        .owner("outer-in")
+        .unwrap();
     source.wait_ready().await.unwrap();
     let endpoint = *source.original_listener_address.get().unwrap();
     let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();

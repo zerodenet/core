@@ -1,5 +1,10 @@
 //! Freeze exact DNS backends and their canonical host Scope preservation.
 use super::*;
+type PreserveScope<'a> = dyn Fn(
+        zero_core::component::ComponentInstanceId,
+        &zero_platform_tokio::contract::scope::TaskScopeIdentity,
+    ) -> bool
+    + 'a;
 impl DnsSystem {
     pub(super) fn prepare_reload_resources(
         &self,
@@ -7,12 +12,7 @@ impl DnsSystem {
         dispatch: Option<zero_router::DomainDispatcher<String>>,
         affected_detours: &BTreeSet<String>,
         refresh_queries: bool,
-        preserves: Option<
-            &dyn Fn(
-                zero_core::component::ComponentInstanceId,
-                &zero_platform_tokio::contract::scope::TaskScopeIdentity,
-            ) -> bool,
-        >,
+        preserves: Option<&PreserveScope<'_>>,
     ) -> io::Result<DnsReloadResources> {
         if self.owned_root.is_some() && config.is_none() {
             return Err(io::Error::new(

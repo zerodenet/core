@@ -75,12 +75,7 @@ impl Hysteria2Adapter {
         options: &RoleOptions,
         resources: &mut ResourcePreparation<'_>,
     ) -> Result<(), RegistrationError> {
-        let OutboundProtocolConfig::Hysteria2 {
-            server,
-            port,
-            ..
-        } = &input.protocol
-        else {
+        let OutboundProtocolConfig::Hysteria2 { server, port, .. } = &input.protocol else {
             return Err(options_error("expected actual Hysteria2 Packet root"));
         };
         if resources.named_component(input.tag()).is_none() {

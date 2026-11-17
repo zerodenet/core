@@ -32,13 +32,6 @@ pub(crate) enum UdpFlowOutbound {
         port: u16,
         managed: ManagedUdpFlowRef,
     },
-    #[cfg(feature = "managed-datagram-runtime")]
-    Datagram {
-        tag: String,
-        server: String,
-        port: u16,
-        managed: ManagedUdpFlowRef,
-    },
     #[cfg(feature = "managed-stream-runtime")]
     LogicalStreamPacket {
         tag: String,

@@ -1,10 +1,8 @@
 //! Active ingress's selected original physical root. It cannot execute a prefix or
 //! substitute a different destination, caller identity, or network generation.
 use crate::protocol_registry::UpstreamConnectServices;
-use std::{
-    net::SocketAddr,
-    sync::{Arc, Mutex, Weak},
-};
+use std::sync::{Arc, Weak};
+#[path = "ingress_root/controlled.rs"]
 mod controlled;
 #[cfg(test)]
 #[path = "tests/legacy_root.rs"]
@@ -19,6 +17,9 @@ use zero_platform_tokio::contract::{
     BoxFuture, ChannelError, Reason,
 };
 
+#[cfg(test)]
+use std::{net::SocketAddr, sync::Mutex};
+#[cfg(test)]
 pub(super) struct Evidence {
     pub(super) local: SocketAddr,
     pub(super) peer: SocketAddr,
@@ -29,6 +30,7 @@ pub(super) struct RootOpener {
     pub(super) endpoint: Destination,
     #[cfg(test)]
     pub(super) role: DnsQueryRole,
+    #[cfg(test)]
     pub(super) evidence: Arc<Mutex<Option<Evidence>>>,
     pub(super) source: Weak<crate::runtime::current_services::CurrentServiceSource>,
     pub(super) selected: zero_core::component::RoleInstanceId,
@@ -151,16 +153,19 @@ impl UpstreamOpener for RootOpener {
         let Some(endpoints) = root.endpoints() else {
             return false;
         };
-        let Some(local) = endpoints.local() else {
+        let Some(_local) = endpoints.local() else {
             return false;
         };
-        *self
-            .evidence
-            .lock()
-            .expect("service root evidence poisoned") = Some(Evidence {
-            local,
-            peer: endpoints.peer(),
-        });
+        #[cfg(test)]
+        {
+            *self
+                .evidence
+                .lock()
+                .expect("service root evidence poisoned") = Some(Evidence {
+                local: _local,
+                peer: endpoints.peer(),
+            });
+        }
         true
     }
 

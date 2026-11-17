@@ -14,7 +14,6 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
     prepared: PreparedTcpCandidate,
     intent: TcpDispatchIntent,
 ) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
-    let health_tag = prepared.health_tag.clone();
     let trace = crate::transport::establishment::DialTrace::default();
     let services = services.with_dial_trace(trace.clone());
     #[cfg(feature = "raw-ip-runtime")]
@@ -30,7 +29,6 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
                         zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier { .. })))
             }
             PreparedTcpCandidateExecution::Block { .. } => !matches!(session.target, zero_core::Address::Domain(_)) && !matches!(session.effective_direct_target(), zero_core::Address::Domain(_)),
-            PreparedTcpCandidateExecution::Connect(_) => false,
         };
         caller
             .declare_gateway(covered)
@@ -56,13 +54,40 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
         PreparedTcpCandidateExecution::Block { tag } => {
             Ok(EstablishedTcpOutbound::block(tag.clone()))
         }
-        PreparedTcpCandidateExecution::Connect(operation) => {
-            operation.execute(services.clone(), session).await
-        }
     };
 
+    finish_candidate_attempt(
+        &services,
+        TcpAttemptFacts {
+            health_tag: prepared.health_tag,
+            tag: prepared.tag,
+            protocol: prepared.protocol,
+            endpoint: prepared.endpoint,
+        },
+        intent,
+        &trace,
+        result,
+    )
+}
+
+// Completion facts only, after the actual native role or kernel Block executes.
+// This carries no role, provider, native grant or alternate connect operation.
+struct TcpAttemptFacts {
+    health_tag: Option<String>,
+    tag: Option<String>,
+    protocol: String,
+    endpoint: Option<(String, u16)>,
+}
+fn finish_candidate_attempt(
+    services: &TcpExecutionServices,
+    facts: TcpAttemptFacts,
+    intent: TcpDispatchIntent,
+    trace: &crate::transport::establishment::DialTrace,
+    result: Result<EstablishedTcpOutbound, TcpOutboundFailure>,
+) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
+    let health_tag = facts.health_tag.as_deref();
     if intent.records_outbound_health() {
-        if let Some(tag) = health_tag.as_deref() {
+        if let Some(tag) = health_tag {
             match &result {
                 Ok(_) => services.record_outbound_success(tag),
                 Err(failure) => {
@@ -115,9 +140,9 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
         });
         failure.error = crate::transport::establishment::EstablishmentFailure::wrap(
             failure.error,
-            prepared.tag,
-            prepared.protocol,
-            prepared.endpoint,
+            facts.tag,
+            facts.protocol,
+            facts.endpoint,
             failure.stage,
             dial,
         );

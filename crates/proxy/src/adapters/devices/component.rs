@@ -6,12 +6,28 @@ use zero_core::component::ComponentId;
 use zero_platform_tokio::contract::{ChannelError, Impact, Reason, Stage};
 pub(crate) type SourceComponentDependencies =
     std::collections::BTreeMap<String, ([u8; 32], BTreeSet<ComponentId>)>;
+pub(crate) type DeviceOuterMaterials = std::collections::HashMap<
+    String,
+    std::sync::Arc<[Option<crate::protocol_registry::ColdPacketPathProjection>]>,
+>;
 #[derive(Default)]
 pub(crate) struct DeviceColdMaterials {
     #[cfg(feature = "wireguard")]
     wireguard: super::super::wireguard::lifecycle::OuterMaterials,
 }
 impl Devices {
+    pub(crate) fn packet_source_resources(
+        &self,
+        config: &RuntimeConfig,
+    ) -> Result<Vec<(String, ComponentId)>, EngineError> {
+        #[cfg(feature = "wireguard")]
+        if let Some(owner) = &self.wireguard {
+            return owner.packet_source_resources(config);
+        }
+        let _ = config;
+        Ok(Vec::new())
+    }
+
     pub(crate) fn release_component_resources_for_refresh(
         &self,
         config: &RuntimeConfig,
@@ -177,13 +193,7 @@ impl Devices {
     pub(crate) fn prepared_outer_materials(
         &self,
         config: &zero_config::RuntimeConfig,
-    ) -> Result<
-        std::collections::HashMap<
-            String,
-            std::sync::Arc<[Option<crate::protocol_registry::ColdPacketPathProjection>]>,
-        >,
-        zero_engine::EngineError,
-    > {
+    ) -> Result<DeviceOuterMaterials, zero_engine::EngineError> {
         #[cfg(feature = "wireguard")]
         if let Some(wireguard) = &self.wireguard {
             return wireguard.prepared_outer_materials(config);

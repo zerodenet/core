@@ -120,6 +120,7 @@ pub(super) async fn run(
     let mut timers = PeerTimers::default();
     let mut timer_revision = None;
     let mut pause_request = None;
+    let mut pause_observed = None;
     let outcome = async { loop {
         if pause_request.is_none() {
         refresh_endpoint_peers(
@@ -160,7 +161,7 @@ pub(super) async fn run(
             }
                 let mut idle=receiving.is_none() && fragments.pending_datagrams()==0 && endpoint_fragments.pending_datagrams()==0
                     && responses.is_empty() && packets.capacity()==packets.max_capacity() && proxied_rx.is_empty()
-                    && proxied_tasks.len()==0 && operation.device.quiescent();
+                    && proxied_tasks.is_empty() && operation.device.quiescent();
                 if let Some(endpoint)=&operation.endpoint {
                     idle &= endpoint.packets.is_empty();
                     let devices=endpoint.peers.borrow().devices.clone();
@@ -182,6 +183,23 @@ pub(super) async fn run(
                         .chain(operation.proxy_reads.iter().flatten()).find(|read|!read.workspace_returned()).cloned();
                     idle &= waiting_memory.is_none();
                 }
+            if !idle && pause_observed != Some(request) {
+                tracing::debug!(
+                    inbound = ?facts.inbound, request,
+                    receiving = receiving.is_some(),
+                    fragments = fragments.pending_datagrams(),
+                    endpoint_fragments = endpoint_fragments.pending_datagrams(),
+                    responses = responses.len(),
+                    packets_used = packets.max_capacity() - packets.capacity(),
+                    proxied = proxied_rx.len(), proxy_tasks = proxied_tasks.len(),
+                    protocol_idle = operation.device.quiescent(),
+                    unreturned_reads = read_memory.0.iter().chain(std::iter::once(&read_memory.1))
+                        .chain(operation.proxy_reads.iter().flatten())
+                        .filter(|read| !read.workspace_returned()).count(),
+                    "Packet wire pause remains charged"
+                );
+                pause_observed = Some(request);
+            }
             let expired = checkpoint.request_deadline(request).is_none_or(|end|tokio::time::Instant::now() >= end);
             if idle || expired {
                 checkpoint.acknowledge(request,idle);

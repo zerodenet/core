@@ -69,7 +69,7 @@ impl HostResources {
             return Err(error(
                 self.component,
                 Reason::InvalidConfig,
-                "legacy process has no tree original",
+                "legacy process has no native original",
             ));
         }
         let original = OwnedProcess::prepare(request, tasks).map_err(|source| {

@@ -62,7 +62,7 @@ async fn linked_and_standalone_hy2_outer_use_same_pool_then_close_originals_befo
         .apply_runtime_config_and_wait(remote_config, Duration::from_secs(10))
         .await
         .unwrap();
-    let remote_owner = remote.inbound_owners.owner("remote").unwrap();
+    let remote_owner = remote.system_tun_source_registry().owner("remote").unwrap();
     remote_owner.wait_ready().await.unwrap();
     let endpoint = *remote_owner.original_listener_address.get().unwrap();
     for (linked, hopping) in [(false, false), (true, false), (false, true), (true, true)] {

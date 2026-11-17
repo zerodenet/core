@@ -405,14 +405,31 @@ impl super::ProtocolInventory {
         if let Some(issuer) = plan.dns_wire_candidate() {
             upstream = upstream.with_dns_wire_candidate(issuer);
         }
-        self.devices
-            .resolve_component_resources(config, &upstream, services.engine(), deadline, cancel)
-            .await?;
-        self.host
-            .components()
-            .start_device_components(config.clone(), deadline)
-            .await
-            .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)))
+        // The actual slot installs its lifecycle before start can suspend.
+        // Ending this wait leaves that same owner/candidate retained for the
+        // host's confirmed cleanup; stop never waits for a remote handshake.
+        let preparation = Box::pin(async {
+            // Resolution and deferred component start share this phase fence;
+            // subsequent outer installation uses it in prepare_devices too.
+            self.devices
+                .resolve_component_resources(
+                    config,
+                    &upstream,
+                    services.engine(),
+                    deadline,
+                    cancel.clone(),
+                )
+                .await?;
+            self.host
+                .components()
+                .start_device_components(config.clone(), deadline)
+                .await
+                .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(error)))
+        });
+        tokio::select! { biased;
+            _ = cancel.cancelled() => Err(crate::runtime::inbound_owners::stopped_preparation()),
+            result = preparation => result,
+        }
     }
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) async fn discard_device_components(

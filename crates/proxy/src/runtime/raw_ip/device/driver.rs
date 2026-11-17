@@ -38,10 +38,12 @@ pub(super) async fn run_device(
     ready: watch::Sender<Option<Result<(), String>>>,
 ) -> Result<(), EngineError> {
     let result = match run_device_inner(&mut device, &ready).await {
-        Err(EngineError::Io(error))
-            if device.closed.load(Ordering::Acquire)
-                && super::super::carrier::is_background_stopped(&error) =>
-        {
+        // The host can revoke this exact carrier before the device's local
+        // closed flag is set. Only its typed owner-stop signal ends the wire
+        // normally; arbitrary Interrupted/I/O failures remain failures. This
+        // says nothing about native close, which the original provider and
+        // retained task witnesses must still confirm independently.
+        Err(EngineError::Io(error)) if super::super::carrier::is_background_stopped(&error) => {
             Ok(())
         }
         result => result,

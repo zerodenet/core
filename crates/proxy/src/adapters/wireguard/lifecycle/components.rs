@@ -39,6 +39,7 @@ impl WireguardAdapter {
             None => Ok(()),
         }
     }
+    #[cfg(test)]
     pub(crate) fn prepare_component_resources(
         &self,
         config: &Arc<zero_config::RuntimeConfig>,

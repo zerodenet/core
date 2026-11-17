@@ -22,6 +22,31 @@ fn scope(principal: &str) -> MuxUdpContinuityScope {
 }
 
 #[test]
+fn an_unschedulable_retention_still_occupies_the_same_finite_continuity_slot() {
+    let registry = MuxUdpContinuityRegistry::<u64>::default();
+    let first = scope("long-retention");
+    let other = scope("another-principal");
+    assert!(matches!(
+        registry.attach_bounded(first.clone(), Duration::MAX, 1),
+        Ok(MuxUdpContinuityAttach::New { generation: 1 })
+    ));
+    registry.detach(&first, 1, Duration::MAX, Some(91)).unwrap();
+    assert!(registry.expire(&first, 1).is_none());
+    assert_eq!(registry.prune_expired().removed, 0);
+    assert_eq!(registry.snapshot().retained, 1);
+    assert!(registry
+        .attach_bounded(other, Duration::from_secs(1), 1)
+        .is_err());
+    assert!(matches!(
+        registry.attach_bounded(first, Duration::from_secs(1), 1),
+        Ok(MuxUdpContinuityAttach::Reattached {
+            generation: 2,
+            dispatch: Some(91)
+        })
+    ));
+}
+
+#[test]
 fn registry_rejects_live_conflict_and_advances_generation_after_detach() {
     let registry = MuxUdpContinuityRegistry::<u64>::default();
     let scope = scope("user-1");

@@ -18,14 +18,14 @@ use zero_platform_tokio::{
     EgressInterfaceControl,
 };
 
-#[cfg(feature = "vless")]
+#[cfg(feature = "tls-ech-runtime")]
 pub(crate) mod grpc;
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) mod packet_driver;
 mod pending;
 pub(crate) mod pool;
 pub(crate) mod stateless;
-#[cfg(any(feature = "vless", feature = "vmess"))]
+#[cfg(feature = "tls-ech-runtime")]
 pub(crate) mod tls_material;
 
 pub(crate) struct BackgroundNetwork {

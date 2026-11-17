@@ -1,5 +1,6 @@
 //! Actual UDP receive suspension survives interruption of its outer waiter.
 use super::*;
+use std::future::Future;
 struct Native {
     io: tokio::net::UdpSocket,
     pending: Option<tokio::sync::oneshot::Sender<()>>,

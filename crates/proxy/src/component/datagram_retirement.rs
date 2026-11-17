@@ -24,6 +24,9 @@ use wake::{RetirementWake, WaitTarget};
 use zero_platform_tokio::contract::{
     lifecycle::CloseReport, ChannelError, CloseReason, DeliveryState, Impact, Reason, Stage,
 };
+// One bounded progress attempt, also used by the application supervisor.
+// Expiry retains original controllers and capacity; it never closes them.
+pub(crate) const PROGRESS_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 pub(crate) struct RetiredDatagrams {
     capacity: NonZeroUsize,
     state: Mutex<State>,

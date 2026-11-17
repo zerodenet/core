@@ -2,6 +2,8 @@
 mod fixture;
 mod mux;
 mod native;
+#[cfg(all(feature = "shadowsocks", unix))]
+mod prefix;
 use fixture::Running;
 use futures_util::{SinkExt, StreamExt};
 use std::time::Duration;
@@ -53,14 +55,22 @@ async fn relay_browser(mut browser: Agent, roots: rustls::RootCertStore) {
     assert_eq!(task["method"], "WS");
     assert!(task["url"].as_str().unwrap().ends_with("/original"));
     let url = task["url"].as_str().unwrap();
-    let endpoint = url::Url::parse(url).unwrap();
+    let endpoint: http_uri::Uri = url.parse().unwrap();
     let raw = TcpStream::connect((
-        endpoint.host_str().unwrap(),
-        endpoint.port_or_known_default().unwrap(),
+        endpoint.host().unwrap(),
+        endpoint
+            .port_u16()
+            .unwrap_or(if endpoint.scheme_str() == Some("wss") {
+                443
+            } else {
+                80
+            }),
     ))
     .await
     .unwrap();
-    let io: zero_platform_tokio::contract::stream::BoxStream = if endpoint.scheme() == "wss" {
+    let io: zero_platform_tokio::contract::stream::BoxStream = if endpoint.scheme_str()
+        == Some("wss")
+    {
         let config = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
             rustls::crypto::ring::default_provider(),
         ))
@@ -71,10 +81,8 @@ async fn relay_browser(mut browser: Agent, roots: rustls::RootCertStore) {
         Box::pin(
             tokio_rustls::TlsConnector::from(std::sync::Arc::new(config))
                 .connect(
-                    rustls::pki_types::ServerName::try_from(
-                        endpoint.host_str().unwrap().to_owned(),
-                    )
-                    .unwrap(),
+                    rustls::pki_types::ServerName::try_from(endpoint.host().unwrap().to_owned())
+                        .unwrap(),
                     raw,
                 )
                 .await

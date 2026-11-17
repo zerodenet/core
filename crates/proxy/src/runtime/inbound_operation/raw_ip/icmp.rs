@@ -20,6 +20,7 @@ mod probe;
 #[cfg(test)]
 use probe::probe;
 
+#[cfg(test)]
 pub(super) const MAX_ECHO_PROBES: usize = 64;
 const ECHO_TIMEOUT: Duration = Duration::from_secs(3);
 static NEXT_PROBE_ID: AtomicU16 = AtomicU16::new(1);

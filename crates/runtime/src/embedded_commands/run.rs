@@ -34,7 +34,7 @@ impl EmbeddedCommandOwner {
             observation,
             stop: caller_stop
                 .map(|parent| parent.child_token())
-                .unwrap_or_else(CancellationToken::new),
+                .unwrap_or_default(),
             raw: OnceLock::new(),
             wrapper: OnceLock::new(),
             raw_id: OnceLock::new(),

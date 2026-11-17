@@ -5,7 +5,6 @@ mod business_carrier;
 pub(crate) mod business_demand;
 pub(crate) mod datagram_retirement;
 pub(crate) mod direct_bridge;
-pub(crate) mod legacy_stream;
 pub(crate) mod request;
 pub(crate) mod stream_bridge;
 

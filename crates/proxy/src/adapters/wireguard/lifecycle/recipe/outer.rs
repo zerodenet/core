@@ -64,7 +64,7 @@ impl OuterPathRecipe {
             // Catalog memo consumes this exact immutable recipe later; no
             // second material decode and no new component ID is permitted.
             let id = resources
-                .prepare_named_component(&name)
+                .prepare_named_component(name)
                 .map_err(|source| EngineError::Io(std::io::Error::other(source)))?;
             ordered.push((name.clone(), id));
         }
@@ -122,12 +122,8 @@ impl OuterPathRecipe {
                                 formatter: None,
                             })
                         }
-                        None => registry.prepare_cold_packet_path_projection(
-                            config,
-                            zero_engine::ResolvedLeafOutbound::Proxy {
-                                identity: zero_engine::OutboundIdentity::from_config_index(index),
-                            },
-                        )?,
+                        None => registry
+                            .prepare_cold_packet_path_projection(&config.outbounds[index])?,
                     };
                     values.push(projection);
                 }
@@ -180,10 +176,8 @@ impl OuterPathRecipe {
         let mut ids = std::collections::BTreeSet::new();
         self.ordered
             .iter()
-            .filter_map(|(_, id)| {
-                ids.insert(*id)
-                    .then(|| (*id, resources.reusable_resource_instance(*id)))
-            })
+            .filter(|(_, id)| ids.insert(*id))
+            .map(|(_, id)| (*id, resources.reusable_resource_instance(*id)))
             .collect()
     }
     pub(in crate::adapters::wireguard::lifecycle) fn retained_material(&self) -> OuterMaterial {

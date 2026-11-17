@@ -28,7 +28,7 @@ impl ComponentSlot {
                 "network refresh cannot replace a built candidate",
             ));
         }
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         if self.prepaid_process.get().is_some() {
             return Err(invalid(
                 Reason::StalePlan,

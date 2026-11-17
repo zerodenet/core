@@ -51,6 +51,10 @@ pub(super) enum NativeBindGrant {
     Datagram(Arc<udp::NativeDatagramGrant>),
 }
 impl NativeBindGrant {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "original generation, caller, native and budget inputs remain explicitly bound"
+    )]
     pub(super) fn new(
         identity: ComponentInstanceId,
         declarations: &[ResourceDeclaration],

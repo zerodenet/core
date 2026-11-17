@@ -6,12 +6,14 @@ mod shutdown;
 mod source_attempt;
 pub(crate) use receiver::FlowReceiverBinding;
 pub(crate) use source_attempt::FlowLogicalClose;
+#[cfg(test)]
 mod stream;
 pub(super) use caller::FlowCaller;
 use std::{
     num::NonZeroUsize,
     sync::{Arc, Mutex},
 };
+#[cfg(test)]
 pub(super) use stream::TrackedStream;
 use tokio::{sync::Notify, time::Instant};
 use zero_platform_tokio::{
@@ -189,6 +191,7 @@ impl FlowUsers {
     }
     /// An existing leaf API without a same-owner view token cannot establish
     /// users closure. This does not cancel it or remove its legacy capability.
+    #[cfg(test)]
     pub(crate) fn mark_unaccounted(&self) {
         self.state
             .lock()
@@ -196,6 +199,7 @@ impl FlowUsers {
             .unaccounted = true;
         self.changed.notify_waiters();
     }
+    #[cfg(test)]
     pub(crate) fn validates(&self, user: &FlowUser) -> bool {
         std::ptr::eq(self, user.owner.as_ref())
             && !user

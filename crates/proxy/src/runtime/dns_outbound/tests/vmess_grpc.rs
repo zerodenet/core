@@ -8,8 +8,11 @@ use std::{
     time::Duration,
 };
 use zero_platform_tokio::contract::CancellationToken;
+#[path = "vmess_grpc/candidates.rs"]
 mod candidates;
+#[path = "vmess_grpc/fixture.rs"]
 mod fixture;
+#[path = "vmess_grpc/replacement.rs"]
 mod replacement;
 use fixture::*;
 

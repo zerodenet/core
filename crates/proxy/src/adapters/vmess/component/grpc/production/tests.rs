@@ -67,17 +67,6 @@ fn whole_node_projection_removes_legacy_tcp_for_native_relay_and_single_nodes() 
             usize::from(enabled)
         );
         assert!(enabled);
-        assert!(
-            crate::register::protocol_registry()
-                .claim_outbound_leaf(
-                    &config,
-                    zero_engine::ResolvedLeafOutbound::Proxy {
-                        identity: zero_engine::OutboundIdentity::from_config_index(0),
-                    },
-                )
-                .is_err(),
-            "paired actual roles retire all legacy executors"
-        );
     }
 }
 

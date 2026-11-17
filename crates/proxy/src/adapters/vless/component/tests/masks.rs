@@ -138,8 +138,8 @@ async fn native_mask_sources_keep_custom_sudoku_fragment_tcp_udp_and_original_cl
             "outbounds":[{"tag":"upstream","protocol":outbound}],
             "route":{"final":{"type":"route","outbound":"upstream"}}
         })).await;
-        let local_owner = client.inbound_owners.owner("entry").unwrap();
-        let remote_owner = remote.inbound_owners.owner("entry").unwrap();
+        let local_owner = client.system_tun_source_registry().owner("entry").unwrap();
+        let remote_owner = remote.system_tun_source_registry().owner("entry").unwrap();
         let scope = remote_owner.original_scope_for_test();
         let result = tokio::time::timeout(Duration::from_secs(30), async {
             exercise(socks).await;

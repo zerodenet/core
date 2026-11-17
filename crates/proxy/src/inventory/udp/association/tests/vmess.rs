@@ -51,16 +51,9 @@ async fn ordinary_vmess_datagram_dispatch_preserves_framing_empty_packets_and_fl
             .engine()
             .resolve_route_decision(RouteDecision::Route("node".into()))
             .unwrap();
-        let zero_engine::ResolvedOutbound::Single(leaf) = &resolved else {
+        let zero_engine::ResolvedOutbound::Single(_leaf) = &resolved else {
             panic!("single leaf");
         };
-        assert!(
-            proxy
-                .protocols
-                .claim_outbound_leaf(&config, leaf.clone())
-                .is_err(),
-            "the actual standard Datagram has no private executor"
-        );
         let session = Session::new(
             7,
             Address::Ipv4([203, 0, 113, 9]),

@@ -14,7 +14,7 @@ async fn forward_keepalive_messages_use_the_same_standard_direct_provider_and_re
         let running = proxy.spawn();
         ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()), proxy.clone())
             .apply_runtime_config_and_wait(config, Duration::from_secs(5)).await.unwrap();
-        let source = proxy.inbound_owners.owner("entry").unwrap();
+        let source = proxy.system_tun_source_registry().owner("entry").unwrap();
         source.wait_ready().await.unwrap();
         let entry = *source.original_listener_address.get().unwrap();
         let services = proxy.tcp_runtime_services();

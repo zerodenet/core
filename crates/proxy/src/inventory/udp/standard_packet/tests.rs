@@ -20,16 +20,7 @@ fn proxy(members: &[&str]) -> Proxy {
     let mut proxy = Proxy::new(config).unwrap();
     // The real factories/adapter state stay installed. Their executable claim
     // projections are absent, so a successful selection cannot mask old calls.
-    proxy.protocols.registry = Arc::new(
-        proxy
-            .protocols
-            .registry
-            .as_ref()
-            .clone()
-            .without_outbound_projection("shadowsocks")
-            .without_outbound_projection("socks5")
-            .without_outbound_projection("vless"),
-    );
+    proxy.protocols.registry = Arc::new(proxy.protocols.registry.as_ref().clone());
     proxy
 }
 fn session(proxy: &Proxy) -> Session {
@@ -111,12 +102,7 @@ async fn a_recipe_from_another_network_epoch_is_rejected_before_any_original_ope
     let projection = proxy
         .protocols
         .registry
-        .prepare_cold_packet_path_projection(
-            services.config(),
-            ResolvedLeafOutbound::Proxy {
-                identity: zero_engine::OutboundIdentity::from_config_index(0),
-            },
-        )
+        .prepare_cold_packet_path_projection(&services.config().outbounds[0])
         .unwrap()
         .unwrap();
     let current = NetworkGeneration(execution.upstream().network_generation());
@@ -236,14 +222,7 @@ fn library_proxy(members: &[&str], disabled: Option<&str>) -> Proxy {
             .enabled = false;
     }
     let mut proxy = Proxy::new(config).unwrap();
-    proxy.protocols.registry = Arc::new(
-        proxy
-            .protocols
-            .registry
-            .as_ref()
-            .clone()
-            .without_outbound_projection("shadowsocks"),
-    );
+    proxy.protocols.registry = Arc::new(proxy.protocols.registry.as_ref().clone());
     proxy
 }
 

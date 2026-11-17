@@ -76,6 +76,10 @@ struct DirectUdpSocketBinding {
 
 #[cfg(feature = "udp-runtime")]
 impl DirectUdpSockets {
+    #[cfg(test)]
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
     /// Cold opt-in by the real accepted driver. Selection/reuse stays the same;
     /// original reservations now precede native creation and registration.
     #[cfg(test)]
@@ -125,10 +129,6 @@ impl DirectUdpSockets {
                 "no direct UDP target satisfies the dial policy",
             ))
         })
-    }
-
-    pub(crate) fn generation(&self) -> u64 {
-        self.generation
     }
 }
 

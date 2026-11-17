@@ -9,8 +9,8 @@ pub(crate) enum PreparedUdpOutbound<'a> {
     #[cfg(feature = "managed-stream-runtime")]
     DatagramRelay(Box<super::PreparedDatagramRelay>),
     Relay(Box<crate::runtime::udp_dispatch::relay::PreparedUdpRelayChain<'a>>),
-    Single(super::leaf::PreparedUdpLeafCandidate<'a>),
-    Fallback(Vec<super::leaf::PreparedUdpLeafCandidate<'a>>),
+    Single(super::leaf::PreparedUdpLeafCandidate),
+    Fallback(Vec<super::leaf::PreparedUdpLeafCandidate>),
 }
 
 impl ProtocolInventory {
@@ -64,8 +64,7 @@ impl ProtocolInventory {
                 }
                 let datagram = match chain.last() {
                     Some(last) => self
-                        .registry
-                        .prepare_cold_packet_path_projection(ctx.config(), last.clone())
+                        .packet_leaf_metadata(ctx.config(), last)
                         .map_err(|error| FlowFailure {
                             stage: "relay_prepare",
                             error,

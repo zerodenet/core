@@ -173,7 +173,7 @@ impl HostPacketDevice {
             read_pause: Some(read_pause),
             config,
             writes,
-            returns,
+            _returns: returns,
             sessions,
             stop,
             worker,
@@ -195,10 +195,7 @@ impl HostPacketDevice {
     pub(crate) async fn wait_native_view(&self) -> io::Result<()> {
         let mut ready = self.ready.clone();
         while !*ready.borrow_and_update() {
-            ready
-                .changed()
-                .await
-                .map_err(|source| io::Error::other(source))?;
+            ready.changed().await.map_err(io::Error::other)?;
         }
         if self.native_provider.get().is_none() {
             return Err(io::Error::other(

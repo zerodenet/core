@@ -1,6 +1,10 @@
 //! Same concrete roots and real registrar supplied by the existing host.
 use super::*;
 impl HostResources {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the original resource owner receives explicit same-host native, task and packet budget bindings"
+    )]
     pub(in crate::component) fn new_hosted_with_packet_source(
         instance: ComponentInstanceId,
         declarations: &[ResourceDeclaration],

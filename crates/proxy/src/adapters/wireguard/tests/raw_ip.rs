@@ -451,7 +451,7 @@ async fn raw_ip_staging_failure_keeps_published_device() {
         .unwrap_or_else(|_| panic!("cell initialized twice"));
     let mut candidate = pool.begin_stage();
     candidate
-        .insert("wg".to_owned(), 0, [2; 32], 1, second_cell, true, true)
+        .insert("wg".to_owned(), 0, [2; 32], 1, second_cell, true)
         .unwrap();
     drop(candidate);
     assert!(second.is_closed(), "unpublished candidate is closed");

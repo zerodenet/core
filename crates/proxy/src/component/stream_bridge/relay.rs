@@ -1,11 +1,8 @@
 //! Real Stream roles composed through a strictly shorter selected prefix.
 pub(crate) mod background;
-mod selected_prefix;
-pub(crate) use selected_prefix::connect as connect_prefix;
 #[cfg(feature = "managed-stream-runtime")]
 pub(crate) mod datagram;
 mod health;
-pub(crate) mod hop;
 pub(crate) mod prefix;
 use super::network::NodeOpener;
 use crate::{

@@ -7,7 +7,7 @@ use zero_core::{
 };
 use zero_platform_tokio::contract::{
     context::RequestIdentity,
-    dns::{DnsQueryContext, DnsService},
+    dns::{DnsQueryContext, DnsQueryRole, DnsRequest, DnsService},
     network::CarrierContext,
     DeliveryState, Impact, Stage,
 };

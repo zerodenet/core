@@ -15,12 +15,7 @@ pub(crate) use endpoint::{
 mod model;
 mod registry;
 
-#[cfg(feature = "udp-runtime")]
-pub(crate) use capability::UdpFlowResult;
-pub(crate) use capability::{
-    OutboundLeafClaim, OutboundLeafInput, ProtocolSupportCapability, TcpConnectResult,
-    TcpRelayResult,
-};
+pub(crate) use capability::ProtocolSupportCapability;
 pub(crate) use context::{
     OutboundAdapterContext, TcpExecutionServices, TcpRuntimeServices, UpstreamConnectServices,
 };
@@ -33,8 +28,7 @@ pub(crate) use context::{
 pub(crate) use defaults::bind_datagram_listener;
 #[cfg(test)]
 pub(crate) use defaults::bind_tcp_listener;
-pub(crate) use model::{InboundRecovery, OutboundLeafRuntime, PreparedInboundBind};
-pub(crate) use registry::ClaimedOutboundLeaf;
+pub(crate) use model::{InboundRecovery, PreparedInboundBind};
 #[cfg(feature = "udp-runtime")]
 pub(crate) use registry::ColdPacketPathProjection;
 pub(crate) use registry::ProtocolRegistry;

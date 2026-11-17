@@ -65,9 +65,8 @@ impl UdpDispatch {
     ) {
         let services = self.runtime.services();
         let retired = services.packet_path_execution().tcp().retired_datagrams();
-        let (upstream_udp, upstream_idle_deadline, chain_tasks) = self
-            .flow_state
-            .poll_refs(retired, services.udp_upstream_idle_timeout());
+        let (upstream_udp, upstream_idle_deadline, chain_tasks) =
+            self.flow_state.poll_refs(retired);
         self.direct_socket.refresh_if_stale();
         (
             self.direct_socket.receiver(),

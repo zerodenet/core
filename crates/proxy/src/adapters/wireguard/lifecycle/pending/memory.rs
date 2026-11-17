@@ -83,7 +83,7 @@ impl PendingLinkedEndpoint {
 }
 
 impl PeerResources {
-    pub(in crate::adapters::wireguard) fn retained_outer(
+    pub(in crate::adapters::wireguard::lifecycle) fn retained_outer(
         &self,
     ) -> Option<super::super::recipe::outer::OuterPathRecipe> {
         let actual = {

@@ -55,6 +55,10 @@ struct State {
     stopped: bool,
 }
 impl StandaloneStackOptions {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "original generation, caller, native and budget inputs remain explicitly bound"
+    )]
     fn new(
         outbound: &OutboundConfig,
         plan: Arc<WireguardRawIpPlan>,

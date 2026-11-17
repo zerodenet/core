@@ -20,6 +20,24 @@ use zero_engine::{ResolvedLeafOutbound, RouteMode};
 use zero_platform_tokio::contract::component::RoleKind;
 
 impl ProtocolInventory {
+    pub(super) fn packet_leaf_metadata(
+        &self,
+        config: &zero_config::RuntimeConfig,
+        leaf: &ResolvedLeafOutbound<'_>,
+    ) -> Result<Option<ColdPacketPathProjection>, zero_engine::EngineError> {
+        let ResolvedLeafOutbound::Proxy { identity } = leaf else {
+            return Ok(None);
+        };
+        let outbound = config
+            .outbounds
+            .get(identity.config_index())
+            .ok_or_else(|| {
+                zero_engine::EngineError::Io(std::io::Error::other(
+                    "cold packet path index is outside its actual configuration",
+                ))
+            })?;
+        self.registry.prepare_cold_packet_path_projection(outbound)
+    }
     pub(super) fn prepare_standard_packet_relay<'a>(
         &self,
         ctx: &UdpAdapterContext<'_>,
@@ -162,14 +180,13 @@ impl ProtocolInventory {
         prefix
             .iter()
             .map(|leaf| {
-                let mut projection = self
-                    .registry
-                    .prepare_cold_packet_path_projection(ctx.config(), leaf.clone())
-                    .map_err(|error| FlowFailure {
-                        stage: "relay_prepare",
-                        error,
-                        upstream: None,
-                    })?;
+                let mut projection =
+                    self.packet_leaf_metadata(ctx.config(), leaf)
+                        .map_err(|error| FlowFailure {
+                            stage: "relay_prepare",
+                            error,
+                            upstream: None,
+                        })?;
                 // Actual factory facts cover standard protocols with no old packet
                 // projection. Pure codec Arcs still come from the adapter above.
                 if projection

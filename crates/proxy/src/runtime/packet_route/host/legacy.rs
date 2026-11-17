@@ -81,7 +81,7 @@ impl HostPacketDevice {
             ));
         }
         let return_channel = replies.clone();
-        self.returns.register_observed(
+        self._returns.register_observed(
             source,
             ingress_id,
             replies,

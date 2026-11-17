@@ -1,5 +1,5 @@
 //! Ordinary URLTest -> original Host ProbeCall -> standard Direct native I/O.
-use super::*;
+use crate::Proxy;
 use std::{future::Future, task::Poll, time::Duration};
 use tokio::io::AsyncReadExt;
 #[tokio::test]

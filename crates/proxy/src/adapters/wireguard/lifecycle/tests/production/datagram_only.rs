@@ -17,7 +17,7 @@ async fn tcp_plugin_outer_uses_actual_udp_owner_without_starting_or_fabricating_
         .apply_runtime_config_and_wait(remote_config, Duration::from_secs(5))
         .await
         .unwrap();
-    let source = remote.inbound_owners.owner("ss-in").unwrap();
+    let source = remote.system_tun_source_registry().owner("ss-in").unwrap();
     source.wait_ready().await.unwrap();
     let endpoint = *source.original_listener_address.get().unwrap();
     let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();

@@ -41,17 +41,7 @@ impl ResourceLifecycle for Owner {
                 ChannelError::new(Stage::Close, Reason::Timeout, Impact::Component)
                     .with_source(source)
             })?;
-        if let Some(mut dispatch) = state.dispatch.take() {
-            if state.dropped {
-                while dispatch.drop_upstream_association().is_some() {}
-            }
-            let (flows, direct, responses) = dispatch.finish_retaining_io();
-            state.direct = Some(direct);
-            state.responses = Some(responses);
-            for flow in flows {
-                crate::runtime::udp_delivery::log_completed_udp_flow(flow);
-            }
-        }
+        state.finish_dispatch();
         let mut unfinished = Vec::new();
         if let Some(control) = state.control.as_mut() {
             control.cancel(CloseReason::Shutdown);
@@ -117,6 +107,20 @@ impl ResourceLifecycle for Owner {
 }
 
 impl State {
+    pub(super) fn finish_dispatch(&mut self) {
+        if let Some(mut dispatch) = self.dispatch.take() {
+            if self.dropped {
+                while dispatch.drop_upstream_association().is_some() {}
+            }
+            let (flows, direct, responses) = dispatch.finish_retaining_io();
+            self.direct = Some(direct);
+            self.responses = Some(responses);
+            for flow in flows {
+                crate::runtime::udp_delivery::log_completed_udp_flow(flow);
+            }
+        }
+    }
+
     fn pending_failure(&self) -> Option<ChannelError> {
         // A native response panic cannot mask the independent stable child
         // packet source. Each remains strong until its actual receiver takes it.

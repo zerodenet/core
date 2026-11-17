@@ -147,7 +147,7 @@ impl Execution {
         self.changed.notify_waiters();
         Ok(())
     }
-    pub(super) fn take_write_cell(&self, closing: bool) -> io::Result<Option<business::Cell>> {
+    fn take_write_cell(&self, closing: bool) -> io::Result<Option<business::Cell>> {
         let (existing, memory) = {
             let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
             let cells = if closing {
@@ -185,7 +185,7 @@ impl Execution {
             .working_cell
             .take()
     }
-    pub(super) fn receive_write(
+    fn receive_write(
         &self,
         result: io::Result<()>,
         cell: business::Cell,

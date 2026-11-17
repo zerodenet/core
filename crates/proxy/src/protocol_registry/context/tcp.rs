@@ -230,7 +230,7 @@ impl TcpRuntimeServices {
             .protocols
             .prepared_components(config)
             .ok_or_else(|| std::io::Error::other("actual candidate components were not retained"))?
-            .map_err(|source| std::io::Error::other(source))?;
+            .map_err(std::io::Error::other)?;
         let mut services = self.clone();
         services.execution.components = Ok(plan);
         Ok(services)

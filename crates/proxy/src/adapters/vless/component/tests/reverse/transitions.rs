@@ -28,7 +28,7 @@ async fn reverse_metadata_sources_keep_the_real_native_provider_and_driver() {
                 .unwrap();
             let original = provider.originals().into_iter().next().unwrap();
             assert!(original.listener().is_some() && original.driver().is_some());
-            let source = portal.inbound_owners.owner("entry").unwrap();
+            let source = portal.system_tun_source_registry().owner("entry").unwrap();
             assert!(provider.sources().contains(&source.identity()));
             framed::exercise(socks).await;
             empty_and_multiple_targets(socks).await;
@@ -53,7 +53,7 @@ async fn source_budget_replacement_retires_reverse_originals_before_building_suc
         let (portal, running, socks, bridge, bridge_running) =
             pair(serde_json::json!({}), None).await;
         framed::exercise_tcp(socks).await;
-        let old_source = portal.inbound_owners.owner("entry").unwrap();
+        let old_source = portal.system_tun_source_registry().owner("entry").unwrap();
         let plan = portal.tcp_runtime_services().components.clone().unwrap();
         let old = plan.configured("portal").unwrap();
         let provider = old.accepted_carrier_provider().unwrap();
@@ -87,7 +87,7 @@ async fn source_budget_replacement_retires_reverse_originals_before_building_suc
         for original in originals {
             assert!(original.closed().unwrap().matches(&original));
         }
-        let source = portal.inbound_owners.owner("entry").unwrap();
+        let source = portal.system_tun_source_registry().owner("entry").unwrap();
         source.wait_ready().await.unwrap();
         let wire = *source.original_listener_address.get().unwrap();
         let mut config = (*bridge.engine().config()).clone();
@@ -120,7 +120,10 @@ async fn source_budget_replacement_retires_reverse_originals_before_building_suc
         })
         .await
         .unwrap();
-        let clients = portal.inbound_owners.owner("clients").unwrap();
+        let clients = portal
+            .system_tun_source_registry()
+            .owner("clients")
+            .unwrap();
         clients.wait_ready().await.unwrap();
         framed::exercise_tcp(*clients.original_listener_address.get().unwrap()).await;
         running.shutdown().await.unwrap();

@@ -94,7 +94,6 @@ impl DispatcherResources {
         sink
     }
     /// Release actual returned views first, then consume each original receipt.
-
     pub(crate) fn close(&self) -> io::Result<()> {
         // The real blocking publishers and original sink workers must already
         // have joined. Arc uniqueness is only view retirement, never native close.

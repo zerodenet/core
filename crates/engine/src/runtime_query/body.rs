@@ -129,7 +129,9 @@ impl Serialize for Runtime<'_> {
         m.serialize_entry("stats", &v.stats)?;
         m.serialize_entry(
             "udp_upstream_idle_timeout_seconds",
-            &engine.udp_upstream_idle_timeout().as_secs(),
+            &engine
+                .udp_upstream_idle_timeout_in_snapshot(&v.guard.snapshot)
+                .as_secs(),
         )?;
         m.serialize_entry("udp_enabled", &config.runtime.udp.enabled)?;
         m.serialize_entry("log_level", &config.runtime.log.level)?;

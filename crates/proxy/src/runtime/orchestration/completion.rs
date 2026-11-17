@@ -172,39 +172,9 @@ impl OrchestrationState {
                 result = Err(EngineError::Io(error));
             }
         }
-        match proxy
-            .retired_datagrams
-            .wait_closed(tokio::time::Instant::now() + Duration::from_secs(5))
-            .await
-        {
-            Ok(report) if report.is_complete() && report.failed_tasks.is_empty() => {}
-            Ok(mut report) => {
-                if let Some(failure) = report.failed_tasks.pop() {
-                    cleanup_errors.push(format!(
-                        "datagram retirement task failed: {}",
-                        failure.error
-                    ));
-                    if result.is_ok() {
-                        result = Err(EngineError::Io(std::io::Error::other(failure.error)));
-                    }
-                    // The persistent owner retains any unfinished controllers.
-                }
-                let message = format!(
-                    "datagram retirement remains unconfirmed: {:?}",
-                    report.unfinished
-                );
-                cleanup_errors.push(message.clone());
-                if result.is_ok() {
-                    result = Err(std::io::Error::new(std::io::ErrorKind::TimedOut, message).into());
-                }
-            }
-            Err(error) => {
-                cleanup_errors.push(format!("datagram retirement failed: {error}"));
-                if result.is_ok() {
-                    result = Err(EngineError::Io(std::io::Error::other(error)));
-                }
-            }
-        }
+        // Source/component owners still retain their actual background
+        // Datagram views. Let those original producers return the views and
+        // drive their own retained controller before the final global drain.
         if let Err(error) = proxy
             .protocols
             .shutdown_components(tokio::time::Instant::now() + Duration::from_secs(5))
@@ -246,6 +216,42 @@ impl OrchestrationState {
                 cleanup_errors.push(message.clone());
                 if result.is_ok() {
                     result = Err(EngineError::Io(std::io::Error::other(message)));
+                }
+            }
+        }
+        // All original producers above have now had their close phase. Consume
+        // the same global controllers' real reports; failed or retained views
+        // still make shutdown fail and keep their original ownership.
+        match proxy
+            .retired_datagrams
+            .wait_closed(tokio::time::Instant::now() + Duration::from_secs(5))
+            .await
+        {
+            Ok(report) if report.is_complete() && report.failed_tasks.is_empty() => {}
+            Ok(mut report) => {
+                if let Some(failure) = report.failed_tasks.pop() {
+                    cleanup_errors.push(format!(
+                        "datagram retirement task failed: {}",
+                        failure.error
+                    ));
+                    if result.is_ok() {
+                        result = Err(EngineError::Io(std::io::Error::other(failure.error)));
+                    }
+                    // The persistent owner retains any unfinished controllers.
+                }
+                let message = format!(
+                    "datagram retirement remains unconfirmed: {:?}",
+                    report.unfinished
+                );
+                cleanup_errors.push(message.clone());
+                if result.is_ok() {
+                    result = Err(std::io::Error::new(std::io::ErrorKind::TimedOut, message).into());
+                }
+            }
+            Err(error) => {
+                cleanup_errors.push(format!("datagram retirement failed: {error}"));
+                if result.is_ok() {
+                    result = Err(EngineError::Io(std::io::Error::other(error)));
                 }
             }
         }

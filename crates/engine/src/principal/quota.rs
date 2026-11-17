@@ -132,6 +132,7 @@ impl Default for PrincipalQuotaRegistry {
 }
 
 impl PrincipalQuotaRegistry {
+    #[cfg(test)]
     pub(crate) fn open(
         state_path: Option<PathBuf>,
         source: Arc<ConfigurationSource>,

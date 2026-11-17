@@ -132,4 +132,5 @@ fn config(server: &str) -> zero_config::RuntimeConfig {
     }).to_string()).unwrap()
 }
 
+#[path = "ech/doh.rs"]
 mod doh;

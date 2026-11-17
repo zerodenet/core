@@ -5,7 +5,6 @@ use zero_engine::{EngineError, ResolvedLeafOutbound};
 use super::service::{endpoint, ServiceNode};
 use super::{PreparedTcpCandidateExecution, ProtocolInventory};
 use crate::component::catalog::ComponentPlan;
-use crate::protocol_registry::ClaimedOutboundLeaf;
 use crate::protocol_registry::OutboundAdapterContext;
 use crate::transport::TcpOutboundFailure;
 use zero_core::{request::Destination, Address};
@@ -130,7 +129,7 @@ impl ProtocolInventory {
                         error: source.into(),
                         upstream_endpoint: None,
                         network: None,
-                    }))
+                    }));
                 }
             };
             if slot.dial != *dial_policy {
@@ -231,6 +230,7 @@ impl ProtocolInventory {
         &self,
         config: &RuntimeConfig,
         services: crate::protocol_registry::TcpRuntimeServices,
+        cancel: zero_platform_tokio::contract::CancellationToken,
     ) -> Result<crate::adapters::devices::PreparedDevices, EngineError> {
         use std::sync::Arc;
 
@@ -288,7 +288,14 @@ impl ProtocolInventory {
             ),
             packet_paths: Arc::new(packet_paths),
         };
-        self.devices.prepare(config, context, admission).await
+        // Outer handshakes begin here, after the actual component originals
+        // have been installed. Interrupted preparation leaves those originals
+        // with their slots and the pool's retained retirement queue.
+        let preparation = Box::pin(self.devices.prepare(config, context, admission));
+        tokio::select! { biased;
+            _ = cancel.cancelled() => Err(crate::runtime::inbound_owners::stopped_preparation()),
+            result = preparation => result,
+        }
     }
 
     #[cfg(feature = "raw-ip-runtime")]
@@ -311,25 +318,5 @@ impl ProtocolInventory {
 
     pub(crate) fn on_config_reloaded(&self, config: &RuntimeConfig) {
         self.registry.on_config_reloaded(config);
-    }
-
-    pub(crate) fn claim_outbound_leaf<'a>(
-        &self,
-        config: &'a RuntimeConfig,
-        leaf: ResolvedLeafOutbound<'a>,
-    ) -> Result<ClaimedOutboundLeaf<'a>, EngineError> {
-        if let ResolvedLeafOutbound::Proxy { identity } = &leaf {
-            if let Some(outbound) = config.outbounds.get(identity.config_index()) {
-                if let Some((reason, endpoint_id)) =
-                    zero_engine::EndpointAdmission::from_config(config)
-                        .outbound_denial(&outbound.tag)
-                {
-                    return Err(EngineError::InvalidPlan {
-                        message: format!("{reason}: {endpoint_id}"),
-                    });
-                }
-            }
-        }
-        self.registry.claim_outbound_leaf(config, leaf)
     }
 }

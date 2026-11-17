@@ -54,6 +54,10 @@ impl Entry {
             sender.control.cancel(CloseReason::Cancelled);
         }
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "return the exact original packet and submission disposition"
+    )]
     pub(super) async fn send(
         &self,
         packet: IpPacket,

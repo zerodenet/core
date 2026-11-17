@@ -86,15 +86,7 @@ async fn standard_outbound_probe_endpoint_reads_public_facts_without_the_old_pro
         .to_string(),
     )
     .unwrap();
-    let mut proxy = crate::Proxy::new(config).unwrap();
-    proxy.protocols.registry = std::sync::Arc::new(
-        proxy
-            .protocols
-            .registry
-            .as_ref()
-            .clone()
-            .without_outbound_projection("socks5"),
-    );
+    let proxy = crate::Proxy::new(config).unwrap();
     let snapshot = proxy.engine().runtime_snapshot();
     let (resolved, _) = proxy
         .engine()
@@ -167,37 +159,8 @@ async fn standard_outbound_selection_needs_no_compatibility_claim_for_stream_dat
             "outbounds":[{"tag":"node", "protocol":protocol}],
             "route":{"final":{"type":"route","outbound":"node"}}
         });
-        let mut proxy =
+        let proxy =
             Proxy::new(zero_config::RuntimeConfig::parse(&config.to_string()).unwrap()).unwrap();
-        if matches!(
-            name.as_str(),
-            "vless" | "vmess" | "trojan" | "mieru" | "shadowsocks"
-        ) {
-            let snapshot = proxy.engine().runtime_snapshot();
-            let (resolved, _) = proxy
-                .engine()
-                .resolve_route_decision_in_snapshot(&snapshot, RouteDecision::Route("node".into()))
-                .unwrap();
-            let ResolvedOutbound::Single(leaf) = resolved else {
-                unreachable!()
-            };
-            let legacy = proxy
-                .protocols
-                .registry
-                .claim_outbound_leaf(snapshot.config(), leaf);
-            assert!(
-                legacy.is_err(),
-                "{name} reintroduced a migrated production executor"
-            );
-        }
-        proxy.protocols.registry = std::sync::Arc::new(
-            proxy
-                .protocols
-                .registry
-                .as_ref()
-                .clone()
-                .without_outbound_projection(&name),
-        );
         let config = proxy.engine().runtime_snapshot().config().clone();
         proxy
             .protocols

@@ -13,8 +13,6 @@ impl UdpFlowOutbound {
                 feature = "managed-stream-runtime"
             ))]
             Self::Relay { .. } => None,
-            #[cfg(feature = "managed-datagram-runtime")]
-            Self::Datagram { .. } => None,
             #[cfg(feature = "managed-stream-runtime")]
             Self::StreamPacket { .. } | Self::LogicalStreamPacket { .. } => None,
         }
@@ -33,11 +31,6 @@ impl UdpFlowOutbound {
                 feature = "managed-stream-runtime"
             ))]
             Self::Relay { server, port, .. } => Some(UdpFlowUpstream {
-                server,
-                port: *port,
-            }),
-            #[cfg(feature = "managed-datagram-runtime")]
-            Self::Datagram { server, port, .. } => Some(UdpFlowUpstream {
                 server,
                 port: *port,
             }),

@@ -1,4 +1,6 @@
-use std::{io, net::SocketAddr};
+#[cfg(test)]
+use std::io;
+use std::net::SocketAddr;
 
 use zero_engine::{EngineError, PassiveRelaySelection, RouteDecision};
 
@@ -53,7 +55,7 @@ impl EstablishedTcpOutbound {
             kind: EstablishedTcpOutboundKind::Direct {
                 tag: tag.into(),
                 remote,
-                upstream: EstablishedStream::Standard {
+                upstream: EstablishedStream {
                     io: upstream,
                     endpoints: (None, None),
                 },
@@ -79,7 +81,7 @@ impl EstablishedTcpOutbound {
                 tag: tag.into(),
                 server: server.into(),
                 port,
-                upstream: EstablishedStream::Standard {
+                upstream: EstablishedStream {
                     io: upstream,
                     endpoints: (None, None),
                 },
@@ -98,7 +100,7 @@ impl EstablishedTcpOutbound {
                 tag: tag.into(),
                 upstream_endpoint,
                 relay_chain,
-                upstream: EstablishedStream::Standard {
+                upstream: EstablishedStream {
                     io: upstream,
                     endpoints: (None, None),
                 },
@@ -111,57 +113,10 @@ impl EstablishedTcpOutbound {
         local: Option<SocketAddr>,
         peer: Option<SocketAddr>,
     ) -> Self {
-        if let Some(EstablishedStream::Standard { endpoints, .. }) = self.stream_mut() {
+        if let Some(EstablishedStream { endpoints, .. }) = self.stream_mut() {
             *endpoints = (local, peer);
         }
         self
-    }
-
-    pub(crate) fn proxied_compatibility(
-        tag: String,
-        server: String,
-        port: u16,
-        upstream: crate::transport::TcpRelayStream,
-    ) -> Self {
-        Self {
-            kind: EstablishedTcpOutboundKind::Proxied {
-                tag,
-                server,
-                port,
-                upstream: EstablishedStream::Compatibility(upstream),
-            },
-        }
-    }
-
-    /// Attach the selected route facts without demoting a standard final hop
-    /// or reconstructing an excluded socket protocol's original facade.
-    pub(crate) fn with_relay_route(
-        self,
-        tag: String,
-        upstream_endpoint: Option<(String, u16)>,
-        relay_chain: Vec<(String, String)>,
-    ) -> Result<Self, EngineError> {
-        let upstream = self.into_established_stream()?;
-        Ok(Self {
-            kind: EstablishedTcpOutboundKind::Relay {
-                tag,
-                upstream_endpoint,
-                relay_chain,
-                upstream,
-            },
-        })
-    }
-
-    #[cfg(test)]
-    pub(crate) fn is_standard_stream_for_test(&self) -> bool {
-        match &self.kind {
-            EstablishedTcpOutboundKind::Direct { upstream, .. }
-            | EstablishedTcpOutboundKind::Proxied { upstream, .. }
-            | EstablishedTcpOutboundKind::Relay { upstream, .. } => {
-                matches!(upstream, EstablishedStream::Standard { .. })
-            }
-            EstablishedTcpOutboundKind::Block => false,
-        }
     }
 
     fn stream_mut(&mut self) -> Option<&mut EstablishedStream> {
@@ -173,6 +128,7 @@ impl EstablishedTcpOutbound {
         }
     }
 
+    #[cfg(test)]
     fn into_established_stream(self) -> Result<EstablishedStream, EngineError> {
         match self.kind {
             EstablishedTcpOutboundKind::Direct { upstream, .. }
@@ -189,38 +145,18 @@ impl EstablishedTcpOutbound {
     pub(crate) fn into_stream(self) -> Result<BoxStream, EngineError> {
         Ok(self.into_established_stream()?.into_stream())
     }
-
-    /// The deferred socket protocol alone consumes the former ClientStream API.
-    pub(crate) fn into_compatibility_stream(
-        self,
-    ) -> Result<crate::transport::TcpRelayStream, EngineError> {
-        match self.into_established_stream()? {
-            EstablishedStream::Compatibility(original) => Ok(original),
-            EstablishedStream::Standard {
-                io,
-                endpoints: (local, peer),
-            } => Ok(crate::transport::TcpRelayStream::from_client(
-                crate::component::legacy_stream::LegacyStream::with_endpoints(io, local, peer),
-            )),
-        }
-    }
 }
 
-/// Preserve an excluded protocol's exact original facade until the deferred
-/// socket handshake consumes it. No new native owner, task or admission lives here.
-pub(super) enum EstablishedStream {
-    Standard {
-        io: BoxStream,
-        endpoints: (Option<SocketAddr>, Option<SocketAddr>),
-    },
-    Compatibility(crate::transport::TcpRelayStream),
+/// The selected standard view and its independently observed endpoint facts.
+pub(super) struct EstablishedStream {
+    pub(super) io: BoxStream,
+    pub(super) endpoints: (Option<SocketAddr>, Option<SocketAddr>),
 }
+
 impl EstablishedStream {
     pub(super) fn into_stream(self) -> BoxStream {
-        match self {
-            Self::Standard { io, .. } => io,
-            Self::Compatibility(original) => Box::pin(original),
-        }
+        let Self { io, .. } = self;
+        io
     }
 }
 

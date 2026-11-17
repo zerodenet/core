@@ -70,7 +70,8 @@ pub struct Engine {
     flow_completion_sink: Arc<std::sync::RwLock<Option<FlowCompletionSink>>>,
     pub(crate) outbound_health: Arc<OutboundHealth>,
     pub(crate) passive_relay_health: Arc<PassiveRelayHealth>,
-    udp_upstream_idle_timeout: Duration,
+    /// Explicit library override; normal execution reads the published config.
+    udp_upstream_idle_timeout: Option<Duration>,
     /// Reload notification channel: wakes the proxy's main loop when
     /// `reload_config` atomically swaps the plan / router / config.
     reload_notify: Arc<std::sync::Mutex<Vec<std::sync::mpsc::Sender<()>>>>,
@@ -154,8 +155,6 @@ impl Engine {
         let mut plan = EnginePlan::build(&config)?;
         plan.reconcile_direct_dial_generations(None, &next_dial_generation);
         let plan = Arc::new(plan);
-        let udp_upstream_idle_timeout =
-            Duration::from_secs(config.runtime.udp_upstream_idle_timeout_seconds);
         let outbound_group_state = OutboundGroupStateStore::for_plan(&plan, None);
 
         let event_log_capacity = config.runtime.event_log_capacity;
@@ -237,7 +236,7 @@ impl Engine {
             passive_relay_health: Arc::new(PassiveRelayHealth::default()),
             flow_hook: Arc::new(std::sync::RwLock::new(None)),
             flow_completion_sink: Arc::new(std::sync::RwLock::new(None)),
-            udp_upstream_idle_timeout,
+            udp_upstream_idle_timeout: None,
             reload_notify: Arc::new(std::sync::Mutex::new(Vec::new())),
             reload_changes: Default::default(),
             config_source: source,
@@ -353,7 +352,7 @@ impl Engine {
     }
 
     pub fn with_udp_upstream_idle_timeout(mut self, timeout: Duration) -> Self {
-        self.udp_upstream_idle_timeout = timeout;
+        self.udp_upstream_idle_timeout = Some(timeout);
         self
     }
 
@@ -404,7 +403,16 @@ impl Engine {
     }
 
     pub fn udp_upstream_idle_timeout(&self) -> Duration {
-        self.udp_upstream_idle_timeout
+        self.udp_upstream_idle_timeout_in_snapshot(&self.runtime_snapshot())
+    }
+
+    pub(crate) fn udp_upstream_idle_timeout_in_snapshot(
+        &self,
+        snapshot: &EngineRuntimeSnapshot,
+    ) -> Duration {
+        self.udp_upstream_idle_timeout.unwrap_or_else(|| {
+            Duration::from_secs(snapshot.config().runtime.udp_upstream_idle_timeout_seconds)
+        })
     }
 
     pub fn mode_kind(&self) -> &'static str {

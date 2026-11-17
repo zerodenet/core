@@ -3,7 +3,9 @@ use super::*;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::{sync::Arc, time::Duration};
 use zero_platform_tokio::controlled_carrier::CarrierOrigin;
+#[path = "wireguard/outer.rs"]
 mod outer;
+#[path = "wireguard/peer.rs"]
 mod peer;
 fn end() -> tokio::time::Instant {
     tokio::time::Instant::now() + Duration::from_secs(3)
@@ -209,9 +211,12 @@ async fn ordinary_linked_wireguard_truncated_dns_retires_udp_before_actual_frame
     }).await.unwrap();
 }
 
+#[path = "wireguard/encrypted.rs"]
 mod encrypted;
 
+#[path = "wireguard/standalone.rs"]
 mod standalone;
 
 #[cfg(feature = "socks5")]
+#[path = "wireguard/warm.rs"]
 mod warm;

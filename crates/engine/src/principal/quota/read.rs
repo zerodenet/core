@@ -9,7 +9,7 @@ use facts::{Facts, Guarded};
 pub(super) struct Decoded {
     pub value: PersistedQuotaBook,
     // Data is destroyed before its allocation promise can return.
-    pub credit: QuotaMemoryCredit,
+    pub _credit: QuotaMemoryCredit,
 }
 #[derive(Debug)]
 struct FailedDecode {
@@ -103,7 +103,10 @@ pub(super) fn decode(
     let result = decode_persisted_book(&mut buffered);
     drop(buffered);
     match result {
-        Ok(value) => Ok(Decoded { value, credit }),
+        Ok(value) => Ok(Decoded {
+            value,
+            _credit: credit,
+        }),
         Err(original) => Err(io::Error::new(
             original.kind(),
             FailedDecode {

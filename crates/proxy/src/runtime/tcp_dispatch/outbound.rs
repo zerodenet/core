@@ -55,9 +55,6 @@ async fn execute_prepared_tcp_outbound(
             )
             .await
         }
-        PreparedTcpOutbound::Relay { prefix, final_hop } => {
-            super::relay::dispatch_tcp_relay(services, session, prefix, final_hop, intent).await
-        }
         PreparedTcpOutbound::Single(prepared) => {
             dispatch_prepared_tcp_candidate(services, session, prepared, intent).await
         }

@@ -43,16 +43,15 @@ fn bootstrap_path(
             };
             if let Some(tls) = tls {
                 let options = tls.options.to_options();
-                match options.ech.source().map_err(|source| {
-                    io::Error::new(io::ErrorKind::InvalidInput, source.to_string())
-                })? {
-                    Some(zero_traits::EchConfigSource::Dns { server, .. }) => {
-                        zero_dns::EchDnsEndpoint::parse(server)?;
-                        return Err(unsupported(
-                            "Node DNS detour ECH depends on the same Node owner",
-                        ));
-                    }
-                    _ => {}
+                if let Some(zero_traits::EchConfigSource::Dns { server, .. }) =
+                    options.ech.source().map_err(|source| {
+                        io::Error::new(io::ErrorKind::InvalidInput, source.to_string())
+                    })?
+                {
+                    zero_dns::EchDnsEndpoint::parse(server)?;
+                    return Err(unsupported(
+                        "Node DNS detour ECH depends on the same Node owner",
+                    ));
                 }
             }
             // Device bootstrap and its retained outer dependency graph have a

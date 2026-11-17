@@ -2,6 +2,8 @@
 //! No dynamic lifecycle SPI or protocol lookup lives in the runtime registry.
 #[cfg(feature = "raw-ip-runtime")]
 mod component;
+#[cfg(feature = "raw-ip-runtime")]
+pub(crate) use component::DeviceOuterMaterials;
 mod endpoint_query;
 pub(crate) use endpoint_query::EndpointDeviceRows;
 #[cfg(feature = "raw-ip-runtime")]
@@ -59,7 +61,6 @@ impl Devices {
         }
         let _ = (config, rows);
     }
-    #[cfg(feature = "wireguard")]
     pub(crate) fn actual_packet_flow_sources(
         &self,
         previous: &RuntimeConfig,
@@ -70,10 +71,12 @@ impl Devices {
         )>,
         EngineError,
     > {
-        match &self.wireguard {
-            Some(owner) => owner.actual_packet_flow_sources(previous),
-            None => Ok(Vec::new()),
+        #[cfg(feature = "wireguard")]
+        if let Some(owner) = &self.wireguard {
+            return owner.actual_packet_flow_sources(previous);
         }
+        let _ = previous;
+        Ok(Vec::new())
     }
 
     pub(crate) async fn fence_direct_packet_acquisition(
@@ -86,20 +89,17 @@ impl Devices {
         }
     }
 
-    #[cfg(feature = "wireguard")]
     pub(crate) async fn fence_standalone_packet_acquisition(
         &self,
         deadline: tokio::time::Instant,
         stopping: Option<&crate::component::catalog::ReplacementUsersPause>,
     ) -> Result<Vec<crate::runtime::packet_route::host::NativeDeviceFenced>, EngineError> {
-        match &self.wireguard {
-            Some(wireguard) => {
-                wireguard
-                    .fence_standalone_acquisition(deadline, stopping)
-                    .await
-            }
-            None => Ok(Vec::new()),
+        #[cfg(feature = "wireguard")]
+        if let Some(owner) = &self.wireguard {
+            return owner.fence_standalone_acquisition(deadline, stopping).await;
         }
+        let _ = (deadline, stopping);
+        Ok(Vec::new())
     }
 
     #[cfg(all(test, feature = "wireguard"))]

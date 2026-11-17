@@ -50,9 +50,6 @@ impl PacketPathCarrier for Path {
     ) -> Option<crate::component::datagram_retirement::DatagramRegistration> {
         self.registration.clone()
     }
-    fn has_driver_handoff(&self) -> bool {
-        self.handoff.is_some()
-    }
     fn prepare_codec_lengths(
         &self,
         count: usize,

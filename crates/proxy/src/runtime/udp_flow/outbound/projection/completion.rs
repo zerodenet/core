@@ -15,8 +15,6 @@ impl UdpFlowOutbound {
                 feature = "managed-stream-runtime"
             ))]
             Self::Relay { server, port, .. } => Some((server.clone(), *port)),
-            #[cfg(feature = "managed-datagram-runtime")]
-            Self::Datagram { server, port, .. } => Some((server.clone(), *port)),
             #[cfg(feature = "managed-stream-runtime")]
             Self::LogicalStreamPacket { .. } => None,
             #[cfg(feature = "managed-stream-runtime")]
@@ -34,8 +32,6 @@ impl UdpFlowOutbound {
                 feature = "managed-stream-runtime"
             ))]
             Self::Relay { .. } => SessionOutcome::ChainedRelayed,
-            #[cfg(feature = "managed-datagram-runtime")]
-            Self::Datagram { .. } => SessionOutcome::ChainedRelayed,
             #[cfg(feature = "managed-stream-runtime")]
             Self::StreamPacket { .. } | Self::LogicalStreamPacket { .. } => {
                 SessionOutcome::ChainedRelayed

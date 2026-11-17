@@ -18,13 +18,12 @@ fn inbound_only_registration_has_no_outbound_executor() {
             crate::adapters::http::component_options,
         )
         .unwrap();
-    registry.register_standard_protocol(adapter, None);
+    registry.register_standard_protocol(adapter);
     assert!(registry.inbounds.has_factory("http"));
     assert_eq!(
         Arc::as_ptr(&registry.entries[0].support) as *const (),
         expected
     );
-    assert!(registry.entries[0].outbound.is_none());
     assert!(!registry.entries[0].support.has_outbound());
 }
 
@@ -32,8 +31,8 @@ fn inbound_only_registration_has_no_outbound_executor() {
 #[should_panic(expected = "protocol capability `direct` registered more than once")]
 fn duplicate_protocol_registration_is_rejected_at_the_registry_boundary() {
     let mut registry = direct_registry();
-    registry.register_standard_protocol(Arc::new(DirectAdapter::default()), None);
-    registry.register_standard_protocol(Arc::new(DirectAdapter::default()), None);
+    registry.register_standard_protocol(Arc::new(DirectAdapter::default()));
+    registry.register_standard_protocol(Arc::new(DirectAdapter::default()));
 }
 
 #[test]
@@ -41,14 +40,13 @@ fn registered_behavior_views_retain_one_adapter_instance() {
     let adapter = Arc::new(DirectAdapter::default());
     let expected = Arc::as_ptr(&adapter) as *const ();
     let mut registry = direct_registry();
-    registry.register_standard_protocol(adapter, None);
+    registry.register_standard_protocol(adapter);
 
     let entry = registry
         .entries
         .first()
         .expect("registered adapter should create one entry");
     assert_eq!(Arc::as_ptr(&entry.support) as *const (), expected);
-    assert!(entry.outbound.is_none());
     assert_eq!(
         Arc::strong_count(&registry.entries[0].support),
         1,
@@ -71,9 +69,8 @@ fn standard_datagram_adapter_requires_no_upstream_handler_registration() {
             crate::adapters::socks5::inbound::component_options,
         )
         .unwrap();
-    registry.register_standard_protocol(adapter, None);
+    registry.register_standard_protocol(adapter);
     let entry = registry.entries.first().expect("registered adapter entry");
-    assert!(entry.outbound.is_none());
     assert_eq!(Arc::as_ptr(&entry.support) as *const (), expected);
 }
 

@@ -132,17 +132,6 @@ pub(crate) trait RawIpInboundDevice: Send {
     fn mtu(&self) -> u16;
     fn peer_count(&self) -> usize;
     fn peer_for_destination(&self, destination: IpAddr) -> Option<usize>;
-    fn receive_datagram(
-        &mut self,
-        source: Option<SocketAddr>,
-        packet: &[u8],
-    ) -> Result<RawIpInboundDispatch, EngineError>;
-    fn send_ip_packet(
-        &mut self,
-        peer: usize,
-        packet: &[u8],
-    ) -> Result<Vec<RawIpInboundAction>, EngineError>;
-    fn tick_peer(&mut self, peer: usize) -> Result<Vec<RawIpInboundAction>, EngineError>;
     fn timer_schedule(&self, _peer: usize) -> crate::runtime::raw_ip::timer::TimerSchedule {
         crate::runtime::raw_ip::timer::TimerSchedule::Polling
     }
@@ -237,12 +226,13 @@ pub(crate) struct RawIpInboundEndpoint {
     pub(crate) lease: Arc<AtomicBool>,
 }
 
+type OuterMemoryLimits = Vec<Option<Arc<[Arc<[std::num::NonZeroUsize]>]>>>;
 pub(crate) struct EndpointPeerState {
     pub(crate) revision: u64,
     pub(crate) devices: Vec<Arc<SharedRawIpDevice>>,
     pub(crate) initial_endpoints: Vec<Option<SocketAddr>>,
     pub(crate) prepared_outer: Vec<Option<crate::adapters::devices::PreparedDevicePacketPath>>,
-    pub(crate) outer_memory: Vec<Option<Arc<[Arc<[std::num::NonZeroUsize]>]>>>,
+    pub(crate) outer_memory: OuterMemoryLimits,
 }
 
 impl Drop for RawIpInboundEndpoint {

@@ -9,7 +9,7 @@ use tokio::{
     time::{timeout, Instant},
 };
 use zero_core::{Address, Network, ProtocolType, Session};
-use zero_engine::{ResolvedOutbound, RouteDecision};
+use zero_engine::RouteDecision;
 #[tokio::test]
 async fn native_direct_and_socket_prefixes_preserve_actual_wire_halfclose_and_original_caller() {
     exercise(false).await;
@@ -43,10 +43,8 @@ async fn exercise(reject: bool) {
                     let session=caller.session().clone();let witness=caller.witness();
                     let services=proxy.tcp_runtime_services();let mut execution=services.execution();execution.invocation=Some(caller.invocation().clone());
                     let (resolved,_)=proxy.engine().resolve_route_decision(RouteDecision::Route("chain".into())).unwrap();
-                    let ResolvedOutbound::Relay {chain}=resolved else {unreachable!()};
-                    let prepared=proxy.protocols.prepare_tcp_relay(OutboundAdapterContext::new(services.config()),&chain,execution.components.as_deref().ok())
-                        .unwrap_or_else(|failure|panic!("{}",failure.error));
-                    assert!(prepared.0.standard_nodes().unwrap().is_some());
+                    let prepared=proxy.protocols.prepare_tcp_outbound(OutboundAdapterContext::new(services.config()),&resolved,zero_engine::RouteMode::Flow,execution.components.as_deref().ok()).unwrap_or_else(|failure|panic!("{}",failure.error));
+                    let crate::inventory::PreparedTcpOutbound::NativeRelay(prepared)=prepared else {panic!("actual standard relay required")};
                     let mut peers=tokio::task::JoinSet::new();
                     for (index,listener) in listeners.into_iter().enumerate() {
                         let next=addresses.get(index+1).copied();
@@ -68,7 +66,7 @@ async fn exercise(reject: bool) {
                             }
                         });
                     }
-                    let result=crate::runtime::tcp_dispatch::relay::dispatch_tcp_relay(execution.clone(),&session,prepared.0,prepared.1,crate::runtime::tcp_dispatch::TcpDispatchIntent::Traffic).await;
+                    let result=crate::component::stream_bridge::connect_relay(&execution,&session,prepared,true).await;
                     if reject {
                         let error=result.err().expect("actual handshake rejection");let original=crate::transport::channel_failure(&error.error).unwrap();
                         assert_eq!(original.reason,zero_platform_tokio::contract::Reason::Protocol);
@@ -77,7 +75,6 @@ async fn exercise(reject: bool) {
                         assert_eq!(original.delivery,zero_platform_tokio::contract::DeliveryState::Unknown);assert!(!original.retry_permitted());
                     }else{
                         let outbound=result.unwrap_or_else(|failure|panic!("{}: {}",failure.stage,failure.error));
-                        assert!(outbound.is_standard_stream_for_test(), "a standard native tail over the retained prefix must not reconstruct the old ClientStream facade");
                         let mut io=crate::transport::extract_tcp_stream(outbound).unwrap();
                         assert_eq!(io.relay_chain.len(),count);assert_eq!(io.outbound_tag,"last");
                         let mut prefix=[0;3];io.upstream.read_exact(&mut prefix).await.unwrap();assert_eq!(&prefix,b"pre");

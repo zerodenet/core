@@ -90,9 +90,6 @@ impl Original {
         };
         Ok((access, work))
     }
-    pub(in super::super) fn helper_access(&self) -> Option<MacosHelperAccess> {
-        self.owner.macos_helper()
-    }
     pub(in super::super) fn stop_macos(&self) {
         let sender = self
             .macos

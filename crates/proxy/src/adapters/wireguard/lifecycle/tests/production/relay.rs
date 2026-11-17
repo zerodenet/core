@@ -13,12 +13,14 @@ async fn remote(protocol: serde_json::Value) -> (crate::Proxy, crate::RunningPro
         .apply_runtime_config_and_wait(config, Duration::from_secs(10))
         .await
         .unwrap();
-    let source = proxy.inbound_owners.owner("remote").unwrap();
+    let source = proxy.system_tun_source_registry().owner("remote").unwrap();
     source.wait_ready().await.unwrap();
     let endpoint = *source.original_listener_address.get().unwrap();
     (proxy, running, endpoint)
 }
-fn physical(proxy: &crate::Proxy) -> Vec<CarrierOrigin> {
+fn physical(
+    proxy: &crate::Proxy,
+) -> Vec<zero_platform_tokio::controlled_carrier::CarrierOriginObservation> {
     let plan = proxy.tcp_runtime_services().components.clone().unwrap();
     ["donor", "receiver", "codec"]
         .into_iter()
@@ -105,7 +107,7 @@ async fn stream_only_outer_donor_and_codec_tail_deliver_wire_and_retire_original
         (vless, vless_running),
         (ss, ss_running),
     ] {
-        let source = proxy.inbound_owners.owner("remote").unwrap();
+        let source = proxy.system_tun_source_registry().owner("remote").unwrap();
         running.shutdown().await.unwrap();
         let terminal = source.terminal_for_test().unwrap();
         assert!(terminal.failure().is_none() && terminal.closed_io_receipts() > 0);

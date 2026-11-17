@@ -10,7 +10,7 @@ mod node_dns;
 mod original_budgets;
 mod packet_driver;
 mod plan;
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, unix))]
 #[path = "catalog/tests/process_accounting.rs"]
 mod process_accounting_tests;
 mod quiescence;
@@ -169,10 +169,13 @@ impl ComponentCatalog {
                 return Some(candidate.plan.clone());
             }
         }
+        // A recovery stages fresh generations for the same published config
+        // Arc. Its retired current entry still exists until commit, but is no
+        // longer the prepared candidate used to bind restored Sources.
         state
-            .current
+            .staged
             .iter()
-            .chain(state.staged.iter())
+            .chain(state.current.iter())
             .chain(state.cold.iter())
             .find(|entry| entry.matches(config))
             .map(|entry| entry.plan.clone())

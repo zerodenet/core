@@ -105,9 +105,6 @@ impl RawIpOutboundPlan for WireguardRawIpPlan {
     fn peer_identity(&self, peer: usize) -> Option<Arc<str>> {
         self.peer_identities.get(peer).cloned()
     }
-    fn mtu(&self) -> u16 {
-        self.profile.mtu()
-    }
 
     fn is_local_address(&self, address: IpAddr) -> bool {
         self.profile.local_addresses().contains(&address)

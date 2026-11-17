@@ -3,7 +3,7 @@ mod carrier;
 mod packet_device_class;
 mod packet_driver;
 mod packet_source;
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(any(unix, windows))]
 mod process_endpoint;
 use super::*;
 

@@ -18,18 +18,19 @@ impl QueuedSourceEvent {
     }
 }
 
+type SourceWorker = (
+    tokio::sync::mpsc::Receiver<QueuedSourceEvent>,
+    Arc<SourceBudget>,
+    std::thread::JoinHandle<()>,
+    std::sync::mpsc::SyncSender<()>,
+);
 pub(in crate::dispatcher) fn spawn<S: EventStream + Send + 'static>(
     subscriber: super::original::Subscriber<S>,
     cancelled: Arc<AtomicBool>,
     capacity: usize,
     byte_limit: u32,
     budget: Arc<SourceBudget>,
-) -> std::io::Result<(
-    tokio::sync::mpsc::Receiver<QueuedSourceEvent>,
-    Arc<SourceBudget>,
-    std::thread::JoinHandle<()>,
-    std::sync::mpsc::SyncSender<()>,
-)> {
+) -> std::io::Result<SourceWorker> {
     // Validated config uses <=256 MiB. Direct embedders also cannot exceed a
     // platform's semaphore ceiling or request an impossible reservation.
     let byte_limit = byte_limit.clamp(1, Semaphore::MAX_PERMITS.min(u32::MAX as usize) as u32);

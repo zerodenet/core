@@ -29,9 +29,9 @@ pub trait ConfigApplyReconciler: Send + Sync {
     /// with the previous target before returning the failure.
     async fn reconcile(&self, target: Arc<RuntimeConfig>) -> Result<ConfigReconcileResult, String>;
 
-    /// Application event networking shares the actual Host carrier total.
+    /// Application event networking shares the actual Host carrier and task totals.
     /// An owner of those originals may stop its old generation and prepare its
-    /// target paused before the proxy installs a changed total. Returning Some
+    /// target paused before the proxy installs either changed total. Returning Some
     /// means normal reconciliation is already prepared, never activated. The
     /// default owns no such originals and retains the usual reconcile order.
     async fn prepare_carrier_budget(

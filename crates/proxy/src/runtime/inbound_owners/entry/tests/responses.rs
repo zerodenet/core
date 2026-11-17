@@ -1,10 +1,7 @@
 //! The real caller exit, original response joins and native receipt stay distinct.
 use super::*;
 use crate::runtime::{inbound_owners::HostPeerBinding, udp_flow::response_join::ResponseSetOwner};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    task::JoinSet,
-};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zero_platform_tokio::{
     contract::lifecycle::{erase_lifecycle, ResourceLifecycle},
     TokioDatagramSocket,

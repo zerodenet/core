@@ -177,6 +177,7 @@ impl OrchestrationState {
         }
         match prepared {
             Ok(prepared) => {
+                let preparing = self.preparing_inbounds.clone();
                 let publication = async {
                     proxy
                         .protocols
@@ -185,7 +186,7 @@ impl OrchestrationState {
                         .protocols
                         .scan_components(snapshot.config(), Instant::now() + Duration::from_secs(5))
                         .await?;
-                    self.preparing_inbounds.ensure_open()?;
+                    preparing.ensure_open()?;
                     if proxy.egress_interface.generation() != generation {
                         return Err(zero_engine::EngineError::Io(std::io::Error::new(
                             std::io::ErrorKind::Interrupted,
@@ -300,7 +301,7 @@ impl OrchestrationState {
         }
     }
     async fn prepare_network_devices(
-        &self,
+        &mut self,
         proxy: &Proxy,
         snapshot: &std::sync::Arc<zero_engine::EngineRuntimeSnapshot>,
     ) -> Result<crate::adapters::devices::PreparedDevices, zero_engine::EngineError> {
@@ -328,6 +329,9 @@ impl OrchestrationState {
             )
             .await?;
         self.bind_retained_packet_sources(proxy, config, &services)?;
-        proxy.protocols.prepare_devices(config, services).await
+        proxy
+            .protocols
+            .prepare_devices(config, services, self.preparing_inbounds.cancellation())
+            .await
     }
 }

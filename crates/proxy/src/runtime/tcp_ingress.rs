@@ -12,8 +12,6 @@ mod lifecycle;
 mod runtime;
 
 pub(crate) use contract::InboundProtocol;
-#[cfg(all(test, feature = "managed-stream-runtime"))]
-pub(crate) use contract::NoClientResponseInboundProtocol;
 pub(crate) use contract::NoClientResponseStreamProtocol;
 
 #[cfg(feature = "udp-runtime")]

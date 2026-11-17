@@ -116,7 +116,7 @@ fn admission(proxy: &Proxy) -> zero_runtime::component::ServiceAdmission {
 }
 
 async fn return_views(
-    stream: zero_platform_tokio::TcpRelayStream,
+    stream: zero_platform_tokio::contract::stream::BoxStream,
     held: DatagramLoan,
     prior: &MetadataPoolOrigin,
     applying: &tokio::task::JoinHandle<Result<(), String>>,

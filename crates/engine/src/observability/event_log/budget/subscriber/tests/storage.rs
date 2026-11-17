@@ -5,8 +5,10 @@ fn filter_is_moved_once_and_unregister_without_new_events_frees_exact_registrati
     let mut label = String::with_capacity(111);
     label.push_str("same.event");
     let address = label.as_ptr();
-    let mut filter = EventFilter::default();
-    filter.event_types = Vec::with_capacity(4);
+    let mut filter = EventFilter {
+        event_types: Vec::with_capacity(4),
+        ..Default::default()
+    };
     filter.event_types.push(label);
     let expected = 4 * std::mem::size_of::<String>() + 111;
     assert_eq!(
@@ -53,8 +55,10 @@ fn low_storage_and_filter_limits_refuse_before_constructing_a_physical_queue() {
         assert_eq!(root.storage.load(Ordering::Acquire), 0);
         assert_eq!(root.registrations.load(Ordering::Acquire), 0);
     }
-    let mut limits = SubscriberLimits::default();
-    limits.filter = 1;
+    let limits = SubscriberLimits {
+        filter: 1,
+        ..Default::default()
+    };
     registry.lock().unwrap().install_limits(limits);
     let mut filter = EventFilter::default();
     filter.event_types.push("same.event".into());

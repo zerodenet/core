@@ -1,6 +1,9 @@
 use super::select_candidate_egress;
 use zero_platform_tokio::EgressInterfaceControl;
 
+#[cfg(feature = "sink-jsonl")]
+mod shared_budget;
+
 #[test]
 fn active_tun_without_physical_egress_fails_closed_for_each_family() {
     let egress = EgressInterfaceControl::default();

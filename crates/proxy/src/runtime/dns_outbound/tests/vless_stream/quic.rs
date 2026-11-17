@@ -1,10 +1,14 @@
 //! Ordinary owning QUIC loans enter the existing DNS provider before first IO.
 use super::*;
 use zero_platform_tokio::controlled_carrier::CarrierOriginOwner;
+#[path = "quic/fixture.rs"]
 mod fixture;
 use fixture::*;
+#[path = "quic/datagram.rs"]
 mod datagram;
+#[path = "quic/h3_returned.rs"]
 mod h3_returned;
+#[path = "quic/pending.rs"]
 mod pending;
 #[tokio::test]
 async fn ordinary_quic_native_and_borrowed_doh_use_the_same_real_query_and_endpoint_owners() {

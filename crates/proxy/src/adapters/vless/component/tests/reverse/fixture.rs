@@ -56,7 +56,10 @@ pub(super) async fn pair_with_bridge_graph(
         "outbound_groups":if target=="chain"{serde_json::json!([{"tag":"chain","type":"relay","proxies":["portal","last"]}])}else{serde_json::json!([])},
         "route":{"final":{"type":"route","outbound":target}}
     })).await;
-    let clients = portal.inbound_owners.owner("clients").unwrap();
+    let clients = portal
+        .system_tun_source_registry()
+        .owner("clients")
+        .unwrap();
     clients.wait_ready().await.unwrap();
     let socks = *clients.original_listener_address.get().unwrap();
     let mut outbound = serde_json::json!({"type":"vless","server":"127.0.0.1","port":wire.port(),"id":ID,"reverse_tag":"return"});

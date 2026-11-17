@@ -9,26 +9,10 @@ fn same_pool_removes_legacy_claims_only_for_the_whole_owning_configuration() {
     assert!(selected(node, Some(&standalone), true));
     assert!(!selected(node, None, true));
     assert!(!selected(node, Some(&standalone), false));
-    assert!(crate::register::protocol_registry()
-        .claim_outbound_leaf(
-            &standalone,
-            zero_engine::ResolvedLeafOutbound::Proxy {
-                identity: zero_engine::OutboundIdentity::from_config_index(0)
-            }
-        )
-        .is_err());
     let mixed = config(
         serde_json::json!([{ "tag":"choice","type":"selector","outbounds":["other","node"],"selected":"other"},{"tag":"chain","type":"relay","proxies":["other","choice"]}]),
     );
     assert!(whole_selected(&mixed, true));
-    assert!(crate::register::protocol_registry()
-        .claim_outbound_leaf(
-            &mixed,
-            zero_engine::ResolvedLeafOutbound::Proxy {
-                identity: zero_engine::OutboundIdentity::from_config_index(0)
-            }
-        )
-        .is_err());
 }
 #[test]
 fn cold_owner_projects_configured_per_pool_and_registry_budgets_without_starting() {
@@ -179,13 +163,5 @@ fn grpc_lower_stream_carriers_prepare_one_actual_pool_without_legacy_claims() {
             2,
             "one actual H2 pool and its existing totals owner"
         );
-        assert!(crate::register::protocol_registry()
-            .claim_outbound_leaf(
-                &candidate,
-                zero_engine::ResolvedLeafOutbound::Proxy {
-                    identity: zero_engine::OutboundIdentity::from_config_index(0)
-                }
-            )
-            .is_err());
     }
 }

@@ -200,15 +200,11 @@ fn wants_flow_snapshot(filter: &EventFilter) -> bool {
 }
 
 fn matches_event(event: &RawApiEvent, filter: &EventFilter) -> bool {
-    if !filter.event_types.is_empty()
+    !(!filter.event_types.is_empty()
         && !filter
             .event_types
             .iter()
-            .any(|event_type| event_type == &event.event_type)
-    {
-        return false;
-    }
-    true
+            .any(|event_type| event_type == &event.event_type))
 }
 
 fn subscription_error(error: std::io::Error) -> zero_api::ApiError {

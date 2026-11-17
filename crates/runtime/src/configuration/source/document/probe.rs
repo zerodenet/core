@@ -105,21 +105,25 @@ fn object(
         if input.take()? != Some(b'"') {
             return Err(invalid());
         }
-        let mut decoded = string::Decoded::new(input);
-        let mut child = Scan::new(&mut decoded);
-        let facts = object(&mut child, dialect, runtime, depth + 1);
-        if facts.as_ref().is_err_and(|source| !deferred(source)) {
-            return facts;
-        }
-        child.ws()?;
-        if child.peek()?.is_some() {
-            return Err(invalid());
-        }
-        drop(child);
-        if !decoded.done() {
-            return Err(invalid());
-        }
-        drop(decoded);
+        let facts = {
+            let mut decoded = string::Decoded::new(input);
+            let facts = {
+                let mut child = Scan::new(&mut decoded);
+                let facts = object(&mut child, dialect, runtime, depth + 1);
+                if facts.as_ref().is_err_and(|source| !deferred(source)) {
+                    return facts;
+                }
+                child.ws()?;
+                if child.peek()?.is_some() {
+                    return Err(invalid());
+                }
+                facts
+            };
+            if !decoded.done() {
+                return Err(invalid());
+            }
+            facts
+        };
         input.ws()?;
         if input.take()? != Some(b'}') {
             return Err(invalid());
@@ -213,21 +217,25 @@ fn bound_value(
         if input.take()? != Some(b'"') {
             return Err(invalid());
         }
-        let mut decoded = string::Decoded::new(input);
-        let mut child = Scan::new(&mut decoded);
-        let fact = bound_value(&mut child, dialect, request, depth + 1);
-        if fact.as_ref().is_err_and(|source| !deferred(source)) {
-            return fact;
-        }
-        child.ws()?;
-        if child.peek()?.is_some() {
-            return Err(invalid());
-        }
-        drop(child);
-        if !decoded.done() {
-            return Err(invalid());
-        }
-        drop(decoded);
+        let fact = {
+            let mut decoded = string::Decoded::new(input);
+            let fact = {
+                let mut child = Scan::new(&mut decoded);
+                let fact = bound_value(&mut child, dialect, request, depth + 1);
+                if fact.as_ref().is_err_and(|source| !deferred(source)) {
+                    return fact;
+                }
+                child.ws()?;
+                if child.peek()?.is_some() {
+                    return Err(invalid());
+                }
+                fact
+            };
+            if !decoded.done() {
+                return Err(invalid());
+            }
+            fact
+        };
         input.ws()?;
         if input.take()? != Some(b'}') {
             return Err(invalid());

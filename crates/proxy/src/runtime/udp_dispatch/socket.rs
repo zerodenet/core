@@ -121,11 +121,11 @@ impl DispatchDirectSockets {
         payload: &[u8],
         target: SocketAddr,
         session: u64,
-        policy: &DirectUdpPolicy,
+        _policy: &DirectUdpPolicy,
     ) -> Result<usize, EngineError> {
         match self {
             #[cfg(test)]
-            Self::Legacy(socket) => socket.send_to_addr(payload, target, session, policy).await,
+            Self::Legacy(socket) => socket.send_to_addr(payload, target, session, _policy).await,
             #[cfg(feature = "managed-datagram-runtime")]
             Self::Bound(socket) => socket
                 .bridge
@@ -148,13 +148,13 @@ impl DispatchDirectSockets {
         candidates: &[SocketAddr],
         payload: &[u8],
         session: u64,
-        policy: &DirectUdpPolicy,
+        _policy: &DirectUdpPolicy,
     ) -> Result<DirectUdpSentPacket, EngineError> {
         match self {
             #[cfg(test)]
             Self::Legacy(socket) => {
                 socket
-                    .send_new_packet(target, candidates, payload, session, policy)
+                    .send_new_packet(target, candidates, payload, session, _policy)
                     .await
             }
             #[cfg(feature = "managed-datagram-runtime")]

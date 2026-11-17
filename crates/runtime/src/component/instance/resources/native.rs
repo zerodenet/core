@@ -47,7 +47,7 @@ pub struct HostResources {
     protocol_failures: Arc<failures::DeclaredReceiver>,
     protocol_supervision:
         std::sync::OnceLock<std::sync::Weak<crate::component::admission::HostAdmission>>,
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     processes: process::ProcessDeclarations,
     cancel: CancellationToken,
     state: Mutex<State>,
@@ -147,7 +147,7 @@ mod original_budgets;
 mod packet_device;
 mod packet_driver;
 mod prepare;
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(any(unix, windows))]
 mod process;
 mod protocol;
 mod root_datagram;
@@ -697,12 +697,12 @@ impl ResourceAccess for HostResources {
         let child = request.command().spawn().map_err(|source| {
             error(self.component, Reason::Io, "native process spawn failed").with_source(source)
         })?;
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         self.processes.mark_legacy(&request.program);
         *remaining -= 1;
         Ok(child)
     }
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     fn prepare_owned_process(
         &self,
         request: ProcessRequest,
@@ -710,14 +710,14 @@ impl ResourceAccess for HostResources {
     ) -> Result<Arc<zero_platform_tokio::owned_process::OwnedProcess>, ChannelError> {
         self.prepare_process(request, tasks)
     }
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     fn process_endpoint_retirement(
         &self,
         ordinal: usize,
     ) -> Option<Arc<dyn zero_platform_tokio::owned_process::ProcessEndpointRetirement>> {
         self.processes.endpoint_retirement(ordinal)
     }
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     fn reserve_process_endpoint(
         &self,
         ordinal: usize,
@@ -726,7 +726,7 @@ impl ResourceAccess for HostResources {
     ) -> Result<Arc<zero_platform_tokio::owned_process::ProcessEndpointHandoff>, ChannelError> {
         self.reserve_endpoint(ordinal, tasks, actor)
     }
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     fn prepare_owned_process_with_endpoint(
         &self,
         request: ProcessRequest,
@@ -790,7 +790,7 @@ impl HostResources {
         &self,
         cx: &mut std::task::Context<'_>,
     ) -> bool {
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         self.processes.poll_budget(cx);
         self.carriers.poll_cancelled(cx)
     }

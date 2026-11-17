@@ -11,8 +11,6 @@ use zero_traits::IpAddress;
 #[derive(Clone)]
 pub(crate) struct SharedIngressRuntimeServices {
     tcp_services: TcpRuntimeServices,
-    #[cfg(feature = "managed-stream-runtime")]
-    mux_udp_continuity: crate::runtime::mux_udp::MuxUdpContinuityRegistry,
     #[cfg(feature = "udp-runtime")]
     udp_runtime: UdpIngressRuntime,
 }
@@ -126,8 +124,6 @@ impl SharedIngressRuntimeServices {
     pub(crate) fn new(tcp_services: TcpRuntimeServices) -> Self {
         Self {
             tcp_services: tcp_services.clone(),
-            #[cfg(feature = "managed-stream-runtime")]
-            mux_udp_continuity: crate::runtime::mux_udp::MuxUdpContinuityRegistry::default(),
             #[cfg(feature = "udp-runtime")]
             udp_runtime: UdpIngressRuntime::new(tcp_services),
         }
@@ -149,8 +145,6 @@ impl SharedIngressRuntimeServices {
         let tcp_services = self.tcp_services.with_current_snapshot();
         Self {
             tcp_services: tcp_services.clone(),
-            #[cfg(feature = "managed-stream-runtime")]
-            mux_udp_continuity: self.mux_udp_continuity.clone(),
             #[cfg(feature = "udp-runtime")]
             udp_runtime: UdpIngressRuntime::new(tcp_services),
         }
@@ -159,11 +153,6 @@ impl SharedIngressRuntimeServices {
     #[cfg(feature = "udp-runtime")]
     pub(super) fn udp_runtime(&self) -> UdpIngressRuntime {
         self.udp_runtime.clone()
-    }
-
-    #[cfg(feature = "managed-stream-runtime")]
-    pub(super) fn mux_udp_continuity(&self) -> crate::runtime::mux_udp::MuxUdpContinuityRegistry {
-        self.mux_udp_continuity.clone()
     }
 }
 

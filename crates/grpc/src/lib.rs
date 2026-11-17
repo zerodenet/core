@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 //! gRPC control plane server for Zero.
 //!
 //! Wraps the existing `ProxyHandle` (CommandService + QueryService + EventSource)

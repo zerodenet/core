@@ -61,7 +61,9 @@ impl Engine {
             core_instance_id: self.core_instance_id().to_owned(),
             config_revision: snapshot.config_revision(),
             stats: self.stats_snapshot(),
-            udp_upstream_idle_timeout_seconds: self.udp_upstream_idle_timeout().as_secs(),
+            udp_upstream_idle_timeout_seconds: self
+                .udp_upstream_idle_timeout_in_snapshot(snapshot)
+                .as_secs(),
             udp_enabled: config.runtime.udp.enabled,
             log_level: config.runtime.log.level.clone(),
             log_files: config

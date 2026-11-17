@@ -3,7 +3,6 @@
 use crate::runtime::sniff::udp::UdpSniffingState;
 use std::{
     collections::VecDeque,
-    future::Future,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -122,6 +121,10 @@ impl Reading {
         }
     }
 }
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the same prepaid receive state retains original buffers across cancellation"
+)]
 enum State {
     Ready(Option<Reading>),
     Reading(BoxFuture<'static, (Reading, ResultEvent)>),

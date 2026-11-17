@@ -40,6 +40,10 @@ impl InlineName {
     }
 }
 #[cfg(feature = "managed-stream-runtime")]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "bounded inline hostname storage avoids an unprepaid allocation"
+)]
 pub(crate) enum NameProgress {
     Pending,
     Domain(InlineName),

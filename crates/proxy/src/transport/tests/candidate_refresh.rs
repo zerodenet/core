@@ -1,5 +1,6 @@
 //! One actual accepted task polls the DNS continuation; no private task set.
 use super::*;
+use std::sync::Arc;
 use std::{future::Future, num::NonZeroUsize, task::Poll};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zero_platform_tokio::contract::{

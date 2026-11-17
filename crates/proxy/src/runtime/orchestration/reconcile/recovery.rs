@@ -182,20 +182,26 @@ impl OrchestrationState {
             if can_restore && !tun_recovery {
                 let services =
                     proxy.tcp_runtime_services_for_snapshot(self.applied_snapshot.clone());
-                let result = async {
+                let state = &mut *self;
+                let recovery_config = &previous_config;
+                let result = async move {
                     proxy
                         .protocols
                         .start_device_resources(
-                            &previous_config,
+                            recovery_config,
                             &services,
                             tokio::time::Instant::now() + std::time::Duration::from_secs(5),
-                            self.preparing_inbounds.cancellation(),
+                            state.preparing_inbounds.cancellation(),
                         )
                         .await?;
-                    self.bind_retained_packet_sources(proxy, &previous_config, &services)?;
+                    state.bind_retained_packet_sources(proxy, recovery_config, &services)?;
                     proxy
                         .protocols
-                        .prepare_devices(&previous_config, services)
+                        .prepare_devices(
+                            recovery_config,
+                            services,
+                            state.preparing_inbounds.cancellation(),
+                        )
                         .await
                 }
                 .await;
@@ -224,7 +230,23 @@ impl OrchestrationState {
             #[cfg(feature = "raw-ip-runtime")]
             drop(recovered_devices);
 
-            let previous_runtime = self.inbound_runtime_factory.clone().for_recovery();
+            let mut restored_runtime = self.inbound_runtime_factory.clone();
+            if can_restore && !tun_recovery {
+                // Recovery rebuilt the dependency generations. The old
+                // listener factory still carries its retired planning snapshot;
+                // bind the actual restored plan before its Source authenticates
+                // the original provider/dependency identities.
+                match restored_runtime.with_prepared_components() {
+                    Ok(runtime) => restored_runtime = runtime,
+                    Err(error) => {
+                        can_restore = false;
+                        acknowledgement.push_str(&format!(
+                            "; listener dependency recovery remains owned: {error}"
+                        ));
+                    }
+                }
+            }
+            let previous_runtime = restored_runtime.clone().for_recovery();
             // Only pre-existing actual owners may grant one recovery re-entry.
             // This temporary finite set holds IDs, never old owners/configuration
             // history. A failed newly created generation stays fatal/retained.
@@ -338,6 +360,9 @@ impl OrchestrationState {
                         "; active Source recovery remains unconfirmed: {error}"
                     ));
                 }
+            }
+            if can_restore {
+                self.inbound_runtime_factory = restored_runtime.without_preparing();
             }
             self.publish_endpoint_facts(proxy);
             self.publish_rejected_endpoints(proxy, rejected, &acknowledgement);

@@ -5,14 +5,14 @@ mod datagram;
 #[path = "upstream/tests/legacy_root.rs"]
 mod legacy_root;
 pub(crate) mod packet_target;
+#[cfg(test)]
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use zero_dns::DnsSystem;
-use zero_platform_tokio::contract::{
-    dns::{DnsQueryContext, DnsQueryRole, DnsRequest, DnsService},
-    ChannelError, Reason,
-};
+#[cfg(test)]
+use zero_platform_tokio::contract::dns::{DnsQueryContext, DnsQueryRole, DnsRequest};
+use zero_platform_tokio::contract::{dns::DnsService, ChannelError, Reason};
 use zero_traits::IpAddress;
 
 use crate::transport::DirectConnector;
@@ -84,17 +84,6 @@ impl UpstreamConnectServices {
         self.observer = observer;
         self
     }
-    pub(crate) fn observe_stream(
-        &self,
-        stream: zero_transport::TcpRelayStream,
-    ) -> zero_transport::TcpRelayStream {
-        match &self.observer {
-            Some(observer) => zero_transport::TcpRelayStream::new(
-                zero_transport::observed::ObservedStream::new(stream, observer.clone()),
-            ),
-            None => stream,
-        }
-    }
     pub(crate) fn observer(&self) -> Option<Arc<dyn zero_traits::IoObserver>> {
         self.observer.clone()
     }
@@ -145,7 +134,7 @@ impl UpstreamConnectServices {
             .await
     }
 
-    #[cfg(any(test, not(any(target_os = "linux", windows))))]
+    #[cfg(test)]
     pub(crate) async fn connect_upstream_owned(
         &self,
         server: String,
@@ -168,6 +157,7 @@ impl UpstreamConnectServices {
             })
     }
 
+    #[cfg(test)]
     pub(crate) fn outbound_datagram_socket_factory(
         &self,
     ) -> zero_transport::OutboundDatagramSocketFactory {
@@ -247,9 +237,11 @@ impl UpstreamConnectServices {
     }
 }
 
+#[cfg(test)]
 struct NodeHostResolver {
     resolver: Arc<dyn DnsService>,
 }
+#[cfg(test)]
 impl std::fmt::Debug for NodeHostResolver {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -258,6 +250,7 @@ impl std::fmt::Debug for NodeHostResolver {
     }
 }
 
+#[cfg(test)]
 impl zero_transport::OutboundHostResolver for NodeHostResolver {
     fn resolve(&self, host: String, port: u16) -> zero_transport::OutboundHostResolveFuture {
         let resolver = self.resolver.clone();
@@ -281,7 +274,9 @@ impl zero_transport::OutboundHostResolver for NodeHostResolver {
 }
 
 #[derive(Debug)]
+#[cfg(test)]
 struct LegacyDnsError(ChannelError);
+#[cfg(test)]
 impl std::fmt::Display for LegacyDnsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match std::error::Error::source(&self.0) {
@@ -290,11 +285,13 @@ impl std::fmt::Display for LegacyDnsError {
         }
     }
 }
+#[cfg(test)]
 impl std::error::Error for LegacyDnsError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(&self.0)
     }
 }
+#[cfg(test)]
 fn dns_error(error: ChannelError) -> std::io::Error {
     let kind = match error.reason {
         Reason::Timeout => std::io::ErrorKind::TimedOut,

@@ -24,10 +24,9 @@ async fn ordinary_vmess_grpc_domain_without_dns_document_uses_the_actual_system_
         .engine()
         .resolve_route_decision(RouteDecision::Route("node".into()))
         .unwrap();
-    let zero_engine::ResolvedOutbound::Single(leaf) = resolved else {
+    let zero_engine::ResolvedOutbound::Single(_leaf) = resolved else {
         unreachable!()
     };
-    assert!(proxy.protocols.claim_outbound_leaf(&config, leaf).is_err());
     dns.close().await;
 }
 

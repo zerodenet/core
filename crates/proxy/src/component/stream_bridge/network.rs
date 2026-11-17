@@ -10,20 +10,23 @@ use zero_platform_tokio::contract::{
     datagram::{BoxDatagramSession, DatagramRequest},
     network::{CarrierContext, PendingCarrierObserver, UpstreamBinding, UpstreamOpener},
     stream::BoxStream,
-    BoxFuture, ChannelError, DeliveryState, Impact, Reason, Stage,
+    BoxFuture, ChannelError, Reason,
 };
 use zero_platform_tokio::controlled_carrier::{
     CarrierEndpointObserver, CarrierEndpoints, CarrierGrant, NativeCarrierOpener, PreparedCarrier,
 };
+
+#[cfg(test)]
+use zero_platform_tokio::contract::{DeliveryState, Impact, Stage};
 
 mod candidates;
 mod dns;
 #[cfg(test)]
 #[path = "network/tests/legacy.rs"]
 mod legacy;
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(any(unix, windows))]
 mod process;
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(any(unix, windows))]
 mod process_datagram;
 mod service_dns;
 mod service_selection;
@@ -101,9 +104,6 @@ impl NodeOpener {
         self.pending = waiting.map(|waiting| (binding, waiting));
         self
     }
-    pub(super) fn generation(&self) -> u64 {
-        self.generation
-    }
     pub(in crate::component) fn take_evidence(&self) -> Option<Evidence> {
         self.evidence.lock().expect("node evidence poisoned").take()
     }
@@ -118,7 +118,7 @@ impl CarrierEndpointObserver for ConnectedEvidence {
     }
 }
 impl UpstreamOpener for NodeOpener {
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     fn acquire_process_endpoint_datagram(
         &self,
         binding: &UpstreamBinding,
@@ -127,7 +127,7 @@ impl UpstreamOpener for NodeOpener {
     {
         self.open_process_endpoint_datagram(binding.clone(), request)
     }
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     fn acquire_process_endpoint_stream(
         &self,
         binding: &UpstreamBinding,

@@ -10,7 +10,5 @@ mod protocol;
 
 pub(crate) use activity::TcpActivityStream;
 pub(crate) use activity::TcpRelayActivity;
-#[cfg(all(test, feature = "managed-stream-runtime"))]
-pub(crate) use no_response::NoClientResponseInboundProtocol;
 pub(crate) use no_response::NoClientResponseStreamProtocol;
 pub(crate) use protocol::InboundProtocol;

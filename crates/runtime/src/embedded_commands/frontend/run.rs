@@ -49,7 +49,7 @@ impl FrontendCommand {
             .ensure(book.limits().messages.pending_commands)
             .await?;
         let entry = self.0.clone();
-        let stop = ApplyObservation::caller_stop().unwrap_or_else(CancellationToken::new);
+        let stop = ApplyObservation::caller_stop().unwrap_or_default();
         let _ = entry.stop.set(stop.clone());
         let observation = entry.observation.clone();
         let producer = observation.owned_work_producer();

@@ -16,6 +16,29 @@ fn network(actions: Vec<TunnelAction>) -> Vec<Vec<u8>> {
         })
         .collect()
 }
+fn receive(
+    device: &mut WireguardInboundDevice,
+    source: Option<SocketAddr>,
+    packet: &[u8],
+) -> Result<RawIpInboundDispatch, wireguard::runtime::TunnelError> {
+    device
+        .0
+        .device
+        .lock()
+        .unwrap()
+        .receive_datagram_with_source(source, packet)
+        .map(|dispatch| RawIpInboundDispatch {
+            peer_index: dispatch.peer_index,
+            authenticated: dispatch.authenticated,
+            source_rejected_packets: dispatch.source_rejected_packets,
+            actions: dispatch
+                .actions
+                .into_iter()
+                .map(super::codec::map_action)
+                .collect(),
+        })
+}
+
 fn ip(payload: &[u8]) -> Vec<u8> {
     let mut bytes = vec![0; 20 + payload.len()];
     bytes[0] = 0x45;
@@ -65,9 +88,7 @@ fn same_actual_wireguard_device_preserves_authenticated_roaming_and_rejects_old_
     let mut client = PeerTunnel::from_validated(&validated, 0).unwrap();
     let learned: SocketAddr = "127.0.0.1:40123".parse().unwrap();
     let initiation = network(client.send_ip_packet(&ip(b"original")).unwrap());
-    let response = original
-        .receive_datagram(Some(learned), &initiation[0])
-        .unwrap();
+    let response = receive(&mut original, Some(learned), &initiation[0]).unwrap();
     let response = response
         .actions
         .into_iter()
@@ -79,9 +100,7 @@ fn same_actual_wireguard_device_preserves_authenticated_roaming_and_rejects_old_
     let queued = network(client.receive_datagram(None, &response).unwrap());
     let mut accepted = None;
     for ciphertext in queued {
-        let dispatch = original
-            .receive_datagram(Some(learned), &ciphertext)
-            .unwrap();
+        let dispatch = receive(&mut original, Some(learned), &ciphertext).unwrap();
         if dispatch
             .actions
             .iter()
@@ -105,9 +124,12 @@ fn same_actual_wireguard_device_preserves_authenticated_roaming_and_rejects_old_
         ),
         Some(learned)
     );
-    assert!(retained
-        .receive_datagram(Some("127.0.0.1:49999".parse().unwrap()), &accepted)
-        .is_err());
+    assert!(receive(
+        &mut retained,
+        Some("127.0.0.1:49999".parse().unwrap()),
+        &accepted
+    )
+    .is_err());
     assert_eq!(retained.authenticated_endpoint(0), Some(learned));
     let next = network(
         client
@@ -119,7 +141,7 @@ fn same_actual_wireguard_device_preserves_authenticated_roaming_and_rejects_old_
     let next_counter = u64::from_le_bytes(next[0][8..16].try_into().unwrap());
     assert!(next_counter > previous_counter);
     let roamed: SocketAddr = "127.0.0.1:40124".parse().unwrap();
-    let dispatch = retained.receive_datagram(Some(roamed), &next[0]).unwrap();
+    let dispatch = receive(&mut retained, Some(roamed), &next[0]).unwrap();
     assert!(dispatch.authenticated);
     assert!(dispatch
         .actions

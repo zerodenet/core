@@ -1,12 +1,7 @@
-use zero_engine::{EngineError, RouteMode};
+use zero_engine::{ResolvedLeafOutbound, RouteMode};
 
 use super::super::ProtocolInventory;
-use crate::protocol_registry::ClaimedOutboundLeaf;
 use crate::protocol_registry::OutboundAdapterContext;
-use crate::runtime::path::TcpPathCategory;
-use crate::runtime::tcp_dispatch::operation::{
-    PreparedTcpConnectOperation, PreparedTcpRelayOperation,
-};
 use crate::transport::TcpOutboundFailure;
 
 #[derive(Clone)]
@@ -23,82 +18,28 @@ pub(crate) enum PreparedTcpCandidateExecution {
     // Only the actual execution acquires a strong current-generation slot.
     Native(super::native::StreamRoleRef),
     Block { tag: String },
-    Connect(std::sync::Arc<dyn PreparedTcpConnectOperation>),
-}
-
-#[derive(Clone)]
-pub(crate) struct PreparedTcpRelayHop {
-    pub(crate) tag: String,
-    pub(crate) protocol: String,
-    pub(crate) server: String,
-    pub(crate) port: u16,
-    pub(crate) execution: PreparedTcpRelayExecution,
-}
-
-#[derive(Clone)]
-pub(crate) enum PreparedTcpRelayExecution {
-    Native(super::native::StreamRoleRef),
-    Legacy(std::sync::Arc<dyn PreparedTcpRelayOperation>),
-}
-
-impl PreparedTcpRelayHop {
-    #[cfg(feature = "udp-runtime")]
-    pub(crate) fn upstream(&self) -> (String, u16) {
-        (self.server.clone(), self.port)
-    }
 }
 
 impl ProtocolInventory {
-    pub(in crate::inventory) fn prepare_claimed_tcp_candidate<'a>(
+    pub(in crate::inventory) fn prepare_tcp_candidate(
         &self,
-        _ctx: OutboundAdapterContext,
-        claimed: &ClaimedOutboundLeaf<'a>,
+        ctx: OutboundAdapterContext<'_>,
+        leaf: &ResolvedLeafOutbound<'_>,
+        components: Option<&crate::component::catalog::ComponentPlan>,
         mode: RouteMode,
     ) -> Result<PreparedTcpCandidate, TcpOutboundFailure> {
-        let runtime = claimed.runtime.clone();
-        let health_tag = health_tag(&runtime).map(ToOwned::to_owned);
-        let execution = if matches!(runtime.tcp_path, TcpPathCategory::Block) {
-            PreparedTcpCandidateExecution::Block {
-                tag: runtime.kernel_tag.unwrap_or_else(|| "block".to_owned()),
-            }
-        } else {
-            let operation = claimed.tcp_connect_for_route(mode)?;
-            PreparedTcpCandidateExecution::Connect(operation)
-        };
-        Ok(PreparedTcpCandidate {
-            health_tag,
-            tag: runtime.tag,
-            protocol: runtime.protocol,
-            endpoint: runtime
-                .endpoint
-                .map(|endpoint| (endpoint.server, endpoint.port)),
-            execution,
-        })
-    }
-
-    pub(in crate::inventory) fn prepare_claimed_tcp_relay_hop<'a>(
-        &self,
-        _ctx: OutboundAdapterContext,
-        claimed: &ClaimedOutboundLeaf<'a>,
-    ) -> Result<PreparedTcpRelayHop, EngineError> {
-        let (server, port, operation) = claimed.tcp_relay_hop()?;
-        let runtime = claimed.runtime.clone();
-        Ok(PreparedTcpRelayHop {
-            tag: runtime.tag.unwrap_or_else(|| "unknown".to_owned()),
-            protocol: runtime.protocol,
-            server,
-            port,
-            execution: PreparedTcpRelayExecution::Legacy(operation),
-        })
-    }
-}
-
-fn health_tag(runtime: &crate::protocol_registry::OutboundLeafRuntime) -> Option<&str> {
-    match runtime.tcp_path {
-        TcpPathCategory::Unavailable | TcpPathCategory::Block => None,
-        #[cfg(feature = "tcp-tunnel-runtime")]
-        TcpPathCategory::Tunnel => runtime.health_tag.as_deref(),
-        #[cfg(feature = "tcp-session-runtime")]
-        TcpPathCategory::Session => runtime.health_tag.as_deref(),
+        if let ResolvedLeafOutbound::Block { tag } = leaf {
+            return Ok(PreparedTcpCandidate {
+                health_tag: None,
+                tag: tag.map(str::to_owned),
+                protocol: "block".into(),
+                endpoint: None,
+                execution: PreparedTcpCandidateExecution::Block {
+                    tag: tag.unwrap_or("block").into(),
+                },
+            });
+        }
+        self.native_tcp_candidate(ctx, leaf, components, mode)
+            .unwrap_or_else(|| Err(crate::runtime::path::missing_tcp_route_capability(mode)))
     }
 }

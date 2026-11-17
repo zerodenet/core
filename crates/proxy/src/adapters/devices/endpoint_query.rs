@@ -38,3 +38,29 @@ impl Devices {
         Ok(None)
     }
 }
+
+impl EndpointDeviceRows {
+    pub(crate) fn serialize_details<S: serde::Serializer>(
+        &self,
+        config: &RuntimeConfig,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        #[cfg(feature = "wireguard")]
+        {
+            serde::Serialize::serialize(
+                &super::super::wireguard::endpoint_details::Details {
+                    facts: &self.wireguard,
+                    config,
+                },
+                serializer,
+            )
+        }
+        #[cfg(not(feature = "wireguard"))]
+        {
+            let _ = (self, config, serializer);
+            Err(serde::ser::Error::custom(
+                "endpoint protocol has no registered detail observer",
+            ))
+        }
+    }
+}

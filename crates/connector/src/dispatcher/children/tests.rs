@@ -174,8 +174,10 @@ async fn cancelled_publish_waiter_keeps_actual_blocking_job_until_join_and_nativ
     let path = directory.path().join("late-publish");
     let resources = DispatcherResources::default();
     let mut writer = resources.open(|| std::fs::File::create(&path)).unwrap();
-    let mut limits = zero_config::EventDispatcherConfig::default();
-    limits.max_worker_tasks = Some(1);
+    let limits = zero_config::EventDispatcherConfig {
+        max_worker_tasks: Some(1),
+        ..Default::default()
+    };
     let capacity = Arc::new(crate::capacity::DispatcherCapacity::from_limits(&limits));
     let children = Arc::new(DispatcherChildren::with_capacity(capacity.clone()));
     let (entered, received) = tokio::sync::oneshot::channel();
@@ -215,8 +217,10 @@ async fn cancelled_publish_waiter_keeps_actual_blocking_job_until_join_and_nativ
 
 #[tokio::test]
 async fn n1_completed_body_and_received_failure_keep_original_admission_separate_from_join() {
-    let mut limits = zero_config::EventDispatcherConfig::default();
-    limits.max_worker_tasks = Some(1);
+    let limits = zero_config::EventDispatcherConfig {
+        max_worker_tasks: Some(1),
+        ..Default::default()
+    };
     let capacity = Arc::new(crate::capacity::DispatcherCapacity::from_limits(&limits));
     let children = DispatcherChildren::with_capacity(capacity.clone());
     let charge = children.task_charge().unwrap();

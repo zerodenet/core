@@ -108,7 +108,8 @@ async fn settle_source(source: &(dyn Error + Send + Sync + 'static)) {
             // Unknown keeps this same call and this wrapper's original credit.
         },
         Some(Cleanup::Probe(call)) => {
-            if call.wait_settled().await.is_err() {
+            let failed = call.wait_settled().await.is_err();
+            if failed {
                 // A lost canonical owner without its positive original token
                 // cannot authorize refund or a replacement.
                 std::future::pending::<()>().await;

@@ -77,15 +77,14 @@ impl ConfigApplyReconciler for ApplicationServices {
         current: &RuntimeConfig,
         target: Arc<RuntimeConfig>,
     ) -> Result<Option<ConfigReconcileResult>, String> {
-        if current.runtime.effective_carrier_max_total_originals()
-            == target.runtime.effective_carrier_max_total_originals()
+        if !super::dispatcher::shared_network_budget_changed(current, &target)
             || !(dispatcher_enabled(current) || dispatcher_enabled(&target))
         {
             return Ok(None);
         }
         // The existing dispatcher is prepared paused: old native/task custody
-        // returns before the same Host total changes, while target delivery
-        // cannot acquire a new native original until the real host commit.
+        // and Scope ACKs return before either shared Host total changes.
+        // Target delivery cannot acquire a new original until the host commit.
         self.reconcile(target).await.map(Some)
     }
 

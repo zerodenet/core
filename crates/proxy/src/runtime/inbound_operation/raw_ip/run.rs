@@ -305,6 +305,12 @@ pub(in crate::runtime) async fn run(
                 if !idle { eprintln!("actual Packet Main pause rejected: source={:?} request={} pins={} sending={} responses={} closing_roles={}",
                     facts.inbound,request,pins.packet_routes_quiescent(),sending.is_some(),responses.len(),closing_packet_roles.is_some()); }
                 #[cfg(test)] eprintln!("actual Packet Main checkpoint ACK: source={:?} request={request} idle={idle}", facts.inbound);
+                if !idle {
+                    tracing::debug!(inbound = ?facts.inbound, request,
+                        routes_idle = pins.packet_routes_quiescent(), sending = sending.is_some(),
+                        responses = responses.len(), closing_roles = closing_packet_roles.is_some(),
+                        "Packet Main pause remains charged");
+                }
                 checkpoint.acknowledge(request,idle);
                 tokio::select! {_=cancel.cancelled()=>break Ok(()),_=checkpoint.resumed(request)=>{}}
             },

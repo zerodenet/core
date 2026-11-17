@@ -147,10 +147,7 @@ impl ProxyHandle {
                 changed_principals,
             )
             .await?;
-        if result.is_none() {
-            return Ok(false);
-        }
-        Ok(true)
+        Ok(result.is_some())
     }
 
     pub(super) fn enforce_principal_impact(

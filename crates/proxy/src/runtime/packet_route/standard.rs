@@ -48,6 +48,10 @@ impl PacketRoleSessions {
     /// Admission precedes the first owned submission. The exact selected role
     /// generation and actual source facts are never reconstructed from a tag.
     #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "return the exact original packet and submission disposition"
+    )]
     pub(crate) async fn send(
         &self,
         selected: RoleInstanceId,

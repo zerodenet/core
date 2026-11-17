@@ -39,9 +39,20 @@ pub(super) fn dispatcher_changed(previous: &RuntimeConfig, target: &RuntimeConfi
                 != target.runtime.effective_event_network_max_originals()
             || previous.runtime.effective_event_network_max_lookups()
                 != target.runtime.effective_event_network_max_lookups()
-            || previous.runtime.effective_carrier_max_total_originals()
-                != target.runtime.effective_carrier_max_total_originals())
+            || shared_network_budget_changed(previous, target))
             && (dispatcher_enabled(previous) || dispatcher_enabled(target)))
+}
+
+/// Event Epochs charge these same Host roots. Retire them in the existing
+/// application prepare phase before Proxy installs either replacement policy.
+pub(super) fn shared_network_budget_changed(
+    previous: &RuntimeConfig,
+    target: &RuntimeConfig,
+) -> bool {
+    previous.runtime.effective_carrier_max_total_originals()
+        != target.runtime.effective_carrier_max_total_originals()
+        || previous.runtime.effective_component_total_max_tasks()
+            != target.runtime.effective_component_total_max_tasks()
 }
 
 #[cfg(feature = "event-dispatcher")]

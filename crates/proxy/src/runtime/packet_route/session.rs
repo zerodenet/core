@@ -160,6 +160,7 @@ impl PacketSessionPins {
         self.entries.retain(|_, pin| admitted(&pin.plane));
         self.expire();
     }
+    #[cfg(test)]
     pub(crate) fn permits(&mut self, packet: &[u8], plane: &PacketPlane) -> bool {
         self.permits_peer(packet, plane, None)
     }
@@ -187,6 +188,7 @@ impl PacketSessionPins {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn record(&mut self, packet: &[u8], plane: PacketPlane) -> bool {
         self.record_peers(packet, plane, None, None)
     }

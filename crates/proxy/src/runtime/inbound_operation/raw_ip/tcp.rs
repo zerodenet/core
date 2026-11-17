@@ -75,7 +75,7 @@ pub(super) async fn accept(
                     SourceInput::ExplicitStackFixture => Ok((tcp.accept().await, None)),
                 }
             }=>accepted?,
-            completed=async {dns_tasks.as_mut().expect("declared device DNS receiver").join_next().await},if dns_tasks.as_ref().is_some_and(|tasks|tasks.len()!=0)=>{
+            completed=async {dns_tasks.as_mut().expect("declared device DNS receiver").join_next().await},if dns_tasks.as_ref().is_some_and(|tasks|!tasks.is_empty())=>{
                 match completed {
                     Some(Ok(Ok(())))=>{},
                     Some(Ok(Err(source)))=>tracing::warn!(error=%source,"TUN DNS TCP connection failed"),

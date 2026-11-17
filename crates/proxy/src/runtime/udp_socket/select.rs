@@ -3,6 +3,7 @@ use super::*;
 mod bound;
 
 impl DirectUdpSockets {
+    #[cfg(test)]
     pub(crate) async fn send_new_packet(
         &mut self,
         logical_target: &Address,

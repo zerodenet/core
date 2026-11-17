@@ -1,5 +1,6 @@
 pub(super) mod candidate;
 pub(crate) use candidate::CandidateOpener;
+#[cfg(test)]
 use candidate::LegacyCandidateOpener;
 mod service;
 #[cfg(test)]
@@ -28,6 +29,7 @@ use futures_util::stream::{FuturesUnordered, StreamExt};
 use zero_platform_tokio::{EgressInterfaceControl, EgressSelection, TokioSocket};
 
 const CANDIDATE_DELAY: Duration = Duration::from_millis(250);
+#[cfg(test)]
 pub(super) const CANDIDATE_TIMEOUT: Duration = Duration::from_secs(10);
 pub(super) const MAX_RECORDED_CONNECTION_ATTEMPTS: usize = 16;
 

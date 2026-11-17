@@ -1,5 +1,10 @@
 //! Reuse only a live original Source whose full installed input is unchanged.
 use super::*;
+#[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
+type PacketDriverCandidate = Option<(
+    Arc<zero_config::RuntimeConfig>,
+    Arc<crate::component::catalog::ComponentPlan>,
+)>;
 /// Same finite declaration's actual Windows SDK branch only. Identity/class
 /// is not native acquisition, task registration, or a closed receipt.
 pub(super) fn requested_ring_declaration(
@@ -74,13 +79,7 @@ impl InboundOwnerRegistry {
         &self,
         protocols: &ProtocolInventory,
         grant: &zero_platform_tokio::contract::component::GrantedPacketServiceCaller,
-    ) -> Result<
-        Option<(
-            Arc<zero_config::RuntimeConfig>,
-            Arc<crate::component::catalog::ComponentPlan>,
-        )>,
-        zero_platform_tokio::contract::ChannelError,
-    > {
+    ) -> Result<PacketDriverCandidate, zero_platform_tokio::contract::ChannelError> {
         let denied = || {
             zero_platform_tokio::contract::ChannelError::new(
                 zero_platform_tokio::contract::Stage::Prepare,
@@ -194,6 +193,16 @@ impl InboundOwnerRegistry {
                     .packet_memory()
                     .is_some_and(|actual| actual.view.same_original(&memory.view))
             {
+                tracing::debug!(
+                    inbound_tag = input.tag,
+                    owner = ?owner.identity(),
+                    expected_dependencies = ?dependencies,
+                    actual_dependencies = ?owner.source_dependencies.get(),
+                    original_matches = owner.matches_packet_source_registration(native),
+                    input_matches = owner.source_input.get() == Some(&expected),
+                    memory_matches = grant.packet_memory().is_some_and(|actual| actual.view.same_original(&memory.view)),
+                    "Packet Source rejected original dependency admission"
+                );
                 return Err(denied().into());
             }
             let source = grant.packet_source_origin().ok_or_else(denied)?;

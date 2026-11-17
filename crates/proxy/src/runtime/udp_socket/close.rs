@@ -19,7 +19,7 @@ pub(super) struct NativeCloseLedger {
         u64,
         (
             Box<zero_platform_tokio::contract::component::BoundDatagramSocket>,
-            Arc<io::Error>,
+            Option<Arc<io::Error>>,
         ),
     >,
 }
@@ -37,11 +37,15 @@ impl NativeCloseLedger {
         // Revoke every already-read response token before descriptor retirement.
         drop(replies);
         match socket {
-            super::native::DirectDatagramIo::Bound(socket) => {
-                if let Err(source) = socket.close() {
-                    self.bound.insert(id, (socket, source));
+            super::native::DirectDatagramIo::Bound(socket) => match socket.try_close() {
+                Some(Ok(_)) => {}
+                Some(Err(source)) => {
+                    self.bound.insert(id, (socket, Some(source)));
                 }
-            }
+                None => {
+                    self.bound.insert(id, (socket, None));
+                }
+            },
             super::native::DirectDatagramIo::Controlled(socket) => {
                 // Its persistent owner retains both the original and outcome.
                 // Only collect_controlled consumes its actual receipt below.
@@ -72,12 +76,13 @@ impl NativeCloseLedger {
     }
     fn retry_known_open(&mut self) {
         self.bound
-            .retain(|_, (socket, source)| match socket.close() {
-                Ok(_) => false,
-                Err(actual) => {
-                    *source = actual;
+            .retain(|_, (socket, source)| match socket.try_close() {
+                Some(Ok(_)) => false,
+                Some(Err(actual)) => {
+                    *source = Some(actual);
                     true
                 }
+                None => true,
             });
         self.failures.retain(|_id, source| {
             if !TokioDatagramSocket::close_is_retryable(source) {
@@ -192,6 +197,22 @@ impl DirectUdpSockets {
             self.close.collect_controlled(owner.close_all());
         }
     }
+    pub(crate) async fn finish_pending_native_closes(&mut self, deadline: tokio::time::Instant) {
+        // Another original-provider closer may hold the native close claim.
+        // Keep this exact view and its capacity until that operation actually
+        // settles; returning one unfinished snapshot would strand the view
+        // which the containing provider must receive before it can finish.
+        while self
+            .close
+            .bound
+            .values()
+            .any(|(_, source)| source.is_none())
+            && tokio::time::Instant::now() < deadline
+        {
+            tokio::task::yield_now().await;
+            self.close.retry_known_open();
+        }
+    }
     /// Caller must persist this actual report before its next suspension or
     /// error return. Unknown original-descriptor failures remain in this ledger.
     pub(crate) fn take_native_close_report(&mut self) -> CloseReport {
@@ -199,7 +220,12 @@ impl DirectUdpSockets {
         self.close.take_report()
     }
     pub(crate) fn native_close_failure(&self) -> Option<(u64, Arc<io::Error>)> {
-        if let Some((id, (_, source))) = self.close.bound.first_key_value() {
+        if let Some((id, source)) = self
+            .close
+            .bound
+            .iter()
+            .find_map(|(id, (_, source))| source.as_ref().map(|source| (id, source)))
+        {
             return Some((*id, source.clone()));
         }
         self.close

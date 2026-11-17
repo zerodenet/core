@@ -1,6 +1,11 @@
 //! Cold assembly of an already-supported carrier and its existing raw borrower.
 use super::*;
-pub(super) fn eligible(input: &OutboundConfig) -> bool {
+type MuxLowerOptions = (
+    ::vless::component::mux::PreparedMux,
+    Option<(zero_core::component::ComponentId, lender::Source)>,
+    Option<Arc<::vless::component::grpc::StreamOptions>>,
+);
+pub(in crate::adapters::vless::component) fn eligible(input: &OutboundConfig) -> bool {
     super::super::browser::carrier_eligible(input)
         || super::super::xhttp::carrier_eligible(input)
         || super::super::quic::carrier_eligible(input)
@@ -68,14 +73,7 @@ impl VlessAdapter {
         factory: &Arc<background_pool::Factory>,
         mut prepared: ::vless::component::mux::PreparedMux,
         limit: NonZeroUsize,
-    ) -> Result<
-        (
-            ::vless::component::mux::PreparedMux,
-            Option<(zero_core::component::ComponentId, lender::Source)>,
-            Option<Arc<::vless::component::grpc::StreamOptions>>,
-        ),
-        RegistrationError,
-    > {
+    ) -> Result<MuxLowerOptions, RegistrationError> {
         let mut ordinary_grpc = None;
         let lower = if matches!(&input.protocol,OutboundProtocolConfig::Vless{testpre,..} if *testpre!=0)
         {

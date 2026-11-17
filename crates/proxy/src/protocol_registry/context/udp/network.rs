@@ -1,22 +1,11 @@
 //! The original UDP network projections, split without changing ownership.
 use super::*;
 impl UdpNetworkServices {
-    #[cfg(feature = "managed-stream-runtime")]
-    pub(crate) fn upstream_idle_timeout(&self) -> std::time::Duration {
-        self.engine.udp_upstream_idle_timeout()
-    }
-
     pub(crate) fn from_tcp_execution(services: &super::TcpExecutionServices) -> Self {
         Self {
             upstream: services.upstream(),
             engine: services.engine().clone(),
         }
-    }
-
-    pub(crate) fn outbound_datagram_socket_factory(
-        &self,
-    ) -> zero_transport::OutboundDatagramSocketFactory {
-        self.upstream.outbound_datagram_socket_factory()
     }
 
     pub(crate) fn egress_generation(&self) -> u64 {
@@ -80,39 +69,5 @@ impl UdpNetworkServices {
         &self,
     ) -> Option<std::sync::Arc<dyn zero_traits::IoObserver>> {
         self.upstream.observer()
-    }
-
-    pub(crate) async fn resolve_node_address(
-        &self,
-        address: &zero_core::Address,
-        port: u16,
-        error_message: &'static str,
-    ) -> Result<std::net::SocketAddr, zero_engine::EngineError> {
-        self.upstream
-            .connector
-            .resolve_node_address(
-                address,
-                port,
-                self.upstream.resolver.as_ref(),
-                error_message,
-            )
-            .await
-            .map_err(Into::into)
-    }
-
-    pub(crate) fn record_association_created(&self) {
-        self.engine.record_udp_upstream_association_created();
-    }
-
-    pub(crate) fn record_association_close(&self, kind: UdpAssociationCloseKind) {
-        match kind {
-            UdpAssociationCloseKind::Closed => self.engine.record_udp_upstream_association_closed(),
-            UdpAssociationCloseKind::IdleTimeout => {
-                self.engine.record_udp_upstream_association_idle_timeout()
-            }
-            UdpAssociationCloseKind::Dropped => {
-                self.engine.record_udp_upstream_association_dropped()
-            }
-        }
     }
 }

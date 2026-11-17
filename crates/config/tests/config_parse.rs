@@ -455,8 +455,8 @@ fn parses_vmess_inbound_and_outbound_config() {
 }
 
 #[test]
-fn rejects_vmess_inbound_without_tls() {
-    let error = RuntimeConfig::parse(
+fn accepts_vmess_inbound_without_tls() {
+    let config = RuntimeConfig::parse(
         r#"{
             "inbounds": [
                 {
@@ -476,9 +476,12 @@ fn rejects_vmess_inbound_without_tls() {
             }
         }"#,
     )
-    .expect_err("vmess inbound without tls should fail");
+    .expect("plain VMess retains its protocol-owned optional TLS support");
 
-    assert!(matches!(error, zero_config::ConfigError::InvalidInbound(_)));
+    assert!(matches!(
+        config.inbounds[0].protocol,
+        InboundProtocolConfig::Vmess { tls: None, .. }
+    ));
 }
 
 #[test]

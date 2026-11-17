@@ -172,7 +172,7 @@ async fn cold_service_task_refusal_preserves_the_actual_running_scope_and_its_or
         })
         .unwrap();
     assert!(State::prepare(limit, budget.clone(), 2).is_err());
-    assert!(registrar.registration_open());
+    assert!(actual_scope.registration_open());
     assert!(actual_scope.same_scope(&state.scope.as_ref().unwrap().registrar().scope_identity()));
     assert!(!registrar.cancellation().is_cancelled());
     assert!(!witness.is_joined());

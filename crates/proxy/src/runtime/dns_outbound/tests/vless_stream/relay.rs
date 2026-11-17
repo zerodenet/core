@@ -1,6 +1,8 @@
 //! Ordinary three-role Service consumes each real registered Node original.
 use super::*;
+#[path = "relay/fixture.rs"]
 mod fixture;
+#[path = "relay/originals.rs"]
 mod originals;
 #[tokio::test]
 async fn actual_three_grpc_role_dns_success_cancel_and_new_call_close_each_original_scope_before_reuse(

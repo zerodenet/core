@@ -30,7 +30,7 @@ async fn two_concurrent_mux_streams_use_actual_source_children_and_standard_dire
         let second=TcpListener::bind("127.0.0.1:0").await.unwrap();let second_address=second.local_addr().unwrap();
         let config=zero_config::RuntimeConfig::parse(&serde_json::json!({"inbounds":[{"tag":"mux","listen":{"address":"127.0.0.1","port":0},"udp":{"enabled":false},"protocol":{"type":"vmess","users":[{"id":UUID}]}}],"route":{"final":{"type":"direct"}}}).to_string()).unwrap();
         let proxy=Proxy::new(config.clone()).unwrap();let running=proxy.spawn();ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()),proxy.clone()).apply_runtime_config_and_wait(config,Duration::from_secs(5)).await.unwrap();
-        let source=proxy.inbound_owners.owner("mux").unwrap();source.wait_ready().await.unwrap();let entry=*source.original_listener_address.get().unwrap();
+        let source=proxy.system_tun_source_registry().owner("mux").unwrap();source.wait_ready().await.unwrap();let entry=*source.original_listener_address.get().unwrap();
         let services=proxy.tcp_runtime_services();let slot=services.components.as_ref().unwrap().direct(None).unwrap();let physical=slot.original_carrier_owner(0).unwrap();
         let tcp=TcpStream::connect(entry).await.unwrap();let session=Session::new(99,Address::Domain("v1.mux.cool".into()),666,Network::Tcp,ProtocolType::new("library-client"));
         let(mut client,_)=::vmess::outbound::PreparedVmessOutboundRequestBundle::from_config(UUID,"chacha20-poly1305",None).unwrap().establish_tcp_outbound_stream(zero_platform_tokio::TcpRelayStream::new(tcp),&session).await.unwrap();
@@ -44,7 +44,8 @@ async fn two_concurrent_mux_streams_use_actual_source_children_and_standard_dire
         for id in [1,2]{client.write_all(&frame(id,3,None,b"")).await.unwrap();}client.flush().await.unwrap();
         let mut rest=Vec::new();one.read_to_end(&mut rest).await.unwrap();assert!(rest.is_empty());two.read_to_end(&mut rest).await.unwrap();assert!(rest.is_empty());
         one.write_all(b"one").await.unwrap();one.shutdown().await.unwrap();two.write_all(b"two").await.unwrap();two.shutdown().await.unwrap();drop(one);drop(two);
-        let mut payloads=[Vec::new(),Vec::new()];let mut ended=[false,false];while !ended.iter().all(|value|*value){let size=client.read_u16().await.unwrap();let mut meta=vec![0;size as usize];client.read_exact(&mut meta).await.unwrap();assert!(meta.len()>=4);let id=u16::from_be_bytes([meta[0],meta[1]])as usize;assert!((1..=2).contains(&id));if meta[3]&1!=0{let size=client.read_u16().await.unwrap()as usize;let mut bytes=vec![0;size];client.read_exact(&mut bytes).await.unwrap();payloads[id-1].extend(bytes);}if meta[2]==3{ended[id-1]=true;}}
+        let mut payloads=[Vec::new(),Vec::new()];let mut ended=[false,false];while !ended.iter().all(|value|*value){let size=client.read_u16().await.unwrap();let mut meta=vec![0;size as usize];client.read_exact(&mut meta).await.unwrap();assert!(meta.len()>=4);let id=u16::from_be_bytes([meta[0],meta[1]])as usize;assert!((1..=2).contains(&id));if meta[3]&1!=0{let size=client.read_u16().await.unwrap()as usize;let mut bytes=vec![0;size];client.read_exact(&mut bytes).await.unwrap();payloads[id-1].extend(bytes);}
+        if meta[2]==3{ended[id-1]=true;}}
         assert_eq!(payloads,[b"one".to_vec(),b"two".to_vec()]);drop(client);
         while proxy.engine().completed_sessions().len()!=2 {tokio::task::yield_now().await;}
         let records=proxy.engine().completed_sessions();assert_ne!(records[0].id,records[1].id);assert!(records.iter().all(|record|record.protocol.as_str()=="vmess"));

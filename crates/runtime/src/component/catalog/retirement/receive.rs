@@ -65,6 +65,15 @@ impl ComponentPlan {
             .with_source(source));
         }
         let complete = report.is_complete();
+        tracing::debug!(
+            ?identity,
+            complete,
+            exited_tasks = report.exited_tasks.len(),
+            closed_io = report.closed_io.len(),
+            released_resources = report.released_resources.len(),
+            unfinished = report.unfinished.len(),
+            "component original close report received"
+        );
         if complete {
             self.confirmed_declared_close
                 .lock()

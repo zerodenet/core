@@ -211,12 +211,9 @@ fn invalid_tcp_options_fail_the_actual_factory_without_reconstructing_a_private_
             } => *mux_response_backlog_frames = Some(0),
             _ => unreachable!(),
         }
-        let leaf = zero_engine::ResolvedLeafOutbound::Proxy {
+        let _leaf = zero_engine::ResolvedLeafOutbound::Proxy {
             identity: zero_engine::OutboundIdentity::from_config_index(0),
         };
-        assert!(crate::register::protocol_registry()
-            .claim_outbound_leaf(&config, leaf)
-            .is_err());
         let error = match Proxy::new(config) {
             Err(source) => source,
             Ok(_) => panic!("invalid native factory accepted"),

@@ -179,6 +179,7 @@ impl OrchestrationState {
             .prepare_devices(
                 &config,
                 proxy.tcp_runtime_services_for_snapshot(snapshot.clone()),
+                self.preparing_inbounds.cancellation(),
             )
             .await?;
         #[cfg(feature = "raw-ip-runtime")]

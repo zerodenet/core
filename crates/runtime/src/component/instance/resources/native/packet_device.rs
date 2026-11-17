@@ -72,6 +72,10 @@ impl PacketDeviceOwner {
         self.identity.instance() == instance && self.identity.scope().same_scope(scope)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the original resource owner receives explicit same-host native, task and packet budget bindings"
+    )]
     pub(super) fn new(
         ordinal: usize,
         instance: ComponentInstanceId,

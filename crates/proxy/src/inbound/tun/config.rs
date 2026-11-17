@@ -178,6 +178,7 @@ fn invalid_input(message: impl Into<String>) -> EngineError {
 
 /// Apply after every DNS discovery, including capture publication, reload and
 /// recovery. System resolvers may now contain our own synthetic DNS peer.
+#[cfg(any(test, not(feature = "raw-ip-runtime")))]
 pub(super) fn filter_route_exclusions(exclusions: &mut Vec<IpAddr>, local: &[IpAddr]) {
     exclusions.retain(|address| !local.contains(address));
 }

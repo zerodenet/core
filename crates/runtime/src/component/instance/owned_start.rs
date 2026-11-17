@@ -24,7 +24,7 @@ impl ComponentSlot {
             .owned_start_gate
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         self.pay_process_admission()?;
         let original = self
             .owned_start
@@ -62,7 +62,7 @@ impl ComponentSlot {
         self.wake_supervision();
         Ok(original)
     }
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     pub(super) fn pay_process_admission(&self) -> Result<(), ChannelError> {
         // Caller holds the same short admission gate. No cleanup polling,
         // native operation or external callback runs under that gate.

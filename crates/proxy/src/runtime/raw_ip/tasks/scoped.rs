@@ -176,20 +176,27 @@ impl<T: TaskOutput> ScopedSourceTasks<T> {
             state.failure.push(failure.clone());
             drop(state);
             self.inner.stop.cancel();
-            if let SourceJoinFailure::Scope {
-                witness, joined, ..
-            } = failure.as_ref()
-            {
-                if let Err(source) = witness.acknowledge_hosted_failure(joined) {
-                    self.inner
-                        .state
-                        .lock()
-                        .unwrap()
-                        .admission
-                        .get_or_insert_with(|| {
-                            Arc::new(error(Reason::Protocol).with_source(source))
-                        });
+            #[allow(
+                clippy::single_match,
+                reason = "the Legacy arm exists only for standalone test fixtures"
+            )]
+            match failure.as_ref() {
+                SourceJoinFailure::Scope {
+                    witness, joined, ..
+                } => {
+                    if let Err(source) = witness.acknowledge_hosted_failure(joined) {
+                        self.inner
+                            .state
+                            .lock()
+                            .unwrap()
+                            .admission
+                            .get_or_insert_with(|| {
+                                Arc::new(error(Reason::Protocol).with_source(source))
+                            });
+                    }
                 }
+                #[cfg(test)]
+                SourceJoinFailure::Legacy(_) => {}
             }
         }
         failure

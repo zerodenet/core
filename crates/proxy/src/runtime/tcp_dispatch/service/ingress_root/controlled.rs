@@ -1,9 +1,11 @@
 //! Same actual Service grant and current host; no bare stream promotion.
 use super::*;
-use zero_platform_tokio::controlled_carrier::{
-    CarrierEndpointObserver, CarrierEndpoints, CarrierGrant, CarrierIo, ResolvingCarrierOpener,
-};
+#[cfg(test)]
+use zero_platform_tokio::controlled_carrier::{CarrierEndpointObserver, CarrierEndpoints};
+use zero_platform_tokio::controlled_carrier::{CarrierGrant, CarrierIo, ResolvingCarrierOpener};
+#[cfg(test)]
 struct Connected(Arc<Mutex<Option<Evidence>>>);
+#[cfg(test)]
 impl CarrierEndpointObserver for Connected {
     fn connected(&self, endpoints: &CarrierEndpoints) {
         if let Some(local) = endpoints.local() {
@@ -67,9 +69,10 @@ impl RootOpener {
             if *next == candidates.len() {
                 return Err(super::super::failure(Reason::Io));
             }
-            let prepared = candidates
-                .prepare_stream(*next, grant)?
-                .with_endpoint_observer(Arc::new(Connected(self.evidence.clone())));
+            let prepared = candidates.prepare_stream(*next, grant)?;
+            #[cfg(test)]
+            let prepared =
+                prepared.with_endpoint_observer(Arc::new(Connected(self.evidence.clone())));
             *next += 1;
             drop(cached);
             Ok(prepared

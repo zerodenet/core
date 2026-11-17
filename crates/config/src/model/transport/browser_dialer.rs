@@ -33,7 +33,7 @@ impl BrowserDialerConfig {
         }
     }
 
-    pub(crate) fn validate(&self) -> Result<(), &'static str> {
+    pub fn validate(&self) -> Result<(), &'static str> {
         let Ok(address) = self.listen.parse::<std::net::SocketAddr>() else {
             return Err("browser_dialer.listen must be an IP socket address");
         };

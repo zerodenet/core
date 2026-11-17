@@ -46,6 +46,9 @@ pub(super) struct ResolvedRequest {
     egress: zero_platform_tokio::EgressInterfaceControl,
 }
 impl LinkedInvocation {
+    pub(in crate::adapters::wireguard::lifecycle) fn binding(&self) -> UpstreamBinding {
+        self.recipe.binding.clone()
+    }
     /// Actual Node DNS and original caller deadline/cancellation precede graph
     /// start. Resolving a candidate cannot register one of its stack workers.
     #[cfg(test)]

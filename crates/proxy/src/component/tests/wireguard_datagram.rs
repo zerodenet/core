@@ -4,8 +4,7 @@
     feature = "socks5",
     feature = "managed-stream-runtime"
 ))]
-#[path = "../../../tests/wireguard_traffic/peer.rs"]
-mod peer;
+use crate::wireguard_peer_fixture as peer;
 use crate::{
     inventory::{DatagramAssociationTarget, PreparedUdpLeafCandidate, PreparedUdpOutbound},
     protocol_registry::UdpAdapterContext,

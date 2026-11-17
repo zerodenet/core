@@ -24,8 +24,6 @@ mod tuple;
     )
 ))]
 pub(crate) use model::SharedManagedUdpConnection;
-#[cfg(feature = "managed-datagram-runtime")]
-pub(crate) use model::{ManagedDatagramUdpConnection, SharedManagedDatagramUdpConnection};
 #[cfg(all(
     test,
     any(

@@ -38,6 +38,10 @@ impl InboundOwnerRegistry {
             true,
         )
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "original generation, caller, native and budget inputs remain explicitly bound"
+    )]
     pub(in crate::runtime::inbound_owners) fn reserve_listener_kind(
         self: &Arc<Self>,
         tag: &str,

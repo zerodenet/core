@@ -9,4 +9,4 @@ pub(crate) type Source = std::sync::Arc<dyn std::error::Error + Send + Sync>;
 #[path = "tasks/tests/legacy.rs"]
 mod legacy;
 #[cfg(test)]
-pub(crate) use legacy::{RetainedTasks, TasksGuard};
+pub(crate) use legacy::RetainedTasks;

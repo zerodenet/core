@@ -57,7 +57,7 @@ impl ComponentSlot {
             live: OnceCell::new(),
             start_gate: Mutex::new(()),
             owned_start_gate: std::sync::Mutex::new(()),
-            #[cfg(any(target_os = "linux", windows))]
+            #[cfg(any(unix, windows))]
             prepaid_process: OnceLock::new(),
             owned_start: OnceLock::new(),
             owned_start_host: OnceLock::new(),

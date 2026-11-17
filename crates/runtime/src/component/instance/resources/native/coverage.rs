@@ -50,7 +50,7 @@ pub(in crate::component) enum DeclarationProvider {
     PacketReads(usize),
     BoundDatagram(usize),
     Icmp,
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     Process(usize),
     Unaccounted,
 }
@@ -232,7 +232,7 @@ impl evidence::HostIoEvidence {
         let mut packets = vec![false; self.packets.len()];
         let mut reads = vec![false; self.reads.len()];
         let mut bounds = vec![false; self.bounds.len()];
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         let mut processes = vec![false; self.processes.len()];
         let mut icmp_seen = false;
         for (ordinal, declaration) in self.declarations.iter().enumerate() {
@@ -245,7 +245,7 @@ impl evidence::HostIoEvidence {
                 {
                     returned
                 }
-                #[cfg(any(target_os = "linux", windows))]
+                #[cfg(any(unix, windows))]
                 DeclarationProvider::Process(index)
                     if declaration.kind == DeclaredResourceKind::Process =>
                 {
@@ -407,7 +407,7 @@ impl evidence::HostIoEvidence {
                 return false;
             }
         }
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         if !processes.into_iter().all(|seen| seen) {
             return false;
         }

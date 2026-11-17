@@ -181,18 +181,6 @@ impl ProtocolInventory {
             }) {
                 return PacketRouteTarget::Flow;
             }
-            // Preserve the explicitly deferred process/plugin L4 capability.
-            // Such a claim cannot advertise or execute a native Packet path.
-            if let Ok(claimed) = self.claim_outbound_leaf(config, leaf) {
-                let supported = match protocol {
-                    Some(IPPROTO_TCP) => claimed.tcp_connect_for_route(mode).is_ok(),
-                    Some(IPPROTO_UDP) => claimed.into_udp_flow_for_route(mode).is_ok(),
-                    _ => false,
-                };
-                if supported {
-                    return PacketRouteTarget::Flow;
-                }
-            }
         }
         if direct
             && mode == RouteMode::Auto

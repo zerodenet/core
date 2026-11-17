@@ -74,10 +74,8 @@ impl DispatcherChildren {
             error.is_cancelled() && child.cancellation_requested.load(Ordering::Acquire)
         });
         if let Err(error) = &result {
-            if !cancelled {
-                if !child.failure_recorded.swap(true, Ordering::AcqRel) {
-                    self.failures.lock().unwrap().push(error.clone());
-                }
+            if !cancelled && !child.failure_recorded.swap(true, Ordering::AcqRel) {
+                self.failures.lock().unwrap().push(error.clone());
             }
         }
         // Retain the exact exit/fault first, then refund this actual job only

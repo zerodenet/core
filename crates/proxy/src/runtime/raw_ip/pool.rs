@@ -98,6 +98,7 @@ impl RawIpDevicePool {
             })
     }
 
+    #[cfg(test)]
     pub(crate) fn mark_endpoint_unresolved(
         &self,
         tag: &str,
@@ -117,6 +118,7 @@ impl RawIpDevicePool {
             .insert((tag.to_owned(), peer_index), identity);
     }
 
+    #[cfg(test)]
     pub(crate) fn clear_endpoint_unresolved(
         &self,
         tag: &str,
@@ -260,6 +262,7 @@ impl StagedRawIpDevices {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.entries.len()
     }

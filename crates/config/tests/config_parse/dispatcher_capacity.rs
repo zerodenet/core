@@ -11,7 +11,7 @@ fn raw() -> serde_json::Value {
 #[test]
 fn omitted_provider_limits_keep_the_existing_export_shape_and_configuration() {
     let config = RuntimeConfig::parse(&raw().to_string()).unwrap();
-    let exported = serde_json::to_value(&config.api.dispatcher).unwrap();
+    let exported = serde_json::to_value(config.api.dispatcher).unwrap();
     assert!(exported.get("max_worker_tasks").is_none());
     assert!(exported.get("max_open_originals").is_none());
 }
@@ -37,7 +37,7 @@ fn explicit_dispatcher_limits_validate_the_actual_layout_before_preparation() {
         assert!(error.contains(field), "{field}: {error}");
     }
     let config = RuntimeConfig::parse(&value.to_string()).unwrap();
-    let exported = serde_json::to_value(&config.api.dispatcher).unwrap();
+    let exported = serde_json::to_value(config.api.dispatcher).unwrap();
     assert_eq!(exported["max_worker_tasks"], 4);
     assert_eq!(exported["max_open_originals"], 10);
 }

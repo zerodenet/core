@@ -19,6 +19,10 @@ struct NativeWireGrant {
     driver: TaskJoinWitness,
     checkpoint: crate::runtime::packet_route::host::pause::Checkpoint,
 }
+#[expect(
+    clippy::large_enum_variant,
+    reason = "retain the actual bound original inside its prepaid owner"
+)]
 enum WireInputOriginal {
     Bound(zero_platform_tokio::contract::component::BoundDatagramSocket),
     Logical(Arc<super::super::super::carrier::RegisteredProxiedRawIpWireCarrier>),

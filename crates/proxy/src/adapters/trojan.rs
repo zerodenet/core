@@ -1,4 +1,8 @@
 #[cfg(feature = "trojan")]
+mod options;
+#[cfg(feature = "trojan")]
+use options::outbound_options;
+#[cfg(feature = "trojan")]
 pub(crate) mod component;
 #[cfg(feature = "trojan")]
 pub(crate) mod inbound;
@@ -13,8 +17,6 @@ pub(crate) use component::{component_options, native_input, LEGACY_CONNECT_STAGE
 #[cfg(feature = "trojan")]
 use zero_config::InboundConfig;
 use zero_config::{InboundProtocolConfig, OutboundProtocolConfig};
-#[cfg(feature = "trojan")]
-use zero_engine::EngineError;
 use zero_traits::{ProtocolCapabilityDescriptor, ProtocolMetadata};
 
 use crate::adapters::identity::NamedProtocolAdapter;

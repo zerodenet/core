@@ -8,7 +8,7 @@ use crate::{
     protocol_registry::UdpAdapterContext,
     runtime::{
         packet_flow::PacketFlowAdapter,
-        udp_dispatch::{operation::PreparedUdpFlowOperation, FlowFailure, UdpDispatch},
+        udp_dispatch::{FlowFailure, UdpDispatch},
         udp_flow::{registered::LogicalConnection, result::FlowStartResult},
     },
 };
@@ -17,8 +17,8 @@ use crate::runtime::udp_flow::managed::packet::PacketUdpFlow;
 
 pub(super) struct PacketUdpOperation(pub(super) PacketFlowAdapter);
 
-impl PreparedUdpFlowOperation for PacketUdpOperation {
-    fn execute<'a>(
+impl PacketUdpOperation {
+    pub(super) fn execute<'a>(
         self: Box<Self>,
         dispatch: &'a mut UdpDispatch,
         ctx: UdpAdapterContext<'a>,

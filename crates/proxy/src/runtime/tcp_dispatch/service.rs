@@ -87,6 +87,7 @@ pub(crate) async fn connect_ingress(
             endpoint: destination.clone(),
             #[cfg(test)]
             role: node.role,
+            #[cfg(test)]
             evidence: Arc::default(),
             source: services.current_source.clone(),
             selected: node.slot.role_id(),
@@ -258,6 +259,7 @@ fn failure(reason: Reason) -> ChannelError {
     error.delivery = DeliveryState::NotSubmitted;
     error
 }
+#[cfg(test)]
 fn interrupted(reason: Reason) -> ChannelError {
     ChannelError::new(Stage::Dial, reason, Impact::Session)
 }

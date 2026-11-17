@@ -78,10 +78,7 @@ impl WireguardAdapter {
     pub(crate) fn prepared_outer_materials(
         &self,
         config: &zero_config::RuntimeConfig,
-    ) -> Result<
-        HashMap<String, Arc<[Option<crate::protocol_registry::ColdPacketPathProjection>]>>,
-        EngineError,
-    > {
+    ) -> Result<crate::adapters::devices::DeviceOuterMaterials, EngineError> {
         let candidate = self
             .pending_endpoints
             .lock()

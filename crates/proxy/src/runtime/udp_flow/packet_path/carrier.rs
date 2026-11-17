@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::sync::Arc;
 
 use zero_core::Address;
 use zero_engine::EngineError;
@@ -60,11 +59,6 @@ pub(crate) trait PacketPathCarrier: Send + Sync {
         ))
     }
 
-    /// Presence only; a Kernel caller must already hold a sealed real handoff.
-    /// Other real callers keep their distinct original memory responsibility.
-    fn has_driver_handoff(&self) -> bool {
-        false
-    }
     fn codec_transmit_count(&self, _: &Address, _: u16, _: usize) -> Result<usize, EngineError> {
         Ok(0)
     }

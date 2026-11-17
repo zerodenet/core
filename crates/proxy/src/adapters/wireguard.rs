@@ -1,6 +1,7 @@
 //! WireGuard adapter: config projection and explicit outbound capabilities.
 
 mod controlled_bind;
+pub(crate) mod endpoint_details;
 mod endpoint_query;
 mod health_query;
 pub(crate) use endpoint_query::{EndpointObservationRows, EndpointPeerRow};
@@ -64,7 +65,7 @@ impl NamedProtocolAdapter for WireguardAdapter {
 }
 
 impl WireguardAdapter {
-    pub(super) fn set_packet_return_totals(
+    pub(crate) fn set_packet_return_totals(
         &self,
         totals: Arc<crate::runtime::raw_ip::PacketReturnTotals>,
     ) {

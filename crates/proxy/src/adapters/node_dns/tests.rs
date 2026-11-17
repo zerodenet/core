@@ -57,12 +57,4 @@ fn domain_vless_with_node_detour_selects_its_actual_factory_without_a_legacy_cla
         .configured("consumer")
         .expect("actual domain gRPC factory");
     assert!(plan.has_stream_loan_provider(slot.role_id()));
-    assert!(crate::register::protocol_registry()
-        .claim_outbound_leaf(
-            &config,
-            zero_engine::ResolvedLeafOutbound::Proxy {
-                identity: zero_engine::OutboundIdentity::from_config_index(1)
-            }
-        )
-        .is_err());
 }

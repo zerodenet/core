@@ -1,5 +1,4 @@
 //! Real standard production callers retain their original framed carriers.
-use super::*;
 use base64::Engine;
 use std::{net::SocketAddr, time::Duration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -39,7 +38,7 @@ pub(super) async fn start(
         .apply_runtime_config_and_wait(config, Duration::from_secs(10))
         .await
         .unwrap();
-    let source = proxy.inbound_owners.owner("entry").unwrap();
+    let source = proxy.system_tun_source_registry().owner("entry").unwrap();
     source.wait_ready().await.unwrap();
     let endpoint = *source.original_listener_address.get().unwrap();
     (proxy, running, endpoint)
@@ -137,8 +136,8 @@ async fn encryption_vision_framed_tcp_and_xudp_use_real_standard_owners() {
             "outbounds":[{"tag":"upstream","protocol":outbound}],
             "route":{"final":{"type":"route","outbound":"upstream"}}
         })).await;
-        let owner = client.inbound_owners.owner("entry").unwrap();
-        let original_remote = remote.inbound_owners.owner("entry").unwrap();
+        let owner = client.system_tun_source_registry().owner("entry").unwrap();
+        let original_remote = remote.system_tun_source_registry().owner("entry").unwrap();
         let original_scope = original_remote.original_scope_for_test();
         let cold = remote
             .protocols
@@ -216,8 +215,8 @@ async fn zero_aead_existing_tcp_wire_uses_standard_roles_and_closes_originals() 
             .datagram(tokio::time::Instant::now() + Duration::from_secs(5))
             .await
             .is_ok());
-        let original_client = client.inbound_owners.owner("entry").unwrap();
-        let original_remote = remote.inbound_owners.owner("entry").unwrap();
+        let original_client = client.system_tun_source_registry().owner("entry").unwrap();
+        let original_remote = remote.system_tun_source_registry().owner("entry").unwrap();
         let result = tokio::time::timeout(Duration::from_secs(15), exercise_tcp(socks)).await;
         client_running.shutdown().await.unwrap();
         remote_running.shutdown().await.unwrap();

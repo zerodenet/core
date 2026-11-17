@@ -8,16 +8,14 @@ use zero_stack::ClientTcpStackError;
 
 use crate::{
     protocol_registry::TcpExecutionServices,
-    runtime::{
-        packet_flow::PacketFlowAdapter, tcp_dispatch::operation::PreparedTcpConnectOperation,
-    },
+    runtime::packet_flow::PacketFlowAdapter,
     transport::{EstablishedTcpOutbound, TcpOutboundFailure, TcpRelayStream},
 };
 
 pub(super) struct PacketTcpOperation(pub(super) PacketFlowAdapter);
 
-impl PreparedTcpConnectOperation for PacketTcpOperation {
-    fn execute<'a>(
+impl PacketTcpOperation {
+    pub(super) fn execute<'a>(
         &'a self,
         services: TcpExecutionServices,
         session: &'a Session,

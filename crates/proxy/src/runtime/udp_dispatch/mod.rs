@@ -83,12 +83,4 @@ pub(crate) use crate::runtime::udp_flow::result::{FlowFailure, FlowStartResult};
 #[cfg(feature = "udp-runtime")]
 pub(crate) use model::UdpDispatch;
 pub(crate) use outbound::start_udp_resolved_outbound;
-pub(crate) mod operation;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "explicit cold-device library path; production activation requires the owning replacement transaction"
-    )
-)]
 pub(crate) mod relay;

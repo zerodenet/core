@@ -65,9 +65,12 @@ pub(super) async fn run(
         let result =
             crate::runtime::udp_socket::endpoint::peer::job::run_peer_preserving(consumer, job)
                 .await;
-        if result.is_err() {
-            peer.state.lock().await.dropped = true;
-        }
+        let mut state = peer.state.lock().await;
+        state.dropped |= result.is_err();
+        // Both real futures have ended. Return the dispatcher's sole response
+        // lease before its Scope exit lets the host join that same Set. Native
+        // originals remain in this retained State for actual post-join cleanup.
+        state.finish_dispatch();
         return result;
     }
     let tasks = runtime
@@ -149,7 +152,21 @@ pub(super) async fn run(
     completion
 }
 
-async fn drive(
+fn drive(
+    runtime: InboundRouteRuntime,
+    request: Box<dyn AcceptedDatagram>,
+    auth: Option<SessionAuth>,
+    stop: CancellationToken,
+    state: Arc<AsyncMutex<owner::State>>,
+    udp: crate::runtime::udp_ingress::UdpIngressRuntime,
+) -> BoxFuture<'static, Result<(), EngineError>> {
+    // The structured peer and stop select retain one pointer, rather than
+    // copying the complete relay future into each enclosing poll frame.
+    // This still runs in the same actual accepted driver and Scope.
+    Box::pin(drive_inner(runtime, request, auth, stop, state, udp))
+}
+
+async fn drive_inner(
     runtime: InboundRouteRuntime,
     request: Box<dyn AcceptedDatagram>,
     auth: Option<SessionAuth>,

@@ -135,7 +135,8 @@ pub struct RuntimeOptionsConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component_total_max_tasks: Option<usize>,
     /// Actual native process jobs across this kernel, including pending,
-    /// failed and retiring originals. Allocated on demand; 64 by default.
+    /// failed and retiring originals. On macOS native plugin children and TUN
+    /// helper graphs share this same limit. On demand; 64 by default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub process_max_jobs: Option<usize>,
     /// Concurrent original jobs per actual component generation, including

@@ -1,9 +1,10 @@
 //! The original zero.endpoint.wireguard.v1 shape, without temporary JSON Values.
-use super::*;
 use crate::adapters::wireguard::{EndpointObservationRows, EndpointPeerRow};
-pub(super) struct Details<'a> {
-    pub(super) facts: &'a EndpointObservationRows,
-    pub(super) config: &'a zero_config::RuntimeConfig,
+use serde::ser::{SerializeMap, SerializeSeq, SerializeStruct};
+use serde::{Serialize, Serializer};
+pub(crate) struct Details<'a> {
+    pub(crate) facts: &'a EndpointObservationRows,
+    pub(crate) config: &'a zero_config::RuntimeConfig,
 }
 struct Rows<'a>(&'a Details<'a>);
 enum Config<'a> {

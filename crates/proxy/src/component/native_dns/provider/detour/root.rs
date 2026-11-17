@@ -9,7 +9,7 @@ mod controlled;
 mod direct;
 mod native_datagram;
 mod pending;
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(any(unix, windows))]
 mod process;
 mod protocol;
 pub(super) struct Root {
@@ -235,7 +235,7 @@ impl UpstreamOpener for Root {
                 .await
         })
     }
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     fn acquire_process_endpoint_stream(
         &self,
         binding: &UpstreamBinding,
@@ -244,7 +244,7 @@ impl UpstreamOpener for Root {
     {
         self.process_stream(binding.clone(), request)
     }
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     fn acquire_process_endpoint_datagram(
         &self,
         binding: &UpstreamBinding,

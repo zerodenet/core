@@ -19,6 +19,10 @@ impl Candidate {
     }
 }
 impl WireguardAdapter {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "original generation, caller, native and budget inputs remain explicitly bound"
+    )]
     pub(in crate::adapters::wireguard::lifecycle) fn prepare_standalone_resources(
         &self,
         config: &Arc<zero_config::RuntimeConfig>,

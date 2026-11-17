@@ -31,7 +31,7 @@ async fn real_packet_source_preserves_nested_codecs_empty_multitarget_packets_an
         let running = proxy.spawn();
         crate::ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()), proxy.clone())
             .apply_runtime_config_and_wait(config, Duration::from_secs(5)).await.unwrap();
-        let source = proxy.inbound_owners.owner("source").unwrap();
+        let source = proxy.system_tun_source_registry().owner("source").unwrap();
         source.wait_ready().await.unwrap();
         let endpoint = *source.original_listener_address.get().unwrap();
         let mut control = TcpStream::connect(endpoint).await.unwrap();
@@ -62,10 +62,7 @@ async fn real_packet_source_preserves_nested_codecs_empty_multitarget_packets_an
         }
         let (provider,original)=original.expect("the actual HY2 Metadata native original");
         assert!(original.closed().is_none());
-        for index in 0..3 {
-            assert!(proxy.protocols.claim_outbound_leaf(proxy.engine().config().as_ref(),zero_engine::ResolvedLeafOutbound::Proxy {
-                identity:zero_engine::OutboundIdentity::from_config_index(index),
-            }).is_err());
+        for _ in 0..3 {
         }
         drop(control);drop(socket);
         running.shutdown().await.unwrap();

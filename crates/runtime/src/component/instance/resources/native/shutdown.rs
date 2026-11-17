@@ -97,7 +97,7 @@ impl HostResources {
             }
         };
         let process_reports = async {
-            #[cfg(any(target_os = "linux", windows))]
+            #[cfg(any(unix, windows))]
             {
                 let actual = self.processes.shutdown(self.component, deadline).await;
                 self.state

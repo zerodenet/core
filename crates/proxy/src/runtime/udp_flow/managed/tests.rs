@@ -257,7 +257,3 @@ async fn typed_hysteria2_connection_reopens_after_actual_logical_end_without_res
     .await
     .unwrap();
 }
-
-#[cfg(feature = "managed-stream-runtime")]
-#[path = "tests/connections.rs"]
-mod connections;

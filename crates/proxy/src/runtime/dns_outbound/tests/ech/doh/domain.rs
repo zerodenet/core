@@ -176,6 +176,8 @@ async fn actual_domain_ech_joins_node_bootstrap_retries_candidates_and_replaces_
     .unwrap();
 }
 
+#[path = "domain/candidates.rs"]
 mod candidates;
 
+#[path = "domain/capacity.rs"]
 mod capacity;

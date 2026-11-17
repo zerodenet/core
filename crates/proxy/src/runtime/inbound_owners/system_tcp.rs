@@ -27,14 +27,23 @@ impl InboundOwnerRegistry {
         // The API historically permits multiple listeners sharing a business
         // tag, including repeated port-zero calls. Each gets its own original
         // Source identity; the tag remains routing/observability input only.
-        let serial = self
+        let mut current = self
             .system_tcp_next
-            .fetch_update(
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let serial = loop {
+            let next = current
+                .checked_add(1)
+                .ok_or_else(|| std::io::Error::other("System TCP source identity exhausted"))?;
+            match self.system_tcp_next.compare_exchange_weak(
+                current,
+                next,
                 std::sync::atomic::Ordering::AcqRel,
                 std::sync::atomic::Ordering::Relaxed,
-                |next| next.checked_add(1),
-            )
-            .map_err(|_| std::io::Error::other("System TCP source identity exhausted"))?;
+            ) {
+                Ok(serial) => break serial,
+                Err(actual) => current = actual,
+            }
+        };
         let key = source_key(tag, serial);
         let owner = self.install_system_tcp(protocols, config, services, &key, listen, tag)?;
         owner.wait_ready().await?;

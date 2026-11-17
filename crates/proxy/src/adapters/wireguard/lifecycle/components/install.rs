@@ -1,6 +1,10 @@
 //! Publish the actual started linked graph into the existing endpoint owner.
 use super::*;
 impl WireguardAdapter {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "original generation, caller, native and budget inputs remain explicitly bound"
+    )]
     pub(in crate::adapters::wireguard::lifecycle) async fn install_component_link(
         &self,
         candidate: &Arc<PendingEntries>,

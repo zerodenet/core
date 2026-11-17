@@ -8,8 +8,6 @@ impl RegisteredUdpState {
             #[cfg(feature = "managed-stream-runtime")]
             logical_sessions: Default::default(),
             sessions: Default::default(),
-            #[cfg(feature = "managed-datagram-runtime")]
-            datagram_connections: Default::default(),
             #[cfg(feature = "upstream-association-runtime")]
             upstream: UpstreamAssociationState::default(),
             connections: std::collections::HashMap::new(),

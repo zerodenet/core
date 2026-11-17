@@ -13,6 +13,8 @@ impl ResourceLifecycle for DatagramResource {
     fn revoke(&self, _: CloseReason) {
         self.0.cancel.cancel();
         #[cfg(feature = "raw-ip-runtime")]
+        self.0.release_unsubmitted_wire();
+        #[cfg(feature = "raw-ip-runtime")]
         if let Some(calls) = self.0.packet_calls.get() {
             calls.request_retirement();
         }
@@ -41,6 +43,8 @@ impl ResourceLifecycle for DatagramResource {
             .unfinished
             .clear();
         self.0.cancel.cancel();
+        #[cfg(feature = "raw-ip-runtime")]
+        self.0.release_unsubmitted_wire();
         #[cfg(feature = "raw-ip-runtime")]
         if let Some(calls) = self.0.packet_calls.get() {
             calls.request_retirement();
@@ -107,6 +111,14 @@ impl ResourceLifecycle for DatagramResource {
 
 #[cfg(feature = "raw-ip-runtime")]
 impl NativeDatagramGrant {
+    fn release_unsubmitted_wire(&self) {
+        // A failed native bind never transfers this launch to a real wire.
+        // Return only that unused reservation, outside its mutex, so the same
+        // Scope can actually finish. Submitted tasks keep their real joins.
+        let launch = self.packet_wire_launch.lock().unwrap().take();
+        drop(launch);
+    }
+
     fn persist_shutdown_report(
         &self,
         report: Result<CloseReport, ChannelError>,

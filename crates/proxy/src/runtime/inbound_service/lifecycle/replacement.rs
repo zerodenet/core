@@ -67,7 +67,7 @@ impl InboundServices {
                 return Ok(());
             }
             owner.retained_failure()?;
-            owner.previous.iter().cloned().collect()
+            owner.previous.to_vec()
         };
         self.replace(prepared, services, shutdown).await?;
         self.accept().await;

@@ -14,12 +14,30 @@ impl SharedRawIpDevice {
     }
 
     pub(crate) async fn quiescent(&self) -> bool {
-        self.task
+        let domain = if !self
+            .task
             .flow_users()
             .is_some_and(|users| users.quiescent())
-            && self.returns.quiescent()
-            && self.forwarded_packets.capacity() == self.forwarded_packets.max_capacity()
-            && self.udp.quiescent()
-            && self.tcp.quiescent().await
+        {
+            Some("logical_users")
+        } else if !self.returns.quiescent() {
+            Some("packet_returns")
+        } else if self.forwarded_packets.capacity() != self.forwarded_packets.max_capacity() {
+            Some("forwarded_packets")
+        } else if !self.udp.quiescent() {
+            Some("udp_sockets_or_fragments")
+        } else if !self.tcp.quiescent().await {
+            Some("tcp_connections_or_control")
+        } else {
+            None
+        };
+        if let Some(domain) = domain {
+            tracing::debug!(
+                incarnation = self.incarnation,
+                domain,
+                "Packet stack quiescence remains charged"
+            );
+        }
+        domain.is_none()
     }
 }

@@ -131,7 +131,17 @@ impl PacketPathExecutionSource {
         &self,
         deadline: tokio::time::Instant,
     ) -> Result<zero_platform_tokio::contract::lifecycle::CloseReport, ChannelError> {
-        self.caller.retire_carrier_attempts(deadline).await
+        let report = self.caller.retire_carrier_attempts(deadline).await?;
+        tracing::debug!(
+            identity = ?self.caller.original().instance(),
+            caller = ?self.caller.caller().task_id(),
+            complete = report.is_complete(),
+            closed_io = report.closed_io.len(),
+            released_resources = report.released_resources.len(),
+            unfinished = report.unfinished.len(),
+            "Packet carrier attempt history close report received"
+        );
+        Ok(report)
     }
 
     pub(crate) fn is_cancelled(&self) -> bool {
@@ -161,6 +171,11 @@ impl PacketPathExecutionSource {
             self.caller
                 .for_attempt(end)
                 .map_err(std::io::Error::other)?,
+        );
+        tracing::debug!(
+            identity = ?attempt.original().instance(),
+            caller = ?attempt.caller().task_id(),
+            "Packet carrier attempt build admitted"
         );
         let execution = crate::protocol_registry::PacketPathExecutionServices::from_tcp_execution(
             &services.execution(),

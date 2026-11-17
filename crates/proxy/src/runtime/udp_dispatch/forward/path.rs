@@ -93,15 +93,6 @@ impl UdpDispatch {
                 }
             }
 
-            #[cfg(feature = "managed-datagram-runtime")]
-            UdpPathCategory::Datagram => {
-                let result = self
-                    .flow_state
-                    .forward_existing_managed_flow(services.clone(), (flow, payload))
-                    .await;
-                self.record_or_fail(flow, &services, started_at, result)?;
-            }
-
             #[cfg(feature = "managed-stream-runtime")]
             UdpPathCategory::StreamPacket => {
                 let result = self

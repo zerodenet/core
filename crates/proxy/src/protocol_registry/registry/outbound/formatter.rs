@@ -18,24 +18,15 @@ impl ProtocolRegistry {
     /// it is not a per-tag process-wide association or a fresh second Session.
     pub(crate) fn prepare_cold_packet_path_projection(
         &self,
-        config: &RuntimeConfig,
-        leaf: ResolvedLeafOutbound<'_>,
+        outbound: &zero_config::OutboundConfig,
     ) -> Result<Option<ColdPacketPathProjection>, EngineError> {
-        let ResolvedLeafOutbound::Proxy { identity } = &leaf else {
-            return Ok(None);
-        };
-        let outbound = config
-            .outbounds
-            .get(identity.config_index())
-            .ok_or_else(|| {
-                EngineError::Io(std::io::Error::other(
-                    "cold packet path index is outside its actual configuration",
-                ))
-            })?;
         let protocol = outbound.protocol.protocol_name();
-        let entry = self
-            .outbound_protocol_entry(protocol)
-            .ok_or_else(|| unsupported_outbound_leaf(protocol))?;
+        let entry = self.outbound_protocol_entry(protocol).ok_or_else(|| {
+            EngineError::Io(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                format!("no compiled protocol metadata for `{protocol}`"),
+            ))
+        })?;
         match &entry.packet_projection {
             Some(project) => project(outbound),
             None => Ok(None),
@@ -44,11 +35,10 @@ impl ProtocolRegistry {
     #[cfg(test)]
     pub(crate) fn prepare_cold_datagram_source(
         &self,
-        config: &RuntimeConfig,
-        leaf: ResolvedLeafOutbound<'_>,
+        outbound: &zero_config::OutboundConfig,
     ) -> Result<Option<UdpDatagramSource>, EngineError> {
         Ok(self
-            .prepare_cold_packet_path_projection(config, leaf)?
+            .prepare_cold_packet_path_projection(outbound)?
             .and_then(|material| material.formatter))
     }
 }

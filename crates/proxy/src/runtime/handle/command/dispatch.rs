@@ -144,7 +144,7 @@ impl zero_api::CommandService for ProxyHandle {
 
             let current =
                 zero_runtime::ApplyObservation::current_frontend(&self.proxy.host.control_budget());
-            return super::embedded::execute(self.clone(), command, current).await;
+            super::embedded::execute(self.clone(), command, current).await
         })
     }
 }

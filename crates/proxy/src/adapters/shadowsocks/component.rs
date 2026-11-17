@@ -12,7 +12,7 @@ pub(crate) fn native_input(input: &OutboundConfig) -> bool {
     matches!(
         &input.protocol,
         OutboundProtocolConfig::Shadowsocks { plugin, .. }
-            if plugin.is_none() || cfg!(any(target_os = "linux", windows))
+            if plugin.is_none() || cfg!(any(unix, windows))
     )
 }
 /// A UDP-only plugin never owns the ordinary TCP carrier. That Stream uses

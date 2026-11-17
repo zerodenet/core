@@ -55,6 +55,7 @@ impl UpstreamOpener for OriginalOnly {
         Box::pin(async { panic!("reverse must use its same physical FIFO") })
     }
 }
+#[path = "reverse/fixture.rs"]
 mod fixture;
 use fixture::{empty_and_multiple_targets, pair, pair_carriers};
 #[tokio::test]
@@ -70,7 +71,7 @@ async fn virtual_reverse_standard_stream_datagram_preserve_real_wire_and_origina
             let plan = portal.tcp_runtime_services().components.clone().unwrap();
             let slot = plan.configured("portal").unwrap();
             let provider = slot.accepted_carrier_provider().unwrap();
-            let source = portal.inbound_owners.owner("entry").unwrap();
+            let source = portal.system_tun_source_registry().owner("entry").unwrap();
             let originals = provider.originals();
             framed::exercise(socks).await;
             empty_and_multiple_targets(socks).await;
@@ -167,7 +168,11 @@ async fn reverse_unique_loan_return_does_not_claim_original_source_close() {
         })
         .await;
         drop(receive);
-        let source = portal.inbound_owners.owner("entry").unwrap().identity();
+        let source = portal
+            .system_tun_source_registry()
+            .owner("entry")
+            .unwrap()
+            .identity();
         assert!(!provider.source_views_returned(source));
         assert!(provider.fence_source(source));
         assert!(!provider.contains(&original));
@@ -230,6 +235,8 @@ async fn vmess_grpc_borrows_the_actual_virtual_reverse_original_without_legacy_f
     }).await.unwrap();
 }
 
+#[path = "reverse/transitions.rs"]
 mod transitions;
 
+#[path = "reverse/active_graph.rs"]
 mod active_graph;

@@ -1,5 +1,6 @@
 //! Warm DNS loans retire before Source pause, while real Business IO stays live.
 use super::*;
+#[path = "warm/fixture.rs"]
 mod fixture;
 use fixture::*;
 #[tokio::test]

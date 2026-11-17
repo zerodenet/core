@@ -106,6 +106,7 @@ impl SniffingPolicy {
         self.route_only
     }
 
+    #[cfg(test)]
     pub(crate) fn accepts(&self, sniffed: &SniffedDomain) -> bool {
         self.accepts_with_fake_dns_fallback(sniffed, false)
     }

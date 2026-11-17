@@ -3,7 +3,7 @@ use std::net::{IpAddr, SocketAddr};
 
 use zero_dns::DnsSystem;
 use zero_platform_tokio::EgressInterfaceControl;
-#[cfg(any(test, not(any(target_os = "linux", windows))))]
+#[cfg(test)]
 use zero_platform_tokio::TokioSocket;
 use zero_transport::RuntimeError;
 
@@ -13,7 +13,7 @@ use crate::transport::failure::{attributed_error, is_local_network_error, Transp
 
 impl DirectConnector {
     /// Keep DNS and local socket failures distinguishable from node failures.
-    #[cfg(any(test, not(any(target_os = "linux", windows))))]
+    #[cfg(test)]
     pub(crate) async fn connect_host(
         &self,
         host: &str,

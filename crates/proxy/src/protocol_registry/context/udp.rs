@@ -40,6 +40,7 @@ impl UdpRuntimeServices {
     }
 
     #[cfg(feature = "raw-ip-runtime")]
+    #[cfg(test)]
     pub(crate) fn outbound_inner_io(
         &self,
         tag: &str,
@@ -48,6 +49,7 @@ impl UdpRuntimeServices {
     }
 
     #[cfg(feature = "raw-ip-runtime")]
+    #[cfg(test)]
     pub(crate) fn bind_outbound_peer_flow(&self, session_id: u64, tag: &str, peer_id: &str) {
         self.tcp
             .engine
@@ -83,17 +85,6 @@ impl UdpRuntimeServices {
         }
     }
 
-    pub(crate) async fn resolve_node_address(
-        &self,
-        address: &zero_core::Address,
-        port: u16,
-        error_message: &'static str,
-    ) -> Result<std::net::SocketAddr, zero_engine::EngineError> {
-        self.network
-            .resolve_node_address(address, port, error_message)
-            .await
-    }
-
     pub(crate) async fn resolve_direct_targets(
         &self,
         session: &zero_core::Session,
@@ -113,6 +104,7 @@ impl UdpRuntimeServices {
     }
 
     #[cfg(feature = "raw-ip-runtime")]
+    #[cfg(test)]
     pub(crate) async fn resolve_packet_targets(
         &self,
         session: &zero_core::Session,

@@ -70,13 +70,16 @@ pub(super) async fn start(
         let mut state = state.lock().await;
         let dispatch = udp.new_dispatch(route.inbound_tag()).await?;
         state.dispatch = Some(dispatch);
-        let mut detached = tokio::time::Instant::now() + retention;
+        let mut detached = tokio::time::Instant::now().checked_add(retention);
         let mut cancellations = tokio::time::interval(Duration::from_millis(100));
         cancellations.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             let attachment = tokio::select! {biased;
                 _=stopped.cancelled()=>return Ok(()),
-                _=tokio::time::sleep_until(detached)=>return Ok(()),
+                _=async { match detached {
+                    Some(deadline) => tokio::time::sleep_until(deadline).await,
+                    None => std::future::pending::<()>().await,
+                }}=>return Ok(()),
                 next=incoming.recv()=>match next {Some(next)=>next,None=>return Ok(())},
                 _=cancellations.tick()=>{if state.dispatch.as_mut().unwrap().finish_pending_cancellations(){return Ok(());}continue;},
             };
@@ -129,7 +132,7 @@ pub(super) async fn start(
                 let _ = done.send(result.map(|_| ()));
                 return Ok(());
             }
-            detached = tokio::time::Instant::now() + retention;
+            detached = tokio::time::Instant::now().checked_add(retention);
             if host
                 .registry
                 .detach(
@@ -148,7 +151,15 @@ pub(super) async fn start(
             let _ = done.send(result.map(|_| ()));
         }
     };
-    crate::runtime::udp_socket::endpoint::peer::job::run_peer_preserving(consumer, job).await
+    let result =
+        crate::runtime::udp_socket::endpoint::peer::job::run_peer_preserving(consumer, job).await;
+    let mut state = state.lock().await;
+    state.dropped |= result.is_err();
+    // Retention has ended and both original futures returned. The external
+    // peer closer must receive the dispatch lease before joining responses;
+    // its actual child owner still holds all native/control close obligations.
+    state.finish_dispatch();
+    result
 }
 struct Closing(Arc<Association>);
 impl Drop for Closing {

@@ -9,9 +9,6 @@ mod packet_path;
 mod packet_route;
 #[cfg(feature = "udp-runtime")]
 mod registration;
-mod tcp;
-#[cfg(feature = "udp-runtime")]
-mod udp;
 mod validation;
 
 #[cfg(feature = "vless")]

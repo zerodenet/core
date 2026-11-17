@@ -13,7 +13,7 @@ pub struct HostOriginalBudgets {
     pub dns_wire: Arc<zero_traits::packet_metadata::PacketMetadataCounter>,
     pub(crate) quota_memory:
         std::sync::OnceLock<Arc<zero_traits::packet_metadata::PacketMetadataCounter>>,
-    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+    #[cfg(any(unix, windows))]
     pub process: std::sync::Arc<zero_platform_tokio::owned_process::ProcessBudget>,
     /// Same pure memory Root even when native packet IO is not compiled.
     pub packet: std::sync::Arc<zero_tun::packet_memory::PacketReturnTotals>,
@@ -39,7 +39,7 @@ impl HostOriginalBudgets {
                 ),
             )
             .expect("valid finite DNS wire defaults"),
-            #[cfg(any(target_os = "linux", windows))]
+            #[cfg(all(any(unix, windows), not(target_os = "macos")))]
             process: Arc::default(),
             #[cfg(target_os = "macos")]
             process: zero_platform_tokio::owned_process::ProcessBudget::new_for_host(
@@ -177,7 +177,7 @@ impl HostOriginalBudgets {
                 std::num::NonZeroUsize::new(limit).expect("validated positive cap"),
             )
             .map_err(prepare_error)?;
-        #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+        #[cfg(any(unix, windows))]
         self.process
             .check_install(zero_platform_tokio::owned_process::ProcessBudgetLimits {
                 max_jobs: runtime.effective_process_max_jobs(),
@@ -239,7 +239,7 @@ impl HostOriginalBudgets {
                 )
                 .with_source(source)
             })?;
-        #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+        #[cfg(any(unix, windows))]
         self.process
             .install(zero_platform_tokio::owned_process::ProcessBudgetLimits {
                 max_jobs: runtime.effective_process_max_jobs(),
@@ -265,7 +265,7 @@ impl HostOriginalBudgets {
                 rings,
             )
             .map_err(|source| prepare_error(std::io::Error::other(source)))?;
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(not(any(unix, windows)))]
         let _ = runtime;
         Ok(())
     }
@@ -280,7 +280,7 @@ impl HostOriginalBudgets {
         let waker = std::task::Waker::from(self.carrier_wake.clone());
         let mut cx = std::task::Context::from_waker(&waker);
         self.carrier.poll_cancelled_retirements(&mut cx);
-        #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+        #[cfg(any(unix, windows))]
         self.process.poll_released(&mut cx);
     }
 }

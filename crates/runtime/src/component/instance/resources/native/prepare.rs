@@ -38,6 +38,10 @@ impl HostResources {
             Arc::new(failures::DeclaredReceiver::protocol()),
         )
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the original resource owner receives explicit same-host native, task and packet budget bindings"
+    )]
     fn construct(
         component: ComponentId,
         declarations: &[ResourceDeclaration],
@@ -71,7 +75,7 @@ impl HostResources {
             cancel.clone(),
             originals.carrier.clone(),
         )?;
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         let processes = process::ProcessDeclarations::new(
             declarations,
             identity.clone(),
@@ -182,7 +186,7 @@ impl HostResources {
                 }
 
                 ResourceDeclaration::ProcessEndpoint { .. } => {
-                    #[cfg(not(any(target_os = "linux", windows)))]
+                    #[cfg(not(any(unix, windows)))]
                     return Err(error(
                         component,
                         Reason::Unsupported,
@@ -384,7 +388,7 @@ impl HostResources {
             declared_failures: Arc::default(),
             protocol_failures,
             protocol_supervision: std::sync::OnceLock::new(),
-            #[cfg(any(target_os = "linux", windows))]
+            #[cfg(any(unix, windows))]
             processes,
             cancel,
             state: Mutex::new(State {

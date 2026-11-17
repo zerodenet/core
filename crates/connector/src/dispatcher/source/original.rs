@@ -130,7 +130,7 @@ impl<S: EventSource> Source<S> {
     fn retain(event: &Arc<RawApiEvent>, budget: &Arc<SourceBudget>) -> Option<BlockedEvent> {
         // Never wait with the history lock held. A full source book leaves the
         // cursor unchanged; the existing dispatcher retries after credit returns.
-        let credit = budget.try_reserve_event(&**event)?;
+        let credit = budget.try_reserve_event(event)?;
         let mut blocked = BlockedEvent::from_shared(event.clone());
         blocked.source_reservation = Some(credit);
         Some(blocked)

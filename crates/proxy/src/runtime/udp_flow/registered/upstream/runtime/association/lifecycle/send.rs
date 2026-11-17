@@ -35,8 +35,7 @@ where
         {
             Ok(sent) => {
                 services.record_udp_upstream_packet_sent();
-                self.idle_deadline =
-                    Some(TokioInstant::now() + services.udp_upstream_idle_timeout());
+                self.touch_idle(services.udp_upstream_idle_timeout());
                 Ok(sent)
             }
             Err(error) => {
@@ -97,8 +96,7 @@ where
         match established {
             Ok(a) => {
                 services.record_udp_upstream_association_created();
-                self.idle_deadline =
-                    Some(TokioInstant::now() + services.udp_upstream_idle_timeout());
+                self.touch_idle(services.udp_upstream_idle_timeout());
                 let (outbound_tag, endpoint) = association.log_parts();
                 if let Some((server, port)) = endpoint {
                     crate::logging::log_udp_upstream_association_created(

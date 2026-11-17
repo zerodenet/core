@@ -12,7 +12,7 @@ mod owned_start;
 mod packet_driver;
 mod packet_source;
 mod probe;
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(any(unix, windows))]
 mod process_endpoint;
 mod resources;
 mod roles;
@@ -82,7 +82,7 @@ pub struct ComponentSlot {
     live: OnceCell<Result<Live, SharedError>>,
     start_gate: Mutex<()>,
     owned_start_gate: std::sync::Mutex<()>,
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     prepaid_process: OnceLock<Arc<zero_platform_tokio::owned_process::PrepaidProcessJob>>,
     owned_start: OnceLock<owned_start::OwnedStart>,
     owned_start_host: OnceLock<std::sync::Mutex<Option<owned_start::OwnedStart>>>,
@@ -221,7 +221,7 @@ impl ComponentSlot {
     }
     pub fn revoke(&self) {
         self.cancel.cancel();
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         if let Some(paid) = self.prepaid_process.get() {
             paid.request_stop();
         }

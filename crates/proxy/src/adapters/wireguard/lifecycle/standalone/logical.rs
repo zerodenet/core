@@ -19,6 +19,10 @@ pub(super) struct Original {
     carrier: OnceLock<Arc<crate::runtime::raw_ip::RegisteredProxiedRawIpWireCarrier>>,
 }
 impl StandaloneStackOptions {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "original generation, caller, native and budget inputs remain explicitly bound"
+    )]
     pub(super) async fn start_logical_peer(
         &self,
         index: usize,

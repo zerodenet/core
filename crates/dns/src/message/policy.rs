@@ -43,18 +43,18 @@ pub(crate) fn apply_response_address_policy_in_place(
         return Ok(());
     }
 
-    let response_question_end = skip_name(&response, 12)?
+    let response_question_end = skip_name(response, 12)?
         .checked_add(4)
         .ok_or_else(|| invalid("DNS response question length overflow"))?;
     if response_question_end > response.len() {
         return Err(invalid("incomplete DNS response question"));
     }
-    let record_count = usize::from(read_u16(&response, 6)?)
-        + usize::from(read_u16(&response, 8)?)
-        + usize::from(read_u16(&response, 10)?);
+    let record_count = usize::from(read_u16(response, 6)?)
+        + usize::from(read_u16(response, 8)?)
+        + usize::from(read_u16(response, 10)?);
     let mut offset = response_question_end;
     for _ in 0..record_count {
-        let record = record_span(&response, offset)?;
+        let record = record_span(response, offset)?;
         match record.record_type {
             TYPE_A if policy.strips_ipv4() => filter_address_record(response, record),
             TYPE_AAAA if policy.strips_ipv6() => filter_address_record(response, record),

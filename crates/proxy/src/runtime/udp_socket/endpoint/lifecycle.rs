@@ -160,6 +160,7 @@ impl ResourceLifecycle for DirectEndpointOwner {
             // Joining all scope tasks first would deadlock a task waiting for
             // this actual association's mapping/queue cleanup.
             sockets.close_all_native();
+            sockets.finish_pending_native_closes(deadline).await;
             let mut native = sockets.take_native_close_report();
             let unfinished = std::mem::take(&mut native.unfinished);
             io_report.append(native); // Persist before any error/next suspension.

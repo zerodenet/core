@@ -66,6 +66,11 @@ pub(super) fn connect(next: &Dependency) -> io::Result<Option<Edge>> {
     );
     let mut graph = next.graph.lock().expect("DNS dependency graph poisoned");
     let mut pending = vec![next.node.clone()];
+    // Hash/Eq use immutable query bytes; only their retained memory credit is atomic.
+    #[expect(
+        clippy::mutable_key_type,
+        reason = "query identity is immutable; backing credit does not participate in Hash/Eq"
+    )]
     let mut visited = HashSet::new();
     while let Some(node) = pending.pop() {
         if node.coordinator == key.0 && node.query == key.1 {

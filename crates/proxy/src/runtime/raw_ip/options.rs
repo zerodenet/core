@@ -178,6 +178,7 @@ impl RawIpStackOptions {
         }
         hash.finalize().into()
     }
+    #[cfg(test)]
     pub(crate) fn with_traffic(mut self, traffic: super::RawIpTraffic) -> Self {
         self.traffic = traffic;
         self

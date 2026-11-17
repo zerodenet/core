@@ -1,7 +1,6 @@
 //! Ordinary SOCKS -> canonical WG roles, real encrypted wire and original joins.
 #![cfg(all(feature = "wireguard", feature = "socks5", feature = "dns"))]
-#[path = "../../../../../tests/wireguard_traffic/peer.rs"]
-mod peer;
+use crate::wireguard_peer_fixture as peer;
 use crate::{Proxy, ProxyHandle};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::{net::SocketAddr, time::Duration};
@@ -141,10 +140,6 @@ async fn exercise_mode(domain: bool, mode: &str) {
     let zero_engine::ResolvedOutbound::Single(leaf) = resolved else {
         unreachable!()
     };
-    assert!(proxy
-        .protocols
-        .claim_outbound_leaf(snapshot.config(), leaf)
-        .is_err());
     let mut client = tokio::time::timeout_at(end(), connect(socks, domain))
         .await
         .unwrap();

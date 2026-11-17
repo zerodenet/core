@@ -19,11 +19,6 @@ impl RegisteredUdpState {
             .get(&id)
             .cloned()
             .ok_or_else(|| unavailable("UDP connection was dropped"))?;
-        #[cfg(feature = "managed-datagram-runtime")]
-        let upstream = flow
-            .outbound
-            .upstream()
-            .map(|value| (value.server.to_owned(), value.port));
         match connection {
             #[cfg(feature = "managed-stream-runtime")]
             RegisteredUdpConnection::Logical(connection) => {
@@ -33,22 +28,6 @@ impl RegisteredUdpState {
             RegisteredUdpConnection::Upstream(_) => Err(unavailable(
                 "upstream association flows are handled by generic UDP dispatch",
             )),
-            #[cfg(feature = "managed-datagram-runtime")]
-            RegisteredUdpConnection::Datagram { connection, stage } => connection
-                .send_datagram(
-                    _tasks,
-                    Some(_services),
-                    flow.session.id,
-                    &flow.session.target,
-                    flow.session.port,
-                    payload,
-                )
-                .await
-                .map_err(|error| FlowFailure {
-                    stage,
-                    error,
-                    upstream,
-                }),
         }
     }
 }

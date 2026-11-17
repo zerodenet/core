@@ -3,15 +3,15 @@ pub(in crate::runtime::udp_flow) mod set;
 use super::packet_path::ChainTask;
 pub(in crate::runtime::udp_flow) use set::receiver::WeakPacketReceiver;
 pub(crate) use set::{PacketReplySender, ResponseSetClosed, ResponseSetLease, ResponseSetOwner};
+#[cfg(test)]
+use std::collections::HashMap;
 use std::{
-    collections::HashMap,
     future::Future,
     sync::{Arc, Mutex, Weak},
 };
-use tokio::{
-    sync::Notify,
-    task::{AbortHandle, Id, JoinError, JoinSet},
-};
+use tokio::task::{Id, JoinError, JoinSet};
+#[cfg(test)]
+use tokio::{sync::Notify, task::AbortHandle};
 use zero_core::Address;
 use zero_engine::EngineError;
 
@@ -24,10 +24,12 @@ pub(crate) enum ResponseFailure {
     Join(Arc<JoinError>),
 }
 #[derive(Debug)]
+#[cfg(test)]
 pub(crate) struct ResponseJoined {
     id: Id,
     failure: Option<ResponseFailure>,
 }
+#[cfg(test)]
 impl ResponseJoined {
     pub(crate) fn id(&self) -> Id {
         self.id
@@ -44,23 +46,27 @@ struct Statistics {
 }
 #[derive(Default)]
 pub(crate) struct ResponseTasks {
+    #[cfg(test)]
     records: Mutex<HashMap<Id, ActiveResponse>>,
     statistics: Mutex<Statistics>,
     expected_cancel: std::sync::atomic::AtomicBool,
 }
 // Retain only this original's cancellation fact until its real join. The
 // logical flow may disappear first; a weak record alone loses that fact.
+#[cfg(test)]
 struct ActiveResponse {
     record: Weak<ResponseTask>,
     cancelled: Arc<std::sync::atomic::AtomicBool>,
 }
 #[derive(Default)]
+#[cfg(test)]
 pub(crate) struct ResponseTask {
     state: Mutex<Registration>,
     changed: Notify,
     cancelled: Arc<std::sync::atomic::AtomicBool>,
 }
 #[derive(Default)]
+#[cfg(test)]
 enum Registration {
     #[default]
     Idle,
@@ -68,6 +74,7 @@ enum Registration {
     Active(AbortHandle),
     Joined(Arc<ResponseJoined>),
 }
+#[cfg(test)]
 impl ResponseTask {
     pub(crate) fn new() -> Arc<Self> {
         Arc::new(Self::default())
@@ -132,6 +139,7 @@ impl ResponseTask {
     }
 }
 impl ResponseTasks {
+    #[cfg(test)]
     pub(crate) fn spawn(
         &self,
         tasks: &mut JoinSet<ChainTask>,
@@ -174,6 +182,7 @@ impl ResponseTasks {
     /// Called at the original relay's join_next_with_id consumption point,
     /// before forwarding its actual result. There is no second join consumer.
     pub(crate) fn observe(&self, result: NativeChainJoin) -> ObservedChainJoin {
+        #[cfg(test)]
         let id = match &result {
             Ok((id, _)) => *id,
             Err(error) => error.id(),
@@ -189,6 +198,7 @@ impl ResponseTasks {
                 (Err(source.clone()), Some(ResponseFailure::Join(source)))
             }
         };
+        #[cfg(test)]
         let record = self
             .records
             .lock()
@@ -196,7 +206,9 @@ impl ResponseTasks {
             .remove(&id);
         let expected_cancel = self
             .expected_cancel
-            .load(std::sync::atomic::Ordering::Acquire)
+            .load(std::sync::atomic::Ordering::Acquire);
+        #[cfg(test)]
+        let expected_cancel = expected_cancel
             || record
                 .as_ref()
                 .is_some_and(|record| record.cancelled.load(std::sync::atomic::Ordering::Acquire));
@@ -215,6 +227,7 @@ impl ResponseTasks {
                 }
             }
         }
+        #[cfg(test)]
         if let Some(record) = record.and_then(|active| active.record.upgrade()) {
             record.consume(id, failure);
         }

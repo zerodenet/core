@@ -153,7 +153,7 @@ impl InboundInstallContext {
             udp.bind_original_budgets(
                 identity,
                 self.protocols.runtime_host().original_budgets(),
-                &self.entry.accepted_registrar(),
+                self.entry.accepted_registrar(),
                 self.entry.task_access().cancellation(),
             )?;
         }

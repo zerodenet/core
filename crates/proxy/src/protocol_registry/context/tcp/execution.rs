@@ -45,6 +45,7 @@ impl TcpExecutionServices {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn has_datagram_return_owner(&self) -> bool {
         self.datagram_returns.is_some()
     }
@@ -128,6 +129,7 @@ impl TcpExecutionServices {
     }
 
     #[cfg(feature = "raw-ip-runtime")]
+    #[cfg(test)]
     pub(crate) async fn resolve_packet_targets(
         &self,
         session: &zero_core::Session,

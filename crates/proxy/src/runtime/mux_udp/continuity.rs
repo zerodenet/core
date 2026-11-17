@@ -42,21 +42,25 @@ pub(crate) enum MuxUdpContinuityAttach<T = UdpDispatch> {
         dispatch: Option<T>,
     },
     Conflict {
+        #[cfg(test)]
         generation: u64,
     },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
 pub(crate) struct MuxUdpContinuitySnapshot {
     pub(crate) attached: usize,
     pub(crate) retained: usize,
 }
 
+#[cfg(test)]
 pub(crate) struct MuxUdpContinuityPrune<T = UdpDispatch> {
     pub(crate) removed: usize,
     pub(crate) dispatches: Vec<T>,
 }
 
+#[cfg(test)]
 pub(crate) enum MuxUdpDetachedCancellation {
     Retained,
     Cancelled(Box<UdpDispatch>),
@@ -66,7 +70,8 @@ pub(crate) enum MuxUdpDetachedCancellation {
 struct ContinuityEntry<T> {
     generation: u64,
     attached: bool,
-    expires_at: Instant,
+    // None is beyond the monotonic clock range, never proof of expiry/return.
+    expires_at: Option<Instant>,
     dispatch: Option<T>,
 }
 
@@ -91,6 +96,7 @@ impl<T> Default for MuxUdpContinuityRegistry<T> {
 }
 
 impl<T> MuxUdpContinuityRegistry<T> {
+    #[cfg(test)]
     pub(crate) fn attach(
         &self,
         scope: MuxUdpContinuityScope,
@@ -112,12 +118,13 @@ impl<T> MuxUdpContinuityRegistry<T> {
         }
         Ok(match entries.get_mut(&scope) {
             Some(entry) if entry.attached => MuxUdpContinuityAttach::Conflict {
+                #[cfg(test)]
                 generation: entry.generation,
             },
             Some(entry) => {
                 entry.generation = entry.generation.saturating_add(1);
                 entry.attached = true;
-                entry.expires_at = now + retention;
+                entry.expires_at = now.checked_add(retention);
                 MuxUdpContinuityAttach::Reattached {
                     generation: entry.generation,
                     dispatch: entry.dispatch.take(),
@@ -129,7 +136,7 @@ impl<T> MuxUdpContinuityRegistry<T> {
                     ContinuityEntry {
                         generation: 1,
                         attached: true,
-                        expires_at: now + retention,
+                        expires_at: now.checked_add(retention),
                         dispatch: None,
                     },
                 );
@@ -168,7 +175,7 @@ impl<T> MuxUdpContinuityRegistry<T> {
             return Err(dispatch);
         }
         entry.attached = false;
-        entry.expires_at = Instant::now() + retention;
+        entry.expires_at = Instant::now().checked_add(retention);
         entry.dispatch = dispatch;
         Ok(())
     }
@@ -185,10 +192,15 @@ impl<T> MuxUdpContinuityRegistry<T> {
         false
     }
 
+    #[cfg(test)]
     pub(crate) fn expire(&self, scope: &MuxUdpContinuityScope, generation: u64) -> Option<T> {
         let mut entries = self.entries.lock().expect("continuity registry poisoned");
         let expired = entries.get(scope).is_some_and(|entry| {
-            entry.generation == generation && !entry.attached && entry.expires_at <= Instant::now()
+            entry.generation == generation
+                && !entry.attached
+                && entry
+                    .expires_at
+                    .is_some_and(|expiry| expiry <= Instant::now())
         });
         expired
             .then(|| entries.remove(scope))
@@ -196,12 +208,15 @@ impl<T> MuxUdpContinuityRegistry<T> {
             .and_then(|entry| entry.dispatch)
     }
 
+    #[cfg(test)]
     pub(crate) fn prune_expired(&self) -> MuxUdpContinuityPrune<T> {
         let mut entries = self.entries.lock().expect("continuity registry poisoned");
         let now = Instant::now();
         let expired_scopes = entries
             .iter()
-            .filter(|(_, entry)| !entry.attached && entry.expires_at <= now)
+            .filter(|(_, entry)| {
+                !entry.attached && entry.expires_at.is_some_and(|expiry| expiry <= now)
+            })
             .map(|(scope, _)| scope.clone())
             .collect::<Vec<_>>();
         let removed = expired_scopes.len();
@@ -215,6 +230,7 @@ impl<T> MuxUdpContinuityRegistry<T> {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn snapshot(&self) -> MuxUdpContinuitySnapshot {
         let entries = self.entries.lock().expect("continuity registry poisoned");
         MuxUdpContinuitySnapshot {
@@ -225,6 +241,7 @@ impl<T> MuxUdpContinuityRegistry<T> {
 }
 
 impl MuxUdpContinuityRegistry<UdpDispatch> {
+    #[cfg(test)]
     pub(crate) fn poll_detached_cancellation(
         &self,
         scope: &MuxUdpContinuityScope,

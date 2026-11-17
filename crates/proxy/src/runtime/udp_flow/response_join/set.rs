@@ -128,6 +128,7 @@ impl ResponseSetOwner {
             .fatal
             .clone()
     }
+    #[cfg(test)]
     pub(in crate::runtime::udp_flow) fn evidence(&self) -> &ResponseTasks {
         &self.evidence
     }
@@ -181,6 +182,7 @@ impl ResponseSetOwner {
     }
 }
 impl ResponseSetLease {
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.tasks.as_ref().map_or(0, JoinSet::len) + {
             #[cfg(feature = "managed-stream-runtime")]
@@ -197,6 +199,7 @@ impl ResponseSetLease {
     pub(crate) fn has_compatibility_tasks_for_test(&self) -> bool {
         self.tasks.is_some()
     }
+    #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.len() == 0
     }

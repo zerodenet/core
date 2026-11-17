@@ -3,6 +3,7 @@
 use super::*;
 use std::{io, sync::atomic::Ordering, time::Duration};
 use zero_dns::test_support::doh_pool_witness;
+#[path = "doh_binding/fixture.rs"]
 mod fixture;
 use fixture::Harness;
 fn until() -> tokio::time::Instant {

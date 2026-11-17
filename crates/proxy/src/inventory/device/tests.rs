@@ -56,13 +56,7 @@ fn prepare(
         egress.clone(),
     ));
     let mut inventory = ProtocolInventory::with_background(network);
-    inventory.registry = Arc::new(
-        inventory
-            .registry
-            .as_ref()
-            .clone()
-            .without_outbound_projection("shadowsocks"),
-    );
+    inventory.registry = Arc::new(inventory.registry.as_ref().clone());
     inventory
         .devices
         .wireguard

@@ -6,10 +6,6 @@ use crate::transport::TcpOutboundFailure;
 
 pub(crate) enum PreparedTcpOutbound {
     NativeRelay(super::PreparedNativeTcpRelayChain),
-    Relay {
-        prefix: super::PreparedTcpRelayPrefix,
-        final_hop: super::PreparedTcpRelayHop,
-    },
     Single(super::PreparedTcpCandidate),
     Fallback(Vec<super::PreparedTcpCandidate>),
 }
@@ -49,45 +45,18 @@ impl ProtocolInventory {
                 ) {
                     return prepared.map(PreparedTcpOutbound::NativeRelay);
                 }
-                let (prefix, final_hop) = self.prepare_tcp_relay(ctx, chain, components)?;
-                Ok(PreparedTcpOutbound::Relay { prefix, final_hop })
+                Err(crate::runtime::path::missing_tcp_route_capability(mode))
             }
-            ResolvedOutbound::Single(candidate) => {
-                if let Some(prepared) = self.native_tcp_candidate(ctx, candidate, components, mode)
-                {
-                    return prepared.map(PreparedTcpOutbound::Single);
-                }
-                let claimed = self
-                    .claim_outbound_leaf(ctx.config(), candidate.clone())
-                    .map_err(|error| TcpOutboundFailure {
-                        stage: "outbound_leaf_runtime",
-                        error,
-                        upstream_endpoint: None,
-                        network: None,
-                    })?;
-                Ok(PreparedTcpOutbound::Single(
-                    self.prepare_claimed_tcp_candidate(ctx, &claimed, mode)?,
-                ))
-            }
+            ResolvedOutbound::Single(candidate) => self
+                .prepare_tcp_candidate(ctx, candidate, components, mode)
+                .map(PreparedTcpOutbound::Single),
             ResolvedOutbound::Fallback { candidates } => {
                 let mut prepared = Vec::with_capacity(candidates.len());
                 let mut last_failure = None;
 
-                for candidate in candidates.iter().cloned() {
-                    let prepared_candidate = self
-                        .native_tcp_candidate(ctx, &candidate, components, mode)
-                        .unwrap_or_else(|| {
-                            self.claim_outbound_leaf(ctx.config(), candidate)
-                                .map_err(|error| TcpOutboundFailure {
-                                    stage: "outbound_leaf_runtime",
-                                    error,
-                                    upstream_endpoint: None,
-                                    network: None,
-                                })
-                                .and_then(|claimed| {
-                                    self.prepare_claimed_tcp_candidate(ctx, &claimed, mode)
-                                })
-                        });
+                for candidate in candidates {
+                    let prepared_candidate =
+                        self.prepare_tcp_candidate(ctx, candidate, components, mode);
                     match prepared_candidate {
                         Ok(candidate) => prepared.push(candidate),
                         Err(failure) => last_failure = Some(failure),

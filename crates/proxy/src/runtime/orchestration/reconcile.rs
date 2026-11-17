@@ -8,7 +8,16 @@ use crate::runtime::{listeners, Proxy};
 use tracing::warn;
 
 impl OrchestrationState {
-    pub(super) async fn reconcile_reload(&mut self, proxy: &Proxy) {
+    pub(super) fn reconcile_reload<'a>(
+        &'a mut self,
+        proxy: &'a Proxy,
+    ) -> zero_platform_tokio::contract::BoxFuture<'a, ()> {
+        // One existing caller-owned heap operation, with its concrete reload
+        // graph checked once here instead of inside every lifecycle/drain arm.
+        Box::pin(self.reconcile_reload_inner(proxy))
+    }
+
+    async fn reconcile_reload_inner(&mut self, proxy: &Proxy) {
         let pending = proxy.pending_configuration_snapshot();
         // Ready has delivered this candidate's ACK, but the same accepted
         // operation still owns application readiness and final publication.
@@ -274,7 +283,9 @@ impl OrchestrationState {
                 Err(error) => {
                     let cold_only = source_retirement.is_none();
                     #[cfg(test)]
-                    eprintln!("actual Source idle/receiver retirement barrier, cold_only={cold_only}: {error:?}");
+                    eprintln!(
+                        "actual Source idle/receiver retirement barrier, cold_only={cold_only}: {error:?}"
+                    );
                     drop(source_retirement.take());
                     self.reject_before_start(proxy, &new_snapshot, error.to_string(), cold_only)
                         .await;
@@ -322,7 +333,13 @@ impl OrchestrationState {
         let rollback_runtime_factory = self.inbound_runtime_factory.clone();
         let source_dir = self.source_dir.clone();
         if !source_barrier {
-            match budget_barrier::prepare_devices(proxy, &new_config, &candidate_tcp_services).await
+            match budget_barrier::prepare_devices(
+                proxy,
+                &new_config,
+                &candidate_tcp_services,
+                &preparing,
+            )
+            .await
             {
                 Ok(devices) => prepared_resources = Some(devices),
                 Err(error) => {
@@ -547,8 +564,13 @@ impl OrchestrationState {
                         .await?;
                     }
                     *output_resources = Some(
-                        budget_barrier::prepare_devices(proxy, start_config, start_services)
-                            .await?,
+                        budget_barrier::prepare_devices(
+                            proxy,
+                            start_config,
+                            start_services,
+                            start_preparing,
+                        )
+                        .await?,
                     );
                 }
                 Ok(())
@@ -634,10 +656,11 @@ impl OrchestrationState {
         let _ = prepared_resources.take();
         let deferred_commit = proxy.pending_reload_matches(&new_snapshot);
         if !deferred_commit {
+            let token = self
+                .dns_reload_resources(&new_snapshot)
+                .map_err(|error| error.to_string());
             let commit = async {
-                let token = self
-                    .dns_reload_resources(&new_snapshot)
-                    .map_err(|error| error.to_string())?;
+                let token = token?;
                 proxy
                     .resolver
                     .retire_reload_resources(

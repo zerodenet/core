@@ -49,7 +49,7 @@ impl FrontendCommand {
         let entry = self.0.clone();
         let stop = ApplyObservation::caller_stop()
             .map(|parent| parent.child_token())
-            .unwrap_or_else(CancellationToken::new);
+            .unwrap_or_default();
         let _ = entry.stop.set(stop.clone());
         struct Caller(CancellationToken);
         impl Drop for Caller {

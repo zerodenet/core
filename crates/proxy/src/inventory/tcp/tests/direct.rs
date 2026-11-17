@@ -33,14 +33,13 @@ async fn ordinary_named_and_builtin_direct_use_original_provider_with_halfclose_
             let proxy=Proxy::new(config.clone()).unwrap();let running=proxy.spawn();
             ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()),proxy.clone())
                 .apply_runtime_config_and_wait(config,Duration::from_secs(5)).await.unwrap();
-            let source=proxy.inbound_owners.owner("entry").unwrap();source.wait_ready().await.unwrap();
+            let source=proxy.system_tun_source_registry().owner("entry").unwrap();source.wait_ready().await.unwrap();
             let entry=*source.original_listener_address.get().unwrap();
             let services=proxy.tcp_runtime_services();let plan=services.components.as_ref().unwrap();
             let slot=plan.direct(named.then_some("named")).unwrap();
             let decision=if named {RouteDecision::Route("named".into())}else{RouteDecision::Direct};
             let (resolved,_)=proxy.engine().resolve_route_decision(decision).unwrap();
-            let ResolvedOutbound::Single(leaf)=resolved.clone() else {unreachable!()};
-            assert!(proxy.protocols.claim_outbound_leaf(services.config(),leaf).is_err());
+            let ResolvedOutbound::Single(_leaf)=resolved.clone() else {unreachable!()};
             for mode in [RouteMode::Auto,RouteMode::Flow,RouteMode::Translate] {
                 let selected=services.prepare_tcp_outbound(&resolved,mode).unwrap_or_else(|failure|panic!("{}: {}",failure.stage,failure.error));
                 let PreparedTcpOutbound::Single(selected)=selected else {unreachable!()};

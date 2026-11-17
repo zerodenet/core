@@ -30,7 +30,7 @@ async fn actual_business_deadline_expires_with_deferred_auxiliary_host_ack_witho
         let transport=UpstreamTransport::new(binding.clone(),Arc::new(Root{bound,host,peer,binding,egress,
             caller:witness.clone(),demand:demand.clone(),facts:facts.clone()}));
         let transfers=Arc::new(Mutex::new(Vec::new()));
-        let role=Outbound{inner:erase_stream(RawRole(endpoint.clone())),tasks:Some(scope.registrar()),
+        let role=Outbound{control_only:false,inner:erase_stream(RawRole(endpoint.clone())),tasks:Some(scope.registrar()),
             cleanup_network:None,process:None,endpoint:endpoint.clone(),dial:Default::default(),grants:owner.grants(),transfers:transfers.clone(),limit:one};
         let opening=role.connect(ConnectRequest{destination:endpoint},OpenContext{identity:RequestIdentity::Business(facts),
             deadline:Some(end),cancel:demand.0.clone(),upstream:transport,observer:None});

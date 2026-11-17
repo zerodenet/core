@@ -125,8 +125,7 @@ impl VlessAdapter {
         .and_then(|prepared| {
             prepared.with_file_owner(
                 resources.candidate().and_then(|config| config.source_dir()),
-                nonzero(runtime.effective_file_read_max_bytes())
-                    .map_err(|source| std::io::Error::other(source))?,
+                nonzero(runtime.effective_file_read_max_bytes()).map_err(std::io::Error::other)?,
             )
         })
         .map_err(|source| {

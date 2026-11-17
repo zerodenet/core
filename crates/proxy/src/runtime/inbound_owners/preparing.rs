@@ -61,7 +61,7 @@ impl std::fmt::Display for PreparationStopped {
     }
 }
 impl std::error::Error for PreparationStopped {}
-pub(super) fn stopped_preparation() -> EngineError {
+pub(crate) fn stopped_preparation() -> EngineError {
     std::io::Error::new(std::io::ErrorKind::Interrupted, PreparationStopped).into()
 }
 pub(crate) fn preparation_stopped(error: &EngineError) -> bool {

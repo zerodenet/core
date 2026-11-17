@@ -1,12 +1,12 @@
 //! Local wire representation regressions, not native-provider qualification.
 use super::*;
-use crate::transport::{ClientStream, TcpRelayStream};
+use crate::transport::TcpRelayStream;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zero_platform_tokio::{contract::stream::BoxStream, ApplicationSettings};
 use zero_traits::{AsyncSocket, TransportBypassControl};
 
 #[tokio::test]
-async fn deferred_socket_boundary_retains_original_application_and_bypass_state() {
+async fn standard_view_keeps_original_wire_half_close_and_transport_state() {
     for relay in [false, true] {
         let (io, mut peer) = tokio::io::duplex(128);
         let control = TransportBypassControl::default();
@@ -16,22 +16,15 @@ async fn deferred_socket_boundary_retains_original_application_and_bypass_state(
         };
         let original = TcpRelayStream::with_transport_bypass_control(io, control.clone())
             .with_application_settings(Some(settings.clone()));
-        let established = EstablishedTcpOutbound::proxied_compatibility(
-            "node".into(),
-            "host".into(),
-            443,
-            original,
-        );
+        assert_eq!(original.application_settings(), Some(&settings));
+        let retained = AsyncSocket::transport_bypass_control(&original).unwrap();
+        let io = Box::pin(original) as BoxStream;
         let established = if relay {
-            established
-                .with_relay_route("last".into(), None, vec![])
-                .unwrap()
+            EstablishedTcpOutbound::relay("last", None, vec![], io)
         } else {
-            established
+            EstablishedTcpOutbound::proxied("node", "host", 443, io)
         };
-        let mut same = established.into_compatibility_stream().unwrap();
-        assert_eq!(same.application_settings(), Some(&settings));
-        let retained = AsyncSocket::transport_bypass_control(&same).unwrap();
+        let mut same = established.into_stream().unwrap();
         retained.request_read_bypass();
         retained.request_write_bypass();
         assert!(control.read_bypass_requested() && control.write_bypass_requested());
@@ -57,14 +50,20 @@ async fn deferred_socket_boundary_retains_original_application_and_bypass_state(
 }
 
 #[test]
-fn standard_prefix_keeps_actual_endpoint_facts_only_at_the_deferred_boundary() {
+fn standard_outbound_retains_actual_endpoint_observations_without_rebuilding_a_socket_facade() {
+    use super::model::{EstablishedStream, EstablishedTcpOutboundKind};
     let (io, _peer) = tokio::io::duplex(128);
     let local = "127.0.0.1:31301".parse().unwrap();
     let remote = "127.0.0.1:31302".parse().unwrap();
-    let same = EstablishedTcpOutbound::proxied("native", "host", 443, Box::pin(io) as BoxStream)
-        .with_endpoints(Some(local), Some(remote))
-        .into_compatibility_stream()
-        .unwrap();
-    assert_eq!(same.local_addr().unwrap(), local);
-    assert_eq!(same.peer_addr().unwrap(), remote);
+    let outbound =
+        EstablishedTcpOutbound::proxied("native", "host", 443, Box::pin(io) as BoxStream)
+            .with_endpoints(Some(local), Some(remote));
+    let EstablishedTcpOutboundKind::Proxied {
+        upstream: EstablishedStream { endpoints, .. },
+        ..
+    } = outbound.kind
+    else {
+        panic!("same standard result required")
+    };
+    assert_eq!(endpoints, (Some(local), Some(remote)));
 }

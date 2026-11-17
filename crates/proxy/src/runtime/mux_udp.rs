@@ -3,5 +3,4 @@ mod continuity;
 
 pub(crate) use continuity::{
     MuxUdpContinuityAttach, MuxUdpContinuityRegistry, MuxUdpContinuityScope,
-    MuxUdpDetachedCancellation,
 };

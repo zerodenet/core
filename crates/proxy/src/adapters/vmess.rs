@@ -1,4 +1,8 @@
 #[cfg(feature = "vmess")]
+mod options;
+#[cfg(feature = "vmess")]
+use options::outbound_options;
+#[cfg(feature = "vmess")]
 pub(crate) mod component;
 #[cfg(feature = "vmess")]
 pub(crate) mod inbound;

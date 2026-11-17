@@ -2,59 +2,31 @@ use super::*;
 use crate::transport::establishment::establishment_failure;
 use crate::transport::{failure_origin, TransportFailureOrigin};
 
-struct DialThenFail {
-    host: String,
-    port: u16,
-}
-
-impl PreparedTcpConnectOperation for DialThenFail {
-    fn execute<'a>(
-        &'a self,
-        services: TcpExecutionServices,
-        _: &'a Session,
-    ) -> Pin<Box<dyn Future<Output = Result<EstablishedTcpOutbound, TcpOutboundFailure>> + Send + 'a>>
-    where
-        Self: 'a,
-    {
-        Box::pin(async move {
-            let error = match services
-                .connect_upstream_owned(self.host.clone(), self.port)
-                .await
-            {
-                Ok(_socket) => {
-                    EngineError::Io(std::io::Error::other("controlled handshake failure"))
-                }
-                Err(error) => error.into(),
-            };
-            Err(TcpOutboundFailure {
-                stage: "protocol_handshake",
-                error,
-                upstream_endpoint: None,
-                network: None,
-            })
-        })
-    }
-}
-
 async fn fail_at(host: &str, port: u16) -> EngineError {
-    let mut candidate = failing_candidate();
-    candidate.tag = Some("selected-node".to_owned());
-    candidate.protocol = "test-protocol".to_owned();
-    candidate.endpoint = Some((host.to_owned(), port));
-    candidate.execution =
-        PreparedTcpCandidateExecution::Connect(std::sync::Arc::new(DialThenFail {
-            host: host.to_owned(),
-            port,
-        }));
-    dispatch_prepared_tcp_candidate(
-        test_services(),
-        &test_session(),
-        candidate,
+    let mut facts = attempt_facts();
+    facts.tag = Some("selected-node".into());
+    facts.protocol = "test-protocol".into();
+    facts.endpoint = Some((host.into(), port));
+    let trace = crate::transport::establishment::DialTrace::default();
+    let services = test_services().with_dial_trace(trace.clone());
+    let error = match services.connect_upstream_owned(host.into(), port).await {
+        Ok(_socket) => EngineError::Io(std::io::Error::other("controlled handshake failure")),
+        Err(source) => source.into(),
+    };
+    finish_candidate_attempt(
+        &services,
+        facts,
         TcpDispatchIntent::Traffic,
+        &trace,
+        Err(TcpOutboundFailure {
+            stage: "protocol_handshake",
+            error,
+            upstream_endpoint: None,
+            network: None,
+        }),
     )
-    .await
     .err()
-    .expect("controlled establishment failure")
+    .expect("actual dial and typed handshake outcome")
     .error
 }
 

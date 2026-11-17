@@ -4,6 +4,9 @@ use zero_api::{HealthQuery, QueryRequest, QueryResponse, QueryService};
 use zero_config::RuntimeConfig;
 use zero_engine::{Engine, ResolvedLeafOutbound, ResolvedOutbound};
 
+#[path = "runtime_snapshot/idle.rs"]
+mod idle;
+
 #[test]
 fn reload_publishes_plan_and_config_as_one_generation() {
     let engine = Engine::new(config_with_outbounds(3)).expect("build engine");

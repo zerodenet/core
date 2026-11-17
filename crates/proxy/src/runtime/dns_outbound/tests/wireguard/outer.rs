@@ -1,5 +1,6 @@
 //! Actual Source/workspaces stay distinct from the opaque outer native ancestor.
 use super::*;
+#[path = "outer/fixture.rs"]
 mod fixture;
 use fixture::Client;
 

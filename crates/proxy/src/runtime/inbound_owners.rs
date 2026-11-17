@@ -28,7 +28,7 @@ mod recovery;
 mod state_recovery;
 #[cfg(all(test, feature = "managed-datagram-runtime"))]
 pub(crate) mod test_support;
-pub(crate) use preparing::{preparation_stopped, PreparingInbounds};
+pub(crate) use preparing::{preparation_stopped, stopped_preparation, PreparingInbounds};
 mod released_fault;
 use crate::inventory::ProtocolInventory;
 pub(crate) use entry::{
@@ -107,6 +107,7 @@ impl InboundInstallContext {
         self.entry
             .install_child_group(self.protocols.clone(), limit)
     }
+    #[cfg(test)]
     pub(crate) fn register(
         &self,
         owner: Box<dyn DynResourceLifecycle>,

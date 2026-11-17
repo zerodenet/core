@@ -68,11 +68,9 @@ async fn persistent_prefix_business_suffix_keeps_original_custody_through_confir
                 &snapshot,
                 zero_engine::RouteDecision::Route(tag.into()),
             ).unwrap();
-            let zero_engine::ResolvedOutbound::Single(leaf) = resolved else {
+            let zero_engine::ResolvedOutbound::Single(_leaf) = resolved else {
                 unreachable!()
             };
-            assert!(proxy.protocols.claim_outbound_leaf(snapshot.config(), leaf).is_err(),
-                "the migrated pool must not recreate a claim/prepared executor");
         }
         // The real Service entrypoint must use the same finite receiver and
         // original Mieru driver as accepted Business, without a bare callback.

@@ -106,10 +106,10 @@ impl StandardPacketPath {
 }
 pub(super) fn destination(host: &str, port: u16) -> Destination {
     Destination::new(
-        match host.parse::<std::net::IpAddr>() {
-            Ok(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
-            Ok(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
-            Err(_) => zero_core::Address::Domain(host.into()),
+        match zero_core::address::parse_ip_literal(host) {
+            Some(std::net::IpAddr::V4(ip)) => zero_core::Address::Ipv4(ip.octets()),
+            Some(std::net::IpAddr::V6(ip)) => zero_core::Address::Ipv6(ip.octets()),
+            None => zero_core::Address::Domain(host.into()),
         },
         port,
     )

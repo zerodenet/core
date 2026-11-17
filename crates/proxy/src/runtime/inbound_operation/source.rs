@@ -62,7 +62,9 @@ pub(in crate::runtime) async fn run(
                     #[cfg(feature = "raw-ip-runtime")]
                     if pending.packet_listener().is_some() || pending.packet_device().is_some() {
                         let context=runtime.take_packet_source().ok_or_else(||std::io::Error::other("packet source lacks actual original context"))?;
-                        return super::raw_ip::run(pending,context,runtime.clone(),shutdown.clone()).await;
+                        // Keep Packet's concrete run state out of every TCP
+                        // Source poll frame, on the same original caller.
+                        return Box::pin(super::raw_ip::run(pending,context,runtime.clone(),shutdown.clone())).await;
                     }
                     #[cfg(feature = "managed-datagram-runtime")]
                     if pending.carrier_facts().is_some() {

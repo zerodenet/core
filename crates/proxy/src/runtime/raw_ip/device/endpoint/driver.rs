@@ -26,7 +26,7 @@ pub(super) async fn run_endpoint_stack(stack: EndpointStack) -> Result<(), Engin
                     tcp.fragment_outbound_packet_batch(packet).await.map_err(std::io::Error::other)?
                 } else { zero_traits::PacketBatch::one(packet) };
                 for packet in packets {
-                    if !send_endpoint_packet(&mut endpoint, EndpointPacket { peer, packet: packet.into(), observer: observer.clone(), closed: closed.clone(), return_channel: None }).await {
+                    if !send_endpoint_packet(&mut endpoint, EndpointPacket { peer, packet, observer: observer.clone(), closed: closed.clone(), return_channel: None }).await {
                         closed.store(true, Ordering::Release);
                         return Ok(());
                     }

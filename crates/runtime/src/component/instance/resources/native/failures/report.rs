@@ -136,24 +136,21 @@ impl DeclaredReceiver {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         for cause in causes.iter() {
-            match cause {
-                Cause::ReportTask { id, class, source } => {
-                    if !report.failed_tasks.iter().any(|same| {
-                        same.id == *id
-                            && same.class == *class
-                            && same
-                                .error
-                                .retained_source()
-                                .is_some_and(|same| same_report_source(same, source))
-                    }) {
-                        report.failed_tasks.push(TaskFailure {
-                            id: *id,
-                            class: *class,
-                            error: ChannelError::retained(source.clone()),
-                        });
-                    }
+            if let Cause::ReportTask { id, class, source } = cause {
+                if !report.failed_tasks.iter().any(|same| {
+                    same.id == *id
+                        && same.class == *class
+                        && same
+                            .error
+                            .retained_source()
+                            .is_some_and(|same| same_report_source(same, source))
+                }) {
+                    report.failed_tasks.push(TaskFailure {
+                        id: *id,
+                        class: *class,
+                        error: ChannelError::retained(source.clone()),
+                    });
                 }
-                _ => {}
             }
         }
     }

@@ -90,8 +90,10 @@ impl OrchestrationState {
                             proxy, config, services, preparing, retained,
                         )
                         .await?;
-                        *output =
-                            Some(budget_barrier::prepare_devices(proxy, config, &services).await?);
+                        *output = Some(
+                            budget_barrier::prepare_devices(proxy, config, &services, preparing)
+                                .await?,
+                        );
                         Ok(())
                     },
                 )
@@ -102,7 +104,7 @@ impl OrchestrationState {
                         if crate::runtime::inbound_owners::released_fault_identity(&error)
                             .is_some_and(|identity| pending_faults.remove(&identity)) =>
                     {
-                        continue
+                        continue;
                     }
                     Err(error) => return Err(error.to_string()),
                 }

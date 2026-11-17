@@ -37,7 +37,10 @@ fn read(path: &Path) -> String {
 fn is_test_source(path: &Path) -> bool {
     path.components()
         .any(|component| component.as_os_str() == "tests")
-        || path.file_name().is_some_and(|name| name == "tests.rs")
+        || path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name == "tests.rs" || name.ends_with("_tests.rs"))
 }
 
 fn adapter_feature_names() -> Vec<String> {
@@ -59,22 +62,22 @@ fn adapter_feature_names() -> Vec<String> {
 fn non_http_protocol_feature_names() -> Vec<String> {
     adapter_feature_names()
         .into_iter()
-        .filter(|feature| feature != "http")
+        .filter(|feature| !matches!(feature.as_str(), "http" | "mixed"))
         .collect()
 }
 
-fn upper_camel_identifier(value: &str) -> String {
-    value
-        .split('_')
-        .map(|part| {
-            let mut chars = part.chars();
-            chars
-                .next()
-                .map(|first| first.to_ascii_uppercase().to_string() + chars.as_str())
-                .unwrap_or_default()
-        })
+fn read_module(path: &Path) -> String {
+    let mut sources = vec![path.to_path_buf()];
+    let directory = path.with_extension("");
+    if directory.is_dir() {
+        sources.extend(rust_sources(&directory));
+    }
+    sources
+        .into_iter()
+        .filter(|path| !is_test_source(path))
+        .map(|path| read(&path))
         .collect::<Vec<_>>()
-        .join("")
+        .join("\n")
 }
 
 #[test]
@@ -106,7 +109,7 @@ fn dns_owned_udp_and_dot_sockets_follow_the_shared_egress_authority() {
     let proxy_runtime = read(&workspace_root().join("crates/proxy/src/runtime.rs"));
 
     assert!(dns_root.contains("build_with_egress"));
-    assert!(proxy_runtime.contains("DnsSystem::build_with_egress"));
+    assert!(proxy_runtime.contains("DnsSystem::build_with_native_queries"));
     assert!(udp.contains("TokioDatagramSocket::bind_for_peer_on"));
     assert!(udp.contains("current_for_peer"));
     assert!(!udp.contains("tokio::net::UdpSocket"));
@@ -138,7 +141,7 @@ fn connector_webhooks_cross_the_application_egress_boundary() {
     assert!(!connector.contains("TcpStream::connect"));
     assert!(services.contains("start_with_proxy"));
     let installation = read(&workspace_root().join("src/application/services/installation.rs"));
-    assert!(installation.contains("prepare_event_dispatcher_paused_with_network"));
+    assert!(installation.contains("prepare_kernel_event_dispatcher_paused_with_network"));
     assert!(installation.contains("self.event_network.clone()"));
     assert!(
         installation.find("state.dispatcher = Some(").unwrap()
@@ -148,7 +151,10 @@ fn connector_webhooks_cross_the_application_egress_boundary() {
     assert!(network.contains("select_for_peer"));
     assert!(network.contains("ensure_connectable"));
     let dial = read(&workspace_root().join("src/application/services/network/epoch/dial.rs"));
-    assert!(dial.contains("PendingTcpConnect::prepare("));
+    assert!(
+        dial.contains("NativeCarrierOpener::service(")
+            && dial.contains("prepare_controlled_stream(")
+    );
     assert!(dial.contains("selection.ensure_connectable()?"));
     assert!(dial.contains("self.originals"));
     assert!(dial.contains("control"));
@@ -177,23 +183,29 @@ fn outbound_quic_node_resolution_stays_behind_the_runtime_dns_bridge() {
 }
 
 #[test]
-fn dns_detours_cross_the_explicit_proxy_runtime_bridge() {
-    let config = read(&workspace_root().join("crates/config/src/model/dns.rs"));
-    let validation = read(&workspace_root().join("crates/config/src/validate/dns.rs"));
-    let dns = read(&workspace_root().join("crates/dns/src/lib.rs"));
-    let outbound = read(&workspace_root().join("crates/dns/src/outbound.rs"));
-    let runtime = read(&workspace_root().join("crates/proxy/src/runtime.rs"));
-    let bridge = read(&workspace_root().join("crates/proxy/src/runtime/dns_outbound.rs"));
-
-    assert!(config.contains("detour: Option<String>"));
-    assert!(validation.contains("validate_node_detour_isolation"));
-    assert!(dns.contains("mod outbound;"));
-    assert!(dns.contains("DnsOutboundConnector"));
-    assert!(outbound.contains("trait DnsOutboundConnector"));
-    assert!(runtime.contains("set_outbound_connector"));
-    assert!(bridge.contains("dispatch_tcp_outbound"));
-    assert!(bridge.contains("Address::Ipv4"));
-    assert!(bridge.contains("Address::Ipv6"));
+fn dns_detours_use_the_actual_host_query_and_node_providers() {
+    let proxy = workspace_root().join("crates/proxy/src");
+    let runtime = read(&proxy.join("runtime.rs"));
+    let provider = read_module(&proxy.join("component/native_dns.rs"));
+    for required in [
+        "build_with_native_queries",
+        "with_native_query_queries",
+        "with_native_node_queries",
+    ] {
+        assert!(
+            runtime.contains(required),
+            "actual Proxy DNS provider: {required}"
+        );
+    }
+    assert!(provider.contains("impl ComponentFactory for Factory"));
+    assert!(provider.contains("StreamLoan") && provider.contains("DatagramLoan"));
+    assert!(!runtime.contains("set_outbound_connector"));
+    assert!(!provider.contains("Session::new(0"));
+    let compatibility = read(&workspace_root().join("crates/dns/src/outbound.rs"));
+    assert!(
+        compatibility.contains("trait DnsOutboundConnector"),
+        "standalone library API stays available"
+    );
 }
 
 #[test]
@@ -222,16 +234,17 @@ fn peer_identity_and_process_attribution_stay_in_their_owning_layers() {
 
     let platform = workspace_root().join("crates/platform/tokio/src");
     let platform_root = read(&platform.join("lib.rs"));
-    let process = read(&platform.join("process.rs"));
+    let process = read_module(&platform.join("process.rs"));
     assert!(platform_root.contains("mod process;"));
-    assert!(platform_root.contains("lookup_local_tcp_process"));
-    assert!(platform_root.contains("lookup_local_udp_process"));
-    assert!(process.contains("spawn_blocking"));
+    assert!(platform_root.contains("LocalProcessLookup"));
+    assert!(platform_root.contains("LocalProcessTransport"));
+    assert!(process.contains("spawn_blocking_tracked"));
+    assert!(process.contains("collect_native_after_join"));
     for platform_contract in [
         "GetExtendedTcpTable",
         "GetExtendedUdpTable",
-        "get_sockets_info",
-        "/proc/net/{table}",
+        "proc_pidinfo",
+        "socket:[{inode}]",
     ] {
         assert!(
             process.contains(platform_contract),
@@ -246,7 +259,7 @@ fn peer_identity_and_process_attribution_stay_in_their_owning_layers() {
         "runtime/udp_ingress/session.rs",
     ] {
         let source = read(&proxy.join(relative));
-        assert!(source.contains("zero_platform_tokio::lookup_local_"));
+        assert!(source.contains("lookup_local_process"));
         for forbidden in ["GetExtendedTcpTable", "get_sockets_info", "/proc/net/"] {
             assert!(
                 !source.contains(forbidden),
@@ -358,10 +371,12 @@ fn engine_leaf_projection_stops_at_the_inventory_registry_preparation_boundary()
             continue;
         }
         let relative = path.strip_prefix(&proxy).expect("proxy-relative path");
-        let allowed = relative == Path::new("inventory/runtime.rs")
+        let allowed = relative.starts_with("inventory")
+            || relative.starts_with("protocol_registry/registry/outbound")
+            || relative == Path::new("inventory/runtime.rs")
             || relative == Path::new("inventory/packet.rs")
             || relative == Path::new("inventory/device.rs")
-            || relative == Path::new("inventory/tcp/selection.rs")
+            || relative == Path::new("inventory/tcp/leaf.rs")
             || relative == Path::new("inventory/udp/leaf.rs")
             || relative == Path::new("inventory/udp/relay.rs")
             || relative == Path::new("inventory/udp/association.rs")
@@ -385,9 +400,9 @@ fn engine_leaf_projection_stops_at_the_inventory_registry_preparation_boundary()
     // Standard TCP nodes are selected inside inventory, without requiring a
     // compatibility claim. The new preparation boundary still performs no I/O
     // and must not interpret protocol-private configuration.
-    let selection = read(&proxy.join("inventory/tcp/selection.rs"));
-    assert!(selection.contains("prepare_tcp_relay_prefix"));
-    assert!(selection.contains("native_tcp_candidate"));
+    let selection = read(&proxy.join("inventory/tcp/native.rs"));
+    assert!(selection.contains("prepare_native_tcp_relay_chain"));
+    assert!(selection.contains("PreparedTcpCandidateExecution::Native"));
     // This existing engine enum variant is an input fact, not the Proxy
     // orchestrator type. Preserve the blanket check for every other use.
     let selection = selection.replace(
@@ -464,52 +479,28 @@ fn engine_outbound_leaves_are_protocol_neutral() {
 #[test]
 fn proxy_adapters_materialize_protocol_config_once() {
     let adapters = workspace_root().join("crates/proxy/src/adapters");
-    for entry in fs::read_dir(&adapters).expect("adapter directory") {
-        let root = entry.expect("adapter entry").path();
-        if root.extension().and_then(|extension| extension.to_str()) != Some("rs") {
+    for path in rust_sources(&adapters) {
+        if is_test_source(&path) {
             continue;
         }
-        let source = read(&root);
-        if !source.contains("fn claim_outbound_leaf_impl")
-            || source.contains("OutboundLeafInput::Direct")
-        {
-            continue;
+        let source = read(&path);
+        for retired in [
+            "claim_outbound_leaf_impl",
+            "OutboundLeafInput",
+            "ResolvedLeafOutbound",
+        ] {
+            assert!(
+                !source.contains(retired),
+                "{} restores {retired}",
+                path.display()
+            );
         }
-
-        let protocol = root
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .expect("adapter file stem");
-        let config_variant = upper_camel_identifier(protocol);
-        assert!(
-            source.contains("fn claim_outbound_leaf_impl"),
-            "{} must own the protocol materialization boundary",
-            root.display()
-        );
-        assert!(
-            source.contains(&format!("OutboundProtocolConfig::{config_variant}")),
-            "{} must materialize its typed protocol config",
-            root.display()
-        );
-        assert!(
-            !source.contains(&format!("ResolvedLeafOutbound::{config_variant}")),
-            "{} must consume the neutral engine leaf",
-            root.display()
-        );
-
-        let adapter_dir = adapters.join(protocol);
-        if adapter_dir.exists() {
-            for path in rust_sources(&adapter_dir) {
-                if is_test_source(&path) {
-                    continue;
-                }
-                assert!(
-                    !read(&path).contains("ResolvedLeafOutbound"),
-                    "{} must consume the protocol-owned projected leaf",
-                    path.display()
-                );
-            }
-        }
+    }
+    for (protocol, variant) in [("vless", "Vless"), ("vmess", "Vmess"), ("trojan", "Trojan")] {
+        let source = read_module(&adapters.join(format!("{protocol}.rs")));
+        assert!(source.contains("fn outbound_options<'a>"));
+        assert!(source.contains(&format!("OutboundProtocolConfig::{variant}")));
+        assert!(source.contains(&format!("{variant}OutboundBuildOptionsRef")));
     }
 }
 
@@ -547,20 +538,27 @@ fn generic_proxy_modules_do_not_repeat_the_complete_protocol_feature_set() {
 fn protocol_registry_does_not_project_proxy_leaf_runtime_facts() {
     let registry =
         read(&workspace_root().join("crates/proxy/src/protocol_registry/registry/outbound.rs"));
-    for forbidden in ["fn proxy_leaf_runtime", ".proxy_endpoint()", "leaf.tag()"] {
+    for forbidden in [
+        "fn proxy_leaf_runtime",
+        ".proxy_endpoint()",
+        "leaf.tag()",
+        ".endpoint()",
+        "OutboundLeafInput",
+        "claim_outbound_leaf",
+    ] {
         assert!(
             !registry.contains(forbidden),
-            "protocol registry must not derive adapter-owned runtime facts through `{forbidden}`"
+            "registry must not retain executable leaf projection {forbidden}"
         );
     }
-    assert_eq!(
-        registry.matches(".endpoint()").count(),
-        1,
-        "registry must resolve the configured proxy endpoint exactly once before claim"
+    let projection = read(
+        &workspace_root().join("crates/proxy/src/protocol_registry/registry/outbound/formatter.rs"),
     );
-    assert!(registry.contains("Some(endpoint) => OutboundLeafInput::Proxy {"));
-    assert!(registry.contains("outbound,\n                        endpoint,"));
-    assert!(registry.contains("source_dir: config.source_dir(),"));
+    assert!(projection.contains("Some(project) => project(outbound)"));
+    assert!(!projection.contains(".endpoint()"));
+    let inventory = read(&workspace_root().join("crates/proxy/src/inventory/runtime.rs"));
+    assert!(inventory.contains("outbound.protocol.endpoint()"));
+    assert!(inventory.contains("components?.configured(&outbound.tag)"));
 }
 
 #[test]

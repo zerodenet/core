@@ -35,17 +35,6 @@ fn same_owner_vless_pools_remain_standard_when_reentered_through_a_shorter_prefi
             factories.has_factory_for_candidate("vless", &config.outbounds[0], Some(&config)),
             "the real owning factory must select the same complete production grammar: {transport}"
         );
-        assert!(
-            crate::register::protocol_registry()
-                .claim_outbound_leaf(
-                    &config,
-                    zero_engine::ResolvedLeafOutbound::Proxy {
-                        identity: zero_engine::OutboundIdentity::from_config_index(0)
-                    }
-                )
-                .is_err(),
-            "the migrated producer must not also construct a claim/prepared executor: {transport}"
-        );
     }
 }
 
@@ -68,14 +57,6 @@ fn vmess_inline_grpc_mux_uses_standard_prefix_assembly_without_a_second_grpc_poo
             crate::component::background::BackgroundNetwork::new(Default::default()),
         )));
     assert!(factories.has_factory_for_candidate("vmess", &config.outbounds[0], Some(&config)));
-    assert!(crate::register::protocol_registry()
-        .claim_outbound_leaf(
-            &config,
-            zero_engine::ResolvedLeafOutbound::Proxy {
-                identity: zero_engine::OutboundIdentity::from_config_index(0)
-            }
-        )
-        .is_err());
 }
 
 #[cfg(feature = "vless")]
@@ -110,17 +91,6 @@ fn layered_lower_owners_select_the_actual_grouped_production_assembly() {
         assert!(
             factories.has_factory_for_candidate("vless", &config.outbounds[0], Some(&config)),
             "{transport}"
-        );
-        assert!(
-            crate::register::protocol_registry()
-                .claim_outbound_leaf(
-                    &config,
-                    zero_engine::ResolvedLeafOutbound::Proxy {
-                        identity: zero_engine::OutboundIdentity::from_config_index(0)
-                    }
-                )
-                .is_err(),
-            "grouped production must not also prepare an old executor: {transport}"
         );
     }
 }

@@ -364,14 +364,13 @@ pub(super) fn validate_inbound_protocol(
             users,
             mux_response_backlog_frames,
             mux_response_backlog_bytes,
-            tls,
+            tls: _,
             ws,
             grpc,
         } => {
             validate_vmess_users(users)?;
-            tls.as_ref().ok_or_else(|| {
-                ConfigError::InvalidInbound("`vmess` inbound requires `tls`".to_owned())
-            })?;
+            // Native VMess, WS and h2c Sources retain optional TLS. The
+            // protocol-owned staged constructor validates any supplied profile.
             if ws.is_some() && grpc.is_some() {
                 return Err(ConfigError::InvalidInbound(
                     "`vmess` inbound cannot set both `ws` and `grpc`".to_owned(),

@@ -36,13 +36,12 @@ pub(crate) use tcp_outbound::{
 pub(crate) use tcp_relay::relay_bidirectional_metered;
 pub(crate) use tcp_relay::relay_bidirectional_metered_throttled;
 pub(crate) use zero_transport::rate_limit::SharedRateLimiter;
-pub(crate) use zero_transport::ClientStream;
-pub(crate) use zero_transport::MeteredStream;
 pub(crate) use zero_transport::PrefixedSocket;
 pub(crate) use zero_transport::RecordingStream;
 pub(crate) use zero_transport::ReplayStream;
 #[cfg(feature = "udp-runtime")]
 pub(crate) use zero_transport::StreamTraffic;
+#[cfg(test)]
 pub(crate) use zero_transport::TcpRelayStream;
 
 // Re-export transport implementations from zero-transport.

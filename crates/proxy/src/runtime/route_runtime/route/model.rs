@@ -22,8 +22,6 @@ pub(crate) struct InboundRouteRuntime {
     pub(super) tcp_runtime: TcpIngressRuntime,
     #[cfg(feature = "managed-datagram-runtime")]
     pub(super) peer_datagram: Option<super::source::PeerExecution>,
-    #[cfg(feature = "managed-stream-runtime")]
-    pub(super) mux_udp_continuity: crate::runtime::mux_udp::MuxUdpContinuityRegistry,
     #[cfg(feature = "udp-runtime")]
     pub(super) udp_runtime: UdpIngressRuntime,
 }
@@ -103,8 +101,6 @@ impl InboundRouteRuntime {
             connection: None,
             #[cfg(feature = "managed-datagram-runtime")]
             peer_datagram: None,
-            #[cfg(feature = "managed-stream-runtime")]
-            mux_udp_continuity: shared.mux_udp_continuity(),
             #[cfg(feature = "udp-runtime")]
             udp_runtime: shared.udp_runtime(),
             tcp_runtime,
@@ -204,11 +200,6 @@ impl InboundRouteRuntimeFactory {
     #[cfg(feature = "raw-ip-runtime")]
     pub(crate) fn datagram_egress(&self) -> zero_platform_tokio::EgressInterfaceControl {
         self.shared.tcp_services().upstream().egress_control()
-    }
-
-    #[cfg(feature = "raw-ip-runtime")]
-    pub(crate) fn icmp_egress_generation(&self) -> u64 {
-        self.shared.tcp_services().upstream().egress_generation()
     }
 
     #[cfg(feature = "raw-ip-runtime")]

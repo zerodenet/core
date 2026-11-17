@@ -2,10 +2,7 @@
 //! configuration snapshot, native constructor, private pool or fallback opener.
 use super::*;
 use crate::{inventory::service::ServiceNode, runtime::tcp_dispatch::service};
-use zero_core::{
-    component::NetworkGeneration,
-    request::{Destination, ServicePurpose},
-};
+use zero_core::{component::NetworkGeneration, request::Destination};
 use zero_platform_tokio::contract::{
     datagram::{BoxDatagramSession, DatagramRequest},
     network::{CarrierContext, UpstreamBinding, UpstreamOpener, UpstreamTransport},

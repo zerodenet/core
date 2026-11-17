@@ -67,10 +67,7 @@ impl DeliveryOutbox {
             let delivery = read_delivery_at(&self.path, &mut reader, offset, size)?;
             deliveries.push((delivery, size));
             bytes = bytes.saturating_sub(size);
-            if deliveries.len() == limit || bytes == 0 {
-                return Ok(false);
-            }
-            Ok(true)
+            Ok(!(deliveries.len() == limit || bytes == 0))
         })?;
         Ok(PendingPage {
             deliveries,

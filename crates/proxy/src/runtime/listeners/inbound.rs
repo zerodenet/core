@@ -68,6 +68,10 @@ pub(in crate::runtime) async fn reconcile_inbounds(
 
 /// The caller retains its actual outbound transition. This hook runs only after
 /// every affected listener's real shutdown receipt, before any new native bind.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "original generation, caller, native and budget inputs remain explicitly bound"
+)]
 pub(in crate::runtime) async fn reconcile_inbounds_with_before_bind<F, Fut>(
     protocols: &ProtocolInventory,
     source_dir: Option<&Path>,

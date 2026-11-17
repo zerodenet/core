@@ -51,19 +51,6 @@ impl Fixture {
         let slot = plan.configured("wg").unwrap();
         assert!(plan.has_packet_provider(slot.role_id()));
         assert!(plan.has_device_carrier_provider(slot.role_id()));
-        assert!(
-            proxy
-                .protocols
-                .claim_outbound_leaf(
-                    snapshot.config(),
-                    match resolved(&proxy) {
-                        ResolvedOutbound::Single(leaf) => leaf,
-                        _ => unreachable!(),
-                    }
-                )
-                .is_err(),
-            "actual Source must have no private Packet/Flow claimer"
-        );
         Self { proxy, running }
     }
     fn plan(&self) -> Arc<crate::component::catalog::ComponentPlan> {
@@ -147,7 +134,7 @@ async fn bidirectional_source_preserves_native_packet_selection_and_exact_role_g
         }
         let source = live
             .proxy
-            .inbound_owners
+            .system_tun_source_registry()
             .owner("endpoint/wg")
             .expect("same real endpoint Source");
         live.running.shutdown().await.unwrap();

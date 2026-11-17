@@ -44,12 +44,6 @@ async fn nested_cross_protocol_pools_keep_one_owner_despite_unselected_compatibi
                 originals.push(observed.slots()[0].original().clone());
                 drivers.push(observed.slots()[0].driver().unwrap().1.clone());
                 assert_eq!(servers[index].fixture.connections(), 1);
-                assert!(proxy.protocols.claim_outbound_leaf(
-                    proxy.engine().config().as_ref(),
-                    zero_engine::ResolvedLeafOutbound::Proxy {
-                        identity: zero_engine::OutboundIdentity::from_config_index(index),
-                    },
-                ).is_err());
             }
             drop(stream);
             // Reuse takes the same three physical lineages, not old compatibility pools.

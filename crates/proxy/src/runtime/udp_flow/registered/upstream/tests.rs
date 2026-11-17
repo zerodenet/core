@@ -10,6 +10,18 @@ use super::{
 };
 
 #[test]
+fn an_unschedulable_idle_interval_does_not_drop_the_tracked_association() {
+    let mut runtime = UpstreamAssociationRuntime::<String, u8>::default();
+    runtime.upstream.insert("same-original".into(), 7);
+    runtime.touch_idle(Duration::MAX);
+    assert_eq!(runtime.idle_deadline(), None);
+    assert_eq!(runtime.upstream.association(), Some(&7));
+    runtime.touch_idle(Duration::from_secs(1));
+    assert!(runtime.idle_deadline().is_some());
+    assert_eq!(runtime.upstream.association(), Some(&7));
+}
+
+#[test]
 fn tracked_upstream_state_matches_target_and_association() {
     let mut state = TrackedUpstreamAssociationState::<String, &'static str>::new();
     let first = "alpha".to_owned();

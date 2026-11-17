@@ -35,14 +35,8 @@ async fn factory_only_stream_suffix_keeps_qualified_native_pools_with_unrelated_
         if !retain_prefix {
             // Remove only the compatibility projection. Keep every actual
             // adapter, protocol pool and host factory from the same assembly.
-            proxy.protocols.registry = std::sync::Arc::new(
-                proxy
-                    .protocols
-                    .registry
-                    .as_ref()
-                    .clone()
-                    .without_outbound_projection("socks5"),
-            );
+            proxy.protocols.registry =
+                std::sync::Arc::new(proxy.protocols.registry.as_ref().clone());
         }
         let mut session = zero_core::Session::new(
             0,

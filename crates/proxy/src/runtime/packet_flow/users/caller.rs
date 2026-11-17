@@ -1,13 +1,19 @@
 //! Projection only from the actual Engine B receipt and installed caller source.
+#[cfg(test)]
 use crate::protocol_registry::TcpExecutionServices;
+#[cfg(test)]
 use zero_core::{component::SessionId, Session};
+#[cfg(test)]
 use zero_engine::EngineError;
-use zero_platform_tokio::contract::{context::RequestIdentity, scope::TaskJoinWitness};
+#[cfg(test)]
+use zero_platform_tokio::contract::context::RequestIdentity;
+use zero_platform_tokio::contract::scope::TaskJoinWitness;
 
 pub(in crate::runtime::packet_flow) struct FlowCaller {
     pub(super) witness: TaskJoinWitness,
 }
 impl FlowCaller {
+    #[cfg(test)]
     pub(in crate::runtime::packet_flow) fn from_tcp(
         services: &TcpExecutionServices,
         session: &Session,

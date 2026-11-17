@@ -39,6 +39,10 @@ struct Decided {
     value: Decision,
 }
 #[derive(Clone, Copy)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "bounded inline hostname storage avoids an unprepaid allocation"
+)]
 enum Decision {
     Domain(crate::runtime::sniff::inline::InlineName),
     Fallback,
@@ -137,9 +141,7 @@ impl TunQuicSniffer {
                     // already admitted original through its existing fallback.
                     self.packets.release_all();
                     self.pending.clear();
-                    if self.packets.ready_mut().is_none() {
-                        return None;
-                    }
+                    self.packets.ready_mut()?;
                     continue;
                 }
             }

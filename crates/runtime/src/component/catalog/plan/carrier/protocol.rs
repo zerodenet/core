@@ -51,7 +51,7 @@ impl ComponentPlan {
                     && slot.original_metadata_owner(ordinal).is_some_and(|actual| actual.same_owner(metadata.owner()) && actual.instance() == original.instance())
             } else if let Some(adoption) = original.adoption() {
                 (matches!(declaration, R::ControlledServiceDatagram { dial, .. } | R::ControlledCarrierPool { dial, datagram: true, .. } if dial == &original.binding().dial)
-                    || cached::installed(&slot) && matches!(declaration,R::ControlledCarrierPool {dial,datagram:false,..} if dial==&original.binding().dial))
+                    || cached::installed(slot) && matches!(declaration,R::ControlledCarrierPool {dial,datagram:false,..} if dial==&original.binding().dial))
                     && slot.original_carrier_owner(ordinal).is_some_and(|actual| actual.matches_adoption(adoption) && actual.instance() == original.instance() && actual.bound().is_some_and(|bound| bound.scope_identity().same_scope(original.scope_identity())))
             } else if let Some(accepted) = original.accepted() {
                 matches!(declaration, R::TcpListener { accepted: Some(_), .. })

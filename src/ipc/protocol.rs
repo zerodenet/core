@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use zero_api::{ApiResponse, RawResponse};
+use zero_api::ApiResponse;
+#[cfg(test)]
+use zero_api::RawResponse;
 
 /// A request frame sent by the client to the UDS server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,6 +73,7 @@ pub fn ipc_api_error(id: Option<serde_json::Value>, error: &zero_api::ApiError) 
 }
 
 /// Serialize a frame to a JSON line (with trailing newline).
+#[cfg(test)]
 pub fn serialize_frame(frame: &impl Serialize) -> Result<Vec<u8>, serde_json::Error> {
     let mut bytes = serde_json::to_vec(frame)?;
     bytes.push(b'\n');
@@ -81,6 +84,7 @@ pub fn serialize_frame(frame: &impl Serialize) -> Result<Vec<u8>, serde_json::Er
 
 /// The response type returned by IPC client operations.
 /// Shares the same wire format as `ApiResponse<T>`.
+#[cfg(test)]
 pub type IpcResponse = RawResponse;
 
 #[cfg(test)]

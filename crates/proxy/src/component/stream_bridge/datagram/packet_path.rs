@@ -13,7 +13,6 @@ use std::{pin::Pin, sync::Arc};
 use zero_core::{
     component::{AssociationId, NetworkGeneration},
     request::{DatagramTargets, Destination},
-    Address,
 };
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::{
@@ -98,11 +97,9 @@ impl StandardPacketPath {
         let end = deadline
             .unwrap_or_else(|| tokio::time::Instant::now() + std::time::Duration::from_secs(30));
         let role = slot.datagram(end).await.map_err(failure)?;
-        let endpoint = Destination::new(
-            zero_core::Address::Domain(self.descriptor.server.clone()),
-            self.descriptor.port,
-        );
-        let mut root = NodeOpener::new(execution.upstream_observed(tag), endpoint);
+        let endpoint = relay::destination(&self.descriptor.server, self.descriptor.port);
+        let mut root = NodeOpener::new(execution.upstream_observed(tag), endpoint)
+            .with_plan(execution.components.as_ref().ok().map(Arc::downgrade));
         let reservation = execution.reserve_datagram().map_err(failure)?;
         let association = reservation.association();
         let (mut session, stop, handoff) = match caller {

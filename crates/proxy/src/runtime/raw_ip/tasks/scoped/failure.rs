@@ -1,6 +1,7 @@
 use super::*;
 #[derive(Debug)]
 pub(crate) enum SourceJoinFailure {
+    #[cfg(test)]
     Legacy(Arc<tokio::task::JoinError>),
     Scope {
         witness: TaskJoinWitness,
@@ -9,6 +10,7 @@ pub(crate) enum SourceJoinFailure {
     },
 }
 impl SourceJoinFailure {
+    #[cfg(test)]
     pub(crate) fn legacy(error: tokio::task::JoinError) -> Self {
         Self::Legacy(Arc::new(error))
     }
@@ -21,6 +23,7 @@ impl SourceJoinFailure {
     }
     pub(crate) fn is_cancelled(&self) -> bool {
         match self {
+            #[cfg(test)]
             Self::Legacy(source) => source.is_cancelled(),
             // Successful real join without an output means that the actual
             // same worker observed its stop before yielding its typed output.
@@ -33,6 +36,7 @@ impl SourceJoinFailure {
 impl std::fmt::Display for SourceJoinFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            #[cfg(test)]
             Self::Legacy(source) => source.fmt(f),
             Self::Scope { joined, .. } => write!(
                 f,
@@ -46,6 +50,7 @@ impl std::fmt::Display for SourceJoinFailure {
 impl std::error::Error for SourceJoinFailure {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            #[cfg(test)]
             Self::Legacy(source) => Some(source.as_ref()),
             Self::Scope { source, .. } => source.as_ref().map(|source| source.as_ref() as _),
         }

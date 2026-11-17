@@ -120,14 +120,8 @@ impl PacketPathExecutionServices {
         self.tcp.clone()
     }
 
+    #[cfg(test)]
     pub(crate) fn network(&self) -> UdpNetworkServices {
         self.network.clone()
-    }
-
-    #[cfg(feature = "tls-ech-runtime")]
-    pub(crate) fn ech_resolver(
-        &self,
-    ) -> std::sync::Arc<dyn zero_transport::tls::ech::EchConfigResolver> {
-        self.tcp.upstream().ech_resolver()
     }
 }

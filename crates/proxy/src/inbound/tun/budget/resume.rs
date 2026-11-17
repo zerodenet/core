@@ -29,12 +29,10 @@ impl Proxy {
                         .config
                         .upgrade()
                         .is_some_and(|actual| Arc::ptr_eq(&actual, &config))
-            }) {
-                if completion.source_running()
-                    || resumed.as_ref().is_some_and(|state| state.removed)
-                {
-                    return Ok(());
-                }
+            }) && (completion.source_running()
+                || resumed.as_ref().is_some_and(|state| state.removed))
+            {
+                return Ok(());
             }
         }
         recovery.resumed.lock().unwrap().take();

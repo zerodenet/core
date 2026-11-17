@@ -1,10 +1,11 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput, ProtocolSupportCapability};
+use crate::protocol_registry::ProtocolSupportCapability;
 
 mod build;
 mod metadata;
+#[cfg(feature = "udp-runtime")]
 mod outbound;
 mod runtime;
 #[cfg(feature = "managed-stream-runtime")]
@@ -12,7 +13,6 @@ mod service;
 mod support;
 mod validation;
 
-pub(crate) use outbound::ClaimedOutboundLeaf;
 #[cfg(feature = "udp-runtime")]
 pub(crate) use outbound::ColdPacketPathProjection;
 
@@ -30,17 +30,9 @@ pub(crate) struct ProtocolRegistry {
     services: Vec<Arc<dyn crate::protocol_registry::InboundServiceCapability>>,
 }
 
-pub(crate) trait OutboundLeafClaimer: Send + Sync {
-    fn claim_outbound_leaf<'a>(
-        &self,
-        input: OutboundLeafInput<'a>,
-    ) -> Option<OutboundLeafClaim<'a>>;
-}
-
 #[derive(Clone)]
 struct RegisteredProtocolEntry {
     support: Arc<dyn ProtocolSupportCapability>,
-    outbound: Option<Arc<dyn OutboundLeafClaimer>>,
     // Cold material declaration only. It grants no IO, native, Scope or route.
     #[cfg(feature = "udp-runtime")]
     packet_projection: Option<Arc<PacketPathProjection>>,

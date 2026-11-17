@@ -1,11 +1,7 @@
 //! One acquisition seam under the original candidate order/history scheduler.
 use super::*;
 use zero_core::component::NetworkGeneration;
-use zero_platform_tokio::contract::{
-    network::CarrierContext,
-    service::{NetworkService, TcpNetworkRequest},
-    BoxFuture, CancellationToken,
-};
+use zero_platform_tokio::contract::BoxFuture;
 
 pub(crate) struct CandidateOpened<S> {
     pub(crate) io: S,
@@ -78,7 +74,16 @@ pub(crate) trait CandidateOpener: Sync {
         policy: &'a zero_traits::DialPolicy,
     ) -> BoxFuture<'a, Result<CandidateOpened<Self::Socket>, CandidateOpenFailure>>;
 }
+#[cfg(test)]
+use zero_platform_tokio::contract::{
+    network::CarrierContext,
+    service::{NetworkService, TcpNetworkRequest},
+    CancellationToken,
+};
+
+#[cfg(test)]
 pub(in crate::transport) struct LegacyCandidateOpener;
+#[cfg(test)]
 impl CandidateOpener for LegacyCandidateOpener {
     type Socket = TokioSocket;
     fn local(&self, io: &Self::Socket, _: Option<SocketAddr>) -> Option<SocketAddr> {

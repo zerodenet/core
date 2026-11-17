@@ -6,6 +6,7 @@ impl DirectUdpSockets {
         self.isolated_sessions.insert(session_id, association_id);
     }
 
+    #[cfg(test)]
     pub(crate) async fn send_to_addr(
         &mut self,
         payload: &[u8],

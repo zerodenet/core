@@ -2,6 +2,7 @@
 use super::*;
 use std::{sync::Arc, time::Duration};
 use zero_platform_tokio::controlled_carrier::CarrierOrigin;
+#[path = "vless_stream/fixture.rs"]
 mod fixture;
 use fixture::*;
 fn deadline() -> tokio::time::Instant {
@@ -94,24 +95,33 @@ async fn ordinary_vless_h2_and_upgrade_dot_and_doh_keep_persistent_dns_driver_se
     }).await.unwrap();
 }
 
+#[path = "vless_stream/wire_pending.rs"]
 mod wire_pending;
 
+#[path = "vless_stream/domain.rs"]
 mod domain;
 
+#[path = "vless_stream/quiescence.rs"]
 mod quiescence;
 
 #[cfg(all(feature = "vmess", feature = "trojan"))]
+#[path = "vless_stream/other_streams.rs"]
 mod other_streams;
 
 #[cfg(all(feature = "vmess", feature = "trojan"))]
+#[path = "vless_stream/other_domain.rs"]
 mod other_domain;
 
+#[path = "vless_stream/mux_grpc.rs"]
 mod mux_grpc;
 
 #[cfg(feature = "vmess")]
+#[path = "vless_stream/relay.rs"]
 mod relay;
 
 #[cfg(all(feature = "vmess", feature = "trojan"))]
+#[path = "vless_stream/mux_material.rs"]
 mod mux_material;
 
+#[path = "vless_stream/quic.rs"]
 mod quic;

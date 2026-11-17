@@ -21,7 +21,6 @@ impl ProtocolInventory {
         self.devices.fence_direct_packet_acquisition(deadline).await
     }
 
-    #[cfg(feature = "wireguard")]
     pub(crate) async fn fence_standalone_packet_acquisition(
         &self,
         deadline: tokio::time::Instant,
@@ -31,7 +30,6 @@ impl ProtocolInventory {
             .fence_standalone_packet_acquisition(deadline, stopping)
             .await
     }
-    #[cfg(feature = "wireguard")]
     pub(crate) fn actual_packet_flow_sources(
         &self,
         previous: &RuntimeConfig,
@@ -108,13 +106,8 @@ impl ProtocolInventory {
                     return Err(invalid(format!("{reason}: {endpoint}")));
                 }
             }
-            let operation = self.prepare_role_packet_path(
-                config,
-                &indices,
-                plan,
-                network_generation,
-                sources,
-            )?;
+            let operation =
+                self.prepare_role_packet_path(config, &indices, plan, network_generation, sources)?;
             paths.insert(
                 tag.to_owned(),
                 PreparedDevicePacketPath {
@@ -171,17 +164,11 @@ impl ProtocolInventory {
     ) -> Result<(), EngineError> {
         self.devices
             .install_packet_source_memory(config, inbound_tag, memory.view.clone())?;
-        #[cfg(feature = "wireguard")]
-        if let Some(adapter) = &self.devices.wireguard {
-            for (tag, id) in adapter.packet_source_resources(config)? {
-                if tag == inbound_tag {
-                    let consumer = plan.device_component(id).map_err(std::io::Error::other)?;
-                    plan.bind_packet_carrier_source_provider(
-                        consumer.instance_id(),
-                        original.clone(),
-                    )
+        for (tag, id) in self.devices.packet_source_resources(config)? {
+            if tag == inbound_tag {
+                let consumer = plan.device_component(id).map_err(std::io::Error::other)?;
+                plan.bind_packet_carrier_source_provider(consumer.instance_id(), original.clone())
                     .map_err(std::io::Error::other)?;
-                }
             }
         }
         let _ = (config, plan, inbound_tag, original, memory);

@@ -21,7 +21,7 @@ use zero_platform_tokio::{
 use zero_transport::grpc::{Demand, NativePoolOptions};
 
 #[derive(Clone)]
-pub(super) enum Source {
+pub(in crate::adapters::vless::component) enum Source {
     Carrier(::vless::component::quic::TransportCarrier),
     Grpc(Arc<NativePoolOptions>),
     Preconnect {
@@ -64,7 +64,7 @@ impl Source {
         }
     }
 }
-pub(super) fn transport(
+pub(in crate::adapters::vless::component) fn transport(
     provider: Arc<BackgroundCarrier>,
     initial: UpstreamBinding,
     expected: ComponentInstanceId,

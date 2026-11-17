@@ -241,7 +241,7 @@ pub(super) struct SourceBudgetPauses {
     _sources: Vec<crate::runtime::inbound_owners::AcquisitionPause>,
     #[cfg(feature = "raw-ip-runtime")]
     _direct: Option<crate::runtime::packet_route::host::NativeDevicePaused>,
-    #[cfg(feature = "wireguard")]
+    #[cfg(feature = "raw-ip-runtime")]
     _standalone: Vec<crate::runtime::packet_route::host::NativeDevicePaused>,
 }
 pub(super) async fn pause_sources<'a>(
@@ -385,7 +385,7 @@ pub(super) async fn pause_sources<'a>(
     } else {
         None
     };
-    #[cfg(feature = "wireguard")]
+    #[cfg(feature = "raw-ip-runtime")]
     let standalone = if packet_changed || carrier_changed || ring_changed {
         proxy
             .protocols
@@ -401,7 +401,7 @@ pub(super) async fn pause_sources<'a>(
     } else {
         Vec::new()
     };
-    #[cfg(feature = "wireguard")]
+    #[cfg(feature = "raw-ip-runtime")]
     for (device, origin) in proxy.protocols.actual_packet_flow_sources(previous)? {
         let affected = packet_changed
             || carrier_changed
@@ -443,7 +443,7 @@ pub(super) async fn pause_sources<'a>(
         ),
         None => None,
     };
-    #[cfg(feature = "wireguard")]
+    #[cfg(feature = "raw-ip-runtime")]
     let standalone = {
         let mut actual = Vec::new();
         for fenced in standalone {
@@ -459,7 +459,7 @@ pub(super) async fn pause_sources<'a>(
     for pause in &pauses {
         pause.validate()?;
     }
-    #[cfg(feature = "wireguard")]
+    #[cfg(feature = "raw-ip-runtime")]
     for pause in &standalone {
         pause.validate().map_err(std::io::Error::other)?;
     }
@@ -472,7 +472,7 @@ pub(super) async fn pause_sources<'a>(
         _sources: pauses,
         #[cfg(feature = "raw-ip-runtime")]
         _direct: direct,
-        #[cfg(feature = "wireguard")]
+        #[cfg(feature = "raw-ip-runtime")]
         _standalone: standalone,
     })
 }
@@ -602,6 +602,7 @@ pub(super) fn prepare_devices<'a>(
     proxy: &'a Proxy,
     config: &'a Arc<RuntimeConfig>,
     services: &'a crate::protocol_registry::TcpRuntimeServices,
+    preparing: &'a crate::runtime::inbound_owners::PreparingInbounds,
 ) -> BoxFuture<'a, Result<ReloadDevices, EngineError>> {
     Box::pin(async move {
         proxy
@@ -611,7 +612,7 @@ pub(super) fn prepare_devices<'a>(
         {
             proxy
                 .protocols
-                .prepare_devices(config, services.clone())
+                .prepare_devices(config, services.clone(), preparing.cancellation())
                 .await
                 .inspect_err(|source| {
                     #[cfg(test)]
@@ -621,7 +622,7 @@ pub(super) fn prepare_devices<'a>(
         }
         #[cfg(not(feature = "raw-ip-runtime"))]
         {
-            let _ = services;
+            let _ = (services, preparing);
             Ok(())
         }
     })

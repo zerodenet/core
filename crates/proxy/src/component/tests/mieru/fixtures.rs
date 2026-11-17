@@ -39,12 +39,12 @@ pub(super) fn config(addresses: [SocketAddr; 3]) -> RuntimeConfig {
     {{"tag":"unused","protocol":{{"type":"mieru","server":"127.0.0.1","port":{},"username":"unused","password":"unused"}}}}
     ],"outbound_groups":[{{"tag":"chain","type":"relay","proxies":["a","b","c"]}}],"route":{{"final":{{"type":"direct"}}}}}}"#,addresses[0].port(),addresses[1].port(),addresses[2].port(),addresses[2].port())).unwrap()
 }
-pub(super) async fn service(proxy: &Proxy) -> zero_platform_tokio::TcpRelayStream {
+pub(super) async fn service(proxy: &Proxy) -> zero_platform_tokio::contract::stream::BoxStream {
     try_service(proxy).await.unwrap()
 }
 pub(super) async fn try_service(
     proxy: &Proxy,
-) -> Result<zero_platform_tokio::TcpRelayStream, ChannelError> {
+) -> Result<zero_platform_tokio::contract::stream::BoxStream, ChannelError> {
     let services = proxy.tcp_runtime_services();
     let id = services.snapshot().plan().target_id("chain").unwrap();
     let (resolved, _) = services

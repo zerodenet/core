@@ -77,16 +77,9 @@ async fn ordinary_socks_datagram_dispatch_needs_no_claim_and_preserves_wire_tx_a
         .engine()
         .resolve_route_decision(RouteDecision::Route("node".into()))
         .unwrap();
-    let zero_engine::ResolvedOutbound::Single(leaf) = &resolved else {
+    let zero_engine::ResolvedOutbound::Single(_leaf) = &resolved else {
         panic!("single node");
     };
-    assert!(
-        proxy
-            .protocols
-            .claim_outbound_leaf(&config, leaf.clone())
-            .is_err(),
-        "the actual standard Datagram has no private executor"
-    );
     let session = Session::new(
         0,
         Address::Ipv4([203, 0, 113, 9]),

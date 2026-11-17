@@ -25,9 +25,7 @@ impl Fixture {
         ));
         let (registry, factories, devices) =
             crate::register::compiled_registries_with_background(Some(network.clone()));
-        let registry = registry
-            .without_outbound_projection("socks5")
-            .without_outbound_projection("shadowsocks");
+        let registry = registry;
         devices
             .wireguard
             .as_ref()

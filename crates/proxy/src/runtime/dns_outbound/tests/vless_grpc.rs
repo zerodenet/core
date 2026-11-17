@@ -2,6 +2,7 @@
 use super::*;
 use std::{sync::Arc, time::Duration};
 use zero_platform_tokio::controlled_carrier::CarrierOrigin;
+#[path = "vless_grpc/fixture.rs"]
 mod fixture;
 use fixture::*;
 fn deadline() -> tokio::time::Instant {
@@ -92,6 +93,8 @@ async fn ordinary_vless_grpc_dns_network_replacement_retires_the_same_physical_p
     }).await.unwrap();
 }
 
+#[path = "vless_grpc/wire_pending.rs"]
 mod wire_pending;
 
+#[path = "vless_grpc/domain.rs"]
 mod domain;

@@ -53,9 +53,6 @@ impl PacketPathCarrier for Encoded {
         self.path.logical_registration()
     }
 
-    fn has_driver_handoff(&self) -> bool {
-        self.path.has_driver_handoff()
-    }
     fn prepare_codec_send(
         &self,
         lengths: &[usize],

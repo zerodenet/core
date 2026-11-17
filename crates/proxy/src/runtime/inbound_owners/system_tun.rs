@@ -1,6 +1,13 @@
 //! System TUN uses the actual inbound registry and its canonical host allocator.
 //! It is not a synthetic configured listener or a second task/native owner.
 use super::*;
+#[cfg(target_os = "macos")]
+type MacosHelperPreparation = (
+    zero_platform_tokio::contract::component::PacketDeviceIdentity,
+    zero_tun::MacosHelperAccess,
+    Option<zero_platform_tokio::contract::scope::TaskJoinWitness>,
+    std::sync::Weak<dyn ResourceAccess>,
+);
 use crate::component::{instance::HostResources, ComponentRecipe};
 use zero_core::component::{ComponentRoleIds, InboundId};
 use zero_platform_tokio::contract::{
@@ -179,15 +186,7 @@ impl SystemTunLease {
         &self,
         output_limit: usize,
         request_capacity: usize,
-    ) -> Result<
-        (
-            zero_platform_tokio::contract::component::PacketDeviceIdentity,
-            zero_tun::MacosHelperAccess,
-            Option<zero_platform_tokio::contract::scope::TaskJoinWitness>,
-            std::sync::Weak<dyn ResourceAccess>,
-        ),
-        EngineError,
-    > {
+    ) -> Result<MacosHelperPreparation, EngineError> {
         self.owner.preparation_tasks()?;
         let (identity, access, driver) = self
             .resources

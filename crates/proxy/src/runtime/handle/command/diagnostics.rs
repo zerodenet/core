@@ -222,6 +222,10 @@ pub(super) use lookup::execute_diagnostics_dns_lookup;
 mod trace;
 pub(super) use trace::execute_diagnostics_trace_route;
 
+#[expect(
+    clippy::result_large_err,
+    reason = "return the original unconsumed command without allocating another owner"
+)]
 pub(super) fn asynchronous(
     handle: ProxyHandle,
     command: zero_api::CommandRequest,

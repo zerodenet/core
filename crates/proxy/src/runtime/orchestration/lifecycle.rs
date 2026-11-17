@@ -144,7 +144,7 @@ where
                 );
                 let preparing = state.preparing_inbounds.clone();
                 let stopped = {
-                    let reconciliation = Box::pin(state.reconcile_reload(proxy));
+                    let reconciliation = state.reconcile_reload(proxy);
                     tokio::pin!(reconciliation);
                     tokio::select! { biased;
                         _ = &mut shutdown => {
@@ -168,7 +168,7 @@ where
                 return Err(io::Error::other(failure).into());
             }
             retired = proxy.retired_datagrams.progress_retired(
-                tokio::time::Instant::now() + std::time::Duration::from_secs(5)
+                tokio::time::Instant::now() + crate::component::datagram_retirement::PROGRESS_BUDGET
             ) => {
                 // The last UDP caller may already be gone. Advance the same
                 // retained originals here without spawning a second driver.

@@ -24,13 +24,13 @@ pub(crate) fn whole_streams_selected(config: &RuntimeConfig, native: bool) -> bo
                 )
             })
             .all(|node| {
-                (if super::super::mux::has_mux(node) {
+                if super::super::mux::has_mux(node) {
                     super::super::mux::eligible(node)
                         && (!super::super::mux::needs_ip_backend(node)
                             || crate::adapters::node_dns::validate(config).is_ok())
                 } else {
                     selected(node, Some(config), native)
-                })
+                }
             })
 }
 

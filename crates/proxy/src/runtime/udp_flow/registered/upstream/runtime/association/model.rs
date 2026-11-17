@@ -16,7 +16,10 @@ impl<T, A> UpstreamAssociationRuntime<T, A> {
     }
 
     pub(crate) fn touch_idle(&mut self, timeout: Duration) {
-        self.idle_deadline = Some(TokioInstant::now() + timeout);
+        // A valid u64 timeout can exceed the native monotonic clock range.
+        // Such an interval has no schedulable expiry; custody remains bounded
+        // and explicit cancellation/retirement still closes the same original.
+        self.idle_deadline = TokioInstant::now().checked_add(timeout);
     }
 
     pub(super) fn take_upstream(&mut self) -> Option<TrackedUpstreamAssociation<T, A>> {

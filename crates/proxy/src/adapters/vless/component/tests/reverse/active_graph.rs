@@ -30,19 +30,7 @@ async fn active_ingress_keeps_real_tcp_udp_when_an_unrelated_business_alias_cann
                 .expect("actual canonical Stream producer");
             assert!(plan.has_stream_loan_provider(wire.role_id()));
             assert!(wire.stream(end()).await.is_ok());
-            assert!(
-                bridge
-                    .protocols
-                    .claim_outbound_leaf(
-                        bridge.engine().config().as_ref(),
-                        zero_engine::ResolvedLeafOutbound::Proxy {
-                            identity: zero_engine::OutboundIdentity::from_config_index(0),
-                        },
-                    )
-                    .is_err(),
-                "active ingress cannot recreate a private transport projection"
-            );
-            let remote = portal.inbound_owners.owner("entry").unwrap();
+            let remote = portal.system_tun_source_registry().owner("entry").unwrap();
             let provider = portal
                 .tcp_runtime_services()
                 .components

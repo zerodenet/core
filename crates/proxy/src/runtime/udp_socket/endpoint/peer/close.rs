@@ -36,6 +36,7 @@ impl DirectEndpointOwner {
             return Ok(report);
         };
         sockets.close_all_native();
+        sockets.finish_pending_native_closes(deadline).await;
         let mut native = sockets.take_native_close_report();
         let unfinished = std::mem::take(&mut native.unfinished);
         self.io_report.append(native);

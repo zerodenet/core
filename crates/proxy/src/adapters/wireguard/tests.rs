@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use gotatun::x25519::{PublicKey, StaticSecret};
 use zero_config::OutboundConfig;
@@ -31,7 +29,7 @@ fn outbound(private: u8) -> OutboundConfig {
 }
 
 #[test]
-fn wireguard_outbound_has_no_private_claim_or_projection() {
+fn wireguard_outbound_selects_its_actual_standard_factory() {
     let config = zero_config::RuntimeConfig::parse(
         &serde_json::json!({
             "outbounds":[outbound(1)],
@@ -40,18 +38,8 @@ fn wireguard_outbound_has_no_private_claim_or_projection() {
         .to_string(),
     )
     .unwrap();
-    let inventory = crate::inventory::ProtocolInventory::default();
-    assert!(
-        inventory
-            .claim_outbound_leaf(
-                &config,
-                zero_engine::ResolvedLeafOutbound::Proxy {
-                    identity: zero_engine::OutboundIdentity::from_config_index(0),
-                }
-            )
-            .is_err(),
-        "WireGuard executes only its actual standard device roles"
-    );
+    let (_, factories, _) = crate::register::compiled_registries();
+    assert!(factories.has_factory_for("wireguard", &config.outbounds[0]));
 }
 
 #[test]

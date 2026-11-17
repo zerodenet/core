@@ -1,12 +1,9 @@
 use super::super::ProtocolInventory;
-use crate::protocol_registry::ClaimedOutboundLeaf;
 use crate::protocol_registry::UdpAdapterContext;
-use crate::runtime::path::TcpPathCategory;
-use crate::runtime::udp_dispatch::operation::PreparedUdpFlowOperation;
 use crate::runtime::udp_dispatch::FlowFailure;
 use zero_engine::{ResolvedLeafOutbound, RouteMode};
 
-pub(crate) enum PreparedUdpLeafCandidate<'a> {
+pub(crate) enum PreparedUdpLeafCandidate {
     Direct(super::DirectDatagramTarget),
     Block {
         tag: String,
@@ -15,7 +12,6 @@ pub(crate) enum PreparedUdpLeafCandidate<'a> {
     Datagram(super::DatagramAssociationTarget),
     #[cfg(feature = "managed-stream-runtime")]
     DatagramFlow(super::DatagramAssociationTarget),
-    Flow(Box<dyn PreparedUdpFlowOperation + 'a>),
 }
 
 impl ProtocolInventory {
@@ -24,15 +20,21 @@ impl ProtocolInventory {
         ctx: UdpAdapterContext<'a>,
         candidate: &ResolvedLeafOutbound<'a>,
         mode: RouteMode,
-    ) -> Result<super::leaf::PreparedUdpLeafCandidate<'a>, FlowFailure> {
+    ) -> Result<super::leaf::PreparedUdpLeafCandidate, FlowFailure> {
         if let ResolvedLeafOutbound::Direct {
             tag,
             dial_policy,
             dial_generation,
         } = candidate
         {
-            return super::DirectDatagramTarget::prepare(&ctx, *tag, dial_policy, *dial_generation)
-                .map(PreparedUdpLeafCandidate::Direct);
+            return super::DirectDatagramTarget::prepare(
+                &ctx,
+                *tag,
+                dial_policy,
+                *dial_generation,
+                mode,
+            )
+            .map(PreparedUdpLeafCandidate::Direct);
         }
         #[cfg(feature = "upstream-association-runtime")]
         if mode != RouteMode::Packet {
@@ -46,39 +48,18 @@ impl ProtocolInventory {
                 return native.map(PreparedUdpLeafCandidate::DatagramFlow);
             }
         }
-        let claimed = self
-            .claim_outbound_leaf(ctx.config(), candidate.clone())
-            .map_err(|error| FlowFailure {
-                stage: "outbound_leaf_runtime",
-                error,
-                upstream: None,
-            })?;
-        self.prepare_claimed_udp_leaf_candidate(ctx, claimed, mode)
-    }
-
-    pub(in crate::inventory) fn prepare_claimed_udp_leaf_candidate<'a>(
-        &self,
-        ctx: UdpAdapterContext<'a>,
-        claimed: ClaimedOutboundLeaf<'a>,
-        mode: RouteMode,
-    ) -> Result<PreparedUdpLeafCandidate<'a>, FlowFailure> {
-        let runtime = claimed.runtime.clone();
-        if !ctx.udp_enabled_for_outbound(runtime.udp_policy_tag.as_deref()) {
-            return Err(FlowFailure {
-                stage: "udp_policy",
-                error: zero_engine::EngineError::Io(std::io::Error::other(
-                    "udp disabled for outbound",
-                )),
-                upstream: runtime.endpoint.map(|endpoint| endpoint.upstream()),
-            });
-        }
-        if matches!(runtime.tcp_path, TcpPathCategory::Block) {
+        if let ResolvedLeafOutbound::Block { tag } = candidate {
+            if !ctx.udp_enabled_for_outbound(None) {
+                return Err(FlowFailure {
+                    stage: "udp_policy",
+                    error: std::io::Error::other("udp disabled for outbound").into(),
+                    upstream: None,
+                });
+            }
             return Ok(PreparedUdpLeafCandidate::Block {
-                tag: runtime.kernel_tag.unwrap_or_else(|| "block".to_owned()),
+                tag: tag.unwrap_or("block").into(),
             });
         }
-
-        let operation = claimed.into_udp_flow_for_route(mode)?;
-        Ok(PreparedUdpLeafCandidate::Flow(operation))
+        Err(crate::runtime::path::missing_udp_route_capability(mode))
     }
 }

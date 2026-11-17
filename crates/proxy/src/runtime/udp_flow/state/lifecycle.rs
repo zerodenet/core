@@ -18,7 +18,6 @@ use super::UdpFlowState;
 pub(crate) struct UpstreamUdpPoll<'a> {
     registered: &'a RegisteredUdpState,
     retired: std::sync::Arc<crate::component::datagram_retirement::RetiredDatagrams>,
-    cleanup_budget: std::time::Duration,
 }
 
 #[cfg(feature = "upstream-association-runtime")]
@@ -31,7 +30,9 @@ impl UpstreamUdpPoll<'_> {
             tokio::select! { biased;
                 // Poll retirement first on every rearm. Sustained ready RX
                 // cannot starve actual close progress; no extra task is spawned.
-                retired = self.retired.progress_retired(TokioInstant::now() + self.cleanup_budget) => {
+                retired = self.retired.progress_retired(
+                    TokioInstant::now() + crate::component::datagram_retirement::PROGRESS_BUDGET
+                ) => {
                     match retired {
                         Ok(report) => {
                             tracing::debug!(closed = report.closed_io.len(), unfinished = report.unfinished.len(), "advanced retired Datagram controllers");
@@ -74,7 +75,6 @@ impl UdpFlowState {
     pub(crate) fn poll_refs(
         &mut self,
         retired: std::sync::Arc<crate::component::datagram_retirement::RetiredDatagrams>,
-        cleanup_budget: std::time::Duration,
     ) -> (
         UpstreamUdpPoll<'_>,
         Option<TokioInstant>,
@@ -89,7 +89,6 @@ impl UdpFlowState {
             UpstreamUdpPoll {
                 registered: &self.registered,
                 retired,
-                cleanup_budget,
             },
             self.registered.upstream_idle_deadline(),
             &mut self.chain_tasks,

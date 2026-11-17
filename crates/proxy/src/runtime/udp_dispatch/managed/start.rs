@@ -1,4 +1,3 @@
 mod context;
-#[cfg(feature = "managed-datagram-runtime")]
-mod datagram;
+#[cfg(feature = "upstream-association-runtime")]
 mod upstream;

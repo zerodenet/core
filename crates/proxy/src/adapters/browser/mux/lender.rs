@@ -83,9 +83,13 @@ impl UpstreamOpener for Root {
     }
 
     fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
-        self.provider
-            .declared_pending_capacity_with_dependency(binding, self.expected)
-            .ok()
+        if binding.prefix.is_empty() {
+            self.provider
+                .declared_pending_capacity_with_dependency(binding, self.expected)
+                .ok()
+        } else {
+            self.base.pending_carrier_capacity_for(binding)
+        }
     }
     fn validate_pending_carrier(
         &self,
@@ -157,9 +161,16 @@ impl UpstreamOpener for Selected {
             {
                 return Err(invalid());
             }
-            self.source
-                .open_carrier(self.expected, binding, call, self.waiting.clone())
-                .await
+            if binding.prefix.is_empty() {
+                self.source
+                    .open_carrier(self.expected, binding, call, self.waiting.clone())
+                    .await
+            } else {
+                // A browser cannot dial through a preceding proxy. Preserve
+                // that real prefix and let the protocol apply its native WS/TLS
+                // profile to this exact original, in the same owning pool.
+                self.base.borrow_stream(endpoint, call).await
+            }
         })
     }
     fn open_stream(

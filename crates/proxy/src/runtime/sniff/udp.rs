@@ -36,6 +36,10 @@ struct DecisionRow {
     value: Decision,
 }
 #[derive(Clone, Copy)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "bounded inline hostname storage avoids an unprepaid allocation"
+)]
 enum Decision {
     Domain {
         name: InlineName,

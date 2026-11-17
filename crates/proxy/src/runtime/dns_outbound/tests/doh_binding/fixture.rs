@@ -16,7 +16,9 @@ use zero_dns::{
     DnsConnectContext, DnsOutboundCarrierFuture, DnsOutboundConnectFuture, DnsOutboundConnector,
     DnsSystem,
 };
+#[path = "fixture/peer.rs"]
 mod peer;
+#[path = "fixture/socks.rs"]
 mod socks;
 pub use peer::TlsPeer;
 pub use socks::SocksPeer;

@@ -166,6 +166,14 @@ impl Owner {
                 component.0
             )));
         }
+        tracing::debug!(
+            identity = ?instance_id,
+            declared_resources = evidence.declared_count,
+            physically_closed,
+            protocol_closed = *protocol_closed,
+            complete = report.is_complete(),
+            "component original provider evidence collected"
+        );
         Ok(report)
     }
 }

@@ -1,6 +1,10 @@
 //! Prepare the actual linked graph before a consumer decodes its alias.
 use super::*;
 impl WireguardAdapter {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "original generation, caller, native and budget inputs remain explicitly bound"
+    )]
     pub(super) fn prepare_linked_recipe(
         &self,
         outbound: &OutboundConfig,

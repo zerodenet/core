@@ -15,47 +15,37 @@ mod catalog;
 #[path = "tests/standard_selection.rs"]
 mod standard_selection;
 
-fn prepare(
-    proxy: &Proxy,
-    services: &TcpRuntimeServices,
-) -> (PreparedTcpRelayPrefix, PreparedTcpRelayHop) {
+fn prepare(proxy: &Proxy, services: &TcpRuntimeServices) -> PreparedNativeTcpRelayChain {
     let (resolved, _) = proxy
         .engine()
         .resolve_route_decision(RouteDecision::Route("relay".into()))
         .unwrap();
-    let ResolvedOutbound::Relay { chain } = resolved else {
-        panic!("actual relay group required")
-    };
     let execution = services.execution();
-    let context = OutboundAdapterContext::new(services.config());
-    let (prepared, final_hop) = proxy
+    let prepared = proxy
         .protocols
-        .prepare_tcp_relay(context, &chain, execution.components.as_deref().ok())
+        .prepare_tcp_outbound(
+            OutboundAdapterContext::new(services.config()),
+            &resolved,
+            RouteMode::Flow,
+            execution.components.as_deref().ok(),
+        )
         .unwrap_or_else(|failure| panic!("{}", failure.error));
-    assert!(matches!(
-        prepared.first.execution,
-        PreparedTcpCandidateExecution::Native(_)
-    ));
-    for hop in prepared
-        .relay_hops
-        .iter()
-        .chain(std::iter::once(&final_hop))
-    {
-        let PreparedTcpRelayExecution::Native(selected) = &hop.execution else {
-            panic!("compiled Stream role must precede its legacy operation")
-        };
+    let PreparedTcpOutbound::NativeRelay(prepared) = prepared else {
+        panic!("actual standard relay required")
+    };
+    for node in &prepared.nodes {
         assert_eq!(
-            selected.instance(),
+            node.slot.instance(),
             execution
                 .components
                 .as_ref()
                 .unwrap()
-                .configured(&hop.tag)
+                .configured(&node.tag)
                 .unwrap()
                 .instance_id()
         );
     }
-    (prepared, final_hop)
+    prepared
 }
 
 #[tokio::test]
@@ -70,12 +60,11 @@ async fn mixed_retired_stream_role_blocks_the_real_prefix_before_any_socket_open
             .configured(&format!("node-{revoked}"))
             .unwrap();
         slot.revoke();
-        let failure = match crate::runtime::tcp_dispatch::relay::dispatch_tcp_relay(
-            services.execution(),
+        let failure = match crate::component::stream_bridge::connect_relay(
+            &services.execution(),
             &session,
-            prepared.0,
-            prepared.1,
-            crate::runtime::tcp_dispatch::TcpDispatchIntent::Traffic,
+            prepared,
+            true,
         )
         .await
         {
@@ -112,10 +101,7 @@ async fn mixed_retired_stream_role_blocks_the_real_prefix_before_any_socket_open
 async fn mixed_cached_standard_hop_does_not_keep_the_actual_retired_owner_alive() {
     let (proxy, _session, services, listeners) = fixtures::setup(3).await;
     let prepared = prepare(&proxy, &services);
-    let PreparedTcpRelayExecution::Native(selected) = &prepared.1.execution else {
-        panic!("standard final role required")
-    };
-    let selected = selected.clone();
+    let selected = prepared.nodes.last().unwrap().slot.clone();
     let slot = selected.slot().unwrap();
     let original = std::sync::Arc::downgrade(&slot);
     let instance = slot.instance_id();

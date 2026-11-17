@@ -1,240 +1,73 @@
-use std::future::Future;
-use std::pin::Pin;
-
-use zero_core::{Address, Network, ProtocolType, Session};
-use zero_engine::EngineError;
-
-use super::dispatch_prepared_tcp_candidate;
-use crate::inventory::{PreparedTcpCandidate, PreparedTcpCandidateExecution};
+//! Exercise the production completion boundary without a replacement protocol
+//! executor. Success cases complete real loopback TCP connects, not Block probes.
+use super::{finish_candidate_attempt, TcpAttemptFacts};
 use crate::protocol_registry::TcpExecutionServices;
-use crate::runtime::tcp_dispatch::operation::PreparedTcpConnectOperation;
 use crate::runtime::tcp_dispatch::TcpDispatchIntent;
 use crate::transport::{EstablishedTcpOutbound, TcpOutboundFailure};
-
+use zero_engine::EngineError;
 const HEALTH_TAG: &str = "health-isolation-test";
-
 mod diagnostics;
 mod health_scope;
 mod local_failures;
-
-struct FailingConnectOperation;
-
-impl PreparedTcpConnectOperation for FailingConnectOperation {
-    fn execute<'a>(
-        &'a self,
-        _services: TcpExecutionServices,
-        _session: &'a Session,
-    ) -> Pin<Box<dyn Future<Output = Result<EstablishedTcpOutbound, TcpOutboundFailure>> + Send + 'a>>
-    where
-        Self: 'a,
-    {
-        Box::pin(async {
-            Err(TcpOutboundFailure {
-                stage: "test_connect",
-                error: EngineError::Io(std::io::Error::other("controlled connect failure")),
-                upstream_endpoint: None,
-                network: None,
-            })
-        })
-    }
-}
-
-#[tokio::test]
-async fn repeated_diagnostic_probe_failures_do_not_quarantine_traffic() {
-    let services = test_services();
-    let session = test_session();
-
-    for _ in 0..5 {
-        let failure = match dispatch_prepared_tcp_candidate(
-            services.clone(),
-            &session,
-            failing_candidate(),
-            TcpDispatchIntent::DiagnosticProbe,
-        )
-        .await
-        {
-            Ok(_) => panic!("controlled diagnostic probe must fail"),
-            Err(failure) => failure,
-        };
-        assert_eq!(failure.stage, "test_connect");
-    }
-
-    services
-        .engine()
-        .check_outbound_health(HEALTH_TAG)
-        .expect("diagnostic failures must not quarantine real traffic");
-}
-
-#[tokio::test]
-async fn diagnostic_probe_bypasses_quarantine_without_clearing_it() {
-    let services = test_services();
-    let session = test_session();
-    quarantine(&services);
-
-    if let Err(failure) = dispatch_prepared_tcp_candidate(
-        services.clone(),
-        &session,
-        successful_candidate(),
-        TcpDispatchIntent::DiagnosticProbe,
-    )
-    .await
-    {
-        panic!(
-            "diagnostic probe must bypass the shared quarantine: {}",
-            failure.error
-        );
-    }
-
-    let error = services
-        .engine()
-        .check_outbound_health(HEALTH_TAG)
-        .expect_err("diagnostic success must not clear shared traffic health");
-    assert_eq!(error.code(), "unhealthy_outbound");
-}
-
-#[tokio::test]
-async fn dns_detour_bypasses_quarantine_without_mutating_it() {
-    let services = test_services();
-    let session = test_session();
-    quarantine(&services);
-
-    if let Err(failure) = dispatch_prepared_tcp_candidate(
-        services.clone(),
-        &session,
-        successful_candidate(),
-        TcpDispatchIntent::DnsDetour,
-    )
-    .await
-    {
-        panic!(
-            "DNS fallback must be allowed to test a quarantined detour: {}",
-            failure.error
-        );
-    }
-
-    let error = services
-        .engine()
-        .check_outbound_health(HEALTH_TAG)
-        .expect_err("DNS detour success must not clear traffic quarantine");
-    assert_eq!(error.code(), "unhealthy_outbound");
-}
-
-#[tokio::test]
-async fn dns_detour_failures_do_not_quarantine_traffic() {
-    let services = test_services();
-    let session = test_session();
-
-    for _ in 0..5 {
-        let _ = dispatch_prepared_tcp_candidate(
-            services.clone(),
-            &session,
-            failing_candidate(),
-            TcpDispatchIntent::DnsDetour,
-        )
-        .await;
-    }
-
-    services
-        .engine()
-        .check_outbound_health(HEALTH_TAG)
-        .expect("DNS transport failures must not quarantine user traffic");
-}
-
-#[tokio::test]
-async fn traffic_failures_still_update_shared_outbound_health() {
-    let services = test_services();
-    let session = test_session();
-
-    for _ in 0..5 {
-        if dispatch_prepared_tcp_candidate(
-            services.clone(),
-            &session,
-            failing_candidate(),
-            TcpDispatchIntent::Traffic,
-        )
-        .await
-        .is_ok()
-        {
-            panic!("controlled traffic connection must fail");
-        }
-    }
-
-    let error = services
-        .engine()
-        .check_outbound_health(HEALTH_TAG)
-        .expect_err("five traffic failures must quarantine the outbound");
-    assert_eq!(error.code(), "unhealthy_outbound");
-}
-
-#[tokio::test]
-async fn policy_probe_failures_do_not_mutate_shared_outbound_health() {
-    let services = test_services();
-    let session = test_session();
-
-    for _ in 0..5 {
-        if dispatch_prepared_tcp_candidate(
-            services.clone(),
-            &session,
-            failing_candidate(),
-            TcpDispatchIntent::PolicyProbe,
-        )
-        .await
-        .is_ok()
-        {
-            panic!("controlled policy probe must fail");
-        }
-    }
-
-    services
-        .engine()
-        .check_outbound_health(HEALTH_TAG)
-        .expect("policy probe results must be applied only through policy state");
-}
-
 fn test_services() -> TcpExecutionServices {
-    let config =
-        zero_config::RuntimeConfig::parse(r#"{"route":{"rules":[],"final":{"type":"direct"}}}"#)
-            .expect("parse test config");
-    crate::Proxy::new(config)
-        .expect("build test proxy")
-        .tcp_runtime_services()
-        .execution()
-}
-
-fn test_session() -> Session {
-    Session::new(
-        0,
-        Address::Domain("probe.example".to_owned()),
-        443,
-        Network::Tcp,
-        ProtocolType::UNKNOWN,
+    crate::Proxy::new(
+        zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap(),
     )
+    .unwrap()
+    .tcp_runtime_services()
+    .execution()
 }
-
-fn failing_candidate() -> PreparedTcpCandidate {
-    PreparedTcpCandidate {
-        health_tag: Some(HEALTH_TAG.to_owned()),
-        tag: Some(HEALTH_TAG.to_owned()),
-        protocol: "test".to_owned(),
+fn attempt_facts() -> TcpAttemptFacts {
+    TcpAttemptFacts {
+        health_tag: Some(HEALTH_TAG.into()),
+        tag: Some(HEALTH_TAG.into()),
+        protocol: "test".into(),
         endpoint: None,
-        execution: PreparedTcpCandidateExecution::Connect(std::sync::Arc::new(
-            FailingConnectOperation,
+    }
+}
+fn complete_error(
+    services: &TcpExecutionServices,
+    intent: TcpDispatchIntent,
+    error: EngineError,
+) -> TcpOutboundFailure {
+    finish_candidate_attempt(
+        services,
+        attempt_facts(),
+        intent,
+        &Default::default(),
+        Err(TcpOutboundFailure {
+            stage: "test_connect",
+            error,
+            upstream_endpoint: None,
+            network: None,
+        }),
+    )
+    .err()
+    .expect("typed failure is retained")
+}
+async fn complete_wire(
+    services: &TcpExecutionServices,
+    intent: TcpDispatchIntent,
+) -> Result<EstablishedTcpOutbound, TcpOutboundFailure> {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let original = tokio::net::TcpStream::connect(address).await.unwrap();
+    let (peer, _) = listener.accept().await.unwrap();
+    let result = finish_candidate_attempt(
+        services,
+        attempt_facts(),
+        intent,
+        &Default::default(),
+        Ok(EstablishedTcpOutbound::proxied(
+            HEALTH_TAG,
+            "127.0.0.1",
+            address.port(),
+            Box::pin(original),
         )),
-    }
+    );
+    drop(peer);
+    result
 }
-
-fn successful_candidate() -> PreparedTcpCandidate {
-    PreparedTcpCandidate {
-        health_tag: Some(HEALTH_TAG.to_owned()),
-        tag: Some(HEALTH_TAG.to_owned()),
-        protocol: "test".to_owned(),
-        endpoint: None,
-        execution: PreparedTcpCandidateExecution::Block {
-            tag: HEALTH_TAG.to_owned(),
-        },
-    }
-}
-
 fn quarantine(services: &TcpExecutionServices) {
     for _ in 0..5 {
         services.record_outbound_failure(HEALTH_TAG);
@@ -242,5 +75,65 @@ fn quarantine(services: &TcpExecutionServices) {
     services
         .engine()
         .check_outbound_health(HEALTH_TAG)
-        .expect_err("test setup must quarantine the outbound");
+        .expect_err("initial cooldown");
+}
+#[tokio::test]
+async fn non_traffic_failure_completions_leave_shared_health_unchanged() {
+    for intent in [
+        TcpDispatchIntent::DiagnosticProbe,
+        TcpDispatchIntent::PolicyProbe,
+        TcpDispatchIntent::DnsDetour,
+    ] {
+        let services = test_services();
+        for _ in 0..6 {
+            let failure = complete_error(
+                &services,
+                intent,
+                std::io::Error::other("controlled completion failure").into(),
+            );
+            assert_eq!(failure.stage, "test_connect");
+        }
+        services
+            .engine()
+            .check_outbound_health(HEALTH_TAG)
+            .expect("non-traffic failures do not quarantine business traffic");
+    }
+}
+#[tokio::test]
+async fn traffic_failure_completions_update_shared_health() {
+    let services = test_services();
+    for _ in 0..5 {
+        complete_error(
+            &services,
+            TcpDispatchIntent::Traffic,
+            std::io::Error::other("controlled completion failure").into(),
+        );
+    }
+    assert_eq!(
+        services
+            .engine()
+            .check_outbound_health(HEALTH_TAG)
+            .unwrap_err()
+            .code(),
+        "unhealthy_outbound"
+    );
+}
+#[tokio::test]
+async fn real_diagnostic_and_dns_connect_completions_preserve_existing_cooldown() {
+    for intent in [
+        TcpDispatchIntent::DiagnosticProbe,
+        TcpDispatchIntent::DnsDetour,
+    ] {
+        let services = test_services();
+        quarantine(&services);
+        assert!(complete_wire(&services, intent).await.is_ok());
+        assert_eq!(
+            services
+                .engine()
+                .check_outbound_health(HEALTH_TAG)
+                .unwrap_err()
+                .code(),
+            "unhealthy_outbound"
+        );
+    }
 }

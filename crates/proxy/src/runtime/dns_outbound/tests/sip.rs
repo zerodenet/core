@@ -164,7 +164,7 @@ async fn ordinary_sip_dns_pending_cancel_and_warm_doh_retire_the_actual_process_
         assert!(caller.task.matches_joined(&joined) && joined.registration_released()); joined.result().unwrap();
         assert!(old.owner().closed().unwrap().matches(old.owner()));
         assert!(old.owner().users_closed().unwrap().matches(old.owner()));
-        assert_eq!(process.snapshot().charged_jobs, 0, "same original process tree, derived views, actor join and ACK precede installing the new job limit");
+        assert_eq!(process.snapshot().charged_jobs, 0, "same original native process, derived views, actor join and ACK precede installing the new job limit");
         zero_dns::test_support::install_doh_ca(&proxy.resolver, "query", tls.certificate.clone()).unwrap();
         let mut work = query(&proxy, "new.actual.sip.doh.test");
         let (bytes, answer) = tokio::select! {

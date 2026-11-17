@@ -1,41 +1,18 @@
 use std::sync::Arc;
 
 use super::ProtocolRegistry;
-use crate::protocol_registry::{OutboundLeafClaim, OutboundLeafInput, ProtocolSupportCapability};
+use crate::protocol_registry::ProtocolSupportCapability;
 
-type OutboundLeafClaimFn<T> =
-    for<'a> fn(&T, OutboundLeafInput<'a>) -> Option<OutboundLeafClaim<'a>>;
-
-#[cfg(any(feature = "socks5", feature = "shadowsocks"))]
+#[cfg(feature = "udp-runtime")]
 type PacketPathProjectionFn<T> =
     fn(
         &T,
         &zero_config::OutboundConfig,
     ) -> Result<Option<super::ColdPacketPathProjection>, zero_engine::EngineError>;
 
-struct ProjectedOutboundClaimer<T> {
-    adapter: Arc<T>,
-    claim: OutboundLeafClaimFn<T>,
-}
-
-impl<T> super::OutboundLeafClaimer for ProjectedOutboundClaimer<T>
-where
-    T: Send + Sync + 'static,
-{
-    fn claim_outbound_leaf<'a>(
-        &self,
-        input: OutboundLeafInput<'a>,
-    ) -> Option<OutboundLeafClaim<'a>> {
-        (self.claim)(self.adapter.as_ref(), input)
-    }
-}
-
 impl ProtocolRegistry {
-    pub(crate) fn register_standard_protocol<T>(
-        &mut self,
-        adapter: Arc<T>,
-        claim: Option<OutboundLeafClaimFn<T>>,
-    ) where
+    pub(crate) fn register_standard_protocol<T>(&mut self, adapter: Arc<T>)
+    where
         T: ProtocolSupportCapability + 'static,
     {
         assert!(
@@ -43,42 +20,26 @@ impl ProtocolRegistry {
             "standard inbound requires its actual component factory"
         );
         self.push_registered_entry(super::RegisteredProtocolEntry {
-            support: adapter.clone(),
+            support: adapter,
             #[cfg(feature = "udp-runtime")]
             packet_projection: None,
-            outbound: claim.map(|claim| {
-                Arc::new(ProjectedOutboundClaimer {
-                    adapter: adapter.clone(),
-                    claim,
-                }) as Arc<dyn super::OutboundLeafClaimer>
-            }),
         });
     }
     /// Existing optional cold projection, separate from executable claims.
     /// Calling it cannot construct TCP/UDP operations or select another pool.
-    #[cfg(any(feature = "socks5", feature = "shadowsocks"))]
+    #[cfg(feature = "udp-runtime")]
     pub(crate) fn register_standard_packet_carrier<T>(
         &mut self,
         adapter: Arc<T>,
-        claim: Option<OutboundLeafClaimFn<T>>,
         projection: PacketPathProjectionFn<T>,
     ) where
         T: ProtocolSupportCapability + 'static,
     {
-        self.register_standard_protocol(adapter.clone(), claim);
+        self.register_standard_protocol(adapter.clone());
         self.entries
             .last_mut()
             .expect("same registered protocol")
             .packet_projection = Some(Arc::new(move |input| projection(adapter.as_ref(), input)));
-    }
-    #[cfg(test)]
-    pub(crate) fn without_outbound_projection(mut self, protocol: &str) -> Self {
-        self.entries
-            .iter_mut()
-            .find(|entry| entry.support.name() == protocol)
-            .expect("real compiled protocol")
-            .outbound = None;
-        self
     }
     // Endpoint hooks are kept neutral even in builds without a registered
     // endpoint protocol. WireGuard is the current opt-in implementation.

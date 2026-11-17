@@ -6,9 +6,9 @@ use zero_traits::IpAddress;
 mod failure;
 pub(crate) use failure::finish_target_recovery_failure;
 
-#[cfg(feature = "raw-ip-runtime")]
+#[cfg(all(test, feature = "raw-ip-runtime"))]
 mod packet;
-#[cfg(feature = "raw-ip-runtime")]
+#[cfg(all(test, feature = "raw-ip-runtime"))]
 pub(crate) use packet::resolve_packet_targets;
 
 /// Recover a logical DNS target while preserving transparent direct semantics.

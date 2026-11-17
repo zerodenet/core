@@ -96,7 +96,7 @@ pub(super) fn rewrite_service_binding(
     let mut required_removed = false;
     if let Some(mandatory) = mandatory {
         let values = &message[mandatory.value..mandatory.end];
-        if values.is_empty() || values.len() % 2 != 0 {
+        if values.is_empty() || !values.len().is_multiple_of(2) {
             return Err(invalid("SVCB mandatory parameter is malformed"));
         }
         let mut previous = None;

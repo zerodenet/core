@@ -1,19 +1,9 @@
-#[cfg(any(
-    feature = "upstream-association-runtime",
-    feature = "managed-datagram-runtime"
-))]
-use crate::runtime::udp_dispatch::FlowStartResult;
-use crate::runtime::udp_dispatch::{FlowFailure, UdpDispatch};
-#[cfg(any(
-    feature = "upstream-association-runtime",
-    feature = "managed-datagram-runtime"
-))]
-use crate::runtime::udp_flow::outbound::UdpFlowOutbound;
-#[cfg(feature = "upstream-association-runtime")]
-use crate::runtime::udp_flow::registered::UpstreamAssociationSend;
+use crate::runtime::{
+    udp_dispatch::{FlowFailure, FlowStartResult, UdpDispatch},
+    udp_flow::{outbound::UdpFlowOutbound, registered::UpstreamAssociationSend},
+};
 
 impl UdpDispatch {
-    #[cfg(feature = "upstream-association-runtime")]
     pub(crate) async fn start_datagram(
         &mut self,
         services: crate::protocol_registry::UdpRuntimeServices,
