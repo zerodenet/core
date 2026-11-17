@@ -2,7 +2,7 @@
 //! Cached GrpcPool and explicit library task owners retain their own paths.
 use super::*;
 use crate::profile::OwnedGrpcProfile;
-use futures_util::task::{waker_ref, ArcWake, AtomicWaker};
+use futures_util::task::{waker_ref, ArcWake};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
     error::Error,
@@ -17,19 +17,20 @@ struct State {
     wake: Arc<WakeBoth>,
 }
 struct WakeBoth {
-    reader: AtomicWaker,
-    writer: AtomicWaker,
+    reader: wake::Waiter,
+    writer: wake::Waiter,
     ready: AtomicBool,
 }
 impl Default for WakeBoth {
     fn default() -> Self {
         Self {
-            reader: AtomicWaker::new(),
-            writer: AtomicWaker::new(),
+            reader: wake::Waiter::default(),
+            writer: wake::Waiter::default(),
             ready: AtomicBool::new(true),
         }
     }
 }
+mod wake;
 impl ArcWake for WakeBoth {
     fn wake_by_ref(this: &Arc<Self>) {
         this.ready.store(true, Ordering::Release);
