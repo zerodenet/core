@@ -49,7 +49,7 @@ pub(crate) struct WireguardAdapter {
 }
 
 struct CachedProfile {
-    graph: Option<std::sync::Weak<lifecycle::StandaloneStackOptions>>,
+    graph: Option<lifecycle::WeakStandaloneGraph>,
     identity: [u8; 32],
     device_identity: [u8; 32],
     plan: Arc<udp::WireguardRawIpPlan>,

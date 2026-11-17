@@ -2,6 +2,7 @@
 mod source_selection;
 pub(crate) use recipe::outer::OuterMaterials;
 pub(crate) use source_selection::{acyclic as outer_graph_acyclic, outer_members_selected};
+pub(super) use standalone::WeakStandaloneGraph;
 
 mod borrowers;
 mod components;

@@ -61,7 +61,7 @@ impl WireguardAdapter {
                 roots
                     .get(&outbound.tag)
                     .and_then(|root| root.as_ref())
-                    .and_then(std::sync::Weak::upgrade)
+                    .and_then(WeakStandaloneGraph::upgrade)
                     .ok_or_else(|| invalid("current standalone original graph is unavailable"))?
                     .actual_flow_sources()?
             };

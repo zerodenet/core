@@ -59,7 +59,12 @@ impl WireguardAdapter {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .values()
-            .filter_map(|profile| profile.graph.as_ref().and_then(std::sync::Weak::upgrade))
+            .filter_map(|profile| {
+                profile
+                    .graph
+                    .as_ref()
+                    .and_then(WeakStandaloneGraph::upgrade)
+            })
             .collect::<Vec<_>>();
         for root in roots {
             if let Some(outer) = &root.outer {

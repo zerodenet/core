@@ -4,6 +4,7 @@ mod logical;
 mod pause;
 mod preparation;
 mod resolve;
+mod weak;
 use super::*;
 use crate::runtime::{
     packet_route::host::pause::ReadPause,
@@ -11,6 +12,7 @@ use crate::runtime::{
 };
 pub(super) use preparation::Candidate;
 use std::{net::SocketAddr, num::NonZeroUsize, sync::OnceLock};
+pub(in crate::adapters::wireguard) use weak::WeakStandaloneGraph;
 use zero_core::component::{ComponentId, ComponentInstanceId, NetworkGeneration};
 use zero_platform_tokio::{
     contract::{

@@ -151,7 +151,7 @@ impl WireguardAdapter {
                 profiles.insert(
                     outbound.tag.clone(),
                     CachedProfile {
-                        graph: Some(Arc::downgrade(&root)),
+                        graph: Some(WeakStandaloneGraph::new(&root)),
                         identity,
                         device_identity,
                         plan,
