@@ -228,14 +228,27 @@ async fn root_keeps_real_driver_original_after_native_users_close_until_same_hos
         let receipt = scope.next_receipt().await.unwrap();
         assert!(receipt.result().is_ok() && witness.matches_joined(receipt.joined()));
         assert!(!receipt.joined().registration_released());
-        assert!(actual.retire(deadline()).await.unwrap().is_complete());
+        let retirement = actual.retire(deadline());
+        tokio::pin!(retirement);
+        let mut bytes = Vec::new();
+        {
+            let reading = peer.read_to_end(&mut bytes);
+            tokio::pin!(reading);
+            std::future::poll_fn(|cx| {
+                assert!(
+                    std::future::Future::poll(retirement.as_mut(), cx).is_pending(),
+                    "full retirement retains this original driver's unacknowledged registration"
+                );
+                std::future::Future::poll(reading.as_mut(), cx)
+            })
+            .await
+            .unwrap();
+        }
         assert!(actual.closed().unwrap().matches(&actual));
         assert!(actual.closed().unwrap().had_native_acquisition());
         assert!(actual.users_closed().unwrap().matches(&actual));
-        let mut bytes = Vec::new();
-        peer.read_to_end(&mut bytes).await.unwrap();
         assert_eq!(bytes, b"same driver");
-        assert_eq!(fixture.owner.retained(), 0);
+        assert_eq!(fixture.owner.retained(), 1);
         assert_eq!(totals.snapshot().charged, 1);
         assert_eq!(
             fixture.grants.reserve().err().unwrap().reason,
@@ -244,6 +257,10 @@ async fn root_keeps_real_driver_original_after_native_users_close_until_same_hos
         scope.acknowledge(&receipt).unwrap();
         let joined = witness.wait_registration_released().await;
         assert!(witness.matches_joined(&joined) && joined.registration_released());
+        let report = retirement.await.unwrap();
+        assert!(report.is_complete() && report.failed_tasks.is_empty());
+        assert_eq!(report.exited_tasks, vec![witness.task_id().unwrap()]);
+        assert_eq!(fixture.owner.retained(), 0);
         assert_eq!(totals.snapshot().charged, 0);
         drop(fixture.grants.reserve().unwrap());
         assert_eq!(totals.snapshot().charged, 0);

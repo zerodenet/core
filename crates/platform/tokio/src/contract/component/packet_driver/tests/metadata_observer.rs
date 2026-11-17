@@ -120,6 +120,8 @@ async fn actual_source_pending_observer_keeps_header_credit_after_its_record_ret
         expected
             .checked_add(RecordRef::layout().unwrap())
             .unwrap()
+            .checked_add(MetadataRef::<lineage::Lineage>::layout().unwrap())
+            .unwrap()
             .checked_add(crate::contract::context::ServiceFactsOwner::paid_layout().unwrap())
             .unwrap()
             .checked_add(SettledRef::layout().unwrap())

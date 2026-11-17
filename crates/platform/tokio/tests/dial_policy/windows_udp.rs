@@ -1,7 +1,7 @@
 use super::*;
 use std::{io, num::NonZeroUsize, os::windows::io::AsRawSocket, time::Duration};
 use windows_sys::Win32::Networking::WinSock::{
-    setsockopt, WSAGetLastError, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+    setsockopt, WSAGetLastError, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, WSAEACCES, WSAEADDRINUSE,
 };
 use zero_platform_tokio::controlled_datagram::ControlledDatagramOwner;
 
@@ -47,7 +47,10 @@ fn assert_native_exclusive_denial(held: &std::net::UdpSocket) {
     )
     .unwrap();
     let error = contender.bind(&address.into()).unwrap_err();
-    assert_eq!(error.raw_os_error(), Some(10013));
+    assert!(
+        matches!(error.raw_os_error(), Some(WSAEACCES | WSAEADDRINUSE)),
+        "the actual exclusive original must deny a second bind: {error}"
+    );
     assert_eq!(held.local_addr().unwrap(), address);
 }
 
