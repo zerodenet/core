@@ -276,7 +276,10 @@ pub(in crate::runtime) async fn run(
     maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut cleanup = tokio::time::interval(Duration::from_secs(30));
     cleanup.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let outcome=crate::runtime::inbound_owners::InboundReady::poll_optional(route_ready,async { loop {
+    // Keep the routing state machine and its per-packet continuation out of
+    // each other's poll frames on default-stack unoptimized native runtimes.
+    // Both still execute in this original Main task with its retained queues.
+    let outcome=Box::pin(crate::runtime::inbound_owners::InboundReady::poll_optional(route_ready,async { loop {
         if cancel.is_cancelled() || *shutdown.borrow() { break Ok(()); }
         tokio::select! {
             _=cancel.cancelled()=>break Ok(()),
@@ -330,7 +333,7 @@ pub(in crate::runtime) async fn run(
                 if device_generation!=Some(received.return_association.correlation) { fragments.reset();device_generation=Some(received.return_association.correlation); }
                 let ingress=received.ingress().ok_or_else(||std::io::Error::other("packet source omitted endpoint facts"))?;
                 let peer=received.return_association.peer.as_ref().map(|id|id.0.clone());let traffic=observer.traffic.lock().unwrap().clone();
-                super::route::feed_inner_packet(received,facts.clone(),source_host,&packet_roles,ingress.local_destination,&traffic,peer,ingress.mtu,link_mtu,&tcp,&udp,&response_tx,&echo,&route,&mut pins,&mut fragments,tun.as_ref()).await;
+                Box::pin(super::route::feed_inner_packet(received,facts.clone(),source_host,&packet_roles,ingress.local_destination,&traffic,peer,ingress.mtu,link_mtu,&tcp,&udp,&response_tx,&echo,&route,&mut pins,&mut fragments,tun.as_ref())).await;
             }
             _=packet_roles.retired(), if closing_packet_roles.is_none()=>{
                 let same = packet_roles.clone();
@@ -372,7 +375,7 @@ pub(in crate::runtime) async fn run(
             _=cleanup.tick()=>tcp.cleanup_idle(Duration::from_secs(300)).await,
             finished=tasks.join_next()=>break match finished {Some(Ok(result))=>result,Some(Err(error))=>Err(std::io::Error::other(children.drivers.remember(error)).into()),None=>Err(std::io::Error::other("packet stack drivers ended").into())},
         }
-    }}).await;
+    }})).await;
     if let Err(error) = &outcome {
         tracing::debug!(?error, "standard Packet endpoint routing failed");
     }

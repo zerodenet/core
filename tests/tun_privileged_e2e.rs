@@ -887,6 +887,9 @@ fn dual_stack_config_json(
 fn spawn_zero(binary: &str, config: &std::path::Path, socket: &std::path::Path) -> ManagedChild {
     let child = Command::new(binary)
         .args(["run", "--control-socket", path(socket), path(config)])
+        // The harness may use a larger Rust test-thread stack. The actual
+        // product process must always exercise its default worker stacks.
+        .env_remove("RUST_MIN_STACK")
         .env("ZERO_TUN_STATE_DIR", route_state_dir(config))
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
