@@ -122,13 +122,13 @@ impl Launch {
         // SAFETY: zeroed sigaction/sigset_t are initialized exclusively by the
         // corresponding native getters before any child can inspect them.
         let mut signals = unsafe { std::mem::zeroed::<[libc::sigaction; 65]>() };
-        for signal in 1..65 {
+        for (signal, disposition) in signals.iter_mut().enumerate().skip(1) {
             if signal == libc::SIGKILL as usize || signal == libc::SIGSTOP as usize {
                 continue;
             }
             // glibc reserves two realtime signals; EINVAL means no disposition
             // exists to restore through its sigaction interface.
-            if unsafe { libc::sigaction(signal as i32, std::ptr::null(), &mut signals[signal]) } < 0
+            if unsafe { libc::sigaction(signal as i32, std::ptr::null(), disposition) } < 0
                 && io::Error::last_os_error().raw_os_error() != Some(libc::EINVAL)
             {
                 return Err(io::Error::last_os_error());

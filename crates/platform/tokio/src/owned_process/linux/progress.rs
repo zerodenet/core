@@ -169,8 +169,8 @@ impl OwnedProcess {
     }
     fn receive(&self, state: &mut State, message: wire::Message, control: i32) {
         let mut descriptors = Vec::with_capacity(message.count);
-        for index in 0..message.count {
-            descriptors.push(state.retain(message.descriptors[index]));
+        for descriptor in &message.descriptors[..message.count] {
+            descriptors.push(state.retain(*descriptor));
         }
         if message.malformed || !message.frame.matches(self.token) {
             state.conversation_valid = false;

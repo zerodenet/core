@@ -1,4 +1,7 @@
 //! Related integration cases share one executable; feature gates stay on cases.
+// Rust's auto-trait proof traverses the complete native owner graph here.
+// This compiler-only bound does not change worker stacks or runtime limits.
+#![recursion_limit = "256"]
 
 #[path = "../support/mod.rs"]
 mod support;

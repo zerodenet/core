@@ -26,9 +26,7 @@ pub(in crate::process) fn lookup(
     }
     // Native failures take priority; both original typed sources stay in this
     // finite record. No faulted slot is evicted/reopened.
-    if let Err(source) = originals.close_all() {
-        return Err(source);
-    }
+    originals.close_all()?;
     match result {
         Err(source) if source.reason != Reason::Capacity && source.stage != Stage::Close => {
             Ok(None)
