@@ -154,7 +154,7 @@ async fn actual_child_metadata_refund_reenters_parent_budget_only_after_original
             .unwrap();
         let parent_grant = parent.grants().reserve().unwrap();
         let physical = Arc::new(Physical {
-            owner: Weak::new(),
+            owner: state::WeakManaged::empty(),
             binding,
             pending: Mutex::new(vec![]),
             protocols: Some(children),
