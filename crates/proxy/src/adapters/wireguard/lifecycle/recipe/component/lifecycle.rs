@@ -23,10 +23,14 @@ impl ComponentFactory for LinkedStackFactory {
             options: super::super::carrier::Graph::Linked(options.clone()),
             resources: context.resources,
             scope: context.tasks.scope_identity(),
+            stop: context.cancel,
         });
-        options.carrier.set(Arc::downgrade(&carrier)).map_err(|_| {
-            prepare_error(invalid("linked roles cannot bind a second actual graph"))
-        })?;
+        options
+            .carrier
+            .set(super::super::carrier::WeakCarrier::new(&carrier))
+            .map_err(|_| {
+                prepare_error(invalid("linked roles cannot bind a second actual graph"))
+            })?;
         Ok(ComponentInstance {
             roles: ComponentRoles {
                 stream: Some(carrier.clone()),

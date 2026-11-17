@@ -63,6 +63,7 @@ async fn udp_echo(port: u16, domain: &str) {
 
 #[tokio::test]
 async fn company_target_uses_tunnel_dns_for_tcp_and_udp_while_peer_uses_node_dns() {
+    support::interop::init_logs("wireguard=debug,zero_dns=debug");
     let (remote, peer_task) = peer::echo_peer_with_dns(IpAddress::V4([192, 168, 1, 235])).await;
     let (public_port, public_queries, public_task) =
         dns_server(IpAddress::V4([203, 0, 113, 7])).await;
@@ -88,6 +89,10 @@ async fn company_target_uses_tunnel_dns_for_tcp_and_udp_while_peer_uses_node_dns
         "route":{"rules":[],"final":{"type":"route","outbound":"company"}}
     }).to_string()).unwrap();
     let running = support::spawn_engine(zero_proxy::Proxy::new(config).unwrap());
+    running
+        .wait_ready(tokio::time::Instant::now() + Duration::from_secs(5))
+        .await
+        .expect("actual WireGuard/DNS catalog and SOCKS Source must be published");
     support::wait_for_listener(socks_port).await;
     let domain = "jms.yt.starmerx.com";
     timeout(Duration::from_secs(5), async {

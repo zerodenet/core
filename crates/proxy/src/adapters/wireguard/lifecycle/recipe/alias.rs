@@ -109,7 +109,7 @@ impl ComponentFactory for LinkedOutboundFactory {
             super::carrier::Graph::Standalone(graph) => &graph.carrier,
         }
         .get()
-        .and_then(std::sync::Weak::upgrade)
+        .and_then(super::carrier::WeakCarrier::upgrade)
         .ok_or_else(|| error(Reason::Revoked))?;
         Ok(ComponentInstance {
             roles: ComponentRoles {

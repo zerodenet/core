@@ -256,7 +256,10 @@ async fn same_source_failed_phase_continues_original_close_then_reuses_one_attem
             &read,
             &original,
             peer,
-            target,
+            Destination::new(
+                zero_core::Address::Domain("resolved-peer.example".into()),
+                target.port,
+            ),
             &mut output,
         )
         .await;

@@ -31,7 +31,7 @@ pub(in crate::adapters::wireguard) struct StandaloneStackOptions {
     pub(super) spec: ComponentSpec,
     pub(super) binding: UpstreamBinding,
     pub(super) resource: OnceLock<ComponentId>,
-    pub(super) carrier: OnceLock<std::sync::Weak<super::recipe::carrier::Carrier>>,
+    pub(super) carrier: OnceLock<super::recipe::carrier::WeakCarrier>,
     pub(super) peers: Vec<Peer>,
     state: Mutex<State>,
 }

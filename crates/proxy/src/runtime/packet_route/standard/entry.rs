@@ -77,6 +77,9 @@ impl Entry {
         let association = packet.return_association.clone();
         self.observation.begin(&association);
         let result = packet::send_owned(tx.as_mut(), control.as_mut(), packet, limits).await;
+        if let Err(source) = &result {
+            tracing::debug!(error = ?source.failure, "standard Packet original submission failed");
+        }
         if result
             .as_ref()
             .is_err_and(|error| error.failure.delivery == DeliveryState::Unknown)

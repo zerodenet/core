@@ -2,8 +2,10 @@
 mod datagram;
 mod packet;
 mod stream;
+mod weak;
 use super::{component::LinkedStackOptions, *};
 use std::net::{IpAddr, SocketAddr};
+pub(in crate::adapters::wireguard::lifecycle) use weak::WeakCarrier;
 use zero_core::request::Destination;
 use zero_platform_tokio::{
     contract::{
@@ -39,6 +41,8 @@ pub(in crate::adapters::wireguard::lifecycle) struct Carrier {
     pub(in crate::adapters::wireguard::lifecycle) options: Graph,
     pub(in crate::adapters::wireguard::lifecycle) resources: Arc<dyn ResourceAccess>,
     pub(in crate::adapters::wireguard::lifecycle) scope: TaskScopeIdentity,
+    pub(in crate::adapters::wireguard::lifecycle) stop:
+        zero_platform_tokio::contract::CancellationToken,
 }
 impl Carrier {
     fn plan(&self) -> &WireguardRawIpPlan {
@@ -53,7 +57,7 @@ impl Carrier {
             Graph::Standalone(root) => &root.carrier,
         }
         .get()
-        .and_then(std::sync::Weak::upgrade)
+        .and_then(WeakCarrier::upgrade)
         .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))
     }
     fn origins_live(&self) -> Result<(), ChannelError> {

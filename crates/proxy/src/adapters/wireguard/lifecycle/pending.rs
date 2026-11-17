@@ -1,5 +1,6 @@
 //! Passive identity prepared before any replacement stack or listener starts.
 mod close;
+mod graph;
 use super::super::inbound::{LinkedEndpoint, LiveInboundDevice};
 use std::sync::{Arc, OnceLock};
 use zero_config::ListenConfig;
@@ -16,7 +17,7 @@ pub(in crate::adapters::wireguard) struct PendingLinkedEndpoint {
 }
 pub(in crate::adapters::wireguard) struct PeerResources {
     owned: bool,
-    graph: std::sync::Mutex<std::sync::Weak<super::recipe::component::LinkedStackOptions>>,
+    graph: std::sync::Mutex<graph::WeakGraph>,
     peer_stacks: Vec<Arc<crate::runtime::raw_ip::EndpointStackOwner>>,
     peers: usize,
     // A candidate admission fence, not a native owner or close receipt.
@@ -72,7 +73,7 @@ impl PendingLinkedEndpoint {
             ready: OnceLock::new(),
             resources: Arc::new(PeerResources {
                 owned,
-                graph: std::sync::Mutex::new(std::sync::Weak::new()),
+                graph: std::sync::Mutex::new(graph::WeakGraph::default()),
                 peer_stacks: (0..stacks)
                     .map(|_| crate::runtime::raw_ip::EndpointStackOwner::suspended())
                     .collect(),
@@ -108,7 +109,7 @@ impl PendingLinkedEndpoint {
                 "peer originals already belong to a different actual graph",
             ));
         }
-        *slot = Arc::downgrade(graph);
+        *slot = graph::WeakGraph::new(graph);
         Ok(())
     }
     pub(super) fn actual_graph(&self) -> Option<Arc<super::recipe::component::LinkedStackOptions>> {

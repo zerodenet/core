@@ -35,6 +35,7 @@ async fn ipv6_ping_translation_restores_echo_and_quoted_errors_over_authenticate
 }
 
 async fn roundtrip(v6: bool) {
+    support::interop::init_logs("wireguard=debug");
     let source = if v6 { "fd00::2" } else { "10.0.0.2" };
     let assigned = if v6 { "fd10::11" } else { "10.10.0.11" };
     let target = if v6 { "fd20::235" } else { "192.168.1.235" };
@@ -117,7 +118,10 @@ async fn roundtrip(v6: bool) {
     let proxy = Proxy::new(config).unwrap();
     let egress = proxy.egress_interface_control();
     let proxy = spawn_engine(proxy);
-    sleep(Duration::from_millis(100)).await;
+    proxy
+        .wait_ready(tokio::time::Instant::now() + Duration::from_secs(5))
+        .await
+        .expect("actual WireGuard Source and catalog must be published");
     let client_private = STANDARD.encode([24; 32]);
     let inbound_public = public_key(23);
     let address = format!("{source}/{bits}");
@@ -156,7 +160,9 @@ async fn roundtrip(v6: bool) {
         }
         let response = timeout(Duration::from_secs(10), receive_inner(&mut client, &socket))
             .await
-            .unwrap();
+            .unwrap_or_else(|source| {
+                panic!("authenticated echo response v6={v6} sequence={sequence}: {source}")
+            });
         let sent = timeout(Duration::from_secs(1), requests.recv())
             .await
             .unwrap()

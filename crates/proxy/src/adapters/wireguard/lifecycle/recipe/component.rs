@@ -20,7 +20,7 @@ pub(in crate::adapters::wireguard::lifecycle) struct LinkedStackFactory;
 pub(in crate::adapters::wireguard) struct LinkedStackOptions {
     pub(super) plan: Arc<WireguardRawIpPlan>,
     pub(super) outer: Option<super::outer::OuterPathRecipe>,
-    pub(super) carrier: OnceLock<std::sync::Weak<super::carrier::Carrier>>,
+    pub(super) carrier: OnceLock<super::carrier::WeakCarrier>,
     pub(super) resource: OnceLock<zero_core::component::ComponentId>,
     pub(super) spec: ComponentSpec,
     source_total_limit: Option<usize>,
@@ -275,7 +275,7 @@ impl LinkedStackOptions {
     ) -> Result<zero_platform_tokio::controlled_carrier::CarrierOrigin, ChannelError> {
         self.carrier
             .get()
-            .and_then(std::sync::Weak::upgrade)
+            .and_then(super::carrier::WeakCarrier::upgrade)
             .ok_or_else(|| ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component))?
             .resources
             .packet_carrier_origin()

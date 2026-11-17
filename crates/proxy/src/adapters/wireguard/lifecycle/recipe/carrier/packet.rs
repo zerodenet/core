@@ -92,6 +92,17 @@ impl DynPacketOutbound for Carrier {
 }
 struct Control(Arc<Shared>);
 impl ChannelControl for Control {
+    fn revoked(&self) -> BoxFuture<'static, ()> {
+        let source = self.0.carrier.stop.clone();
+        let logical = self.0.cancel.clone();
+        Box::pin(async move {
+            // The cached Packet view must return its real FlowUsers when the
+            // original device Scope is stopped for a network replacement.
+            // Neither branch proves native closure or joins that Scope from
+            // its own source caller.
+            tokio::select! { _ = source.cancelled() => {}, _ = logical.cancelled() => {} }
+        })
+    }
     fn cancel(&self, _: zero_platform_tokio::contract::CloseReason) {
         self.0.stop();
     }

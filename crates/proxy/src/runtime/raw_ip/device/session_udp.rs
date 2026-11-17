@@ -200,7 +200,15 @@ impl DatagramRx for Rx {
                         continue;
                     }
                     return Poll::Ready(Ok(Some(Datagram {
-                        address: shared.target.clone(),
+                        // Receive facts name the authenticated numeric peer;
+                        // the configured domain remains the send target only.
+                        address: Destination::new(
+                            match packet.source.ip {
+                                std::net::IpAddr::V4(ip) => zero_core::Address::Ipv4(ip.octets()),
+                                std::net::IpAddr::V6(ip) => zero_core::Address::Ipv6(ip.octets()),
+                            },
+                            packet.source.port,
+                        ),
                         association: shared.association,
                         payload: packet.payload,
                     })));

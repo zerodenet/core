@@ -66,10 +66,11 @@ impl ComponentFactory for Factory {
             options: Graph::Standalone(options.clone()),
             resources: context.resources,
             scope: context.tasks.scope_identity(),
+            stop: context.cancel,
         });
         options
             .carrier
-            .set(Arc::downgrade(&carrier))
+            .set(super::super::recipe::carrier::WeakCarrier::new(&carrier))
             .map_err(|_| error(Stage::Prepare, Reason::StalePlan))?;
         Ok(ComponentInstance {
             roles: ComponentRoles {

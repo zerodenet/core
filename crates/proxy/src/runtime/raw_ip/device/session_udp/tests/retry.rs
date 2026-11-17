@@ -91,6 +91,11 @@ pub(super) async fn actual_retry(
         .unwrap()
         .unwrap();
     assert_eq!(received.payload.as_ref(), b"reply");
+    assert_eq!(
+        received.address,
+        Destination::new(zero_core::Address::Ipv4([10, 0, 0, 2]), peer.port()),
+        "actual source remains numeric after a domain send target"
+    );
     assert_eq!(received.payload.as_ptr(), original_payload);
     assert_eq!(received.payload.allocation_bytes(), read.bytes());
     assert!(
