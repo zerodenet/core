@@ -180,7 +180,7 @@ async fn actual_failed_retirement_keeps_the_first_h2_source_and_held_lease_befor
     let server = Server::start(FirstConnection::Stalled).await;
     // Two genuine bootstrap candidates of one host/port. Keep both original
     // listeners live; the second must never receive a connection on failure.
-    let second = TcpListener::bind((std::net::Ipv4Addr::new(127, 0, 0, 2), server.addr.port()))
+    let second = TcpListener::bind((std::net::Ipv6Addr::LOCALHOST, server.addr.port()))
         .await
         .unwrap();
     let resolver = Arc::new(

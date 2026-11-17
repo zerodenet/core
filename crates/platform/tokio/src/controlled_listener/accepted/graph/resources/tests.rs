@@ -63,7 +63,7 @@ async fn accepted_child_keeps_exact_cleanup_source_before_ack_then_closes_separa
         let bad = tokio::net::TcpSocket::new_v4().unwrap();
         bad.bind("127.0.0.1:0".parse().unwrap()).unwrap();
         let actual = Arc::new(
-            tokio::net::TcpStream::connect(bad.local_addr().unwrap())
+            tokio::net::TcpStream::connect(("255.255.255.255", bad.local_addr().unwrap().port()))
                 .await
                 .unwrap_err(),
         );

@@ -40,51 +40,52 @@ async fn process_endpoint_pending_probe_retains_original_until_native_close_and_
             actual.start(actor).unwrap();
             actual.wait_started(end()).await.unwrap();
             let deadline = end();
-            // Fill the actual server's unconsumed listen queue through genuine
-            // connects. Each previous probe closes its original before the next.
-            for _ in 0..2 {
-                loop {
-                    match original
-                        .open_probe(&actual.actor().unwrap(), deadline)
-                        .await
-                    {
-                        Ok(mut probe) => {
-                            assert!(probe
+            // Queue capacities differ by kernel. Consume only probes that
+            // actually completed, then retain the same awaited native connect
+            // once a second real poll still observes Pending. The timer only
+            // permits I/O progress; it is never evidence of pending readiness.
+            loop {
+                assert!(Instant::now() < deadline, "native probe never suspended");
+                let probe_actor = actual.actor().unwrap();
+                let mut probe = Box::pin(original.open_probe(&probe_actor, deadline));
+                let completed = tokio::select! {
+                    result = probe.as_mut() => Some(result),
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(20)) => {
+                        std::future::poll_fn(|cx| match probe.as_mut().poll(cx) {
+                            Poll::Pending => Poll::Ready(None),
+                            Poll::Ready(result) => Poll::Ready(Some(result)),
+                        }).await
+                    },
+                };
+                if let Some(result) = completed {
+                    drop(probe);
+                    match result {
+                        Ok(mut completed) => {
+                            assert!(completed
                                 .close(deadline)
                                 .await
                                 .unwrap()
                                 .unwrap()
-                                .matches(&probe));
-                            break;
+                                .matches(&completed));
                         }
                         Err(error) => {
                             assert!(Instant::now() < deadline, "{error}");
                             assert!(original.close_probe(deadline).await.unwrap().is_some());
-                            tokio::task::yield_now().await;
                         }
                     }
+                    tokio::task::yield_now().await;
+                    continue;
                 }
+                let native = { original.lock().probe.clone().unwrap() };
+                assert!(!native.is_closed());
+                ready.send(()).unwrap();
+                resumed.await.unwrap();
+                assert!(probe.await.is_err());
+                let closed = original.close_probe(deadline).await.unwrap().unwrap();
+                assert!(closed.matches_original(&native) && closed.had_native_acquisition());
+                assert!(!actual.actor().unwrap().is_joined());
+                break;
             }
-            let probe_actor = actual.actor().unwrap();
-            let mut probe = Box::pin(original.open_probe(&probe_actor, deadline));
-            std::future::poll_fn(|cx| {
-                assert!(
-                    probe.as_mut().poll(cx).is_pending(),
-                    "actual native TCP connect must suspend"
-                );
-                Poll::Ready(())
-            })
-            .await;
-            let native = { original.lock().probe.clone().unwrap() };
-            assert!(!native.is_closed());
-            ready.send(()).unwrap();
-            // Suspend only after the real native Pending, so cancellation cannot
-            // be replaced by a fake unopened future or a delayed marker.
-            resumed.await.unwrap();
-            assert!(probe.await.is_err());
-            let closed = original.close_probe(deadline).await.unwrap().unwrap();
-            assert!(closed.matches_original(&native) && closed.had_native_acquisition());
-            assert!(!actual.actor().unwrap().is_joined());
             actual.request_stop();
             #[cfg(target_os = "linux")]
             actual.wait_tree_ended(deadline).await.unwrap();

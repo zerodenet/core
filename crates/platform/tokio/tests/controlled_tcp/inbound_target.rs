@@ -106,7 +106,10 @@ async fn target_graph_retries_same_n1_only_after_actual_failed_native_close_and_
                     .is_err());
                 assert!(!actual.0.acquired.load(Ordering::Acquire));
                 assert!(actual.0.state.lock().await.slots.is_empty());
-                let bad = SocketAddr::new("127.0.0.2".parse().unwrap(), peer.port());
+                // An IPv4 broadcast TCP connect is rejected by the real
+                // kernel, without an unassigned loopback alias or a released
+                // port that another test could acquire.
+                let bad = SocketAddr::new("255.255.255.255".parse().unwrap(), peer.port());
                 let selection = egress.select_for_peer_with_policy(bad, &policy).unwrap();
                 let (mut pending, index) = actual
                     .prepare_tcp(bad, &policy, &selection, None)

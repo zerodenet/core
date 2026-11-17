@@ -6,7 +6,7 @@ async fn one_graph_keeps_real_parallel_candidates_inside_the_same_local_socket_l
         let mut scope = hosted(1);
         let first = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let a = first.local_addr().unwrap();
-        let second = TcpListener::bind(SocketAddr::new("127.0.0.2".parse().unwrap(), a.port()))
+        let second = TcpListener::bind(SocketAddr::new("::1".parse().unwrap(), a.port()))
             .await
             .unwrap();
         let b = second.local_addr().unwrap();

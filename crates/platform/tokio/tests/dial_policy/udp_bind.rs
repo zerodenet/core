@@ -83,6 +83,20 @@ fn exact_bind_preserves_the_original_native_collision_error_and_leaves_socket_un
     let error = bind_source(&socket2::SockRef::from(&socket), source, None).unwrap_err();
     assert!(error.raw_os_error().is_some());
     assert!(error.get_ref().is_none());
+    #[cfg(not(windows))]
     assert_eq!(socket.local_addr().unwrap().as_socket().unwrap().port(), 0);
+    #[cfg(windows)]
+    assert_eq!(socket.local_addr().unwrap_err().raw_os_error(), Some(10022));
+    // Windows getsockname rejects an unbound socket. A real successful bind
+    // on this same socket proves that the failed exact bind left it unbound.
+    socket
+        .bind(
+            &"127.0.0.1:0"
+                .parse::<std::net::SocketAddr>()
+                .unwrap()
+                .into(),
+        )
+        .unwrap();
+    assert_ne!(socket.local_addr().unwrap().as_socket().unwrap().port(), 0);
     assert_eq!(held.local_addr().unwrap(), source);
 }

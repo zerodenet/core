@@ -55,6 +55,7 @@ async fn actual_source_pending_observer_keeps_header_credit_after_its_record_ret
         .unwrap();
     let original = CarrierOrigin::from_logical_packet(software);
     let memory = Arc::new(zero_tun::packet_memory::PacketReturnTotals::default());
+    let root_baseline = memory.driver_metadata().occupied;
     let calls = PacketDriverCalls::from_registered(original.clone(), &tasks.downgrade()).unwrap();
     calls
         .install_send_workspaces(
@@ -168,7 +169,7 @@ async fn actual_source_pending_observer_keeps_header_credit_after_its_record_ret
     drop(calls);
     assert_eq!(
         memory.driver_metadata().occupied,
-        baseline,
+        root_baseline,
         "only actual table deallocation returns its capacity"
     );
     assert_eq!(

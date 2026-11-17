@@ -145,9 +145,9 @@ impl Harness {
         let report = protocol.unwrap();
         assert!(report.is_complete(), "{report:?}");
         assert_eq!(report.closed_io.is_empty(), !opened);
-        assert!(report.exited_tasks.is_empty());
         assert!(tasks.is_complete());
         assert_eq!(tasks.exited_tasks.len(), usize::from(opened));
+        assert_eq!(report.exited_tasks, tasks.exited_tasks);
         assert!(tasks.failed_tasks.is_empty());
         for scope in &mut self.scopes {
             assert!(scope.shutdown(deadline()).await.is_complete());

@@ -4,7 +4,7 @@ use super::*;
 async fn unsettled_actual_endpoint_keeps_query_and_cleanup_errors_and_never_dials_next_candidate() {
     timeout(Duration::from_secs(5), async {
         let (endpoint, mut resolver) = fixture();
-        let unused = tokio::net::UdpSocket::bind(std::net::SocketAddr::from(([127,0,0,2],endpoint.local_addr().unwrap().port()))).await.unwrap();
+        let unused = tokio::net::UdpSocket::bind(std::net::SocketAddr::new(std::net::Ipv6Addr::LOCALHOST.into(),endpoint.local_addr().unwrap().port())).await.unwrap();
         resolver.addrs.push(unused.local_addr().unwrap());
         let config: crate::DnsConfig = serde_json::from_value(serde_json::json!({
             "servers":{"primary":{"type":"doq","host":"127.0.0.1","port":endpoint.local_addr().unwrap().port(),"server_name":"localhost"},"fallback":{"type":"system"}},

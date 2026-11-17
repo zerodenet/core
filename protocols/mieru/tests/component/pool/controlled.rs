@@ -207,8 +207,8 @@ async fn controlled_same_pool_recycles_only_after_actual_scope_join_and_original
             1,
             "the first retirement was already observed, not retained in unbounded history"
         );
-        assert!(report.exited_tasks.is_empty());
         assert!(tasks.is_complete());
+        assert_eq!(report.exited_tasks, tasks.exited_tasks);
         assert!(tasks.failed_tasks.is_empty());
         assert_eq!(
             tasks.exited_tasks.len(),

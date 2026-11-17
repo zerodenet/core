@@ -1,4 +1,4 @@
-//! Real refused TCP original: received result versus lost result and panic.
+//! Real rejected TCP original: received result versus lost result and panic.
 use super::*;
 #[tokio::test]
 async fn only_received_native_connect_rejection_avoids_duplicate_component_fault_after_original_ack(
@@ -9,7 +9,10 @@ async fn only_received_native_connect_rejection_avoids_duplicate_component_fault
             let bad=tokio::net::TcpSocket::new_v4().unwrap();
             bad.bind("127.0.0.1:0".parse().unwrap()).unwrap();
             let peer=bad.local_addr().unwrap();
-            let endpoint=Destination::new(Address::Ipv4([127,0,0,1]),peer.port());
+            // A bound non-listening TCP port silently drops SYN on Darwin.
+            // The kernel rejects broadcast TCP after the actual socket opens;
+            // retain that genuine connect error and original close receipt.
+            let endpoint=Destination::new(Address::Ipv4([255,255,255,255]),peer.port());
             let mut scope=TaskScope::suspended_hosted(tokio::runtime::Handle::current(),NonZeroUsize::new(1));
             scope.enable_registration().unwrap();
             let tasks=scope.registrar();let fence=Arc::new(CancellationToken::new());
@@ -32,7 +35,7 @@ async fn only_received_native_connect_rejection_avoids_duplicate_component_fault
                     .authorize(call.cancel.clone(),call.deadline).unwrap();
                 let native=NativeCarrierOpener::service(ticket,selection,None).unwrap();
                 let failed=native.prepare_controlled_stream(&binding,endpoint,call,grant).unwrap().open(deadline()).await;
-                let source=Arc::new(failed.err().expect("real bound nonlistening peer refuses connect"));
+                let source=Arc::new(failed.err().expect("real kernel rejects broadcast TCP connect"));
                 assert!(crate::controlled_carrier::original_connect_error(&source).is_some());
                 if mode=="retained_cleanup" || mode=="retained_panic" {
                     producer.retain_connect_rejection_result(&actual,source.clone()).unwrap();
