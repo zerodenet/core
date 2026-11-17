@@ -87,7 +87,7 @@ async fn real_start_failure_retains_original_os_source_and_closes_native_after_i
                 .downcast_ref::<SharedError>()
                 .unwrap())
             .as_ref(),
-            (&first).as_ref()
+            first.as_ref()
         ));
     }
     let receipt = proxy
@@ -99,15 +99,15 @@ async fn real_start_failure_retains_original_os_source_and_closes_native_after_i
     assert_eq!(receipt.terminal().closed_io_receipts(), 1);
     assert_eq!(receipt.terminal().joined_tasks(), 1);
     assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
-        (&receipt.terminal().failure().unwrap()).as_ref(),
-        (&first).as_ref()
+        receipt.terminal().failure().unwrap().as_ref(),
+        first.as_ref()
     ));
     let released = proxy
         .inbound_owners
         .release_closed_reported(receipt, |terminal| {
             assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
-                (&terminal.failure().unwrap()).as_ref(),
-                (&first).as_ref()
+                terminal.failure().unwrap().as_ref(),
+                first.as_ref()
             ));
             Ok(())
         })

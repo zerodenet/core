@@ -13,6 +13,10 @@ use crate::runtime::packet_session_udp::{
 };
 use crate::runtime::udp_ingress::UdpIngressRuntime;
 
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the actual dispatch stays inline in the test input channel"
+)]
 enum TestInbound {
     Dispatch(InboundUdpDispatch),
     End,

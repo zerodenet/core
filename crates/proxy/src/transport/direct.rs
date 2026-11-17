@@ -515,21 +515,6 @@ impl DirectConnector {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) async fn resolve_address(
-        &self,
-        address: &Address,
-        port: u16,
-        resolver: &DnsSystem,
-        error_message: &'static str,
-    ) -> Result<SocketAddr, Error> {
-        self.resolve_addresses(address, port, resolver, error_message)
-            .await?
-            .into_iter()
-            .next()
-            .ok_or(Error::Io("target resolved to no addresses"))
-    }
-
     pub(crate) async fn resolve_node_address(
         &self,
         address: &Address,

@@ -1,7 +1,6 @@
-use crate::{Proxy, ProxyHandle};
+use crate::Proxy;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::time::timeout;
-const ID: &str = "11111111-2222-3333-4444-555555555555";
 pub(super) struct Running {
     pub(super) proxy: Proxy,
     pub(super) address: SocketAddr,
@@ -9,12 +8,6 @@ pub(super) struct Running {
     original: Arc<crate::runtime::inbound_owners::InboundOwner>,
 }
 impl Running {
-    pub(super) fn handle(&self) -> ProxyHandle {
-        ProxyHandle::new(
-            zero_engine::EngineHandle::new(self.proxy.engine().clone()),
-            self.proxy.clone(),
-        )
-    }
     pub(super) async fn close(self) {
         self.running.shutdown().await.unwrap();
         let closed = self

@@ -23,7 +23,7 @@ pub(crate) enum PacketSessionUdpLoopExit {
 }
 
 pub(crate) struct PacketSessionUdpRelayExit<H> {
-    pub(crate) handler: H,
+    pub(crate) _handler: H,
     pub(crate) dispatch: UdpDispatch,
     pub(crate) outcome: Result<PacketSessionUdpLoopExit, EngineError>,
 }
@@ -96,7 +96,7 @@ where
     .await;
 
     PacketSessionUdpRelayExit {
-        handler,
+        _handler: handler,
         dispatch,
         outcome,
     }

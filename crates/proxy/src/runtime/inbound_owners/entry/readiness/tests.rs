@@ -152,8 +152,8 @@ async fn pre_ready_actual_task_panic_preserves_original_join_source_and_never_co
         let actual = failures.get(owner.driver.get().unwrap()).unwrap();
         assert_eq!(actual.class, TaskClass::Critical);
         assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
-            (&actual.source).as_ref(),
-            (&original).as_ref()
+            actual.source.as_ref(),
+            original.as_ref()
         ));
     }
     let EngineError::Io(returned) = failed else {
@@ -171,7 +171,7 @@ async fn pre_ready_actual_task_panic_preserves_original_join_source_and_never_co
     assert!(
         std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
             (returned_original).as_ref(),
-            (&original).as_ref()
+            original.as_ref()
         ),
         "{returned:?}"
     );
@@ -187,7 +187,7 @@ async fn pre_ready_actual_task_panic_preserves_original_join_source_and_never_co
         .is_err());
     assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
         (owner.failure.lock().unwrap().as_ref().unwrap()).as_ref(),
-        (&original).as_ref()
+        original.as_ref()
     ));
 }
 
@@ -258,7 +258,7 @@ async fn resource_start_failure_prevents_loop_poll_and_ready_with_original_os_er
         .unwrap();
     assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
         (original_ref).as_ref(),
-        (&original).as_ref()
+        original.as_ref()
     ));
     assert!(proxy
         .inbound_owners

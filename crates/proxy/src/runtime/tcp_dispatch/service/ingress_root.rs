@@ -21,8 +21,8 @@ use zero_platform_tokio::contract::{
 use std::{net::SocketAddr, sync::Mutex};
 #[cfg(test)]
 pub(super) struct Evidence {
-    pub(super) local: SocketAddr,
-    pub(super) peer: SocketAddr,
+    pub(super) _local: SocketAddr,
+    pub(super) _peer: SocketAddr,
 }
 pub(super) struct RootOpener {
     pub(super) services: UpstreamConnectServices,

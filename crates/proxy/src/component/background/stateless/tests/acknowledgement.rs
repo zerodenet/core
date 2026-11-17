@@ -8,7 +8,7 @@ async fn same_taskless_record_keeps_n1_through_real_business_join_and_deferred_h
         let peer = listener.local_addr().unwrap();
         let endpoint = Destination::new(Address::Ipv4([127, 0, 0, 1]), peer.port());
         let server = tokio::spawn(async move {
-            for expected in [b'b', b's'] {
+            for &expected in b"bs" {
                 let (mut io, _) = listener.accept().await.unwrap();
                 let mut bytes = [0];
                 io.read_exact(&mut bytes).await.unwrap();

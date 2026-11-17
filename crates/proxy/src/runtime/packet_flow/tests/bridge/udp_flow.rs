@@ -139,10 +139,6 @@ impl ManagedTupleUdpFlowConnection for PacketUdpFlow {
     fn subscribe_responses(&self) -> broadcast::Receiver<Response> {
         self.responses.subscribe()
     }
-
-    fn closed_message(&self) -> &'static str {
-        "raw-IP UDP flow closed"
-    }
 }
 
 async fn run_flow(

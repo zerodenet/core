@@ -81,6 +81,10 @@ fn paid_key_clones_and_existing_flow_lookup_need_no_new_domain_under_root_pressu
     let key = UdpFlowKey::new_with_metadata(&address, 443, Some(7), Some(&memory)).unwrap();
     let cloned = key.clone();
     let occupied = memory.snapshot().occupied;
+    #[expect(
+        clippy::mutable_key_type,
+        reason = "the paid key contains lifetime accounting only; its address identity is immutable"
+    )]
     let mut map = HashMap::new();
     map.insert(key, 17u64);
     let limit = memory.snapshot().limit;

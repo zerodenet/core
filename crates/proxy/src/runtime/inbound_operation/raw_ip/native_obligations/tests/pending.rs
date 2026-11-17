@@ -94,8 +94,10 @@ async fn actual(bound_receiver: bool) {
             assert!(held.retains(&adoption));assert!(receiver.original.retained_driver().is_none());
             assert!(registration.settle_pending(Instant::now()+Duration::from_secs(2)).await.unwrap());
             assert!(adoption.closed().is_none(),"pending donor must remain owned by the actual bound receiver");
-            let state=native.0.lock().unwrap();let record=state.records.get(&registration.id).unwrap();
-            assert!(record.pending_carriers.is_empty());assert!(record.carrier.as_ref().unwrap().same_slot(&receiver.original));drop(state);
+            {
+                let state=native.0.lock().unwrap();let record=state.records.get(&registration.id).unwrap();
+                assert!(record.pending_carriers.is_empty());assert!(record.carrier.as_ref().unwrap().same_slot(&receiver.original));
+            }
             assert!(receiver.owner.shutdown(Instant::now()+Duration::from_secs(2)).await.unwrap().is_complete());
             assert!(receiver.scope.shutdown(Instant::now()+Duration::from_secs(2)).await.is_complete());
             assert!(receiver.original.closed().unwrap().matches(&receiver.original));

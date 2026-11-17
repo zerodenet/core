@@ -119,9 +119,4 @@ impl PacketPathExecutionServices {
     pub(crate) fn tcp(&self) -> TcpExecutionServices {
         self.tcp.clone()
     }
-
-    #[cfg(test)]
-    pub(crate) fn network(&self) -> UdpNetworkServices {
-        self.network.clone()
-    }
 }

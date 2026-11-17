@@ -6,10 +6,12 @@ fn options(
     conversations: usize,
     observations: usize,
 ) -> crate::runtime::raw_ip::RawIpStackOptions {
-    let mut config = zero_config::RuntimeOptionsConfig::default();
-    config.packet_return_max_routes = Some(routes);
-    config.packet_return_max_conversations = Some(conversations);
-    config.packet_return_max_observations = Some(observations);
+    let config = zero_config::RuntimeOptionsConfig {
+        packet_return_max_routes: Some(routes),
+        packet_return_max_conversations: Some(conversations),
+        packet_return_max_observations: Some(observations),
+        ..Default::default()
+    };
     crate::runtime::raw_ip::RawIpStackOptions::default().with_packet_return_rows(&config)
 }
 #[tokio::test]

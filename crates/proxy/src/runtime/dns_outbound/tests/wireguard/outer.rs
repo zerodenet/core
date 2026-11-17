@@ -120,7 +120,12 @@ async fn standalone_outer_doh_shares_real_pool_while_one_query_cancels_and_physi
         leases(&client.proxy, 0).await;
         assert_eq!(tls.connections.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert!(!actual.task.is_joined() && child.closed().is_none());
-        client.close(&[child.clone()], &[actual.task.clone()]).await;
+        client
+            .close(
+                std::slice::from_ref(&child),
+                std::slice::from_ref(&actual.task),
+            )
+            .await;
         peer.close().await;
         tls.close().await;
     })

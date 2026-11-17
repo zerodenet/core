@@ -105,7 +105,6 @@ async fn relay_browser(mut browser: Agent, roots: rustls::RootCertStore) {
 struct Actual {
     owner: CarrierOwnerRegistration,
     role: CarrierOriginObservation,
-    ordinal: u64,
     source: CarrierOrigin,
 }
 fn capture(client: &Running) -> Actual {
@@ -155,7 +154,6 @@ fn capture(client: &Running) -> Actual {
     Actual {
         owner,
         role: role.original().clone(),
-        ordinal: role.ordinal(),
         source,
     }
 }

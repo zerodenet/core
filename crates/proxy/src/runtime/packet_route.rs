@@ -18,20 +18,20 @@ pub(crate) use standard::PacketRoleSessions;
 #[derive(Debug)]
 pub(crate) struct PacketForwardObservation {
     pub(crate) response: Option<Vec<u8>>,
-    pub(crate) peer_identity: Option<std::sync::Arc<str>>,
+    pub(crate) _peer_identity: Option<std::sync::Arc<str>>,
 }
 #[cfg(test)]
 impl PacketForwardObservation {
     pub(crate) fn local(response: Option<Vec<u8>>) -> Self {
         Self {
             response,
-            peer_identity: None,
+            _peer_identity: None,
         }
     }
     pub(crate) fn forwarded(peer_identity: Option<std::sync::Arc<str>>) -> Self {
         Self {
             response: None,
-            peer_identity,
+            _peer_identity: peer_identity,
         }
     }
 }

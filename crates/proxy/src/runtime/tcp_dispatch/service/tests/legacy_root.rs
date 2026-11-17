@@ -28,7 +28,10 @@ pub(super) fn open<'a>(
         *root
             .evidence
             .lock()
-            .expect("DNS service root evidence poisoned") = Some(Evidence { local, peer });
+            .expect("DNS service root evidence poisoned") = Some(Evidence {
+            _local: local,
+            _peer: peer,
+        });
         Ok(Box::pin(socket) as BoxStream)
     })
 }

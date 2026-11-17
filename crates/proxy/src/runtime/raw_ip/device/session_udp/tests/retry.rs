@@ -1,5 +1,9 @@
 //! Actual second UDP open and output over the same Source/Root after cleanup.
 use super::*;
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the retry retains each distinct original caller, wire, users, memory and destination explicitly"
+)]
 pub(super) async fn actual_retry(
     grant: zero_platform_tokio::contract::component::PacketDriverCallGrant,
     wire: &zero_platform_tokio::contract::scope::TaskJoinWitness,

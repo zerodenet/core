@@ -7,7 +7,7 @@ use zero_core::component::RoleInstanceId;
 #[cfg(test)]
 pub(crate) struct ServiceConnected {
     pub(crate) stream: zero_platform_tokio::contract::stream::BoxStream,
-    pub(crate) binding: ServiceBinding,
+    pub(crate) _binding: ServiceBinding,
 }
 #[derive(Debug)]
 struct Hop {

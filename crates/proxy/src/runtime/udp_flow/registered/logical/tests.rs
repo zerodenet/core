@@ -26,9 +26,6 @@ impl ManagedTupleUdpFlowConnection for SessionFlow {
     fn subscribe_responses(&self) -> broadcast::Receiver<Packet> {
         self.responses.subscribe()
     }
-    fn closed_message(&self) -> &'static str {
-        "test session closed"
-    }
 }
 fn connection() -> (
     LogicalConnection,

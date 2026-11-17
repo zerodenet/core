@@ -96,6 +96,6 @@ async fn chain(
         .ok_or_else(|| failure(Reason::Internal))?;
     Ok(ServiceConnected {
         stream: io,
-        binding: ServiceBinding::new(&nodes, destination.clone(), generation, network_updates)?,
+        _binding: ServiceBinding::new(&nodes, destination.clone(), generation, network_updates)?,
     })
 }

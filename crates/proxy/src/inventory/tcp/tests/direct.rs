@@ -130,7 +130,7 @@ async fn ordinary_direct_probe_retains_the_original_os_cause_without_a_raw_conne
             .apply_runtime_config_and_wait(config,Duration::from_secs(5)).await.unwrap();
         let runtime=crate::runtime::outbound_probe::OutboundProbeRuntime::new(proxy.tcp_runtime_services());
         let request=crate::runtime::outbound_probe::OutboundProbeRequest::parse(&format!("http://{endpoint}/actual")).unwrap();
-        let error=runtime.probe_target_tag("named",&request).await.err().expect("same actual controlled connect refusal");
+        let error=runtime.probe_target_tag("named",&request).await.expect_err("same actual controlled connect refusal");
         let mut pending=vec![&error as &(dyn std::error::Error+'static)];let mut found=false;
         let mut inspected=0;
         while let Some(source)=pending.pop() {

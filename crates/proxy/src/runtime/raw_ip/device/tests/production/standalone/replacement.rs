@@ -93,7 +93,7 @@ async fn ordinary_standalone_wireguard_rebuilds_after_actual_users_wire_ack_and_
             .test_packet_source_origins(proxy.engine().config().as_ref())
             .remove(0);
         assert!(!current.same_original(&original));
-        assert!(!current.driver().unwrap().same_registration(&old_wire));
+        assert!(!current.driver().unwrap().same_registration(old_wire));
         assert!(current.closed().is_none());
         let mut stopped = [0];
         let result = tokio::time::timeout_at(end(), client.read(&mut stopped))

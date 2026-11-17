@@ -10,6 +10,4 @@ pub(crate) trait ManagedTupleUdpFlowConnection: Send + Sync + 'static {
         -> Result<usize, EngineError>;
 
     fn subscribe_responses(&self) -> tokio::sync::broadcast::Receiver<(Address, u16, Vec<u8>)>;
-
-    fn closed_message(&self) -> &'static str;
 }

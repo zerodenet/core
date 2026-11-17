@@ -27,7 +27,7 @@ async fn cancelling_before_quic_loan_delivery_waits_for_the_same_native_and_borr
                         },
                     };
                     assert!(size > 6 && bytes[0] & 0x80 != 0, "real QUIC Initial reached the original peer");
-                    let len = bytes[5] as usize; assert!(len >= 8 && len <= 20 && size >= 6 + len);
+                    let len = bytes[5] as usize; assert!((8..=20).contains(&len) && size >= 6 + len);
                     let connection = &bytes[6..6 + len];
                     // The old closed connection may have left another Initial
                     // in the real peer queue. It cannot establish the next

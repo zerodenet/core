@@ -84,7 +84,7 @@ async fn actual_peer_io_survives_primary_panic_and_cancelled_cleanup_until_its_r
         .is_err());
     assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
         (owner.failure.lock().unwrap().as_ref().unwrap()).as_ref(),
-        (&original).as_ref()
+        original.as_ref()
     ));
     assert_eq!(owner.report.lock().unwrap().failed_tasks.len(), 1);
     let _rebound = UdpSocket::bind(address).await.unwrap();

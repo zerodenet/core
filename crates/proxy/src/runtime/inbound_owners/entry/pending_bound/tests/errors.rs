@@ -30,7 +30,7 @@ async fn actual_tcp_close_preserves_genuine_preparation_failure_until_supervisor
     assert!(!crate::runtime::inbound_owners::preparation_stopped(&error));
     assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
         (owner.failure.lock().unwrap().as_ref().unwrap()).as_ref(),
-        (&failure).as_ref()
+        failure.as_ref()
     ));
     let receipt = proxy
         .inbound_owners
@@ -41,8 +41,8 @@ async fn actual_tcp_close_preserves_genuine_preparation_failure_until_supervisor
     assert_eq!(receipt.terminal().joined_tasks(), 0);
     assert_eq!(receipt.terminal().closed_io_receipts(), 1);
     assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
-        (&receipt.terminal().failure().unwrap()).as_ref(),
-        (&failure).as_ref()
+        receipt.terminal().failure().unwrap().as_ref(),
+        failure.as_ref()
     ));
     assert!(TcpListener::bind(address).await.is_ok());
     let identity = owner.identity();
@@ -72,8 +72,8 @@ async fn actual_tcp_close_preserves_genuine_preparation_failure_until_supervisor
         .inbound_owners
         .release_closed_reported(retry, |terminal| {
             assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
-                (&terminal.failure().unwrap()).as_ref(),
-                (&failure).as_ref()
+                terminal.failure().unwrap().as_ref(),
+                failure.as_ref()
             ));
             Ok(())
         })

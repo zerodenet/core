@@ -189,21 +189,6 @@ impl<T: TaskOutput> RetainedTasks<T> {
     }
     /// Let an existing I/O driver supervise one original child without a
     /// detached monitor. Cancellation leaves its handle in this same JoinSet.
-    pub(crate) async fn wait_one(&self) -> Result<bool, ChannelError> {
-        let mut tasks = self.inner.tasks.lock().await;
-        let result = tasks.join_next_with_id().await;
-        let joined = result.is_some();
-        if let Some(result) = result {
-            self.joined(result);
-        }
-        // Only the original failure is exposed; this is not a resource/close
-        // receipt while other children may still occupy the set.
-        if let Some(error) = self.fault_error() {
-            Err(error)
-        } else {
-            Ok(joined)
-        }
-    }
     fn joined(&self, result: Result<(tokio::task::Id, T), JoinError>) {
         match result {
             Ok((id, output)) => {

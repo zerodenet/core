@@ -231,8 +231,8 @@ async fn bound_peer_native_close_continues_after_real_mapping_error_and_cancelle
         .release_closed(receipt, |terminal| Ok(terminal.failure().unwrap()))
         .unwrap();
     assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
-        (&retained).as_ref(),
-        (&handed_off).as_ref()
+        retained.as_ref(),
+        handed_off.as_ref()
     ));
     assert!(live.finish().await.is_err());
 }

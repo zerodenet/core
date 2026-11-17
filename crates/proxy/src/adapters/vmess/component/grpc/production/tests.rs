@@ -40,8 +40,10 @@ fn whole_node_projection_removes_legacy_tcp_for_native_relay_and_single_nodes() 
     use zero_platform_tokio::contract::component::{
         ComponentFactory, ResourceDeclaration, RoleKind,
     };
-    let mut adapter = crate::adapters::vmess::VmessAdapter::default();
-    adapter.native_node_dns = true;
+    let adapter = crate::adapters::vmess::VmessAdapter {
+        native_node_dns: true,
+        ..Default::default()
+    };
     for groups in [
         serde_json::json!([]),
         serde_json::json!([

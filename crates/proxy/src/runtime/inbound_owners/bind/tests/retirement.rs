@@ -56,8 +56,8 @@ async fn promotion_failure_retains_native_owner_and_exact_fault_until_confirmed_
                 assert_eq!(terminal.joined_tasks(), 0);
                 assert_eq!(terminal.closed_io_receipts(), 1);
                 assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
-                    (&terminal.failure().unwrap()).as_ref(),
-                    (&failure).as_ref()
+                    terminal.failure().unwrap().as_ref(),
+                    failure.as_ref()
                 ));
                 Err(std::io::Error::other("supervisor receipt delivery failed").into())
             },
@@ -75,8 +75,8 @@ async fn promotion_failure_retains_native_owner_and_exact_fault_until_confirmed_
             Instant::now() + Duration::from_secs(2),
             |terminal| {
                 assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
-                    (&terminal.failure().unwrap()).as_ref(),
-                    (&failure).as_ref()
+                    terminal.failure().unwrap().as_ref(),
+                    failure.as_ref()
                 ));
                 panic!("actual supervisor publication interrupted");
             },
@@ -93,8 +93,8 @@ async fn promotion_failure_retains_native_owner_and_exact_fault_until_confirmed_
             |terminal| {
                 assert_eq!(terminal.closed_io_receipts(), 1);
                 assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
-                    (&terminal.failure().unwrap()).as_ref(),
-                    (&failure).as_ref()
+                    terminal.failure().unwrap().as_ref(),
+                    failure.as_ref()
                 ));
                 Ok(())
             },

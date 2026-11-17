@@ -6,14 +6,6 @@ mod model;
         feature = "managed-datagram-runtime"
     )
 ))]
-mod response;
-#[cfg(all(
-    test,
-    any(
-        feature = "managed-stream-runtime",
-        feature = "managed-datagram-runtime"
-    )
-))]
 mod tuple;
 
 #[cfg(all(

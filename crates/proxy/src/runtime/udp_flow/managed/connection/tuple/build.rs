@@ -15,10 +15,6 @@ impl<T> ManagedTupleUdpSender for ManagedTupleUdpFlowSender<T>
 where
     T: ManagedTupleUdpFlowConnection,
 {
-    fn is_closed(&self) -> bool {
-        self.connection.is_closed()
-    }
-
     async fn send(
         &self,
         target: &Address,
@@ -26,14 +22,6 @@ where
         payload: &[u8],
     ) -> Result<usize, EngineError> {
         self.connection.send(target, port, payload).await
-    }
-
-    fn subscribe_responses(&self) -> tokio::sync::broadcast::Receiver<(Address, u16, Vec<u8>)> {
-        self.connection.subscribe_responses()
-    }
-
-    fn closed_message(&self) -> &'static str {
-        self.connection.closed_message()
     }
 }
 

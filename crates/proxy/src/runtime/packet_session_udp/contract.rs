@@ -9,6 +9,10 @@ pub(crate) struct PacketSessionUdpRelayRequest<'a, H> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    dead_code,
+    reason = "test-only legacy relay contract retains the distinct error-policy cases"
+)]
 pub(crate) enum PacketSessionUdpFailurePolicy {
     ReturnError,
     #[cfg(feature = "managed-stream-runtime")]
@@ -16,6 +20,10 @@ pub(crate) enum PacketSessionUdpFailurePolicy {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    dead_code,
+    reason = "test-only legacy relay contract retains the distinct read-failure cases"
+)]
 pub(crate) enum PacketSessionUdpReadFailureAction {
     #[cfg(feature = "managed-stream-runtime")]
     Continue,
@@ -27,6 +35,10 @@ pub(crate) struct PacketSessionUdpReadFailure {
     pub(crate) action: PacketSessionUdpReadFailureAction,
 }
 
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the actual dispatch stays inline in this test-only relay contract"
+)]
 pub(crate) enum PacketSessionUdpReadResult {
     Dispatch(InboundUdpDispatch),
     End,

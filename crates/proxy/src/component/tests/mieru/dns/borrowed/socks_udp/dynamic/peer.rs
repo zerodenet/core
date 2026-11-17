@@ -60,13 +60,13 @@ impl Peer {
                                 Address::Domain(_) => panic!("fixture's Mieru physical target is literal"),
                             };
                             relay.send_to(packet.payload(), target).await.unwrap();
-                        } else {
+                        } else if let Some(client) = client {
                             let source = match peer.ip() {
                                 std::net::IpAddr::V4(ip) => Address::Ipv4(ip.octets()),
                                 std::net::IpAddr::V6(ip) => Address::Ipv6(ip.octets()),
                             };
                             let encoded = codec.encode_response_to_client(&source, peer.port(), &bytes[..size]).unwrap();
-                            relay.send_to(&encoded, client.unwrap()).await.unwrap();
+                            relay.send_to(&encoded, client).await.unwrap();
                         }
                     }
                 }

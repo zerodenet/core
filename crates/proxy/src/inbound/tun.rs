@@ -517,7 +517,7 @@ impl Proxy {
         self.stop_tun_internal(true).await
     }
 
-    #[cfg(any(test, not(feature = "raw-ip-runtime")))]
+    #[cfg(not(feature = "raw-ip-runtime"))]
     async fn prepare_tun_network(
         &self,
         auto_route: bool,
@@ -546,7 +546,7 @@ impl Proxy {
         })
     }
 
-    #[cfg(any(test, not(feature = "raw-ip-runtime")))]
+    #[cfg(not(feature = "raw-ip-runtime"))]
     async fn prepare_tun_dns_hijack(
         &self,
         requested: bool,

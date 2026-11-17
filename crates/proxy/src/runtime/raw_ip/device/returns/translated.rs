@@ -112,25 +112,6 @@ impl PacketReturns {
         false
     }
 
-    #[cfg(test)]
-    pub(crate) fn translate(
-        &self,
-        packet: &[u8],
-        local: IpAddr,
-        replies: zero_stack::packet_output::PacketSender,
-        observer: Option<Arc<dyn zero_traits::IoObserver>>,
-    ) -> io::Result<Vec<u8>> {
-        self.translated
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .request(
-                packet,
-                local,
-                TranslatedReturn { replies, observer },
-                Instant::now(),
-            )
-    }
-
     pub(crate) fn translate_owned(
         &self,
         packet: zero_traits::PacketBuffer,

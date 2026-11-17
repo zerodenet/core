@@ -113,11 +113,11 @@ impl PacketFlowAdapter {
         Err(last_error.unwrap_or_else(|| invalid("no target IP")))
     }
 
-    pub(crate) fn prepare_tcp(&self) -> Box<super::tcp::PacketTcpOperation> {
+    pub(super) fn prepare_tcp(&self) -> Box<super::tcp::PacketTcpOperation> {
         Box::new(super::tcp::PacketTcpOperation(self.clone()))
     }
 
-    pub(crate) fn prepare_udp(&self) -> Box<super::udp::PacketUdpOperation> {
+    pub(super) fn prepare_udp(&self) -> Box<super::udp::PacketUdpOperation> {
         Box::new(super::udp::PacketUdpOperation(self.clone()))
     }
 }

@@ -61,8 +61,7 @@ async fn packet_chain(domain_bnd: bool) {
             let wire=socks5::udp::Socks5InboundUdpCodec;
             let mut buffer=[0u8;65536];
             let mut original_sender=None;
-            let mut packet=0usize;
-            for (target,expected) in [(1,b"first".as_slice()),(2,b"".as_slice()),(2,b"still-live".as_slice())] {
+                        for (packet,(target,expected)) in [(1,b"first".as_slice()),(2,b"".as_slice()),(2,b"still-live".as_slice())].into_iter().enumerate() {
                 peer_phase.store(10*packet+3,Ordering::SeqCst);
                 let (size,sender)=physical.recv_from(&mut buffer).await.unwrap(); peer_phase.store(10*packet+4,Ordering::SeqCst);
                 if let Some(original)=original_sender {assert_eq!(sender,original);}original_sender=Some(sender);
@@ -73,7 +72,7 @@ async fn packet_chain(domain_bnd: bool) {
                 peer_phase.store(10*packet+6,Ordering::SeqCst);
                 let response=codec.encode(&address,port,expected).unwrap();
                 let response=wire.encode_response_to_client(outer.target(),outer.port(),&response).unwrap();
-                physical.send_to(&response,sender).await.unwrap(); peer_phase.store(10*packet+7,Ordering::SeqCst);packet+=1;
+                physical.send_to(&response,sender).await.unwrap(); peer_phase.store(10*packet+7,Ordering::SeqCst);
             }
             let mut tail=Vec::new();control.read_to_end(&mut tail).await.unwrap();assert!(tail.is_empty());control.shutdown().await.unwrap();
         });
@@ -171,7 +170,7 @@ async fn receive_observed(
                 ))
                 .collect::<Vec<_>>()
         );
-        if let Some(plan) = proxy.tcp_runtime_services().components.as_ref().ok() {
+        if let Ok(plan) = proxy.tcp_runtime_services().components.as_ref() {
             if let Some(owner) = plan
                 .configured("carrier")
                 .and_then(|slot| slot.original_carrier_owner(0))

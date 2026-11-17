@@ -2,7 +2,7 @@
 use super::*;
 use tokio::net::UdpSocket;
 #[path = "rejection/scope.rs"]
-mod rejection;
+mod scope;
 #[tokio::test]
 async fn multiple_standard_loan_cannot_be_adopted_as_fixed_bnd_and_keeps_actual_auxiliary_ack() {
     tokio::time::timeout(Duration::from_secs(3), async {
@@ -60,7 +60,7 @@ async fn multiple_standard_loan_cannot_be_adopted_as_fixed_bnd_and_keeps_actual_
         }
         let originals = [actual.slots()[0].original().clone(), actual.slots()[1].original().clone()];
         let parent = loan.owner.retained_related_control_for_test().expect("same original negotiated TCP control").clone();
-        rejection::reject_fixed_bnd(&proxy, slot.role_id(), parent, endpoint, UpstreamBinding { prefix: vec![], dial: Default::default(), network_generation: NetworkGeneration(services.upstream().network_generation()) }, CarrierContext { session: None, deadline: Some(end), cancel: CancellationToken::new() }, loan).await;
+        scope::reject_fixed_bnd(&proxy, slot.role_id(), parent, endpoint, UpstreamBinding { prefix: vec![], dial: Default::default(), network_generation: NetworkGeneration(services.upstream().network_generation()) }, CarrierContext { session: None, deadline: Some(end), cancel: CancellationToken::new() }, loan).await;
         loop {
             if originals.iter().all(|original| original.closed().is_some()) && physical.observe().unwrap().slots().is_empty() { break; }
             tokio::task::yield_now().await;

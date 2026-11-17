@@ -97,8 +97,8 @@ async fn same_private_join_cell_retains_original_exit_without_retaining_the_peer
         "join observation does not invent native receipts"
     );
     assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
-        (&original).as_ref(),
-        (&receipt.terminal().failure().unwrap()).as_ref()
+        original.as_ref(),
+        receipt.terminal().failure().unwrap().as_ref()
     ));
     assert!(proxy
         .inbound_owners
