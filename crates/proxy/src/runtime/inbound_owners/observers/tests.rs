@@ -81,6 +81,9 @@ fn an_interrupted_retirement_keeps_the_exact_current_fault_without_history() {
 
 mod wake;
 
+#[cfg(feature = "raw-ip-runtime")]
+mod system_tun;
+
 #[tokio::test]
 async fn empty_observer_set_preserves_pre_observer_native_acquisition_until_real_cleanup() {
     let proxy = super::super::bind::tests::proxy();
