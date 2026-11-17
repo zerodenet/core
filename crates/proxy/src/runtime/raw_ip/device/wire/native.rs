@@ -25,7 +25,7 @@ struct NativeWireGrant {
 )]
 enum WireInputOriginal {
     Bound(zero_platform_tokio::contract::component::BoundDatagramSocket),
-    Logical(Arc<super::super::super::carrier::RegisteredProxiedRawIpWireCarrier>),
+    Logical(Arc<dyn RawIpWireCarrier>),
 }
 pub(in crate::runtime::raw_ip::device) struct WireReads {
     pub reads: [NativeReadGrant; 2],
@@ -148,7 +148,7 @@ impl PendingNativeWire {
     }
     pub(crate) fn install_logical(
         self,
-        path: Arc<super::super::super::carrier::RegisteredProxiedRawIpWireCarrier>,
+        path: Arc<dyn RawIpWireCarrier>,
         reads: [NativeReadGrant; 2],
         control: NativeReadGrant,
         driver: TaskJoinWitness,

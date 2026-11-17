@@ -2,6 +2,18 @@
 use super::*;
 #[async_trait]
 impl RawIpWireCarrier for RegisteredProxiedRawIpWireCarrier {
+    fn matches_driver(&self, driver: &TaskJoinWitness) -> bool {
+        Self::matches_driver(self, driver)
+    }
+    fn retirement_complete(&self) -> bool {
+        Self::retirement_complete(self)
+    }
+    fn request_stop(&self) {
+        Self::request_stop(self)
+    }
+    async fn initialize(&self) -> Result<(), EngineError> {
+        Self::initialize(self).await
+    }
     fn stop_background(&self) -> Option<CarrierWorkerCompletion> {
         self.state.stop();
         let state = self.state.clone();

@@ -16,7 +16,7 @@ pub(super) struct Original {
         )>,
     >,
     codecs: PacketCodecReceiveGroups,
-    carrier: OnceLock<Arc<crate::runtime::raw_ip::RegisteredProxiedRawIpWireCarrier>>,
+    carrier: OnceLock<Arc<dyn crate::runtime::raw_ip::RawIpWireCarrier>>,
 }
 impl StandaloneStackOptions {
     #[expect(
@@ -197,7 +197,7 @@ impl StandaloneStackOptions {
                             .map_err(std::io::Error::other)?
                             .with_prepaid_receive(original.codecs.clone())
                             .map_err(std::io::Error::other)?;
-                        let carrier = Arc::new(
+                        let carrier: Arc<dyn crate::runtime::raw_ip::RawIpWireCarrier> = Arc::new(
                             crate::runtime::raw_ip::RegisteredProxiedRawIpWireCarrier::prepare(
                                 path.recipe.clone(),
                                 execution,
@@ -262,7 +262,6 @@ impl Original {
         &self,
         deadline: tokio::time::Instant,
     ) -> Result<(), EngineError> {
-        use crate::runtime::raw_ip::RawIpWireCarrier;
         match self.carrier.get() {
             Some(carrier) => tokio::time::timeout_at(deadline, carrier.close_native())
                 .await

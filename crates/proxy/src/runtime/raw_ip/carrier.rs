@@ -41,6 +41,22 @@ pub(crate) type CarrierWorkerCompletion =
 
 #[async_trait]
 pub(crate) trait RawIpWireCarrier: Send + Sync {
+    /// Logical handoff uses the actual installed controller through this same
+    /// erased carrier. Other native carriers cannot qualify a logical input.
+    fn matches_driver(&self, _: &zero_platform_tokio::contract::scope::TaskJoinWitness) -> bool {
+        false
+    }
+    fn retirement_complete(&self) -> bool {
+        false
+    }
+    fn request_stop(&self) {}
+    async fn initialize(&self) -> Result<(), EngineError> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "carrier has no logical original initializer",
+        )
+        .into())
+    }
     /// Synchronously fence/cancel this carrier's original background work,
     /// returning a waiter for actual joins. None is an unmigrated task graph,
     /// never successful cleanup. A worker join proves no native I/O close.
