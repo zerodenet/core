@@ -47,10 +47,8 @@ impl Attempt {
                     .with_source(error));
                 }
             }
-            if let Err(result) = reply.send(result) {
-                if let Err(error) = result {
-                    lock(&original.faults.abandoned).get_or_insert_with(|| Arc::new(error));
-                }
+            if let Err(Err(error)) = reply.send(result) {
+                lock(&original.faults.abandoned).get_or_insert_with(|| Arc::new(error));
             }
             Ok(())
         });

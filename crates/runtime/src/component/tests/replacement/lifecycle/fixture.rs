@@ -101,6 +101,14 @@ impl ResourceLifecycle for Owner {
             .spawn_tracked(TaskClass::Auxiliary, async move {
                 let _ = wait.await;
                 Ok(())
+            })
+            .map_err(|source| {
+                zero_platform_tokio::contract::ChannelError::new(
+                    zero_platform_tokio::contract::Stage::Prepare,
+                    zero_platform_tokio::contract::Reason::Capacity,
+                    zero_platform_tokio::contract::Impact::Component,
+                )
+                .with_source(source)
             })?;
         self.release = Some(release);
         self.caller = Some(caller.clone());

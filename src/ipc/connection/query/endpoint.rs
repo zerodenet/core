@@ -24,14 +24,13 @@ pub(super) fn prepare(
         {
             Ok(guard) => {
                 let view = guard.freeze(&mut workspace)?;
-                let encoded = super::super::super::owner::encode_response(
+                super::super::super::owner::encode_response(
                     &ApiResponse::ok_with_id(id, view),
                     budget,
                     &mut storage,
                     false,
                     true,
-                );
-                encoded
+                )
             }
             Err(error) => super::super::super::owner::encode_response(
                 &super::super::super::owner::BorrowedMessageResponse::new(

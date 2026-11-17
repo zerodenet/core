@@ -16,6 +16,10 @@ mod endpoint;
 mod filter;
 
 /// Handle POST /api/v1/commands.
+#[expect(
+    clippy::result_large_err,
+    reason = "retain the prepaid HTTP error body without another unbudgeted Box"
+)]
 pub async fn commands(
     handle: &ProxyHandle,
     body: &[u8],
@@ -61,6 +65,10 @@ pub async fn commands(
 /// Returns `(subscriber, catch_up_events)`.  `catch_up_events` contains
 /// missed events when the client provides `?since=<seq>` or
 /// `Last-Event-ID: <seq>`.
+#[expect(
+    clippy::result_large_err,
+    reason = "retain the prepaid HTTP error body without another unbudgeted Box"
+)]
 pub fn events_stream(
     handle: &ProxyHandle,
     query: &str,

@@ -44,6 +44,10 @@ impl std::ops::Deref for HeldRequest {
         &self.request
     }
 }
+#[expect(
+    clippy::needless_late_init,
+    reason = "declare prepaid decoding storage before its actual body so error exits free body backing before refund"
+)]
 pub(super) async fn read_request(
     stream: &mut (impl tokio::io::AsyncRead + Unpin),
     budget: &Arc<ControlBudget>,

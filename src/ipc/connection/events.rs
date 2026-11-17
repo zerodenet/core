@@ -5,6 +5,10 @@ struct QueuedFrame {
     _bytes: ControlBudgetPermit,
     _slot: zero_runtime::configuration::ControlConnectionPermit,
 }
+#[expect(
+    clippy::large_enum_variant,
+    reason = "retain the actual prepaid event inline without an extra unbudgeted allocation"
+)]
 enum Pending {
     Initial(
         super::super::owner::EncodedEvent,
