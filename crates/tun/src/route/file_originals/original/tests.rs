@@ -3,6 +3,32 @@ use crate::packet_memory::PacketReturnTotals;
 use std::sync::Arc;
 #[test]
 fn same_original_close_unknown_never_retries_and_both_causes_survive() {
+    // Foreign invalidation deliberately leaves a stale numeric handle in the
+    // original controller. Keep it out of the parallel harness: another test
+    // could acquire that same OS number before this one checks its close.
+    const ISOLATED: &str = "ZERO_ROUTE_CLOSE_UNKNOWN_ISOLATED";
+    if std::env::var_os(ISOLATED).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "route::file_originals::original::tests::same_original_close_unknown_never_retries_and_both_causes_survive",
+                "--test-threads=1",
+            ])
+            .env(ISOLATED, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "isolated original close failed: {}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("1 passed; 0 failed"),
+            "the isolated harness must execute the original close regression"
+        );
+        return;
+    }
     let root = Arc::new(PacketReturnTotals::default());
     let view = root.driver_metadata_view();
     let baseline = root.driver_metadata().occupied;

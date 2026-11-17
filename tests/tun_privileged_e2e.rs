@@ -1379,10 +1379,25 @@ fn assert_tcp_through_tun(target: SocketAddr) {
     stream
         .write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n")
         .unwrap();
-    let mut response = [0_u8; 32];
-    let size = stream
-        .read(&mut response)
-        .unwrap_or_else(|error| panic!("read HTTP response from {target}: {error}"));
+    // Connection: close is part of this probe's contract. Consume the real
+    // peer EOF instead of resetting a live response after its first 32 bytes,
+    // then racing Source retirement against those unfinished original users.
+    let mut response = [0_u8; 4096];
+    let mut size = 0;
+    loop {
+        let count = stream
+            .read(&mut response)
+            .unwrap_or_else(|error| panic!("read HTTP response from {target}: {error}"));
+        if count == 0 {
+            break;
+        }
+        size += count;
+        assert!(
+            size <= 1024 * 1024,
+            "HTTP probe exceeded its 1 MiB response bound"
+        );
+    }
+    stream.shutdown(std::net::Shutdown::Write).unwrap();
     assert!(
         size > 0,
         "TCP target {target} returned no bytes through TUN"
