@@ -84,7 +84,6 @@ impl CurrentServiceSource {
             .upgrade()
             .ok_or_else(|| unavailable("proxy runtime is shutting down"))
     }
-    #[cfg(feature = "raw-ip-runtime")]
     /// Observe retained cleanup custody without preparing the Engine's pending
     /// configuration or admitting a caller against a historical role.
     pub(crate) fn validate_owned_carrier_adoption(
