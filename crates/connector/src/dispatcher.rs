@@ -695,9 +695,7 @@ where
             );
         }
         refresh_pending_stats(stats, &pending, &workers, outbox.as_ref());
-        source_budget
-            .paused
-            .store(!blocked_events.is_empty(), Ordering::Relaxed);
+        source_budget.set_paused(!blocked_events.is_empty());
 
         if shutting_down {
             let has_in_flight = workers.iter().any(|worker| worker.in_flight.is_some());

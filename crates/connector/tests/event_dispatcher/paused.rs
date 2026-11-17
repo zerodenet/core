@@ -73,7 +73,13 @@ async fn failed_original_preparation_is_retained_and_joined_before_replacement()
     );
     assert!(original.wait_ready().await.is_err());
     let failure = original.original_preparation_failure().unwrap();
-    assert!(original.retire_prepared_retained().await.unwrap().is_none());
+    let Err(zero_connector::ConnectorError::DispatcherRetirement(retired)) =
+        original.retire_prepared_retained().await
+    else {
+        panic!("original preparation failure was not retained");
+    };
+    assert!(retired.is_only_preparation(&failure));
+    assert!(original.retirement_complete());
     assert!(Arc::ptr_eq(
         &failure,
         &original.original_preparation_failure().unwrap()

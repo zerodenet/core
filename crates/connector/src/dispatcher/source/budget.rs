@@ -75,13 +75,16 @@ impl SourceBudget {
     }
     #[cfg(feature = "kernel-events")]
     pub(super) fn pause_replay(&self) {
-        self.paused.store(true, Ordering::Release);
-        self.changed.notify_waiters();
+        self.set_paused(true);
     }
     #[cfg(feature = "kernel-events")]
     pub(super) fn resume_live(&self) {
-        self.paused.store(false, Ordering::Release);
-        self.changed.notify_waiters();
+        self.set_paused(false);
+    }
+    pub(in crate::dispatcher) fn set_paused(&self, paused: bool) {
+        if self.paused.swap(paused, Ordering::AcqRel) != paused {
+            self.changed.notify_waiters();
+        }
     }
     #[cfg(feature = "kernel-events")]
     pub(super) fn try_reserve_event(
@@ -147,3 +150,6 @@ impl Drop for SourceReservation {
             .fetch_sub(self.bytes, Ordering::Relaxed);
     }
 }
+
+#[cfg(test)]
+mod tests;
