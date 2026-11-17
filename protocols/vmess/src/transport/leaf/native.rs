@@ -8,8 +8,9 @@ impl VmessOutboundLeaf {
     pub(in crate::transport) async fn wrap_native_mux_carrier(
         &self,
         io: zero_transport::TcpRelayStream,
+        binding: &UpstreamBinding,
     ) -> Result<zero_transport::TcpRelayStream, RuntimeError> {
-        if self.mux_pool.borrows_layered_carrier()? {
+        if self.mux_pool.borrows_layered_carrier(binding)? {
             Ok(io)
         } else {
             self.transport
@@ -71,6 +72,7 @@ impl VmessOutboundLeaf {
             context.upstream.observed_pending_carrier(),
         ));
         let leaf = self.clone();
+        let carrier_binding = binding.clone();
         self.mux_pool
             .open_native(
                 key,
@@ -83,7 +85,7 @@ impl VmessOutboundLeaf {
                     let io = zero_transport::TcpRelayStream::new(
                         zero_transport::pooled_driver::ExclusiveIo::new(raw),
                     );
-                    leaf.wrap_native_mux_carrier(io).await
+                    leaf.wrap_native_mux_carrier(io, &carrier_binding).await
                 },
             )
             .await
@@ -106,13 +108,14 @@ impl VmessOutboundLeaf {
             context.upstream.observed_pending_carrier(),
         ));
         let leaf = self.clone();
+        let carrier_binding = binding.clone();
         let mut opened = self
             .mux_pool
             .open_native_udp(key, concurrency, binding, call, move |raw| async move {
                 let io = zero_transport::TcpRelayStream::new(
                     zero_transport::pooled_driver::ExclusiveIo::new(raw),
                 );
-                leaf.wrap_native_mux_carrier(io).await
+                leaf.wrap_native_mux_carrier(io, &carrier_binding).await
             })
             .await?;
         opened.io.observer = context.observer.clone();

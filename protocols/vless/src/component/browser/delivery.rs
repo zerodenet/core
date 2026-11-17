@@ -46,9 +46,10 @@ impl Owner {
         drop(removed);
     }
 }
+pub(super) type PreparedDelivery<T> = (Sender<T>, Receiver<T>, PacketMetadataWeak<Owner>);
 pub(super) fn prepare<T: Send + 'static>(
     memory: &PacketDriverMetadataView,
-) -> Result<(Sender<T>, Receiver<T>, PacketMetadataWeak<Owner>), ChannelError> {
+) -> Result<PreparedDelivery<T>, ChannelError> {
     let layout = PacketMetadataLayout::arc::<Data<T>>()
         .and_then(|data| data.checked_add(PacketMetadataArc::<Owner>::layout()?))
         .map_err(capacity)?;

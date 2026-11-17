@@ -182,6 +182,10 @@ impl MuxConnectionPool {
             original.origin().map_err(std::io::Error::other)?,
         )
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "preserve explicit protocol facts and independently owned caller, wire and resource bindings at this assembly boundary"
+    )]
     pub(crate) async fn open_native<S, F, Fut>(
         &self,
         key: PoolKey,

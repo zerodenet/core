@@ -69,7 +69,7 @@ impl Rx {
             return Ok(None);
         }
         let end = self.address_end.unwrap();
-        if self.bytes[end + 4..end + 6] != [b'\r', b'\n'] {
+        if self.bytes[end + 4..end + 6] != *b"\r\n" {
             return Err(self.error(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "Trojan UDP CRLF missing",

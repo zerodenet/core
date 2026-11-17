@@ -13,6 +13,7 @@ pub struct Rx {
     output: Option<memory::Output>,
     offset: usize,
     length: Option<usize>,
+    response_pending: bool,
     cancelled: BoxFuture<'static, ()>,
     _cancel_metadata: Option<zero_traits::packet_metadata::PacketMetadataCredit>,
     shared: SharedRef,
@@ -33,6 +34,7 @@ impl Rx {
             _cancel_metadata: cancel_metadata,
             offset: 0,
             length: None,
+            response_pending: true,
         }
     }
     fn packet(&mut self, cx: &mut Context<'_>) -> Poll<Result<Datagram, ChannelError>> {
@@ -69,13 +71,42 @@ impl DatagramRx for Rx {
             )));
         }
         loop {
+            if this.response_pending && this.offset >= 1 {
+                if let Err(source) = crate::shared::validate_response_version(this.bytes[0]) {
+                    if let Some(observer) = &this.shared.observer {
+                        observer.record(this.shared.session, ConnectFact::PeerRejected);
+                    }
+                    this.shared.stop(CloseReason::ProtocolFailure);
+                    return Poll::Ready(Err(this
+                        .shared
+                        .error(Stage::Handshake, Reason::Protocol, DeliveryState::Unknown)
+                        .with_source(source)));
+                }
+            }
             if this.offset == this.bytes.len() {
                 if this.length.is_none() {
-                    let len = u16::from_be_bytes([this.bytes[0], this.bytes[1]]) as usize;
+                    let len = if this.response_pending {
+                        this.bytes[1] as usize
+                    } else {
+                        u16::from_be_bytes([this.bytes[0], this.bytes[1]]) as usize
+                    };
                     this.length = Some(len);
                     this.bytes.resize(len + 2, 0);
                 }
                 if this.offset == this.bytes.len() {
+                    if this.response_pending {
+                        let wire = this.bytes.len();
+                        this.response_pending = false;
+                        this.bytes.clear();
+                        this.bytes.resize(2, 0);
+                        this.offset = 0;
+                        this.length = None;
+                        if let Some(observer) = &this.shared.observer {
+                            observer.record(this.shared.session, ConnectFact::PeerConfirmed);
+                            observer.protocol_traffic(this.shared.session, wire as u64, 0);
+                        }
+                        continue;
+                    }
                     return this.packet(cx).map(|result| result.map(Some));
                 }
             }
@@ -91,17 +122,37 @@ impl DatagramRx for Rx {
             result.map_err(|source| {
                 this.shared.stop(CloseReason::ProtocolFailure);
                 this.shared
-                    .error(Stage::Receive, Reason::Io, DeliveryState::Unknown)
+                    .error(
+                        if this.response_pending {
+                            Stage::Handshake
+                        } else {
+                            Stage::Receive
+                        },
+                        Reason::Io,
+                        DeliveryState::Unknown,
+                    )
                     .with_source(source)
             })?;
             if n == 0 {
-                if this.offset == 0 {
+                if this.offset == 0 && !this.response_pending {
                     return Poll::Ready(Ok(None));
                 }
                 this.shared.stop(CloseReason::ProtocolFailure);
                 return Poll::Ready(Err(this
                     .shared
-                    .error(Stage::Receive, Reason::Protocol, DeliveryState::Unknown)
+                    .error(
+                        if this.response_pending {
+                            Stage::Handshake
+                        } else {
+                            Stage::Receive
+                        },
+                        if this.response_pending {
+                            Reason::Io
+                        } else {
+                            Reason::Protocol
+                        },
+                        DeliveryState::Unknown,
+                    )
                     .with_source(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))));
             }
             this.offset += n;

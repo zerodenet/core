@@ -3,7 +3,7 @@ use super::*;
 use zero_platform_tokio::contract::{component::ResourceAccess, scope::TaskJoinWitness};
 #[derive(Clone, Default)]
 pub(in crate::transport::plugin::outbound) struct Retirement {
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     original: Option<Arc<dyn zero_platform_tokio::owned_process::ProcessEndpointRetirement>>,
 }
 impl std::fmt::Debug for Retirement {
@@ -19,7 +19,7 @@ impl Retirement {
         ordinal: Option<usize>,
         resources: &dyn ResourceAccess,
     ) -> io::Result<Self> {
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         {
             let original=ordinal.map(|ordinal|resources.process_endpoint_retirement(ordinal).ok_or_else(||conflict("actual Process endpoint has no durable original retirement observer"))).transpose()?;
             if original.as_ref().is_some_and(|original| {
@@ -31,7 +31,7 @@ impl Retirement {
             }
             Ok(Self { original })
         }
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(not(any(unix, windows)))]
         {
             let _ = (instance, tasks, resources);
             if ordinal.is_some() {
@@ -41,7 +41,7 @@ impl Retirement {
         }
     }
     pub(super) fn same(&self, other: &Self) -> bool {
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         {
             match (&self.original, &other.original) {
                 (None, None) => true,
@@ -49,14 +49,14 @@ impl Retirement {
                 _ => false,
             }
         }
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(not(any(unix, windows)))]
         {
             let _ = other;
             true
         }
     }
     pub(super) fn closed(&self, actor: Option<&TaskJoinWitness>) -> Option<bool> {
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         {
             self.original.as_ref().map(|original| {
                 original.originals_closed()
@@ -67,7 +67,7 @@ impl Retirement {
                     })
             })
         }
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(not(any(unix, windows)))]
         {
             let _ = actor;
             None
@@ -92,7 +92,7 @@ impl PluginPlan {
         if let Some(closed) = retirement.closed(actor.as_ref()) {
             return closed;
         }
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         {
             if let Some(opening) = self.pending_endpoint.lock().unwrap().as_ref() {
                 return opening
@@ -108,7 +108,7 @@ impl PluginPlan {
             let Ok(running) = self.running.try_lock() else {
                 return false;
             };
-            return match running.as_ref() {
+            match running.as_ref() {
                 Some(lease) => {
                     lease.child.lock().unwrap().owned().is_some_and(|process| {
                         process
@@ -121,9 +121,9 @@ impl PluginPlan {
                     })
                 }
                 None => actor.is_none(),
-            };
+            }
         }
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(not(any(unix, windows)))]
         self.untouched()
     }
 }

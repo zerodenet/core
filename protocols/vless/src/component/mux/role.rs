@@ -153,7 +153,7 @@ impl Factory {
                         .filter(|id| spec.dependencies.contains(&id.component))
                         .collect::<Vec<_>>()
                         .into(),
-                    roles: context.roles.clone(),
+                    roles: context.roles,
                     resources: context.resources.clone(),
                     tasks: context.tasks.clone(),
                     cancel: context.cancel.clone(),

@@ -9,6 +9,10 @@ use zero_transport::quic::owned::{
     packet::{BorrowedPacketSegment, PacketSocket},
     OwnedEndpointLimits, OwnedEndpointOwner,
 };
+#[expect(
+    clippy::too_many_arguments,
+    reason = "preserve explicit protocol facts and independently owned caller, wire and resource bindings at this assembly boundary"
+)]
 pub(super) fn spawn(
     generation: PacketMetadataArc<Generation>,
     entry: PacketMetadataArc<Entry>,
@@ -35,10 +39,9 @@ pub(super) fn spawn(
     } else {
         grant.claim_transferred_view()
     }
-    .map_err(|source| {
+    .inspect_err(|_| {
         entry.owners.set_actor(None);
         entry.retirement.request_retirement();
-        source
     })?;
     let adoption = grant.adoption();
     let registration = entry::actor::RegistrationGuard::new(
@@ -105,6 +108,10 @@ pub(super) fn spawn(
     }
     Ok(())
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "preserve explicit protocol facts and independently owned caller, wire and resource bindings at this assembly boundary"
+)]
 async fn initialize(
     generation: &Generation,
     entry: &Entry,

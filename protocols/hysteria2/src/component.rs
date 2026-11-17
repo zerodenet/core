@@ -164,31 +164,25 @@ impl Options {
         let (server, material) = bind.server_config()?;
         let mut tls_material = vec![material];
         tls_material.extend(sites.iter().filter_map(|(_, site)| site.tls_material()));
-        Ok(
-            Self {
-                tls_material,
-                listen,
-                server,
-                masks: bind.masks(),
-                profile,
-                store,
-                tag: tag.into(),
-                sites,
-                identity: identity.into(),
-                work_tasks: NonZeroUsize::new(520).unwrap(),
-                work_resources: 257,
-                source_limits: InboundSourceLimits::default(),
-                metadata_probes: NonZeroUsize::new(2).unwrap(),
-                metadata_attempts: NonZeroUsize::new(8).unwrap(),
-                metadata_sends: NonZeroUsize::new(2).unwrap(),
-                quic_connections: NonZeroUsize::new(8192).unwrap(),
-                quic_users: NonZeroUsize::new(65536).unwrap(),
-            },
-            options.tls_material.clone(),
-            tls_resources,
-            tls_tasks,
-            tls_cancel,
-        )
+        Ok(Self {
+            tls_material,
+            listen,
+            server,
+            masks: bind.masks(),
+            profile,
+            store,
+            tag: tag.into(),
+            sites,
+            identity: identity.into(),
+            work_tasks: NonZeroUsize::new(520).unwrap(),
+            work_resources: 257,
+            source_limits: InboundSourceLimits::default(),
+            metadata_probes: NonZeroUsize::new(2).unwrap(),
+            metadata_attempts: NonZeroUsize::new(8).unwrap(),
+            metadata_sends: NonZeroUsize::new(2).unwrap(),
+            quic_connections: NonZeroUsize::new(8192).unwrap(),
+            quic_users: NonZeroUsize::new(65536).unwrap(),
+        })
     }
 }
 pub struct Factory;
@@ -297,13 +291,19 @@ impl ComponentFactory for Factory {
             owners.push(erase_lifecycle(owner));
             sources.push(erase_inbound(source));
         }
-        zero_transport::tls::source::wrap(ComponentInstance {
-            lifecycle: erase_lifecycle(source::Lifecycle { owners }),
-            roles: ComponentRoles {
-                inbound: Some(erase_inbound(source::Group { sources })),
-                ..Default::default()
+        zero_transport::tls::source::wrap(
+            ComponentInstance {
+                lifecycle: erase_lifecycle(source::Lifecycle { owners }),
+                roles: ComponentRoles {
+                    inbound: Some(erase_inbound(source::Group { sources })),
+                    ..Default::default()
+                },
             },
-        })
+            options.tls_material.clone(),
+            tls_resources,
+            tls_tasks,
+            tls_cancel,
+        )
     }
 }
 

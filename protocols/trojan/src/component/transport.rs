@@ -6,8 +6,10 @@ impl Outbound {
         context: &OpenContext,
         session: Option<zero_core::component::SessionId>,
     ) -> Result<zero_transport::TcpRelayStream, ChannelError> {
-        if let Some(browser) = &self.browser {
-            return browser.open(context).await;
+        if context.upstream.binding().prefix.is_empty() {
+            if let Some(browser) = &self.browser {
+                return browser.open(context).await;
+            }
         }
         let carrier = CarrierContext {
             session,
@@ -22,6 +24,14 @@ impl Outbound {
             _ = context.cancel.cancelled() => return Err(self.admission.error(session,Stage::Dial,Reason::Cancelled,DeliveryState::Unknown)),
             result = with_deadline(context.deadline,opened) => result.map_err(|source| self.admission.error(session,Stage::Dial,Reason::Timeout,DeliveryState::Unknown).with_source(source))?,
         }.map_err(|error| self.admission.attach(error,session))?;
+        self.wrap_transport(io, context, session).await
+    }
+    pub(in crate::component) async fn wrap_transport(
+        &self,
+        io: BoxStream,
+        context: &OpenContext,
+        session: Option<zero_core::component::SessionId>,
+    ) -> Result<zero_transport::TcpRelayStream, ChannelError> {
         let transport = async {
             if let Some(grpc) = &self.options.grpc {
                 let io = zero_transport::tls::connect_tls_stream(

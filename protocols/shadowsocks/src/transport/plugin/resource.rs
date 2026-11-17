@@ -56,7 +56,7 @@ impl ShadowsocksPluginResource {
     }
     pub(crate) fn revoke(&self) {
         self.plan.cancel.cancel();
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         {
             let pending = self
                 .plan
@@ -80,7 +80,7 @@ impl ShadowsocksPluginResource {
             .and_then(|running| running.clone());
         if let Some(running) = running {
             let _ = running.child.lock().unwrap().start_kill();
-            #[cfg(any(target_os = "linux", windows))]
+            #[cfg(any(unix, windows))]
             if let Some(endpoint) = &running.process_endpoint {
                 endpoint.request_stop();
             }
@@ -123,7 +123,7 @@ impl ShadowsocksPluginResource {
             .await
             .clone()
             .ok_or_else(|| io::Error::other("plugin child was not started"))?;
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         {
             let original = lease.child.lock().unwrap().owned();
             if let Some(original) = original {
@@ -161,7 +161,7 @@ impl ShadowsocksPluginResource {
     /// Timeout or caller cancellation retains its handle for a later retry.
     pub async fn shutdown(&self, deadline: Instant) -> io::Result<PluginTermination> {
         self.revoke();
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         {
             let pending = self
                 .plan
@@ -201,7 +201,7 @@ impl ShadowsocksPluginResource {
         let Some(lease) = slot.as_ref() else {
             return Ok(PluginTermination::NotStarted);
         };
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         {
             let original = lease.child.lock().unwrap().owned();
             if let Some(original) = original {

@@ -29,7 +29,7 @@ pub(crate) struct PlanData {
     pub(super) cancel: zero_platform_tokio::contract::CancellationToken,
     pub(super) actor: Arc<Mutex<Option<zero_platform_tokio::contract::scope::TaskJoinWitness>>>,
     retirement: Mutex<pool::retirement::Retirement>,
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     pub(super) pending_endpoint: Arc<Mutex<Option<authorized::endpoint::PendingEndpoint>>>,
 }
 impl std::ops::Deref for PluginPlan {
@@ -42,7 +42,7 @@ pub(crate) struct PluginLease {
     pub(super) child: Mutex<PluginChild>,
     endpoint: SocketAddr,
     readiness: OnceLock<Result<(), Arc<io::Error>>>,
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     pub(super) process_endpoint:
         Option<Arc<zero_platform_tokio::owned_process::ProcessEndpointHandoff>>,
 }
@@ -80,7 +80,7 @@ impl core::fmt::Debug for PluginLease {
 }
 impl PluginLease {
     pub(super) async fn wait_native_exit(&self) -> io::Result<ExitStatus> {
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         {
             let original = self.child.lock().unwrap().owned();
             if let Some(original) = original {
@@ -226,7 +226,7 @@ impl PluginPlan {
             child: Mutex::new(child),
             endpoint: local,
             readiness: OnceLock::new(),
-            #[cfg(any(target_os = "linux", windows))]
+            #[cfg(any(unix, windows))]
             process_endpoint: None,
         });
         // Install the child before readiness can suspend. Aborting this caller
@@ -236,16 +236,16 @@ impl PluginPlan {
             lease: running.clone(),
             armed: true,
         };
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         let original = running.child.lock().unwrap().owned();
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         if let Some(original) = &original {
             let end = deadline.ok_or_else(|| {
                 io::Error::other("owned plugin lacks its actual startup deadline")
             })?;
             original.wait_started(end).await?;
         }
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(not(any(unix, windows)))]
         let _ = deadline;
         let readiness = process::ready_with_probe(
             || running.child.lock().unwrap().try_wait(),

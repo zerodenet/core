@@ -1,6 +1,10 @@
 //! The real Host installs the same job before its actual actor can await.
 use super::*;
 impl PluginPlan {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "preserve explicit protocol facts and independently owned caller, wire and resource bindings at this assembly boundary"
+    )]
     pub(in crate::transport::plugin) async fn acquire_authorized(
         &self,
         tcp: bool,
@@ -11,19 +15,19 @@ impl PluginPlan {
         endpoint_ordinal: Option<usize>,
         deadline: tokio::time::Instant,
     ) -> io::Result<Option<Arc<PluginLease>>> {
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         if let Some(ordinal) = endpoint_ordinal {
             return self
                 .acquire_endpoint(tcp, resources, claimed, tasks, actor, ordinal, deadline)
                 .await;
         }
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(not(any(unix, windows)))]
         let _ = endpoint_ordinal;
         self.acquire_with(
             tcp,
             tokio::net::TcpStream::connect,
             move |request| {
-                #[cfg(any(target_os = "linux", windows))]
+                #[cfg(any(unix, windows))]
                 {
                     let original = resources
                         .prepare_owned_process(request, &tasks)
@@ -32,7 +36,7 @@ impl PluginPlan {
                     original.start(actor)?;
                     Ok(PluginChild::Owned(original))
                 }
-                #[cfg(not(any(target_os = "linux", windows)))]
+                #[cfg(not(any(unix, windows)))]
                 {
                     let _ = (&tasks, &actor, deadline);
                     resources
@@ -51,5 +55,5 @@ impl PluginPlan {
     }
 }
 
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(any(unix, windows))]
 pub(in crate::transport::plugin) mod endpoint;

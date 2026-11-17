@@ -14,6 +14,10 @@ use zero_transport::{
         OwnedEndpointLimits,
     },
 };
+#[expect(
+    clippy::too_many_arguments,
+    reason = "preserve explicit protocol facts and independently owned caller, wire and resource bindings at this assembly boundary"
+)]
 pub(super) async fn native(
     generation: &Generation,
     entry: &Entry,
@@ -87,6 +91,10 @@ pub(super) async fn native(
     };
     authenticate(generation, io).await.map(Ready::Stream)
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "preserve explicit protocol facts and independently owned caller, wire and resource bindings at this assembly boundary"
+)]
 pub(super) async fn borrowed(
     generation: &Generation,
     entry: &Entry,

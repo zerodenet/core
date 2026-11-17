@@ -282,9 +282,13 @@ fn opened(
     }
     .into_controlled_parts()
     .map_err(std::io::Error::other)?;
+    let io = ExclusiveIo::new(io);
+    let io = match bypass {
+        Some(control) => TcpRelayStream::with_transport_bypass_control(io, control),
+        None => TcpRelayStream::new(io),
+    };
     Ok(Opened {
-        io: TcpRelayStream::with_transport_bypass_control(ExclusiveIo::new(io), bypass)
-            .with_application_settings(settings),
+        io: io.with_application_settings(settings),
         control,
         original,
     })

@@ -1,6 +1,10 @@
 //! mKCP uses the same actual packet owner; it has no invented QUIC profile.
 use super::*;
 impl Options {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "preserve explicit protocol facts and independently owned caller, wire and resource bindings at this assembly boundary"
+    )]
     pub(super) fn from_mkcp_parts(
         parts: crate::transport::OwnedMkcpParts,
         runtime: &VlessTransportRuntime,
@@ -16,12 +20,16 @@ impl Options {
         let (uuid, flow, testseed) = parts.protocol;
         let mut identity = Vec::from(parts.identity);
         identity.extend_from_slice(b"actual.vless.mkcp.original.v1");
-        use std::hash::{BuildHasher, Hash, Hasher};
+        use std::hash::BuildHasher;
         static KEYS: std::sync::OnceLock<std::collections::hash_map::RandomState> =
             std::sync::OnceLock::new();
-        let mut hash = KEYS.get_or_init(Default::default).build_hasher();
-        (&dial, uuid, flow, testseed).hash(&mut hash);
-        identity.extend_from_slice(&hash.finish().to_be_bytes());
+
+        identity.extend_from_slice(
+            &KEYS
+                .get_or_init(Default::default)
+                .hash_one((&dial, uuid, flow, testseed))
+                .to_be_bytes(),
+        );
         let protocol = Protocol {
             material: None,
             masks: None,

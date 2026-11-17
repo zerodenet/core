@@ -22,7 +22,7 @@ pub(in crate::component) struct Shared {
     pub upstream: zero_platform_tokio::contract::network::UpstreamTransport,
     pub buffers: CarrierBufferBudget,
     pub memory: PacketDriverMetadataView,
-    pub entries: PacketMetadataArc<Mutex<table::Table>>,
+    pub(super) entries: PacketMetadataArc<Mutex<table::Table>>,
     pub cancel: CancellationToken,
 }
 pub(super) struct Outbound {

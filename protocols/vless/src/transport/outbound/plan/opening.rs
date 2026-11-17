@@ -1,20 +1,6 @@
 use super::*;
 
 impl OwnedVlessOutboundTransportPlan {
-    pub(in crate::transport) async fn open_direct<F, Fut, E>(
-        &self,
-        open: F,
-        sockets: zero_transport::OutboundDatagramSocketFactory,
-    ) -> Result<TcpRelayStream, RuntimeError>
-    where
-        F: Fn(&str, u16) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<TokioSocket, E>> + Send + 'static,
-        E: Into<RuntimeError> + Send + 'static,
-    {
-        self.encrypt(self.open_direct_unencrypted(open, sockets).await?)
-            .await
-    }
-
     pub(in crate::transport) async fn open_direct_unencrypted<F, Fut, E>(
         &self,
         open: F,

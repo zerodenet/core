@@ -29,6 +29,10 @@ impl Drop for Attempt {
     }
 }
 impl PluginPlan {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "preserve explicit protocol facts and independently owned caller, wire and resource bindings at this assembly boundary"
+    )]
     pub(super) async fn acquire_endpoint(
         &self,
         tcp: bool,

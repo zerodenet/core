@@ -41,7 +41,7 @@ impl PluginOptions {
         generation: zero_core::component::NetworkGeneration,
     ) -> Result<Self, zero_core::Error> {
         self.resource.validate_native_transition().map_err(|_| {
-            zero_core::Error::Unsupported("actual legacy process tree has not retired")
+            zero_core::Error::Unsupported("actual legacy process ownership has not retired")
         })?;
         self.endpoint = Some(self.resource.endpoint_spec(generation));
         self.rebuild_identity();

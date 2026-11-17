@@ -1,4 +1,5 @@
 //! Protocol-owned ordinary Trojan Stream roles over a constrained real carrier.
+mod borrowed;
 mod carrier;
 mod connect;
 mod datagram;
@@ -116,6 +117,9 @@ impl StreamOutbound for Outbound {
             )
         })?;
         let (session, bytes) = self.prepare_stream(&request, &context)?;
+        if !context.upstream.binding().prefix.is_empty() {
+            return self.borrow_prefix(bytes, context, session).await;
+        }
         let (io, control, original) = browser.open_parts(&context).await?;
         let connected = self.submit_stream(io, bytes, context, session).await?;
         Ok(Connected {

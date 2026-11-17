@@ -42,7 +42,7 @@ impl Shared {
         Ok(status)
     }
     async fn wait_native_exit(&self) -> std::io::Result<ExitStatus> {
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         {
             let original = self
                 .state
@@ -136,7 +136,7 @@ impl ResourceLifecycle for Owner {
                 ));
             }
         }
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         {
             let original = self
                 .shared
@@ -156,13 +156,13 @@ impl ResourceLifecycle for Owner {
                         error(
                             Stage::Close,
                             Reason::Timeout,
-                            "original process tree closure remains pending",
+                            "original process closure remains pending",
                         )
                     })?;
                 self.shared.state.lock().unwrap().exited = original.root_status();
                 return Ok(CloseReport {
                     released_resources: vec![format!(
-                        "SIP003 original tree and parent descriptors closed: native={}",
+                        "SIP003 original process and endpoint ownership closed: native={}",
                         receipt.had_native_acquisition()
                     )],
                     ..Default::default()

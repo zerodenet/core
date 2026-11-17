@@ -55,6 +55,16 @@ loop at equality; an executor may still round sleeps to its timer resolution.
 Rate-limit counters are reset on packet receive, so they do not require an
 independent idle wake. The adapter owns no duplicate WireGuard timer constants.
 
+In `zero-owned-packets` mode, a timer's empty, unowned keepalive placeholder
+does not enter the pending IP packet queue when no session exists. The
+handshake still sends its normal keepalive using the receive operation's
+actual control workspace. Queuing that placeholder would require a second
+control workspace while draining the same handshake reply, terminate the
+drain before real prepaid IP packets, and leave protocol quiescence blocked.
+Nonempty packets and packets retaining original storage keep their existing
+queue custody. The unowned library path and pinned upstream version are
+unchanged.
+
 `tests/timer_deadline.rs` is an owner-level mock-clock regression suite; run:
 `cargo test --manifest-path vendor/gotatun/Cargo.toml --target-dir target --no-default-features --features zeroized-rustcrypto,mock_instant --lib`.
 The WireGuard interoperability workflow runs it separately so the thread-local

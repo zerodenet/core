@@ -153,15 +153,7 @@ impl Options {
         dial: DialPolicy,
         browser: Arc<zero_transport::browser_dialer::component::Options>,
     ) -> Result<Self, Error> {
-        let framing = TrojanOutboundBuildOptionsRef {
-            tag: input.tag,
-            server: input.server,
-            port: input.port,
-            protocol: input.protocol,
-            ws: None::<&OwnedWebSocketProfile>,
-            grpc: None::<&OwnedGrpcProfile>,
-        };
-        let mut options = Self::from_options_refs(framing, dial)?;
+        let mut options = Self::from_native_browser_options_refs(input, dial)?;
         let mut identity = options.identity.to_vec();
         browser.extend_identity(&mut identity);
         options.identity = identity.into();

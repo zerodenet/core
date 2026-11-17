@@ -68,6 +68,25 @@ impl ChannelControl for Control {
         if self.closed {
             return self.failures.finish(&mut self.pending_report);
         }
+        // The original business caller may already have revoked native IO.
+        // Return only this protocol view in that case, before its outer native
+        // controller is independently closed/ACKed. Do not attempt END/read on
+        // a fenced carrier and manufacture a second terminal IO fault.
+        if self.shared.caller_cancel.is_cancelled() {
+            self.pending_report.unfinished.clear();
+            if self.return_carrier_before(deadline).await {
+                self.pending_report
+                    .released_resources
+                    .push("VMess UDP revoked-caller logical view returned".into());
+            } else {
+                self.pending_report.unfinished.push(Unfinished::Io(
+                    "VMess UDP original transferred views remain retained".into(),
+                ));
+            }
+            // Any real terminal faults already collected remain on the same
+            // retained receipt; logical return never accepts or clears them.
+            return self.failures.finish(&mut self.pending_report);
+        }
         let shared = self.shared.clone();
         let close = async {
             loop {

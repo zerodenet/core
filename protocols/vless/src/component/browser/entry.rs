@@ -9,6 +9,10 @@ use zero_platform_tokio::{
     },
     controlled_carrier::{CarrierProtocolRetirement, ProtocolOriginalChildren},
 };
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the original state stays in its existing reserved envelope without adding a per-variant unbudgeted Box"
+)]
 pub(super) enum Ready {
     Stream(zero_platform_tokio::controlled_carrier::loan::StreamLoan),
     Http(super::http::Prepared),

@@ -145,10 +145,15 @@ impl VlessOutboundLeaf {
                 move |raw| async move {
                     let preparation = raw.preparation();
                     let bypass = raw.transport_bypass_control();
-                    let io = zero_transport::TcpRelayStream::with_transport_bypass_control(
-                        zero_transport::pooled_driver::ExclusiveIo::new(raw),
-                        bypass,
-                    );
+                    let raw = zero_transport::pooled_driver::ExclusiveIo::new(raw);
+                    let io = match bypass {
+                        Some(control) => {
+                            zero_transport::TcpRelayStream::with_transport_bypass_control(
+                                raw, control,
+                            )
+                        }
+                        None => zero_transport::TcpRelayStream::new(raw),
+                    };
 
                     leaf.open_native_mux_carrier(io, preparation).await
                 },
@@ -194,10 +199,15 @@ impl VlessOutboundLeaf {
                 move |raw| async move {
                     let preparation = raw.preparation();
                     let bypass = raw.transport_bypass_control();
-                    let io = zero_transport::TcpRelayStream::with_transport_bypass_control(
-                        zero_transport::pooled_driver::ExclusiveIo::new(raw),
-                        bypass,
-                    );
+                    let raw = zero_transport::pooled_driver::ExclusiveIo::new(raw);
+                    let io = match bypass {
+                        Some(control) => {
+                            zero_transport::TcpRelayStream::with_transport_bypass_control(
+                                raw, control,
+                            )
+                        }
+                        None => zero_transport::TcpRelayStream::new(raw),
+                    };
 
                     leaf.open_native_mux_carrier(io, preparation).await
                 },

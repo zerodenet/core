@@ -14,21 +14,12 @@ use maintenance::{LegacyWorker, Maintenance};
 mod budget;
 pub use budget::ReplayBudget;
 
+#[derive(Default)]
 struct Entries {
     salts: HashMap<Vec<u8>, (Instant, Option<usize>)>,
     expires: VecDeque<(Vec<u8>, Instant, Option<usize>)>,
     buckets: HashMap<Option<usize>, usize>,
     budget: std::sync::Weak<ReplayBudget>,
-}
-impl Default for Entries {
-    fn default() -> Self {
-        Self {
-            salts: HashMap::new(),
-            expires: VecDeque::new(),
-            buckets: HashMap::new(),
-            budget: Default::default(),
-        }
-    }
 }
 impl Entries {
     fn prune(&mut self, ttl: Duration) {

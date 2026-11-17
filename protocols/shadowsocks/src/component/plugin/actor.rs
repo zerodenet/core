@@ -1,5 +1,5 @@
 //! One actual owner task performs startup, readiness and exit monitoring.
-//! Native tree ownership is distinct and will be consumed through its provider.
+//! Native process ownership is distinct and consumed through its actual provider.
 use super::*;
 use std::{error::Error, fmt};
 use tokio::sync::oneshot;

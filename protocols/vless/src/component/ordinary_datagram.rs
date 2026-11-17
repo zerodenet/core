@@ -72,12 +72,9 @@ impl DatagramOutbound for Outbound {
             observer.protocol_traffic(session, 0, bytes.len() as u64);
         }
         drop(bytes);
-        let response =
-            datagram::response::read(&mut io, &context, &self.admission, session).await?;
-        if let Some(observer) = &context.observer {
-            observer.record(session, ConnectFact::PeerConfirmed);
-            observer.protocol_traffic(session, response as u64, 0);
-        }
+        // The peer may wait for the first UDP payload before replying. The
+        // same Rx validates/accounts its real header and confirms the peer;
+        // open must return the actual Tx before awaiting that response.
         // Only the actual outer Transfer can provide native lineage. This
         // protocol framing control returns its exact raw stream, never forges it.
         Ok(datagram::session(

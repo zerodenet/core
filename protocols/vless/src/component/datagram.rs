@@ -2,7 +2,6 @@
 mod control;
 pub(in crate::component) mod memory;
 pub(in crate::component) use memory::{Budget, Prepared};
-pub(super) mod response;
 mod rx;
 mod tx;
 use std::sync::{Arc, Mutex};
@@ -14,7 +13,7 @@ use zero_core::{
 use zero_platform_tokio::{
     contract::{
         admission::SessionAdmission,
-        context::{with_deadline, ConnectFact, OpenContext},
+        context::{ConnectFact, OpenContext},
         datagram::{DatagramLimits, DatagramRequest, DatagramSession},
         stream::BoxStream,
         CancellationToken, ChannelError, DeliveryState, Reason, Stage,
@@ -86,6 +85,10 @@ impl Shared {
 }
 /// `owner`/`original` remain genuine gRPC controls when supplied. Ordinary
 /// framing returns its raw view to the outer same-slot native transfer owner.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "preserve explicit protocol facts and independently owned caller, wire and resource bindings at this assembly boundary"
+)]
 pub(super) fn session(
     io: BoxStream,
     owner: Option<LoanOwner>,
@@ -153,11 +156,6 @@ pub(super) fn session(
     }
 }
 
-fn cancelled(
-    cancel: CancellationToken,
-    admission: Arc<SessionAdmission>,
-) -> impl std::future::Future<Output = ()> + Send + 'static {
-    async move {
-        tokio::select! {_=cancel.cancelled()=>{},_=admission.cancelled()=>{}}
-    }
+async fn cancelled(cancel: CancellationToken, admission: Arc<SessionAdmission>) {
+    tokio::select! {_=cancel.cancelled()=>{},_=admission.cancelled()=>{}}
 }

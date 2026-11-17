@@ -1,6 +1,10 @@
 //! Values from the accepted recipe's actual upload/download pools and materials.
 //! Neither this projection nor transport kind is an IO/Role/Scope permission.
 use super::*;
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the original state stays in its existing reserved envelope without adding a per-variant unbudgeted Box"
+)]
 pub(crate) enum OwnedXhttpKind {
     Http1,
     Http2,

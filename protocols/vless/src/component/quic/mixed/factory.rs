@@ -20,7 +20,7 @@ pub(in crate::component) struct Shared {
     pub tasks: TaskRegistrar,
     pub memory: PacketDriverMetadataView,
     pub buffers: zero_platform_tokio::controlled_carrier::CarrierBufferBudget,
-    pub entries: PacketMetadataArc<Mutex<entry::Table>>,
+    pub(super) entries: PacketMetadataArc<Mutex<entry::Table>>,
 }
 pub(super) struct Outbound {
     pub shared: PacketMetadataArc<Shared>,

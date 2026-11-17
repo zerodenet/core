@@ -8,19 +8,12 @@ struct State {
     limit: Option<usize>,
     retained: usize,
 }
+#[derive(Default)]
 pub struct LegacyReplayBudget {
     state: Mutex<State>,
     // Retain the original membership filters, never a copied history. There is
     // no legacy timestamp expiry that would permit pressure-based eviction.
     books: Mutex<Vec<Arc<Mutex<Book>>>>,
-}
-impl Default for LegacyReplayBudget {
-    fn default() -> Self {
-        Self {
-            state: Default::default(),
-            books: Default::default(),
-        }
-    }
 }
 impl std::fmt::Debug for LegacyReplayBudget {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

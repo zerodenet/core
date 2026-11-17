@@ -1,7 +1,6 @@
 //! Stream views retain their actual worker until the unique IO is returned.
 use super::*;
 use std::{
-    future::Future,
     io,
     pin::Pin,
     task::{Context, Poll},
@@ -62,9 +61,8 @@ impl Outbound {
             worker.connection.release_stream(sid);
             return Err(error(Stage::Prepare, Reason::Unsupported));
         }
-        let usage = portal.lease(&worker).map_err(|source| {
+        let usage = portal.lease(&worker).inspect_err(|_| {
             worker.connection.release_stream(sid);
-            source
         })?;
         let opening = crate::mux_pool::native::reverse_stream(
             worker.connection.clone(),

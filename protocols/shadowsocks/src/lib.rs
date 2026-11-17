@@ -1,5 +1,8 @@
 #![cfg_attr(not(feature = "crypto"), no_std)]
 #![allow(async_fn_in_trait)]
+// Unit futures check the complete native-original Send/Sync graph. This compiler
+// recursion bound does not change any runtime thread stack or cleanup condition.
+#![cfg_attr(test, recursion_limit = "256")]
 
 extern crate alloc;
 

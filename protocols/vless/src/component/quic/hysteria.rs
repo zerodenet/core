@@ -5,7 +5,7 @@ use zero_platform_tokio::{
     TcpRelayStream,
 };
 mod logical;
-pub(in crate::component) async fn open(
+pub(super) async fn open(
     generation: &PacketMetadataArc<entry::Generation>,
     context: &OpenContext,
 ) -> Result<crate::component::preconnect::Opened, ChannelError> {

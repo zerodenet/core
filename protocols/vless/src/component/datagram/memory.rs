@@ -29,6 +29,10 @@ impl Budget {
         Self { book, metadata }
     }
 }
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the original state stays in its existing reserved envelope without adding a per-variant unbudgeted Box"
+)]
 pub(in crate::component) enum Prepared {
     Library,
     Hosted(Hosted),

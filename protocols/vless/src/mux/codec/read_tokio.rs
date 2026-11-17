@@ -43,6 +43,7 @@ async fn header<R: AsyncRead + Unpin>(
     Ok((frame, data_len))
 }
 
+#[cfg(test)]
 pub(crate) async fn read_frame_tokio<R: AsyncRead + Unpin>(
     reader: &mut R,
 ) -> Result<MuxFrame, Error> {

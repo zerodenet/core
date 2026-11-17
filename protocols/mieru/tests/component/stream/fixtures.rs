@@ -116,10 +116,13 @@ impl Harness {
     }
     pub(super) fn context(&self, observer: Arc<Observations>) -> OpenContext {
         OpenContext {
-            identity: RequestIdentity::Service(Arc::new(ServiceRequestFacts {
-                origin: ServiceOrigin::Runtime,
-                purpose: ServicePurpose::DiagnosticProbe,
-            })),
+            identity: RequestIdentity::Service(
+                Arc::new(ServiceRequestFacts {
+                    origin: ServiceOrigin::Runtime,
+                    purpose: ServicePurpose::DiagnosticProbe,
+                })
+                .into(),
+            ),
             deadline: Some(deadline()),
             cancel: CancellationToken::new(),
             observer: Some(observer),

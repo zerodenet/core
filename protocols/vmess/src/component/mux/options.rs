@@ -142,7 +142,7 @@ impl PreparedMux {
         })
     }
     pub fn with_carrier_lender(mut self, dependency: ComponentId) -> Self {
-        self.pool = Arc::new((*self.pool).clone().with_stream_dependency(dependency));
+        self.pool = Arc::new((*self.pool).clone().with_root_stream_dependency(dependency));
         self
     }
     pub fn with_node_dependency(mut self, dependency: ComponentId) -> Self {

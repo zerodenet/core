@@ -58,7 +58,7 @@ impl PluginPool {
         }
     }
     pub(crate) fn clear(&self) {
-        // An actual exposed library Child has no tree proof. Reload must never
+        // An exposed library Child has no original Host/Scope custody. Reload must never
         // erase that debt. Cold/positive-native records may be removed only
         // after observing them outside the canonical admission lock.
         let entries: Vec<_> = self
@@ -135,7 +135,7 @@ impl PluginPlan {
         {
             return Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
-                "legacy plugin tree remains unconfirmed; canonical executor cannot change",
+                "legacy plugin ownership remains unconfirmed; canonical executor cannot change",
             ));
         }
         Ok(())
@@ -164,7 +164,7 @@ impl PluginPlan {
             if matches!(&snapshot, Some((_, Mode::Library))) {
                 return Err(io::Error::new(
                     io::ErrorKind::AlreadyExists,
-                    "legacy plugin tree remains unconfirmed; canonical executor cannot change",
+                    "legacy plugin ownership remains unconfirmed; canonical executor cannot change",
                 ));
             }
             if let Some((plan, Mode::Native(actual, scope))) = &snapshot {
@@ -258,7 +258,7 @@ impl PluginPlan {
         if self.actor.lock().unwrap().is_some() {
             return false;
         }
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         if self.pending_endpoint.lock().unwrap().is_some() {
             return false;
         }

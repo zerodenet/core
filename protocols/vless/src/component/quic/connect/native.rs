@@ -11,6 +11,10 @@ use zero_transport::quic::owned::{
     packet::{PacketSegment, PacketSocket},
     OwnedEndpointLimits, OwnedEndpointOwner,
 };
+#[expect(
+    clippy::too_many_arguments,
+    reason = "preserve explicit protocol facts and independently owned caller, wire and resource bindings at this assembly boundary"
+)]
 pub(super) fn spawn(
     generation: PacketMetadataArc<Generation>,
     entry: PacketMetadataArc<Entry>,
@@ -94,6 +98,10 @@ pub(super) fn spawn(
     }
     Ok(())
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "preserve explicit protocol facts and independently owned caller, wire and resource bindings at this assembly boundary"
+)]
 async fn initialize(
     generation: &Generation,
     entry: &Entry,

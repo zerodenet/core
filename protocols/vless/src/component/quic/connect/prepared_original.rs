@@ -16,6 +16,10 @@ pub(in crate::component::quic) struct PreparedOriginal {
     kind: Kind,
     before: before::BeforeActor,
 }
+pub(super) type StartedOriginal = (
+    PacketMetadataArc<Entry>,
+    oneshot::Receiver<Result<Ready, ChannelError>>,
+);
 impl PreparedOriginal {
     pub(in crate::component::quic) async fn prepare(
         generation: &PacketMetadataArc<Generation>,
@@ -106,10 +110,9 @@ impl PreparedOriginal {
             let origin = CarrierOrigin::from_metadata(preparation.origin());
             let entry = generation
                 .make_entry(owners.clone(), retirement.clone(), Some(origin))
-                .map_err(|source| {
+                .inspect_err(|_| {
                     owners.set_actor(None);
                     retirement.request_retirement();
-                    source
                 })?;
             let entry = position.publish(entry);
             let before = before::BeforeActor(Some(entry.clone()));
@@ -139,10 +142,9 @@ impl PreparedOriginal {
                 })?;
             let entry = generation
                 .make_entry(owners.clone(), retirement.clone(), None)
-                .map_err(|source| {
+                .inspect_err(|_| {
                     owners.set_actor(None);
                     retirement.request_retirement();
-                    source
                 })?;
             let entry = position.publish(entry);
             let before = before::BeforeActor(Some(entry.clone()));
@@ -176,16 +178,7 @@ impl PreparedOriginal {
     pub(in crate::component::quic) fn original_entry(&self) -> PacketMetadataArc<Entry> {
         self.entry.clone()
     }
-    pub(super) fn start(
-        self,
-        index: usize,
-    ) -> Result<
-        (
-            PacketMetadataArc<Entry>,
-            oneshot::Receiver<Result<Ready, ChannelError>>,
-        ),
-        ChannelError,
-    > {
+    pub(super) fn start(self, index: usize) -> Result<StartedOriginal, ChannelError> {
         let Self {
             generation,
             entry,

@@ -69,7 +69,7 @@ impl Portal {
                     caller.clone(),
                     registration.worker.origin.clone(),
                     witness.clone(),
-                    &registration.worker.resource.get().unwrap(),
+                    registration.worker.resource.get().unwrap(),
                 )
                 .map_err(|_| Error::Io("Rvs actual Source provider registration failed"))?;
             registration.worker.custody.source_uses(

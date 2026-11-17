@@ -7,6 +7,7 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::sync::{oneshot, OwnedSemaphorePermit, Semaphore};
+#[derive(Default)]
 pub(super) struct Pending {
     next: u64,
     entries: VecDeque<Waiter>,
@@ -16,14 +17,6 @@ struct Waiter {
     target: Address,
     port: u16,
     send: oneshot::Sender<ShadowsocksUdpResponse>,
-}
-impl Default for Pending {
-    fn default() -> Self {
-        Self {
-            next: 0,
-            entries: VecDeque::new(),
-        }
-    }
 }
 /// One real pending response registration. Drop removes this exact registration,
 /// including before a send completes; it never cancels the shared physical IO.

@@ -269,16 +269,9 @@ impl Options {
         dial: DialPolicy,
         browser: Arc<zero_transport::browser_dialer::component::Options>,
     ) -> Result<Self, Error> {
-        let framing = VmessOutboundBuildOptionsRef {
-            tag: input.tag,
-            server: input.server,
-            port: input.port,
-            protocol: input.protocol,
-            tls: None::<&OwnedClientTlsProfile>,
-            ws: None::<&OwnedWebSocketProfile>,
-            grpc: None::<&OwnedGrpcProfile>,
-        };
-        let mut options = Self::from_options_refs(framing, dial)?;
+        // Root calls use the Browser Source. Associated prefixes preserve the
+        // full native profile over their actual borrowed Stream original.
+        let mut options = Self::from_native_browser_options_refs(input, dial, None, None, false)?;
         let mut identity = options.identity.to_vec();
         browser.extend_identity(&mut identity);
         options.identity = identity.into();

@@ -58,6 +58,7 @@ impl TrojanOutboundLeaf {
             context.upstream.observed_pending_carrier(),
         ));
         let leaf = self.clone();
+        let carrier_binding = binding.clone();
         self.mux_pool
             .open_native(
                 key,
@@ -70,7 +71,7 @@ impl TrojanOutboundLeaf {
                     let io = zero_transport::TcpRelayStream::new(
                         zero_transport::pooled_driver::ExclusiveIo::new(raw),
                     );
-                    if leaf.mux_pool.borrows_layered_carrier()? {
+                    if leaf.mux_pool.borrows_layered_carrier(&carrier_binding)? {
                         Ok(io)
                     } else {
                         leaf.transport
@@ -99,13 +100,14 @@ impl TrojanOutboundLeaf {
             context.upstream.observed_pending_carrier(),
         ));
         let leaf = self.clone();
+        let carrier_binding = binding.clone();
         let mut opened = self
             .mux_pool
             .open_native_udp(key, concurrency, binding, call, move |raw| async move {
                 let io = zero_transport::TcpRelayStream::new(
                     zero_transport::pooled_driver::ExclusiveIo::new(raw),
                 );
-                if leaf.mux_pool.borrows_layered_carrier()? {
+                if leaf.mux_pool.borrows_layered_carrier(&carrier_binding)? {
                     Ok(io)
                 } else {
                     leaf.transport

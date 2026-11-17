@@ -13,8 +13,15 @@ type NativeCall = Option<(
     Option<zero_platform_tokio::contract::network::PendingCarrierObserver>,
 )>;
 impl TrojanMuxConnectionPool {
-    pub(crate) fn borrows_layered_carrier(&self) -> Result<bool, RuntimeError> {
-        Ok(self.control.managed()?.stream_dependency().is_some())
+    pub(crate) fn borrows_layered_carrier(
+        &self,
+        binding: &UpstreamBinding,
+    ) -> Result<bool, RuntimeError> {
+        Ok(self
+            .control
+            .managed()?
+            .stream_dependency_for(binding)
+            .is_some())
     }
     pub(crate) fn native_eligible(&self) -> bool {
         self.control.native_eligible()
@@ -195,6 +202,10 @@ impl TrojanMuxConnectionPool {
             original.origin().map_err(std::io::Error::other)?,
         )
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "keep the actual carrier, caller lifecycle and independent logical limits explicit at the native pool boundary"
+    )]
     pub(crate) async fn open_native<S, F, Fut>(
         &self,
         key: TrojanMuxPoolKey,

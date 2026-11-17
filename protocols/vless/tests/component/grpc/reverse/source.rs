@@ -84,19 +84,20 @@ async fn standard_source_keeps_actual_loan_after_interrupted_cleanup_until_uniqu
                 let incoming = zero_transport::grpc::accept_grpc_connection(io, &profile).unwrap();
                 let mut stream = incoming.accept().await.unwrap();
                 let mut bytes = [0; 19];
-                let header = stream.read_exact(&mut bytes);
-                tokio::pin!(header);
-                std::future::poll_fn(|cx| {
-                    assert!(
-                        header.as_mut().poll(cx).is_pending(),
-                        "Source.next must not poll the Rvs authentication I/O"
-                    );
-                    Poll::Ready(())
-                })
-                .await;
-                seen.send(()).unwrap();
-                finished.await.unwrap();
-                drop(header);
+                {
+                    let header = stream.read_exact(&mut bytes);
+                    tokio::pin!(header);
+                    std::future::poll_fn(|cx| {
+                        assert!(
+                            header.as_mut().poll(cx).is_pending(),
+                            "Source.next must not poll the Rvs authentication I/O"
+                        );
+                        Poll::Ready(())
+                    })
+                    .await;
+                    seen.send(()).unwrap();
+                    finished.await.unwrap();
+                }
                 incoming.close();
             });
             let mut input = input(peer.port(), &grpc);

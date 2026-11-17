@@ -8,7 +8,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 mod attach;
 pub mod component;
 mod ownership;
-use zero_core::{Error, Session, UdpFlowPacket};
+use zero_core::{Address, Error, Session, UdpFlowPacket};
 
 /// The configured virtual outbound owns the admitted reverse connections.
 /// Prepared leaves retain this pool, never a proxy registry or configuration.

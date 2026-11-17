@@ -1,5 +1,5 @@
 //! Fixed-target VLESS UDP framing over the same actual pooled gRPC controller.
-use super::super::datagram::{self, response, Control, Rx, Tx};
+use super::super::datagram::{self, Control, Rx, Tx};
 use super::factory::Outbound;
 use tokio::io::AsyncWriteExt;
 use zero_core::request::DatagramTargets;
@@ -71,13 +71,9 @@ impl DatagramOutbound for Outbound {
             observer.protocol_traffic(session, 0, bytes.len() as u64);
         }
         drop(bytes);
-        // The existing UDP tunnel waits for the actual VLESS response header;
-        // gRPC establishment is not destination acceptance.
-        let response = response::read(&mut io, &context, &self.admission, session).await?;
-        if let Some(observer) = &context.observer {
-            observer.record(session, ConnectFact::PeerConfirmed);
-            observer.protocol_traffic(session, response as u64, 0);
-        }
+        // The peer may wait for the first UDP payload before replying. The
+        // same Rx validates/accounts its real header and confirms the peer;
+        // open must return the actual Tx before awaiting that response.
         let loan = zero_platform_tokio::controlled_carrier::loan::StreamLoan::new(
             Box::pin(io),
             control,

@@ -9,7 +9,6 @@ pub struct WorkerDemand {
     ownership: Arc<DemandState>,
     pub(crate) uuid: [u8; 16],
     pub(crate) flow: Option<&'static str>,
-    pub(crate) testseed: [u32; 4],
     pub(super) backlog: MuxResponseBacklogPolicy,
 }
 struct DemandState {
@@ -31,7 +30,7 @@ impl WorkerDemand {
     pub(crate) fn from_protocol(
         protocol: &crate::outbound::PreparedVlessOutboundRequestBundle,
     ) -> Self {
-        let (uuid, flow, testseed, backlog) = protocol.reverse_parameters();
+        let (uuid, flow, _testseed, backlog) = protocol.reverse_parameters();
         Self {
             ownership: Arc::new(DemandState {
                 workers: Mutex::new(Vec::new()),
@@ -39,7 +38,6 @@ impl WorkerDemand {
             }),
             uuid,
             flow,
-            testseed,
             backlog,
         }
     }

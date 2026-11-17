@@ -99,7 +99,9 @@ impl ComponentFactory for Factory {
         let roles = ComponentRoles {
             accepted_carriers: Some(provider),
             stream: Some(erase_stream(outbound())),
-            datagram: Some(erase_datagram(outbound())),
+            datagram: Some(zero_platform_tokio::contract::datagram::erase_datagram(
+                outbound(),
+            )),
             ..Default::default()
         };
         Ok(ComponentInstance {

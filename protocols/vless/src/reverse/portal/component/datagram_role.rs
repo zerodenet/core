@@ -60,9 +60,8 @@ impl Outbound {
             worker.connection.release_stream(sid);
             return Err(error(Stage::Prepare, Reason::Unsupported));
         }
-        let lease = portal.lease(&worker).map_err(|source| {
+        let lease = portal.lease(&worker).inspect_err(|_| {
             worker.connection.release_stream(sid);
-            source
         })?;
         let opened = crate::mux_pool::native::reverse_datagram(
             worker.connection.clone(),

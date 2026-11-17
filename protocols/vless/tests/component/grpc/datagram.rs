@@ -32,29 +32,33 @@ async fn ordinary_and_borrowed_datagrams_keep_empty_packets_and_actual_logical_c
                         let mut header = vec![0; expected.len()];
                         stream.read_exact(&mut header).await.unwrap();
                         assert_eq!(header, expected);
-                        // Real VLESS inbound UDP acceptance precedes business data.
-                        stream.write_all(&[0, 0]).await.unwrap();
-                        stream.flush().await.unwrap();
-                        for expected in [b"".as_slice(), b"real".as_slice(), b"odd".as_slice()] {
+                        for (index, expected) in
+                            [b"".as_slice(), b"real".as_slice(), b"odd".as_slice()]
+                                .into_iter()
+                                .enumerate()
+                        {
                             let mut len = [0; 2];
                             stream.read_exact(&mut len).await.unwrap();
                             assert_eq!(u16::from_be_bytes(len) as usize, expected.len());
                             let mut payload = vec![0; expected.len()];
                             stream.read_exact(&mut payload).await.unwrap();
                             assert_eq!(payload, expected);
+                            if index == 0 {
+                                // Like actual Xray, wait for the first real UDP
+                                // packet before replying. Split an addon-bearing
+                                // response across writes on this same carrier.
+                                stream.write_all(&[0, 3, b'a']).await.unwrap();
+                                stream.flush().await.unwrap();
+                                stream.write_all(b"dd").await.unwrap();
+                            }
                             stream.write_all(&len).await.unwrap();
                             stream.write_all(&payload).await.unwrap();
                             stream.flush().await.unwrap();
                         }
                         let mut extra = [0; 1];
-                        match stream.read(&mut extra).await {
-                            Ok(n) => {
-                                assert_eq!(
-                                    n, 0,
-                                    "no extra application data after the three packets"
-                                )
-                            }
-                            Err(_) => {} // The actual logical cancellation sends H2 reset.
+                        // Actual logical cancellation may send an H2 reset.
+                        if let Ok(n) = stream.read(&mut extra).await {
+                            assert_eq!(n, 0, "no extra application data after the three packets");
                         }
                     });
                 }

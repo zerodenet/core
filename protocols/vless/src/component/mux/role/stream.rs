@@ -88,7 +88,7 @@ impl Outbound {
         }
         Ok(io)
     }
-    fn selected_leaf(
+    pub(super) fn selected_leaf(
         &self,
         context: &OpenContext,
     ) -> Result<crate::transport::VlessOutboundLeaf, ChannelError> {

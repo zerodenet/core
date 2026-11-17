@@ -73,11 +73,11 @@ pub(super) fn prepare(
         .await;
         // The retained platform controller separately confirms native closure.
     });
-    Ok((
-        TcpRelayStream::with_transport_bypass_control(view, bypass)
-            .with_application_settings(settings),
-        driver,
-    ))
+    let view = match bypass {
+        Some(control) => TcpRelayStream::with_transport_bypass_control(view, control),
+        None => TcpRelayStream::new(view),
+    };
+    Ok((view.with_application_settings(settings), driver))
 }
 impl AsyncRead for View {
     fn poll_read(

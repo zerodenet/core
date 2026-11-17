@@ -52,7 +52,12 @@ impl Generation {
             users: self.endpoint_users,
         };
         let segment = match PacketSegment::prepare_with_endpoint(
-            state.unbound.take().unwrap(), queues, self.tasks.clone(), peer, logical, limits,
+            state.unbound.take().unwrap(),
+            queues,
+            self.tasks.clone(),
+            peer,
+            logical,
+            limits,
         ) {
             Ok(segment) => segment,
             Err(rejected) => {
@@ -64,7 +69,10 @@ impl Generation {
         };
         state.segment = Some(segment);
         let (owner, receiver) = OwnedEndpointOwner::new_packet_endpoint(
-            socket, state.segment.as_mut().unwrap(), self.tasks.clone(), limits,
+            socket,
+            state.segment.as_mut().unwrap(),
+            self.tasks.clone(),
+            limits,
         )?;
         state.owner = Some(owner);
         state.receiver = Some(receiver);

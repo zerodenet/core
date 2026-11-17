@@ -38,6 +38,10 @@ impl std::fmt::Debug for Options {
 impl Options {
     /// Consume the real validated leaf data, never claim/decode the config a
     /// second time. None leaves the other existing transport selection intact.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "preserve explicit protocol facts and independently owned caller, wire and resource bindings at this assembly boundary"
+    )]
     pub fn from_accepted_leaf(
         leaf: &VlessOutboundLeaf,
         runtime: &VlessTransportRuntime,
@@ -64,6 +68,10 @@ impl Options {
     }
     // Same accepted value projection, also used for an actual H3 half of the
     // independent download recipe. No second leaf/config/material decode.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "preserve explicit protocol facts and independently owned caller, wire and resource bindings at this assembly boundary"
+    )]
     pub(super) fn from_material_parts(
         parts: crate::transport::OwnedQuicParts,
         runtime: &VlessTransportRuntime,
@@ -97,12 +105,16 @@ impl Options {
         });
         // Same actual protocol values, independent from transport pool security
         // keys. Static identity is opaque process-local metadata, never authority.
-        use std::hash::{BuildHasher, Hash, Hasher};
+        use std::hash::BuildHasher;
         static KEYS: std::sync::OnceLock<std::collections::hash_map::RandomState> =
             std::sync::OnceLock::new();
-        let mut hash = KEYS.get_or_init(Default::default).build_hasher();
-        (uuid, flow, testseed, &dial).hash(&mut hash);
-        identity.extend_from_slice(&hash.finish().to_be_bytes());
+
+        identity.extend_from_slice(
+            &KEYS
+                .get_or_init(Default::default)
+                .hash_one((uuid, flow, testseed, &dial))
+                .to_be_bytes(),
+        );
         let protocol = Protocol {
             material: None,
             masks: None,

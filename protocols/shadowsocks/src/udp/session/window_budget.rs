@@ -63,7 +63,7 @@ struct State {
     limits: [Option<usize>; 5],
     retained: [usize; 5],
 }
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct UdpReplayBudget {
     state: Mutex<State>,
     // Strong originals, weak backreferences: valid security history survives a
@@ -235,15 +235,6 @@ impl UdpReplayBudget {
                         .try_lock()
                         .map_or(true, |book| !book.entries.is_empty())
             });
-    }
-}
-impl Default for UdpReplayBudget {
-    fn default() -> Self {
-        Self {
-            state: Default::default(),
-            books: Default::default(),
-            responses: Default::default(),
-        }
     }
 }
 #[derive(Debug)]

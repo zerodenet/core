@@ -265,6 +265,7 @@ where
 #[cfg(feature = "reality")]
 mod read_tokio;
 #[cfg(feature = "reality")]
-pub(crate) use read_tokio::{
-    read_buffered_frame, read_frame_tokio, read_frame_tokio_mode, BufferedFrame,
-};
+pub(crate) use read_tokio::{read_buffered_frame, read_frame_tokio_mode, BufferedFrame};
+
+#[cfg(all(test, feature = "reality"))]
+pub(crate) use read_tokio::read_frame_tokio;

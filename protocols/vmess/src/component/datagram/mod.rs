@@ -19,6 +19,7 @@ struct Shared {
     state: Mutex<State>,
     changed: Notify,
     cancel: CancellationToken,
+    caller_cancel: CancellationToken,
     admission: Arc<SessionAdmission>,
     session: Option<zero_core::component::SessionId>,
     association: AssociationId,
@@ -149,6 +150,7 @@ pub(super) async fn open_carrier(
         }),
         changed: Notify::new(),
         cancel: context.cancel.child_token(),
+        caller_cancel: context.cancel,
         admission,
         session,
         association: request.association,
@@ -166,3 +168,7 @@ pub(super) async fn open_carrier(
         limits,
     })
 }
+
+#[cfg(test)]
+#[path = "../../../tests/component/udp_revocation.rs"]
+mod tests;

@@ -101,10 +101,9 @@ impl PreparedTcpOriginal {
                 owners.set_actor(None);
                 rejected.error
             })?;
-        let (view, preparation) = grant.claim_preparing_driver_view().map_err(|source| {
+        let (view, preparation) = grant.claim_preparing_driver_view().inspect_err(|_| {
             owners.set_actor(None);
             retirement.request_retirement();
-            source
         })?;
         let entry = PacketMetadataArc::from_prepaid(
             Entry {

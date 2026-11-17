@@ -133,9 +133,10 @@ impl PreparedTcp {
         let mut identity = self.identity.to_vec();
         static KEYS: OnceLock<[RandomState; 2]> = OnceLock::new();
         for key in KEYS.get_or_init(|| [RandomState::new(), RandomState::new()]) {
-            let mut hash = key.build_hasher();
-            self.udp_security.udp_budget_identity().hash(&mut hash);
-            identity.extend_from_slice(&hash.finish().to_le_bytes());
+            identity.extend_from_slice(
+                &key.hash_one(self.udp_security.udp_budget_identity())
+                    .to_le_bytes(),
+            );
         }
         self.identity = identity.into();
         Ok(self)
@@ -145,9 +146,10 @@ impl PreparedTcp {
         let mut identity = self.identity.to_vec();
         static KEYS: OnceLock<[RandomState; 2]> = OnceLock::new();
         for key in KEYS.get_or_init(|| [RandomState::new(), RandomState::new()]) {
-            let mut hash = key.build_hasher();
-            self.udp_security.bloom_identity().hash(&mut hash);
-            identity.extend_from_slice(&hash.finish().to_le_bytes());
+            identity.extend_from_slice(
+                &key.hash_one(self.udp_security.bloom_identity())
+                    .to_le_bytes(),
+            );
         }
         self.identity = identity.into();
         Ok(self)

@@ -500,6 +500,18 @@ impl<R: RngCore + Send> Tunn<R> {
 
     /// Push packet to the back of the queue.
     fn queue_packet(&mut self, packet: Packet) {
+        #[cfg(feature = "zero-owned-packets")]
+        if self.owned_control
+            && packet.owned_plaintext().is_empty()
+            && !packet.has_owned_custody()
+        {
+            // A timer's empty keepalive placeholder owns no submitted IP packet
+            // or storage. The handshake already emits its real keepalive using
+            // that receive operation's paid control buffer. Retaining this
+            // placeholder would demand a second control buffer while draining
+            // the same reply, stop the iterator, and strand real queued packets.
+            return;
+        }
         if self.packet_queue.len() < MAX_QUEUE_DEPTH {
             // Drop if too many are already in queue
             self.packet_queue.push_back(packet);

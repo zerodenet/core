@@ -161,11 +161,17 @@ where
 {
     let mut version = [0_u8; 1];
     read_exact(stream, &mut version).await?;
-    if version[0] != VLESS_VERSION {
-        return Err(Error::Protocol("unsupported VLESS response version"));
-    }
+    validate_response_version(version[0])?;
 
     Ok(1 + read_addon_len(stream).await?)
 }
 
 pub(crate) use crate::uuid::parse_uuid;
+
+// Shared wire validation for eager stream and deferred Datagram responses.
+pub(crate) fn validate_response_version(version: u8) -> Result<(), Error> {
+    if version != VLESS_VERSION {
+        return Err(Error::Protocol("unsupported VLESS response version"));
+    }
+    Ok(())
+}

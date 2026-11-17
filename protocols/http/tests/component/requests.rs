@@ -1,4 +1,5 @@
 use super::*;
+#[path = "requests/standard.rs"]
 mod standard;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use zero_core::component::{ComponentId, ResourceGeneration, RoleInstanceId};
