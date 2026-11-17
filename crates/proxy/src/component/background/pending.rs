@@ -108,6 +108,13 @@ impl BackgroundCarrier {
         let plan = services.components.as_ref().map_err(|source| {
             invalid(Reason::StalePlan, "protocol pending plan retired").with_source(source.clone())
         })?;
+        // An existing physical driver may create the next original in its
+        // own installed component (for example an XHTTP group rotation).
+        // It is not another prefix role. Validate the actual native provider,
+        // generation and Scope without fabricating a roleless owner's role.
+        if original.instance() == self.instance && original.binding().prefix == binding.prefix {
+            return plan.validate_owned_protocol_original(self.instance, original);
+        }
         // A Browser control Source is an exact direct dependency of this
         // actual owning role, rather than another physical prefix role. This
         // observes metadata only; admission/IO still uses the sealed issuer.

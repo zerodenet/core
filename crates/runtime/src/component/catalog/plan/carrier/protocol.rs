@@ -37,6 +37,38 @@ impl ComponentPlan {
         } else {
             &owning
         };
+        Self::validate_original_slot(slot, original)
+    }
+    /// Observe a background driver's own original in this exact installed
+    /// component. Roleless factories need no invented outbound role to prove
+    /// their native provider/Scope; this grants no borrowing or new I/O.
+    pub fn validate_owned_protocol_original(
+        &self,
+        instance: zero_core::component::ComponentInstanceId,
+        original: &ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        let slot = self
+            .order
+            .iter()
+            .find(|slot| slot.instance_id() == instance)
+            .ok_or_else(|| {
+                invalid(
+                    Reason::StalePlan,
+                    "protocol original owner generation changed",
+                )
+            })?;
+        Self::validate_original_slot(slot, original)
+    }
+    fn validate_original_slot(
+        slot: &Arc<ComponentSlot>,
+        original: &ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        let fail = || {
+            invalid(
+                Reason::StalePlan,
+                "protocol original has no matching actual owning role/provider/Scope",
+            )
+        };
         if slot.instance_id() != original.instance()
             || !slot.matches_scope_identity(Some(original.scope_identity()))
         {
