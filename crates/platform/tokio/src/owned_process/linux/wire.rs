@@ -51,6 +51,10 @@ pub(super) struct Message {
 }
 // SAFETY: callers retain each original fd while these synchronous syscalls run.
 // Both post-fork and parent paths use initialized POD and bounded stack storage.
+#[allow(
+    clippy::unnecessary_cast,
+    reason = "Linux GNU and musl use different native ancillary length field types"
+)]
 pub(super) unsafe fn send(fd: i32, frame: Frame, descriptor: Option<i32>) -> i32 {
     unsafe {
         let mut data = frame.0;
@@ -64,11 +68,11 @@ pub(super) unsafe fn send(fd: i32, frame: Frame, descriptor: Option<i32>) -> i32
         message.msg_iovlen = 1;
         if let Some(descriptor) = descriptor {
             message.msg_control = control.as_mut_ptr().cast();
-            message.msg_controllen = libc::CMSG_SPACE(std::mem::size_of::<i32>() as u32) as usize;
+            message.msg_controllen = libc::CMSG_SPACE(std::mem::size_of::<i32>() as u32) as _;
             let header = libc::CMSG_FIRSTHDR(&message);
             (*header).cmsg_level = libc::SOL_SOCKET;
             (*header).cmsg_type = libc::SCM_RIGHTS;
-            (*header).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<i32>() as u32) as usize;
+            (*header).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<i32>() as u32) as _;
             std::ptr::write_unaligned(libc::CMSG_DATA(header).cast::<i32>(), descriptor);
         }
         loop {
@@ -84,6 +88,10 @@ pub(super) unsafe fn send(fd: i32, frame: Frame, descriptor: Option<i32>) -> i32
         }
     }
 }
+#[allow(
+    clippy::unnecessary_cast,
+    reason = "Linux GNU and musl use different native ancillary length field types"
+)]
 pub(super) unsafe fn receive(fd: i32) -> Result<Message, i32> {
     unsafe {
         let mut result = Message {
@@ -102,7 +110,7 @@ pub(super) unsafe fn receive(fd: i32) -> Result<Message, i32> {
         message.msg_iov = &mut iov;
         message.msg_iovlen = 1;
         message.msg_control = control.as_mut_ptr().cast();
-        message.msg_controllen = std::mem::size_of_val(&control);
+        message.msg_controllen = std::mem::size_of_val(&control) as _;
         let size = loop {
             let size = libc::recvmsg(fd, &mut message, libc::MSG_CMSG_CLOEXEC);
             if size < 0 && *libc::__errno_location() == libc::EINTR {
@@ -120,11 +128,12 @@ pub(super) unsafe fn receive(fd: i32) -> Result<Message, i32> {
         while !header.is_null() {
             if (*header).cmsg_level == libc::SOL_SOCKET && (*header).cmsg_type == libc::SCM_RIGHTS {
                 let minimum = libc::CMSG_LEN(0) as usize;
-                if (*header).cmsg_len < minimum {
+                let length = (*header).cmsg_len as usize;
+                if length < minimum {
                     result.malformed = true;
                     break;
                 }
-                let count = ((*header).cmsg_len - minimum) / std::mem::size_of::<i32>();
+                let count = (length - minimum) / std::mem::size_of::<i32>();
                 let mut index = 0;
                 while index < count {
                     let descriptor =
