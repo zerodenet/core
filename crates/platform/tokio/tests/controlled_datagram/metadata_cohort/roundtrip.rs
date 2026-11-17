@@ -241,7 +241,12 @@ async fn run(native_first: bool) {
                 .unwrap(),
             &probe_source
         ));
-        let weak = native_sources.0.downgrade();
+        let crate::controlled_datagram::metadata_pool::sources::memory::Allocation::Hosted(rows) =
+            &native_sources.0
+        else {
+            panic!("the actual native source rows must retain prepaid storage");
+        };
+        let weak = zero_traits::packet_metadata::PacketMetadataArc::downgrade(rows);
         original.released.store(true, Ordering::Release);
         original.changed.notify_waiters();
         std::future::poll_fn(|cx| {

@@ -9,7 +9,12 @@ async fn hosted_source_rows_and_sealed_weak_header_hold_exact_prepaid_root_credi
     let mut prepaid = Prepaid::reserve(limits(), Some(&view)).unwrap();
     assert!(view.snapshot().occupied.bytes() > before.bytes());
     let sources = MetadataOriginalSources::new(limits(), &mut prepaid);
-    let weak = sources.0.downgrade();
+    let crate::controlled_datagram::metadata_pool::sources::memory::Allocation::Hosted(rows) =
+        &sources.0
+    else {
+        panic!("the actual Host source rows must retain prepaid storage");
+    };
+    let weak = zero_traits::packet_metadata::PacketMetadataArc::downgrade(rows);
     assert!(weak.upgrade().is_some());
     drop(prepaid);
     drop(sources);
