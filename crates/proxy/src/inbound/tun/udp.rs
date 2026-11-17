@@ -289,20 +289,25 @@ fn spawn_association(
             Ok(memory) => memory,
             Err(source_error) => return (source, id, Err(source_error)),
         };
-        let relay = crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
-            runtime,
-            stack,
-            TunUdpRelay {
-                source,
-                receiver,
-                memory,
-            },
-            &inbound_tag,
-            true,
+        // Keep the original relay at a stable address before the driver pair
+        // and cancellation select wrap it. Moving its full routing future
+        // through those polling frames exhausts the default worker stack.
+        let relay = Box::pin(
+            crate::runtime::datagram_udp::run_protocol_datagram_udp_relay(
+                runtime,
+                stack,
+                TunUdpRelay {
+                    source,
+                    receiver,
+                    memory,
+                },
+                &inbound_tag,
+                true,
+            ),
         );
         #[cfg(feature = "raw-ip-runtime")]
         let result = {
-            let work = async {
+            let work = Box::pin(async {
                 match driver_job {
                     Some(job) => {
                         crate::runtime::udp_socket::endpoint::peer::job::run_peer_preserving(
@@ -312,7 +317,7 @@ fn spawn_association(
                     }
                     None => relay.await,
                 }
-            };
+            });
             match stop {
                 Some(stop) => tokio::select! { biased;
                     result = work => result,

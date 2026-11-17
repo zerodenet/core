@@ -59,18 +59,23 @@ where
 }
 /// Raw-IP's original association result also drives its existing backoff and
 /// retained-source ledger. Do not turn that actual failure into success.
-pub(crate) async fn run_peer_preserving<F>(
+pub(crate) fn run_peer_preserving<F>(
     consumer: F,
     job: DirectPeerDriverJob,
-) -> Result<(), EngineError>
+) -> impl Future<Output = Result<(), EngineError>> + Send
 where
     F: Future<Output = Result<(), EngineError>> + Send,
 {
-    match run_pair(consumer, job).await {
-        (Ok(()), driver) => driver.map_err(critical),
-        (Err(consumer), Ok(())) => Err(consumer),
-        (Err(consumer), Err(driver)) => {
-            Err(std::io::Error::other(PeerFailures { consumer, driver }).into())
+    // Allocate before constructing the pair future, so all existing callers
+    // transfer this same pinned operation instead of embedding another copy.
+    let consumer = Box::pin(consumer);
+    async move {
+        match run_pair(consumer, job).await {
+            (Ok(()), driver) => driver.map_err(critical),
+            (Err(consumer), Ok(())) => Err(consumer),
+            (Err(consumer), Err(driver)) => {
+                Err(std::io::Error::other(PeerFailures { consumer, driver }).into())
+            }
         }
     }
 }
