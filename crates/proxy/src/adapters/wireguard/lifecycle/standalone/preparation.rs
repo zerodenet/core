@@ -139,7 +139,7 @@ impl WireguardAdapter {
                 .unwrap_or_else(|error| error.into_inner())
                 .get(&outbound.tag)
                 .and_then(|profile| profile.graph.as_ref())
-                .and_then(std::sync::Weak::upgrade)
+                .and_then(WeakStandaloneGraph::upgrade)
                 .map(|root| Candidate { root, owned: false });
             let reused = staged.or(current).filter(|candidate| {
                 candidate.root.spec == fresh.spec
