@@ -2,6 +2,21 @@
 mod support;
 use serde_json::json;
 use support::xhttp::interop_options;
+#[tokio::test]
+#[ignore = "requires official XRAY_BIN v26.3.27"]
+async fn xhttp_shared_original_borrows_real_socks_prefix_without_a_business_deadline() {
+    // Public SOCKS sessions have no request deadline. The physical XHTTP
+    // initializer must select a finite Service call without borrowing their
+    // business identity or losing the original donor/controller cleanup.
+    interop_options(
+        "stream-up",
+        true,
+        false,
+        json!({"xmux":{"max_connections":1}}),
+        json!({"_test_relay":true}),
+    )
+    .await;
+}
 #[test]
 #[ignore = "requires official XRAY_BIN v26.3.27"]
 fn xhttp_extended_metadata_payload_padding_interoperate_both_directions() {

@@ -36,7 +36,13 @@ impl PreparedTcpOriginal {
         }
         let call = CarrierContext {
             session: None,
-            deadline: context.deadline,
+            // A cached physical original has its own finite setup, even when
+            // its first business caller has no deadline. Select the real
+            // prefix with that same deadline before any donor can acquire IO.
+            deadline: Some(context.deadline.map_or_else(
+                || tokio::time::Instant::now() + std::time::Duration::from_secs(30),
+                |deadline| deadline,
+            )),
             cancel: generation.cleanup.child_token(),
         };
         let selecting = match context.upstream.observed_pending_carrier() {
@@ -50,7 +56,7 @@ impl PreparedTcpOriginal {
                 .select_background_carrier(Some(context.upstream.binding().clone()), call.clone()),
         };
         let upstream =
-            zero_platform_tokio::contract::context::with_deadline(context.deadline, selecting)
+            zero_platform_tokio::contract::context::with_deadline(call.deadline, selecting)
                 .await
                 .map_err(|source| error(Stage::Prepare, Reason::Timeout).with_source(source))??;
         let reserve = |layout| generation.memory.reserve(layout).map_err(capacity);
