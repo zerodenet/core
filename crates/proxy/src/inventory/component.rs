@@ -348,8 +348,9 @@ impl super::ProtocolInventory {
                     .devices
                     .source_component_dependencies(&config, resources)?;
                 resources.set_source_dependencies(sources)?;
-                let aliases = self.devices.device_alias_overrides(&config, resources)?;
-                resources.set_device_alias_overrides(aliases)?;
+                // This confirmed, never-built candidate is refreshed through
+                // its ordinary factories. Published alias rebinding belongs
+                // only to the separate original recovery pass.
                 Ok(deferred)
             })
             .await
@@ -470,3 +471,7 @@ impl super::ProtocolInventory {
             .map_err(|error| zero_engine::EngineError::Io(std::io::Error::other(retained(error))))
     }
 }
+
+#[cfg(all(test, feature = "raw-ip-runtime"))]
+#[path = "component/tests.rs"]
+mod tests;
