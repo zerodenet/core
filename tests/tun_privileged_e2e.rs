@@ -993,7 +993,7 @@ fn try_wait_for_tun(
         let output = Command::new(binary)
             .args(["tun", "status", "--socket", path(socket)])
             .output();
-        if let Ok(output) = output {
+        if let Ok(output) = &output {
             let stdout = String::from_utf8_lossy(&output.stdout);
             if output.status.success()
                 && stdout.contains(if running {
@@ -1014,12 +1014,14 @@ fn try_wait_for_tun(
                                         || !stdout.contains("fd66::1/64")))
                         }))
                 {
+                    eprintln!("TUN state rejected running={running} managed_by_config={managed_by_config:?} dual_stack={dual_stack:?}: {stdout}");
                     return false;
                 }
                 return true;
             }
         }
         if Instant::now() >= deadline {
+            eprintln!("TUN state deadline running={running} managed_by_config={managed_by_config:?} dual_stack={dual_stack:?}: {output:?}");
             return false;
         }
         std::thread::sleep(Duration::from_millis(200));
