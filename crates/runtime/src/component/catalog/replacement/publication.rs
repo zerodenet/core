@@ -47,7 +47,12 @@ impl Replacement {
         receipt: DeclaredCloseReceipt,
         publish: impl FnOnce(&Arc<DeclaredComponentTerminal>) -> Result<(), ChannelError>,
     ) -> Result<Option<ChannelError>, ChannelError> {
-        if receipt.0.instances().len() != self.order.len()
+        if receipt.0.instances().len() != self.order.iter().flatten().count()
+            || self
+                .order
+                .iter()
+                .flatten()
+                .any(|member| receipt.0.instances().binary_search(member).is_err())
             || !self
                 .terminal
                 .get()
