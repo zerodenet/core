@@ -27,7 +27,7 @@ async fn original_session_task_expires_or_cancels_and_joins_before_native_receip
             accepted: Some(AcceptedTcpLimits {
                 max_sockets: n(1),
                 max_tasks_per_socket: n(4),
-                max_resources_per_socket: n(1),
+                max_resources_per_socket: 1,
             }),
         };
         let mut original = ControlledTcpListenerOwner::new_with_accepted_graph(

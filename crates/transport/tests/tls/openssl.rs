@@ -272,7 +272,7 @@ async fn openssl_certificate_refresh_keeps_last_good_and_stops_with_context() {
         ..Default::default()
     });
     let context = super::OpenSslServerContext::build(&profile, None).unwrap();
-    let runtime = std::sync::Arc::downgrade(&context.runtime);
+    let state = std::sync::Arc::downgrade(&context.state);
     let original = context
         .new_server_ssl()
         .unwrap()
@@ -314,7 +314,7 @@ async fn openssl_certificate_refresh_keeps_last_good_and_stops_with_context() {
     .unwrap();
 
     drop(context);
-    assert!(runtime.upgrade().is_none());
+    assert!(state.upgrade().is_none());
 }
 
 #[tokio::test]

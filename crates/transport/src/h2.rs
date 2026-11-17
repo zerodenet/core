@@ -405,5 +405,5 @@ impl ClientStream for H2Stream {
 }
 
 #[cfg(all(test, any(unix, windows)))]
-#[path = "../tests/h2_native_flush.rs"]
+#[path = "../tests/h2/native_flush.rs"]
 mod native_flush;

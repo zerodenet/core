@@ -244,19 +244,21 @@ impl AcceptedCarrierProvider {
         {
             return Err(failure());
         }
-        row.uses
-            .fetch_update(
+        let mut state = row.uses.load(std::sync::atomic::Ordering::Acquire);
+        loop {
+            if state >= USE_COUNT_MASK {
+                return Err(failure());
+            }
+            match row.uses.compare_exchange_weak(
+                state,
+                state + 1,
                 std::sync::atomic::Ordering::AcqRel,
                 std::sync::atomic::Ordering::Acquire,
-                |state| {
-                    if state < USE_COUNT_MASK {
-                        Some(state + 1)
-                    } else {
-                        None
-                    }
-                },
-            )
-            .map_err(|_| failure())?;
+            ) {
+                Ok(_) => break,
+                Err(actual) => state = actual,
+            }
+        }
         Ok(AcceptedCarrierUse(row.uses.clone()))
     }
     pub fn driver_uses(&self, driver: &TaskJoinWitness) -> Option<AcceptedCarrierUses> {

@@ -81,7 +81,7 @@ impl SystemRouteGuard {
                 tun_name,
                 recovery_key,
                 address,
-                netmask: netmask,
+                netmask,
                 captured,
                 excluded,
                 metadata: None,

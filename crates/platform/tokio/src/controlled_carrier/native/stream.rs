@@ -87,7 +87,7 @@ impl NativeCarrierOpener {
                 DeliveryState::NotSubmitted,
             ));
         }
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         if let Some(derived) = &self.derived {
             derived.claim(&grant, binding, false).map_err(|source| {
                 error(

@@ -311,6 +311,19 @@ impl ControlledDatagramOwner {
         };
         for entry in self.entries.values() {
             match &*entry.lock() {
+                // The unlocked synchronous native operation still owns its
+                // provisional unwind marker. A pending operation is retained
+                // live; after its guard ends a real Unknown remains visible.
+                NativeHandleState::Unknown(_)
+                    if entry
+                        .close_running
+                        .load(std::sync::atomic::Ordering::Acquire)
+                        || entry
+                            .creation_running
+                            .load(std::sync::atomic::Ordering::Acquire) =>
+                {
+                    report.retained_live += 1;
+                }
                 NativeHandleState::Unknown(source) => {
                     report.unconfirmed.push(UnconfirmedDatagram {
                         reservation: entry.id,

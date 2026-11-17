@@ -2,11 +2,12 @@
 pub(crate) mod accepted;
 mod control;
 pub use accepted::{
-    AcceptedCaller, AcceptedOrigin, AcceptedPeerScope, AcceptedResource, AcceptedTaskFailureCursor,
-    AcceptedTaskFailureRegistration, AcceptedTaskFailureReservation, AcceptedTaskFailureView,
-    AcceptedTaskFailures, AcceptedTasks, AcceptedTcp, AcceptedTcpCarrierOrigin, AcceptedTcpClaim,
-    AcceptedTcpClosed, AcceptedTcpEvidence, AcceptedTcpNativeClosed, AcceptedTcpStream,
-    AcceptedTcpTaskReceiver, AcceptedTcpUsers,
+    AcceptedCaller, AcceptedOrigin, AcceptedPeerScope, AcceptedResource,
+    AcceptedResourceObservation, AcceptedTaskFailureCursor, AcceptedTaskFailureRegistration,
+    AcceptedTaskFailureReservation, AcceptedTaskFailureView, AcceptedTaskFailures, AcceptedTasks,
+    AcceptedTcp, AcceptedTcpCarrierOrigin, AcceptedTcpClaim, AcceptedTcpClosed,
+    AcceptedTcpEvidence, AcceptedTcpNativeClosed, AcceptedTcpStream, AcceptedTcpTaskReceiver,
+    AcceptedTcpUsers,
 };
 mod native;
 mod owner;

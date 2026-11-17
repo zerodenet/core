@@ -26,7 +26,7 @@ where
         }
     }
 }
-pub(super) async fn send(
+pub(in crate::tls) async fn send(
     resources: &dyn ResourceAccess,
     driver: &TaskJoinWitness,
     tasks: &WeakTaskRegistrar,

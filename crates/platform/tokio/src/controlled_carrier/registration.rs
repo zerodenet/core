@@ -223,7 +223,16 @@ impl CarrierOwnerRegistration {
                             physical_view_live: state.view_live,
                             driver: state.driver.clone(),
                             auxiliary: state.auxiliary.clone(),
-                            acquisition_unknown: state.unknown.clone(),
+                            // While the synchronous native boundary is still
+                            // opening, this is its provisional unwind marker,
+                            // not an observed failed acquisition. The grant's
+                            // Drop ends opening on failure/unwind, retaining
+                            // the marker for the original close observer then.
+                            acquisition_unknown: if state.opening {
+                                None
+                            } else {
+                                state.unknown.clone()
+                            },
                             native: None,
                         },
                         state.close_observer.clone(),

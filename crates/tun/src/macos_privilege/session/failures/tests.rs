@@ -72,6 +72,7 @@ fn same_source_late_cleanup_feedback_preserves_original_cause_without_a_paid_pay
     let root = Arc::new(crate::packet_memory::PacketReturnTotals::default());
     let baseline = root.driver_metadata().occupied;
     let read = root.native_grant(64).unwrap();
+    let read_baseline = root.driver_metadata().occupied;
     let owner =
         MacosHelperOwner::prepare(&read.memory_view().unwrap(), 65536, false, rpc::CAPACITY)
             .unwrap();
@@ -121,6 +122,8 @@ fn same_source_late_cleanup_feedback_preserves_original_cause_without_a_paid_pay
     );
     assert!(root.driver_metadata().occupied.bytes() > baseline.bytes());
     drop(weak); // real last weak/header release, not a body-completion refund
+    assert_eq!(root.driver_metadata().occupied, read_baseline);
+    drop(read);
     assert_eq!(root.driver_metadata().occupied, baseline);
 }
 #[test]
@@ -129,6 +132,7 @@ fn a_foreign_paid_payload_is_retained_as_an_actual_original_instead_of_being_dis
     let root = Arc::new(crate::packet_memory::PacketReturnTotals::default());
     let baseline = root.driver_metadata().occupied;
     let read = root.native_grant(64).unwrap();
+    let read_baseline = root.driver_metadata().occupied;
     let memory = read.memory_view().unwrap();
     let owner = MacosHelperOwner::prepare(&memory, 65536, false, rpc::CAPACITY).unwrap();
     let foreign = MacosHelperOwner::prepare(&memory, 65536, false, rpc::CAPACITY).unwrap();
@@ -154,5 +158,8 @@ fn a_foreign_paid_payload_is_retained_as_an_actual_original_instead_of_being_dis
     drop(owner);
     assert!(weak.upgrade().is_none());
     drop(weak);
+    assert_eq!(root.driver_metadata().occupied, read_baseline);
+    drop(memory);
+    drop(read);
     assert_eq!(root.driver_metadata().occupied, baseline);
 }

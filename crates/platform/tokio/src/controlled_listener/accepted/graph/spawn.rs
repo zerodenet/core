@@ -89,10 +89,15 @@ impl Users {
             registration_attempted: false,
         };
         let task = Arc::new(OnceLock::new());
-        let work = make(AcceptedTasks {
+        // Keep the real work in this admitted accepted slot before the
+        // registrar wraps it. Moving a large Datagram future through every
+        // tracked-spawn frame can exhaust an ordinary worker stack before
+        // Tokio reaches its own task allocation. The constructor still binds
+        // the same original task cell synchronously, before its first poll.
+        let work = Box::pin(make(AcceptedTasks {
             users: Arc::downgrade(self),
             task: task.clone(),
-        });
+        }));
         let (admit, admitted) = tokio::sync::oneshot::channel();
         let cancel = self.cancel.clone();
         // A registrar unwind may have installed a real task before returning

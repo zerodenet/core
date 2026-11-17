@@ -63,7 +63,7 @@ impl BorrowedDatagram {
                 inner: rx,
                 fence: rx_fence,
                 observer,
-                custody: custody,
+                custody,
             }) as Rx,
             control: (Box::new(super::super::native::NativeControl(adoption.clone()))
                 as Box<dyn crate::contract::lifecycle::DynChannelControl>)

@@ -23,6 +23,35 @@ fn fixed_library_and_actual_host_preparation_keep_one_scope_limit_and_order_inde
             Duration::from_secs(2),
         )
         .unwrap();
+    let dependency = zero_core::component::ComponentId(9);
+    let all_prefixes = base.clone().with_stream_dependency(dependency);
+    let root_only = base.clone().with_root_stream_dependency(dependency);
+    let root_binding = base.binding().clone();
+    let mut nested_binding = root_binding.clone();
+    nested_binding
+        .prefix
+        .push(zero_core::component::RoleInstanceId {
+            component: zero_core::component::ComponentId(4),
+            role: zero_core::component::RoleId::Outbound(zero_core::component::OutboundId(4)),
+            generation: zero_core::component::ResourceGeneration(1),
+        });
+    assert_eq!(
+        root_only.stream_dependency_for(&root_binding),
+        Some(dependency)
+    );
+    assert_eq!(root_only.stream_dependency_for(&nested_binding), None);
+    assert_eq!(
+        all_prefixes.stream_dependency_for(&nested_binding),
+        Some(dependency)
+    );
+    assert_ne!(
+        PoolFactory.describe(&root_only).static_identity,
+        PoolFactory.describe(&all_prefixes).static_identity
+    );
+    assert_eq!(
+        PoolFactory.describe(&root_only.with_stream_dependency(dependency)),
+        PoolFactory.describe(&all_prefixes)
+    );
     assert!(!base.scoped_preparation);
     let scoped = base.clone().with_scoped_preparation();
     assert!(scoped.scoped_preparation);

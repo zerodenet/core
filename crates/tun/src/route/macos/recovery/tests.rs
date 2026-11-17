@@ -38,7 +38,7 @@ fn legacy_identity_is_not_invented_and_absence_allows_retry_after_external_clean
     let mut journal = RouteJournal::load(&lease, false).unwrap().unwrap();
     assert!(legacy_capture(&journal));
     let os = RefCell::new(vec![route("utun7")]);
-    let mut recover = |journal: &mut RouteJournal| {
+    let recover = |journal: &mut RouteJournal| {
         journal.cleanup(
             |prefix| {
                 confirm_absent_with(

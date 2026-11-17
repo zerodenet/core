@@ -9,6 +9,10 @@ use zero_platform_tokio::{
     },
     controlled_carrier::{CarrierProtocolRetirement, ProtocolOriginalChildren},
 };
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the original state stays in its existing reserved envelope without adding a per-variant unbudgeted Box"
+)]
 pub(super) enum Ready {
     Stream(zero_platform_tokio::controlled_carrier::loan::StreamLoan),
     Failed(zero_platform_tokio::contract::RetainedError),
@@ -88,16 +92,6 @@ impl Entry {
             .replace(actor);
         assert!(replaced.is_none(), "one actual setup registration outcome");
         drop(replaced);
-        self.changed.notify_waiters();
-    }
-    pub fn set_driver(&self, actual: TaskJoinWitness) {
-        let old = self
-            .driver
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .replace(Some(actual));
-        assert!(old.is_none(), "one exact registered physical driver");
-        drop(old);
         self.changed.notify_waiters();
     }
     pub fn skip_driver(&self) {

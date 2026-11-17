@@ -111,6 +111,10 @@ impl<C> EchoTranslation<C> {
         ))
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "preserve explicit caller context and independent forward/return MTU and wire-memory originals"
+    )]
     fn request_storage(
         &mut self,
         mut original: PacketBuffer,

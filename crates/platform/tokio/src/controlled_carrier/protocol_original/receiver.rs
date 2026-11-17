@@ -7,6 +7,10 @@ pub struct ProtocolOriginalReceiver {
     protocol: TaskJoinWitness,
 }
 #[derive(Clone)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the original state stays in its existing reserved envelope without adding a per-variant unbudgeted Box"
+)]
 enum Receiver {
     Metadata(crate::controlled_datagram::metadata_pool::MetadataDriverRetained),
     Carrier(CarrierDriverRetained),
@@ -133,6 +137,10 @@ pub struct ProtocolReceiverPrepared {
     publication: Publication,
     receiver: ProtocolOriginalReceiver,
 }
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the original state stays in its existing reserved envelope without adding a per-variant unbudgeted Box"
+)]
 enum Publication {
     Phase(std::sync::Weak<crate::original_protocol::Phase>),
     MetadataContinuation {

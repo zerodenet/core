@@ -20,7 +20,7 @@ mod stream;
 pub struct NativeCarrierOpener {
     grantee: ComponentInstanceId,
     pub(super) related_parent: Option<super::CarrierAdoption>,
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     derived: Option<crate::owned_process::ProcessEndpointUse>,
     binding: UpstreamBinding,
     peer: SocketAddr,
@@ -34,7 +34,7 @@ pub struct NativeCarrierOpener {
         crate::contract::dns::DnsGeneration,
     )>,
 }
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(any(unix, windows))]
 mod process_endpoint;
 mod relay;
 impl NativeCarrierOpener {
@@ -59,7 +59,7 @@ impl NativeCarrierOpener {
         Ok(Self {
             grantee,
             related_parent: None,
-            #[cfg(any(target_os = "linux", windows))]
+            #[cfg(any(unix, windows))]
             derived: None,
             binding,
             peer,

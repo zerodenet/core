@@ -25,6 +25,10 @@ impl MetadataPoolGrants {
     }
     /// Same original pending reservation and actual Scope. The controller is
     /// Root-held before an actual initializer can be registered or execute IO.
+    #[expect(
+        clippy::result_large_err,
+        reason = "failed admission returns actual originals and retained cleanup custody without an unbudgeted allocation"
+    )]
     pub fn prepare_protocol_original(
         &self,
         tasks: &TaskRegistrar,

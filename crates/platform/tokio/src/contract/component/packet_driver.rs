@@ -143,7 +143,7 @@ impl PacketDriverCallGrant {
             return Err(failure(Reason::StalePlan));
         }
         let actual = upstream.packet_caller(
-            &RequestIdentity::Service(self.record.identity.clone().into()),
+            &RequestIdentity::Service(self.record.identity.clone()),
             &self.record.call,
         )?;
         if !actual.same_registration(&self.record.caller) {
@@ -164,7 +164,7 @@ impl PacketDriverCallGrant {
     }
 
     pub fn identity(&self) -> RequestIdentity {
-        RequestIdentity::Service(self.record.identity.clone().into())
+        RequestIdentity::Service(self.record.identity.clone())
     }
     pub fn call(&self) -> CarrierContext {
         self.record.call.clone()

@@ -83,7 +83,7 @@ impl PacketSender {
     ) -> Option<std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>> {
         #[cfg(feature = "packet-memory")]
         {
-            return self.memory.as_ref().map(memory::Binding::changed);
+            self.memory.as_ref().map(memory::Binding::changed)
         }
         #[cfg(not(feature = "packet-memory"))]
         None

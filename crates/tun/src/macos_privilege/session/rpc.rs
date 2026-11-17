@@ -243,10 +243,7 @@ impl Rpc {
         }
         // Parsing a reply is independent of observing the exact child exit.
         // In particular, a helper exit never sets this condition for its tool.
-        if self.command.is_some() && !tools.completed()? {
-            return Ok(false);
-        }
-        Ok(true)
+        Ok(!(self.command.is_some() && !tools.completed()?))
     }
     pub(super) fn write_request(&mut self, control: RawFd) -> io::Result<()> {
         while self.written < self.length {

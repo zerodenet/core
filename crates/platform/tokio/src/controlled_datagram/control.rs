@@ -128,11 +128,15 @@ impl ControlledDatagramControl {
                 }
             }
         };
+        let operation_pending = self.entry.close_running.load(Ordering::Acquire)
+            || self.entry.creation_running.load(Ordering::Acquire);
         DatagramControlObservation {
             native_closed: matches!(&*native, NativeHandleState::Closed),
-            operation_pending: self.entry.close_running.load(Ordering::Acquire),
+            operation_pending,
             unknown: match &*native {
-                NativeHandleState::Unknown(source) => Some(self.entry.close_failure_source(source)),
+                NativeHandleState::Unknown(source) if !operation_pending => {
+                    Some(self.entry.close_failure_source(source))
+                }
                 _ => None,
             },
         }

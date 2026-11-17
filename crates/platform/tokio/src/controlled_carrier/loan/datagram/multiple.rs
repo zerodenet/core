@@ -6,6 +6,10 @@ impl DatagramLoan {
     /// Preserve the actual session's Multiple capability and unique owner.
     /// `wire_relay` is observational; it grants no payload target permission.
     /// A rejected conversion returns the same loan for actual cleanup custody.
+    #[expect(
+        clippy::result_large_err,
+        reason = "failed admission returns actual originals and retained cleanup custody without an unbudgeted allocation"
+    )]
     pub fn new_multiple(
         session: BoxDatagramSession,
         original: CarrierOrigin,
@@ -17,6 +21,10 @@ impl DatagramLoan {
 
     /// Select the existing session's target-aware interface, without changing
     /// its limits, controller, association, original or registered task graph.
+    #[expect(
+        clippy::result_large_err,
+        reason = "failed admission returns actual originals and retained cleanup custody without an unbudgeted allocation"
+    )]
     pub fn into_multiple_targets(mut self) -> Result<Self, (ChannelError, Self)> {
         if !matches!(self.io.limits.targets, DatagramTargets::Multiple) {
             let error = crate::controlled_carrier::error(

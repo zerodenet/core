@@ -9,6 +9,10 @@ use std::{
 };
 use tokio::time::Instant;
 
+type ClosedWork = (
+    Option<BoxFuture<'static, Result<CloseReport, ChannelError>>>,
+    Option<BoxFuture<'static, bool>>,
+);
 #[derive(Default)]
 pub(super) struct Retirement {
     deadline: Option<Instant>,
@@ -22,12 +26,7 @@ pub(super) struct Retirement {
     credit: Option<BoxFuture<'static, bool>>,
 }
 impl Retirement {
-    pub(super) fn take_closed_work(
-        &mut self,
-    ) -> (
-        Option<BoxFuture<'static, Result<CloseReport, ChannelError>>>,
-        Option<BoxFuture<'static, bool>>,
-    ) {
+    pub(super) fn take_closed_work(&mut self) -> ClosedWork {
         self.removed = true;
         (self.work.take(), self.credit.take())
     }

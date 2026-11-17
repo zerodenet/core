@@ -126,7 +126,8 @@ impl ManagedPool {
                 .into_parts()
                 .0
         } else {
-            let issuer = if let Some(dependency) = self.stream_dependency {
+            let dependency = self.stream_dependency_for(&binding);
+            let issuer = if let Some(dependency) = dependency {
                 Some(
                     self.resources
                         .upgrade()
@@ -144,9 +145,8 @@ impl ManagedPool {
             let loan = selected
                 .borrow_stream(self.options.endpoint.clone(), physical_call.clone())
                 .await?;
-            let matches_dependency = self
-                .stream_dependency
-                .is_none_or(|expected| loan.owner.original().instance() == expected);
+            let matches_dependency =
+                dependency.is_none_or(|expected| loan.owner.original().instance() == expected);
             // Install the actual controller even on a rejected foreign loan.
             // The same persistent record then closes it, never bare Drop.
             let raw = match issuer {

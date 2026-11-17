@@ -36,6 +36,9 @@ impl PoolOptions {
             identity.extend_from_slice(b"actual-stream-loan-dependency");
             identity.extend_from_slice(&dependency.0.to_le_bytes());
         }
+        if self.root_stream_dependency {
+            identity.extend_from_slice(b"root-only-stream-dependency-v1");
+        }
         self.identity = identity.into();
     }
     /// Actual Node/ECH source prepared by the owning protocol adapter. Cold
@@ -51,9 +54,28 @@ impl PoolOptions {
     /// this declaration neither opens IO nor substitutes for a StreamLoan.
     pub fn with_stream_dependency(mut self, dependency: zero_core::component::ComponentId) -> Self {
         self.stream_dependency = Some(dependency);
+        self.root_stream_dependency = false;
         self.rebuild_dependencies();
         self.rebuild_identity();
         self
+    }
+    /// Root-only carriers (Browser) cannot replace a preceding proxy. Nested
+    /// callers borrow the actual prefix and retain their native transport stack.
+    pub fn with_root_stream_dependency(
+        self,
+        dependency: zero_core::component::ComponentId,
+    ) -> Self {
+        let mut options = self.with_stream_dependency(dependency);
+        options.root_stream_dependency = true;
+        options.rebuild_identity();
+        options
+    }
+    pub fn stream_dependency_for(
+        &self,
+        binding: &UpstreamBinding,
+    ) -> Option<zero_core::component::ComponentId> {
+        self.stream_dependency
+            .filter(|_| !self.root_stream_dependency || binding.prefix.is_empty())
     }
     fn rebuild_dependencies(&mut self) {
         self.dependencies = self

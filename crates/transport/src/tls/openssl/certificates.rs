@@ -3,7 +3,7 @@ use std::{io, path::Path};
 use openssl::{nid::Nid, x509::X509};
 use zero_traits::{ServerTlsProfile, TlsCertificateFiles, TlsCertificateUsage};
 
-pub(super) fn files(
+pub(in crate::tls) fn files(
     profile: &(impl ServerTlsProfile + ?Sized),
     base_dir: Option<&Path>,
 ) -> io::Result<Vec<TlsCertificateFiles>> {

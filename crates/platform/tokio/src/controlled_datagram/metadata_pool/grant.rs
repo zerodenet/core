@@ -12,6 +12,10 @@ impl MetadataPoolGrants {
                 error
             })
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "failed admission returns actual originals and retained cleanup custody without an unbudgeted allocation"
+    )]
     pub(super) fn reserve_inner(
         &self,
         query: Option<&TaskJoinWitness>,

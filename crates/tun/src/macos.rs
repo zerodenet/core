@@ -178,6 +178,27 @@ pub(crate) fn create_raw_utun(name: Option<&str>) -> io::Result<RawFd> {
 }
 
 fn interface_name(sock: RawFd) -> io::Result<String> {
+    // AF_UNIX also accepts level/option 2 and can return unrelated bytes
+    // (LOCAL_PEERPID) successfully. Verify the actual connected kernel-control
+    // original before interpreting that result as UTUN_OPT_IFNAME.
+    let mut address: libc::sockaddr_ctl = unsafe { std::mem::zeroed() };
+    let mut address_len = std::mem::size_of_val(&address) as libc::socklen_t;
+    if unsafe {
+        libc::getpeername(
+            sock,
+            &mut address as *mut _ as *mut libc::sockaddr,
+            &mut address_len,
+        )
+    } < 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    if address_len < std::mem::size_of_val(&address) as libc::socklen_t
+        || address.sc_family != AF_SYSTEM as u8
+        || address.ss_sysaddr != AF_SYS_CONTROL
+    {
+        return Err(io::Error::from_raw_os_error(libc::ENOTSOCK));
+    }
     let mut ifname: [libc::c_char; 16] = unsafe { std::mem::zeroed() };
     let mut ifname_len: libc::socklen_t = ifname.len() as libc::socklen_t;
     let ret = unsafe {

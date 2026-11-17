@@ -39,8 +39,8 @@ impl OwnedClient {
             retirement,
         })
     }
-    pub(crate) fn original_task(&self) -> TaskId {
-        self.task.id()
+    pub(crate) fn original_task(&self) -> Option<TaskId> {
+        self.task.task_id()
     }
     pub(crate) fn names_retirement(&self, original: &CarrierProtocolRetirement) -> bool {
         self.retirement.same_original(original)

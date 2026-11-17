@@ -148,6 +148,7 @@ impl RouteJournal {
         Ok(())
     }
 
+    #[cfg(any(test, target_os = "linux", target_os = "windows"))]
     pub(in crate::route) fn record_route(&mut self, prefix: &str) -> io::Result<()> {
         let prefix = self._metadata.string(prefix).map_err(io::Error::other)?;
         if let Err((error, original)) = self._metadata.push(&mut self.installed, prefix) {

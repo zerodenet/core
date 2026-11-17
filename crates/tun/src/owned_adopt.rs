@@ -61,6 +61,10 @@ impl std::fmt::Debug for AdoptedTunOwner {
             .finish_non_exhaustive()
     }
 }
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the installed original keeps its native backend inline across acquisition and close without a fallible unbudgeted Box"
+)]
 enum State {
     Cold,
     Acquiring,

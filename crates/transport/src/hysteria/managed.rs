@@ -44,10 +44,8 @@ pub struct ManagedPool {
 impl Pool {
     pub fn exclude_native(&self) {
         let mut mode = self.0.ownership.lock().unwrap();
-        if matches!(*mode, super::client::Ownership::Cold) {
-            if self.0.family.enter_legacy().is_ok() {
-                *mode = super::client::Ownership::Legacy;
-            }
+        if matches!(*mode, super::client::Ownership::Cold) && self.0.family.enter_legacy().is_ok() {
+            *mode = super::client::Ownership::Legacy;
         }
     }
     pub fn native_eligible(&self) -> bool {

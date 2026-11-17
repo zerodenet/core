@@ -23,6 +23,10 @@ impl RetainedError {
     pub fn metadata_layout() -> Result<PacketMetadataLayout, PacketMemoryError> {
         PacketMetadataArc::<ChannelError>::layout()
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "failed retention returns the original error and credit without allocating another error owner"
+    )]
     pub fn from_prepaid(
         error: ChannelError,
         credit: PacketMetadataCredit,

@@ -909,7 +909,7 @@ pub trait ResourceAccess: Send + Sync {
     }
     /// Cold original installed by the actual host before native acquisition.
     /// The existing registered actor starts/drives it; no second Scope exists.
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     fn prepare_owned_process(
         &self,
         _: ProcessRequest,
@@ -924,7 +924,7 @@ pub trait ResourceAccess: Send + Sync {
     }
     /// The same declared provider's durable read-only retirement observation.
     /// Obtain this before an attempt: absence is not a no-native disposition.
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     fn process_endpoint_retirement(
         &self,
         _: usize,
@@ -933,7 +933,7 @@ pub trait ResourceAccess: Send + Sync {
     }
     /// Start-only, same actual Process entry. The host stores this cold owner
     /// before it creates either native reservation. No protocol environment is read.
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     fn reserve_process_endpoint(
         &self,
         _: usize,
@@ -947,7 +947,7 @@ pub trait ResourceAccess: Send + Sync {
         ))
     }
     /// Explicitly associates the exact prepared job with its actual handoff.
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     fn prepare_owned_process_with_endpoint(
         &self,
         _: ProcessRequest,
@@ -974,6 +974,10 @@ pub trait ResourceAccess: Send + Sync {
     }
     /// Distinct default-deny capability. Never call the legacy opener and then
     /// infer a retry from its diagnostic source, delivery flag or error kind.
+    #[expect(
+        clippy::result_large_err,
+        reason = "failed admission returns actual originals and retained cleanup custody without an unbudgeted allocation"
+    )]
     fn open_bound_datagram_attempt(
         &self,
         _request: BoundDatagramRequest,

@@ -22,6 +22,10 @@ impl MetadataPoolOrigin {
     }
 }
 impl MetadataPoolPermit {
+    #[expect(
+        clippy::result_large_err,
+        reason = "failed admission returns actual originals and retained cleanup custody without an unbudgeted allocation"
+    )]
     pub fn install_protocol_control(
         &self,
         tasks: &TaskRegistrar,

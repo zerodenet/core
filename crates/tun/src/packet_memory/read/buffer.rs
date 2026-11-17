@@ -18,6 +18,10 @@ impl NativeReadBuffer {
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "failed conversion returns the original paid native read buffer without allocating"
+    )]
     pub fn into_packet(mut self, length: usize) -> Result<zero_traits::PacketBuffer, Self> {
         if length > self.bytes.len() {
             return Err(self);

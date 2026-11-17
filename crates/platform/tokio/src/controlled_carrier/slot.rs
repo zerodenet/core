@@ -25,7 +25,7 @@ pub(super) struct Slot {
 #[derive(Default)]
 pub(super) struct State {
     pub(super) protocol: Option<Arc<crate::original_protocol::Phase>>,
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(unix, windows))]
     pub(super) process_endpoint: Option<crate::owned_process::ProcessEndpointFence>,
     pub(super) related_parent: Option<Weak<Slot>>,
     pub(super) related_child: Option<Arc<Slot>>,
@@ -75,7 +75,7 @@ impl Slot {
     }
 
     pub(super) fn check_process_endpoint(&self) -> std::io::Result<()> {
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         {
             let derived = { self.state().process_endpoint.clone() };
             if let Some(derived) = derived {

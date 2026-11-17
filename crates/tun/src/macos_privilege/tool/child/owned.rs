@@ -188,6 +188,16 @@ impl ChildOriginal {
         if let Some(source) = storage_failure {
             return Err(io::Error::other(source));
         }
+        // Stop can kill the actual child while poll is suspended. Its final
+        // pipe EOF may end the loop without revisiting the cancellation check;
+        // reaping that child must not turn the cancelled operation into Ok.
+        if self
+            .local_control
+            .as_ref()
+            .is_some_and(|control| control.local_cancelled())
+        {
+            return Err(io::Error::from_raw_os_error(libc::EINTR));
+        }
         Ok(outputs)
     }
 }

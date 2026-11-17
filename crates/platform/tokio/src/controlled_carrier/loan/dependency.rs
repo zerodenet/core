@@ -68,6 +68,10 @@ impl CarrierOwnerBinding {
     /// Host-only sealing after the actual plan checked this direct Source
     /// dependency. No numeric Source ID or Scope identity can replace its
     /// original receiver or this binding's private Host fence.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "preserve explicit protocol facts and independently owned caller, wire and resource bindings at this assembly boundary"
+    )]
     pub fn accepted_dependency_stream_loan_issuer(
         &self,
         host_fence: &Arc<CancellationToken>,

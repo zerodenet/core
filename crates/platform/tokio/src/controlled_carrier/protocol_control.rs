@@ -2,6 +2,10 @@
 use super::*;
 use crate::contract::scope::{TaskJoinWitness, TaskRegistrar};
 impl CarrierGrant {
+    #[expect(
+        clippy::result_large_err,
+        reason = "failed admission returns actual originals and retained cleanup custody without an unbudgeted allocation"
+    )]
     pub fn install_datagram_protocol_control(
         &self,
         tasks: &TaskRegistrar,
@@ -57,6 +61,10 @@ impl CarrierGrants {
     /// Store the unique inert protocol controller in this same actual Slot and
     /// Root before registering its actor or allowing any first IO. Only the
     /// concrete Service Datagram or already cache-authorized Datagram pool qualifies.
+    #[expect(
+        clippy::result_large_err,
+        reason = "failed admission returns actual originals and retained cleanup custody without an unbudgeted allocation"
+    )]
     pub fn reserve_protocol_original(
         &self,
         tasks: &TaskRegistrar,
@@ -99,6 +107,10 @@ impl CarrierGrants {
 impl CarrierGrants {
     /// The same Root-held original/phase, for an existing cached TCP pool.
     /// Reserve both mixed halves before either real initializing Aux starts.
+    #[expect(
+        clippy::result_large_err,
+        reason = "failed admission returns actual originals and retained cleanup custody without an unbudgeted allocation"
+    )]
     pub fn reserve_stream_protocol_original(
         &self,
         tasks: &TaskRegistrar,

@@ -48,12 +48,6 @@ fn error() -> ChannelError {
     ChannelError::new(Stage::Prepare, Reason::Revoked, Impact::Component)
 }
 impl Pool {
-    pub fn in_family(family: Arc<OwnershipFamily>) -> Self {
-        Self(Arc::new(super::client::PoolState {
-            family,
-            ..Default::default()
-        }))
-    }
     /// Same old library-generation behavior, with the owning exposure census
     /// preserved. Active host modes are never replaced by this reload helper.
     pub fn next_legacy_generation(&self) -> Option<Self> {

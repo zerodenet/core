@@ -51,9 +51,8 @@ impl MetadataOwner {
         source: SocketAddr,
     ) -> Result<GrantedMetadataDatagram, DatagramAcquisitionError> {
         self.prepare_acquisition()?;
-        let socket = self.main.bind_raw_listener(source).map_err(|source| {
-            self.capture_acquisition(&source);
-            source
+        let socket = self.main.bind_raw_listener(source).inspect_err(|source| {
+            self.capture_acquisition(source);
         })?;
         self.initialize(socket, None)
     }
@@ -68,9 +67,8 @@ impl MetadataOwner {
         let socket = self
             .main
             .acquire_raw(peer, None, policy, selection)
-            .map_err(|source| {
-                self.capture_acquisition(&source);
-                source
+            .inspect_err(|source| {
+                self.capture_acquisition(source);
             })?;
         self.initialize(socket, Some(peer))
     }
@@ -136,9 +134,8 @@ impl MetadataOwner {
                 ));
             }
         };
-        let socket = self.main.register_native(socket).map_err(|source| {
-            self.capture_acquisition(&source);
-            source
+        let socket = self.main.register_native(socket).inspect_err(|source| {
+            self.capture_acquisition(source);
         })?;
         let pollers = poller::Broker::new(self.limits.write_pollers);
         // This can only fail if a freshly initialized checked namespace cannot

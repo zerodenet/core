@@ -179,26 +179,3 @@ impl Canonical {
             .clone()
     }
 }
-#[cfg(test)]
-pub(super) enum WeakAllocation<T> {
-    Library(Weak<T>),
-    Hosted(zero_traits::packet_metadata::PacketMetadataWeak<T>),
-}
-#[cfg(test)]
-impl<T> Allocation<T> {
-    pub(super) fn downgrade(&self) -> WeakAllocation<T> {
-        match self {
-            Self::Library(x) => WeakAllocation::Library(Arc::downgrade(x)),
-            Self::Hosted(x) => WeakAllocation::Hosted(PacketMetadataArc::downgrade(x)),
-        }
-    }
-}
-#[cfg(test)]
-impl<T> WeakAllocation<T> {
-    pub(super) fn upgrade(&self) -> Option<Allocation<T>> {
-        match self {
-            Self::Library(x) => x.upgrade().map(Allocation::Library),
-            Self::Hosted(x) => x.upgrade().map(Allocation::Hosted),
-        }
-    }
-}

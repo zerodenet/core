@@ -82,7 +82,7 @@ impl NativeCarrierOpener {
         if let Some(parent) = related {
             grant.link_related_datagram(parent)?;
         }
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(unix, windows))]
         if let Some(derived) = &self.derived {
             derived.claim(&grant, binding, true).map_err(|source| {
                 error(
@@ -115,6 +115,7 @@ impl NativeCarrierOpener {
                 return Err(denied(Reason::Revoked));
             }
             state.packet_owner = Some(native.clone());
+            state.opening = true;
             state.binding = Some(binding.clone());
             state.endpoint = Some(destination.clone());
             state.unknown = Some(Arc::new(denied(Reason::Internal).with_source(
@@ -182,6 +183,7 @@ impl NativeCarrierOpener {
             let mut state = grant.slot.state();
             state.packet = Some(Arc::new(control));
             state.unknown = None;
+            state.opening = false;
             state.view_live = true;
         }
         super::super::users::acquired(&grant.slot);

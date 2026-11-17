@@ -105,6 +105,12 @@ impl std::fmt::Debug for Pool {
     }
 }
 impl Pool {
+    pub fn in_family(family: Arc<super::OwnershipFamily>) -> Self {
+        Self(Arc::new(PoolState {
+            family,
+            ..Default::default()
+        }))
+    }
     pub fn retire(&self) {
         if self.has_host_owner() {
             return;

@@ -10,6 +10,10 @@ pub struct OwnedSendFailure {
     pub packet: Option<IpPacket>,
 }
 
+#[expect(
+    clippy::result_large_err,
+    reason = "failed admission returns actual originals and retained cleanup custody without an unbudgeted allocation"
+)]
 pub async fn send_owned<T: PacketTx + ?Sized>(
     mut tx: Pin<&mut T>,
     control: &mut dyn DynChannelControl,

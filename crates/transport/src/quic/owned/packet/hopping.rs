@@ -130,6 +130,10 @@ impl PacketSegment {
         };
         Ok((PacketQueues(queues.take(), self.identity.clone()), loan))
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "failed admission returns actual originals and retained cleanup custody without an unbudgeted allocation"
+    )]
     pub fn attach_previous_wire(
         &mut self,
         previous: PacketReceiveLoan,

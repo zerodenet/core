@@ -10,7 +10,7 @@ impl Core {
             return self.require_open(&state);
         }
         if let Some(failure) = &state.start_failure {
-            return Err(io::Error::new(io::ErrorKind::Other, failure.clone()));
+            return Err(io::Error::other(failure.clone()));
         }
         if state.closing {
             return Err(io::Error::new(io::ErrorKind::BrokenPipe, "journal retired"));

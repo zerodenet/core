@@ -180,6 +180,11 @@ impl BoundDatagramSocket {
     pub fn close(&self) -> Result<DatagramCloseReceipt, Arc<io::Error>> {
         self.socket().close()
     }
+    /// Same physical original. A concurrent native operation remains pending,
+    /// not an Unknown failure or a returned provider receipt.
+    pub fn try_close(&self) -> Option<Result<DatagramCloseReceipt, Arc<io::Error>>> {
+        self.socket().try_close()
+    }
 }
 
 impl Drop for BoundDatagramSocket {

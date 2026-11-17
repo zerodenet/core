@@ -86,7 +86,10 @@ async fn process_endpoint_pending_probe_retains_original_until_native_close_and_
             assert!(closed.matches_original(&native) && closed.had_native_acquisition());
             assert!(!actual.actor().unwrap().is_joined());
             actual.request_stop();
+            #[cfg(target_os = "linux")]
             actual.wait_tree_ended(deadline).await.unwrap();
+            #[cfg(not(target_os = "linux"))]
+            actual.wait_child_ended(deadline).await.unwrap();
             Ok(())
         })
         .unwrap();

@@ -222,20 +222,20 @@ fn build_context_builder(
         let mut chain = X509::stack_from_pem(&files.cert)
             .map_err(io::Error::other)?
             .into_iter();
+        let certificate = chain
+            .next()
+            .ok_or_else(|| invalid("empty TLS certificate chain"))?;
         builder
-            .set_certificate(
-                &chain
-                    .next()
-                    .ok_or_else(|| invalid("empty TLS certificate chain"))?,
-            )
+            .set_certificate(certificate.as_ref())
             .map_err(io::Error::other)?;
         for certificate in chain {
             builder
                 .add_extra_chain_cert(certificate)
                 .map_err(io::Error::other)?;
         }
+        let private_key = PKey::private_key_from_pem(&files.key).map_err(io::Error::other)?;
         builder
-            .set_private_key(&PKey::private_key_from_pem(&files.key).map_err(io::Error::other)?)
+            .set_private_key(private_key.as_ref())
             .map_err(io::Error::other)?;
         builder.check_private_key().map_err(io::Error::other)?;
         super::ocsp::apply_material(

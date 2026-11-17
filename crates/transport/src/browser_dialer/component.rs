@@ -68,7 +68,7 @@ impl Handle {
             .upstream
             .observe_carrier_origin(loan.owner.original());
         Ok(zero_platform_tokio::TcpRelayStream::new(
-            ordinary::Ordinary(loan),
+            crate::pooled_driver::ExclusiveIo::new(ordinary::Ordinary(loan)),
         ))
     }
     /// Borrow the same original under a transformed protocol stream. The paid

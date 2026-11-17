@@ -246,8 +246,7 @@ impl ClientUdpSender {
         if fragments.is_empty() {
             return Err(ClientUdpSendError::before(ClientUdpStackError::InvalidMtu));
         }
-        let mut accepted = 0;
-        for fragment in fragments {
+        for (accepted, fragment) in fragments.into_iter().enumerate() {
             if self.inner.closed.load(Ordering::Acquire)
                 || self.state.closed.load(Ordering::Acquire)
             {
@@ -273,7 +272,6 @@ impl ClientUdpSender {
                 );
                 return Err(ClientUdpSendError::closed(accepted));
             }
-            accepted += 1;
         }
         Ok(())
     }

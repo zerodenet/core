@@ -68,7 +68,17 @@ fn failed_flock_keeps_its_original_without_removing_another_owners_metadata() {
     assert!(files.has_pending() && faults.has_failures());
     files.retire_pending().unwrap();
     assert_eq!(std::fs::read(owner).unwrap(), b"the-real-other-owner");
-    assert!(fs2::FileExt::try_lock_exclusive(&donor).is_ok());
+    // Windows does not permit locking the same handle twice. Prove the
+    // original donor still owns the lock through a distinct actual handle.
+    let contender = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&lock_path)
+        .unwrap();
+    assert!(fs2::FileExt::try_lock_exclusive(&contender).is_err());
+    fs2::FileExt::unlock(&donor).unwrap();
+    fs2::FileExt::try_lock_exclusive(&contender).unwrap();
+    fs2::FileExt::unlock(&contender).unwrap();
 }
 #[test]
 fn paid_fault_history_backpressures_next_acquire_before_native_and_releases_after_delivery() {

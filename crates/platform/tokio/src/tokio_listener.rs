@@ -116,6 +116,10 @@ impl TokioListener {
     /// Transfer an ordinary listener into explicit close ownership. An already
     /// controlled view is returned intact because its owner retains the unique
     /// control; no second close authority can be extracted from that view.
+    #[expect(
+        clippy::result_large_err,
+        reason = "failed admission returns actual originals and retained cleanup custody without an unbudgeted allocation"
+    )]
     pub fn try_into_controlled(
         self,
         parent: CancellationToken,

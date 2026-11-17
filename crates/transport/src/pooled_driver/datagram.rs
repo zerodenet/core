@@ -31,7 +31,7 @@ pub struct PooledDatagram<I> {
     pub origin: zero_platform_tokio::controlled_carrier::CarrierOrigin,
 }
 pub type PacketPoll = Poll<io::Result<Option<(Destination, Vec<u8>)>>>;
-pub type PooledSession<I> = DatagramSession<Tx<I>, Rx<I>, Control<I>>;
+pub type PooledSession<I, U = PoolUse> = DatagramSession<Tx<I, U>, Rx<I, U>, Control<I, U>>;
 /// Internal packet-I/O helper; protocol integration still exposes standard roles.
 /// A send queues exactly one whole wire frame, or rejects it before submission.
 pub trait PacketIo: Send + 'static {
@@ -122,7 +122,7 @@ pub fn session_with_lease<I: PacketIo, U: Send + 'static>(
     context: &zero_platform_tokio::contract::context::OpenContext,
     request: zero_platform_tokio::contract::datagram::DatagramRequest,
     limits: DatagramLimits,
-) -> Result<DatagramSession<Tx<I, U>, Rx<I, U>, Control<I, U>>, ChannelError> {
+) -> Result<PooledSession<I, U>, ChannelError> {
     let shared = Arc::new(Shared {
         state: Mutex::new(State {
             io: Some(io),

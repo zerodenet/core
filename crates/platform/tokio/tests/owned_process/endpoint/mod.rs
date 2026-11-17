@@ -107,7 +107,10 @@ impl Running {
                 ready.send(()).unwrap();
                 stopped.await.unwrap();
                 actual.request_stop();
+                #[cfg(target_os = "linux")]
                 actual.wait_tree_ended(end()).await.unwrap();
+                #[cfg(not(target_os = "linux"))]
+                actual.wait_child_ended(end()).await.unwrap();
                 Ok(())
             })
             .unwrap();

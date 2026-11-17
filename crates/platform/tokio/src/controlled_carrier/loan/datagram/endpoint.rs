@@ -96,6 +96,7 @@ impl BorrowedDatagram {
         Ok(CarrierEndpointClaim(identity))
     }
 }
+pub type BoundCarrierUsers<O, B> = (CarrierEndpointUserGraph<O, B>, DriverExitReceiver<O, B>);
 impl CarrierEndpointClaim {
     /// Actual owner installs these same ledgers into its real Quinn hooks and
     /// user permits. There is no independent map/counter to reconcile later.
@@ -104,7 +105,7 @@ impl CarrierEndpointClaim {
         tasks: TaskRegistrar,
         max_drivers: NonZeroUsize,
         max_users: NonZeroUsize,
-    ) -> Result<(CarrierEndpointUserGraph<O, B>, DriverExitReceiver<O, B>), Self> {
+    ) -> Result<BoundCarrierUsers<O, B>, Self> {
         if !self.0.scope.matches(&tasks) || !self.0.scope.registration_open() {
             return Err(self);
         }

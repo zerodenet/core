@@ -133,8 +133,8 @@ async fn run_authorities(
         let Some(state) = state.upgrade() else {
             return;
         };
-        for index in 0..source_files.len() {
-            let files = source_files[index].clone();
+        for (index, files) in source_files.iter().enumerate() {
+            let files = files.clone();
             let provider = source_provider.clone();
             let loaded = tokio::task::spawn_blocking(move || {
                 super::super::authority::Authority::load(&files, &provider).map(Arc::new)

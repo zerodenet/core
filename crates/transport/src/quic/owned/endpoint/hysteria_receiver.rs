@@ -13,7 +13,9 @@ impl OwnedEndpointOwner {
         retirement: &CarrierProtocolRetirement,
     ) -> Result<zero_core::component::TaskId, ChannelError> {
         self.shared.check()?;
-        let id = client.original_task();
+        let id = client
+            .original_task()
+            .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
         if self.shared.phase.load(Ordering::Acquire) != 2
             || !client.names_retirement(retirement)
             || !client.names_endpoint(self)

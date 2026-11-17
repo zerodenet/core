@@ -75,7 +75,9 @@ impl Finished {
         ];
         let mut bytes = [0; FINISH];
         for (slot, word) in bytes
-            .chunks_exact_mut(4)
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
             .zip(words.into_iter().chain(self.close_errnos))
         {
             slot.copy_from_slice(&word.to_be_bytes());

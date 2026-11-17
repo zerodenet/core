@@ -18,6 +18,10 @@ impl<C> EchoTranslation<C> {
     ) -> Result<OwnedEchoResponse<C>, OwnedTranslationFailure> {
         self.response_storage(original, mtu, wire, now, true)
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "preserve explicit caller context and independent forward/return MTU and wire-memory originals"
+    )]
     pub fn request_owned(
         &mut self,
         original: PacketBuffer,
@@ -42,6 +46,10 @@ impl<C> EchoTranslation<C> {
         )
         .map(|batch| batch.into_iter().collect())
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "preserve explicit caller context and independent forward/return MTU and wire-memory originals"
+    )]
     pub fn request_batch(
         &mut self,
         original: PacketBuffer,

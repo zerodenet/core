@@ -146,12 +146,7 @@ async fn rejected_original_job_keeps_native_and_n1_until_actual_job_ack_without_
         staged.grant.accept_rejection(source, &received).unwrap();
         let work = staged.work;
         let (_, driver) = original
-            .spawn_preparation_job(
-                &tasks,
-                &staged.grant,
-                input,
-                move |_| async move { work.await },
-            )
+            .spawn_preparation_job(&tasks, &staged.grant, input, move |_| work)
             .unwrap();
         let proof = original
             .retained_preparation_job()

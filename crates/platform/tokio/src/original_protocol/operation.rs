@@ -141,11 +141,10 @@ impl Phase {
                 changed.await;
             }
         };
-        match tokio::time::timeout_at(end, waiting).await {
-            Ok(result) => result,
-            // This observer owns no protocol fault. The same actual operation
-            // remains in Root; a later real error must retain its own source.
-            Err(_) => false,
-        }
+        // This observer owns no protocol fault. Timeout returns false while
+        // the same operation stays in Root and retains its later real source.
+        tokio::time::timeout_at(end, waiting)
+            .await
+            .unwrap_or_default()
     }
 }

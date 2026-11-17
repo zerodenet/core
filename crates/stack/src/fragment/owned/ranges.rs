@@ -51,12 +51,11 @@ impl<K: Clone + Eq + Hash> OwnedFragmentReassembler<K> {
         {
             return Err(FragmentRejectReason::Overlap);
         }
-        if !fragment.more_fragments {
-            if entry.ranges.iter().any(|&(start, len)| start + len > end)
-                || entry.final_length.is_some_and(|current| current != end)
-            {
-                return Err(FragmentRejectReason::ConflictingFinalLength);
-            }
+        if !fragment.more_fragments
+            && (entry.ranges.iter().any(|&(start, len)| start + len > end)
+                || entry.final_length.is_some_and(|current| current != end))
+        {
+            return Err(FragmentRejectReason::ConflictingFinalLength);
         }
         if entry.final_length.is_some_and(|last| end > last) {
             return Err(FragmentRejectReason::ConflictingFinalLength);

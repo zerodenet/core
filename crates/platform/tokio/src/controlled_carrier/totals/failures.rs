@@ -76,7 +76,7 @@ impl CarrierOriginalTotals {
             .chain(metadata.into_iter().filter_map(|original| {
                 original.failure().map(|source| CarrierOriginalFailure {
                     instance: original.instance(),
-                    source: source.into(),
+                    source,
                 })
             }))
             .chain(bound.into_iter().filter_map(|original| {

@@ -27,6 +27,19 @@ async fn actual_helper_graph_n1_requires_the_original_scope_join_and_host_ack_be
     root.reserve_macos_tun_helper(&identity, 0, owner.clone(), &weak, &memory)
         .unwrap();
     assert_eq!(root.snapshot().charged_jobs, 1);
+    let other = ComponentInstanceId {
+        component: ComponentId(42),
+        ..instance
+    };
+    assert_eq!(
+        root.reserve_declared(other, 0)
+            .err()
+            .expect("the actual helper occupies N1")
+            .kind(),
+        io::ErrorKind::WouldBlock,
+        "native plugin declarations and the actual TUN helper share this same N1 process root"
+    );
+
     root.reserve_macos_tun_helper(&identity, 0, owner.clone(), &weak, &memory)
         .unwrap();
     let foreign = zero_tun::AdoptedTunOwner::new();

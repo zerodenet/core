@@ -321,5 +321,5 @@ struct Original {
 }
 
 #[cfg(test)]
-#[path = "../../tests/inbound_target.rs"]
+#[path = "../../tests/controlled_tcp/inbound_target.rs"]
 mod tests;

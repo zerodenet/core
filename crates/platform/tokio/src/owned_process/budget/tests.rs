@@ -21,7 +21,7 @@ impl Wake for Wakes {
     }
 }
 #[tokio::test]
-async fn actual_process_credit_waits_for_native_tree_actor_join_and_actual_deferred_host_ack() {
+async fn actual_process_credit_waits_for_native_process_actor_join_and_actual_deferred_host_ack() {
     let mut scope =
         TaskScope::suspended_hosted(tokio::runtime::Handle::current(), NonZeroUsize::new(1));
     scope.enable_registration().unwrap();
@@ -34,7 +34,7 @@ async fn actual_process_credit_waits_for_native_tree_actor_join_and_actual_defer
         component: ComponentId(901),
         generation: ResourceGeneration(1),
     };
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     let request = {
         let mut request = ProcessRequest::new("python3");
         request.arguments = vec!["-c".into(), "import time;time.sleep(60)".into()];
@@ -62,7 +62,10 @@ async fn actual_process_credit_waits_for_native_tree_actor_join_and_actual_defer
             actual.start(begun.await.unwrap()).unwrap();
             actual.wait_started(end()).await.unwrap();
             ready.send(()).unwrap();
+            #[cfg(any(target_os = "linux", windows))]
             actual.wait_tree_ended(end()).await.unwrap();
+            #[cfg(all(unix, not(target_os = "linux")))]
+            actual.wait_child_ended(end()).await.unwrap();
             Ok(())
         })
         .unwrap();

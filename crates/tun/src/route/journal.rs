@@ -75,11 +75,7 @@ impl RouteJournal {
         let _context = lease.context()?;
         let path = &lease.journal_path;
         let memory = lease.metadata();
-        let raw = match material::read_from(
-            path,
-            memory.as_ref(),
-            lease.file_io.as_ref().map(|io| &**io),
-        ) {
+        let raw = match material::read_from(path, memory.as_ref(), lease.file_io.as_deref()) {
             Ok(raw) => raw,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error),
@@ -149,7 +145,7 @@ impl RouteJournal {
         let _context = self.cleanup_context()?;
         let encoded = material::encode(self, self._metadata.view())?;
         let temporary = self.path.with_extension("json.tmp");
-        material::write_from(&temporary, &encoded, self.file_io.as_ref().map(|io| &**io))?;
+        material::write_from(&temporary, &encoded, self.file_io.as_deref())?;
         #[cfg(windows)]
         if self.path.exists() {
             std::fs::remove_file(&self.path)?;
@@ -157,7 +153,7 @@ impl RouteJournal {
         std::fs::rename(&temporary, &self.path)?;
         #[cfg(unix)]
         if let Some(parent) = self.path.parent() {
-            material::sync_directory_from(parent, self.file_io.as_ref().map(|io| &**io))?;
+            material::sync_directory_from(parent, self.file_io.as_deref())?;
         }
         Ok(())
     }

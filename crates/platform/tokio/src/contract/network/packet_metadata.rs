@@ -1,6 +1,12 @@
 //! Destruction order for the existing real opener and weak pending observer.
 //! No raw Arc/Weak of the prepaid Source opener leaves these concrete handles.
 use super::*;
+pub type PrepaidOpenerRejected<T> = (
+    zero_tun::packet_memory::PacketMemoryError,
+    UpstreamBinding,
+    T,
+    zero_tun::packet_memory::PacketMetadataCredit,
+);
 /// An actual weak observer's short strong borrow. Keeping the raw Arc alone
 /// would detach its still-live future from the prepaid header attachment.
 pub(in crate::contract) struct UpstreamOpenerLease {
@@ -82,15 +88,7 @@ impl UpstreamTransport {
         binding: UpstreamBinding,
         opener: T,
         credit: zero_tun::packet_memory::PacketMetadataCredit,
-    ) -> Result<
-        Self,
-        (
-            zero_tun::packet_memory::PacketMemoryError,
-            UpstreamBinding,
-            T,
-            zero_tun::packet_memory::PacketMetadataCredit,
-        ),
-    > {
+    ) -> Result<Self, PrepaidOpenerRejected<T>> {
         let (transport, lease) = Self::from_prepaid_opener(binding, opener, credit)?;
         drop(lease);
         Ok(transport)
@@ -101,15 +99,7 @@ impl UpstreamTransport {
         binding: UpstreamBinding,
         opener: T,
         credit: zero_tun::packet_memory::PacketMetadataCredit,
-    ) -> Result<
-        (Self, PrepaidUpstreamOpenerLease<T>),
-        (
-            zero_tun::packet_memory::PacketMemoryError,
-            UpstreamBinding,
-            T,
-            zero_tun::packet_memory::PacketMetadataCredit,
-        ),
-    > {
+    ) -> Result<(Self, PrepaidUpstreamOpenerLease<T>), PrepaidOpenerRejected<T>> {
         let expected = match Self::opener_metadata_layout::<T>(&binding) {
             Ok(layout) => layout,
             Err(source) => return Err((source, binding, opener, credit)),

@@ -10,7 +10,7 @@ impl Observer {
         let record = self.record(binding)?;
         self.packet_caller(
             binding,
-            &RequestIdentity::Service(record.identity.clone().into()),
+            &RequestIdentity::Service(record.identity.clone()),
             call,
         )?;
         // During prefix construction only observation/custody is available.

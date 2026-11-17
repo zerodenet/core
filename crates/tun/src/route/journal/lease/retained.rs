@@ -89,7 +89,7 @@ impl RouteLease {
             return material::write_from(
                 &self.owner_path,
                 safe_recovery_key(owner).as_bytes(),
-                self.file_io.as_ref().map(|io| &**io),
+                self.file_io.as_deref(),
             );
         }
         let Lock::Retained(original) = &mut self._lock else {
@@ -108,7 +108,7 @@ impl RouteLease {
         material::write_from(
             &self.owner_path,
             safe_recovery_key(owner).as_bytes(),
-            self.file_io.as_ref().map(|io| &**io),
+            self.file_io.as_deref(),
         )
     }
     pub(in crate::route) fn physically_closed(&self) -> bool {

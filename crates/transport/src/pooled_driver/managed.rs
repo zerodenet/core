@@ -72,6 +72,10 @@ impl ManagedPool {
     pub fn stream_dependency(&self) -> Option<ComponentInstanceId> {
         self.stream_dependency
     }
+    pub fn stream_dependency_for(&self, binding: &UpstreamBinding) -> Option<ComponentInstanceId> {
+        self.stream_dependency
+            .filter(|_| self.options.stream_dependency_for(binding).is_some())
+    }
     pub(super) fn ready(&self) -> bool {
         self.ready.load(Ordering::Acquire)
             && !self.cancel.is_cancelled()

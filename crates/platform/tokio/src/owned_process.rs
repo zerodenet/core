@@ -1,5 +1,6 @@
 //! A native job original, driven by its caller's already registered actor.
-//! Native tree closure and the actor's consumed Scope exit are separate facts.
+//! Native process closure and the actor's consumed Scope exit are separate facts.
+//! Non-Linux Unix attests its actual child only; Linux/Windows retain tree containment.
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
@@ -8,27 +9,26 @@ pub use linux::{OwnedProcess, ProcessTreeClosed};
 mod windows;
 #[cfg(windows)]
 pub use windows::{OwnedProcess, ProcessTreeClosed};
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(any(unix, windows))]
 mod budget;
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(any(unix, windows))]
 pub use budget::{PrepaidProcessJob, ProcessBudget, ProcessBudgetLimits, ProcessBudgetSnapshot};
 
-#[cfg(target_os = "macos")]
-#[path = "owned_process/macos_budget.rs"]
-mod macos_budget;
-#[cfg(target_os = "macos")]
-pub use macos_budget::{ProcessBudget, ProcessBudgetLimits, ProcessBudgetSnapshot};
+#[cfg(all(unix, not(target_os = "linux")))]
+mod unix_child;
+#[cfg(all(unix, not(target_os = "linux")))]
+pub use unix_child::{OwnedProcess, ProcessChildClosed};
 
 mod endpoint_spec;
 pub use endpoint_spec::ProcessEndpointSpec;
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(any(unix, windows))]
 mod endpoint;
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(any(unix, windows))]
 pub use endpoint::{
     ProcessEndpointClosed, ProcessEndpointDemand, ProcessEndpointHandoff,
     ProcessEndpointRetirement, ProcessEndpointUse, ProcessProbe, ProcessProbeClosed,
     ProcessReservationsClosed,
 };
 
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(any(unix, windows))]
 pub(crate) use endpoint::ProcessEndpointFence;

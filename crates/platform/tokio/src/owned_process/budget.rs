@@ -1,5 +1,8 @@
 //! One kernel's actual pending/failed/retiring native jobs, never a task pool.
 mod admission;
+mod counts;
+#[cfg(target_os = "macos")]
+mod macos;
 use super::OwnedProcess;
 pub use admission::PrepaidProcessJob;
 use std::sync::atomic::AtomicBool;
@@ -55,12 +58,16 @@ impl Default for ProcessBudget {
                 limits: ProcessBudgetLimits::default(),
                 jobs: BTreeMap::new(),
                 pending: BTreeMap::new(),
+                #[cfg(target_os = "macos")]
+                helpers: Default::default(),
             }),
         }
     }
 }
 struct State {
     limits: ProcessBudgetLimits,
+    #[cfg(target_os = "macos")]
+    helpers: macos::Helpers,
     jobs: BTreeMap<u64, Arc<Entry>>,
     pending: BTreeMap<(ComponentInstanceId, usize), Arc<PrepaidProcessJob>>,
 }
@@ -86,6 +93,8 @@ impl ProcessBudget {
                 limits: limits.validate()?,
                 jobs: BTreeMap::new(),
                 pending: BTreeMap::new(),
+                #[cfg(target_os = "macos")]
+                helpers: Default::default(),
             }),
         }))
     }
@@ -122,6 +131,8 @@ impl ProcessBudget {
     }
     fn reap(&self) {
         self.reap_pending();
+        #[cfg(target_os = "macos")]
+        self.reap_helpers();
         for (id, entry) in self.entries() {
             if entry.releasable() {
                 self.release(id, &entry);
@@ -136,7 +147,7 @@ impl ProcessBudget {
         let state = self.lock();
         ProcessBudgetSnapshot {
             limits: state.limits,
-            charged_jobs: state.jobs.len() + state.pending.len(),
+            charged_jobs: state.total_jobs(),
         }
     }
     /// Same root only. Candidate preflight must additionally fence actual
@@ -145,21 +156,17 @@ impl ProcessBudget {
         let limits = limits.validate()?;
         self.reap();
         let mut state = self.lock();
-        if state.limits != limits && (!state.jobs.is_empty() || !state.pending.is_empty()) {
+        if state.limits != limits && state.total_jobs() != 0 {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
                 "actual process original retirement remains owed",
             ));
         }
-        if state.jobs.len() + state.pending.len() > limits.max_jobs
-            || state.jobs.values().any(|entry| {
-                state
-                    .jobs
-                    .values()
-                    .filter(|other| other.instance == entry.instance)
-                    .count()
-                    > limits.max_jobs_per_instance
-            })
+        if state.total_jobs() > limits.max_jobs
+            || state
+                .jobs
+                .values()
+                .any(|entry| state.jobs_for(entry.instance) > limits.max_jobs_per_instance)
         {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
@@ -175,21 +182,17 @@ impl ProcessBudget {
         let limits = limits.validate()?;
         self.reap();
         let state = self.lock();
-        if state.limits != limits && (!state.jobs.is_empty() || !state.pending.is_empty()) {
+        if state.limits != limits && state.total_jobs() != 0 {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
                 "actual process original retirement remains owed",
             ));
         }
-        if state.jobs.len() + state.pending.len() > limits.max_jobs
-            || state.jobs.values().any(|entry| {
-                state
-                    .jobs
-                    .values()
-                    .filter(|other| other.instance == entry.instance)
-                    .count()
-                    > limits.max_jobs_per_instance
-            })
+        if state.total_jobs() > limits.max_jobs
+            || state
+                .jobs
+                .values()
+                .any(|entry| state.jobs_for(entry.instance) > limits.max_jobs_per_instance)
         {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
@@ -209,41 +212,30 @@ impl ProcessBudget {
         original.bind_budget(self.clone())?;
         let result = {
             let mut state = self.lock();
-            if state.jobs.len() + state.pending.len() >= state.limits.max_jobs
-                || state
-                    .jobs
-                    .values()
-                    .filter(|entry| entry.instance == instance)
-                    .count()
-                    + state
-                        .pending
-                        .values()
-                        .filter(|entry| entry.instance == instance)
-                        .count()
-                    >= state.limits.max_jobs_per_instance
+            if state.total_jobs() >= state.limits.max_jobs
+                || state.jobs_for(instance) >= state.limits.max_jobs_per_instance
             {
                 Err(io::Error::new(
                     io::ErrorKind::WouldBlock,
                     "native process job budget exhausted",
                 ))
-            } else if state.jobs.contains_key(&original.identity()) {
+            } else if let std::collections::btree_map::Entry::Vacant(e) =
+                state.jobs.entry(original.identity())
+            {
+                e.insert(Arc::new(Entry {
+                    instance,
+                    original: original.clone(),
+                    actor_obligation: None,
+                    acknowledged: Mutex::new(None),
+                    polling: AtomicBool::new(false),
+                    repoll: AtomicBool::new(false),
+                }));
+                Ok(())
+            } else {
                 Err(io::Error::new(
                     io::ErrorKind::AlreadyExists,
                     "process original already reserved",
                 ))
-            } else {
-                state.jobs.insert(
-                    original.identity(),
-                    Arc::new(Entry {
-                        instance,
-                        original: original.clone(),
-                        actor_obligation: None,
-                        acknowledged: Mutex::new(None),
-                        polling: AtomicBool::new(false),
-                        repoll: AtomicBool::new(false),
-                    }),
-                );
-                Ok(())
             }
         };
         if result.is_err() {
@@ -258,6 +250,8 @@ impl ProcessBudget {
             pending.poll_ack(cx);
         }
         self.reap_pending();
+        #[cfg(target_os = "macos")]
+        self.reap_helpers();
         for (id, entry) in self.entries() {
             if entry.releasable() {
                 self.release(id, &entry);

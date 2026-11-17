@@ -4,9 +4,9 @@ use std::sync::{Arc, RwLock};
 
 use tokio::net::TcpSocket;
 mod dial;
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(any(unix, windows))]
 mod process_endpoint;
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(any(unix, windows))]
 pub(crate) use process_endpoint::process_endpoint_selection;
 mod packet_selection;
 mod route_probe;

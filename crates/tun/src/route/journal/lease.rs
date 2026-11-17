@@ -183,7 +183,11 @@ fn conflict(
 ) -> io::Error {
     // Preserve non-contention IO/native causes. Reading metadata must never
     // overwrite a close-unknown source or turn it into a successful fallback.
-    if source.kind() != io::ErrorKind::WouldBlock {
+    if source.kind() != io::ErrorKind::WouldBlock
+        && !source
+            .raw_os_error()
+            .is_some_and(|code| Some(code) == fs2::lock_contended_error().raw_os_error())
+    {
         return source;
     }
     let active_owner = match material::read(owner_path, metadata) {
@@ -195,7 +199,39 @@ fn conflict(
         Err(source) if source.kind() == io::ErrorKind::NotFound => "unknown".to_owned(),
         Err(source) => return source,
     };
-    io::Error::new(io::ErrorKind::AlreadyExists,format!("TUN route transaction for `{owner}` conflicts with active owner `{active_owner}` (`{}`): {source}",lock_path.display()))
+    io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        LockConflict {
+            owner: owner.to_owned(),
+            active_owner,
+            path: lock_path.to_owned(),
+            source,
+        },
+    )
+}
+#[derive(Debug)]
+struct LockConflict {
+    owner: String,
+    active_owner: String,
+    path: std::path::PathBuf,
+    source: io::Error,
+}
+impl std::fmt::Display for LockConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "TUN route transaction for `{}` conflicts with active owner `{}` (`{}`): {}",
+            self.owner,
+            self.active_owner,
+            self.path.display(),
+            self.source
+        )
+    }
+}
+impl std::error::Error for LockConflict {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
 }
 fn remove_owner(path: &Path) -> io::Result<()> {
     match std::fs::remove_file(path) {

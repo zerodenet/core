@@ -194,7 +194,16 @@ async fn exact_returned_stream_loan_observes_only_its_strong_receiver_and_native
             assert_eq!(peer.read(&mut [0; 1]).await.unwrap(), 0);
             assert!(receiver.shutdown(deadline()).await.unwrap().is_complete());
             assert!(donor.shutdown(deadline()).await.unwrap().is_complete());
-            assert!(scope.shutdown(deadline()).await.is_complete());
+            scope.begin_shutdown();
+            let end = deadline();
+            while let Some(receipt) = tokio::time::timeout_at(end, scope.next_receipt())
+                .await
+                .unwrap()
+            {
+                receipt.result().unwrap();
+                scope.acknowledge(&receipt).unwrap();
+            }
+            assert!(scope.is_joined() && scope.is_drained());
         }
     })
     .await

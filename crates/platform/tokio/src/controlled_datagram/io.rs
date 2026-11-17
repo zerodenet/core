@@ -141,6 +141,11 @@ impl ControlledDatagramSocket {
     pub fn close(&self) -> Result<DatagramCloseReceipt, Arc<std_io::Error>> {
         self.entry.close()
     }
+    /// An original native/close lease can still be running. Retain this same
+    /// view on None; only Some(Ok) is its actual close receipt.
+    pub fn try_close(&self) -> Option<Result<DatagramCloseReceipt, Arc<std_io::Error>>> {
+        self.entry.try_close()
+    }
 }
 pub(super) fn unavailable(native: &NativeHandleState) -> std_io::Error {
     match native {

@@ -58,6 +58,10 @@ impl StreamLoan {
     /// Same logical loan constructor with its concrete erased IO Box paid
     /// BEFORE allocation. This adds no native/controller/Scope authority and
     /// does not claim the legacy common LoanState headers are prepaid here.
+    #[expect(
+        clippy::result_large_err,
+        reason = "failed admission returns actual originals and retained cleanup custody without an unbudgeted allocation"
+    )]
     pub fn from_prepaid_io<S: crate::contract::stream::StreamIo + 'static>(
         io: S,
         control: crate::contract::lifecycle::BoxChannelControl,

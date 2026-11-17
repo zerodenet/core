@@ -21,6 +21,16 @@ impl LoanIo {
     pub fn wrap(&mut self, wrap: impl FnOnce(BoxStream) -> BoxStream) {
         self.io = Some(wrap(self.io.take().expect("live loan view")));
     }
+    /// Transform the same view without replacing its return ledger or prepaid
+    /// storage. Cancellation/error destroys the moved IO before returning custody.
+    pub async fn try_map<E, F>(mut self, map: impl FnOnce(BoxStream) -> F) -> Result<Self, E>
+    where
+        F: std::future::Future<Output = Result<BoxStream, E>>,
+    {
+        let io = self.io.take().expect("live loan view");
+        self.io = Some(map(io).await?);
+        Ok(self)
+    }
     pub(super) fn new(io: BoxStream, state: Arc<State>) -> Self {
         let cancelled = Box::pin(state.cancel.clone().cancelled_owned());
         Self {

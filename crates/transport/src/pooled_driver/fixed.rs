@@ -107,14 +107,8 @@ impl ManagedPool {
                     deadline: Some(deadline),
                     cancel: record.stop.clone(),
                 };
-                let issuer = if binding.prefix.is_empty() {
-                    let dependency = self.stream_dependency.ok_or_else(|| {
-                        std::io::Error::other(failure(
-                            self.instance,
-                            Stage::Prepare,
-                            Reason::StalePlan,
-                        ))
-                    })?;
+                let dependency = self.stream_dependency_for(binding);
+                let issuer = if let Some(dependency) = dependency {
                     Some(
                         self.resources
                             .upgrade()
@@ -140,9 +134,8 @@ impl ManagedPool {
                     .borrow_stream(self.options.endpoint.clone(), call.clone())
                     .await
                     .map_err(std::io::Error::other)?;
-                let matches_dependency = self
-                    .stream_dependency
-                    .is_none_or(|expected| loan.owner.original().instance() == expected);
+                let matches_dependency =
+                    dependency.is_none_or(|expected| loan.owner.original().instance() == expected);
                 let raw = match issuer {
                     Some(issuer) => grant.adopt_dependency_stream_loan(
                         binding,

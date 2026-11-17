@@ -150,18 +150,8 @@ impl ProcessBudget {
         ordinal: usize,
     ) -> io::Result<Arc<PrepaidProcessJob>> {
         let mut state = self.lock();
-        if state.jobs.len() + state.pending.len() >= state.limits.max_jobs
-            || state
-                .jobs
-                .values()
-                .filter(|entry| entry.instance == instance)
-                .count()
-                + state
-                    .pending
-                    .values()
-                    .filter(|entry| entry.instance == instance)
-                    .count()
-                >= state.limits.max_jobs_per_instance
+        if state.total_jobs() >= state.limits.max_jobs
+            || state.jobs_for(instance) >= state.limits.max_jobs_per_instance
         {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,

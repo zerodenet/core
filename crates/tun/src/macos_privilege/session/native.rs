@@ -190,7 +190,7 @@ impl Native {
         if !self.helper.registered_for(pid, id) {
             self.helper.register(pid, id)?;
         }
-        return Ok(());
+        Ok(())
     }
     pub(super) fn control_fd(&self) -> io::Result<RawFd> {
         self.control

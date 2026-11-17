@@ -63,6 +63,10 @@ impl InboundUdpDispatch {
     }
     /// Attach a previously reserved exact backing credit after constructing
     /// only those same Strings. Error returns all original values unchanged.
+    #[expect(
+        clippy::result_large_err,
+        reason = "failed admission returns the actual packet and credit without an unbudgeted allocation"
+    )]
     pub fn with_domain_metadata(
         mut self,
         credit: PacketMetadataCredit,

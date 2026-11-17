@@ -1,6 +1,7 @@
 //! Reverse original callbacks and incremental persistence without cloning rows.
 use super::*;
 impl RouteJournal {
+    #[cfg(any(test, target_os = "linux", target_os = "windows"))]
     pub(in crate::route) fn cleanup(
         &mut self,
         mut remove_route: impl FnMut(&str) -> io::Result<()>,

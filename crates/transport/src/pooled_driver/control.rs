@@ -221,6 +221,7 @@ impl PoolControl {
             scoped_preparation: false,
             preparation_jobs: false,
             stream_dependency: None,
+            root_stream_dependency: false,
             node_dependency: None,
         })
     }
@@ -230,6 +231,7 @@ pub struct PoolOptions {
     pub(super) scoped_preparation: bool,
     pub(super) preparation_jobs: bool,
     pub(super) stream_dependency: Option<zero_core::component::ComponentId>,
+    pub(super) root_stream_dependency: bool,
     pub(super) node_dependency: Option<zero_core::component::ComponentId>,
     pub(super) dependencies: Vec<zero_core::component::ComponentId>,
     pub(super) registry: Weak<Registry>,

@@ -30,6 +30,10 @@ impl CarrierGrants {
                 error
             })
     }
+    #[expect(
+        clippy::result_large_err,
+        reason = "failed admission returns actual originals and retained cleanup custody without an unbudgeted allocation"
+    )]
     pub(in crate::controlled_carrier) fn reserve_with_protocol(
         &self,
         mut protocol: Option<crate::contract::lifecycle::BoxChannelControl>,

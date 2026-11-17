@@ -6,12 +6,13 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
     task::Context,
 };
+type Waiters = (
+    Option<BoxFuture<'static, ()>>,
+    Option<BoxFuture<'static, ()>>,
+);
 #[derive(Default)]
 pub(super) struct Waiting {
-    future: Mutex<(
-        Option<BoxFuture<'static, ()>>,
-        Option<BoxFuture<'static, ()>>,
-    )>,
+    future: Mutex<Waiters>,
     polling: AtomicBool,
     scope_done: AtomicBool,
 }

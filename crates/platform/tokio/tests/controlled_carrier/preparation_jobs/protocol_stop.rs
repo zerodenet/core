@@ -164,7 +164,7 @@ async fn actual_protocol_stop_refuses_late_job_before_reserve_stage_registration
                         if matches!(cut, Cut::Construct) {
                             phase.request_retirement();
                         }
-                        async move { work.await }
+                        work
                     });
                 if matches!(cut, Cut::Running) {
                     let (_, driver) = attempted.unwrap();

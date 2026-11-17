@@ -25,7 +25,7 @@ struct Shared {
 struct View(Arc<Shared>);
 struct Control {
     shared: Arc<Shared>,
-    original: CarrierOrigin,
+    _original: CarrierOrigin,
     driver: zero_platform_tokio::contract::scope::TaskJoinWitness,
     done: bool,
 }
@@ -104,7 +104,7 @@ impl PooledStream {
             Box::pin(View(shared.clone())),
             Box::new(Control {
                 shared,
-                original: self.origin.clone(),
+                _original: self.origin.clone(),
                 driver,
                 done: false,
             })

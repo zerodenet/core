@@ -81,29 +81,31 @@ async fn a_received_actor_fault_cannot_hide_a_different_actual_late_actor_receip
             first_receipt.same_receipt(two.cleanup_failure_receipt().unwrap()),
             "the actual Resource keeps one stable pure Source payload"
         );
-        let actors = root.reconnects.lock().unwrap();
-        let child_one = actors[0].fault_report().unwrap();
-        let child_two = actors[1].fault_report().unwrap();
-        assert!(!child_one
-            .cleanup_failure_receipt()
-            .unwrap()
-            .same_receipt(child_two.cleanup_failure_receipt().unwrap()));
-        assert!(root.source_failures.retains_child(&child_one));
-        assert!(root.source_failures.retains_child(&child_two));
-        assert!(child_one
-            .cleanup_failure_receipt()
-            .unwrap()
-            .is_acknowledged());
-        assert!(
-            child_two
+        let (_child_one, child_two) = {
+            let actors = root.reconnects.lock().unwrap();
+            let child_one = actors[0].fault_report().unwrap();
+            let child_two = actors[1].fault_report().unwrap();
+            assert!(!child_one
                 .cleanup_failure_receipt()
                 .unwrap()
-                .is_acknowledged(),
-            "new exact child report was persisted before its independent receipt ACK"
-        );
-        assert!(has_actual_source(&child_one, &a.result().unwrap_err()));
-        assert!(has_actual_source(&child_two, &b.result().unwrap_err()));
-        drop(actors);
+                .same_receipt(child_two.cleanup_failure_receipt().unwrap()));
+            assert!(root.source_failures.retains_child(&child_one));
+            assert!(root.source_failures.retains_child(&child_two));
+            assert!(child_one
+                .cleanup_failure_receipt()
+                .unwrap()
+                .is_acknowledged());
+            assert!(
+                child_two
+                    .cleanup_failure_receipt()
+                    .unwrap()
+                    .is_acknowledged(),
+                "new exact child report was persisted before its independent receipt ACK"
+            );
+            assert!(has_actual_source(&child_one, &a.result().unwrap_err()));
+            assert!(has_actual_source(&child_two, &b.result().unwrap_err()));
+            (child_one, child_two)
+        };
         assert!(receiver.try_receive(
             two.clone(),
             crate::contract::lifecycle::CleanupFailurePhase::Driver

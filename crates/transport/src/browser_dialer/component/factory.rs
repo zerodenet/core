@@ -111,7 +111,7 @@ impl ResourceLifecycle for Owner {
             .store(true, std::sync::atomic::Ordering::Release);
         Ok(())
     }
-    fn revoke(&self, reason: CloseReason) {
+    fn revoke(&self, _: CloseReason) {
         self.shared
             .ready
             .store(false, std::sync::atomic::Ordering::Release);
