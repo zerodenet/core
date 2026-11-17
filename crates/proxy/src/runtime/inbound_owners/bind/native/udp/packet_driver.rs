@@ -8,6 +8,17 @@ use zero_platform_tokio::{
     controlled_carrier::CarrierOrigin,
 };
 impl NativeDatagramGrant {
+    pub(in crate::runtime::inbound_owners) fn receive_ordinary_connect_rejection(
+        &self,
+        scope: &zero_platform_tokio::contract::scope::TaskScope,
+        exit: &zero_platform_tokio::contract::scope::TaskExit,
+    ) -> Result<bool, ChannelError> {
+        self.packet_calls.get().map_or(Ok(false), |calls| {
+            calls
+                .receive_ordinary_connect_rejection(scope, exit)
+                .map(|joined| joined.is_some())
+        })
+    }
     pub(in crate::runtime::inbound_owners) fn matches_retained_packet_driver(
         &self,
         grant: &GrantedPacketServiceCaller,

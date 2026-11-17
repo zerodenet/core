@@ -1,5 +1,52 @@
 //! A received candidate result is distinct from an unhandled initializer fault.
 use super::*;
+impl crate::controlled_carrier::CarrierAdoption {
+    /// The original ordinary Source consumes the real exit before dispatching
+    /// component faults. Only this initializer's retained native rejection is
+    /// an operation result; panics and unrelated task errors remain faults.
+    pub fn receive_ordinary_connect_rejection(
+        &self,
+        scope: &crate::contract::scope::TaskScope,
+        exit: &crate::contract::scope::TaskExit,
+    ) -> Result<Option<crate::contract::scope::TaskJoined>, ChannelError> {
+        let Some(task) = self
+            .initializer_registration()
+            .filter(|task| task.task_id() == Some(exit.id) && !task.is_hosted())
+        else {
+            return Ok(None);
+        };
+        let Some(joined) = task.try_joined() else {
+            return Ok(None);
+        };
+        let Some(preparation) = self.preparation() else {
+            return Ok(None);
+        };
+        let Some(source) = preparation.retained_connect_rejection_result(&joined) else {
+            return Ok(None);
+        };
+        let Some(error) = exit.result.as_ref().err() else {
+            return Ok(None);
+        };
+        self.slot
+            .state()
+            .auxiliary_exit
+            .get_or_insert_with(|| joined.clone());
+        preparation.retain_connect_rejection_before_ack(&source)?;
+        scope
+            .accept_retained_failure(&task, &joined, error)
+            .map_err(|source| {
+                ChannelError::new(
+                    Stage::Close,
+                    Reason::StalePlan,
+                    crate::contract::Impact::Component,
+                )
+                .with_source(source)
+            })?;
+        // next_exit has already consumed this exact ordinary registration.
+        self.slot.state().auxiliary_accepted = true;
+        Ok(Some(joined))
+    }
+}
 impl CarrierPreparation {
     /// Keep the actual operation result in its original receiver before its
     /// initializer exits. Cleanup may receive that result before the waiting

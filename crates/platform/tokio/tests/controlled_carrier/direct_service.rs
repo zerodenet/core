@@ -264,3 +264,4 @@ mod preparing;
 
 #[path = "direct_service/connect_rejection.rs"]
 mod connect_rejection;
+mod ordinary_rejection;

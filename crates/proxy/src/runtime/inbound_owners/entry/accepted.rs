@@ -4,6 +4,31 @@ impl InboundOwner {
     /// Retain the original raw caller's error before its ordinary local
     /// acceptance. The original Scope remains the sole TaskExit consumer.
     pub(super) fn record_scoped(&self, scope: &TaskScope, exit: TaskExit) -> bool {
+        #[cfg(feature = "raw-ip-runtime")]
+        if let Some(native) = self.packet_native.get().and_then(std::sync::Weak::upgrade) {
+            match native.receive_ordinary_connect_rejection(scope, &exit) {
+                Ok(true) => {
+                    let mut joined = self
+                        .joined_count
+                        .lock()
+                        .expect("inbound joined count poisoned");
+                    *joined = joined.saturating_add(1);
+                    drop(joined);
+                    self.report
+                        .lock()
+                        .expect("inbound close report poisoned")
+                        .exited_tasks
+                        .push(exit.id);
+                    self.ready.wake();
+                    return false;
+                }
+                Ok(false) => {}
+                Err(source) => tracing::warn!(
+                    ?source,
+                    "actual Packet initializer result receiver rejected exit"
+                ),
+            }
+        }
         #[cfg(feature = "managed-datagram-runtime")]
         let witness = self
             .peers

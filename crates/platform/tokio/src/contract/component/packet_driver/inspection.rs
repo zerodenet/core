@@ -17,6 +17,26 @@ impl Record {
     }
 }
 impl PacketDriverCalls {
+    pub fn receive_ordinary_connect_rejection(
+        &self,
+        scope: &crate::contract::scope::TaskScope,
+        exit: &crate::contract::scope::TaskExit,
+    ) -> Result<Option<crate::contract::scope::TaskJoined>, ChannelError> {
+        for index in 0..self.max_calls.get() {
+            let Some(record) = self.call_at(index) else {
+                break;
+            };
+            for index in 0..record.max_pending {
+                let Some(original) = record.pending_at(index) else {
+                    break;
+                };
+                if let Some(joined) = original.receive_ordinary_connect_rejection(scope, exit)? {
+                    return Ok(Some(joined));
+                }
+            }
+        }
+        Ok(None)
+    }
     pub(super) fn call_at(&self, index: usize) -> Option<RecordRef> {
         self.calls
             .lock()
