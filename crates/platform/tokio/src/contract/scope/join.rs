@@ -268,6 +268,10 @@ impl TaskRegistrar {
         class: TaskClass,
         task: impl Future<Output = Result<(), ComponentError>> + Send + 'static,
     ) -> Result<(TaskId, TaskJoinWitness), SpawnError> {
+        // Tokio eventually allocates the task, but admission crosses several
+        // frames first. Move the original future onto the heap once before
+        // those frames, preserving this same registration and join witness.
+        let task = Box::pin(task);
         self.register_tracked_with(class, move |tasks, runtime| tasks.spawn_on(task, runtime))
     }
     pub(super) fn register_tracked_with(
@@ -289,6 +293,7 @@ impl TaskRegistrar {
         task: impl Future<Output = Result<(), ComponentError>> + Send + 'static,
         witness: Option<Weak<JoinedState>>,
     ) -> Result<TaskId, SpawnError> {
+        let task = Box::pin(task);
         self.register_with(class, witness, move |tasks, runtime| {
             tasks.spawn_on(task, runtime)
         })

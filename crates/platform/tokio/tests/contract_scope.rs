@@ -22,6 +22,9 @@ mod build;
 #[path = "contract_scope/shutdown.rs"]
 mod shutdown;
 
+#[path = "contract_scope/stack.rs"]
+mod stack;
+
 fn scope(limit: usize) -> TaskScope {
     TaskScope::new(Handle::current(), NonZeroUsize::new(limit).unwrap())
 }

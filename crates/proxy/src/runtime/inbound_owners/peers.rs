@@ -303,7 +303,10 @@ impl InboundPeerTasks {
         };
         // Never run a protocol/cold-owner factory under the registration lock.
         // Its bounded reservation persists if it panics or stop races it.
-        let task = make(binding.clone());
+        // An association future can contain the full UDP routing operation.
+        // Pin it before wrapping and registering it through the Source Scope;
+        // every layer still supervises this one original future and binding.
+        let task = Box::pin(make(binding.clone()));
         let mut state = self.state.lock().expect("peer task state poisoned");
         if state.closing || self.cancel.is_cancelled() {
             drop(state);
