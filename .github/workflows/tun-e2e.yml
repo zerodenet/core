@@ -185,6 +185,10 @@ jobs:
           cargo test -p zero-tun --lib windows::existing::tests:: -- --ignored --nocapture --test-threads=1
       - name: Check Windows Packet runtime wiring
         run: cargo check -p zero-proxy --no-default-features --features wireguard --lib
+      - name: Run Windows IPC original ownership regressions
+        env:
+          RUST_MIN_STACK: "16777216"
+        run: cargo test --bin zero --all-features ipc::windows::tests -- --test-threads=1 --nocapture
       - name: Capture Windows TUN test packet provenance
         id: capture
         shell: pwsh

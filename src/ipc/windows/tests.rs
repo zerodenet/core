@@ -115,6 +115,16 @@ async fn pending_named_pipe_subscription_joins_workers_before_returning_native_c
         // stop, joins the subscription and cancels/drains exact OVERLAPPED IO.
         owner.shutdown().await.unwrap();
         assert!(owner.retirement_complete() && owner.originals.is_empty());
+        assert!(
+            owner
+                .scope
+                .lock()
+                .await
+                .registrar()
+                .retirement_observation()
+                .is_drained(),
+            "the original ordinary Scope has consumed every actual worker exit"
+        );
         originals_closed(&originals);
         budget.close_admission();
         budget.confirm_released().unwrap();

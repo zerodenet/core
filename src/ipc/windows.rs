@@ -53,17 +53,17 @@ impl IpcServerHandle {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take();
         let server = self.task.join().await;
-        let tasks = self
-            .scope
-            .lock()
-            .await
-            .shutdown(super::owner::close_deadline())
-            .await;
+        let (tasks, scope_retirement) = {
+            let mut scope = self.scope.lock().await;
+            let original = scope.registrar().retirement_observation();
+            let tasks = scope.shutdown(super::owner::close_deadline()).await;
+            (tasks, original)
+        };
         let native = self.originals.reap(true).await;
         if tasks.is_complete()
             && native.is_ok()
             && self.originals.is_empty()
-            && self.scope.lock().await.is_drained()
+            && scope_retirement.is_drained()
         {
             // Server join consumed above; every unique view, std worker and
             // Scope witness returned, and every actual native receipt matched.
@@ -217,7 +217,7 @@ async fn run_server(
                         Err(error)=>{originals.observe_joined(error.id());failures.push(io::Error::other(error));break;}
                     }
                 }
-                exit=scope.next_exit(), if !scope.is_joined()=>{
+                exit=scope.next_exit()=>{
                     if let Some(exit)=exit {if let Err(error)=exit.result {if error.impact==zero_platform_tokio::contract::Impact::Component {failures.push(io::Error::other(error));break;} else {warn!(%error,"original pipe worker exited after client IO failure");}}}
                 }
                 _=tokio::time::sleep(std::time::Duration::from_millis(25)),if pending.is_none()=>{},
