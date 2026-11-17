@@ -132,7 +132,10 @@ async fn dropping_all_h2_receivers_never_accepts_a_real_joined_auxiliary_failure
         if let Some(closed) = adoption.users_closed() {
             assert!(closed.matches(&adoption));
         }
-        assert!(!scope.is_drained(), "joined is not original failure delivery");
+        assert!(
+            !scope.is_drained(),
+            "joined is not original failure delivery"
+        );
         // No manufactured acceptance is used to drain this diagnostic fixture.
         // The actual task is joined. Native and user return can progress
         // independently; its unpublished error still retains this owner.

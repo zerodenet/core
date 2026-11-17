@@ -1,5 +1,6 @@
 //! Original TUN helper graphs in the same ProcessBudget as native plugins.
 use super::*;
+#[cfg(feature = "native-packet-origin")]
 use crate::contract::scope::{ScopeRetirementCompletion, WeakTaskRegistrar};
 use zero_tun::packet_memory::{PacketDriverMetadataView, PacketMetadataArc, PacketMetadataVec};
 #[derive(Default)]
@@ -9,7 +10,9 @@ pub(super) struct Helpers {
 }
 pub(super) struct Entry {
     pub(super) instance: ComponentInstanceId,
+    #[cfg(feature = "native-packet-origin")]
     ordinal: usize,
+    #[cfg(feature = "native-packet-origin")]
     completion: ScopeRetirementCompletion,
     #[cfg(feature = "native-packet-origin")]
     owner: Arc<zero_tun::AdoptedTunOwner>,

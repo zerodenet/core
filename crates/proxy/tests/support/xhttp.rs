@@ -79,6 +79,14 @@ pub async fn interop_options(
     } else {
         ("inbounds", "outbounds")
     };
+    if zero_client {
+        // This wire-interop burst runs four TCP streams plus one UDP stream,
+        // with independent download and request-count rotation variants below.
+        // Declare its finite physical-original budget explicitly; the product
+        // default of four originals remains the admission policy, and
+        // cannot cover even the five default max-concurrency=1 H3 groups.
+        zero_config["runtime"]["native_stream_max_originals"] = json!(32);
+    }
     zero_config[zero_side][0]["protocol"]["split_http"]
         .as_object_mut()
         .unwrap()
