@@ -60,8 +60,7 @@ fn typed_packet_facts_reject_a_foreign_active_name_or_different_actual_recipe_st
         let catalog = catalog(&controls);
         let failure = catalog
             .compile_plan(&config(), None)
-            .err()
-            .expect("reject foreign cold data");
+            .expect_err("reject foreign cold data");
         let mut current: Option<&(dyn std::error::Error + 'static)> = Some(&failure);
         let mut stale = false;
         while let Some(error) = current {

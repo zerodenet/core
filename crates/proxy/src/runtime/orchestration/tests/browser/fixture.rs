@@ -1,4 +1,4 @@
-use crate::Proxy;
+use crate::{Proxy, ProxyHandle};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::time::timeout;
 pub(super) struct Running {

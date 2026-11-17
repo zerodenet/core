@@ -52,7 +52,8 @@ async fn two_actual_journal_faults_have_one_canonical_receiver_and_held_ack_keep
     let barrier = Arc::new(std::sync::Barrier::new(2));
     let mut witnesses = Vec::new();
     let mut completed = Vec::new();
-    for grant in grants.iter().cloned() {
+    for grant in &grants {
+        let grant = grant.clone();
         let barrier = barrier.clone();
         let (done, finished) = tokio::sync::oneshot::channel();
         completed.push(finished);

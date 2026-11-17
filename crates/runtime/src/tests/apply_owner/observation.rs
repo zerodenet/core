@@ -162,6 +162,10 @@ async fn same_actual_panic_arc_survives_ack_and_known_no_apply_paths_are_complet
 }
 
 #[tokio::test]
+#[expect(
+    clippy::async_yields_async,
+    reason = "retain the real blocking JoinHandle outside the request observation before proving its pending join"
+)]
 async fn captured_original_blocking_producer_cannot_be_mistaken_for_no_accepted_work() {
     let observed = ApplyObservation::new();
     let (entered, entering) = tokio::sync::oneshot::channel();

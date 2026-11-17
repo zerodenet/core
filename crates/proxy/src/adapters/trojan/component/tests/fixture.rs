@@ -1,4 +1,4 @@
-use crate::Proxy;
+use crate::{Proxy, ProxyHandle};
 use std::{net::SocketAddr, path::Path, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},

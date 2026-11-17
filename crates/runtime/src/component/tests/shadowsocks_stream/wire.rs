@@ -143,9 +143,9 @@ async fn two_canonical_native_consumers_reject_the_second_authenticated_2022_res
             assembly.streams[0].dependency_instances(),
             assembly.streams[1].dependency_instances()
         );
-        for index in 0..2 {
+        for (index, original) in assembly.streams.iter().enumerate() {
             let observations = Arc::new(Observations::default());
-            let role = assembly.streams[index].stream(deadline()).await.unwrap();
+            let role = original.stream(deadline()).await.unwrap();
             let mut connected = role
                 .connect(
                     ConnectRequest {

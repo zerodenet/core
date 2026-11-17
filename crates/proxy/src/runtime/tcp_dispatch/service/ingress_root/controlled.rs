@@ -10,8 +10,8 @@ impl CarrierEndpointObserver for Connected {
     fn connected(&self, endpoints: &CarrierEndpoints) {
         if let Some(local) = endpoints.local() {
             *self.0.lock().unwrap() = Some(Evidence {
-                local,
-                peer: endpoints.peer(),
+                _local: local,
+                _peer: endpoints.peer(),
             });
         }
     }

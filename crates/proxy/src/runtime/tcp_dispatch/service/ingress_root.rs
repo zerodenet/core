@@ -162,8 +162,8 @@ impl UpstreamOpener for RootOpener {
                 .evidence
                 .lock()
                 .expect("service root evidence poisoned") = Some(Evidence {
-                local: _local,
-                peer: endpoints.peer(),
+                _local,
+                _peer: endpoints.peer(),
             });
         }
         true

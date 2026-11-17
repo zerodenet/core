@@ -101,7 +101,7 @@ fn grouped_borrowing_still_checks_every_actual_token_and_the_transition_fence() 
     let b = owner(32);
     host.publish(vec![a.clone(), b.clone()].into_iter());
     let declared = BTreeSet::from([(b.0, a.0)]);
-    host.borrow_from(a.clone(), vec![], &[b.clone()], &declared)
+    host.borrow_from(a.clone(), vec![], std::slice::from_ref(&b), &declared)
         .unwrap();
     assert!(host.loan_snapshot().1.is_empty());
     assert_eq!(
@@ -112,7 +112,7 @@ fn grouped_borrowing_still_checks_every_actual_token_and_the_transition_fence() 
     );
     let fence = host.freeze_loans();
     assert!(host
-        .borrow_from(a.clone(), vec![], &[b.clone()], &declared)
+        .borrow_from(a.clone(), vec![], std::slice::from_ref(&b), &declared)
         .is_err());
     drop(fence);
     host.stage(vec![a.clone()].into_iter());

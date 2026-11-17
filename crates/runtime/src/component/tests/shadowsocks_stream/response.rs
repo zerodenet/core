@@ -42,9 +42,9 @@ async fn actual_authenticated_wrong_request_echo_is_rejected_before_it_can_pollu
         let state = ShadowsocksTransportState::default();
         let assembly = assembly(&state, address, "2022-blake3-aes-128-gcm", KEY2022, 2, None);
         assembly.start().await;
-        for index in 0..2 {
+        for (index, original) in assembly.streams.iter().enumerate() {
             let observations = Arc::new(Observations::default());
-            let role = assembly.streams[index].stream(deadline()).await.unwrap();
+            let role = original.stream(deadline()).await.unwrap();
             let mut connected = role
                 .connect(
                     ConnectRequest {

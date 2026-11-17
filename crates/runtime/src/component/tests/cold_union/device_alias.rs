@@ -42,12 +42,10 @@ fn decoded_or_actual_source_referenced_alias_cannot_be_omitted() {
                 }
                 let original = resources
                     .omit_unused_device_alias("a")
-                    .err()
-                    .expect("actual cold boundary rejects the prepared/reference");
+                    .expect_err("actual cold boundary rejects the prepared/reference");
                 Err(original)
             })
-            .err()
-            .expect("actual prepared/reference gate must reject");
+            .expect_err("actual prepared/reference gate must reject");
         assert_eq!(failure.reason, Reason::StalePlan);
         assert_eq!(controls.builds.load(Ordering::SeqCst), 0);
     }

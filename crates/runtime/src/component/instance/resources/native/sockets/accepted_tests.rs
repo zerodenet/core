@@ -40,7 +40,7 @@ async fn ordinary_host_accepted_source_uses_same_roots_real_receiver_and_global_
         let baseline = roots.packet.driver_metadata_view().snapshot();
         let resources = HostResources::new_hosted(
             instance,
-            &[declaration.clone()],
+            std::slice::from_ref(&declaration),
             CancellationToken::new(),
             scope.registrar().downgrade(),
             roots.clone(),
