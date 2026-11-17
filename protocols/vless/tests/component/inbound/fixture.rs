@@ -63,6 +63,8 @@ pub(super) struct Host {
     internal_tasks: usize,
     tls_workers: usize,
     reads: Arc<zero_platform_tokio::file::declared::DeclaredFileReads>,
+    originals: Arc<zero_platform_tokio::controlled_carrier::CarrierOriginalTotals>,
+    _memory: Arc<zero_tun::packet_memory::PacketReturnTotals>,
 }
 impl Host {
     pub async fn new(grpc: bool) -> Self {
@@ -110,6 +112,22 @@ impl Host {
             &scope.registrar(),
         )
         .unwrap();
+        let memory = Arc::new(zero_tun::packet_memory::PacketReturnTotals::default());
+        let actual_instance = ComponentInstanceId {
+            component: ComponentId(11),
+            generation: ResourceGeneration(1),
+        };
+        let failures = zero_platform_tokio::AcceptedTaskFailures::prepare(
+            actual_instance,
+            &scope.registrar(),
+            &memory.driver_metadata_view(),
+        )
+        .unwrap();
+        original.bind_task_failure_receiver(&failures).unwrap();
+        let originals = zero_platform_tokio::controlled_carrier::CarrierOriginalTotals::new(nz(2));
+        original
+            .bind_original_totals(actual_instance, &scope.registrar(), &originals)
+            .unwrap();
         let listener = original
             .bind_listener("127.0.0.1:0".parse().unwrap())
             .unwrap();
@@ -148,6 +166,8 @@ impl Host {
             internal_tasks,
             tls_workers,
             reads,
+            originals,
+            _memory: memory,
         }
     }
     pub async fn accept(
@@ -257,5 +277,10 @@ impl Host {
             .accepted_evidence()
             .unwrap()
             .provider_confirmed());
+        assert_eq!(
+            self.originals.snapshot().charged,
+            0,
+            "both original native controllers returned through the actual Host Root"
+        );
     }
 }

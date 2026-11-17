@@ -2,6 +2,7 @@
 use super::*;
 #[tokio::test]
 async fn standard_reverse_tcp_udp_share_original_scope_and_retire_held_logical_views() {
+    let phase = std::cell::Cell::new("fixture");
     timeout(Duration::from_secs(10), async {
         let request = request_options(USER, None, None, Some("portal"));
         let mut host = fixture::Host::with_request(request).await;
@@ -20,7 +21,7 @@ async fn standard_reverse_tcp_udp_share_original_scope_and_retire_held_logical_v
             .unwrap()
             .unwrap();
         let stop = host.stop.clone();
-        pending
+        let (_, primary) = pending
             .spawn(TaskClass::Auxiliary, move |pending, tasks| async move {
                 struct NoBusiness;
                 impl SessionIdentitySource for NoBusiness {
@@ -51,7 +52,10 @@ async fn standard_reverse_tcp_udp_share_original_scope_and_retire_held_logical_v
                 // fixture; Scope cancellation alone is not a control exit.
                 tokio::select! {
                     _ = stop.cancelled() => Ok(()),
-                    result = control.run() => result.map_err(datagram::failure),
+                    result = control.run() => {
+                        assert!(result.is_ok(), "original reverse Control failed: {result:?}");
+                        result.map_err(datagram::failure)
+                    },
                 }
             })
             .unwrap();
@@ -61,9 +65,11 @@ async fn standard_reverse_tcp_udp_share_original_scope_and_retire_held_logical_v
         header.extend([0, 4]);
         client.write_all(&header).await.unwrap();
         let mut reply = [0; 2];
+        phase.set("VLESS response");
         client.read_exact(&mut reply).await.unwrap();
         assert_eq!(reply, [0, 0]);
         // A control heartbeat is emitted only after original scoped attachment.
+        phase.set("reverse heartbeat");
         let heartbeat = crate::mux::read_mux_frame_tokio(&mut client).await.unwrap();
         assert_eq!(
             heartbeat.target.as_ref().unwrap().address,
@@ -79,6 +85,7 @@ async fn standard_reverse_tcp_udp_share_original_scope_and_retire_held_logical_v
         let portal = host.portal.clone();
         let mut tcp = portal.open_tcp(&session).unwrap();
         tcp.write_all(b"tcp").await.unwrap();
+        phase.set("TCP open and data frames");
         let opened = crate::mux::read_mux_frame_tokio(&mut client).await.unwrap();
         let data = crate::mux::read_mux_frame_tokio(&mut client).await.unwrap();
         assert_eq!(opened.session_id, data.session_id);
@@ -88,6 +95,7 @@ async fn standard_reverse_tcp_udp_share_original_scope_and_retire_held_logical_v
             .await
             .unwrap();
         let mut back = [0; 4];
+        phase.set("TCP response");
         tcp.read_exact(&mut back).await.unwrap();
         assert_eq!(&back, b"back");
         let udp = portal.open_udp_connection(&session).unwrap();
@@ -110,6 +118,7 @@ async fn standard_reverse_tcp_udp_share_original_scope_and_retire_held_logical_v
                 .unwrap();
         };
         let (sent, ()) = tokio::join!(sent, bridge);
+        phase.set("UDP response");
         assert_eq!(sent.unwrap(), 3);
         let packet = responses.recv().await.unwrap();
         assert_eq!(packet.2, b"reply");
@@ -121,7 +130,13 @@ async fn standard_reverse_tcp_udp_share_original_scope_and_retire_held_logical_v
         })
         .await;
         // Keep historical logical handles while originals are joined/closed.
-        host.close_at_least(5, None).await;
+        phase.set("original host shutdown");
+        // The actual graph has the Source worker, primary Control, one physical
+        // MUX driver (read/write joined inline), and the UDP response actor.
+        host.close(4).await;
+        let joined = primary.try_joined().expect("same original primary joined");
+        assert!(joined.registration_released() && joined.result().is_ok());
+        phase.set("retained TCP view retirement");
         assert!(matches!(waiting.await, Ok(0) | Err(_)));
         assert!(udp
             .send(&Address::Ipv4([127, 0, 0, 1]), 53, b"late")
@@ -131,5 +146,5 @@ async fn standard_reverse_tcp_udp_share_original_scope_and_retire_held_logical_v
         assert!(portal.open_udp_connection(&session).is_err());
     })
     .await
-    .unwrap();
+    .unwrap_or_else(|_| panic!("reverse original lifecycle stalled at {}", phase.get()));
 }
