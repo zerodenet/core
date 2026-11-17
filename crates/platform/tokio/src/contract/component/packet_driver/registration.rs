@@ -285,7 +285,7 @@ impl PacketDriverCalls {
         };
         #[cfg(not(feature = "native-packet-origin"))]
         let record = Arc::new(value);
-        let observer = pending::Observer(RecordRef::downgrade(&record));
+        let observer = pending::Observer(RecordWeak::new(&record));
         #[cfg(feature = "native-packet-origin")]
         let observer =
             match crate::contract::network::UpstreamTransport::from_prepaid_packet_driver_opener(

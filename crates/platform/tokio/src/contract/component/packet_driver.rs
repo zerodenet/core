@@ -56,10 +56,8 @@ type InstalledRef = MetadataRef<Installed>;
 type ReconnectRef = MetadataRef<actors::Reconnect>;
 type ActorFailuresRef = MetadataRef<faults::ActorFailures>;
 type SettledRef = MetadataRef<std::sync::atomic::AtomicBool>;
-#[cfg(feature = "native-packet-origin")]
-type RecordWeak = zero_tun::packet_memory::PacketMetadataWeak<Record>;
-#[cfg(not(feature = "native-packet-origin"))]
-type RecordWeak = std::sync::Weak<Record>;
+mod weak;
+use weak::RecordWeak;
 
 /// Retained by the existing HostResources or actual native Source owner.
 /// The finite limits describe that owner's real driver/callee graph, not a

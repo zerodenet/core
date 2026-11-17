@@ -14,7 +14,7 @@ impl PacketDriverPendingCustody {
     }
     pub(super) fn new(record: &RecordRef) -> Self {
         Self {
-            record: RecordRef::downgrade(record),
+            record: RecordWeak::new(record),
             caller: record.caller.clone(),
             settled: record.settled.clone(),
         }

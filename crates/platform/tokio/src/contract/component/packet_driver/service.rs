@@ -292,7 +292,7 @@ impl GrantedPacketServiceCaller {
             .records
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(RecordRef::downgrade(&grant.record));
+            .push(RecordWeak::new(&grant.record));
         Ok(grant)
     }
 }

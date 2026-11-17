@@ -4,11 +4,11 @@ use super::*;
 use alloc::sync::Weak;
 use core::ops::Deref;
 
-pub struct PacketMetadataArc<T> {
+pub struct PacketMetadataArc<T: ?Sized> {
     allocation: Option<Arc<T>>,
     credit: Option<Arc<PacketMetadataCredit>>,
 }
-pub struct PacketMetadataWeak<T> {
+pub struct PacketMetadataWeak<T: ?Sized> {
     allocation: Option<Weak<T>>,
     credit: Option<Arc<PacketMetadataCredit>>,
 }
@@ -36,6 +36,8 @@ impl<T> PacketMetadataArc<T> {
             credit: Some(Arc::new(credit)),
         })
     }
+}
+impl<T: ?Sized> PacketMetadataArc<T> {
     pub fn downgrade(this: &Self) -> PacketMetadataWeak<T> {
         PacketMetadataWeak {
             allocation: Some(Arc::downgrade(this.allocation.as_ref().unwrap())),
@@ -52,7 +54,7 @@ impl<T> PacketMetadataArc<T> {
         Arc::get_mut(this.allocation.as_mut().unwrap())
     }
 }
-impl<T> Clone for PacketMetadataArc<T> {
+impl<T: ?Sized> Clone for PacketMetadataArc<T> {
     fn clone(&self) -> Self {
         Self {
             allocation: self.allocation.clone(),
@@ -60,18 +62,18 @@ impl<T> Clone for PacketMetadataArc<T> {
         }
     }
 }
-impl<T> Deref for PacketMetadataArc<T> {
+impl<T: ?Sized> Deref for PacketMetadataArc<T> {
     type Target = T;
     fn deref(&self) -> &T {
         self.allocation.as_ref().unwrap()
     }
 }
-impl<T> AsRef<T> for PacketMetadataArc<T> {
+impl<T: ?Sized> AsRef<T> for PacketMetadataArc<T> {
     fn as_ref(&self) -> &T {
         self
     }
 }
-impl<T> PacketMetadataWeak<T> {
+impl<T: ?Sized> PacketMetadataWeak<T> {
     pub fn upgrade(&self) -> Option<PacketMetadataArc<T>> {
         Some(PacketMetadataArc {
             allocation: Some(self.allocation.as_ref().unwrap().upgrade()?),
@@ -85,7 +87,7 @@ impl<T> PacketMetadataWeak<T> {
         )
     }
 }
-impl<T> Clone for PacketMetadataWeak<T> {
+impl<T: ?Sized> Clone for PacketMetadataWeak<T> {
     fn clone(&self) -> Self {
         Self {
             allocation: self.allocation.clone(),
@@ -111,12 +113,12 @@ fn release<T>(allocation: Option<T>, credit: Option<Arc<PacketMetadataCredit>>) 
     drop(allocation);
     drop(credit);
 }
-impl<T> Drop for PacketMetadataArc<T> {
+impl<T: ?Sized> Drop for PacketMetadataArc<T> {
     fn drop(&mut self) {
         release(self.allocation.take(), self.credit.take());
     }
 }
-impl<T> Drop for PacketMetadataWeak<T> {
+impl<T: ?Sized> Drop for PacketMetadataWeak<T> {
     fn drop(&mut self) {
         release(self.allocation.take(), self.credit.take());
     }
@@ -166,5 +168,35 @@ impl Drop for PacketMetadataError {
 impl fmt::Debug for PacketMetadataError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("PacketMetadataError(original)")
+    }
+}
+
+// Erasure changes only the pointer view. Both actual allocations and their
+// original credit stay sealed here, including a surviving weak header.
+impl<T: core::any::Any + Send + Sync> PacketMetadataArc<T> {
+    pub fn into_any(mut self) -> PacketMetadataArc<dyn core::any::Any + Send + Sync> {
+        PacketMetadataArc {
+            allocation: self
+                .allocation
+                .take()
+                .map(|actual| actual as Arc<dyn core::any::Any + Send + Sync>),
+            credit: self.credit.take(),
+        }
+    }
+}
+impl PacketMetadataArc<dyn core::any::Any + Send + Sync> {
+    pub fn downcast<T: core::any::Any + Send + Sync>(
+        mut self,
+    ) -> Result<PacketMetadataArc<T>, Self> {
+        match self.allocation.take().unwrap().downcast::<T>() {
+            Ok(actual) => Ok(PacketMetadataArc {
+                allocation: Some(actual),
+                credit: self.credit.take(),
+            }),
+            Err(actual) => {
+                self.allocation = Some(actual);
+                Err(self)
+            }
+        }
     }
 }

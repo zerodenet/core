@@ -64,7 +64,7 @@ impl super::attempt::PacketDriverPendingCustody {
         let failure = Arc::new(faults::Phase::default());
         record.failures.add_stream(failure.clone());
         let actual = Arc::new(RetainedStream {
-            record: RecordRef::downgrade(&record),
+            record: RecordWeak::new(&record),
             original: original.clone(),
             failure,
             owner: OnceLock::new(),
