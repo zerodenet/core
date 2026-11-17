@@ -197,19 +197,24 @@ fn actual_tcp_and_udp_registration_unknowns_do_not_prevent_file_join_or_lose_ori
         .unwrap();
     healthy.block_on(async {
         assert_eq!(grants.read_file(path, 4).await.unwrap(), b"file");
-        let failure = grants.shutdown_io(deadline()).await.unwrap_err();
-        assert_eq!(failure.reason, Reason::Io);
+        let report = grants.shutdown_io(deadline()).await.unwrap();
+        assert_eq!(report.released_resources.len(), 1);
+        assert_eq!(report.closed_io.len(), 1, "only the actual file closed");
+        assert!(!grants.io_evidence().physical_confirmed());
         let original = {
             let state = grants.state.lock().unwrap();
-            assert_eq!(state.files.receipts.released_resources.len(), 1);
+            assert!(state.files.receipts.released_resources.is_empty());
             assert!(state.io.receipts.closed_io.is_empty());
             assert_eq!(state.io.failures.len(), 2);
             state.io.failures.clone()
         };
         for _ in 0..2 {
-            assert!(grants.shutdown_io(deadline()).await.is_err());
+            let report = grants.shutdown_io(deadline()).await.unwrap();
+            assert!(report.closed_io.is_empty());
+            assert!(report.released_resources.is_empty());
+            assert!(!grants.io_evidence().physical_confirmed());
             let state = grants.state.lock().unwrap();
-            assert_eq!(state.files.receipts.released_resources.len(), 1);
+            assert!(state.files.receipts.released_resources.is_empty());
             assert!(state.io.receipts.closed_io.is_empty());
             for (key, source) in &original {
                 assert!(Arc::ptr_eq(source, state.io.failures.get(key).unwrap()));
@@ -231,29 +236,24 @@ async fn original_blocking_panic_stays_faulted_while_native_receipt_is_collected
     let read_error = grants.read_file(path, 4).await.unwrap_err();
     assert_eq!(read_error.reason, Reason::Internal);
     let original = grants.state.lock().unwrap().files.failure.clone().unwrap();
-    for _ in 0..2 {
-        let failure = grants.shutdown_io(deadline()).await.unwrap_err();
-        assert_eq!(failure.reason, Reason::Internal);
-        let mut source: &(dyn Error + 'static) = &failure;
-        loop {
-            if source.is::<JoinError>() {
-                break;
-            }
-            source = source
-                .source()
-                .expect("actual original blocking JoinError retained");
-        }
+    for attempt in 0..2 {
+        let report = grants.shutdown_io(deadline()).await.unwrap();
+        assert!(report.is_complete());
+        assert_eq!(report.closed_io.len(), usize::from(attempt == 0));
+        assert_eq!(report.released_resources.len(), usize::from(attempt == 0));
+        assert!(Arc::ptr_eq(&original, &retained_join_failure(&grants)));
+        assert!(grants.io_evidence().physical_confirmed());
         let state = grants.state.lock().unwrap();
         assert!(state.files.records.is_empty());
-        assert_eq!(state.files.receipts.released_resources.len(), 1);
-        assert_eq!(state.io.receipts.closed_io.len(), 1);
+        assert!(state.files.receipts.released_resources.is_empty());
+        assert!(state.io.receipts.closed_io.is_empty());
         assert!(Arc::ptr_eq(
             &original,
             state.files.failure.as_ref().unwrap()
         ));
     }
     // Sticky task fault is not a reason to skip native cleanup. This actual
-    // successful close receipt stays retained despite the current Err API.
+    // successful close receipt was consumed independently of the sticky fault.
     std::net::TcpListener::bind(actual).unwrap();
     assert!(view.local_addr().is_err());
 }

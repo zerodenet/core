@@ -43,6 +43,7 @@ fn repeated_host_identity_for_distinct_resources_rejects_the_whole_pass() {
     let ids = ComponentCatalog::default();
     let id = ids.allocate_id().unwrap();
     let state = ShadowsocksTransportState::default();
+    let distinct_state = ShadowsocksTransportState::default();
     let mut allocate = || Ok(id);
     let mut resources = ResourcePreparation::new(&mut allocate);
     assert_eq!(
@@ -52,7 +53,11 @@ fn repeated_host_identity_for_distinct_resources_rejects_the_whole_pass() {
         id
     );
     let error = resources
-        .share("replay", Arc::new(ReplayFactory), options(&state, 3))
+        .share(
+            "replay",
+            Arc::new(ReplayFactory),
+            options(&distinct_state, 3),
+        )
         .unwrap_err();
     assert_eq!(error.component, Some(id));
     assert_eq!(error.delivery, DeliveryState::NotSubmitted);

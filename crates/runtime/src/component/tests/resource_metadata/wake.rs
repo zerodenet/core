@@ -10,7 +10,7 @@ use std::{
 struct Reenter {
     host: Weak<HostResources>,
     wakes: AtomicUsize,
-    busy: AtomicBool,
+    unconfirmed: AtomicBool,
 }
 impl Wake for Reenter {
     fn wake(self: Arc<Self>) {
@@ -20,7 +20,8 @@ impl Wake for Reenter {
         self.wakes.fetch_add(1, Ordering::SeqCst);
         let host = self.host.upgrade().unwrap();
         let proof = host.io_evidence();
-        self.busy.store(proof.metadata[0].busy, Ordering::SeqCst);
+        self.unconfirmed
+            .store(!proof.physical_confirmed(), Ordering::SeqCst);
         assert!(proof.admission_closed);
         let failed = host.bind_metadata(request(loopback())).err().unwrap();
         assert_eq!(failed.reason, Reason::Revoked);
@@ -47,7 +48,7 @@ async fn original_pending_receive_wake_can_reenter_host_observation_and_shutdown
     let callback = Arc::new(Reenter {
         host: Arc::downgrade(&host),
         wakes: AtomicUsize::new(0),
-        busy: AtomicBool::new(false),
+        unconfirmed: AtomicBool::new(false),
     });
     let waker = Waker::from(callback.clone());
     let mut bytes = [0u8; 16];
@@ -64,7 +65,7 @@ async fn original_pending_receive_wake_can_reenter_host_observation_and_shutdown
     let report = host.shutdown_io(deadline()).await.unwrap();
     assert!(!report.is_complete());
     assert!(callback.wakes.load(Ordering::SeqCst) > 0);
-    assert!(callback.busy.load(Ordering::SeqCst));
+    assert!(callback.unconfirmed.load(Ordering::SeqCst));
     let actual = host.io_evidence();
     assert_eq!(actual.metadata[0].main.confirmed_closed, 1);
     assert_eq!(actual.metadata[0].main.live, 0);

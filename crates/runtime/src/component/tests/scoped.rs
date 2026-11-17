@@ -71,24 +71,44 @@ async fn bounded_driver_keeps_io_and_join_ownership_after_cleanup_timeout() {
 
 #[tokio::test]
 async fn protocol_cleanup_failure_retains_the_confirmed_driver_failure_for_retry() {
-    use std::error::Error;
     let (slot, state) = fixtures::slot(false, true, true);
     let host = TestContext::new([slot.as_ref()]);
     host.drive(slot.start(deadline())).await.unwrap();
     let task = state.task.lock().unwrap().unwrap();
-    let first = host.drive(slot.shutdown(deadline())).await.unwrap_err();
+    let first = host.drive(slot.shutdown(deadline())).await.unwrap();
+    assert!(!first.is_complete());
+    let protocol = first
+        .resource_failures
+        .iter()
+        .find(|fault| {
+            fault.controller
+                == zero_platform_tokio::contract::lifecycle::ResourceFailurePhase::ProtocolLifecycle
+        })
+        .expect("original protocol cleanup failure retained")
+        .clone();
     assert_eq!(
-        first.source().unwrap().to_string(),
+        crate::component::tests::source::<std::io::Error>(&protocol.source).to_string(),
         "protocol cleanup confirmation failed once"
     );
     let report = host.drive(slot.shutdown(deadline())).await.unwrap();
     assert!(report.is_complete());
-    assert_eq!(report.exited_tasks, vec![task]);
-    assert_eq!(report.failed_tasks.len(), 1);
-    assert_eq!(report.failed_tasks[0].id, task);
+    assert_eq!(first.exited_tasks, vec![task]);
+    assert!(
+        report.exited_tasks.is_empty(),
+        "original join is delivered once"
+    );
+    assert!(report
+        .resource_failures
+        .iter()
+        .any(|same| std::sync::Arc::ptr_eq(same, &protocol)));
+    assert_eq!(first.failed_tasks.len(), 1);
+    assert_eq!(first.failed_tasks[0].id, task);
+    assert!(
+        report.failed_tasks.is_empty(),
+        "actual task failure delivered once"
+    );
     assert_eq!(
-        crate::component::tests::source::<std::io::Error>(&report.failed_tasks[0].error)
-            .to_string(),
+        crate::component::tests::source::<std::io::Error>(&first.failed_tasks[0].error).to_string(),
         "scoped driver reported a terminal failure"
     );
     assert!(state.closed.load(Ordering::SeqCst));

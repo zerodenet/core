@@ -1,10 +1,7 @@
 use super::super::catalog::ComponentCatalog;
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc, Mutex,
-};
+use std::sync::{atomic::Ordering, Arc};
 use tokio::{
-    io::{AsyncReadExt, DuplexStream},
+    io::AsyncReadExt,
     time::{Duration, Instant},
 };
 use zero_config::{OutboundAddressFamily, RuntimeConfig};
@@ -15,40 +12,15 @@ use zero_core::{
 };
 use zero_platform_tokio::contract::{
     context::{OpenContext, RequestIdentity},
-    datagram::{BoxDatagramSession, DatagramRequest},
-    network::{CarrierContext, UpstreamBinding, UpstreamOpener, UpstreamTransport},
+    network::{UpstreamBinding, UpstreamTransport},
     stream::{BoxStream, ConnectRequest, DynStreamOutbound},
-    BoxFuture, CancellationToken, ChannelError, DeliveryState, Reason,
+    CancellationToken, ChannelError, DeliveryState, Reason,
 };
 
-#[derive(Default)]
-struct Root {
-    calls: AtomicUsize,
-    peers: Mutex<Vec<DuplexStream>>,
-}
-impl UpstreamOpener for Root {
-    fn open_stream(
-        &self,
-        _: &UpstreamBinding,
-        _: Destination,
-        _: CarrierContext,
-    ) -> BoxFuture<'_, Result<BoxStream, ChannelError>> {
-        Box::pin(async move {
-            self.calls.fetch_add(1, Ordering::SeqCst);
-            let (io, peer) = tokio::io::duplex(32);
-            self.peers.lock().unwrap().push(peer);
-            Ok(Box::pin(io) as BoxStream)
-        })
-    }
-    fn open_datagram(
-        &self,
-        _: &UpstreamBinding,
-        _: DatagramRequest,
-        _: CarrierContext,
-    ) -> BoxFuture<'_, Result<BoxDatagramSession, ChannelError>> {
-        Box::pin(async { panic!("Stream fixture must not acquire datagram I/O") })
-    }
-}
+#[path = "host_admission/native.rs"]
+mod native;
+use native::Root;
+
 pub(super) fn config() -> Arc<RuntimeConfig> {
     Arc::new(RuntimeConfig::parse(r#"{"outbounds":[{"tag":"selected","protocol":{"type":"direct"}}],"route":{"final":{"type":"direct"}}}"#).unwrap())
 }
@@ -97,7 +69,7 @@ async fn open_with_policy(
     let connected = role
         .connect(
             ConnectRequest {
-                destination: Destination::new(Address::Ipv4([203, 0, 113, 1]), 80),
+                destination: root.destination(),
             },
             OpenContext {
                 identity: identity(business),
@@ -108,7 +80,7 @@ async fn open_with_policy(
                     UpstreamBinding {
                         prefix: vec![],
                         dial: policy,
-                        network_generation: NetworkGeneration(1),
+                        network_generation: NetworkGeneration(root.egress.generation()),
                     },
                     root.clone(),
                 ),
@@ -122,7 +94,7 @@ async fn open_with_policy(
 async fn cold_validation_never_grants_admission_and_failed_commit_keeps_current_closed() {
     let catalog = ComponentCatalog::default();
     catalog
-        .drive_supervised(async {
+        .drive_supervised(tokio::time::timeout(Duration::from_secs(10), async {
             let config = config();
             let plan = catalog.prepare(config.clone()).unwrap();
             let slot = plan.direct(Some("selected")).unwrap();
@@ -131,6 +103,7 @@ async fn cold_validation_never_grants_admission_and_failed_commit_keeps_current_
                 "cold preparation cannot start its native owner"
             );
             let root = Arc::new(Root::default());
+            root.track(&slot);
             assert_eq!(root.calls.load(Ordering::SeqCst), 0);
             assert!(
                 catalog.commit(&config, || Ok(())).is_err(),
@@ -153,28 +126,29 @@ async fn cold_validation_never_grants_admission_and_failed_commit_keeps_current_
             assert!(open(&role, &root, true).await.is_err());
             open(&role, &root, false).await.unwrap();
             catalog.shutdown(deadline()).await.unwrap();
+            root.confirm_peers_closed().await;
             assert!(open(&role, &root, false).await.is_err());
-        })
-        .await;
+        }))
+        .await
+        .expect("actual catalog admission operation did not settle");
 }
 
 #[tokio::test]
 async fn exact_candidate_survives_cold_cache_replacement_and_cached_old_handles_are_fenced() {
     let catalog = ComponentCatalog::default();
     catalog
-        .drive_supervised(async {
+        .drive_supervised(tokio::time::timeout(Duration::from_secs(10), async {
             let original = config();
             catalog.start(original.clone(), deadline()).await.unwrap();
             catalog.commit(&original, || Ok(())).unwrap();
-            let old = catalog
+            let old_slot = catalog
                 .prepare(original.clone())
                 .unwrap()
                 .direct(Some("selected"))
-                .unwrap()
-                .stream(deadline())
-                .await
                 .unwrap();
+            let old = old_slot.stream(deadline()).await.unwrap();
             let root = Arc::new(Root::default());
+            root.track(&old_slot);
             let mut transferred = open(&old, &root, true).await.unwrap();
 
             let mut candidate = (*original).clone();
@@ -191,14 +165,13 @@ async fn exact_candidate_survives_cold_cache_replacement_and_cached_old_handles_
                 std::io::ErrorKind::ConnectionAborted
             );
             started.unwrap();
-            let selected = catalog
+            let selected_slot = catalog
                 .prepare(candidate.clone())
                 .unwrap()
                 .direct(Some("selected"))
-                .unwrap()
-                .stream(deadline())
-                .await
                 .unwrap();
+            root.track(&selected_slot);
+            let selected = selected_slot.stream(deadline()).await.unwrap();
             let mut other = (*original).clone();
             other.outbounds[0].dial.address_family = OutboundAddressFamily::OnlyIpv6;
             let other = Arc::new(other);
@@ -249,8 +222,10 @@ async fn exact_candidate_survives_cold_cache_replacement_and_cached_old_handles_
             // The changed shared Direct owner retired its transferred user
             // before start; publication only exposes the exact ready candidate.
             catalog.shutdown(deadline()).await.unwrap();
-        })
-        .await;
+            root.confirm_peers_closed().await;
+        }))
+        .await
+        .expect("actual catalog admission operation did not settle");
 }
 
 #[tokio::test]
@@ -258,7 +233,7 @@ async fn committing_current_cannot_discard_another_actual_started_candidate() {
     use std::sync::atomic::AtomicBool;
     let catalog = ComponentCatalog::default();
     catalog
-        .drive_supervised(async {
+        .drive_supervised(tokio::time::timeout(Duration::from_secs(10), async {
             let current = config();
             catalog.start(current.clone(), deadline()).await.unwrap();
             catalog.commit(&current, || Ok(())).unwrap();
@@ -272,14 +247,12 @@ async fn committing_current_cannot_discard_another_actual_started_candidate() {
             candidate.outbounds[0].dial.address_family = OutboundAddressFamily::OnlyIpv4;
             let candidate = Arc::new(candidate);
             catalog.start(candidate.clone(), deadline()).await.unwrap();
-            let role = catalog
+            let selected_slot = catalog
                 .prepare(candidate.clone())
                 .unwrap()
                 .direct(Some("selected"))
-                .unwrap()
-                .stream(deadline())
-                .await
                 .unwrap();
+            let role = selected_slot.stream(deadline()).await.unwrap();
             let mutated = AtomicBool::new(false);
             assert!(catalog
                 .commit(&current, || {
@@ -292,6 +265,7 @@ async fn committing_current_cannot_discard_another_actual_started_candidate() {
                 "reject before any commit mutation"
             );
             let root = Arc::new(Root::default());
+            root.track(&selected_slot);
             open_with_policy(&role, &root, false, candidate.outbounds[0].dial.to_policy())
                 .await
                 .unwrap();
@@ -324,10 +298,13 @@ async fn committing_current_cannot_discard_another_actual_started_candidate() {
                 open(&old, &root, true).await.err().unwrap().reason,
                 Reason::StalePlan
             );
+            root.track(&restored);
             open(&restored.stream(deadline()).await.unwrap(), &root, true)
                 .await
                 .unwrap();
             catalog.shutdown(deadline()).await.unwrap();
-        })
-        .await;
+            root.confirm_peers_closed().await;
+        }))
+        .await
+        .expect("actual catalog admission operation did not settle");
 }

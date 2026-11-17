@@ -42,19 +42,20 @@ fn successful_canonical_identity_is_stable_across_passes_without_reallocation() 
 fn removed_resource_identities_do_not_resurrect_when_readded() {
     let ids = ComponentCatalog::default();
     let state = ShadowsocksTransportState::default();
+    let kept_state = ShadowsocksTransportState::default();
     let mut allocate = || ids.allocate_id();
     let mut first = ResourcePreparation::new(&mut allocate);
     let removed = request(&mut first, &state, 2);
-    let kept = request(&mut first, &state, 3);
+    let kept = request(&mut first, &kept_state, 3);
     let original = first.identities().unwrap();
     drop(first);
     let mut second = ResourcePreparation::with_identities(&mut allocate, &original);
-    assert_eq!(request(&mut second, &state, 3), kept);
+    assert_eq!(request(&mut second, &kept_state, 3), kept);
     let current = second.identities().unwrap();
     drop(second);
     let mut third = ResourcePreparation::with_identities(&mut allocate, &current);
     assert_ne!(request(&mut third, &state, 2), removed);
-    assert_eq!(request(&mut third, &state, 3), kept);
+    assert_eq!(request(&mut third, &kept_state, 3), kept);
 }
 
 #[test]
@@ -84,6 +85,7 @@ fn an_identity_index_cannot_retain_the_previous_factory_or_recipe() {
 fn allocated_and_reused_ids_share_the_same_collision_guard() {
     let ids = ComponentCatalog::default();
     let state = ShadowsocksTransportState::default();
+    let distinct_state = ShadowsocksTransportState::default();
     let mut allocate = || ids.allocate_id();
     let mut first = ResourcePreparation::new(&mut allocate);
     let id = request(&mut first, &state, 2);
@@ -91,7 +93,7 @@ fn allocated_and_reused_ids_share_the_same_collision_guard() {
     drop(first);
     let mut faulty_host_allocator = || Ok(id);
     let mut next = ResourcePreparation::with_identities(&mut faulty_host_allocator, &metadata);
-    assert_eq!(request(&mut next, &state, 3), id);
+    assert_eq!(request(&mut next, &distinct_state, 3), id);
     let error = next
         .share(
             "replay",

@@ -115,12 +115,21 @@ impl ResourceLifecycle for Owner {
         self.permit = Some(self.owner.grants().reserve(&caller)?);
         let permit = self.permit.as_ref().unwrap();
         let egress = zero_platform_tokio::EgressInterfaceControl::default();
-        self.grant = Some(permit.open(
-            &caller,
-            &egress,
-            NetworkGeneration(egress.generation()),
-            end,
-        )?);
+        self.grant = Some(
+            permit
+                .open(
+                    &caller,
+                    &egress,
+                    NetworkGeneration(egress.generation()),
+                    end,
+                )
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "actual metadata original failed: {error:?}; source: {}",
+                        crate::component::tests::source::<std::io::Error>(&error)
+                    )
+                }),
+        );
         self.state.originals.lock().unwrap()[self.index] = Some(permit.origin());
         if self.transfer {
             *self.state.transferred.lock().unwrap() = Some(self.grant.as_ref().unwrap().tx.clone());

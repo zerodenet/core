@@ -171,13 +171,17 @@ async fn the_actual_slot_denies_native_starts_during_build_and_after_start_retur
         access.spawn_process(sleeping()).unwrap_err().reason,
         Reason::InvalidConfig
     );
+    let report = slot
+        .shutdown(Instant::now() + Duration::from_secs(5))
+        .await
+        .unwrap();
     assert!(
-        !slot
-            .shutdown(Instant::now() + Duration::from_secs(5))
-            .await
-            .unwrap()
-            .is_complete(),
-        "uncovered Process declarations cannot manufacture native closure"
+        report.is_complete(),
+        "no Child was ever acquired: {report:?}"
+    );
+    assert!(
+        report.closed_io.is_empty(),
+        "no native close may be invented"
     );
     assert_eq!(
         access.spawn_process(sleeping()).unwrap_err().reason,

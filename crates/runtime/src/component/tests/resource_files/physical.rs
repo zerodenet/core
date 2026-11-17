@@ -35,15 +35,15 @@ async fn post_open_panic_joins_the_actual_worker_then_explicitly_closes_its_orig
     assert!(Arc::ptr_eq(&original, &proof.sticky_faults[0]));
     #[cfg(target_os = "linux")]
     assert!(!original_is_open(&path));
-    for _ in 0..2 {
-        let failure = grants.shutdown_io(deadline()).await.unwrap_err();
-        let mut source: &(dyn Error + 'static) = &failure;
-        while !source.is::<JoinError>() {
-            source = source.source().expect("original JoinError");
-        }
+    for attempt in 0..2 {
+        let report = grants.shutdown_io(deadline()).await.unwrap();
+        assert!(report.is_complete());
+        assert_eq!(report.closed_io.len(), usize::from(attempt == 0));
+        assert_eq!(report.released_resources.len(), usize::from(attempt == 0));
+        assert!(Arc::ptr_eq(&original, &retained_join_failure(&grants)));
         let state = grants.state.lock().unwrap();
-        assert_eq!(state.files.receipts.closed_io.len(), 1);
-        assert_eq!(state.files.receipts.released_resources.len(), 1);
+        assert!(state.files.receipts.closed_io.is_empty());
+        assert!(state.files.receipts.released_resources.is_empty());
         assert!(Arc::ptr_eq(
             &original,
             state.files.failure.as_ref().unwrap()

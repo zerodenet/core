@@ -75,7 +75,7 @@ fn two_vless_consumers_use_real_host_canonical_roleless_grpc_pool_with_complete_
         dependencies.push(dependency);
         let options = Arc::new(prepared.bind(dependency));
         let spec = StreamFactory.describe(&options);
-        assert_eq!(spec.roles, vec![RoleKind::Stream]);
+        assert_eq!(spec.roles, vec![RoleKind::Stream, RoleKind::Datagram]);
         assert_eq!(spec.dependencies, vec![dependency]);
         assert!(spec.resources.is_empty() && spec.task_limit.is_none());
         recipes.push((
@@ -106,7 +106,15 @@ fn two_vless_consumers_use_real_host_canonical_roleless_grpc_pool_with_complete_
         assert!(resource.recipe().spec().roles.is_empty());
         assert_eq!(
             resource.recipe().spec().resources,
-            vec![ResourceDeclaration::BackgroundCarrier]
+            vec![ResourceDeclaration::ControlledCarrierPool {
+                endpoint: zero_core::request::Destination::new(
+                    zero_core::Address::Ipv4([127, 0, 0, 1]),
+                    443,
+                ),
+                dial: Default::default(),
+                datagram: false,
+                max_sockets: NonZeroUsize::new(2).unwrap(),
+            }]
         );
         assert_eq!(resource.recipe().spec().task_limit, NonZeroUsize::new(2));
     }
@@ -123,8 +131,8 @@ fn two_vless_consumers_use_real_host_canonical_roleless_grpc_pool_with_complete_
     let after = PoolFactory
         .describe(prepared(&runtime, &grpc).pool_options())
         .static_identity;
-    assert_ne!(
+    assert_eq!(
         old, after,
-        "retired actual state cannot be reused by equal config after reload"
+        "standard host recipes do not use the legacy protocol cache generation"
     );
 }

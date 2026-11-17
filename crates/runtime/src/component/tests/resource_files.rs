@@ -29,6 +29,25 @@ fn io_kind(error: &(dyn Error + 'static)) -> Option<io::ErrorKind> {
     }
     error.source().and_then(io_kind)
 }
+fn retained_join_failure(grants: &HostResources) -> Arc<ChannelError> {
+    grants
+        .io_evidence()
+        .sticky_faults
+        .into_iter()
+        .find(|error| {
+            let mut source: &(dyn Error + 'static) = error.as_ref();
+            loop {
+                if source.is::<JoinError>() {
+                    return true;
+                }
+                match source.source() {
+                    Some(next) => source = next,
+                    None => return false,
+                }
+            }
+        })
+        .expect("same original blocking JoinError remains in native evidence")
+}
 #[tokio::test]
 async fn declared_file_is_one_bounded_snapshot_and_exact_path_authority_is_start_only() {
     let directory = Directory::new();

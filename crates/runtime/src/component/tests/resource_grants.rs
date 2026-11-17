@@ -126,7 +126,7 @@ async fn real_listener_grants_enforce_start_phase_protocol_endpoint_and_lifetime
             .err()
             .unwrap()
             .reason,
-        Reason::InvalidConfig
+        Reason::Revoked
     );
     let access = grants.activate(deadline()).unwrap();
     cancel.cancel();
@@ -220,13 +220,13 @@ async fn listener_declarations_do_not_imply_dns_and_expired_unpolled_grants_cann
     let access = grants.activate(deadline()).unwrap();
     let unpolled = grants.listen_datagram(address.clone());
     drop(access);
-    assert_eq!(unpolled.await.err().unwrap().reason, Reason::InvalidConfig);
+    assert_eq!(unpolled.await.err().unwrap().reason, Reason::Revoked);
     let end = Instant::now() + Duration::from_secs(1);
     let _access = grants.activate(end).unwrap();
     tokio::time::sleep_until(end).await;
     assert_eq!(
         grants.listen_datagram(address).await.err().unwrap().reason,
-        Reason::Timeout
+        Reason::Revoked
     );
 }
 

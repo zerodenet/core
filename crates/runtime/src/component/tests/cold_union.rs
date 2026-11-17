@@ -327,9 +327,10 @@ fn actual_named_callee_prepares_once_before_devices_and_is_consumed_by_the_same_
                         assert_eq!(resources.prepare_named_component("a")?, id);
                         assert_eq!(controls.conversions.load(Ordering::SeqCst), before + 1);
                         if let Some(old) = previous {
-                            assert_eq!(
-                                resources.reusable_resource_instance(id),
-                                Some(old.configured("a").unwrap().instance_id())
+                            assert_eq!(old.configured("a").unwrap().instance_id().component, id);
+                            assert!(
+                                resources.reusable_resource_instance(id).is_none(),
+                                "an unstarted cold slot cannot lend native resources"
                             );
                         }
                         Ok(BTreeSet::new())

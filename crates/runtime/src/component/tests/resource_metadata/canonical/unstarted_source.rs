@@ -12,6 +12,17 @@ struct CancelAfterGrant {
     original: Mutex<Option<GrantedMetadataListener>>,
 }
 impl ResourceAccess for CancelAfterGrant {
+    fn carrier_buffer_budget(
+        &self,
+    ) -> Option<zero_platform_tokio::controlled_carrier::CarrierBufferBudget> {
+        self.native.carrier_buffer_budget()
+    }
+    fn packet_driver_metadata(
+        &self,
+    ) -> Result<zero_platform_tokio::contract::component::PacketDriverMetadataView, ChannelError>
+    {
+        self.native.packet_driver_metadata()
+    }
     fn listen_metadata_datagram(
         &self,
         request: MetadataDatagramRequest,

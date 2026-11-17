@@ -28,7 +28,7 @@ async fn hosted_metadata_views_keep_actual_weak_headers_charged_across_policy_sh
     let sibling = resources.packet_driver_metadata().unwrap();
     let baseline = roots.packet.driver_metadata().occupied;
     let layout = PacketMetadataArc::<[u8; 2048]>::layout().unwrap();
-    let value = PacketMetadataArc::from_prepaid([7; 2048], view.reserve(layout).unwrap())
+    let value = PacketMetadataArc::from_prepaid([7u8; 2048], view.reserve(layout).unwrap())
         .ok()
         .unwrap();
     let weak = PacketMetadataArc::downgrade(&value);

@@ -141,7 +141,15 @@ async fn ordinary_host_accepted_source_uses_same_roots_real_receiver_and_global_
         assert!(!witness.try_joined().unwrap().registration_released());
         assert_eq!(roots.carrier.snapshot().charged, 2);
         scope.acknowledge(&receipt).unwrap();
-        origin.wait_settled_original().await.unwrap();
+        drop(receipt); // Return the actual parent callback's retained ACK custody.
+        let settled = origin.wait_settled_original();
+        tokio::pin!(settled);
+        poll_fn(|cx| {
+            roots.carrier.poll_cancelled_retirements(cx);
+            settled.as_mut().poll(cx)
+        })
+        .await
+        .unwrap();
         assert!(origin.closed().unwrap().matches(&claim));
         assert_eq!(roots.carrier.snapshot().charged, 1);
         assert_eq!(client.read(&mut bytes).await.unwrap(), 0);
@@ -149,9 +157,22 @@ async fn ordinary_host_accepted_source_uses_same_roots_real_receiver_and_global_
         drop(listener);
         assert!(resources.shutdown_io(end()).await.unwrap().is_complete());
         assert!(other.shutdown_io(end()).await.unwrap().is_complete());
-        assert_eq!(roots.carrier.snapshot().charged, 0);
+        assert_eq!(
+            roots.carrier.snapshot().charged,
+            1,
+            "native listener close does not retire the original Source Scope"
+        );
         scope.begin_shutdown();
         assert!(scope.is_drained());
+        poll_fn(|cx| {
+            roots.carrier.poll_cancelled_retirements(cx);
+            if roots.carrier.snapshot().charged == 0 {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
     })
     .await
     .unwrap();

@@ -32,12 +32,14 @@ async fn real_native_close_does_not_delete_an_already_published_original_fault()
     let first = grants.state.lock().unwrap().io.failures[&key].clone();
     // This regression targets aggregate error retention, not a portable claim
     // that a Windows known-open close retry can be reproduced on Unix.
-    for _ in 0..2 {
-        assert!(grants.shutdown_io(deadline()).await.is_err());
+    for attempt in 0..2 {
+        let report = grants.shutdown_io(deadline()).await.unwrap();
+        assert!(report.is_complete());
+        assert_eq!(report.closed_io.len(), usize::from(attempt == 0));
         let state = grants.state.lock().unwrap();
         assert!(state.io.confirmed.contains(&key));
         assert!(Arc::ptr_eq(&first, &state.io.failures[&key]));
-        assert_eq!(state.io.receipts.closed_io.len(), 1);
+        assert!(state.io.receipts.closed_io.is_empty());
     }
     let evidence = grants.io_evidence();
     assert!(evidence.physical_confirmed());

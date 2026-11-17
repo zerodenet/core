@@ -151,7 +151,12 @@ async fn foreign_prebinding_cannot_replace_the_original_host_fence_and_keeps_fir
     ));
     assert!(!retry.physical_confirmed());
     fixture.owner.shutdown(deadline()).await.unwrap();
-    assert!(fixture.resources.shutdown_io(deadline()).await.is_err());
+    assert!(!fixture
+        .resources
+        .shutdown_io(deadline())
+        .await
+        .unwrap()
+        .is_complete());
     assert!(Arc::ptr_eq(
         &original,
         fixture.resources.io_evidence().carriers[0]

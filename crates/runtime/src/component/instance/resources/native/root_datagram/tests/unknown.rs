@@ -44,7 +44,9 @@ async fn actual_consuming_registration_unwind_keeps_original_unknown_and_never_e
         query.is_joined(),
         "actual query join is deliberately insufficient for native Unknown"
     );
-    assert!(fixture.resources.shutdown_io(deadline()).await.is_err());
+    let report = fixture.resources.shutdown_io(deadline()).await.unwrap();
+    assert!(!report.is_complete());
+    assert!(report.closed_io.is_empty());
     let after = fixture.resources.io_evidence();
     assert!(!after.physical_confirmed());
     assert!(Arc::ptr_eq(

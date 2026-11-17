@@ -55,6 +55,7 @@ async fn current_async_work_survives_actual_caller_ack_until_its_original_cleanu
         let receipt = scope.next_receipt().await.unwrap();
         assert!(witness.matches_joined(receipt.joined()));
         scope.acknowledge(&receipt).unwrap();
+        drop(receipt);
         cleanup.await.unwrap();
         assert!(witness.try_joined().unwrap().registration_released());
         assert_eq!(book.usage().pending_commands, 1);
@@ -128,6 +129,7 @@ async fn original_async_panic_payload_reaches_the_real_owner_and_allows_physical
         let receipt = scope.next_receipt().await.unwrap();
         assert!(witness.matches_joined(receipt.joined()));
         scope.acknowledge(&receipt).unwrap();
+        drop(receipt);
         loop {
             if book.usage().pending_commands == 0 {
                 break;

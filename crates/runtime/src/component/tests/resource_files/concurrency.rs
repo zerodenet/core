@@ -119,10 +119,15 @@ async fn actual_blocking_job_panic_retains_its_join_source_and_never_confirms_su
         }
     }
     assert!(has_join(&failure));
-    for _ in 0..2 {
-        let failure = grants.shutdown_io(deadline()).await.unwrap_err();
-        assert_eq!(failure.reason, Reason::Internal);
-        assert!(has_join(&failure));
+    let original = retained_join_failure(&grants);
+    for attempt in 0..2 {
+        let report = grants.shutdown_io(deadline()).await.unwrap();
+        assert!(report.is_complete());
+        assert_eq!(report.released_resources.len(), usize::from(attempt == 0));
+        let retained = retained_join_failure(&grants);
+        assert!(Arc::ptr_eq(&original, &retained));
+        assert!(has_join(retained.as_ref()));
+        assert!(grants.io_evidence().physical_confirmed());
     }
     let state = grants.state.lock().unwrap();
     assert!(
@@ -131,7 +136,7 @@ async fn actual_blocking_job_panic_retains_its_join_source_and_never_confirms_su
     );
     assert_eq!(
         state.files.receipts.released_resources.len(),
-        1,
-        "the actual join receipt is still owned despite the reported failure"
+        0,
+        "the original join receipt was delivered exactly once to the observer"
     );
 }

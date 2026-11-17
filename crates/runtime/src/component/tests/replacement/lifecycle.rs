@@ -46,7 +46,11 @@ async fn a_transferred_native_view_keeps_its_group_unconfirmed_after_the_other_m
     assert!(!candidate.started.load(Ordering::Acquire));
     let batch = catalog.state.lock().unwrap().replacement.clone().unwrap();
     assert!(!batch.released());
-    assert_eq!(batch.order.len(), 1, "the two owners share one lifecycle group");
+    assert_eq!(
+        batch.order.len(),
+        1,
+        "the two owners share one lifecycle group"
+    );
     assert_eq!(batch.order[0].len(), 2);
     let first = originals[0].as_ref().unwrap();
     let second = originals[1].as_ref().unwrap();

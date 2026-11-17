@@ -236,7 +236,7 @@ async fn actual_bind_failure_keeps_same_os_source_while_later_native_close_and_r
     let grant = host.listen_metadata_datagram(request(local)).await.unwrap();
     assert!(host.listen_metadata_datagram(request(local)).await.is_err());
     assert!(std::net::UdpSocket::bind(local).is_err());
-    assert!(host.shutdown_io(deadline()).await.is_err());
+    assert!(!host.shutdown_io(deadline()).await.unwrap().is_complete());
     let held = std::net::UdpSocket::bind(local).unwrap();
     let proof = host.io_evidence();
     assert_eq!(
@@ -247,7 +247,7 @@ async fn actual_bind_failure_keeps_same_os_source_while_later_native_close_and_r
         &first,
         proof.metadata[0].first_fault.as_ref().unwrap()
     ));
-    assert!(host.shutdown_io(deadline()).await.is_err());
+    assert!(!host.shutdown_io(deadline()).await.unwrap().is_complete());
     let retry = host.io_evidence();
     assert_eq!(retry.metadata[0].main.confirmed_closed, 2);
     assert!(Arc::ptr_eq(
