@@ -43,6 +43,7 @@ impl Core {
                 .original()
                 .try_lock()
                 .map_err(|error| io::Error::new(io::ErrorKind::AlreadyExists, error))?;
+            state.lock_held = true;
             Ok(())
         })();
         if let Err(work) = work {

@@ -7,6 +7,16 @@ pub(super) struct Slot {
     failure: Option<Arc<io::Error>>,
 }
 impl Slot {
+    fn unlock(&mut self) -> Result<(), Arc<io::Error>> {
+        if let Some(failure) = &self.failure {
+            return Err(failure.clone());
+        }
+        self.original().unlock().map_err(|source| {
+            let source = Arc::new(source);
+            self.failure = Some(source.clone());
+            source
+        })
+    }
     pub fn install(&mut self, file: std::fs::File) {
         assert!(
             self.confirmed(),
@@ -64,6 +74,7 @@ pub(super) struct State {
     pub start_failure: Option<JournalFailure>,
     pub append_dirty: bool,
     pub lock: Slot,
+    pub lock_held: bool,
     pub read: Slot,
     pub append: Slot,
     pub temporary: Slot,
@@ -98,15 +109,24 @@ impl State {
         self.closing = true;
         // Drive every independent original even if one close remains Unknown.
         let mut first = None;
-        for slot in [
-            &mut self.read,
-            &mut self.append,
-            &mut self.temporary,
-            &mut self.lock,
-        ] {
+        for slot in [&mut self.read, &mut self.append, &mut self.temporary] {
             if let Err(source) = slot.close() {
                 first.get_or_insert(source);
             }
+        }
+        // A concurrent fork can briefly inherit the same open-file description
+        // before exec closes it. Release this journal's actual lock explicitly;
+        // closing only our descriptor does not release the inherited flock.
+        if self.lock_held {
+            match self.lock.unlock() {
+                Ok(()) => self.lock_held = false,
+                Err(source) => {
+                    first.get_or_insert(source);
+                }
+            }
+        }
+        if let Err(source) = self.lock.close() {
+            first.get_or_insert(source);
         }
         if let Some(source) = first {
             return Err(failure(None, Some(source)));

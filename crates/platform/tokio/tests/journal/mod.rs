@@ -1,5 +1,7 @@
 use super::*;
 mod hosted;
+#[cfg(unix)]
+mod lock;
 fn spec(path: PathBuf, max: usize) -> JournalSpec {
     JournalSpec {
         path,
