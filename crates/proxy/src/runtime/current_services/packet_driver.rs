@@ -73,6 +73,7 @@ impl CurrentServiceSource {
     }
 }
 
+#[cfg(feature = "datagram-route-runtime")]
 impl CurrentServiceSource {
     pub(in crate::runtime) fn packet_carrier_source(
         &self,

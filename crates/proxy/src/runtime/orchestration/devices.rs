@@ -15,31 +15,36 @@ impl OrchestrationState {
         config: &std::sync::Arc<zero_config::RuntimeConfig>,
         services: &crate::protocol_registry::TcpRuntimeServices,
     ) -> Result<(), zero_engine::EngineError> {
-        let execution = services.execution();
-        let plan = execution.components.as_deref().map_err(|error| {
-            std::io::Error::other(crate::component::instance::retained(error.clone()))
-        })?;
-        for input in &config.inbounds {
-            if self.active_inbounds.get(&input.tag) != Some(input) {
-                continue;
-            }
-            if let Some(original) = proxy.inbound_owners.packet_source_origin(input)? {
-                let memory = proxy
-                    .inbound_owners
-                    .packet_source_memory(input)?
-                    .ok_or_else(|| {
-                        std::io::Error::other(
+        #[cfg(feature = "datagram-route-runtime")]
+        {
+            let execution = services.execution();
+            let plan = execution.components.as_deref().map_err(|error| {
+                std::io::Error::other(crate::component::instance::retained(error.clone()))
+            })?;
+            for input in &config.inbounds {
+                if self.active_inbounds.get(&input.tag) != Some(input) {
+                    continue;
+                }
+                if let Some(original) = proxy.inbound_owners.packet_source_origin(input)? {
+                    let memory = proxy
+                        .inbound_owners
+                        .packet_source_memory(input)?
+                        .ok_or_else(|| {
+                            std::io::Error::other(
                             "retained actual Packet Source lost its original memory view/layout",
                         )
-                    })?;
-                let source = proxy
-                    .inbound_owners
-                    .packet_carrier_source(input, plan, &original, &memory)?;
-                proxy
-                    .protocols
-                    .bind_actual_packet_carrier_source(config, plan, &input.tag, source, memory)?;
+                        })?;
+                    let source = proxy
+                        .inbound_owners
+                        .packet_carrier_source(input, plan, &original, &memory)?;
+                    proxy.protocols.bind_actual_packet_carrier_source(
+                        config, plan, &input.tag, source, memory,
+                    )?;
+                }
             }
         }
+        #[cfg(not(feature = "datagram-route-runtime"))]
+        let _ = (proxy, config, services);
         Ok(())
     }
 

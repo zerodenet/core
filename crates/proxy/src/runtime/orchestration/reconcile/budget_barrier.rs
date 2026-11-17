@@ -541,6 +541,7 @@ fn start_deferred_resources<'a>(
             let plan = execution.components.as_deref().map_err(|error| {
                 std::io::Error::other(crate::component::instance::retained(error.clone()))
             })?;
+            #[cfg(feature = "datagram-route-runtime")]
             for input in &config.inbounds {
                 if retained.get(&input.tag) != Some(input) {
                     continue;

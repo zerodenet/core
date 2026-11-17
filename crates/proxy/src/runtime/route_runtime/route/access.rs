@@ -66,7 +66,7 @@ impl InboundRouteRuntimeFactory {
     pub(in crate::runtime) fn tun_dns_resolver(&self) -> std::sync::Arc<zero_dns::DnsSystem> {
         self.shared.tcp_services().resolver_handle()
     }
-    #[cfg(feature = "raw-ip-runtime")]
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
     pub(in crate::runtime) fn bind_actual_packet_source(
         &self,
         original: zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,

@@ -17,7 +17,7 @@ use zero_platform_tokio::EgressInterfaceControl;
 #[cfg(feature = "raw-ip-runtime")]
 mod packet_driver;
 pub(crate) struct CurrentServiceSource {
-    #[cfg(feature = "raw-ip-runtime")]
+    #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
     inbounds: Weak<super::inbound_owners::InboundOwnerRegistry>,
     #[cfg(feature = "tls-ech-runtime")]
     pub(crate) ech_owner:
@@ -61,7 +61,7 @@ impl CurrentServiceSource {
         _inbounds: &Arc<super::inbound_owners::InboundOwnerRegistry>,
     ) -> Self {
         Self {
-            #[cfg(feature = "raw-ip-runtime")]
+            #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
             inbounds: Arc::downgrade(_inbounds),
             #[cfg(feature = "tls-ech-runtime")]
             ech_owner: Arc::new(std::sync::OnceLock::new()),

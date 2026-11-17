@@ -4,7 +4,7 @@ impl InboundOwner {
     /// Retain the original raw caller's error before its ordinary local
     /// acceptance. The original Scope remains the sole TaskExit consumer.
     pub(super) fn record_scoped(&self, scope: &TaskScope, exit: TaskExit) -> bool {
-        #[cfg(feature = "raw-ip-runtime")]
+        #[cfg(all(feature = "raw-ip-runtime", feature = "datagram-route-runtime"))]
         if let Some(native) = self.packet_native.get().and_then(std::sync::Weak::upgrade) {
             match native.receive_ordinary_connect_rejection(scope, &exit) {
                 Ok(true) => {

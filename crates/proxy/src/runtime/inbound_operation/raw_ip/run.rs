@@ -122,6 +122,7 @@ pub(in crate::runtime) async fn run(
     else {
         return Ok(());
     };
+    #[cfg(feature = "datagram-route-runtime")]
     if let PacketSourceOriginal::Listener(original) = &context.original {
         let actual = original
             .provider()
