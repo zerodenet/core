@@ -12,6 +12,7 @@ pub(super) mod actor;
 mod cleanup;
 mod control;
 pub(super) mod diagnostics;
+mod pending;
 mod table;
 pub(super) use control::{LogicalControl, ProtocolControl, View};
 pub(super) struct Generation {
@@ -150,6 +151,11 @@ pub(super) struct Owners {
     pub diagnostics: diagnostics::Diagnostics,
     pub protocols:
         std::sync::OnceLock<zero_platform_tokio::controlled_carrier::ProtocolOriginalChildren>,
+    pending: Mutex<
+        zero_platform_tokio::contract::component::PacketMetadataVec<
+            zero_platform_tokio::controlled_carrier::CarrierAdoption,
+        >,
+    >,
 }
 #[derive(Default)]
 pub(super) struct State {
@@ -249,6 +255,7 @@ impl Owners {
             actor_changed: Notify::new(),
             diagnostics,
             protocols: std::sync::OnceLock::new(),
+            pending: Mutex::new(Default::default()),
         }
     }
     pub fn receive_setup(&self, source: ChannelError) -> RetainedError {

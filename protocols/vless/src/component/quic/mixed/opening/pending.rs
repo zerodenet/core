@@ -123,7 +123,48 @@ impl UpstreamOpener for Pending {
         true
     }
     fn pending_carrier_capacity(&self, binding: &UpstreamBinding) -> Option<usize> {
-        Some(self.current(binding).ok()?.0.options.origins.get())
+        self.current(binding)
+            .ok()?
+            .0
+            .upstream
+            .pending_carrier_capacity_for(binding)
+    }
+    fn packet_caller(
+        &self,
+        binding: &UpstreamBinding,
+        identity: &zero_platform_tokio::contract::context::RequestIdentity,
+        call: &zero_platform_tokio::contract::network::CarrierContext,
+    ) -> Result<TaskJoinWitness, ChannelError> {
+        self.current(binding)?;
+        if call.session.is_some()
+            || call.cancel.is_cancelled()
+            || call
+                .deadline
+                .is_none_or(|end| tokio::time::Instant::now() >= end)
+            || !matches!(identity, zero_platform_tokio::contract::context::RequestIdentity::Service(facts)
+                if facts.origin == zero_core::request::ServiceOrigin::Runtime
+                && facts.purpose == zero_core::request::ServicePurpose::BackgroundControl)
+        {
+            return Err(error(Stage::Prepare, Reason::StalePlan));
+        }
+        Ok(self.driver.clone())
+    }
+    fn retain_pending_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        original: zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        let (generation, parent) = self.current(binding)?;
+        generation
+            .upstream
+            .validate_pending_carrier(binding, &original)?;
+        let limit = generation
+            .upstream
+            .pending_carrier_capacity_for(binding)
+            .ok_or_else(|| error(Stage::Prepare, Reason::StalePlan))?;
+        parent
+            .owners
+            .retain_pending_carrier(&generation.memory, limit, original)
     }
     fn retain_protocol_original(
         &self,

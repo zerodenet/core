@@ -239,6 +239,23 @@ impl ProtocolOriginalChildren {
             after = Some(record.ordinal);
         }
     }
+    /// Custody transfer only: an actual retained child Root has installed this
+    /// exact donor's LoanOwner. This is never native/user/Scope close evidence.
+    pub fn retains_carrier_loan(&self, donor: &crate::controlled_carrier::CarrierAdoption) -> bool {
+        let mut after = None;
+        while let Some(record) = self.next_record(after) {
+            after = Some(record.ordinal);
+            if record
+                .original
+                .adoption()
+                .and_then(|original| original.retained_loan())
+                .is_some_and(|loan| loan.retains(donor))
+            {
+                return true;
+            }
+        }
+        false
+    }
     /// Call only after returning the upper LoanOwner's actual IO/views and
     /// consuming its real setup body. No new child can enter that old caller.
     /// A cached child's sealed receiver handoff preserves its own physical N;

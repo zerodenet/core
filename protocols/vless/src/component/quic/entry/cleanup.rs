@@ -206,11 +206,18 @@ impl Owners {
         drop(mkcp);
         drop(receiver);
         drop(queues);
+        // Installed loans are now owned by their exact retained child Root.
+        // Returning that child is separate from closing abandoned setup donors.
+        self.release_installed_carriers();
         if let Some(children) = self.protocols.get() {
             children.wait_returned_original().await?;
         }
+        let pending = self.close_pending_carriers()?;
+        if !pending.is_complete() {
+            return Ok(pending);
+        }
         self.state.lock().await.cleanup_complete = true;
         self.changed.notify_waiters();
-        Ok(CloseReport::default())
+        Ok(pending)
     }
 }

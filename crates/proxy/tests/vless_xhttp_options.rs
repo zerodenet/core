@@ -12,7 +12,9 @@ async fn xhttp_shared_original_borrows_real_socks_prefix_without_a_business_dead
         "stream-up",
         true,
         false,
-        json!({"xmux":{"max_connections":1}}),
+        // One-use physical carriers force the cached HTTP driver to borrow
+        // another real donor after its initial business caller has returned.
+        json!({"xmux":{"max_connections":1,"c_max_reuse_times":1,"h_max_request_times":1}}),
         json!({"_test_relay":true}),
     )
     .await;
