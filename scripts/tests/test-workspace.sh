@@ -71,6 +71,23 @@ set -e
 [[ "$status" == 7 ]]
 grep -q '::error .*first original provider failure' "$scratch/multiple-failures.log"
 grep -q '::error .*last original timeout' "$scratch/multiple-failures.log"
+# Expected readiness EOF chatter must not displace the actual rejected donor.
+set +e
+bash "$root/.github/scripts/test-workspace.sh" bash -c '
+    for ((i=0; i<200; i++)); do echo "readiness sources=ordinary EOF chatter before $i"; done
+    echo "session failed sources=actual retained child donor rejection"
+    for ((i=0; i<1000; i++)); do echo "readiness sources=ordinary EOF chatter after $i"; done
+    echo "thread timeout_case panicked at timeout.rs:3:1:"
+    echo "later timeout after original rejection"
+    echo "failures:"
+    echo "    timeout_case"
+    echo "error: test failed"
+    exit 7
+' > "$scratch/original-source.log"
+status=$?
+set -e
+[[ "$status" == 7 ]]
+grep -q '::error .*actual retained child donor rejection' "$scratch/original-source.log"
 rm "$scratch/args"
 set +e
 ZERO_TEST_METADATA_EXIT=13 bash "$entry" > "$scratch/layout-failure.log" 2>&1

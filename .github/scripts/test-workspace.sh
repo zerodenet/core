@@ -48,24 +48,26 @@ def bounded(items, limit):
     return raw[:half] + b"\n... original log excerpt omitted ...\n" + raw[-half:]
 
 panics = []
+priority = []
 facts = []
 summary = []
 for index, line in enumerate(lines):
     if line.startswith("thread ") and "panicked at" in line:
         panics.append("\n".join(lines[index:index + 8]))
     if line.startswith("error[") or line.startswith("error: could not compile"):
-        facts.append("\n".join(lines[index:index + 8]))
+        priority.append("\n".join(lines[index:index + 8]))
     elif any(marker in line for marker in (
-        "session failed", "sources=", "original shutdown cause[",
-        "operation failed stage=", "TUN state deadline", "TUN state rejected",
-        "process terminating with fatal error",
+        "session failed", "original shutdown cause[", "operation failed stage=",
+        "TUN state deadline", "TUN state rejected", "process terminating with fatal error",
     )):
+        priority.append(line)
+    elif "sources=" in line:
         facts.append(line)
     if (line == "failures:" or line.startswith("test result: FAILED")
             or line.startswith("error: test failed")
             or re.match(r"^    [A-Za-z_][A-Za-z_0-9:]*$", line)):
         summary.append(line)
-message = b"\n".join((bounded(panics, 12000), bounded(facts, 9000), bounded(summary, 3000)))
+message = b"\n".join((bounded(panics, 10000), bounded(priority, 10000), bounded(facts, 1000), bounded(summary, 3000)))
 if not message.strip():
     message = bounded(lines[-80:], 24000)
 # Actions truncates each annotation to 4 KiB; split before escaping workflow syntax.
