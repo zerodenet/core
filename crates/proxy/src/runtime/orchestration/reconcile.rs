@@ -585,6 +585,7 @@ impl OrchestrationState {
                 config_revision = proxy.config_revision(),
                 reason = "listener_reconcile_error",
                 %error,
+                sources = %crate::logging::sources::Sources(&error),
                 "config reload listener reconciliation failed; restoring last known-good config"
             );
             #[cfg(feature = "raw-ip-runtime")]

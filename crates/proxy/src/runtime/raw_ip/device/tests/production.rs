@@ -137,7 +137,7 @@ async fn exercise_mode(domain: bool, mode: &str) {
         .engine()
         .resolve_route_decision(zero_engine::RouteDecision::Route("wg".into()))
         .unwrap();
-    let zero_engine::ResolvedOutbound::Single(leaf) = resolved else {
+    let zero_engine::ResolvedOutbound::Single(_) = resolved else {
         unreachable!()
     };
     let mut client = tokio::time::timeout_at(end(), connect(socks, domain))

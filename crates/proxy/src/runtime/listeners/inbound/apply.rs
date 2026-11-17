@@ -90,6 +90,7 @@ pub(super) async fn apply_candidate(
                     listen_port = inbound.listen.port,
                     reason = "listener_prepare_error",
                     error = %error,
+                    sources = %crate::logging::sources::Sources(&error),
                     "failed to prepare inbound listener"
                 );
                 error
@@ -103,6 +104,7 @@ pub(super) async fn apply_candidate(
                 listen_port = inbound.listen.port,
                 reason = "listener_bind_error",
                 error = %error,
+                sources = %crate::logging::sources::Sources(&error),
                 "failed to bind inbound listener"
             );
             error
