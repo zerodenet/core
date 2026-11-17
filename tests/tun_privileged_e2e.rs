@@ -744,6 +744,7 @@ fn config_json(
         .collect::<Vec<_>>();
     serde_json::to_string_pretty(&serde_json::json!({
         "runtime": {
+            "log": { "level": "debug" },
             "network": { "mtu": 1400 },
             "tun": tun,
             "dns": {

@@ -92,9 +92,12 @@ impl PacketReply for Reply {
                         original, &witness, outer_tasks, waiting_cancel.clone(),
                     ).await.map_err(|source|error(Reason::Io).with_source(source))?;
                 }
-                let result = wire::run(
+                // Keep the native wire state machine out of this registration
+                // handshake's poll frame, including unoptimized Windows builds.
+                // It still runs inline in this same original Critical task.
+                let result = Box::pin(wire::run(
                     wire, grant, reads, control, egress, packets, returned, facts, observer, shutdown, checkpoint,
-                )
+                ))
                 .await;
                 proxies.request_abort();
                 result.map_err(|source| error(Reason::Io).with_source(source))

@@ -115,10 +115,10 @@ pub(in crate::runtime) async fn run(
         "actual Packet Source main before respond: {:?}",
         facts.inbound
     );
-    let Some(session) = accepted
-        .respond_observed(ReplyOutcome::LocalChannelReady, observer.clone())
-        .await
-        .map_err(std::io::Error::other)?
+    let Some(session) =
+        Box::pin(accepted.respond_observed(ReplyOutcome::LocalChannelReady, observer.clone()))
+            .await
+            .map_err(std::io::Error::other)?
     else {
         return Ok(());
     };
@@ -287,9 +287,17 @@ pub(in crate::runtime) async fn run(
                     let native = children.native.quiescent(deadline).await;
                     #[cfg(test)] eprintln!("actual Packet Main after native census: source={:?} request={request} result={native:?}", facts.inbound);
                     match native {
-                        Ok(native)=>native && source_host.peer_groups_quiescent() && children.echoes.quiescent()
-                            && children.udp.quiescent() && children.tcp_dns.as_ref().is_none_or(|tasks|tasks.quiescent())
-                            && tcp.quiescent().await && udp.quiescent().await,
+                        Ok(native)=> {
+                            let peers = source_host.peer_groups_quiescent();
+                            let echoes = children.echoes.quiescent();
+                            let associations = children.udp.quiescent();
+                            let dns = children.tcp_dns.as_ref().is_none_or(|tasks|tasks.quiescent());
+                            let tcp_idle = tcp.quiescent().await;
+                            let udp_idle = udp.quiescent().await;
+                            tracing::debug!(inbound=?facts.inbound,request,native,peers,echoes,associations,dns,tcp_idle,udp_idle,
+                                "actual Packet Main pause census");
+                            native && peers && echoes && associations && dns && tcp_idle && udp_idle
+                        },
                         Err(source)=>{checkpoint.reject(request,source);false}
                     }
                 }else{false};
