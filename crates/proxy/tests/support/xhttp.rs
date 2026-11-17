@@ -183,6 +183,10 @@ pub async fn interop_options(
             "inbounds":[{"tag":"first","listen":{"address":"127.0.0.1","port":relay_port},"protocol":{"type":"socks5"}}],
             "route":{"rules":[],"final":{"type":"direct"}}
         }).to_string()).unwrap()).unwrap());
+        first
+            .wait_ready(tokio::time::Instant::now() + Duration::from_secs(3))
+            .await
+            .unwrap();
         wait_for_listener(relay_port).await;
         zero_config["outbounds"].as_array_mut().unwrap().push(json!({"tag":"first","protocol":{"type":"socks5","server":"127.0.0.1","port":relay_port}}));
         zero_config["outbound_groups"] =
@@ -194,6 +198,9 @@ pub async fn interop_options(
     };
     let zero =
         spawn_engine(Proxy::new(RuntimeConfig::parse(&zero_config.to_string()).unwrap()).unwrap());
+    zero.wait_ready(tokio::time::Instant::now() + Duration::from_secs(3))
+        .await
+        .unwrap();
     let path = material.path("xray.json");
     std::fs::write(&path, xray_config.to_string()).unwrap();
     let validation = std::process::Command::new(&binary)
