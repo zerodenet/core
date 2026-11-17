@@ -61,40 +61,54 @@ jobs:
         with:
           cache-on-failure: true
       - name: Install build prerequisites
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler iproute2 nftables
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler iproute2 nftables gdb
+      - name: Enable symbolic native crash diagnosis
+        run: |
+          mkdir -p "$RUNNER_TEMP/zero-tun-cores"
+          sudo sysctl -w "kernel.core_pattern=$RUNNER_TEMP/zero-tun-cores/core.%e.%p"
       - name: Test route-switch coverage reporting
         run: node --test scripts/report-tun-route-reconcile.test.mjs
       - name: Run zero-tun tests
         run: cargo test -p zero-tun
       - name: Run native Linux route reconciliation E2E
         env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo bash .github/scripts/tun-e2e-core-runner.sh
         run: cargo test --target x86_64-unknown-linux-gnu --all-features --test tun_route_reconcile_linux_e2e linux_reconciles_runtime_egress_and_dns_exclusion_inside_network_namespace -- --ignored --exact --nocapture
       - name: Run privileged TUN smoke test
         if: github.event_name != 'pull_request' || github.base_ref == 'main'
         env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo bash .github/scripts/tun-e2e-core-runner.sh
         run: cargo test --target x86_64-unknown-linux-gnu --all-features --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
       - name: Run direct UDP self-capture E2E
         env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo bash .github/scripts/tun-e2e-core-runner.sh
         run: cargo test --target x86_64-unknown-linux-gnu --all-features --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run Fake-IP DoH underlay E2E
         env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo bash .github/scripts/tun-e2e-core-runner.sh
         run: cargo test --target x86_64-unknown-linux-gnu --all-features --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run disabled DNS with TUN system resolver E2E
         env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo bash .github/scripts/tun-e2e-core-runner.sh
         run: cargo test --target x86_64-unknown-linux-gnu --all-features --test tun_privileged_e2e dns_disabled::privileged_tun_without_builtin_dns_preserves_system_resolution -- --ignored --exact --nocapture
       - name: Run command-managed egress publication E2E
         env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo bash .github/scripts/tun-e2e-core-runner.sh
         run: cargo test --target x86_64-unknown-linux-gnu --all-features --test tun_privileged_e2e privileged_command_managed_tun_publishes_egress_before_capture -- --ignored --exact --nocapture
       - name: Run offline dual-stack privileged TUN E2E
         env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo bash .github/scripts/tun-e2e-core-runner.sh
         run: cargo test --target x86_64-unknown-linux-gnu --all-features --test tun_privileged_e2e privileged_tun_dual_stack_configuration_traffic_and_crash_recovery -- --ignored --exact --nocapture
+      - name: Collect native crash stacks
+        if: failure()
+        run: bash .github/scripts/collect-tun-native-backtrace.sh
+      - name: Retain symbolic native crash stacks
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tun-linux-native-stacks
+          path: ${{ runner.temp }}/zero-tun-backtraces
+          if-no-files-found: ignore
 
   hosted-macos:
     needs: scope
