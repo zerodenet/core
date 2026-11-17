@@ -30,7 +30,10 @@ async fn plugin_pool_reload_retains_the_same_active_original_and_exit_is_not_sil
     .await
     .unwrap();
     assert!(old.acquire(true).await.is_err());
-    replacement.check().unwrap();
+    assert!(
+        replacement.check().is_err(),
+        "the retained view observes its same exited original"
+    );
 }
 
 #[tokio::test]
