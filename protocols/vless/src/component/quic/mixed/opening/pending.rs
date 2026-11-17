@@ -81,6 +81,7 @@ impl Pending {
         (
             PacketMetadataArc<runtime::TcpGeneration>,
             PacketMetadataArc<entry::Entry>,
+            TaskJoinWitness,
         ),
         ChannelError,
     > {
@@ -120,19 +121,34 @@ impl Pending {
                 "cached driver original instance changed",
             ),
             (!self.driver.is_joined(), "cached driver already joined"),
-            (
-                self.driver
-                    .native_task_id()
-                    .is_some_and(|id| Some(id) == tokio::task::try_id()),
-                "cached pending receiver was called outside its original native driver",
-            ),
         ];
         if let Some((_, reason)) = checks.into_iter().find(|(valid, _)| !valid) {
             return Err(
                 error(Stage::Prepare, Reason::StalePlan).with_source(std::io::Error::other(reason))
             );
         }
-        Ok((generation, parent))
+        // The physical driver installed this child Root before its declared
+        // initializer could run. Borrowing inside that actual Aux must name
+        // the Aux itself; neither a same-Scope task nor a copied ID qualifies.
+        let caller = if self
+            .driver
+            .native_task_id()
+            .is_some_and(|id| Some(id) == tokio::task::try_id())
+        {
+            Some(self.driver.clone())
+        } else {
+            parent
+                .owners
+                .protocols
+                .get()
+                .and_then(|children| children.current_initializer())
+        }
+        .ok_or_else(|| {
+            error(Stage::Prepare, Reason::StalePlan).with_source(std::io::Error::other(
+                "cached pending receiver lacks its original driver or retained child initializer",
+            ))
+        })?;
+        Ok((generation, parent, caller))
     }
 }
 impl UpstreamOpener for Pending {
@@ -155,7 +171,7 @@ impl UpstreamOpener for Pending {
         identity: &zero_platform_tokio::contract::context::RequestIdentity,
         call: &zero_platform_tokio::contract::network::CarrierContext,
     ) -> Result<TaskJoinWitness, ChannelError> {
-        self.current(binding)?;
+        let (_, _, caller) = self.current(binding)?;
         if call.session.is_some()
             || call.cancel.is_cancelled()
             || call
@@ -167,14 +183,14 @@ impl UpstreamOpener for Pending {
         {
             return Err(error(Stage::Prepare, Reason::StalePlan));
         }
-        Ok(self.driver.clone())
+        Ok(caller)
     }
     fn retain_pending_carrier(
         &self,
         binding: &UpstreamBinding,
         original: zero_platform_tokio::controlled_carrier::CarrierAdoption,
     ) -> Result<(), ChannelError> {
-        let (generation, parent) = self.current(binding)?;
+        let (generation, parent, _) = self.current(binding)?;
         generation
             .upstream
             .validate_pending_carrier(binding, &original)?;
@@ -191,7 +207,7 @@ impl UpstreamOpener for Pending {
         binding: &UpstreamBinding,
         original: ProtocolOriginal,
     ) -> Result<(), ChannelError> {
-        let (generation, parent) = self.current(binding)?;
+        let (generation, parent, _) = self.current(binding)?;
         if !self
             .anchor
             .get()
