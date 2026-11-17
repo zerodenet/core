@@ -2,6 +2,40 @@ use super::*;
 use crate::controlled_tcp::ControlledTcpStream;
 use tokio::{io::AsyncReadExt, net::TcpListener};
 #[tokio::test]
+async fn concurrent_observer_keeps_live_original_close_pending_without_recording_unknown_fault() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let (socket, peer) = tokio::join!(
+        TokioSocket::connect_addr(listener.local_addr().unwrap()),
+        listener.accept()
+    );
+    let (_view, mut control) =
+        ControlledTcpStream::new(socket.unwrap(), tokio_util::sync::CancellationToken::new())
+            .unwrap();
+    let mut peer = peer.unwrap().0;
+    let shared = control.shared.clone();
+    let observer = control.close_observer();
+    let CloseAction::Original(original, flight) = shared.close_action_until(None) else {
+        panic!("actual original socket must be uniquely acquired");
+    };
+    let pending = observer.observe().unwrap();
+    assert!(pending.operation_pending && !pending.closed);
+    assert!(pending.disposition_unknown.is_none() && pending.first_fault.is_none());
+    assert!(control.close_sources().is_none());
+    let report = control.try_close_once().unwrap();
+    assert!(!report.is_complete() && report.closed_io.is_empty());
+    assert!(control.close_sources().is_none());
+    flight.returned(original.close().map(|()| true));
+    assert_eq!(
+        peer.read_u8().await.unwrap_err().kind(),
+        io::ErrorKind::UnexpectedEof
+    );
+    let report = control.try_close_once().unwrap();
+    assert!(report.is_complete() && report.closed_io.len() == 1);
+    assert!(observer.observe().unwrap().closed);
+    assert!(control.close_sources().is_none());
+}
+
+#[tokio::test]
 async fn panic_after_taking_original_close_retains_same_unknown_source_without_false_confirmation()
 {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -17,7 +51,7 @@ async fn panic_after_taking_original_close_retains_same_unknown_source_without_f
     let shared = control.shared.clone();
     let unknown = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let action = shared.close_action(Instant::now() + Duration::from_secs(1));
-        let CloseAction::Original(_original) = action else {
+        let CloseAction::Original(_original, _flight) = action else {
             panic!("expected actual uniquely owned socket");
         };
         assert!(shared.state().socket.is_none());

@@ -50,23 +50,44 @@ impl ControlledTcpCloseObserver {
             // A synchronous poll lease is pending I/O, not a close fault. The
             // actual close sentinel (including an unwound unknown disposition)
             // remains distinct from the first returned native-close error.
-            disposition_unknown: (!state.polling).then(|| state.unknown.clone()).flatten(),
+            disposition_unknown: (!state.polling && !state.closing)
+                .then(|| state.unknown.clone())
+                .flatten(),
             operation_pending: state.polling || state.closing,
         })
     }
 }
-enum CloseAction {
+enum CloseAction<'a> {
     Closed,
     Unfinished,
     Fault(Arc<io::Error>),
-    Original(Socket),
-    Retry(Arc<io::Error>),
+    Original(Socket, CloseInFlight<'a>),
+    Retry(Arc<io::Error>, CloseInFlight<'a>),
+}
+struct CloseInFlight<'a> {
+    shared: &'a Shared,
+    active: bool,
+}
+impl CloseInFlight<'_> {
+    fn returned(mut self, result: io::Result<bool>) {
+        self.active = false;
+        self.shared.close_returned(result);
+    }
+}
+impl Drop for CloseInFlight<'_> {
+    fn drop(&mut self) {
+        if self.active {
+            // The synchronous close unwound without a disposition. Preserve
+            // its original unknown source, but end the live-operation window.
+            self.shared.state().closing = false;
+        }
+    }
 }
 impl Shared {
-    fn close_action(&self, deadline: Instant) -> CloseAction {
+    fn close_action(&self, deadline: Instant) -> CloseAction<'_> {
         self.close_action_until(Some(deadline))
     }
-    fn close_action_until(&self, deadline: Option<Instant>) -> CloseAction {
+    fn close_action_until(&self, deadline: Option<Instant>) -> CloseAction<'_> {
         // Prepare the unconfirmed disposition before taking the original. If
         // deregistration, socket conversion or close unwinds, it stays retained.
         let unknown = Arc::new(io::Error::other(
@@ -80,13 +101,7 @@ impl Shared {
             return CloseAction::Unfinished;
         }
         if state.closing {
-            return CloseAction::Fault(
-                state
-                    .unknown
-                    .as_ref()
-                    .expect("inflight disposition installed")
-                    .clone(),
-            );
+            return CloseAction::Unfinished;
         }
         if let Some(unknown) = &state.unknown {
             return CloseAction::Fault(unknown.clone());
@@ -104,11 +119,24 @@ impl Shared {
         state.closing = true;
         state.unknown = Some(unknown);
         if let Some(socket) = state.socket.take() {
-            return CloseAction::Original(socket);
+            return CloseAction::Original(
+                socket,
+                CloseInFlight {
+                    shared: self,
+                    active: true,
+                },
+            );
         }
         if let Some(source) = state.retry.take() {
-            return CloseAction::Retry(source);
+            return CloseAction::Retry(
+                source,
+                CloseInFlight {
+                    shared: self,
+                    active: true,
+                },
+            );
         }
+        state.closing = false;
         CloseAction::Fault(state.unknown.as_ref().expect("installed unknown").clone())
     }
     fn close_returned(&self, result: io::Result<bool>) {
@@ -188,12 +216,12 @@ impl ChannelControl for ControlledTcpControl {
                 CloseAction::Fault(source) => {
                     return Err(self.shared.close_fault(source));
                 }
-                CloseAction::Original(socket) => {
-                    self.shared.close_returned(socket.close().map(|()| true))
+                CloseAction::Original(socket, flight) => {
+                    flight.returned(socket.close().map(|()| true))
                 }
-                CloseAction::Retry(source) => self
-                    .shared
-                    .close_returned(TokioSocket::retry_close(&source)),
+                CloseAction::Retry(source, flight) => {
+                    flight.returned(TokioSocket::retry_close(&source))
+                }
             }
             // Cancellation/deadline never disposes of a known-open original.
             // Native/observer/waker operations above and this timer run lock-free.

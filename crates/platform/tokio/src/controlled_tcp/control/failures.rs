@@ -56,7 +56,9 @@ impl Shared {
             let state = self.state();
             (
                 state.error.clone(),
-                (!state.polling).then(|| state.unknown.clone()).flatten(),
+                (!state.polling && !state.closing)
+                    .then(|| state.unknown.clone())
+                    .flatten(),
             )
         };
         self.close_failures.capture(native, unknown);

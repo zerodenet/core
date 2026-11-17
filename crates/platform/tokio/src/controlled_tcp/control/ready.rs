@@ -6,12 +6,10 @@ impl ControlledTcpControl {
     pub fn try_close_once(&mut self) -> Result<CloseReport, ChannelError> {
         self.shared.cancel.cancel();
         match self.shared.close_action_until(None) {
-            CloseAction::Original(socket) => {
-                self.shared.close_returned(socket.close().map(|()| true))
+            CloseAction::Original(socket, flight) => flight.returned(socket.close().map(|()| true)),
+            CloseAction::Retry(source, flight) => {
+                flight.returned(TokioSocket::retry_close(&source))
             }
-            CloseAction::Retry(source) => self
-                .shared
-                .close_returned(TokioSocket::retry_close(&source)),
             CloseAction::Fault(source) => return Err(self.shared.close_fault(source)),
             CloseAction::Unfinished => {
                 return Ok(CloseReport {
