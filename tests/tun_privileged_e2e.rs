@@ -1965,16 +1965,18 @@ fn assert_tun_udp_flow_growth_bounded(
     );
 }
 
-// UDP socket Drop sends no EOF. Observe the actual default-policy user return
-// before requesting withdrawal. Zero active users is not native-close evidence:
-// reload still has to consume the original provider and Scope receipts.
+// UDP socket Drop sends no EOF. The existing TUN Source waits 120 seconds;
+// expiry of an upstream association can restart its pending receive once.
+// Allow both existing idle policies before observing user return. Zero active
+// users is not native-close evidence: reload still consumes the actual provider
+// and Scope receipts, with its unchanged five-second retirement deadline.
 fn wait_for_tun_udp_user_return(
     binary: &str,
     socket: &std::path::Path,
     target: SocketAddr,
     idle_seconds: u64,
 ) {
-    let deadline = Instant::now() + Duration::from_secs(idle_seconds + 5);
+    let deadline = Instant::now() + Duration::from_secs(120 + idle_seconds + 5);
     loop {
         let output = run_cli_output(binary, ["status", "--json", "--socket", path(socket)]);
         let snapshot: serde_json::Value = serde_json::from_str(&output).unwrap();
@@ -1983,7 +1985,7 @@ fn wait_for_tun_udp_user_return(
             return;
         }
         assert!(Instant::now() < deadline,
-            "default-policy UDP users did not return: idle={idle_seconds}s active={active}: {output}");
+            "default-policy UDP users did not return: source_idle=120s upstream_idle={idle_seconds}s active={active}: {output}");
         thread::sleep(Duration::from_millis(100));
     }
 }
