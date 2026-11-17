@@ -545,6 +545,13 @@ fn start_deferred_resources<'a>(
                 if retained.get(&input.tag) != Some(input) {
                     continue;
                 }
+                // Serialized input equality does not retain a Source whose
+                // concrete linked/standalone binding must change. Do not bind
+                // that retiring Source's immutable memory into the new graph
+                // before the listener plan executes its actual StopOld.
+                if proxy.protocols.inbound_listener_requires_restart(input)? {
+                    continue;
+                }
                 if let Some(original) = proxy.inbound_owners.packet_source_origin(input)? {
                     let memory=proxy.inbound_owners.packet_source_memory(input)?.ok_or_else(||std::io::Error::other("retained actual Packet Source lost its original memory view/layout"))?;
                     let source = proxy
