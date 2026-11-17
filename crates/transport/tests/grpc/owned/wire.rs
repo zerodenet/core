@@ -103,7 +103,11 @@ async fn same_owned_pool_reuses_one_scoped_tls_free_driver_with_bounded_logical_
         let (protocol, tasks) = fixture.close().await;
         assert!(protocol.is_complete(), "{protocol:?}");
         assert_eq!(protocol.closed_io.len(), 1);
-        assert!(protocol.exited_tasks.is_empty());
+        assert_eq!(
+            protocol.exited_tasks,
+            vec![joined.id],
+            "protocol retirement names the original received driver"
+        );
         assert!(tasks.is_complete());
         assert!(
             tasks.exited_tasks.is_empty(),

@@ -31,7 +31,7 @@ async fn background_cold_caps_replace_only_after_same_pool_native_users_and_actu
         // The first real initializer consumes its own N=1 Scope credit.
         let options=old.options.clone();let demand=old.demand();let mut opening=Box::pin(options.open(old.actual,demand));
         let prepared=tokio::select!{exit=old.scope.next_exit()=>exit.unwrap(),result=&mut opening=>panic!("actual auxiliary must precede driver: {}",result.is_ok())};
-        assert!(prepared.result.is_ok());
+        assert!(prepared.result.is_ok(), "actual setup failed: {:#?}", prepared.result);
         let mut stream=opening.await.unwrap();stream.write_all(b"a").await.unwrap();stream.flush().await.unwrap();let mut byte=[0;1];stream.read_exact(&mut byte).await.unwrap();assert_eq!(byte,*b"a");
         let managed=old.managed();let weak=Arc::downgrade(&managed);drop(managed);
         assert!(!pool.compact_closed_owner(),"a live original cannot be compacted");
@@ -48,7 +48,7 @@ async fn background_cold_caps_replace_only_after_same_pool_native_users_and_actu
         drop(old);assert!(weak.upgrade().is_none());
         assert!(pool.validate_mode_candidate(false,true).is_ok());next.start().await;assert_eq!(next.traffic.boundaries.load(Ordering::SeqCst),0);
         let options=next.options.clone();let demand=next.demand();let mut opening=Box::pin(options.open(next.actual,demand));
-        let prepared=tokio::select!{exit=next.scope.next_exit()=>exit.unwrap(),result=&mut opening=>panic!("same real setup owner: {}",result.is_ok())};assert!(prepared.result.is_ok());
+        let prepared=tokio::select!{exit=next.scope.next_exit()=>exit.unwrap(),result=&mut opening=>panic!("same real setup owner: {}",result.is_ok())};assert!(prepared.result.is_ok(), "actual setup failed: {:#?}", prepared.result);
         let mut stream=opening.await.unwrap();stream.write_all(b"b").await.unwrap();stream.flush().await.unwrap();stream.read_exact(&mut byte).await.unwrap();assert_eq!(byte,*b"b");
         assert_eq!(next.traffic.boundaries.load(Ordering::SeqCst),1);drop(stream);let (native,tasks)=next.close().await;assert!(native.is_complete()&&tasks.is_complete());
         finish.send(()).unwrap();server.await.unwrap();

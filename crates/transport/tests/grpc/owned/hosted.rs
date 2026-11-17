@@ -183,23 +183,12 @@ async fn actual_failure(user_receives: bool) {
         // This is the actual owner's no-user cleanup path as well as the
         // ordinary post-user path. It persists the same exit before local ACK.
         let end = deadline();
-        let report = fixture.owner.lifecycle.shutdown(end).await.unwrap();
+        let mut closing = Box::pin(fixture.owner.lifecycle.shutdown(end));
+        assert!(futures_util::poll!(&mut closing).is_pending());
         assert!(
-            !report.is_complete(),
-            "the same actual Host registration is not ACKed: {report:?}"
+            physical.adoption.closed().is_none(),
+            "a joined driver with withheld Host ACK is still original close debt"
         );
-        assert_eq!(report.closed_io.len(), 1);
-        let first_native_closes = report.closed_io.len();
-        let native = physical
-            .adoption
-            .closed()
-            .expect("actual native TCP closed before Host ACK");
-        assert!(native.matches(&physical.adoption) && native.had_native_acquisition());
-        assert!(physical
-            .adoption
-            .users_closed()
-            .unwrap()
-            .matches(&physical.adoption));
         let driver = physical.witness.lock().unwrap().clone().unwrap();
         let joined = driver
             .try_joined()
@@ -242,12 +231,24 @@ async fn actual_failure(user_receives: bool) {
         let released = driver.wait_registration_released().await;
         assert!(driver.matches_joined(&released) && released.registration_released());
         assert_eq!(Some(receipt.id()), driver.task_id());
-        let complete = fixture.owner.lifecycle.shutdown(end).await.unwrap();
+        let complete = closing.await.unwrap();
         assert!(complete.is_complete(), "{complete:?}");
-        assert_eq!(
-            first_native_closes + complete.closed_io.len(),
-            1,
-            "the second progress pass consumes no fabricated or duplicate native close"
+        assert_eq!(complete.closed_io.len(), 1);
+        let native = physical
+            .adoption
+            .closed()
+            .expect("matching native original closed after ACK");
+        assert!(native.matches(&physical.adoption) && native.had_native_acquisition());
+        assert!(physical
+            .adoption
+            .users_closed()
+            .unwrap()
+            .matches(&physical.adoption));
+        let repeated = fixture.owner.lifecycle.shutdown(end).await.unwrap();
+        assert!(repeated.is_complete());
+        assert!(
+            repeated.closed_io.is_empty(),
+            "the original native close is consumed only once"
         );
         assert!(physical.closed());
         assert_eq!(managed.budget.retained(), 0);

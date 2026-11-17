@@ -1,6 +1,6 @@
 use super::*;
 #[tokio::test]
-async fn actual_runtime_reload_revokes_retained_native_recipe_and_owner_bound_role() {
+async fn legacy_reload_cannot_revoke_a_native_role_but_its_actual_owner_retirement_does() {
     let runtime = crate::transport::VlessTransportRuntime::default();
     let grpc = OwnedGrpcProfile {
         service_names: vec!["actual".into()],
@@ -12,6 +12,25 @@ async fn actual_runtime_reload_revokes_retained_native_recipe_and_owner_bound_ro
     let mut assembly = Assembly::cold(prepared, peer);
     assembly.start().await;
     runtime.on_config_reloaded();
+    let connected = assembly
+        .role
+        .roles
+        .stream
+        .as_ref()
+        .unwrap()
+        .connect(
+            ConnectRequest {
+                destination: destination(),
+            },
+            assembly.context(),
+        )
+        .await
+        .unwrap();
+    drop(connected);
+    assembly
+        .role
+        .lifecycle
+        .revoke(zero_platform_tokio::contract::CloseReason::Shutdown);
     let failure = assembly
         .role
         .roles
@@ -32,9 +51,9 @@ async fn actual_runtime_reload_revokes_retained_native_recipe_and_owner_bound_ro
     let fresh = prepare(&runtime, peer.port(), &grpc);
     let old_identity = PoolFactory.describe(&assembly.pool_options).static_identity;
     let fresh_identity = PoolFactory.describe(fresh.pool_options()).static_identity;
-    assert_ne!(
+    assert_eq!(
         old_identity, fresh_identity,
-        "ABA config creates a new actual pool after retirement"
+        "the same cold native identity is independent of the retired library cache hook"
     );
     let (pool, tasks) = assembly.close().await;
     assert!(pool.is_complete());

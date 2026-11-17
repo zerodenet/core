@@ -109,7 +109,10 @@ async fn original_tls_h2_wire_uses_one_owned_driver_and_retains_half_close() {
         let (protocol, tasks) = fixture.close().await;
         assert!(protocol.is_complete(), "{protocol:?}");
         assert_eq!(protocol.closed_io.len(), 1);
-        assert!(protocol.exited_tasks.is_empty());
+        assert_eq!(
+            protocol.exited_tasks, tasks.exited_tasks,
+            "both reports name the same original scoped driver"
+        );
         assert!(tasks.is_complete());
         assert_eq!(tasks.exited_tasks.len(), 1);
         assert!(tasks.failed_tasks.is_empty());

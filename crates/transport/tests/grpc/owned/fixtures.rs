@@ -213,6 +213,7 @@ impl Fixture {
 /// It grants no socket, I/O, driver or close receipt; NativeCarrierOpener still
 /// owns the original connect and the test consumes its real controller later.
 struct Granted {
+    metadata: zero_platform_tokio::contract::component::PacketDriverMetadataView,
     declaration: zero_platform_tokio::contract::component::ResourceDeclaration,
     instance: ComponentInstanceId,
     scope: zero_platform_tokio::contract::scope::TaskScopeIdentity,
@@ -225,6 +226,8 @@ pub(super) fn granted(
     cancel: &CancellationToken,
 ) -> Arc<dyn ResourceAccess> {
     Arc::new(Granted {
+        metadata: Arc::new(zero_tun::packet_memory::PacketReturnTotals::default())
+            .driver_metadata_view(),
         declaration: NativePoolFactory.describe(options).resources[0].clone(),
         instance,
         scope: tasks.scope_identity(),
@@ -232,6 +235,12 @@ pub(super) fn granted(
     })
 }
 impl ResourceAccess for Granted {
+    fn packet_driver_metadata(
+        &self,
+    ) -> Result<zero_platform_tokio::contract::component::PacketDriverMetadataView, BuildError>
+    {
+        Ok(self.metadata.clone())
+    }
     fn register_controlled_carrier(
         &self,
         ordinal: usize,

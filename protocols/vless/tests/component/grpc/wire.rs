@@ -169,7 +169,10 @@ async fn run(secure: bool, borrowed: bool) {
         let (pool, tasks) = assembly.close().await;
         assert!(pool.is_complete(), "{pool:?}");
         assert_eq!(pool.closed_io.len(), 1);
-        assert!(pool.exited_tasks.is_empty());
+        assert_eq!(
+            pool.exited_tasks, tasks.exited_tasks,
+            "protocol retirement preserves the actual shared driver identity"
+        );
         assert!(tasks.is_complete());
         assert_eq!(tasks.exited_tasks.len(), 1);
         assert!(tasks.failed_tasks.is_empty());

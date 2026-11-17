@@ -51,24 +51,25 @@ async fn actual_closed_owner_keeps_material_until_driver_registration_is_release
         let receipt = fixture.scope.next_receipt().await.unwrap();
         assert_eq!(Some(receipt.id()), driver.task_id());
         assert!(!driver.try_joined().unwrap().registration_released());
-        let report = fixture.owner.lifecycle.shutdown(deadline()).await.unwrap();
+        let mut closing = Box::pin(fixture.owner.lifecycle.shutdown(deadline()));
+        assert!(futures_util::poll!(&mut closing).is_pending());
         assert!(
-            !report.is_complete(),
-            "actual driver joined/native closed do not release Host ACK debt"
+            record.adoption.closed().is_none(),
+            "withheld original registration ACK still blocks native retirement"
         );
+        assert!(!fixture.pool.compact_closed_owner());
+        assert!(weak.upgrade().is_some());
+        fixture.scope.acknowledge(&receipt).unwrap();
+        let joined = driver.wait_registration_released().await;
+        assert!(driver.matches_joined(&joined) && joined.registration_released());
+        let report = closing.await.unwrap();
+        assert!(report.is_complete());
         assert!(record.adoption.closed().unwrap().matches(&record.adoption));
         assert!(record
             .adoption
             .users_closed()
             .unwrap()
             .matches(&record.adoption));
-        assert!(!fixture.pool.compact_closed_owner());
-        assert!(weak.upgrade().is_some());
-        fixture.scope.acknowledge(&receipt).unwrap();
-        let joined = driver.wait_registration_released().await;
-        assert!(driver.matches_joined(&joined) && joined.registration_released());
-        let report = fixture.owner.lifecycle.shutdown(deadline()).await.unwrap();
-        assert!(report.is_complete());
         assert!(record.closed());
         assert!(fixture.pool.compact_closed_owner());
         // This fixed-library owner never acquires an ordinary legacy handoff.

@@ -120,13 +120,29 @@ async fn dropping_all_h2_receivers_never_accepts_a_real_joined_auxiliary_failure
             !scope.is_drained(),
             "no local receiver accepted the original failure"
         );
-        assert!(adoption.retire(end()).await.unwrap().is_complete());
-        assert_eq!(fixture.owner.retained(), 0);
-        assert!(!scope.is_drained(), "native close is not failure delivery");
+        let report = adoption.retire(end()).await.unwrap();
+        assert!(
+            !report.is_complete(),
+            "unpublished original failure still blocks retirement: {report:?}"
+        );
+        assert_eq!(fixture.owner.retained(), 1);
+        if let Some(closed) = adoption.closed() {
+            assert!(closed.matches(&adoption));
+        }
+        if let Some(closed) = adoption.users_closed() {
+            assert!(closed.matches(&adoption));
+        }
+        assert!(!scope.is_drained(), "joined is not original failure delivery");
         // No manufactured acceptance is used to drain this diagnostic fixture.
-        // All actual tasks and native I/O are already joined/closed; the genuine
-        // unpublished error remains in this same scope until its owner drops.
-        assert!(fixture.owner.shutdown(end()).await.unwrap().is_complete());
+        // The actual task is joined. Native and user return can progress
+        // independently; its unpublished error still retains this owner.
+        let mut closing = Box::pin(fixture.owner.shutdown(end()));
+        assert!(
+            futures_util::poll!(&mut closing).is_pending(),
+            "the actual unaccepted original fault keeps owner retirement pending"
+        );
+        drop(closing);
+        assert_eq!(fixture.owner.retained(), 1);
     })
     .await
     .unwrap();
