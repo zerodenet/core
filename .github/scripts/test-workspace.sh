@@ -48,6 +48,14 @@ for line in lines:
         collecting = False
 if not selected:
     selected = lines[-80:]
+elif not any(line.startswith("---- ") for line in selected):
+    # --nocapture prints each panic before the final failures list. Preserve
+    # its actual source instead of annotating only the failed test names.
+    panics = []
+    for index, line in enumerate(lines):
+        if line.startswith("thread ") and "panicked at" in line:
+            panics.extend(lines[index:index + 18])
+    selected = panics + selected
 message = "\n".join(selected).encode()[-24000:]
 # Actions truncates each annotation to 4 KiB; split before escaping workflow syntax.
 parts = [message[i:i + 3000].decode(errors="replace") for i in range(0, len(message), 3000)]

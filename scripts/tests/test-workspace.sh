@@ -37,6 +37,20 @@ status=$?
 set -e
 [[ "$status" == 7 ]]
 grep -q '^TEST_END .* exit=7 seconds=' "$scratch/failure.log"
+set +e
+bash "$root/.github/scripts/test-workspace.sh" bash -c '
+    echo "thread native_case panicked at fixture.rs:17:3:"
+    echo "actual original close source was retained"
+    echo ""
+    echo "failures:"
+    echo "    native_case"
+    echo "error: test failed"
+    exit 7
+' > "$scratch/nocapture.log"
+status=$?
+set -e
+[[ "$status" == 7 ]]
+grep -q '::error .*actual original close source was retained' "$scratch/nocapture.log"
 rm "$scratch/args"
 set +e
 ZERO_TEST_METADATA_EXIT=13 bash "$entry" > "$scratch/layout-failure.log" 2>&1
