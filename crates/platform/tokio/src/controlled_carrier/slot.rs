@@ -38,6 +38,9 @@ pub(super) struct State {
     pub(super) endpoint_claim: Option<Arc<super::loan::datagram::endpoint::Identity>>,
     pub(super) endpoint_closed: Option<super::loan::CarrierEndpointUsersClosed>,
     pub(super) service_target_selected: bool,
+    /// The actual finite reservation has not yet returned or transferred its
+    /// capability. A concurrent inline reaper must not adopt this cold slot.
+    pub(super) reservation_live: bool,
     pub(super) opening: bool,
     pub(super) view_live: bool,
     pub(super) endpoints: Option<super::CarrierEndpoints>,

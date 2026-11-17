@@ -115,6 +115,8 @@ mod lifecycle;
 mod opening;
 #[path = "origin.rs"]
 mod origin;
+#[path = "reservation.rs"]
+mod reservation;
 mod taskless;
 mod totals;
 

@@ -94,7 +94,10 @@ impl CarrierGrants {
                 owner: Arc::downgrade(&self.0),
                 cancel: self.0.cancel.child_token(),
                 protocol_stop: Default::default(),
-                state: Mutex::new(State::default()),
+                state: Mutex::new(State {
+                    reservation_live: true,
+                    ..Default::default()
+                }),
                 changed: Notify::new(),
                 closing: tokio::sync::Mutex::new(()),
                 retirement: Mutex::default(),
@@ -153,8 +156,14 @@ impl CarrierGrant {
 }
 impl Drop for CarrierGrant {
     fn drop(&mut self) {
+        {
+            let mut state = self.slot.state();
+            state.reservation_live = false;
+            if !self.transferred {
+                state.opening = false;
+            }
+        }
         if !self.transferred {
-            self.slot.state().opening = false;
             self.slot.unused();
         }
     }
@@ -174,7 +183,8 @@ impl CarrierGrants {
             let (idle, users, driver, auxiliary) = {
                 let state = slot.state();
                 (
-                    !state.opening
+                    !state.reservation_live
+                        && !state.opening
                         && !state.spawning
                         && !state.view_live
                         && state.unknown.is_none(),
