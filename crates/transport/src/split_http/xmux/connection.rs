@@ -16,6 +16,9 @@ pub(super) struct Connection {
     pub(super) sender: carrier::Sender,
     _driver: Driver,
 }
+pub(in crate::split_http) struct DriverLease {
+    _driver: Driver,
+}
 enum Driver {
     Legacy(Arc<LegacyDriver>),
     Owned(super::owned::OwnedXhttp3),
@@ -37,6 +40,11 @@ impl Drop for LegacyDriver {
     }
 }
 impl Connection {
+    pub(super) fn retain_driver(&self) -> DriverLease {
+        DriverLease {
+            _driver: self._driver.clone(),
+        }
+    }
     pub(super) fn owned_origin(
         &self,
     ) -> Option<zero_platform_tokio::controlled_carrier::CarrierOrigin> {
@@ -77,7 +85,9 @@ impl Connection {
     }
     fn multiplexed_clone(&self) -> Option<Self> {
         let sender = match &self.sender {
-            carrier::Sender::Http2(sender) => carrier::Sender::Http2(sender.clone()),
+            carrier::Sender::Http2(sender) if !sender.is_closed() => {
+                carrier::Sender::Http2(sender.clone())
+            }
             carrier::Sender::Http3(sender) => carrier::Sender::Http3(sender.clone()),
             carrier::Sender::OwnedHttp3(sender) => carrier::Sender::OwnedHttp3(sender.clone()),
             _ => return None,

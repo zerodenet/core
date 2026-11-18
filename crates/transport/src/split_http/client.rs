@@ -80,7 +80,7 @@ pub(super) fn stream_pair_with_lifetime(
     (
         XhttpStream {
             owned_return: None,
-            _owned_driver_group: None,
+            _owned_driver: None,
             _owned_usage_memory: None,
             inner: application,
             life,

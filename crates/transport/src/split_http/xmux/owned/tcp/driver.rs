@@ -88,9 +88,15 @@ pub(super) async fn run(
             _=&mut changed=>{},
         }
     };
-    // An outer connection result is held until its own original delegates have
-    // all returned. Only logical Session/Request work is sealed/cancelled now.
-    state.runtime.ledger.cancel_logical();
+    // A successful H1 connection EOF can belong to a different exchange than
+    // the logical work using this driver. Retain the same actual task until
+    // that work returns. A real wire failure still cancels affected work and
+    // remains the original task's failure below.
+    if result.is_ok() {
+        state.runtime.drain().await;
+    } else {
+        state.runtime.ledger.cancel_logical();
+    }
     loop {
         let changed = state.changed.notified();
         tokio::pin!(changed);

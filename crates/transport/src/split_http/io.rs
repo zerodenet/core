@@ -88,9 +88,9 @@ pub struct XhttpStream {
     pub(super) owned_return: Option<super::xmux::owned::OwnedLogicalReturn>,
     pub(super) life: LifetimeRef,
     pub(super) usages: Vec<super::xmux::UsageRef>,
-    // Request rotation changes UsageRef's group. The logical stream still
-    // runs in its original group's physical driver until its actual return.
-    pub(super) _owned_driver_group: Option<super::xmux::DriverGroup>,
+    // A cached connection can serve another exchange after this logical
+    // stream starts. Keep the exact driver that still runs this stream's work.
+    pub(super) _owned_driver: Option<super::xmux::DriverLease>,
     pub(super) tasks: Vec<AbortHandle>,
     pub(super) drain_on_drop: bool,
     pub(super) _owned_usage_memory: Option<zero_traits::packet_metadata::PacketMetadataCredit>,

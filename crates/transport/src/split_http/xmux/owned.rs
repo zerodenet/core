@@ -119,7 +119,34 @@ impl Runtime {
         // until its genuine join; no native/task/ACK completion is fabricated.
         self.ledger.cancel_all();
     }
+    // An H1 exchange may close its physical connection while this exact
+    // task still owns logical work using other originals. Keep polling that
+    // work here; a normal HTTP EOF is not a logical cancellation request.
+    async fn drain(&self) {
+        loop {
+            let changed = self.ledger.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            let progress = std::future::poll_fn(|cx| {
+                let _ = self.ledger.poll(cx);
+                if self.ledger.is_empty() {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            });
+            tokio::select! { biased;
+                _=self.stopped.cancelled()=>{self.ledger.cancel_all();return;},
+                _=progress=>return,
+                _=&mut changed=>{},
+            }
+        }
+    }
     pub(crate) fn buffer_book(&self) -> &CarrierBufferBudget {
         &self.book
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/split_http/owned_drain.rs"]
+mod tests;

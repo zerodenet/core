@@ -153,6 +153,13 @@ impl Ledger {
             Poll::Pending
         }
     }
+    pub(super) fn is_empty(&self) -> bool {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .count
+            == 0
+    }
     fn remove(&self, ordinal: u64) -> Option<PacketMetadataArc<Node>> {
         let mut state = self
             .state

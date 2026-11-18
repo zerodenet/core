@@ -177,7 +177,7 @@ impl PreparedOwnedXhttp {
         let origin = connection
             .owned_origin()
             .ok_or_else(|| io::Error::from(io::ErrorKind::PermissionDenied))?;
-        let driver_group = upload.sender.usage.lock().unwrap().group.clone();
+        let driver = connection.retain_driver();
         runtime.bind_pool(&upload.sender.pool.0);
         return_initial(&upload, connection);
         if let Some(download) = &mut download {
@@ -205,9 +205,7 @@ impl PreparedOwnedXhttp {
         )
         .await?;
         stream.usages = usages.values;
-        stream._owned_driver_group = Some(super::DriverGroup {
-            _group: driver_group,
-        });
+        stream._owned_driver = Some(driver);
         stream._owned_usage_memory = Some(usages.memory);
         Ok((stream, origin))
     }
