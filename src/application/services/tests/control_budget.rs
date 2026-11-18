@@ -2,6 +2,7 @@
 use super::*;
 #[tokio::test]
 async fn same_actual_proxy_application_book_changes_once_at_configuration_publication() {
+    let _process_startup = super::super::startup::PRODUCTION_STARTUP_TEST.lock().await;
     tokio::time::timeout(Duration::from_secs(5), async {
         let config = RuntimeConfig::parse(
             r#"{"runtime":{"control_max_pending_commands":1},"route":{"final":{"type":"direct"}}}"#,

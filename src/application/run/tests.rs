@@ -69,6 +69,9 @@ fn control_commands_and_application_supervision_do_not_embed_the_entire_runtime_
 #[cfg(feature = "grpc-api")]
 #[tokio::test]
 async fn initial_tls_failure_retires_original_application_before_same_config_retry() {
+    let _process_startup = crate::application::services::PRODUCTION_STARTUP_TEST
+        .lock()
+        .await;
     let directory = tempfile::tempdir().unwrap();
     let config_path = directory.path().join("zero.json");
     let ipc = directory.path().join("control.sock");
@@ -109,6 +112,9 @@ async fn initial_tls_failure_retires_original_application_before_same_config_ret
 #[cfg(unix)]
 #[tokio::test]
 async fn quota_control_startup_failure_finishes_the_original_writer_before_retry() {
+    let _process_startup = crate::application::services::PRODUCTION_STARTUP_TEST
+        .lock()
+        .await;
     let directory = tempfile::tempdir().unwrap();
     let config = directory.path().join("zero.json");
     let quota = directory.path().join("quota.json");

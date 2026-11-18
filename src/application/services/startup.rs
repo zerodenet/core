@@ -54,6 +54,12 @@ impl ApplicationStartupSlot {
 
 pub(super) static APPLICATION_STARTUP: ApplicationStartupSlot = ApplicationStartupSlot::new();
 
+// These few binary tests intentionally exercise the same process-wide owner.
+// Tests supplying their own actual StartupSlot remain independent/parallel.
+#[cfg(test)]
+pub(in crate::application) static PRODUCTION_STARTUP_TEST: tokio::sync::Mutex<()> =
+    tokio::sync::Mutex::const_new(());
+
 #[cfg(test)]
 pub(super) struct StartupPause {
     pub(super) prepared: tokio::sync::Notify,

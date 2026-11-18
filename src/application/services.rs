@@ -13,6 +13,8 @@ mod logging;
 use cleanup_fault::{CleanupOwner, CleanupReceivers};
 mod control;
 mod startup;
+#[cfg(test)]
+pub(in crate::application) use startup::PRODUCTION_STARTUP_TEST;
 use startup::{ApplicationStartupSlot, APPLICATION_STARTUP};
 mod dispatcher;
 use dispatcher::{changed_components, dispatcher_enabled};

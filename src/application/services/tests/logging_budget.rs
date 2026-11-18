@@ -3,6 +3,7 @@ use std::{io::Write, num::NonZeroUsize, task::Poll};
 use zero_platform_tokio::contract::scope::TaskScope;
 #[tokio::test]
 async fn same_actual_logger_book_busy_then_grows_at_application_commit() {
+    let _process_startup = super::super::startup::PRODUCTION_STARTUP_TEST.lock().await;
     tokio::time::timeout(Duration::from_secs(5), async {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("application.log");
