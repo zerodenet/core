@@ -135,10 +135,7 @@ fn privileged_macos_tun_loopback_remains_reachable_across_crash_recovery() {
         wait_for_tun(binary, &socket, true, false);
         let non_strict_name = assert_tun_os_configured(binary, &socket, false, false);
         assert_macos_loopback_listener_reachable(binary, &socket, listen_port, &loopback_before);
-        run_cli(
-            binary,
-            ["reload", path(&stopped_path), "--socket", path(&socket)],
-        );
+        reload_after_originals_settle(binary, &stopped_path, &socket);
         wait_for_tun(binary, &socket, false, false);
         assert_tun_os_cleanup(&non_strict_name);
         non_strict.kill_and_wait();
@@ -158,10 +155,7 @@ fn privileged_macos_tun_loopback_remains_reachable_across_crash_recovery() {
         let recovered_name = assert_tun_os_configured(binary, &socket, false, false);
         assert_macos_loopback_listener_reachable(binary, &socket, listen_port, &loopback_before);
 
-        run_cli(
-            binary,
-            ["reload", path(&stopped_path), "--socket", path(&socket)],
-        );
+        reload_after_originals_settle(binary, &stopped_path, &socket);
         wait_for_tun(binary, &socket, false, false);
         assert_tun_os_cleanup(&recovered_name);
         assert_route_journals_clean(&direct_path);
@@ -399,10 +393,7 @@ fn privileged_tun_dual_stack_configuration_traffic_and_crash_recovery() {
         assert_tcp_through_tun(tcp_v4);
         assert_tcp_through_tun(tcp_v6);
 
-        run_cli(
-            binary,
-            ["reload", path(&stopped_path), "--socket", path(&socket)],
-        );
+        reload_after_originals_settle(binary, &stopped_path, &socket);
         wait_for_tun(binary, &socket, false, true);
         assert_tun_os_cleanup(&recovered_name);
         assert_route_journals_clean(&direct_path);
@@ -550,10 +541,7 @@ fn privileged_windows_ipv4_only_tun_falls_back_trusted_ipv6_domains() {
             Some("1")
         );
 
-        run_cli(
-            binary,
-            ["reload", path(&stopped_path), "--socket", path(&socket)],
-        );
+        reload_after_originals_settle(binary, &stopped_path, &socket);
         wait_for_tun(binary, &socket, false, true);
         assert_tun_os_cleanup(&tun_name);
         assert_route_journals_clean(&direct_path);
@@ -573,10 +561,7 @@ fn privileged_windows_ipv4_only_tun_falls_back_trusted_ipv6_domains() {
         );
         assert_only_aaaa_fallback_is_bounded(original_ipv6, &mock_dns);
 
-        run_cli(
-            binary,
-            ["reload", path(&stopped_path), "--socket", path(&socket)],
-        );
+        reload_after_originals_settle(binary, &stopped_path, &socket);
         wait_for_tun(binary, &socket, false, true);
         assert_tun_os_cleanup(&restarted_name);
         assert_route_journals_clean(&direct_path);
@@ -678,10 +663,7 @@ fn run_scenario(
     let recovered_name = assert_tun_os_configured(binary, socket, ipv6, dual_stack);
     assert_tcp_through_tun(tcp_target);
 
-    run_cli(
-        binary,
-        ["reload", path(stopped_path), "--socket", path(socket)],
-    );
+    reload_after_originals_settle(binary, stopped_path, socket);
     wait_for_tun(binary, socket, false, dual_stack);
     assert_tun_os_cleanup(&recovered_name);
     assert_route_journals_clean(direct_path);
