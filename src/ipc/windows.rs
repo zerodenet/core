@@ -24,6 +24,7 @@ pub struct IpcServerHandle {
     path: PathBuf,
     started: AtomicBool,
     retired: AtomicBool,
+    connection_stop: CancellationToken,
     budget: Arc<zero_runtime::configuration::ControlBudget>,
     originals: Arc<Originals>,
     scope: Arc<tokio::sync::Mutex<TaskScope>>,
@@ -39,6 +40,7 @@ impl IpcServerHandle {
     }
     pub async fn shutdown(&self) -> io::Result<()> {
         self.task.close_admission();
+        self.connection_stop.cancel();
         if let Some(stop) = self
             .shutdown
             .lock()
@@ -47,12 +49,13 @@ impl IpcServerHandle {
         {
             let _ = stop.send(());
         }
-        self.originals.request_stop();
+        self.originals.request_stop_pending();
         self.opening
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take();
         let server = self.task.join().await;
+        self.originals.request_stop();
         let (tasks, scope_retirement) = {
             let mut scope = self.scope.lock().await;
             let original = scope.registrar().retirement_observation();
@@ -117,6 +120,7 @@ impl IpcServerHandle {
             .take()
             .expect("actual opening pipe");
         let originals = self.originals.clone();
+        let connection_stop = self.connection_stop.clone();
         let scope = self.scope.clone();
         let budget = self.budget.clone();
         let path = self.path.clone();
@@ -125,7 +129,16 @@ impl IpcServerHandle {
             started
                 .await
                 .map_err(|_| io::Error::other("IPC startup gate closed"))?;
-            run_server(path, handle, stopped, budget, scope, originals, pending).await
+            run_server(
+                path,
+                handle,
+                (stopped, connection_stop),
+                budget,
+                scope,
+                originals,
+                pending,
+            )
+            .await
         }));
         begin
             .send(())
@@ -157,6 +170,7 @@ pub fn prepare_ipc_server_with_budget(
         path: path.to_owned(),
         started: AtomicBool::new(false),
         retired: AtomicBool::new(false),
+        connection_stop: CancellationToken::new(),
         budget,
         originals: Arc::new(Originals::default()),
         scope: Arc::new(tokio::sync::Mutex::new(scope)),
@@ -167,16 +181,16 @@ pub fn prepare_ipc_server_with_budget(
 async fn run_server(
     path: PathBuf,
     handle: ProxyHandle,
-    mut shutdown: oneshot::Receiver<()>,
+    shutdown: (oneshot::Receiver<()>, CancellationToken),
     budget: Arc<zero_runtime::configuration::ControlBudget>,
     scope: Arc<tokio::sync::Mutex<TaskScope>>,
     originals: Arc<Originals>,
     first: (ControlledPipe, Arc<owner::Entry>),
 ) -> io::Result<()> {
+    let (mut shutdown, stop) = shutdown;
     let mut pending = Some(first);
     let mut connections = JoinSet::<io::Result<()>>::new();
     let active = Arc::new(AtomicU64::new(0));
-    let stop = CancellationToken::new();
     let mut failures = Vec::new();
     let mut scope = scope.lock().await;
     let work=super::owner::catch_work(async {
@@ -227,7 +241,7 @@ async fn run_server(
     }).await;
     stop.cancel();
     drop(pending);
-    originals.request_stop();
+    originals.request_stop_pending();
     while let Some(joined) = connections.join_next_with_id().await {
         match joined {
             Ok((id, result)) => {
@@ -246,6 +260,9 @@ async fn run_server(
             }
         }
     }
+    // The original logical writers/bridges returned their views before native
+    // cancellation. No induced Interrupted flush replaces their real outcome.
+    originals.request_stop();
     scope.begin_shutdown();
     while let Some(exit) = scope.next_exit().await {
         if let Err(error) = exit.result {

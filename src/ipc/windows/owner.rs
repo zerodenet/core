@@ -74,6 +74,12 @@ impl Originals {
         }
     }
     pub(super) fn request_stop(&self) {
+        self.request_stop_selected(false);
+    }
+    pub(super) fn request_stop_pending(&self) {
+        self.request_stop_selected(true);
+    }
+    fn request_stop_selected(&self, pending_only: bool) {
         // An original may synchronously wake an external IO waiter. Retain
         // only this one actual entry before leaving the registration lock.
         let last = self.1.load(Ordering::Acquire);
@@ -86,7 +92,10 @@ impl Originals {
                 .cloned();
             let Some(entry) = next else { break };
             cursor = entry.ordinal;
-            entry.original.request_stop();
+            let pending = lock(&entry.task).is_none();
+            if !pending_only || pending {
+                entry.original.request_stop();
+            }
         }
     }
     pub(super) async fn reap(&self, all: bool) -> io::Result<()> {
