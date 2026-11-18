@@ -169,7 +169,9 @@ pub enum ResourceDeclaration {
     /// transferred Service views. Both demand classes consume the same native
     /// limit/registration. Business still needs its sealed host ticket and
     /// original caller witness; this descriptor grants neither. Service custody
-    /// has no cached-driver handoff and remains with the awaiting caller.
+    /// has no cached-driver handoff and remains with the awaiting caller. A
+    /// nonempty prefix transfers borrowed Service custody through the distinct
+    /// Service loan operation; it never authorizes root native acquisition.
     ControlledNodeCarrier {
         endpoint: Destination,
         dial: zero_traits::DialPolicy,

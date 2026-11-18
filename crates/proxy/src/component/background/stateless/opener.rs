@@ -265,7 +265,7 @@ impl UpstreamOpener for Opener {
                 let loan = selected
                     .borrow_stream(endpoint.clone(), call.clone())
                     .await?;
-                grant.adopt_stream_loan(&binding, endpoint, &call, loan)?
+                grant.adopt_service_stream_loan(&binding, endpoint, &call, loan)?
             };
             let (io, tag) = io.into_driver().split(|io| (io, ()));
             *self.transfer.driver_input.lock().unwrap() = Some(tag);

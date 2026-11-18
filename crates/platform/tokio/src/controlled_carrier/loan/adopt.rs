@@ -80,29 +80,41 @@ impl CarrierGrant {
             Some(issuer) => issuer.permits(&self, binding, &endpoint, &original),
             None => !binding.prefix.is_empty(),
         };
-        if !path_permitted
-            || context.session.is_some()
-            || context.cancel.is_cancelled()
-            || context
-                .deadline
-                .is_some_and(|end| tokio::time::Instant::now() >= end)
-            || self.slot.cancel.is_cancelled()
-            || original.is_retired()
-            || bound.is_none_or(|bound| {
-                if service {
-                    !bound.permits_service_stream_loan(binding, &endpoint, context)
-                } else {
-                    bound.pool_kind() != Some(false)
-                        || !bound.permits_native(binding, &endpoint, context)
-                }
-            })
+        let rejected = if !path_permitted {
+            Some("actual stream loan has no declared dependency or prefix")
+        } else if context.session.is_some() {
+            Some("actual stream loan contains a Business session")
+        } else if context.cancel.is_cancelled() {
+            Some("actual stream loan caller was cancelled")
+        } else if context
+            .deadline
+            .is_some_and(|end| tokio::time::Instant::now() >= end)
         {
+            Some("actual stream loan deadline elapsed")
+        } else if self.slot.cancel.is_cancelled() {
+            Some("actual stream loan receiver was cancelled")
+        } else if original.is_retired() {
+            Some("actual stream loan donor was retired")
+        } else if bound.is_none_or(|bound| {
+            if service {
+                !bound.permits_service_stream_loan(binding, &endpoint, context)
+            } else {
+                bound.pool_kind() != Some(false)
+                    || !bound.permits_native(binding, &endpoint, context)
+            }
+        }) {
+            Some("actual stream loan differs from its original receiver declaration")
+        } else {
+            None
+        };
+        if let Some(source) = rejected {
             return Err(error(
                 self.instance(),
                 Stage::Dial,
                 Reason::StalePlan,
                 DeliveryState::Unknown,
-            ));
+            )
+            .with_source(std::io::Error::other(source)));
         }
         Ok(io)
     }

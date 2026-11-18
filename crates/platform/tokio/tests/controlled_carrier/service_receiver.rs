@@ -7,7 +7,17 @@ use zero_core::component::{OutboundId, RoleId, RoleInstanceId};
 async fn per_connection_service_prefix_borrow_requires_exact_service_declaration_and_real_loan_custody(
 ) {
     timeout(Duration::from_secs(5), async {
-        for case in ["service", "cached", "empty", "business"] {
+        for case in [
+            "service",
+            "node",
+            "cached",
+            "empty",
+            "business",
+            "node_empty",
+            "node_business",
+            "node_endpoint",
+            "node_dial",
+        ] {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let endpoint = destination(listener.local_addr().unwrap());
             let egress = Arc::new(crate::EgressInterfaceControl::default());
@@ -72,6 +82,12 @@ async fn per_connection_service_prefix_borrow_requires_exact_service_declaration
                     datagram: false,
                     max_sockets: one,
                 }
+            } else if case.starts_with("node") {
+                ResourceDeclaration::ControlledNodeCarrier {
+                    endpoint: endpoint.clone(),
+                    dial: Default::default(),
+                    max_sockets: one,
+                }
             } else {
                 ResourceDeclaration::ControlledServiceStream {
                     endpoint: endpoint.clone(),
@@ -79,7 +95,7 @@ async fn per_connection_service_prefix_borrow_requires_exact_service_declaration
                     max_sockets: one,
                 }
             };
-            receiver
+            let bound = receiver
                 .registration()
                 .bind_declared(&declaration, &scope.registrar(), &host)
                 .unwrap();
@@ -95,15 +111,29 @@ async fn per_connection_service_prefix_borrow_requires_exact_service_declaration
             let mut grant = receiver.grants().reserve().unwrap();
             let receiving = grant.adoption();
             let view = grant.claim_transferred_view().unwrap();
-            if case == "empty" {
+            if case == "empty" || case == "node_empty" {
                 borrowed.prefix.clear();
             }
             let mut call = context();
-            if case == "business" {
+            if case == "business" || case == "node_business" {
                 call.session = Some(zero_core::component::SessionId(9));
             }
+            let endpoint = if case == "node_endpoint" {
+                Destination::new(Address::Ipv4([127, 0, 0, 2]), endpoint.port)
+            } else {
+                endpoint
+            };
+            if case == "node_dial" {
+                borrowed.dial.source_ip = Some("127.0.0.2".parse().unwrap());
+            }
+            if case == "node" {
+                assert!(bound
+                    .authority
+                    .permits_service_stream_loan(&borrowed, &endpoint, &call));
+                assert!(!bound.authority.permits_native(&borrowed, &endpoint, &call));
+            }
             let acquired = grant.adopt_service_stream_loan(&borrowed, endpoint, &call, loan);
-            let mut io = if case == "service" {
+            let mut io = if case == "service" || case == "node" {
                 acquired.unwrap()
             } else {
                 assert_eq!(acquired.err().unwrap().reason, Reason::StalePlan);

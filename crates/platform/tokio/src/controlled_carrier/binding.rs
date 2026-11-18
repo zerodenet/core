@@ -378,7 +378,9 @@ impl BoundAuthority {
         self.available()
             && context.session.is_none()
             && !binding.prefix.is_empty()
-            && matches!(&self.declaration, ResourceDeclaration::ControlledServiceStream { endpoint, dial, .. }
+            && matches!(&self.declaration,
+                ResourceDeclaration::ControlledServiceStream { endpoint, dial, .. }
+                | ResourceDeclaration::ControlledNodeCarrier { endpoint, dial, .. }
                 if endpoint == destination && dial == &binding.dial)
     }
     pub(super) fn protocol_scope_identity(&self) -> TaskScopeIdentity {
