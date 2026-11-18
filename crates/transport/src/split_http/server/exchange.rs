@@ -206,6 +206,7 @@ where
     let (app, net) = tokio::io::duplex(64 * 1024);
     let stream = XhttpStream {
         owned_return: None,
+        _owned_driver_group: None,
         _owned_usage_memory: None,
         inner: app,
         life: life.clone(),

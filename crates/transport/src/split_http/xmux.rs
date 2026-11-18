@@ -3,8 +3,8 @@
 mod factory;
 pub use factory::{OwnedXhttpCarrierFactory, OwnedXhttpFactoryCall};
 mod allocations;
-pub(in crate::split_http) use allocations::UsageRef;
 use allocations::{GroupRef, Groups};
+pub(in crate::split_http) use allocations::UsageRef;
 mod connection;
 mod group;
 pub(in crate::split_http) mod group_body;
@@ -54,6 +54,9 @@ struct Inner {
 }
 #[derive(Clone)]
 pub struct XhttpClientPool(Arc<Inner>);
+pub(in crate::split_http) struct DriverGroup {
+    _group: GroupRef,
+}
 impl fmt::Debug for XhttpClientPool {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("XhttpClientPool").finish_non_exhaustive()

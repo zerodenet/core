@@ -245,6 +245,15 @@ pub async fn interop_options(
         while let Some(job) = jobs.join_next().await {
             job.map_err(std::io::Error::other)??;
         }
+        if relay.is_some() {
+            // Every first-burst business caller has now returned. Exercise
+            // the actual cached driver's next physical borrow as well; a
+            // request-group rotation must not retire its live logical work.
+            let payload = vec![0x5a; 65_537];
+            let (echo, server) = spawn_bound_tcp_echo(payload.len()).await;
+            assert_eq!(socks5_tcp_echo_once(socks, echo, &payload).await?, payload);
+            server.await.map_err(std::io::Error::other)?;
+        }
         Ok::<_, std::io::Error>(())
     })
     .await;
