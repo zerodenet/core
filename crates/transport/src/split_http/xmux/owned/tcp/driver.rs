@@ -91,6 +91,13 @@ pub(super) async fn run(
             _=&mut changed=>{},
         }
     };
+    // A completed H2 dispatcher still holds Hyper's conn_drop_ref. Release
+    // that completed future before awaiting its actual wire delegate; keeping
+    // it here makes ConnTask wait for this very drain to release its last
+    // sender. H1 has already returned its real wire outcome at this point.
+    // Dropping the dispatcher only requests H2 shutdown: the same ledger must
+    // still poll every original delegate to completion below.
+    drop(driver);
     // A successful H1 connection EOF can belong to a different exchange than
     // the logical work using this driver. Retain the same actual task until
     // that work returns. A real wire failure still cancels affected work and
@@ -109,7 +116,6 @@ pub(super) async fn run(
         }
         tokio::select! {biased;_=state.runtime.run_work()=>break,_=&mut changed=>{}}
     }
-    drop(driver);
     match result {
         Ok(()) => Ok(()),
         Err(source) => {
@@ -118,3 +124,7 @@ pub(super) async fn run(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../../../../tests/split_http/tcp_driver.rs"]
+mod tests;

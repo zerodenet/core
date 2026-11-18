@@ -219,7 +219,7 @@ fn privileged_tun_ipv4_direct_udp_dns_does_not_self_capture() {
             .set_read_timeout(Some(Duration::from_secs(3)))
             .unwrap();
         assert_direct_dns_round_trip(&active, dns_target, 0x7ffe);
-        let output = run_cli(binary, ["status", "--json", "--socket", path(&socket)]);
+        let output = run_cli_output(binary, ["status", "--json", "--socket", path(&socket)]);
         let snapshot: serde_json::Value = serde_json::from_str(&output).unwrap();
         assert!(tun_udp_active_flow_count(&snapshot, dns_target) > 0);
         reload_after_originals_settle(binary, &stopped_path, &socket);
