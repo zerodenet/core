@@ -39,6 +39,17 @@ fn establishment_metadata_preserves_typed_failure_classification_and_diagnostics
             EngineError::Io(io::Error::from(io::ErrorKind::TimedOut)),
             "probe_timeout",
         ),
+        (
+            EngineError::Io(io::Error::other(
+                zero_platform_tokio::contract::ChannelError::new(
+                    zero_platform_tokio::contract::Stage::Dial,
+                    zero_platform_tokio::contract::Reason::Io,
+                    zero_platform_tokio::contract::Impact::Component,
+                )
+                .with_source(io::Error::from(io::ErrorKind::ConnectionRefused)),
+            )),
+            "connection_failed",
+        ),
     ] {
         let error = OutboundProbeError::from_engine(EstablishmentFailure::wrap(
             source,

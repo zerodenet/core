@@ -48,16 +48,7 @@ impl OutboundProbeError {
             .and_then(|source| source.downcast_ref::<EngineError>())
             .unwrap_or(&error);
         let code = match original {
-            EngineError::Io(error) => match error.kind() {
-                std::io::ErrorKind::TimedOut => "probe_timeout",
-                std::io::ErrorKind::UnexpectedEof => "empty_response",
-                std::io::ErrorKind::ConnectionRefused
-                | std::io::ErrorKind::ConnectionReset
-                | std::io::ErrorKind::ConnectionAborted
-                | std::io::ErrorKind::BrokenPipe
-                | std::io::ErrorKind::NotConnected => "connection_failed",
-                _ => "probe_io_failed",
-            },
+            EngineError::Io(error) => wrapped_io_code(error).unwrap_or("probe_io_failed"),
             EngineError::Core(CoreError::Unsupported(_))
             | EngineError::CompiledFeatureDisabled { .. } => "unsupported_target",
             EngineError::Core(CoreError::Route(_))
@@ -76,6 +67,43 @@ impl OutboundProbeError {
             source: Some(std::sync::Arc::new(error)),
         }
     }
+}
+
+fn wrapped_io_code(mut source: &(dyn std::error::Error + 'static)) -> Option<&'static str> {
+    // Standard providers retain native errors underneath ChannelError and
+    // io::Error::other. Inspect those originals without replacing the public
+    // enriched failure or manufacturing an OS error from diagnostic metadata.
+    for _ in 0..64 {
+        if let Some(EngineError::Io(io)) = source.downcast_ref::<EngineError>() {
+            source = io;
+            continue;
+        }
+        if matches!(
+            source.downcast_ref::<EngineError>(),
+            Some(EngineError::Core(CoreError::Io(_)))
+        ) || matches!(source.downcast_ref::<CoreError>(), Some(CoreError::Io(_)))
+        {
+            return Some("connection_failed");
+        }
+        if let Some(io) = source.downcast_ref::<std::io::Error>() {
+            match io.kind() {
+                std::io::ErrorKind::TimedOut => return Some("probe_timeout"),
+                std::io::ErrorKind::UnexpectedEof => return Some("empty_response"),
+                std::io::ErrorKind::ConnectionRefused
+                | std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::ConnectionAborted
+                | std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::NotConnected => return Some("connection_failed"),
+                _ => {}
+            }
+            if let Some(inner) = io.get_ref() {
+                source = inner;
+                continue;
+            }
+        }
+        source = source.source()?;
+    }
+    None
 }
 
 #[cfg(test)]
