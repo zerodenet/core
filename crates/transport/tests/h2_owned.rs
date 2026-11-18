@@ -44,7 +44,10 @@ async fn caller_without_application_reads_drives_real_h2_capacity_and_end_then_r
             let (mut request,mut response)=connection.accept().await.unwrap().unwrap();
             assert_eq!(request.uri().path(),"/original");assert_eq!(request.headers()["host"],"original.test");
             let application=async move{
-                let first=request.body_mut().data().await.unwrap().unwrap();assert!(!first.is_empty() && first.len()<=1024);
+                // DATA already in flight before SETTINGS may use the default window.
+                // Require a real bounded frame; Pending below proves that the
+                // actual 256 KiB upload exhausted receive credit before release.
+                let first=request.body_mut().data().await.unwrap().unwrap();assert!(!first.is_empty() && first.len()<=16*1024);
                 actual.store(first.len(),Ordering::SeqCst);server_phase.store(1,Ordering::SeqCst);first_tx.send(first.len()).unwrap();release_rx.await.unwrap();
                 request.body_mut().flow_control().release_capacity(first.len()).unwrap();
                 let mut received=first.len();
