@@ -1,4 +1,52 @@
 use super::*;
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn same_original_macos_cleanup_memory_survives_wire_stop_until_provider_close() {
+    let mut actual = scope();
+    let roots = Arc::new(crate::HostOriginalBudgets::default());
+    let original = owner_with_budget(&actual, i32::MAX, "not-a-tun", roots.clone());
+    let read = original
+        .memory
+        .prepare(&original.original, ComponentId(7))
+        .unwrap();
+    let memory = read.memory_view().unwrap();
+    original.memory.stop(&original.original);
+    assert_eq!(
+        original
+            .memory
+            .prepare(&original.original, ComponentId(7))
+            .err()
+            .unwrap()
+            .reason,
+        Reason::Revoked
+    );
+    let credit = memory
+        .reserve_driver_metadata(zero_tun::packet_memory::PacketMetadataLayout::new(1, 16))
+        .expect("original helper cleanup retains its actual memory admission");
+    drop(credit);
+    assert!(!original.evidence().physical_confirmed());
+    assert!(matches!(
+        original.original.outcome(),
+        TunAcquisitionOutcome::KnownNoNative
+    ));
+    let report = original.shutdown(deadline()).await;
+    assert!(report.is_complete());
+    assert!(
+        report.closed_io.is_empty(),
+        "no native IO was acquired by this memory-only preparation"
+    );
+    assert!(original.evidence().physical_confirmed());
+    assert!(matches!(
+        memory.reserve_driver_metadata(zero_tun::packet_memory::PacketMetadataLayout::new(1, 16),),
+        Err(zero_tun::packet_memory::PacketMemoryError::Stopped)
+    ));
+    drop(memory);
+    drop(read);
+    assert_eq!(roots.packet.native().occupied.frames, 0);
+    actual.begin_shutdown();
+    assert!(actual.next_receipt().await.is_none());
+}
 #[tokio::test]
 async fn original_read_capacity_is_rejected_before_native_acquisition_and_retains_real_driver() {
     let mut actual = scope();

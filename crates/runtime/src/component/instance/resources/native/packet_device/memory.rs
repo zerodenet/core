@@ -212,7 +212,20 @@ impl Memory {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             state.stopped = true;
-            state.values.take()
+            #[cfg(target_os = "macos")]
+            {
+                // The helper's command/file cleanup borrows the first grant's
+                // metadata view. Stop native data admission now, retaining
+                // that actual grant until the original provider closes.
+                state
+                    .values
+                    .as_mut()
+                    .map(|values| [None, values[1].take(), values[2].take()])
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                state.values.take()
+            }
         };
         if let Some(reads) = reads {
             for read in reads.into_iter().flatten() {
@@ -220,6 +233,20 @@ impl Memory {
             }
         }
         original.stop_reader();
+    }
+    #[cfg(target_os = "macos")]
+    pub(super) fn release_closed_cleanup_memory(&self) {
+        let reads = self
+            .reads
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values
+            .take();
+        if let Some(reads) = reads {
+            for read in reads.into_iter().flatten() {
+                read.revoke();
+            }
+        }
     }
     pub(super) fn joined(&self) -> bool {
         #[cfg(any(target_os = "windows", target_os = "macos"))]

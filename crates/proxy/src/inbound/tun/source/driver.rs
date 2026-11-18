@@ -226,6 +226,10 @@ fn dropped(observer: &Arc<dyn PacketObserver>, reason: zero_traits::PacketDropRe
 struct NativeReadCredit(zero_tun::packet_memory::NativeReadGrant);
 impl Drop for NativeReadCredit {
     fn drop(&mut self) {
+        // On macOS the same original grant also admits helper cleanup for
+        // routes/PF/files. Wire exit returns custody; the native provider
+        // revokes that grant only after those originals actually close.
+        #[cfg(not(target_os = "macos"))]
         self.0.revoke();
     }
 }

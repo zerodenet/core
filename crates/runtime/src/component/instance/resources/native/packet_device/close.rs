@@ -103,6 +103,18 @@ impl PacketDeviceOwner {
             if !self.original.physical_confirmed(state.issued.as_ref()) {
                 return self.unfinished_locked("original Packet native close remains unconfirmed");
             }
+            #[cfg(target_os = "macos")]
+            {
+                // Returning the actual credits can wake Host observers. Do
+                // that outside the original device-state lock; physical close
+                // and the acquisition fence above are already irreversible.
+                drop(state);
+                self.memory.release_closed_cleanup_memory();
+                state = self
+                    .state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+            }
             let mut report = CloseReport::default();
             if state.receipt.is_some() && !state.reported_close {
                 report.closed_io.push(format!(
