@@ -40,6 +40,24 @@ async fn vless_tls_middle_carries_mieru_udp_without_direct_bypass() {
     run(&[Carrier::Tls], Carrier::Mieru).await;
 }
 
+#[test]
+#[cfg(feature = "mieru")]
+fn vless_tls_mieru_udp_original_handoff_runs_on_a_two_mib_worker_stack() {
+    std::thread::Builder::new()
+        .name("vless-mieru-original-handoff".into())
+        .stack_size(2 * 1024 * 1024)
+        .spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(run(&[Carrier::Tls], Carrier::Mieru));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
 async fn run(middles: &[Carrier], final_carrier: Carrier) {
     support::interop::init_logs("zero_proxy=debug,zero_transport=debug,vless=debug");
     let material = TempMaterial::new("vless-associated-datagram-relay");

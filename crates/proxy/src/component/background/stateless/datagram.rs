@@ -66,7 +66,12 @@ impl Datagram {
                 .as_ref()
                 .expect("actual Service selection installed")
                 .clone();
-            let mut attempt = context.clone();
+            // Snapshot the actual parent before wrapping this transfer's own
+            // grant opener. Its pending observer must never call back through
+            // the same transfer.preparing entry that it is installing below.
+            let mut pending_context = context.clone();
+            pending_context.upstream = upstream.clone();
+            let mut attempt = pending_context.clone();
             attempt.upstream = UpstreamTransport::new(
                 upstream.binding().clone(),
                 Arc::new(Opener {
@@ -93,7 +98,12 @@ impl Datagram {
                 .owner
                 .prepare(&transfer, &context, move |caller| async move {
                     if let Some(caller) = caller {
-                        let pending = super::pending::transport(&attempt, &original, caller)?;
+                        let pending =
+                            super::pending::transport(&pending_context, &original, caller)?;
+                        if let Some(preparation) = &original.preparation {
+                            preparation
+                                .bind_pending_observer(pending.pending_carrier_observer())?;
+                        }
                         *original.preparing.lock().unwrap() = Some(pending);
                     }
                     inner.open(request, attempt).await
