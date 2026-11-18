@@ -37,7 +37,7 @@ impl BoundFixture {
         configure: impl FnOnce(&zero_platform_tokio::EgressInterfaceControl),
     ) -> Self {
         let live = LiveDirectSource::new().await;
-        configure(live.runtime.services().upstream().egress_control());
+        configure(&live.runtime.services().upstream().egress_control());
         let one = NonZeroUsize::new(1).unwrap();
         let ((bridge, driver, resources), authority) = live
             .context

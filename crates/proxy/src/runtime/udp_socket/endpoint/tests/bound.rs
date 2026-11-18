@@ -14,7 +14,10 @@ async fn business(
 ) -> (Session, zero_engine::SessionHandle) {
     let mut session = Session::new(
         0,
-        Address::Ipv4([127, 0, 0, 1]),
+        match peer.ip() {
+            std::net::IpAddr::V4(ip) => Address::Ipv4(ip.octets()),
+            std::net::IpAddr::V6(ip) => Address::Ipv6(ip.octets()),
+        },
         peer.port(),
         Network::Udp,
         ProtocolType::new("direct"),
