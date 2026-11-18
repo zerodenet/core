@@ -63,7 +63,7 @@ impl Outbound {
             adoption: grant.adoption(),
             grant: Mutex::new(Some(grant)),
             view: Mutex::new(Some(view)),
-            owner: tokio::sync::Mutex::new(None),
+            owner: Arc::new(tokio::sync::Mutex::new(None)),
             caller,
             preparation,
             pending: Mutex::new(Vec::new()),

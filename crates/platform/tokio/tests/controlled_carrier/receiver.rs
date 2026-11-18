@@ -4,10 +4,12 @@ use crate::contract::component::ResourceDeclaration;
 use crate::contract::network::UpstreamOpener;
 use crate::contract::Reason;
 use zero_core::component::{OutboundId, RoleId, RoleInstanceId};
+#[path = "receiver/framing.rs"]
+mod framing;
 #[tokio::test]
 async fn exact_returned_stream_loan_observes_only_its_strong_receiver_and_native_retirement() {
     timeout(Duration::from_secs(5), async {
-        for with_driver in [false, true] {
+        for (with_driver, framing_layers) in [(false, 0), (true, 0), (true, 1), (true, 2)] {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let endpoint = destination(listener.local_addr().unwrap());
             let egress = Arc::new(crate::EgressInterfaceControl::default());
@@ -58,6 +60,9 @@ async fn exact_returned_stream_loan_observes_only_its_strong_receiver_and_native
                 .0;
             let (mut peer, _) = listener.accept().await.unwrap();
             let mut loan = io.into_stream_loan(view).unwrap();
+            for _ in 0..framing_layers {
+                loan = framing::wrap(loan).await;
+            }
             let observation = loan.receiver_observation();
             assert!(original.retained_loan_receiver().is_none());
             assert!(

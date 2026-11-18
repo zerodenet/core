@@ -2,38 +2,93 @@
 use super::{slot::Slot, CarrierAdoption, CarrierIo, CarrierOrigin, CarrierOwnerRegistration};
 use std::sync::{Arc, Weak};
 
+// Only weak allocation identities live on the donor Slot. Keep the recursive
+// CarrierOrigin/LoanOwner types outside this passive observation boundary.
+#[derive(Clone)]
+pub(super) struct InstalledLoanReceiver {
+    pub(super) receiver: Weak<dyn std::any::Any + Send + Sync>,
+    pub(super) loan: Weak<dyn std::any::Any + Send + Sync>,
+    pub(super) input_alive: Option<Weak<super::loan::State>>,
+}
+impl InstalledLoanReceiver {
+    fn observation(&self) -> Option<CarrierLoanRetained> {
+        let slot = self.receiver.upgrade()?.downcast::<Slot>().ok()?;
+        {
+            let state = slot.state();
+            let owner = state.loan.as_ref()?;
+            let actual: Weak<dyn std::any::Any + Send + Sync> =
+                Arc::<tokio::sync::Mutex<super::loan::LoanOwner>>::downgrade(owner);
+            if !actual.ptr_eq(&self.loan) {
+                return None;
+            }
+        }
+        let mut proof = CarrierAdoption { slot }.retained_loan()?;
+        proof.input_alive = self.input_alive.clone();
+        proof.receiver_slot()?;
+        Some(proof)
+    }
+}
+
 #[derive(Clone)]
 pub struct CarrierLoanRetained {
-    pub(super) receiver: Weak<Slot>,
-    pub(super) loan: Weak<tokio::sync::Mutex<super::loan::LoanOwner>>,
+    pub(super) receiver: Weak<dyn std::any::Any + Send + Sync>,
+    pub(super) loan: Weak<dyn std::any::Any + Send + Sync>,
     pub(super) origin: CarrierOrigin,
     pub(super) related: Option<Weak<super::loan::RelatedControl>>,
+    pub(super) input_alive: Option<Weak<super::loan::State>>,
 }
 impl CarrierAdoption {
     /// The exact NativeControl was moved into an actual retained receiver.
     /// Keep this weak observation on the donor independently of a caller's
     /// reclaimed protocol rows. It grants no close or replacement evidence.
     pub fn retained_loan_receiver(&self) -> Option<CarrierLoanRetained> {
-        let proof = self.slot.state().loan_receiver.clone()?;
-        let receiver = proof.receiver_adoption()?;
-        (proof.retains(self)
-            && receiver.retained_driver().is_some_and(|driver| {
+        fn next(donor: &CarrierAdoption) -> Option<(CarrierLoanRetained, CarrierAdoption)> {
+            let installed = donor.slot.state().loan_receiver.clone()?;
+            let proof = installed.observation()?;
+            let receiver = proof.receiver_adoption()?;
+            proof.retains(donor).then_some((proof, receiver))
+        }
+        let mut current = self.clone();
+        let mut slow = Some(self.clone());
+        let mut fast = slow.clone();
+        loop {
+            let (proof, receiver) = next(&current)?;
+            if receiver.retained_driver().is_some_and(|driver| {
                 driver.retains(&receiver)
                     && driver
                         .adoption()
                         .is_some_and(|actual| actual.same_slot(&receiver))
-            }))
-        .then_some(proof)
+            }) {
+                return proof.retains(self).then_some(proof);
+            }
+            current = receiver;
+            slow = slow.and_then(|actual| next(&actual).map(|(_, receiver)| receiver));
+            fast = fast.and_then(|actual| {
+                next(&actual)
+                    .and_then(|(_, receiver)| next(&receiver))
+                    .map(|(_, receiver)| receiver)
+            });
+            if slow
+                .as_ref()
+                .zip(fast.as_ref())
+                .is_some_and(|(slow, fast)| slow.same_slot(fast))
+            {
+                return None;
+            }
+        }
     }
     /// Available even after a post-adoption validation error. Cleanup can find
     /// the exact controller installed before that error or any suspension.
     pub fn retained_loan(&self) -> Option<CarrierLoanRetained> {
         let state = self.slot.state();
         Some(CarrierLoanRetained {
-            receiver: Arc::downgrade(&self.slot),
-            loan: Arc::downgrade(state.loan.as_ref()?),
+            receiver: Arc::<Slot>::downgrade(&self.slot),
+            loan: Arc::<tokio::sync::Mutex<super::loan::LoanOwner>>::downgrade(
+                state.loan.as_ref()?,
+            ),
             origin: state.loan_origin.as_ref()?.clone(),
             related: state.loan_related.clone(),
+            input_alive: None,
         })
     }
 }
@@ -104,14 +159,24 @@ impl CarrierLoanRetained {
         false
     }
     fn receiver_slot(&self) -> Option<Arc<Slot>> {
-        let receiver = self.receiver.upgrade()?;
+        if self.input_alive.as_ref().is_some_and(|original| {
+            original.upgrade().is_none_or(|original| {
+                !original
+                    .control_alive
+                    .load(std::sync::atomic::Ordering::Acquire)
+            })
+        }) {
+            return None;
+        }
+        let receiver = self.receiver.upgrade()?.downcast::<Slot>().ok()?;
         let valid = {
             let state = receiver.state();
             !state.closed
-                && state
-                    .loan
-                    .as_ref()
-                    .is_some_and(|loan| Weak::ptr_eq(&Arc::downgrade(loan), &self.loan))
+                && state.loan.as_ref().is_some_and(|loan| {
+                    let actual: Weak<dyn std::any::Any + Send + Sync> =
+                        Arc::<tokio::sync::Mutex<super::loan::LoanOwner>>::downgrade(loan);
+                    actual.ptr_eq(&self.loan)
+                })
                 && state
                     .loan_origin
                     .as_ref()

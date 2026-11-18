@@ -33,7 +33,7 @@ pub(super) struct State {
     pub(super) loan: Option<Arc<AsyncMutex<super::loan::LoanOwner>>>,
     pub(super) loan_origin: Option<super::CarrierOrigin>,
     pub(super) loan_related: Option<Weak<super::loan::RelatedControl>>,
-    pub(super) loan_receiver: Option<super::CarrierLoanRetained>,
+    pub(super) loan_receiver: Option<super::loan_retained::InstalledLoanReceiver>,
     pub(super) binding: Option<crate::contract::network::UpstreamBinding>,
     pub(super) endpoint: Option<zero_core::request::Destination>,
     pub(super) endpoint_claim: Option<Arc<super::loan::datagram::endpoint::Identity>>,

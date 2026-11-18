@@ -188,7 +188,7 @@ async fn actual_socket_faults_share_one_durable_received_row_and_late_secondary_
             cleanup: Default::default(),
             cleanup_network: None,
             retained_prefix: Default::default(),
-            owner: tokio::sync::Mutex::new(Some(second.owner)),
+            owner: Arc::new(tokio::sync::Mutex::new(Some(second.owner))),
             stop: stops.pop().unwrap(),
             adoption: originals[1].clone(),
             published: true.into(),

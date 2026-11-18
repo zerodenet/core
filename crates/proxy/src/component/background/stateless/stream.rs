@@ -104,16 +104,20 @@ impl StreamOutbound for Outbound {
             transfer
                 .published
                 .store(true, std::sync::atomic::Ordering::Release);
+            let mut loan = StreamLoan::new(
+                Box::pin(super::caller::CallerIo::new(
+                    connected.io,
+                    context.cancel.clone(),
+                    transfer.clone(),
+                )),
+                Box::new(Control(transfer.clone())).into(),
+                original,
+            );
+            loan.owner
+                .retain_input_owner(transfer.owner.clone())
+                .await?;
             return Ok(Connected {
-                io: StreamLoan::new(
-                    Box::pin(super::caller::CallerIo::new(
-                        connected.io,
-                        context.cancel.clone(),
-                        transfer.clone(),
-                    )),
-                    Box::new(Control(transfer)).into(),
-                    original,
-                ),
+                io: loan,
                 peer_confirmation: connected.peer_confirmation,
             });
         }

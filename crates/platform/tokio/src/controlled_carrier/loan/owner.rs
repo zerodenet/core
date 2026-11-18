@@ -12,6 +12,7 @@ pub struct LoanOwner {
     pub(super) state: Arc<State>,
     pub(super) closed: bool,
     pub(super) native_control: Option<crate::controlled_carrier::CarrierAdoption>,
+    pub(super) input: Option<super::input::Input>,
     pub(super) logical_control: Option<Arc<super::logical::Observation>>,
     pub(super) native_control_only: bool,
     pub(super) receiver: std::sync::OnceLock<Arc<super::receiver::Observation>>,
@@ -36,6 +37,7 @@ impl LoanOwner {
             state,
             closed: false,
             native_control: None,
+            input: None,
             logical_control: None,
             native_control_only: false,
             receiver: Default::default(),
@@ -253,6 +255,7 @@ impl crate::contract::lifecycle::ChannelControl for LoanOwner {
 }
 impl Drop for LoanOwner {
     fn drop(&mut self) {
+        self.state.control_alive.store(false, Ordering::Release);
         self.cancel(CloseReason::Shutdown);
     }
 }

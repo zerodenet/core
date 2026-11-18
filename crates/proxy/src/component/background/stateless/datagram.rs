@@ -189,16 +189,20 @@ impl DatagramOutbound for Datagram {
             limits: channel.limits,
             control: Control {
                 inner: channel.control,
-                transfer,
+                transfer: transfer.clone(),
                 cleanup: Default::default(),
             },
         };
-        Ok(DatagramLoan::new(
+        let mut loan = DatagramLoan::new(
             zero_platform_tokio::contract::datagram::erase_session(channel),
             original,
             association,
             target,
-        ))
+        );
+        loan.owner
+            .retain_input_owner(transfer.owner.clone())
+            .await?;
+        Ok(loan)
     }
 }
 pub(super) struct Control {

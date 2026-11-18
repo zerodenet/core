@@ -4,6 +4,7 @@ mod business;
 pub(in crate::controlled_carrier) mod datagram;
 mod dependency;
 mod host_node;
+mod input;
 mod io;
 mod logical;
 pub use host_node::HostNodeDnsSource;
@@ -28,8 +29,9 @@ pub use receiver::CarrierLoanReceiver;
 pub(super) use related::RelatedControl;
 use std::sync::{atomic::AtomicBool, Arc};
 
-struct State {
+pub(in crate::controlled_carrier) struct State {
     returned: AtomicBool,
+    pub(in crate::controlled_carrier) control_alive: AtomicBool,
     changed: tokio::sync::Notify,
     cancel: CancellationToken,
 }
@@ -92,6 +94,7 @@ impl StreamLoan {
     ) -> Self {
         let state = Arc::new(State {
             returned: AtomicBool::new(false),
+            control_alive: AtomicBool::new(true),
             changed: Default::default(),
             cancel: CancellationToken::new(),
         });

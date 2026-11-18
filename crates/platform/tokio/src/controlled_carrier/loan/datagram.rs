@@ -76,6 +76,7 @@ impl DatagramLoan {
     ) -> Self {
         let state = Arc::new(State {
             returned: AtomicBool::new(false),
+            control_alive: AtomicBool::new(true),
             changed: Default::default(),
             cancel: CancellationToken::new(),
         });

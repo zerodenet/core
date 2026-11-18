@@ -5,7 +5,7 @@ use crate::controlled_carrier::{CarrierDriverRetained, ProtocolOriginalReceiver}
 use crate::controlled_listener::accepted::AcceptedTcpCarrierOrigin;
 #[derive(Clone)]
 pub(crate) struct AcceptedLoanReceiver {
-    receiver: Weak<Slot>,
+    receiver: Weak<dyn std::any::Any + Send + Sync>,
     // Same original weak allocation, erased only at this passive storage
     // boundary to stop the Source/loan/packet-record auto-trait expansion.
     // No upgrade, clone of the controller, new allocation or executable SPI.
@@ -38,7 +38,8 @@ impl AcceptedLoanReceiver {
         original: &AcceptedTcpCarrierOrigin,
     ) -> Option<ProtocolOriginalReceiver> {
         let parent = self.keeper.adoption()?;
-        if !self.receiver.ptr_eq(&Arc::downgrade(&parent.slot)) {
+        let receiver: Weak<dyn std::any::Any + Send + Sync> = Arc::<Slot>::downgrade(&parent.slot);
+        if !self.receiver.ptr_eq(&receiver) {
             return None;
         }
         let loan = parent.retained_loan()?;

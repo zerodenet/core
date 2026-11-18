@@ -12,7 +12,7 @@ pub(super) struct Transfer {
     pub(super) cleanup: Mutex<super::datagram::cleanup::Cleanup>,
     pub(super) cleanup_network: Option<Arc<super::super::BackgroundNetwork>>,
     pub(super) retained_prefix: std::sync::OnceLock<Arc<[zero_core::component::RoleInstanceId]>>,
-    pub(super) owner: tokio::sync::Mutex<Option<LoanOwner>>,
+    pub(super) owner: Arc<tokio::sync::Mutex<Option<LoanOwner>>>,
     pub(super) stop: CancellationToken,
     pub(super) adoption: CarrierAdoption,
     pub(super) published: std::sync::atomic::AtomicBool,

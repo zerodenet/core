@@ -49,12 +49,13 @@ impl CarrierIo {
                 io: self,
                 _view: view,
             }),
-            Box::new(NativeControl(adoption)).into(),
+            Box::new(NativeControl(adoption.clone())).into(),
             original,
         );
         // This concrete NativeControl has not published a transferred origin
         // yet. Its real preparing/native receipts remain the only closure path.
         loan.owner.native_control_only = true;
+        loan.owner.native_control = Some(adoption);
         Ok(loan)
     }
     /// Transfer the actual view and unique custody lease. Borrowed views keep
