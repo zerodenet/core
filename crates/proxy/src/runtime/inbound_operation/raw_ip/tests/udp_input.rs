@@ -1,6 +1,6 @@
 //! Stack input uses a real host, caller groups and original Direct/DNS providers.
 //! The in-memory packet input itself makes no native-device close claim.
-use super::super::{InboundOwner, InboundOwnerRegistry, InboundTaskAccess};
+use crate::runtime::inbound_owners::{InboundOwner, InboundOwnerRegistry, InboundTaskAccess};
 use crate::{
     inbound::tun::udp::{OwnedTunUdpTasks, UdpScratch},
     runtime::{
@@ -45,7 +45,10 @@ pub(crate) async fn start(
     owner.prepare_packet_source_pause();
     let host = installed.tasks();
     let native = NativeObligations::new(0, 8, 8);
-    installed.register(native.resource()).unwrap();
+    native
+        .bind_source(installed.source_registrar().scope_identity())
+        .unwrap();
+    installed.register_after_scope(native.resource()).unwrap();
     let tasks = OwnedTunUdpTasks::new(native, 8, 8);
     tasks.install(&installed).unwrap();
     let read = proxy

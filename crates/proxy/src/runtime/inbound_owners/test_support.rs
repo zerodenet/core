@@ -1,6 +1,4 @@
 //! Assertions about the actual tracked exit, including its original shared source.
-#[cfg(feature = "raw-ip-runtime")]
-pub(crate) mod udp;
 use super::HostPeerBinding;
 use std::{error::Error, sync::Arc};
 use zero_core::component::TaskId;

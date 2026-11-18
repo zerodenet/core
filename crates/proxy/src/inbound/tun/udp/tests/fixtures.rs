@@ -1,5 +1,5 @@
 use super::super::{OwnedTunUdpTasks, UdpScratch};
-pub(super) use crate::runtime::inbound_owners::test_support::udp::start as run;
+pub(super) use crate::runtime::inbound_operation::raw_ip::udp_input::start as run;
 use std::sync::{atomic::AtomicU64, Arc};
 
 pub(crate) async fn run_owned(
