@@ -42,7 +42,9 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
                             // This actual standard Node grant binds the same raw
                             // Business caller and installs its original adoption.
                             // Domain Node preparation still needs its DNS owner.
-                            ResourceDeclaration::ControlledNodeCarrier { endpoint, .. } => {
+                            ResourceDeclaration::ControlledNodeCarrier { endpoint, .. }
+                            | ResourceDeclaration::ControlledNodeStream { endpoint, .. }
+                            | ResourceDeclaration::ControlledAssociationPool { endpoint, .. } => {
                                 matches!(
                                     endpoint.address,
                                     zero_core::Address::Ipv4(_) | zero_core::Address::Ipv6(_)
