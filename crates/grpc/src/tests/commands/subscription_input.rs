@@ -37,6 +37,7 @@ async fn real_prost_repeated_string_input_refuses_before_handler_then_same_book_
         let mut target = book.limits();
         target.messages.request_bytes_total = 512 * 1024;
         book.prepare(target).unwrap().commit().unwrap();
+        client.ready().await.unwrap();
         let response: tonic::Response<tonic::codec::Streaming<crate::PbEvent>> = client
             .server_streaming(
                 request(),

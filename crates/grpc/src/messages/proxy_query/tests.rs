@@ -53,6 +53,7 @@ async fn native_proxy_query_uses_same_original_status_and_recovers_from_output_b
         let request = zero_api::QueryRequest::TunStatus(Default::default());
         let expected = serde_json::to_value(handle.query(request.clone()).unwrap()).unwrap();
         let book = crate::budget::defaults();
+        let default_response_total = book.limits().messages.response_bytes_total;
         let owner = crate::prepare_with_budget(
             "127.0.0.1:0".parse().unwrap(),
             Default::default(),
@@ -101,6 +102,11 @@ async fn native_proxy_query_uses_same_original_status_and_recovers_from_output_b
             // The synchronous original guards returned before any network wait.
             assert!(handle.control_proxy_query(&request).is_some());
         }
+        // TunStatus above deliberately constrains its own output workspace.
+        // Restore the real configured default for the larger capability rows.
+        let mut limits = book.limits();
+        limits.messages.response_bytes_total = default_response_total;
+        book.prepare(limits).unwrap().commit().unwrap();
         for request in [
             zero_api::QueryRequest::Health(Default::default()),
             zero_api::QueryRequest::Capabilities(Default::default()),

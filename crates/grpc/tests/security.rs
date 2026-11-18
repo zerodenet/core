@@ -168,7 +168,30 @@ async fn mtls_requires_a_client_certificate_signed_by_the_configured_ca() {
     )
     .await
     .expect("client certificate signed by configured CA");
-    server.shutdown().await.unwrap();
+    let error = server.shutdown().await.unwrap_err();
+    let mut source: &(dyn std::error::Error + 'static) = &error;
+    let mut rejected_original = false;
+    loop {
+        if matches!(
+            source.downcast_ref::<rustls::Error>(),
+            Some(rustls::Error::NoCertificatesPresented)
+        ) {
+            rejected_original = true;
+            break;
+        }
+        let next = source
+            .downcast_ref::<std::io::Error>()
+            .and_then(std::io::Error::get_ref)
+            .map(|original| original as &(dyn std::error::Error + 'static))
+            .or_else(|| source.source());
+        let Some(next) = next else { break };
+        source = next;
+    }
+    assert!(
+        rejected_original,
+        "original mTLS rejection was lost: {error:?}"
+    );
+    assert!(server.retirement_complete());
 }
 
 async fn connect_tls(
