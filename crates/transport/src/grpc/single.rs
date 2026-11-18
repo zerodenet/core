@@ -54,11 +54,13 @@ impl PreparedSingleClient {
         let (response, send) = sender
             .send_request(request, false)
             .map_err(io::Error::other)?;
+        let connection_flush = flush.clone();
         let prepared_stream::PreparedStream {
             mut stream,
             read,
             write,
         } = prepared_stream::prepare_stream(send, response, profile.multi_mode, flush);
+        let connection_progress = stream.progress.clone();
         active.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         stream.active = Some(active);
         let driver = Box::pin(async move {
@@ -70,6 +72,12 @@ impl PreparedSingleClient {
             tokio::pin!(workers);
             tokio::select! {
                 result=driver.as_mut()=>{
+                    // Deliver this original connection's retained failure to
+                    // flush waiters even when its writer is idle and decoded
+                    // read data still blocks the original FIFO worker.
+                    if let Err(source) = connection_flush.check() {
+                        connection_progress.fail(source);
+                    }
                     // Preserve the original connection result while its hunk
                     // workers still own decoded DATA or a pending error send.
                     // An actual connection error is not return of those views.

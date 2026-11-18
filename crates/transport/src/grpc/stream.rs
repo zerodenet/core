@@ -1,7 +1,7 @@
 use super::*;
 pub struct GrpcStream {
     pub(super) inline: Option<super::inline::Inline>,
-    progress: std::sync::Arc<super::progress::Progress>,
+    pub(super) progress: std::sync::Arc<super::progress::Progress>,
     pub(super) driver: Option<std::sync::Arc<super::server::Driver>>,
     pub(super) incoming: Option<super::server::GrpcIncoming>,
     pub(super) scoped: Option<std::sync::Arc<super::scoped_server::Stop>>,

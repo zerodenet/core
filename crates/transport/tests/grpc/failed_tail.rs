@@ -81,9 +81,18 @@ async fn actual_failed_connection_retains_decoded_tail_until_original_fifo_retur
             // its remaining chunk and 1024-byte tail are held by that worker.
             break_connection.send(()).unwrap();
             peer.await.unwrap();
-            AsyncWriteExt::write_all(&mut stream, b"observe original connection failure")
+            // Peer exit is not delivery of the client's original error. Wait
+            // for that actual retained result while its read worker remains
+            // blocked by the real full FIFO; no sleep or dummy probe qualifies.
+            while stream.progress.check().is_ok() {
+                assert!(!task.is_finished());
+                tokio::task::yield_now().await;
+            }
+            let failure = AsyncWriteExt::write_all(&mut stream, b"observe original connection failure")
                 .await
-                .unwrap();
+                .unwrap_err();
+            assert!(original_h2(&failure)
+                .is_some_and(|error| error.reason() == Some(h2::Reason::INTERNAL_ERROR)));
             let failure = AsyncWriteExt::flush(&mut stream).await.unwrap_err();
             assert!(original_h2(&failure)
                 .is_some_and(|error| error.reason() == Some(h2::Reason::INTERNAL_ERROR)),
