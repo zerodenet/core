@@ -163,10 +163,30 @@ jobs:
 
       # Clippy already type-checks every target. The workspace suite also runs
       # zero-proxy's runtime_boundary integration test; do not compile it twice.
+      - name: Prepare symbolic native test-worker diagnosis
+        run: |
+          sudo apt-get update && sudo apt-get install -y gdb
+          mkdir -p "$RUNNER_TEMP/zero-workspace-cores"
+          sudo sysctl -w "kernel.core_pattern=$RUNNER_TEMP/zero-workspace-cores/core.%e.%p"
+
       - name: Test (workspace, including connector webhook delivery)
         env:
           RUST_MIN_STACK: "16777216"
-        run: bash scripts/test-workspace.sh
+        run: |
+          ulimit -c 2097152
+          bash scripts/test-workspace.sh
+
+      - name: Collect symbolic native test-worker stacks
+        if: failure()
+        run: python3 .github/scripts/collect-workspace-native-backtrace.py
+
+      - name: Retain symbolic native test-worker stacks
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-linux-native-stacks
+          path: ${{ runner.temp }}/zero-workspace-backtraces
+          if-no-files-found: ignore
 
       - name: Check representative minimal feature surfaces
         shell: bash
