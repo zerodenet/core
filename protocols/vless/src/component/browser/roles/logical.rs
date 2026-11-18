@@ -6,6 +6,10 @@ use zero_platform_tokio::{
     },
     controlled_carrier::loan::LoanOwner,
 };
+#[expect(
+    clippy::large_enum_variant,
+    reason = "both variants already use one prepaid BoxChannelControl sized for Logical; a nested LoanOwner box would add an uncharged allocation"
+)]
 pub(in crate::component::browser) enum Logical {
     Loan(LoanOwner),
     Driver(zero_platform_tokio::controlled_carrier::CarrierAdoption),
