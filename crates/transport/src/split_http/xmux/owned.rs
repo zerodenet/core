@@ -94,6 +94,14 @@ impl Runtime {
         }
     }
     pub async fn run(&self) {
+        tokio::select! { biased;
+            _=self.stopped.cancelled()=>self.ledger.cancel_all(),
+            _=self.run_work()=>{},
+        }
+    }
+    // TCP retirement keeps polling actual HTTP work until its same wire
+    // driver flushes body EOF and returns. Its own loop handles stop requests.
+    async fn run_work(&self) {
         let mut idle = tokio::time::interval_at(
             tokio::time::Instant::now() + std::time::Duration::from_secs(15),
             std::time::Duration::from_secs(15),
@@ -105,12 +113,15 @@ impl Runtime {
             changed.as_mut().enable();
             let progress = std::future::poll_fn(|cx| self.ledger.poll(cx));
             tokio::select! {biased;
-                _=self.stopped.cancelled()=>{self.ledger.cancel_all();return;},
                 _=progress=>return,
                 _=&mut changed=>{},
                 _=idle.tick()=>{let pool={self.pool.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref().and_then(std::sync::Weak::upgrade)};if let Some(pool)=pool{pool.reap();}},
             }
         }
+    }
+    fn request_tcp_return(&self) {
+        self.stopped.cancel();
+        self.ledger.cancel_logical();
     }
     pub fn stop(&self) {
         self.stopped.cancel();
@@ -136,7 +147,6 @@ impl Runtime {
                 }
             });
             tokio::select! { biased;
-                _=self.stopped.cancelled()=>{self.ledger.cancel_all();return;},
                 _=progress=>return,
                 _=&mut changed=>{},
             }

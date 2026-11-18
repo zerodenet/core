@@ -68,6 +68,7 @@ pub(super) async fn run(
     if ready.send(Ok(sender)).is_err() {
         return Ok(());
     }
+    let mut returning = false;
     let result = loop {
         let changed = state.changed.notified();
         tokio::pin!(changed);
@@ -78,13 +79,15 @@ pub(super) async fn run(
             );
         }
         tokio::select! {biased;
-            // stop() has already destroyed the logical HTTP bodies. Do not
-            // poll Hyper against those revoked bodies on a later wake. Native
-            // closure and the real driver join remain the original Root's
-            // separate gates; errors observed before stop remain errors.
-            _=state.runtime.stopped.cancelled()=>return Ok(()),
+            // Logical cancellation closes the real body producers. Keep Hyper
+            // and its delegates alive to flush their actual EOF/trailers before
+            // the Root can receive this driver's genuine join and close its IO.
+            _=state.runtime.stopped.cancelled(), if !returning=>{
+                returning = true;
+                state.runtime.ledger.cancel_logical();
+            },
             result=driver.inner.as_mut()=>break result,
-            _=state.runtime.run()=>return Ok(()),
+            _=state.runtime.run_work()=>return Ok(()),
             _=&mut changed=>{},
         }
     };
@@ -104,7 +107,7 @@ pub(super) async fn run(
         if state.delegates.load(Ordering::Acquire) == 0 {
             break;
         }
-        tokio::select! {biased;_=state.runtime.run()=>break,_=&mut changed=>{}}
+        tokio::select! {biased;_=state.runtime.run_work()=>break,_=&mut changed=>{}}
     }
     drop(driver);
     match result {

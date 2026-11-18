@@ -4,7 +4,8 @@ use serde_json::json;
 use tokio::time::{timeout, Duration};
 use zero_config::RuntimeConfig;
 use zero_proxy::Proxy;
-mod pending_echo;
+pub(crate) mod pending_echo;
+pub(crate) mod pending_return;
 const ID: &str = "11111111-2222-3333-4444-555555555555";
 pub async fn interop_transport(mode: &str, zero_client: bool, tls: bool) {
     interop_options(mode, zero_client, tls, json!({}), json!({})).await;

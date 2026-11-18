@@ -5,7 +5,7 @@ use tokio::{
     sync::{oneshot, watch},
 };
 
-pub(super) async fn start(
+pub(crate) async fn start(
     length: usize,
     mut release: watch::Receiver<bool>,
 ) -> (u16, tokio::task::JoinHandle<()>, oneshot::Receiver<()>) {

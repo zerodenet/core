@@ -23,7 +23,31 @@ async fn xhttp_intermediate_hop_keeps_nested_downloads_and_udp_inside_the_chain(
         relay_case("stream-up", tls, true).await;
     }
 }
+
+#[test]
+fn xhttp_udp_return_drains_original_uploads_without_cancelling_pending_tcp_on_two_mib_stack() {
+    std::thread::Builder::new()
+        .stack_size(2 * 1024 * 1024)
+        .spawn(|| {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(async {
+                for tls in [false, true] {
+                    Box::pin(relay_case_with_pending("stream-up", tls, false, true)).await;
+                }
+            });
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
 async fn relay_case(mode: &str, tls: bool, nested: bool) {
+    Box::pin(relay_case_with_pending(mode, tls, nested, false)).await;
+}
+
+async fn relay_case_with_pending(mode: &str, tls: bool, nested: bool, pending: bool) {
     let first_port = free_port();
     let final_port = free_port();
     let outer_port = free_port();
@@ -34,6 +58,10 @@ async fn relay_case(mode: &str, tls: bool, nested: bool) {
         "inbounds":[{"tag":"first","listen":{"address":"127.0.0.1","port":first_port},"protocol":{"type":"socks5"}}],
         "route":{"rules":[],"final":{"type":"direct"}}
     }).to_string()).unwrap()).unwrap());
+    first
+        .wait_ready(tokio::time::Instant::now() + std::time::Duration::from_secs(3))
+        .await
+        .unwrap();
     wait_for_listener(first_port).await;
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", download_port))
         .await
@@ -72,6 +100,10 @@ async fn relay_case(mode: &str, tls: bool, nested: bool) {
         "inbounds":[{"tag":"final","listen":{"address":"127.0.0.1","port":final_port},"protocol":inbound}],
         "route":{"rules":[],"final":{"type":"direct"}}
     }).to_string()).unwrap()).unwrap());
+    final_hop
+        .wait_ready(tokio::time::Instant::now() + std::time::Duration::from_secs(3))
+        .await
+        .unwrap();
     wait_for_listener(final_port).await;
     let middle = if nested {
         let mut protocol = json!({"type":"vless","users":[{"id":"middle-user"}],"split_http":{"path":"/middle/","mode":"auto"}});
@@ -82,6 +114,10 @@ async fn relay_case(mode: &str, tls: bool, nested: bool) {
             "inbounds":[{"tag":"middle","listen":{"address":"127.0.0.1","port":middle_port},"protocol":protocol}],
             "route":{"rules":[],"final":{"type":"direct"}}
         }).to_string()).unwrap()).unwrap());
+        server
+            .wait_ready(tokio::time::Instant::now() + std::time::Duration::from_secs(3))
+            .await
+            .unwrap();
         wait_for_listener(middle_port).await;
         Some(server)
     } else {
@@ -108,7 +144,16 @@ async fn relay_case(mode: &str, tls: bool, nested: bool) {
         "outbound_groups":[{"tag":"chain","type":"relay","proxies":chain}],
         "route":{"rules":[],"final":{"type":"route","outbound":"chain"}}
     }).to_string()).unwrap()).unwrap());
+    outer
+        .wait_ready(tokio::time::Instant::now() + std::time::Duration::from_secs(3))
+        .await
+        .unwrap();
     wait_for_listener(outer_port).await;
+    if pending {
+        // One TCP plus one UDP uses the existing default original budget.
+        // Keep the original close receipts and the later rotation below.
+        support::xhttp::pending_return::check(outer_port, &outer).await;
+    }
     for sequence in 0..4u8 {
         let echo_port = free_port();
         let payload = vec![sequence; 65_537];

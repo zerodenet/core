@@ -168,7 +168,7 @@ impl PreparedXhttpTcp {
         })
     }
     pub fn stop(&self) {
-        self.state.runtime.stop();
+        self.state.runtime.request_tcp_return();
     }
 }
 impl PendingXhttpTcp {
@@ -213,7 +213,7 @@ impl Drop for PendingXhttpTcp {
 }
 impl Drop for Original {
     fn drop(&mut self) {
-        self.state.runtime.stop();
+        self.state.runtime.request_tcp_return();
         self.retirement.request_retirement();
     }
 }
