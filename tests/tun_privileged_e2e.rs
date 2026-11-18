@@ -189,6 +189,14 @@ fn privileged_tun_ipv4_direct_udp_dns_does_not_self_capture() {
         .parse::<SocketAddr>()
         .expect("ZERO_TUN_E2E_DNS_ADDR must be an IPv4 DNS socket");
     assert!(dns_target.is_ipv4(), "DNS target must be IPv4");
+    // Establish the actual peer before capture, with no retransmission. A
+    // missing public DNS reply must not be mistaken for a TUN routing fault.
+    let baseline = UdpSocket::bind("0.0.0.0:0").unwrap();
+    baseline
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    assert_direct_dns_round_trip(&baseline, dns_target, 0x6fff);
+    drop(baseline);
     let direct_config = direct_udp_config_json(listen_port, true);
     let stopped_config = direct_udp_config_json(listen_port, false);
     let idle = RuntimeConfig::parse(&direct_config)
@@ -2062,9 +2070,12 @@ fn assert_direct_dns_round_trip(socket: &UdpSocket, target: SocketAddr, id: u16)
         .send_to(&query, target)
         .expect("send direct DNS query through TUN");
     let mut response = [0_u8; 2048];
-    let (size, source) = socket
-        .recv_from(&mut response)
-        .expect("receive direct DNS response through TUN");
+    let (size, source) = socket.recv_from(&mut response).unwrap_or_else(|error| {
+        panic!(
+            "direct DNS reply missing: id={id:#06x} source={:?} target={target}: {error}",
+            socket.local_addr()
+        )
+    });
     assert_eq!(source, target);
     assert!(size >= 12, "direct DNS response is too short");
     assert_eq!(&response[..2], &id.to_be_bytes());

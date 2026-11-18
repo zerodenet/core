@@ -81,7 +81,7 @@ jobs:
         run: bash .github/scripts/test-workspace.sh cargo test --target x86_64-unknown-linux-gnu --all-features --test tun_privileged_e2e privileged_tun_ipv4_smoke_tcp_dns_and_crash_recovery -- --ignored --exact --nocapture
       - name: Run direct UDP self-capture E2E
         env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo bash .github/scripts/tun-e2e-core-runner.sh
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: sudo python3 .github/scripts/tun-udp-dns-peer.py bash .github/scripts/tun-e2e-core-runner.sh
         run: bash .github/scripts/test-workspace.sh cargo test --target x86_64-unknown-linux-gnu --all-features --test tun_privileged_e2e privileged_tun_ipv4_direct_udp_dns_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run Fake-IP DoH underlay E2E
         env:
