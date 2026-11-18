@@ -116,24 +116,29 @@ impl ProxyHandle {
             .materialize_endpoints()
             .map_err(|error| error.to_string())?;
         let handle = self.clone();
-        let operation =
-            self.proxy
-                .host
-                .apply()
-                .run(self.proxy.host.apply_lock().clone(), async move {
-                    let result = handle
-                        .apply_config_under_owned_guard(
-                            candidate,
-                            expected_current.as_ref(),
-                            timeout,
-                            persist,
-                        )
-                        .await?;
-                    if result.is_some() {
-                        handle.enforce_principal_impact(&disabled_principals, &changed_principals);
-                    }
-                    Ok(result)
-                });
+        // The actual retained ApplyOwner accepts one boxed operation. Keep
+        // its transaction state out of every control caller's future layout.
+        let work: zero_platform_tokio::contract::BoxFuture<
+            'static,
+            Result<Option<ConfigReconcileResult>, String>,
+        > = Box::pin(async move {
+            let result = Box::pin(handle.apply_config_under_owned_guard(
+                candidate,
+                expected_current.as_ref(),
+                timeout,
+                persist,
+            ))
+            .await?;
+            if result.is_some() {
+                handle.enforce_principal_impact(&disabled_principals, &changed_principals);
+            }
+            Ok(result)
+        });
+        let operation = self
+            .proxy
+            .host
+            .apply()
+            .run(self.proxy.host.apply_lock().clone(), work);
         // This bounds only the caller's wait. ApplyOwner retains accepted work
         // and its original ACK through actual commit or confirmed compensation.
         tokio::time::timeout(timeout, operation)
@@ -174,15 +179,14 @@ impl ProxyHandle {
 
         let wire = self.prepare_wire_transition(&candidate)?;
         let control = self.prepare_control_transition(&candidate, timeout).await?;
-        let result = self
-            .apply_config_after_control_prepared(
-                candidate,
-                previous,
-                timeout,
-                persist,
-                wire.as_ref(),
-            )
-            .await;
+        let result = Box::pin(self.apply_config_after_control_prepared(
+            candidate,
+            previous,
+            timeout,
+            persist,
+            wire.as_ref(),
+        ))
+        .await;
         self.finish_control_transition(control, result)
     }
 
