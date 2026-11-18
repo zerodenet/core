@@ -43,11 +43,15 @@ impl ControlledCandidates {
             .refresh_anchor(source)
             .await
             .map_err(|error| self.fail(error).source)?;
+        let work = self
+            .prepare_resolution(self.services.resolution_call(), work)
+            .await
+            .map_err(|error| self.fail(error).source)?;
         let (send, receive) = tokio::sync::oneshot::channel();
         let cancel = self.context.cancel.clone();
         let task = async move {
             let result = tokio::select! { biased;
-                result = work => result,
+                result = work => result.and_then(|result| result),
                 _ = cancel.cancelled() => Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "original Direct demand cancelled during DNS refresh")),
             }.map_err(Arc::new);
             let failure = result.as_ref().err().cloned();

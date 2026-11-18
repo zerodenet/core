@@ -60,6 +60,16 @@ impl ProbeRequest {
     }
 }
 impl DirectDemand {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) fn native_caller(
+        &self,
+    ) -> Option<&crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration>
+    {
+        match self {
+            Self::Business(request) => request.native_caller(),
+            Self::Probe(_) => None,
+        }
+    }
     pub(in crate::component) fn check_direct_destination(
         &self,
         destination: &Destination,

@@ -127,7 +127,7 @@ impl DirectConnector {
         opener: &D,
     ) -> Result<DirectTcpConnection<D::Socket>, DirectTcpConnectFailure> {
         let resolution = match self
-            .resolve_target_addrs_with_policy(session, resolver.as_ref(), egress, policy)
+            .resolve_target_addrs_using(session, resolver.as_ref(), egress, policy, Some(opener))
             .await
         {
             Ok(resolution) => resolution,
@@ -254,6 +254,18 @@ impl DirectConnector {
         egress: &EgressInterfaceControl,
         policy: &zero_traits::DialPolicy,
     ) -> Result<DirectTargetResolution, Error> {
+        self.resolve_target_addrs_using::<TokioSocket>(session, resolver, egress, policy, None)
+            .await
+    }
+
+    async fn resolve_target_addrs_using<S: Send>(
+        &self,
+        session: &Session,
+        resolver: &DnsSystem,
+        egress: &EgressInterfaceControl,
+        policy: &zero_traits::DialPolicy,
+        opener: Option<&dyn CandidateOpener<Socket = S>>,
+    ) -> Result<DirectTargetResolution, Error> {
         policy
             .validate()
             .map_err(|_| Error::Config("invalid outbound dial policy"))?;
@@ -262,7 +274,7 @@ impl DirectConnector {
         for attempt in 0..2 {
             let generation = egress.generation();
             let result = self
-                .resolve_target_addrs_at_generation(session, resolver, egress, policy)
+                .resolve_target_addrs_at_generation(session, resolver, egress, policy, opener)
                 .await;
             let current_generation = egress.generation();
             if current_generation == generation {
@@ -281,33 +293,43 @@ impl DirectConnector {
         ))
     }
 
-    fn resolve_target_addrs_at_generation<'a>(
+    fn resolve_target_addrs_at_generation<'a, S: Send>(
         &'a self,
         session: &'a Session,
         resolver: &'a DnsSystem,
         egress: &'a EgressInterfaceControl,
         policy: &'a zero_traits::DialPolicy,
+        opener: Option<&'a dyn CandidateOpener<Socket = S>>,
     ) -> zero_platform_tokio::contract::BoxFuture<'a, Result<DirectTargetResolution, Error>> {
         // DNS preparation must not enlarge every literal-IP UDP relay poll.
         // Keep the original resolver, generation check and caller custody.
-        Box::pin(self.resolve_target_addrs_at_generation_inner(session, resolver, egress, policy))
+        Box::pin(async move {
+            let family = policy
+                .effective_family()
+                .map_err(|_| Error::Config("invalid outbound dial family"))?;
+            let (target, fallback) = if family == zero_traits::AddressFamily::OnlyIpv6 {
+                (session.effective_direct_target(), None)
+            } else {
+                direct_resolution_target(session, egress)
+            };
+            let work = Box::pin(self.resolve_target_addrs_at_generation_inner(
+                session, resolver, policy, target, fallback,
+            ));
+            match opener.filter(|_| matches!(target, Address::Domain(_))) {
+                Some(opener) => opener.resolve(resolver, work).await,
+                None => work.await,
+            }
+        })
     }
 
     async fn resolve_target_addrs_at_generation_inner(
         &self,
         session: &Session,
         resolver: &DnsSystem,
-        egress: &EgressInterfaceControl,
         policy: &zero_traits::DialPolicy,
+        target: &Address,
+        fallback: Option<DirectAddressFamilyFallback>,
     ) -> Result<DirectTargetResolution, Error> {
-        let family = policy
-            .effective_family()
-            .map_err(|_| Error::Config("invalid outbound dial family"))?;
-        let (target, fallback) = if family == zero_traits::AddressFamily::OnlyIpv6 {
-            (session.effective_direct_target(), None)
-        } else {
-            direct_resolution_target(session, egress)
-        };
         if let Some(fallback) = fallback.as_ref() {
             tracing::info!(
                 event_type = "address_family_fallback_started",

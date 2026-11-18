@@ -1,6 +1,7 @@
 //! A per-demand Direct provider using the same canonical carrier/Scope. It
 //! owns no socket collection, task scope, Engine or configuration snapshot.
 mod demand;
+mod dns;
 mod io;
 mod refresh;
 use super::super::{business_carrier::BusinessCarrierRequest, instance::invalid};
@@ -208,6 +209,25 @@ impl ControlledCandidates {
 }
 impl CandidateOpener for ControlledCandidates {
     type Socket = io::DirectIo;
+    fn resolve<'a>(
+        &'a self,
+        resolver: &'a zero_dns::DnsSystem,
+        work: BoxFuture<'a, Result<crate::transport::DirectTargetResolution, zero_core::Error>>,
+    ) -> BoxFuture<'a, Result<crate::transport::DirectTargetResolution, zero_core::Error>> {
+        Box::pin(async move {
+            let result = async {
+                self.prepare_resolution(resolver.resolution_call(), work)
+                    .await
+                    .map_err(|source| self.fail(source).source)?
+                    .await
+            }
+            .await;
+            result.map_err(|source| {
+                tracing::debug!(error = %source, "original Direct DNS lookup failed");
+                zero_core::Error::Io("original Direct DNS lookup failed")
+            })?
+        })
+    }
     fn open<'a>(
         &'a self,
         candidate: DirectCandidate,

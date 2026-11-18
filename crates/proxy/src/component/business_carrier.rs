@@ -32,6 +32,13 @@ pub(super) struct BusinessCarrierRequest {
         Option<crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration>,
 }
 impl BusinessCarrierRequest {
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) fn native_caller(
+        &self,
+    ) -> Option<&crate::runtime::inbound_operation::raw_ip::native_obligations::NativeRegistration>
+    {
+        self.caller_native.as_ref()
+    }
     pub(super) fn new(
         engine: &Engine,
         slot: &Arc<ComponentSlot>,

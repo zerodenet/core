@@ -51,6 +51,15 @@ impl std::fmt::Display for RefreshPanic {
 impl std::error::Error for RefreshPanic {}
 pub(crate) trait CandidateOpener: Sync {
     type Socket: Send;
+    /// Observe one actual lookup in its caller, before any query is polled.
+    /// Retries and refreshes get distinct calls; this grants no DNS authority.
+    fn resolve<'a>(
+        &'a self,
+        _: &'a zero_dns::DnsSystem,
+        work: BoxFuture<'a, Result<super::super::direct::DirectTargetResolution, zero_core::Error>>,
+    ) -> BoxFuture<'a, Result<super::super::direct::DirectTargetResolution, zero_core::Error>> {
+        work
+    }
     fn local(&self, _: &Self::Socket, observed: Option<SocketAddr>) -> Option<SocketAddr> {
         observed
     }

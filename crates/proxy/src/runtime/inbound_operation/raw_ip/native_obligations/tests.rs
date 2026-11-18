@@ -178,5 +178,8 @@ mod pending;
 #[path = "tests/dns.rs"]
 mod dns;
 
+#[path = "tests/dns_resolution.rs"]
+mod dns_resolution;
+
 #[path = "tests/admission.rs"]
 mod admission;

@@ -38,6 +38,9 @@ pub(crate) struct UpstreamConnectServices {
 }
 
 impl UpstreamConnectServices {
+    pub(crate) fn resolution_call(&self) -> zero_dns::DnsResolutionCall {
+        self.resolver.resolution_call()
+    }
     pub(crate) fn native_node_dns(&self) -> Arc<dyn DnsService> {
         self.resolver.native_node_service()
     }

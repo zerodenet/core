@@ -28,8 +28,9 @@ pub(crate) async fn dispatch_prepared_tcp_candidate(
                 // Direct still opens the original literal IP. Qualify that
                 // actual gateway, not the descriptive sniffed target. A real
                 // domain Direct lookup remains a separate DNS obligation.
-                selected.slot().is_ok_and(|slot| !matches!(session.effective_direct_target(), zero_core::Address::Domain(_))
-                    && slot.recipe.spec().resources.iter().any(|declaration| matches!(declaration,
+                // The selected Direct provider also installs each actual
+                // domain lookup/refresh in this Source's finite DNS ledger.
+                selected.slot().is_ok_and(|slot| slot.recipe.spec().resources.iter().any(|declaration| matches!(declaration,
                         zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectStream { .. } | zero_platform_tokio::contract::component::ResourceDeclaration::ControlledDirectCarrier { .. })))
             }
             PreparedTcpCandidateExecution::Block { .. } => {
