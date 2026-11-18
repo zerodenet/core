@@ -199,11 +199,13 @@ impl Replacement {
         &self,
         deadline: tokio::time::Instant,
     ) -> Result<DeclaredCloseReceipt, ChannelError> {
-        // Cancel every retained old owner before any one shutdown can await.
+        // Fence new acquisition and cancel Business before the first await.
+        // Actual donor revocation follows confirmed consumer cleanup below;
+        // otherwise a live HTTP driver would lose its borrowed input mid-EOF.
         for part in &self.parts {
             for slot in &part.plan.order {
                 if part.instances.contains(&slot.instance_id()) {
-                    slot.revoke();
+                    slot.fence_retirement();
                 }
             }
         }

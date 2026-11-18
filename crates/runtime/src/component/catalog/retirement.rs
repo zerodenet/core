@@ -33,7 +33,7 @@ impl ComponentPlan {
             ));
         }
         for slot in nodes.values() {
-            slot.revoke();
+            slot.fence_retirement();
         }
         let mut pending = None;
         let mut blocked: BTreeSet<ComponentInstanceId> = BTreeSet::new();

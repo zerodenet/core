@@ -156,11 +156,21 @@ impl NativeCarrierOpener {
                 )),
             ));
         }
+        // A preinstalled protocol original owns its finite cleanup phase. Seal
+        // acquisition through slot.cancel, but let that exact original driver
+        // finish HTTP EOF before its retained native controller revokes IO.
+        // Ordinary TCP retains immediate parent cancellation. Interrupted setup
+        // still retains/cleans the actual PendingTcpConnect and same controller.
+        let native_cancel = if grant.slot.state().protocol.is_some() {
+            crate::contract::CancellationToken::new()
+        } else {
+            grant.slot.cancel.clone()
+        };
         let (pending, control) = match PendingTcpConnect::prepare(
             self.peer,
             &binding.dial,
             &selection,
-            grant.slot.cancel.clone(),
+            native_cancel,
             self.observer.clone(),
         ) {
             Ok(value) => value,

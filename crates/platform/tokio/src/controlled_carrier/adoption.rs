@@ -140,6 +140,31 @@ impl CarrierAdoption {
     {
         self.spawn_driver_inner(registrar, class, io, build, false)
     }
+    /// The same installed protocol controller stops this original TCP driver.
+    /// Keep its actual future alive through HTTP EOF/trailers; Host revocation
+    /// still fences acquisition, and native/users/Scope joins remain separate.
+    pub fn spawn_draining_protocol_driver<I, F, Fut>(
+        &self,
+        registrar: &TaskRegistrar,
+        class: TaskClass,
+        io: CarrierDriver<I>,
+        build: F,
+    ) -> Result<(TaskId, TaskJoinWitness), ChannelError>
+    where
+        I: Send + 'static,
+        F: FnOnce(I) -> Fut,
+        Fut: Future<Output = Result<(), ComponentError>> + Send + 'static,
+    {
+        if self.slot.state().protocol.is_none() {
+            return Err(error(
+                self.instance(),
+                Stage::Prepare,
+                Reason::StalePlan,
+                DeliveryState::NotSubmitted,
+            ));
+        }
+        self.spawn_driver_inner(registrar, class, io, build, false)
+    }
     fn spawn_driver_inner<I, F, Fut>(
         &self,
         registrar: &TaskRegistrar,

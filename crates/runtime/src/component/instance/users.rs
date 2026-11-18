@@ -15,6 +15,7 @@ pub(in crate::component) struct Users {
     active: AtomicUsize,
     admission_paused: std::sync::Mutex<census::Admission>,
     cancel: CancellationToken,
+    business_cancel: CancellationToken,
     changed: Notify,
 }
 /// A reversible admission barrier; it is never evidence of original closure.
@@ -77,6 +78,7 @@ impl Users {
             active: AtomicUsize::new(0),
             admission_paused: Default::default(),
             cancel: CancellationToken::new(),
+            business_cancel: CancellationToken::new(),
             changed: Notify::new(),
         }
     }
@@ -92,6 +94,11 @@ impl Users {
     pub(in crate::component) fn revoke(&self) {
         if self.enabled.get().copied().unwrap_or(false) {
             self.cancel.cancel();
+        }
+    }
+    pub(in crate::component) fn fence_business(&self) {
+        if self.enabled.get().copied().unwrap_or(false) {
+            self.business_cancel.cancel();
         }
     }
     fn acquire(&self) -> Result<(), ChannelError> {
@@ -175,7 +182,7 @@ impl Lease {
             // Retain every acquired count before the revocation check. Any
             // subsequent error drops this exact partial lease, not a guessed count.
             lease.owners.push(root.clone());
-            if root.cancel.is_cancelled() {
+            if root.cancel.is_cancelled() || root.business_cancel.is_cancelled() {
                 let mut error = lease.failure(Stage::Dial);
                 error.delivery = DeliveryState::NotSubmitted;
                 return Err(error);
@@ -202,16 +209,32 @@ impl Lease {
         Ok(Some(lease))
     }
     fn is_revoked(&self) -> bool {
-        self.owners.iter().any(|owner| owner.cancel.is_cancelled())
+        self.owners.iter().any(|owner| {
+            owner.cancel.is_cancelled()
+                || self.session.is_some() && owner.business_cancel.is_cancelled()
+        })
     }
     pub(in crate::component) async fn revoked(&self) {
-        self.cancellation().await
+        // Pending opens have not handed a loan to its retained receiver yet.
+        // Fence those before another preparation/IO poll, including Service.
+        self.cancellation_for(true).await
     }
     fn cancellation(&self) -> zero_platform_tokio::contract::BoxFuture<'static, ()> {
+        self.cancellation_for(false)
+    }
+    fn cancellation_for(
+        &self,
+        opening: bool,
+    ) -> zero_platform_tokio::contract::BoxFuture<'static, ()> {
         let mut waits: Vec<_> = self
             .owners
             .iter()
-            .map(|owner| Box::pin(owner.cancel.clone().cancelled_owned()))
+            .flat_map(|owner| {
+                std::iter::once(owner.cancel.clone()).chain(
+                    (opening || self.session.is_some()).then(|| owner.business_cancel.clone()),
+                )
+            })
+            .map(|cancel| Box::pin(cancel.cancelled_owned()))
             .collect();
         Box::pin(std::future::poll_fn(move |cx| {
             for wait in &mut waits {
@@ -260,6 +283,9 @@ impl Lease {
         datagram::wrap_loan(self, loan);
     }
 }
+#[cfg(test)]
+#[path = "../tests/transferred_business.rs"]
+mod business_tests;
 #[cfg(test)]
 #[path = "../tests/transferred_users.rs"]
 mod tests;

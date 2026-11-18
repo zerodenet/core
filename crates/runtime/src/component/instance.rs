@@ -219,7 +219,17 @@ impl ComponentSlot {
             }
         }
     }
+    /// Fence acquisition and cancel business users before any retirement await.
+    /// Existing service loans remain valid until their consumers actually close;
+    /// the reverse dependency walk then revokes this original owner in turn.
+    pub(in crate::component) fn fence_retirement(&self) {
+        self.users.fence_business();
+        if let Some(host) = self.admission.get() {
+            host.revoke(self.instance_id(), &self.admission_owner);
+        }
+    }
     pub fn revoke(&self) {
+        self.fence_retirement();
         self.cancel.cancel();
         #[cfg(any(unix, windows))]
         if let Some(paid) = self.prepaid_process.get() {
@@ -228,9 +238,6 @@ impl ComponentSlot {
         self.users.revoke();
         if let Some(Ok(live)) = self.live.get() {
             live.tasks.begin_shutdown();
-        }
-        if let Some(host) = self.admission.get() {
-            host.revoke(self.instance_id(), &self.admission_owner);
         }
     }
 }

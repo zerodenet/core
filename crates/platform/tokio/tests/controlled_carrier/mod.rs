@@ -171,4 +171,5 @@ mod preparation_jobs;
 
 mod multiple_targets;
 
+mod protocol_stream;
 mod transform;

@@ -130,7 +130,7 @@ impl PreparedXhttpTcp {
         let version = self.version;
         let (ready, receiver) = oneshot::channel();
         let (begin, started) = oneshot::channel();
-        let (_, witness) = adoption.spawn_driver(
+        let (_, witness) = adoption.spawn_draining_protocol_driver(
             tasks,
             TaskClass::Auxiliary,
             input,
