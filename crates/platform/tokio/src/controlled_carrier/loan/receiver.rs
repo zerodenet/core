@@ -39,7 +39,21 @@ pub(super) fn install_owner(
     owner: LoanOwner,
 ) -> Arc<tokio::sync::Mutex<LoanOwner>> {
     let observation = owner.receiver.get().cloned();
+    let donor = owner.native_control.clone();
+    let origin = owner.original().clone();
+    let related = owner
+        .related
+        .as_ref()
+        .map(|related| Arc::downgrade(&related.token));
     let owner = Arc::new(tokio::sync::Mutex::new(owner));
+    if let Some(donor) = donor {
+        donor.slot.state().loan_receiver = Some(CarrierLoanRetained {
+            receiver: Arc::downgrade(slot),
+            loan: Arc::downgrade(&owner),
+            origin,
+            related,
+        });
+    }
     if let Some(observation) = observation {
         let mut installed = observation
             .installed

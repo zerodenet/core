@@ -18,8 +18,10 @@ fn complete(slot: &CarrierAdoption) -> bool {
 // The receiver must really hold the exact controller. Read-only origin ancestry
 // and related_control never substitute for this sealed strong-custody proof.
 fn handed_off(slot: &CarrierAdoption, originals: &[CarrierAdoption]) -> bool {
-    slot.retained_driver()
-        .is_some_and(|proof| proof.retains(slot))
+    slot.retained_loan_receiver().is_some()
+        || slot
+            .retained_driver()
+            .is_some_and(|proof| proof.retains(slot))
         || slot
             .retained_preparation_job()
             .is_some_and(|proof| proof.retains(slot))

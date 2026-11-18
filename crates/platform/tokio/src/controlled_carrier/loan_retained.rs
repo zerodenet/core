@@ -4,12 +4,27 @@ use std::sync::{Arc, Weak};
 
 #[derive(Clone)]
 pub struct CarrierLoanRetained {
-    receiver: Weak<Slot>,
-    loan: Weak<tokio::sync::Mutex<super::loan::LoanOwner>>,
-    origin: CarrierOrigin,
-    related: Option<Weak<super::loan::RelatedControl>>,
+    pub(super) receiver: Weak<Slot>,
+    pub(super) loan: Weak<tokio::sync::Mutex<super::loan::LoanOwner>>,
+    pub(super) origin: CarrierOrigin,
+    pub(super) related: Option<Weak<super::loan::RelatedControl>>,
 }
 impl CarrierAdoption {
+    /// The exact NativeControl was moved into an actual retained receiver.
+    /// Keep this weak observation on the donor independently of a caller's
+    /// reclaimed protocol rows. It grants no close or replacement evidence.
+    pub fn retained_loan_receiver(&self) -> Option<CarrierLoanRetained> {
+        let proof = self.slot.state().loan_receiver.clone()?;
+        let receiver = proof.receiver_adoption()?;
+        (proof.retains(self)
+            && receiver.retained_driver().is_some_and(|driver| {
+                driver.retains(&receiver)
+                    && driver
+                        .adoption()
+                        .is_some_and(|actual| actual.same_slot(&receiver))
+            }))
+        .then_some(proof)
+    }
     /// Available even after a post-adoption validation error. Cleanup can find
     /// the exact controller installed before that error or any suspension.
     pub fn retained_loan(&self) -> Option<CarrierLoanRetained> {

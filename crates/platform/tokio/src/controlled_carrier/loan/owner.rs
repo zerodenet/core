@@ -11,7 +11,7 @@ pub struct LoanOwner {
     original: CarrierOrigin,
     pub(super) state: Arc<State>,
     pub(super) closed: bool,
-    native_control: Option<crate::controlled_carrier::CarrierAdoption>,
+    pub(super) native_control: Option<crate::controlled_carrier::CarrierAdoption>,
     pub(super) logical_control: Option<Arc<super::logical::Observation>>,
     pub(super) native_control_only: bool,
     pub(super) receiver: std::sync::OnceLock<Arc<super::receiver::Observation>>,

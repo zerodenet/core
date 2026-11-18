@@ -51,10 +51,11 @@ impl Owners {
                 && original
                     .users_closed()
                     .is_some_and(|closed| closed.matches(&original));
-            let installed = self
-                .protocols
-                .get()
-                .is_some_and(|children| children.retains_carrier_loan(&original));
+            let installed = original.retained_loan_receiver().is_some()
+                || self
+                    .protocols
+                    .get()
+                    .is_some_and(|children| children.retains_carrier_loan(&original));
             if closed || installed {
                 self.remove_pending(&original);
             } else {

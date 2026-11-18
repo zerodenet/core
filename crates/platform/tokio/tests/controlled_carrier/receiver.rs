@@ -59,6 +59,7 @@ async fn exact_returned_stream_loan_observes_only_its_strong_receiver_and_native
             let (mut peer, _) = listener.accept().await.unwrap();
             let mut loan = io.into_stream_loan(view).unwrap();
             let observation = loan.receiver_observation();
+            assert!(original.retained_loan_receiver().is_none());
             assert!(
                 observation.retained().is_none(),
                 "origin/returned loan alone does not name a receiver"
@@ -109,6 +110,7 @@ async fn exact_returned_stream_loan_observes_only_its_strong_receiver_and_native
                 .unwrap()
                 .same_owner(&receiver.registration()));
             assert!(proof.retains(&original));
+            assert!(original.retained_loan_receiver().is_none());
             assert!(
                 receiving.retained_driver().is_none(),
                 "controller installation cannot invent cached driver custody"
@@ -154,6 +156,12 @@ async fn exact_returned_stream_loan_observes_only_its_strong_receiver_and_native
                     )
                     .unwrap();
                 pending.await.unwrap();
+                let handed_off = original.retained_loan_receiver().unwrap();
+                assert!(handed_off
+                    .receiver_adoption()
+                    .unwrap()
+                    .same_slot(&receiving));
+                assert!(handed_off.retains(&original));
                 assert!(
                     original.retained_driver().is_none(),
                     "the donor has no independent driver"
@@ -176,6 +184,7 @@ async fn exact_returned_stream_loan_observes_only_its_strong_receiver_and_native
                 assert!(driver.matches_joined(joined.joined()));
                 joined.joined().result().unwrap();
                 scope.acknowledge(&joined).unwrap();
+                assert!(original.retained_loan_receiver().is_none());
                 assert!(
                     receiver
                         .registration()
@@ -189,6 +198,7 @@ async fn exact_returned_stream_loan_observes_only_its_strong_receiver_and_native
             }
             assert!(receiving.retire(deadline()).await.unwrap().is_complete());
             assert!(observation.retained().is_none());
+            assert!(original.retained_loan_receiver().is_none());
             assert!(original.closed().unwrap().matches(&original));
             assert!(original.users_closed().unwrap().matches(&original));
             assert_eq!(peer.read(&mut [0; 1]).await.unwrap(), 0);

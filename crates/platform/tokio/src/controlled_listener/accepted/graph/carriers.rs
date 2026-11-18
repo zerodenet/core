@@ -160,10 +160,11 @@ impl Users {
             .filter(|record| {
                 record.pending
                     && !record.fault
-                    && (self
-                        .protocols
-                        .get()
-                        .is_some_and(|children| children.retains_carrier_loan(&record.slot))
+                    && (record.slot.retained_loan_receiver().is_some()
+                        || self
+                            .protocols
+                            .get()
+                            .is_some_and(|children| children.retains_carrier_loan(&record.slot))
                         || record.slot.retained_driver().is_some_and(|proof| {
                             proof.retains(&record.slot)
                                 && proof
