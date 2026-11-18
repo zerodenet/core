@@ -1,6 +1,39 @@
 //! Private gRPC initializer handoff; this is not another transport executor.
 use super::{state::Physical, *};
 use std::{future::Future, sync::Arc};
+/// Same initializer, with its exact future allocation charged before boxing.
+/// Keeping this frame out of both inline/scoped preparation branches avoids
+/// duplicating the native TLS/H2 continuation on a default worker stack.
+pub(super) struct Frame<F> {
+    future: std::pin::Pin<Box<F>>,
+    _memory: zero_traits::packet_metadata::PacketMetadataCredit,
+}
+impl<F: Future> Frame<F> {
+    pub(super) fn new(
+        future: F,
+        memory: &zero_platform_tokio::contract::component::PacketDriverMetadataView,
+        instance: ComponentInstanceId,
+    ) -> Result<Self, ChannelError> {
+        let credit = memory
+            .reserve(zero_traits::packet_metadata::PacketMetadataLayout::boxed::<F>())
+            .map_err(|source| {
+                error(instance, Stage::Prepare, Reason::Capacity).with_source(source)
+            })?;
+        Ok(Self {
+            future: Box::pin(future),
+            _memory: credit,
+        })
+    }
+}
+impl<F: Future> Future for Frame<F> {
+    type Output = F::Output;
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        self.get_mut().future.as_mut().poll(cx)
+    }
+}
 fn same_source(source: Arc<ChannelError>) -> ChannelError {
     ChannelError::retained(source)
 }

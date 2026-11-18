@@ -189,9 +189,23 @@ async fn default_controlled_denial_never_calls_old_opener_or_fabricates_a_native
     assert!(protocol.closed_io.is_empty());
     assert!(tasks.exited_tasks.is_empty());
 }
-#[tokio::test]
-async fn actual_task_registration_capacity_failure_keeps_original_source_and_closes_socket_without_task_id(
+#[test]
+fn actual_task_registration_capacity_failure_keeps_original_source_and_closes_socket_without_task_id(
 ) {
+    std::thread::Builder::new()
+        .stack_size(2 * 1024 * 1024)
+        .spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(registration_capacity_failure());
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+async fn registration_capacity_failure() {
     timeout(Duration::from_secs(6), async {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let peer = listener.local_addr().unwrap();

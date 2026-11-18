@@ -171,22 +171,35 @@ impl Managed {
             cancel: physical.stop.clone(),
             binding: demand.binding.clone(),
         };
+        let memory = self
+            .resources
+            .upgrade()
+            .ok_or_else(|| error(self.instance, Stage::Prepare, Reason::Revoked))?
+            .packet_driver_metadata()?;
+        let instance = self.instance;
         let operation = move |caller| {
-            owner.prepare_original(
-                preparing_physical,
-                operation_demand,
-                grant,
-                waiting,
-                caller,
-                candidates,
+            super::setup::Frame::new(
+                owner.prepare_original(
+                    preparing_physical,
+                    operation_demand,
+                    grant,
+                    waiting,
+                    caller,
+                    candidates,
+                ),
+                &memory,
+                instance,
             )
         };
         let prepared = self
             .wait(demand, async {
                 if self.options.scoped_preparation {
-                    super::setup::run(self, &physical, move |caller| operation(Some(caller))).await
+                    super::setup::run(self, &physical, move |caller| async move {
+                        operation(Some(caller))?.await
+                    })
+                    .await
                 } else {
-                    operation(None).await
+                    operation(None)?.await
                 }
             })
             .await?;
