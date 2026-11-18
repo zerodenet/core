@@ -54,11 +54,7 @@ impl Owners {
             let installed = self
                 .protocols
                 .get()
-                .is_some_and(|children| children.retains_carrier_loan(&original))
-                || self
-                    .carrier_owner
-                    .get()
-                    .is_some_and(|owner| owner.retains_cached_carrier_loan(&original));
+                .is_some_and(|children| children.retains_carrier_loan(&original));
             if closed || installed {
                 self.remove_pending(&original);
             } else {

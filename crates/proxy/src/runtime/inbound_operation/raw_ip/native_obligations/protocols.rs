@@ -126,6 +126,7 @@ impl NativeRegistration {
         if !children.same_memory(&memory) {
             return Err(rejected(Reason::StalePlan));
         }
+        self.transfer_installed_pending_carriers();
         children.retain_for_caller(original, witness)
     }
     pub(super) async fn settle_protocols(&self, deadline: Instant) -> Result<bool, ChannelError> {
@@ -151,6 +152,7 @@ impl NativeRegistration {
         if !retiring || caller.and_then(|caller| caller.observed_join()).is_none() {
             return Ok(false);
         }
+        self.transfer_installed_pending_carriers();
         children.request_return();
         children.wait_returned(deadline).await
     }

@@ -31,6 +31,55 @@ fn handed_off(slot: &CarrierAdoption, originals: &[CarrierAdoption]) -> bool {
         })
 }
 impl NativeRegistration {
+    /// Only an actually installed child LoanOwner can receive these pending
+    /// donors. Run before its protocol row is reclaimed; no close is asserted.
+    pub(super) fn transfer_installed_pending_carriers(&self) {
+        let Some(owner) = self.owner.upgrade() else {
+            return;
+        };
+        let (originals, children) = {
+            let state = owner.lock().unwrap_or_else(|error| error.into_inner());
+            let Some(record) = state.records.get(&self.id) else {
+                return;
+            };
+            if record.pending_carriers.is_empty() {
+                return;
+            }
+            (
+                record
+                    .pending_carriers
+                    .iter()
+                    .map(|claim| claim.adoption.clone())
+                    .chain(
+                        record
+                            .carrier
+                            .iter()
+                            .chain(&record.additional_carriers)
+                            .cloned(),
+                    )
+                    .collect::<Vec<_>>(),
+                record.protocols.clone(),
+            )
+        };
+        let transferred = originals
+            .iter()
+            .filter(|slot| {
+                handed_off(slot, &originals)
+                    || children
+                        .as_ref()
+                        .is_some_and(|children| children.retains_carrier_loan(slot))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut state = owner.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some(record) = state.records.get_mut(&self.id) {
+            record.pending_carriers.retain(|claim| {
+                !transferred
+                    .iter()
+                    .any(|slot| slot.same_slot(&claim.adoption))
+            });
+        }
+    }
     /// Cleanup only. The observer independently validates current plan, Engine
     /// admission and every selected actual provider before reaching this method.
     pub(crate) fn observe_pending_carrier(
@@ -38,6 +87,7 @@ impl NativeRegistration {
         adoption: CarrierAdoption,
     ) -> Result<(), ChannelError> {
         self.check_open()?;
+        self.transfer_installed_pending_carriers();
         let physical = adoption
             .cleanup_owner()
             .ok_or_else(|| pending_error(Reason::Revoked))?;

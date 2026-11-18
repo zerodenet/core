@@ -153,41 +153,47 @@ impl Users {
             slot.request_retirement();
         }
     }
-    fn transfer_installed_carriers(&self) {
+    pub(super) fn transfer_installed_carriers(&self) {
         let observed = self.state().carriers.clone();
         let removed: Vec<_> = observed
             .iter()
             .filter(|record| {
                 record.pending
                     && !record.fault
-                    && (record.slot.retained_driver().is_some_and(|proof| {
-                        proof.retains(&record.slot)
-                            && proof
-                                .owner()
-                                .is_some_and(|owner| owner.same_owner(&record.owner))
-                            && proof
-                                .adoption()
-                                .is_some_and(|actual| actual.same_slot(&record.slot))
-                    }) || record.slot.retained_preparation_job().is_some_and(|proof| {
-                        proof.retains(&record.slot)
-                            && proof
-                                .owner()
-                                .is_some_and(|owner| owner.same_owner(&record.owner))
-                    }) || observed.iter().any(|receiver| {
-                        receiver.pending
-                            && !receiver.fault
-                            && receiver.caller.same_registration(&record.caller)
-                            && !receiver.slot.same_slot(&record.slot)
-                            && receiver.slot.retained_loan().is_some_and(|proof| {
-                                proof
-                                    .receiver_adoption()
-                                    .is_some_and(|actual| actual.same_slot(&receiver.slot))
-                                    && proof
-                                        .receiver_owner()
-                                        .is_some_and(|owner| owner.same_owner(&receiver.owner))
-                                    && proof.retains(&record.slot)
-                            })
-                    }))
+                    && (self
+                        .protocols
+                        .get()
+                        .is_some_and(|children| children.retains_carrier_loan(&record.slot))
+                        || record.slot.retained_driver().is_some_and(|proof| {
+                            proof.retains(&record.slot)
+                                && proof
+                                    .owner()
+                                    .is_some_and(|owner| owner.same_owner(&record.owner))
+                                && proof
+                                    .adoption()
+                                    .is_some_and(|actual| actual.same_slot(&record.slot))
+                        })
+                        || record.slot.retained_preparation_job().is_some_and(|proof| {
+                            proof.retains(&record.slot)
+                                && proof
+                                    .owner()
+                                    .is_some_and(|owner| owner.same_owner(&record.owner))
+                        })
+                        || observed.iter().any(|receiver| {
+                            receiver.pending
+                                && !receiver.fault
+                                && receiver.caller.same_registration(&record.caller)
+                                && !receiver.slot.same_slot(&record.slot)
+                                && receiver.slot.retained_loan().is_some_and(|proof| {
+                                    proof
+                                        .receiver_adoption()
+                                        .is_some_and(|actual| actual.same_slot(&receiver.slot))
+                                        && proof
+                                            .receiver_owner()
+                                            .is_some_and(|owner| owner.same_owner(&receiver.owner))
+                                        && proof.retains(&record.slot)
+                                })
+                        }))
             })
             .map(|record| record.slot.clone())
             .collect();

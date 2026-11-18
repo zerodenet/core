@@ -4,6 +4,7 @@ use serde_json::json;
 use tokio::time::{timeout, Duration};
 use zero_config::RuntimeConfig;
 use zero_proxy::Proxy;
+mod pending_echo;
 const ID: &str = "11111111-2222-3333-4444-555555555555";
 pub async fn interop_transport(mode: &str, zero_client: bool, tls: bool) {
     interop_options(mode, zero_client, tls, json!({}), json!({})).await;
@@ -196,8 +197,9 @@ pub async fn interop_options(
     } else {
         None
     };
-    let zero =
-        spawn_engine(Proxy::new(RuntimeConfig::parse(&zero_config.to_string()).unwrap()).unwrap());
+    let proxy = Proxy::new(RuntimeConfig::parse(&zero_config.to_string()).unwrap()).unwrap();
+    let engine = proxy.engine().clone();
+    let zero = spawn_engine(proxy);
     zero.wait_ready(tokio::time::Instant::now() + Duration::from_secs(3))
         .await
         .unwrap();
@@ -219,44 +221,68 @@ pub async fn interop_options(
         wait_for_listener(port).await;
     }
     wait_for_listener(socks).await;
-    let result = timeout(Duration::from_secs(40), async {
-        let mut jobs = tokio::task::JoinSet::new();
-        for byte in 0..4u8 {
-            let payload = vec![byte; 131_073];
-            let (echo, server) = spawn_bound_tcp_echo(payload.len()).await;
-            jobs.spawn(async move {
-                let received = socks5_tcp_echo_once(socks, echo, &payload).await?;
-                assert_eq!(received, payload);
-                server.await.map_err(std::io::Error::other)?;
-                Ok::<_, std::io::Error>(())
+    let result =
+        timeout(Duration::from_secs(40), async {
+            let mut jobs = tokio::task::JoinSet::new();
+            let gated = zero_client && relay.is_some();
+            let (release, returning) = tokio::sync::watch::channel(false);
+            let mut pending = Vec::new();
+            for byte in 0..4u8 {
+                let payload = vec![byte; 131_073];
+                let (echo, server) = if gated {
+                    let (echo, server, ready) =
+                        pending_echo::start(payload.len(), returning.clone()).await;
+                    pending.push(ready);
+                    (echo, server)
+                } else {
+                    spawn_bound_tcp_echo(payload.len()).await
+                };
+                jobs.spawn(async move {
+                    let received = socks5_tcp_echo_once(socks, echo, &payload).await?;
+                    assert_eq!(received, payload);
+                    server.await.map_err(std::io::Error::other)?;
+                    Ok::<_, std::io::Error>(())
+                });
+            }
+            for ready in pending {
+                ready.await.map_err(std::io::Error::other)?;
+            }
+            let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            let udp = socket.local_addr().unwrap().port();
+            let echo = tokio::spawn(async move {
+                let mut buffer = vec![0; 1601];
+                let (size, peer) = socket.recv_from(&mut buffer).await.unwrap();
+                assert_eq!(size, 1600);
+                socket.send_to(&buffer[..size], peer).await.unwrap();
             });
-        }
-        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let udp = socket.local_addr().unwrap().port();
-        let echo = tokio::spawn(async move {
-            let mut buffer = vec![0; 1601];
-            let (size, peer) = socket.recv_from(&mut buffer).await.unwrap();
-            assert_eq!(size, 1600);
-            socket.send_to(&buffer[..size], peer).await.unwrap();
-        });
-        let payload = vec![9; 1600];
-        assert_eq!(socks5_udp_echo(socks, udp, &payload).await, payload);
-        echo.await.unwrap();
-        while let Some(job) = jobs.join_next().await {
-            job.map_err(std::io::Error::other)??;
-        }
-        if relay.is_some() {
-            // Every first-burst business caller has now returned. Exercise
-            // the actual cached driver's next physical borrow as well; a
-            // request-group rotation must not retire its live logical work.
-            let payload = vec![0x5a; 65_537];
-            let (echo, server) = spawn_bound_tcp_echo(payload.len()).await;
-            assert_eq!(socks5_tcp_echo_once(socks, echo, &payload).await?, payload);
-            server.await.map_err(std::io::Error::other)?;
-        }
-        Ok::<_, std::io::Error>(())
-    })
-    .await;
+            let payload = vec![9; 1600];
+            assert_eq!(socks5_udp_echo(socks, udp, &payload).await, payload);
+            echo.await.unwrap();
+            if gated {
+                while !engine.completed_sessions().iter().any(|session| {
+                    session.network == zero_core::Network::Udp && session.port == udp
+                }) {
+                    tokio::task::yield_now().await;
+                }
+                // Business return is only the trigger. Every TCP target is still
+                // awaiting actual I/O; final shutdown must prove original closure.
+                release.send(true).unwrap();
+            }
+            while let Some(job) = jobs.join_next().await {
+                job.map_err(std::io::Error::other)??;
+            }
+            if relay.is_some() {
+                // Every first-burst business caller has now returned. Exercise
+                // the actual cached driver's next physical borrow as well; a
+                // request-group rotation must not retire its live logical work.
+                let payload = vec![0x5a; 65_537];
+                let (echo, server) = spawn_bound_tcp_echo(payload.len()).await;
+                assert_eq!(socks5_tcp_echo_once(socks, echo, &payload).await?, payload);
+                server.await.map_err(std::io::Error::other)?;
+            }
+            Ok::<_, std::io::Error>(())
+        })
+        .await;
     if !matches!(result, Ok(Ok(()))) {
         eprintln!("XHTTP business result before fixture teardown: mode={mode} zero_client={zero_client} tls={tls} result={result:?}");
     }

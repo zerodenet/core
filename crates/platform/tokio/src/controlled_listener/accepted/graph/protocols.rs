@@ -62,6 +62,9 @@ impl AcceptedCaller {
             return Err(gone());
         }
         let users = self.users.upgrade().ok_or_else(gone)?;
+        // A new child may reclaim already handed-off protocol rows. Transfer
+        // their exact retained donor loans before discarding that observation.
+        users.transfer_installed_carriers();
         users
             .protocol_children()?
             .retain_for_caller(original, caller)?;

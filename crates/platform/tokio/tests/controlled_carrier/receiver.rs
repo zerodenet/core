@@ -117,9 +117,6 @@ async fn exact_returned_stream_loan_observes_only_its_strong_receiver_and_native
                 .registration()
                 .retained_cached_input(&original)
                 .is_none());
-            assert!(!receiver
-                .registration()
-                .retains_cached_carrier_loan(&original));
             io.write_all(b"same").await.unwrap();
             let mut bytes = [0; 4];
             peer.read_exact(&mut bytes).await.unwrap();
@@ -166,10 +163,6 @@ async fn exact_returned_stream_loan_observes_only_its_strong_receiver_and_native
                     .retained_cached_input(&original)
                     .unwrap();
                 assert!(retained.retains(&original) && actual.driver().same_registration(&driver));
-                assert!(receiver
-                    .registration()
-                    .retains_cached_carrier_loan(&original));
-                assert!(!donor.registration().retains_cached_carrier_loan(&original));
                 assert!(
                     donor
                         .registration()
@@ -190,9 +183,6 @@ async fn exact_returned_stream_loan_observes_only_its_strong_receiver_and_native
                         .is_none(),
                     "a completed driver is not a live cached receiver"
                 );
-                assert!(!receiver
-                    .registration()
-                    .retains_cached_carrier_loan(&original));
             } else {
                 drop(io);
                 drop(view);

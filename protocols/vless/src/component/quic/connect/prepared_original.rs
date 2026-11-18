@@ -61,7 +61,6 @@ impl PreparedOriginal {
             owners_header,
         )
         .map_err(|(source, _, _)| error(Stage::Prepare, Reason::Capacity).with_source(source))?;
-        let _ = owners.carrier_owner.set(generation.carrier.registration());
         if generation.options.h3.is_some() || generation.options.hysteria.is_some() {
             let _ = owners.protocols.set(
                 zero_platform_tokio::controlled_carrier::ProtocolOriginalChildren::new(

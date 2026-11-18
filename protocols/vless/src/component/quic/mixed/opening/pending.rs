@@ -218,6 +218,7 @@ impl UpstreamOpener for Pending {
         generation
             .upstream
             .validate_pending_protocol_original(binding, &original)?;
+        parent.owners.release_installed_carriers();
         parent
             .owners
             .protocols
