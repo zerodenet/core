@@ -70,7 +70,7 @@ where
         Err(_) => return Ok(status(408)),
     };
     // Once the complete packet has arrived, HTTP cancellation cannot undo it.
-    // The task retains its request permit, queue/byte limits and deadline.
+    // Admission retains its actual task, queue/byte limits and deadline.
     let acknowledgement = if http1 {
         Acknowledgement::Received
     } else {
@@ -137,13 +137,24 @@ async fn admit(
     source: Option<mpsc::Sender<XhttpStream>>,
 ) -> io::Result<()> {
     use std::{future::Future, task::Poll};
+    // A received H1 packet is already owned by the actual accepted Scope and
+    // byte reservation. Its HTTP receipt ends the request, not that bounded
+    // task. Keeping the request permit until reassembly would starve the
+    // missing sequence behind already acknowledged later uploads. Standalone
+    // library jobs have no accepted Scope and retain this finite job bound.
+    let (receipt_permit, admission_permit) =
+        if caller.is_some() && matches!(acknowledgement, Acknowledgement::Received) {
+            (Some(permit), None)
+        } else {
+            (None, Some(permit))
+        };
     let mut admission = Box::pin(async move {
         // Retain the existing source publisher until the received packet is
         // admitted. HTTP EOF must not finish its primary and cancel this actual
         // scoped job while another connection supplies the missing sequence.
         // This is custody only; original joins/native receipts remain separate.
         let _source = source;
-        let _permit = permit;
+        let _permit = admission_permit;
         match tokio::time::timeout(
             Duration::from_secs(30),
             session.push_reserved(sequence, data, false, budget),
@@ -184,6 +195,10 @@ async fn admit(
             let _task = super::super::body::spawn(caller.as_ref(), async move {
                 let _ = finished.send(admission.await);
             })?;
+            // The real scoped spawn above must succeed before the HTTP
+            // receipt can release anything. Native/user/Scope close gates
+            // remain with those actual original owners.
+            drop(receipt_permit);
             match acknowledgement {
                 // The first poll registered and validated the complete packet.
                 // The bounded task retains both permits until queue admission,
@@ -215,3 +230,7 @@ mod http1_ack_tests;
 #[cfg(test)]
 #[path = "../../../tests/xhttp_server/pipeline_capacity.rs"]
 mod pipeline_capacity;
+
+#[cfg(test)]
+#[path = "../../../tests/xhttp_server/scoped_receipt.rs"]
+mod scoped_receipt;
