@@ -1,25 +1,24 @@
+use super::super::{OwnedTunUdpTasks, UdpScratch};
+pub(super) use crate::runtime::inbound_owners::test_support::udp::start as run;
 use std::sync::{atomic::AtomicU64, Arc};
-use zero_stack::UserUdpStack;
 
-pub(super) async fn run(
-    proxy: crate::Proxy,
-    stack: Arc<UserUdpStack>,
+pub(crate) async fn run_owned(
+    runtime: crate::runtime::udp_ingress::UdpIngressRuntime,
+    stack: Arc<zero_stack::UserUdpStack>,
     tag: String,
+    tasks: OwnedTunUdpTasks,
+    scratch: UdpScratch,
     dns_hijack: bool,
     dns_hijacked_queries: Arc<AtomicU64>,
 ) -> Result<(), zero_engine::EngineError> {
-    let services = proxy.tcp_runtime_services().for_inbound(tag.clone());
-    // Explicit standalone stack fixture; production requires owned Source tasks.
     super::super::run_inner(
-        crate::runtime::udp_ingress::UdpIngressRuntime::new(services),
+        runtime,
         stack,
         tag,
         dns_hijack,
         dns_hijacked_queries,
-        #[cfg(feature = "raw-ip-runtime")]
-        None,
-        #[cfg(feature = "raw-ip-runtime")]
-        None,
+        Some(tasks),
+        Some(scratch),
     )
     .await
 }

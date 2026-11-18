@@ -10,7 +10,7 @@ use zero_stack::{packet, UserNetworkStack};
 use zero_traits::UdpStack;
 
 #[path = "tests/fixtures.rs"]
-mod fixtures;
+pub(crate) mod fixtures;
 use fixtures::run;
 
 #[path = "tests/failed_association.rs"]
@@ -61,13 +61,14 @@ async fn direct_loopback() {
     let (outbound, mut packets) = mpsc::channel(8);
     let stack = UserNetworkStack::new(outbound, 1440);
     let (_tcp, udp) = stack.into_parts();
-    let task = tokio::spawn(run(
+    let task = run(
         proxy,
         Arc::clone(&udp),
         "tun-test".to_owned(),
         false,
         Arc::new(AtomicU64::new(0)),
-    ));
+    )
+    .await;
 
     let source_ip = Ipv4Addr::new(10, 0, 0, 2);
     let request = packet::build_udp(
@@ -95,7 +96,7 @@ async fn direct_loopback() {
         "endpoint-independent direct mapping should preserve the source port when available"
     );
 
-    task.abort();
+    task.shutdown().await;
 }
 
 #[tokio::test]
@@ -122,13 +123,14 @@ async fn tun_udp_port_conflict_falls_back_without_accepting_an_unregistered_send
     let (outbound, mut packets) = mpsc::channel(8);
     let stack = UserNetworkStack::new(outbound, 1440);
     let (_tcp, udp) = stack.into_parts();
-    let task = tokio::spawn(run(
+    let task = run(
         proxy,
         Arc::clone(&udp),
         "tun-test".to_owned(),
         false,
         Arc::new(AtomicU64::new(0)),
-    ));
+    )
+    .await;
     let source_ip = Ipv4Addr::new(10, 0, 0, 2);
     udp.feed(&packet::build_udp(
         IpAddr::V4(source_ip),
@@ -159,7 +161,7 @@ async fn tun_udp_port_conflict_falls_back_without_accepting_an_unregistered_send
             .is_err()
     );
 
-    task.abort();
+    task.shutdown().await;
 }
 
 #[tokio::test]
@@ -180,13 +182,14 @@ async fn tun_udp_direct_dispatch_supports_ipv6_targets_and_responses() {
     let (outbound, mut packets) = mpsc::channel(8);
     let stack = UserNetworkStack::new(outbound, 1440);
     let (_tcp, udp) = stack.into_parts();
-    let task = tokio::spawn(run(
+    let task = run(
         proxy,
         Arc::clone(&udp),
         "tun-test".to_owned(),
         false,
         Arc::new(AtomicU64::new(0)),
-    ));
+    )
+    .await;
     let source_ip = "fd00::2".parse().expect("source IPv6");
     udp.feed(&packet::build_udp(
         IpAddr::V6(source_ip),
@@ -206,7 +209,7 @@ async fn tun_udp_direct_dispatch_supports_ipv6_targets_and_responses() {
     assert_eq!(response.dst.ip, IpAddr::V6(source_ip));
     assert_eq!(response.payload, b"through-kernel-v6");
 
-    task.abort();
+    task.shutdown().await;
 }
 
 #[tokio::test]
@@ -234,13 +237,14 @@ async fn repeated_tun_udp_destination_reuses_flow_and_records_real_source() {
     let (outbound, mut packets) = mpsc::channel(8);
     let stack = UserNetworkStack::new(outbound, 1440);
     let (_tcp, udp) = stack.into_parts();
-    let task = tokio::spawn(run(
+    let task = run(
         proxy,
         Arc::clone(&udp),
         "tun-test".to_owned(),
         false,
         Arc::new(AtomicU64::new(0)),
-    ));
+    )
+    .await;
     let source_ip = Ipv4Addr::new(10, 0, 0, 2);
     let source_port = 53_002;
 
@@ -273,7 +277,7 @@ async fn repeated_tun_udp_destination_reuses_flow_and_records_real_source() {
     );
     assert_eq!(sessions[0].source_port, Some(source_port));
 
-    task.abort();
+    task.shutdown().await;
 }
 
 #[tokio::test]
@@ -288,18 +292,20 @@ async fn tun_udp_block_route_prevents_stun_network_leak() {
     )
     .expect("parse blocked config");
     let proxy = crate::runtime::Proxy::new(config).expect("create proxy");
+    let engine = proxy.engine().clone();
     let sink = UdpSocket::bind("127.0.0.1:0").await.expect("bind sink");
     let sink_addr = sink.local_addr().expect("sink address");
     let (outbound, mut packets) = mpsc::channel(8);
     let stack = UserNetworkStack::new(outbound, 1440);
     let (_tcp, udp) = stack.into_parts();
-    let task = tokio::spawn(run(
+    let task = run(
         proxy,
         Arc::clone(&udp),
         "tun-test".to_owned(),
         false,
         Arc::new(AtomicU64::new(0)),
-    ));
+    )
+    .await;
 
     let request = packet::build_udp(
         IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)),
@@ -309,6 +315,19 @@ async fn tun_udp_block_route_prevents_stun_network_leak() {
         &stun_binding_request(),
     );
     udp.feed(&request).await;
+
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if let Some(session) = engine.completed_sessions().first() {
+                assert_eq!(session.outcome, zero_engine::SessionOutcome::Blocked);
+                assert!(engine.active_sessions().is_empty());
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the real TUN caller must reach the blocking route");
 
     let mut buffer = [0_u8; 64];
     assert!(tokio::time::timeout(
@@ -323,7 +342,7 @@ async fn tun_udp_block_route_prevents_stun_network_leak() {
             .is_err()
     );
 
-    task.abort();
+    task.shutdown().await;
 }
 
 fn stun_binding_request() -> [u8; 20] {
@@ -358,13 +377,14 @@ async fn tun_dns_hijack_answers_with_fake_ip_without_reaching_destination() {
     let stack = UserNetworkStack::new(outbound, 1440);
     let (_tcp, udp) = stack.into_parts();
     let dns_hijacked_queries = Arc::new(AtomicU64::new(0));
-    let task = tokio::spawn(run(
+    let task = run(
         proxy,
         Arc::clone(&udp),
         "tun-test".to_owned(),
         true,
         Arc::clone(&dns_hijacked_queries),
-    ));
+    )
+    .await;
 
     let source_ip = Ipv4Addr::new(10, 0, 0, 2);
     let dns_ip = Ipv4Addr::new(203, 0, 113, 53);
@@ -399,7 +419,7 @@ async fn tun_dns_hijack_answers_with_fake_ip_without_reaching_destination() {
         1
     );
 
-    task.abort();
+    task.shutdown().await;
 }
 
 #[path = "tests/dns_modes.rs"]

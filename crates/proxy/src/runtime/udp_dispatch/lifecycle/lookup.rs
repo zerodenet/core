@@ -7,6 +7,10 @@ use crate::runtime::udp_dispatch::UdpDispatch;
 use crate::runtime::udp_flow::rate_limit::UdpFlowRateLimiters;
 
 impl UdpDispatch {
+    pub(crate) fn contains_session(&self, session_id: u64) -> bool {
+        self.flows.contains_session(session_id)
+    }
+
     pub(crate) fn client_session_id(&self, session_id: Option<u64>) -> Option<u64> {
         self.flows.client_session_id(session_id)
     }

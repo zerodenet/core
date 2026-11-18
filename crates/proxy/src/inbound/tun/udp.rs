@@ -377,5 +377,5 @@ fn socket_address_to_address(address: SocketAddress) -> Address {
     }
 }
 
-#[cfg(test)]
-mod tests;
+#[cfg(all(test, feature = "raw-ip-runtime"))]
+pub(crate) mod tests;

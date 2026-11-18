@@ -34,34 +34,18 @@ async fn dns_modes_return_real_wire_answers_through_the_tun_packet_pipeline() {
         }
         let config = RuntimeConfig::parse(&value.to_string()).unwrap();
         let proxy = crate::Proxy::new(config.clone()).unwrap();
-        // Only real interception performs native DNS I/O. Its actual source
-        // and query Scope must be published by the ordinary runtime first.
-        // Fake-IP remains a cold synthetic operation with no native admission.
-        let running = if mode == "real" {
-            let running = proxy.spawn();
-            let handle = crate::ProxyHandle::new(
-                zero_engine::EngineHandle::new(proxy.engine().clone()),
-                proxy.clone(),
-            );
-            handle
-                .apply_runtime_config_and_wait(config, std::time::Duration::from_secs(3))
-                .await
-                .unwrap();
-            Some(running)
-        } else {
-            None
-        };
         let (outbound, mut packets) = mpsc::channel(8);
         let stack = UserNetworkStack::new(outbound, 1440);
         let (_, udp) = stack.into_parts();
         let counter = Arc::new(AtomicU64::new(0));
-        let task = tokio::spawn(run(
+        let task = run(
             proxy,
             Arc::clone(&udp),
             "dns-matrix".into(),
             mode != "disabled",
             Arc::clone(&counter),
-        ));
+        )
+        .await;
         let (ip, port) = if mode == "disabled" {
             (endpoint.ip(), endpoint.port())
         } else {
@@ -97,11 +81,7 @@ async fn dns_modes_return_real_wire_answers_through_the_tun_packet_pipeline() {
             counter.load(Ordering::Relaxed),
             u64::from(mode != "disabled")
         );
-        task.abort();
-        let _ = task.await;
-        if let Some(running) = running {
-            running.shutdown().await.unwrap();
-        }
+        task.shutdown().await;
         if let Some(responder) = responder {
             responder.await.unwrap();
         }

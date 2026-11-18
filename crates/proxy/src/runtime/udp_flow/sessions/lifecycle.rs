@@ -8,6 +8,12 @@ use crate::runtime::udp_flow::snapshot::UdpFlowSnapshot;
 use super::model::{CompletedUdpFlow, UdpFlow, UdpFlowKey, UdpSessionFlows};
 
 impl UdpSessionFlows {
+    pub(crate) fn contains_session(&self, session_id: u64) -> bool {
+        self.flows
+            .values()
+            .any(|flow| flow.session.id == session_id)
+    }
+
     #[cfg(test)]
     pub(crate) fn snapshot(
         &self,

@@ -27,7 +27,13 @@ where
         .dispatch_inbound_packet(dispatch, &inbound_dispatch, auth, responder.client_addr())
         .await
     {
-        Ok(session_id) => responder.on_dispatch_success(session_id, &inbound_dispatch),
+        // Blocked dispatches finish their business session without installing
+        // a response flow. Publishing them as live mappings would retain TUN
+        // associations that can never receive an answer.
+        Ok(session_id) if dispatch.contains_session(session_id) => {
+            responder.on_dispatch_success(session_id, &inbound_dispatch)
+        }
+        Ok(_) => {}
         Err(zero_engine::EngineError::AdmissionDenied { reason }) => {
             tracing::debug!(%reason, "datagram UDP flow start suppressed by backoff")
         }

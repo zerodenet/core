@@ -5,6 +5,7 @@ use zero_core::{Address, DatagramUdpResponder, InboundUdpDispatch};
 use super::relay::DatagramUdpLoopContext;
 use super::with_upstream;
 
+mod blocked;
 mod fixtures;
 #[cfg(feature = "managed-stream-runtime")]
 mod packet_session;
