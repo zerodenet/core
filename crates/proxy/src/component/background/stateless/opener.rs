@@ -13,6 +13,20 @@ pub(super) struct Opener {
     pub(super) association: Option<super::datagram::Association>,
 }
 impl UpstreamOpener for Opener {
+    fn validate_pending_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        original: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        if binding != self.upstream.binding() {
+            return Err(crate::component::instance::invalid(
+                Reason::StalePlan,
+                "nested pending original binding changed",
+            ));
+        }
+        self.upstream.validate_pending_carrier(binding, original)
+    }
+
     fn validate_pending_protocol_original(
         &self,
         binding: &UpstreamBinding,

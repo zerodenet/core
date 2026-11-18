@@ -13,6 +13,28 @@ struct Selected {
     remote: std::sync::Mutex<Option<std::net::SocketAddr>>,
 }
 impl UpstreamOpener for Selected {
+    fn validate_pending_carrier(
+        &self,
+        binding: &UpstreamBinding,
+        original: &zero_platform_tokio::controlled_carrier::CarrierAdoption,
+    ) -> Result<(), ChannelError> {
+        if binding != self.upstream.binding() {
+            return Err(invalid(Reason::StalePlan, "pooled pending binding changed"));
+        }
+        self.upstream.validate_pending_carrier(binding, original)
+    }
+    fn validate_pending_protocol_original(
+        &self,
+        binding: &UpstreamBinding,
+        original: &zero_platform_tokio::controlled_carrier::ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        if binding != self.upstream.binding() {
+            return Err(invalid(Reason::StalePlan, "pooled pending binding changed"));
+        }
+        self.upstream
+            .validate_pending_protocol_original(binding, original)
+    }
+
     fn select_background_carrier_observed(
         &self,
         binding: Option<UpstreamBinding>,
