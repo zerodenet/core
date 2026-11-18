@@ -24,7 +24,7 @@ async fn ordinary_xmux_h3_keeps_one_original_across_two_real_users_and_replaces_
                 "route":{"final":{"type":"direct"}}
             }),"remote").await;
             let prefix=if borrowed {Some(fixture::start(serde_json::json!({"inbounds":[{"tag":"prefix","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"route":{"final":{"type":"direct"}}}),"prefix").await)}else{None};
-            let mut nodes=vec![serde_json::json!({"tag":"node","protocol":{"type":"vless","server":"127.0.0.1","port":remote.address.port(),"id":ID,"quic":{"server_name":"localhost","ca_cert_path":ca},"split_http":{"path":"/original/","mode":mode,"xmux":{"max_connections":1,"max_concurrency":8}}}})];
+            let mut nodes=vec![serde_json::json!({"tag":"node","protocol":{"type":"vless","server":"127.0.0.1","port":remote.address.port(),"id":ID,"quic":{"server_name":"localhost","ca_cert_path":ca},"split_http":{"path":"/original/","mode":mode,"xmux":{"max_concurrency":8}}}})];
             if let Some(prefix)=&prefix {nodes.insert(0,serde_json::json!({"tag":"prefix","protocol":{"type":"socks5","server":"127.0.0.1","port":prefix.address.port()}}));}
             let mut config=serde_json::json!({"runtime":{"native_stream_max_originals":1},"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"outbounds":nodes,"route":{"final":{"type":"route","outbound":if borrowed {"chain"}else{"node"}}}});
             if borrowed {config["outbound_groups"]=serde_json::json!([{"tag":"chain","type":"relay","proxies":["prefix","node"]}]);}

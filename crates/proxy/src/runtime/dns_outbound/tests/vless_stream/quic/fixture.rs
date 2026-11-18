@@ -114,7 +114,7 @@ pub(super) async fn client_with_mode(
     if let Some(mode) = h3 {
         nodes[0]["protocol"]["split_http"] = serde_json::json!({
             "path":"/query-original/", "mode":mode,
-            "xmux":{"max_connections":1,"max_concurrency":8}
+            "xmux":{"max_concurrency":8}
         });
     }
     if let Some(prefix) = prefix {

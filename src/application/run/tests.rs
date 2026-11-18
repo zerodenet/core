@@ -144,9 +144,22 @@ async fn quota_control_startup_failure_finishes_the_original_writer_before_retry
         )
         .await
         .unwrap();
-        let error = result.unwrap_err().to_string();
-        assert!(error.contains("control startup"), "{error}");
-        assert!(error.contains("Not a directory"), "{error}");
+        let original = result.unwrap_err();
+        let mut cause: &(dyn std::error::Error + 'static) = original.as_ref();
+        let failure = loop {
+            if let Some(io) = cause.downcast_ref::<std::io::Error>() {
+                break io;
+            }
+            cause = cause.source().expect("actual IPC filesystem error");
+        };
+        assert!(
+            matches!(
+                failure.kind(),
+                std::io::ErrorKind::AlreadyExists | std::io::ErrorKind::NotADirectory
+            ),
+            "{original}"
+        );
+        let error = original.to_string();
         assert!(
             !error.contains("configuration startup was interrupted"),
             "retry must reach the same actual IPC failure: {error}"

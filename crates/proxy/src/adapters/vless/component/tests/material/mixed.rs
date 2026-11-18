@@ -65,7 +65,7 @@ async fn ordinary_independent_download_preserves_actual_h1_h2_h3_half_owners_and
     }).await.unwrap();
 }
 fn half(version: usize, address: SocketAddr, ca: &std::path::Path) -> serde_json::Value {
-    let mut half = serde_json::json!({"server":"127.0.0.1","port":address.port(),"split_http":{"path":"/original/","mode":"packet-up","xmux":{"max_connections":1,"max_concurrency":8}}});
+    let mut half = serde_json::json!({"server":"127.0.0.1","port":address.port(),"split_http":{"path":"/original/","mode":"packet-up","xmux":{"max_concurrency":8}}});
     if version == 2 {
         half["tls"] = serde_json::json!({"server_name":"localhost","ca_cert_path":ca});
     }

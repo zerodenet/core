@@ -1,7 +1,7 @@
 use super::*;
 fn config(node: &str, detour: &str) -> RuntimeConfig {
     RuntimeConfig::parse(&serde_json::json!({
-        "runtime":{"dns":{"servers":{"node":{"type":"tcp","host":"203.0.113.53","port":53,"detour":detour}},"default_server":"node"}},
+        "runtime":{"dns":{"servers":{"node":{"type":"udp","host":"203.0.113.53","port":53,"detour":detour}},"default_server":"node"}},
         "outbounds":[{"tag":"donor","protocol":{"type":"socks5","server":node,"port":1080}}],
         "outbound_groups":[{"tag":"choice","type":"fallback","outbounds":["direct","donor"]}],
         "route":{"final":{"type":"direct"}}
