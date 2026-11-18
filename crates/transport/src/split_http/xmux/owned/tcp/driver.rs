@@ -1,7 +1,7 @@
 //! Same actual connection future and original delegate drain.
 use super::*;
 struct ConnectionDriver {
-    inner: Driver,
+    inner: Option<Driver>,
     _memory: PacketMetadataCredit,
 }
 struct Stop(PacketMetadataArc<State>);
@@ -62,7 +62,7 @@ pub(super) async fn run(
     // Keep future and ticket in explicit field destruction order on every
     // early return, error, or cancellation as well as the normal path.
     let mut driver = ConnectionDriver {
-        inner: driver,
+        inner: Some(driver),
         _memory: credit,
     };
     if ready.send(Ok(sender)).is_err() {
@@ -86,7 +86,7 @@ pub(super) async fn run(
                 returning = true;
                 state.runtime.ledger.cancel_logical();
             },
-            result=driver.inner.as_mut()=>break result,
+            result=driver.inner.as_mut().expect("live original HTTP driver").as_mut()=>break result,
             _=state.runtime.run_work()=>return Ok(()),
             _=&mut changed=>{},
         }
@@ -94,10 +94,14 @@ pub(super) async fn run(
     // A completed H2 dispatcher still holds Hyper's conn_drop_ref. Release
     // that completed future before awaiting its actual wire delegate; keeping
     // it here makes ConnTask wait for this very drain to release its last
-    // sender. H1 has already returned its real wire outcome at this point.
+    // sender. H1 still holds the actual IO/loan, so retain its completed future
+    // until its logical work returns, including work that rotated to another
+    // physical connection. Only H2 delegates own the actual wire separately.
     // Dropping the dispatcher only requests H2 shutdown: the same ledger must
     // still poll every original delegate to completion below.
-    drop(driver);
+    if matches!(version, TcpVersion::Http2 { .. }) {
+        drop(driver.inner.take());
+    }
     // A successful H1 connection EOF can belong to a different exchange than
     // the logical work using this driver. Retain the same actual task until
     // that work returns. A real wire failure still cancels affected work and
@@ -116,6 +120,7 @@ pub(super) async fn run(
         }
         tokio::select! {biased;_=state.runtime.run_work()=>break,_=&mut changed=>{}}
     }
+    drop(driver);
     match result {
         Ok(()) => Ok(()),
         Err(source) => {
