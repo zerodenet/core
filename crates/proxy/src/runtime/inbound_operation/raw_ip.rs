@@ -15,10 +15,10 @@ mod socket;
 pub(crate) mod source;
 mod stack_tasks;
 mod statistics;
-mod wire;
 #[cfg(test)]
 #[path = "raw_ip/tests/udp_input.rs"]
 pub(crate) mod udp_input;
+mod wire;
 pub(in crate::runtime) use run::run;
 pub(crate) mod tasks;
 mod tcp;
