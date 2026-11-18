@@ -95,6 +95,15 @@ impl DatagramUdpResponder<Arc<UserUdpStack>> for TunUdpResponder {
         &mut self,
         _stack: &Arc<UserUdpStack>,
     ) -> Result<Option<InboundUdpDispatch>, Error> {
+        // A failed first dispatch installed no response mapping. Stop admitting
+        // into that failed association, then drain every already accepted
+        // datagram (including partial QUIC inputs) through the same sniffer.
+        // A live association keeps its existing flows and idle policy. Closing
+        // this input is not a native close receipt: its original peer driver,
+        // Scope and controller still retire through the hosted owner below.
+        if self.current_destination.is_some() && self.session_destinations.is_empty() {
+            self.receiver.close();
+        }
         let datagram = match tokio::time::timeout(
             ASSOCIATION_IDLE_TIMEOUT,
             self.quic_sniffer.next(&mut self.receiver),

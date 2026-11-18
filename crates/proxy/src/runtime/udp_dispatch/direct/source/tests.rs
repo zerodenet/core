@@ -4,6 +4,50 @@ use super::*;
 use fixture::*;
 
 #[tokio::test]
+async fn actual_direct_source_keeps_published_plan_while_same_config_device_candidate_is_cold() {
+    let live = Live::new().await;
+    let config = live.proxy.engine().config();
+    let published = live.proxy.protocols.current_components(&config).unwrap();
+    let candidate = live
+        .proxy
+        .protocols
+        .prepare_device_components(config.clone())
+        .unwrap();
+    assert!(!Arc::ptr_eq(&published, &candidate));
+    assert!(Arc::ptr_eq(
+        &candidate,
+        &live.proxy.protocols.prepare_components(config).unwrap()
+    ));
+    let runtime = live.runtime.with_current_snapshot();
+    assert!(Arc::ptr_eq(
+        runtime
+            .services()
+            .packet_path_execution()
+            .tcp()
+            .components
+            .as_ref()
+            .unwrap(),
+        &published,
+    ));
+    live.operation
+        .socket_source(
+            live.proxy.current_service_source(),
+            &runtime,
+            &live.session,
+            &live.context,
+        )
+        .await
+        .unwrap();
+    let proxy = live.proxy.clone();
+    live.close().await;
+    proxy
+        .protocols
+        .shutdown_components(tokio::time::Instant::now() + std::time::Duration::from_secs(2))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
 async fn actual_direct_source_requires_published_host_session_and_same_registered_peer() {
     let live = Live::new().await;
     let source = live.source().await;

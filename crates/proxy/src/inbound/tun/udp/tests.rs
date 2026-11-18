@@ -13,6 +13,9 @@ use zero_traits::UdpStack;
 mod fixtures;
 use fixtures::run;
 
+#[path = "tests/failed_association.rs"]
+mod failed_association;
+
 #[tokio::test]
 async fn tun_udp_uses_kernel_direct_dispatch_and_writes_raw_response() {
     direct_loopback().await;

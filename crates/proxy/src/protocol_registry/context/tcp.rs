@@ -216,9 +216,18 @@ impl TcpRuntimeServices {
             return services;
         }
         services.execution.snapshot = services.engine.runtime_snapshot();
+        // An accepted old Source may still serve established users while a
+        // device replacement has a cold candidate for this same config Arc.
+        // Capture the actually published plan, not that uncommitted candidate.
         services.execution.components = services
             .protocols
-            .prepare_components(services.execution.snapshot.config().clone());
+            .current_components(services.execution.snapshot.config())
+            .map(Ok)
+            .unwrap_or_else(|| {
+                services
+                    .protocols
+                    .prepare_components(services.execution.snapshot.config().clone())
+            });
         services
     }
 
