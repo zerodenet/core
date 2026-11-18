@@ -81,7 +81,7 @@ def main():
                                                        "failures": failures}), flush=True)
         if result.returncode:
             return result.returncode
-        expected = [0x6fff, *range(0x7000, 0x7010), *range(0x7100, 0x7120)]
+        expected = [0x6fff, *range(0x7000, 0x7010), *range(0x7100, 0x7120), 0x7ffe]
         if failures or [row["id"] for row in received] != expected:
             raise RuntimeError("actual DNS transactions were missing, duplicated, or reordered")
         return 0

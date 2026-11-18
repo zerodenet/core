@@ -25,6 +25,9 @@ async fn tun_udp_uses_kernel_direct_dispatch_and_writes_raw_response() {
 fn tun_udp_direct_loopback_runs_on_a_default_tokio_worker_stack() {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(1)
+        // The full suite uses RUST_MIN_STACK; this regression must still run
+        // the actual TUN worker on Tokio's ordinary two-MiB stack.
+        .thread_stack_size(2 * 1024 * 1024)
         .enable_all()
         .build()
         .unwrap();
