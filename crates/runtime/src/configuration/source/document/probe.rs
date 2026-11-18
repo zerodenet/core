@@ -27,6 +27,7 @@ impl Default for Facts {
 #[derive(Debug)]
 pub(super) enum Unknown {
     Structure,
+    ObjectEof,
     Serde(serde_json::Error),
     Budget(serde_json::Error),
 }
@@ -34,6 +35,9 @@ impl std::fmt::Display for Unknown {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Structure => f.write_str("initial document IO-budget fact is unknown"),
+            Self::ObjectEof => f.write_str(
+                "EOF while parsing an object before initial IO-budget facts were complete",
+            ),
             Self::Serde(source) | Self::Budget(source) => std::fmt::Display::fmt(source, f),
         }
     }
@@ -166,6 +170,12 @@ fn object(
             Some(b',') => {
                 key = input.key()?;
                 input.colon()?;
+            }
+            None => {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    Unknown::ObjectEof,
+                ))
             }
             _ => return Err(invalid()),
         }

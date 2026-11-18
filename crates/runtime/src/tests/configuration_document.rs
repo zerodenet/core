@@ -1,6 +1,19 @@
 use super::*;
 
 #[test]
+fn truncated_initial_object_preserves_eof_and_closes_the_actual_original() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("zero.json");
+    std::fs::write(&path, br#"{"inbounds": []"#).unwrap();
+    let source = Arc::new(ConfigurationSource::new(&path));
+    let error = source.load_initial_configuration(&path).unwrap_err();
+    assert!(matches!(error, ConfigError::ParseConfig(_)));
+    assert!(error.to_string().contains("EOF while parsing an object"));
+    assert_eq!(source.io.original_observation(), (1, 1, false, false));
+    source.confirm_original_io_closed().unwrap();
+}
+
+#[test]
 fn initial_document_and_relative_resources_keep_the_same_actual_source() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("zero.json");
