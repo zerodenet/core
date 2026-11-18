@@ -16,8 +16,14 @@ struct State {
 struct Count {
     sealed: bool,
     active: usize,
+    upload_started: bool,
+    upload_returned: bool,
 }
-pub(in crate::split_http) struct WorkReturn(PacketMetadataArc<State>);
+pub(in crate::split_http) struct WorkReturn {
+    original: PacketMetadataArc<State>,
+    life: crate::split_http::io::LifetimeRef,
+    upload: bool,
+}
 impl OwnedLogicalReturn {
     pub(in crate::split_http) fn prepare(
         memory: &PacketDriverMetadataView,
@@ -32,6 +38,8 @@ impl OwnedLogicalReturn {
                 gate: Mutex::new(Count {
                     sealed: false,
                     active: 0,
+                    upload_started: false,
+                    upload_returned: false,
                 }),
                 changed: Notify::new(),
                 _duplex: duplex,
@@ -42,6 +50,12 @@ impl OwnedLogicalReturn {
         Ok(Self { original, life })
     }
     pub(in crate::split_http) fn enter(&self) -> io::Result<WorkReturn> {
+        self.enter_work(false)
+    }
+    pub(super) fn enter_upload(&self) -> io::Result<WorkReturn> {
+        self.enter_work(true)
+    }
+    fn enter_work(&self, upload: bool) -> io::Result<WorkReturn> {
         let mut state = self
             .original
             .gate
@@ -50,25 +64,55 @@ impl OwnedLogicalReturn {
         if state.sealed || self.life.is_closed() {
             return Err(io::ErrorKind::BrokenPipe.into());
         }
+        if upload && state.upload_started {
+            return Err(io::ErrorKind::AlreadyExists.into());
+        }
         state.active = state
             .active
             .checked_add(1)
             .ok_or_else(|| io::Error::other("logical work count exhausted"))?;
-        Ok(WorkReturn(self.original.clone()))
+        state.upload_started |= upload;
+        Ok(WorkReturn {
+            original: self.original.clone(),
+            life: self.life.clone(),
+            upload,
+        })
     }
     /// Stops only this logical body. Real Session/Request work must still return.
     /// This neither retires its shared physical group nor acknowledges its Scope.
     pub fn request_return(&self) {
-        self.original
+        let mut state = self
+            .original
             .gate
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .sealed = true;
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.sealed {
+            return;
+        }
+        state.sealed = true;
+        drop(state);
         self.life.close();
         self.original.changed.notify_waiters();
     }
     pub(super) async fn cancelled(&self) {
         self.life.cancelled().await;
+    }
+    pub(super) async fn wait_upload_returned(&self) {
+        loop {
+            let changed = self.original.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if self
+                .original
+                .gate
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .upload_returned
+            {
+                return;
+            }
+            changed.await;
+        }
     }
     pub fn is_returned(&self) -> bool {
         let state = self
@@ -90,17 +134,29 @@ impl OwnedLogicalReturn {
         }
     }
 }
+impl WorkReturn {
+    pub(super) fn request_return(&self) {
+        OwnedLogicalReturn {
+            original: self.original.clone(),
+            life: self.life.clone(),
+        }
+        .request_return();
+    }
+}
 impl Drop for WorkReturn {
     fn drop(&mut self) {
         let mut state = self
-            .0
+            .original
             .gate
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         assert!(state.active > 0);
         state.active -= 1;
+        if self.upload {
+            state.upload_returned = true;
+        }
         drop(state);
-        self.0.changed.notify_waiters();
+        self.original.changed.notify_waiters();
     }
 }
 

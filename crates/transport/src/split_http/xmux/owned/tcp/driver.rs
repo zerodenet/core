@@ -84,7 +84,7 @@ pub(super) async fn run(
             // the Root can receive this driver's genuine join and close its IO.
             _=state.runtime.stopped.cancelled(), if !returning=>{
                 returning = true;
-                state.runtime.ledger.cancel_logical();
+                state.runtime.ledger.request_logical_return();
             },
             result=driver.inner.as_mut().expect("live original HTTP driver").as_mut()=>break result,
             _=state.runtime.run_work()=>return Ok(()),

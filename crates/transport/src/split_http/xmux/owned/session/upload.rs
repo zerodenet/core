@@ -50,14 +50,21 @@ pub(super) async fn produce(
     let mut scratch = scratch(&mut working)?;
     let lane = working.transmit();
     loop {
-        let count = reader.read(&mut scratch.bytes).await?;
+        let count = tokio::select! {biased;
+            _=life.cancelled()=>return Ok(()),
+            result=reader.read(&mut scratch.bytes)=>result?,
+        };
         if count == 0 {
             return Ok(());
         }
-        let credit = lane.reserve(count).await?;
-        sender
-            .send(Ok(copy(&scratch.bytes[..count], credit)?))
-            .await?;
+        let credit = tokio::select! {biased;
+            _=life.cancelled()=>return Ok(()),
+            result=lane.reserve(count)=>result?,
+        };
+        tokio::select! {biased;
+            _=life.cancelled()=>return Ok(()),
+            result=sender.send(Ok(copy(&scratch.bytes[..count], credit)?))=>result?,
+        }
         if life.is_closed() {
             return Ok(());
         }
@@ -102,7 +109,13 @@ impl Upload {
                 )?;
                 let produce = produce(reader, send, working, life.clone());
                 let request = async { check_response(sender.send_request(request).await?).await };
-                tokio::try_join!(produce, request)?;
+                // Returning a logical stream closes its real body producer,
+                // then receives the actual HTTP response. Dropping this request
+                // on logical cancellation truncates H1 and faults its shared
+                // original, which also revokes unrelated TCP consumers.
+                let (produced, received) = tokio::join!(produce, request);
+                produced?;
+                received?;
                 return Ok(());
             }
             let mut scratch = scratch(&mut working)?;
@@ -114,13 +127,22 @@ impl Upload {
                     (crate::split_http::request::sample(profile.options.sc_max_each_post_bytes)
                         .max(1) as usize)
                         .min(scratch.bytes.len());
-                let count = reader.read(&mut scratch.bytes[..cap]).await?;
+                let count = tokio::select! {biased;
+                    _=life.cancelled()=>break,
+                    result=reader.read(&mut scratch.bytes[..cap])=>result?,
+                };
                 if count == 0 {
                     break;
                 }
-                let credit = lane.reserve(profile.transmit_peak(count)?).await?;
+                let credit = tokio::select! {biased;
+                    _=life.cancelled()=>break,
+                    result=lane.reserve(profile.transmit_peak(count)?)=>result?,
+                };
                 let bytes = copy(&scratch.bytes[..count], credit)?;
-                tokio::time::sleep_until(next).await;
+                tokio::select! {biased;
+                    _=life.cancelled()=>break,
+                    _=tokio::time::sleep_until(next)=>{},
+                }
                 // Same Bytes owner; this clone also holds derived-header credit
                 // until the actual POST response was consumed, not just enqueued.
                 let request = profile.packet_request_owned(
@@ -149,8 +171,9 @@ impl Upload {
             }
             Ok::<_, io::Error>(())
         };
-        let result = tokio::select! {biased;_=life.cancelled()=>None,result=transfer=>Some(result)};
-        if let Some(Err(source)) = result {
+        // A started finite POST remains owned until its response returns; the
+        // cancellation gates above prevent another POST from being started.
+        if let Err(source) = transfer.await {
             let original = causes.record(0, source);
             life.fail_retained(original);
         }

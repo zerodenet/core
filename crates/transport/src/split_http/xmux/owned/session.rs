@@ -146,14 +146,42 @@ impl Runtime {
         }
         let down_life = life.clone();
         let down_sources = causes.clone();
+        // Install the upload return before publishing the download worker: a
+        // failed allocation/registration must also release that exact barrier.
+        let up_returned = returned.enter_upload()?;
+        let upload_return = returned.clone();
         let down_returned = returned.enter()?;
         let down = async move {
             let result = async {
                 let mut writer = writer;
                 let mut body = response.into_body();
-                while let Some(frame) = body.frame().await {
+                let mut returning = false;
+                loop {
+                    let frame = tokio::select! {biased;
+                        _=down_life.cancelled(), if !returning=>{
+                            returning = true;
+                            continue;
+                        },
+                        _=upload_return.wait_upload_returned(), if returning=>break,
+                        frame=body.frame()=>frame,
+                    };
+                    let Some(frame) = frame else {
+                        if returning {
+                            upload_return.wait_upload_returned().await;
+                        }
+                        break;
+                    };
                     if let Ok(data) = frame?.into_data() {
-                        writer.write_all(&data).await?;
+                        // Keep the actual GET/body alive until the upload EOF
+                        // and response return. Discard only the returned user's
+                        // bytes while draining, so shared H2 flow control stays
+                        // live and cancelling this GET cannot truncate its POST.
+                        if !returning {
+                            tokio::select! {biased;
+                                _=down_life.cancelled()=>returning=true,
+                                result=writer.write_all(&data)=>result?,
+                            }
+                        }
                     }
                 }
                 writer.shutdown().await
@@ -167,11 +195,10 @@ impl Runtime {
         runtime
             .ledger
             .push(Work::Session(PaidFuture::prepare_returning(
-                cancel_on_logical(life.clone(), down),
+                down,
                 &runtime.memory,
                 Some(down_returned),
             )?))?;
-        let up_returned = returned.enter()?;
         let upload = upload::Upload {
             runtime: runtime.clone(),
             sender: upload,
@@ -192,12 +219,6 @@ impl Runtime {
             )?))?;
         Ok(stream)
     }
-}
-async fn cancel_on_logical(
-    life: crate::split_http::io::LifetimeRef,
-    work: impl std::future::Future<Output = ()>,
-) {
-    tokio::select! {biased;_=life.cancelled()=>{},_=work=>{}}
 }
 struct Single {
     upload: carrier::Sender,
@@ -233,7 +254,12 @@ impl Single {
             let mut body = response.into_body();
             while let Some(frame) = body.frame().await {
                 if let Ok(data) = frame?.into_data() {
-                    writer.write_all(&data).await?;
+                    if !life.is_closed() {
+                        tokio::select! {biased;
+                            _=life.cancelled()=>{},
+                            result=writer.write_all(&data)=>result?,
+                        }
+                    }
                 }
             }
             writer.shutdown().await
@@ -246,10 +272,10 @@ impl Single {
         };
         let up = async { record(0, up.await) };
         let down = async { record(1, down.await) };
-        cancel_on_logical(life.clone(), async {
-            tokio::join!(up, down);
-        })
-        .await;
+        // The producer closes its real body on logical return. Keep receiving
+        // the duplex exchange through its real HTTP EOF instead of dropping a
+        // still-in-flight H1 request or its H2 delegate.
+        tokio::join!(up, down);
     }
 }
 fn session_id(value: u128) -> [u8; 32] {

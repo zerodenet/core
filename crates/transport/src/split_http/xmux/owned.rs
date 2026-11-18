@@ -121,7 +121,8 @@ impl Runtime {
     }
     fn request_tcp_return(&self) {
         self.stopped.cancel();
-        self.ledger.cancel_logical();
+        self.ledger.request_logical_return();
+        self.ledger.changed.notify_waiters();
     }
     pub fn stop(&self) {
         self.stopped.cancel();
@@ -139,6 +140,11 @@ impl Runtime {
             tokio::pin!(changed);
             changed.as_mut().enable();
             let progress = std::future::poll_fn(|cx| {
+                // A work item temporarily in poll may have missed the external
+                // request. Replay only the request after it returns to this ledger.
+                if self.stopped.is_cancelled() {
+                    self.ledger.request_logical_return();
+                }
                 let _ = self.ledger.poll(cx);
                 if self.ledger.is_empty() {
                     Poll::Ready(())

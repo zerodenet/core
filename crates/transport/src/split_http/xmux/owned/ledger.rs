@@ -196,6 +196,12 @@ impl Ledger {
     /// Stop only logical work; Hyper's genuine Task/Pipe/Send originals must
     /// still return within the same physical driver's own continuation.
     pub(super) fn cancel_logical(&self) {
+        self.return_logical(true);
+    }
+    pub(super) fn request_logical_return(&self) {
+        self.return_logical(false);
+    }
+    fn return_logical(&self, discard: bool) {
         let mut after = None;
         loop {
             let mut node = self
@@ -233,9 +239,24 @@ impl Ledger {
                 }
             };
             if let Some(work) = work {
-                let removed = self.remove(node.ordinal);
-                drop(work);
-                drop(removed);
+                if discard {
+                    let removed = self.remove(node.ordinal);
+                    drop(work);
+                    drop(removed);
+                } else {
+                    match &work {
+                        Work::Session(work) | Work::Request(work) => {
+                            if let Some(returned) = &work._returned {
+                                returned.request_return();
+                            }
+                        }
+                        Work::Http2Delegate(_) => unreachable!(),
+                    }
+                    *node
+                        .work
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(work);
+                }
             }
         }
     }
