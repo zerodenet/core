@@ -69,6 +69,24 @@ impl NativeObligations {
     pub(super) async fn quiescent(&self, deadline: Instant) -> Result<bool, ChannelError> {
         self.settle_joined(deadline).await?;
         let state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        if !state.records.is_empty() {
+            let mut kinds = [0usize; 3];
+            let mut retiring = 0;
+            let mut gateways = 0;
+            for record in state.records.values() {
+                kinds[record.kind.index()] += 1;
+                retiring += usize::from(record.retiring);
+                gateways += record.gateways;
+            }
+            tracing::debug!(
+                tcp = kinds[0],
+                udp = kinds[1],
+                dns = kinds[2],
+                retiring,
+                gateways,
+                "raw-IP original obligations remain during pause"
+            );
+        }
         Ok(state.records.is_empty() && state.first_source.is_none() && !state.closing)
     }
 
