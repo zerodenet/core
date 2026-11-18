@@ -258,10 +258,7 @@ fn privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture() {
         assert_http_domain_through_fake_ip(&domain);
         assert_dns_underlay_not_captured(binary, &socket);
 
-        run_cli(
-            binary,
-            ["reload", path(&stopped_path), "--socket", path(&socket)],
-        );
+        reload_after_originals_settle(binary, &stopped_path, &socket);
         wait_for_tun(binary, &socket, false, false);
         assert_tun_os_cleanup(&tun_name);
         assert_route_journals_clean(&direct_path);
