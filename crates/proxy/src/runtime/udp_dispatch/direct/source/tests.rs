@@ -18,6 +18,17 @@ async fn actual_direct_source_keeps_published_plan_while_same_config_device_cand
         &candidate,
         &live.proxy.protocols.prepare_components(config).unwrap()
     ));
+    let current = live
+        .proxy
+        .current_service_source()
+        .upgrade()
+        .unwrap()
+        .runtime_services()
+        .unwrap();
+    assert!(Arc::ptr_eq(
+        current.execution().components.as_ref().unwrap(),
+        &published
+    ));
     let runtime = live.runtime.with_current_snapshot();
     assert!(Arc::ptr_eq(
         runtime

@@ -190,7 +190,7 @@ async fn admit(
         Some(result) => result,
         None => {
             let (finished, result) = tokio::sync::oneshot::channel();
-            // Keep the exact already-polled reservation, and retain both permits
+            // Keep the exact already-polled reservation and its byte credit
             // in the actual accepted Scope after a received HTTP/1 receipt.
             let _task = super::super::body::spawn(caller.as_ref(), async move {
                 let _ = finished.send(admission.await);
@@ -201,8 +201,8 @@ async fn admit(
             drop(receipt_permit);
             match acknowledgement {
                 // The first poll registered and validated the complete packet.
-                // The bounded task retains both permits until queue admission,
-                // session cancellation or its deadline, even after HTTP success.
+                // The bounded task retains packet byte credit until queue
+                // admission, session cancellation or its original deadline.
                 Acknowledgement::Received => {
                     // A pipelined HTTP/1 sender can have many complete uploads
                     // buffered in this connection. Give the consumer and the

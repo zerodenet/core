@@ -129,7 +129,10 @@ impl TcpRuntimeServices {
         principal_rate_limits: PrincipalRateLimitRegistry,
         retired_datagrams: Arc<crate::component::datagram_retirement::RetiredDatagrams>,
     ) -> Self {
-        let components = protocols.prepare_components(snapshot.config().clone());
+        let components = protocols
+            .current_components(snapshot.config())
+            .map(Ok)
+            .unwrap_or_else(|| protocols.prepare_components(snapshot.config().clone()));
         Self::from_prepared(
             engine,
             (snapshot, components),
@@ -216,6 +219,8 @@ impl TcpRuntimeServices {
             return services;
         }
         services.execution.snapshot = services.engine.runtime_snapshot();
+        services.execution.configuration_publication =
+            services.execution.snapshot.configuration_publication();
         // An accepted old Source may still serve established users while a
         // device replacement has a cold candidate for this same config Arc.
         // Capture the actually published plan, not that uncommitted candidate.
