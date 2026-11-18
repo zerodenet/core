@@ -68,6 +68,24 @@ fn wildcard_listener_pairs_are_rejected_portably() {
 }
 
 #[test]
+fn repeated_ephemeral_listeners_do_not_claim_the_same_fixed_port() {
+    for (left, right) in [("127.0.0.1", "127.0.0.1"), ("::", "0.0.0.0")] {
+        let config = RuntimeConfig::parse(
+            &json!({
+                "inbounds": [left, right].into_iter().enumerate().map(|(index, address)| json!({
+                    "tag":format!("ephemeral-{index}"),
+                    "listen":{"address":address,"port":0},
+                    "protocol":{"type":"direct"}
+                })).collect::<Vec<_>>(),
+                "route":{"final":{"type":"direct"}}
+            })
+            .to_string(),
+        );
+        assert!(config.is_ok(), "{left} / {right}: {config:?}");
+    }
+}
+
+#[test]
 fn control_grpc_recognizes_bracketed_ipv6_and_mapped_loopback() {
     for address in ["::1", "[::1]", "0:0:0:0:0:0:0:1", "[::ffff:127.0.0.1]"] {
         let config = RuntimeConfig::parse(&json!({

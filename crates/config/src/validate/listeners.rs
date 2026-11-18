@@ -92,6 +92,7 @@ pub(super) fn validate_auxiliary_listeners(config: &RuntimeConfig) -> Result<(),
     for (i, claim) in claims.iter().enumerate() {
         for other in &claims[..i] {
             if (claim.auxiliary || other.auxiliary)
+                && claim.port != 0
                 && claim.port == other.port
                 && listen_hosts_overlap(&claim.address, &other.address)
             {
@@ -116,6 +117,11 @@ pub(super) fn validate_inbound_listen(
     address: &str,
     port: u16,
 ) -> Result<(), ConfigError> {
+    // Zero asks the kernel for a fresh ephemeral endpoint. Two such requests
+    // do not claim one fixed port, even when their hosts overlap.
+    if port == 0 {
+        return Ok(());
+    }
     if seen
         .iter()
         .any(|(other, other_port)| port == *other_port && listen_hosts_overlap(address, other))
