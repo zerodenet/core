@@ -74,9 +74,13 @@ async fn run_with_logging(
     let source = std::sync::Arc::new(zero_runtime::configuration::ConfigurationSource::new(
         config_path,
     ));
+    // Keep the actual accounting owner through final asynchronous retirement,
+    // including errors before ApplicationServices installs its cleanup owner.
+    let mut engine_owner = None;
     let result = source
         .drive_quota_writer(run_with_source(
             source.clone(),
+            &mut engine_owner,
             config_path,
             status_listen,
             control_socket,
@@ -85,17 +89,31 @@ async fn run_with_logging(
             logging,
         ))
         .await;
+    let engine_quota = match &engine_owner {
+        Some(engine) => {
+            source
+                .drive_quota_writer(engine.shutdown_principal_quota_state_async())
+                .await
+        }
+        None => Ok(()),
+    };
     let quota = source.finish_quota_writer_shutdown().await;
     let mut failures = RunFailures::default();
     if let Err(error) = result {
         failures.error("application", error);
     }
+    failures.result("quota owner retirement", engine_quota);
     failures.result("quota final retirement", quota);
     failures.finish()
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the original Engine owner must survive every startup error and final quota retirement"
+)]
 async fn run_with_source(
     source: std::sync::Arc<zero_runtime::configuration::ConfigurationSource>,
+    engine_owner: &mut Option<Engine>,
     config_path: &str,
     status_listen: Option<&str>,
     control_socket: Option<&str>,
@@ -110,6 +128,7 @@ async fn run_with_source(
         source.clone(),
     )?;
     let engine = zero_engine::Engine::from_prepared(prepared)?;
+    *engine_owner = Some(engine.clone());
     source.complete_recovered_boot()?;
     let proxy = Proxy::from_preparation(engine, preparation)?;
     let engine = proxy.engine().clone();

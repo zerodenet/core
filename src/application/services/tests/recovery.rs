@@ -235,6 +235,7 @@ async fn original_monitor_join_fault_is_not_replaced_by_an_earlier_cleanup_fault
             .unwrap_err(),
     );
     let retained: std::sync::Arc<dyn std::error::Error + Send + Sync> = earlier.clone();
+    let (native_task, observed) = tokio::sync::oneshot::channel();
     {
         let mut state = services.state.lock().await;
         ApplicationServices::stop_status_monitor(&mut state)
@@ -242,11 +243,12 @@ async fn original_monitor_join_fault_is_not_replaced_by_an_earlier_cleanup_fault
             .unwrap();
         state.monitor_exit = None;
         state.cleanup_fault = Some(retained.clone());
-        state.status_monitor = Some(StatusMonitor::test_work(async {
+        state.status_monitor = Some(StatusMonitor::test_work(async move {
+            native_task.send(tokio::task::id()).unwrap();
             panic!("actual later status monitor")
         }));
     }
-    tokio::task::yield_now().await;
+    let native_task = observed.await.unwrap();
     let error = services.shutdown_status_monitor().await.unwrap_err();
     let actual = {
         let state = services.state.lock().await;
@@ -274,9 +276,11 @@ async fn original_monitor_join_fault_is_not_replaced_by_an_earlier_cleanup_fault
     assert!(std::sync::Arc::ptr_eq(reported, &actual));
     let source = std::error::Error::source(actual.as_ref())
         .unwrap()
-        .downcast_ref::<tokio::task::JoinError>()
+        .downcast_ref::<zero_platform_tokio::contract::scope::TaskJoinError>()
         .expect("same original sampler's actual panic join remains diagnostic");
+    let source = source.original();
     assert!(source.is_panic());
+    assert_eq!(source.id(), native_task);
     assert_ne!(source.id(), earlier.id());
     // The separate dispatcher cleanup still executes all real native/worker
     // cleanup. Its one returned receiver must retain BOTH actual original

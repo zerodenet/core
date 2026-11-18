@@ -104,6 +104,10 @@ async fn non_disconnect_event_write_failure_keeps_its_typed_source_after_actual_
     let retained = error
         .get_ref()
         .unwrap()
+        .downcast_ref::<Arc<io::Error>>()
+        .expect("same writer result retained through its real bridge join")
+        .get_ref()
+        .unwrap()
         .downcast_ref::<EventWriteFailure>()
         .expect("original typed writer failure");
     assert!(Arc::ptr_eq(&retained.0, &original));

@@ -139,6 +139,12 @@ async fn quota_control_startup_failure_finishes_the_original_writer_before_retry
         .await
         .unwrap();
         let error = result.unwrap_err().to_string();
+        assert!(error.contains("control startup"), "{error}");
+        assert!(error.contains("Not a directory"), "{error}");
+        assert!(
+            !error.contains("configuration startup was interrupted"),
+            "retry must reach the same actual IPC failure: {error}"
+        );
         assert!(
             !error.contains("already owned by another Zero process"),
             "the preceding original quota writer must retire: {error}"
