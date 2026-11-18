@@ -212,7 +212,8 @@ jobs:
   tun-platform-check:
     name: TUN platform check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    # Keep the cold macOS kernel build separate from native close deadlines.
+    timeout-minutes: ${{ matrix.os == 'macos-15-intel' && 120 || 60 }}
     needs: [scope, static]
     if: needs.scope.outputs.compatibility == 'true'
     strategy:

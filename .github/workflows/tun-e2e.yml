@@ -114,7 +114,9 @@ jobs:
     needs: scope
     if: needs.scope.outputs.tun == 'true' && (github.event_name != 'workflow_dispatch' || inputs.target == 'hosted-all' || inputs.target == 'hosted-macos')
     runs-on: macos-15-intel
-    timeout-minutes: 60
+    # Cold all-feature kernel compilation is part of this job. Native cleanup
+    # deadlines remain enforced by the kernel and each E2E fixture.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -138,6 +140,8 @@ jobs:
         env:
           CARGO_TARGET_X86_64_APPLE_DARWIN_RUNNER: sudo
         run: cargo test --target x86_64-apple-darwin -p zero-tun --test route_monitor_macos_e2e macos_route_monitor_observes_repeated_route_changes_and_releases_cleanly -- --ignored --exact --nocapture
+      - name: Compile the shared native kernel and TUN harnesses
+        run: cargo test --target x86_64-apple-darwin --all-features --test tun_route_reconcile_macos_e2e --test tun_privileged_e2e --no-run
       - name: Repair lost routes and PF rules without changing the physical interface
         env:
           CARGO_TARGET_X86_64_APPLE_DARWIN_RUNNER: sudo
