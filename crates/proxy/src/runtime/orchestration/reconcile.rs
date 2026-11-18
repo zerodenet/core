@@ -284,6 +284,8 @@ impl OrchestrationState {
                 Ok(pauses) => Some(pauses),
                 Err(error) => {
                     let cold_only = source_retirement.is_none();
+                    #[cfg(feature = "raw-ip-runtime")]
+                    let cold_only = cold_only && !proxy.has_tun_packet_budget_recovery();
                     warn!(%error, sources = %crate::logging::sources::Sources(&error), cold_only,
                         "configuration Source retirement preparation rejected");
                     #[cfg(test)]
@@ -472,6 +474,8 @@ impl OrchestrationState {
                     Ok(_) => {}
                     Err(error) => {
                         let cold_only = source_retirement.is_none();
+                        #[cfg(feature = "raw-ip-runtime")]
+                        let cold_only = cold_only && !proxy.has_tun_packet_budget_recovery();
                         drop(source_retirement.take());
                         self.reject_before_start(
                             proxy,

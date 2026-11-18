@@ -253,6 +253,14 @@ pub(super) async fn pause_sources<'a>(
     retirement: &mut Option<crate::component::catalog::PacketSourceRetirement<'a>>,
     network_restart: bool,
 ) -> Result<SourceBudgetPauses, EngineError> {
+    #[cfg(feature = "raw-ip-runtime")]
+    if previous.runtime.tun.is_some() && next.runtime.tun.is_none() {
+        // Explicit removal is StopOld, not a request to keep a busy Source
+        // running under new limits. This existing transaction persists the
+        // original recovery capsule before cancellation and confirms the same
+        // Source/peers/native/routes/Scope before any candidate can start.
+        proxy.stop_tun_for_packet_budget(next).await?;
+    }
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
     #[cfg(feature = "raw-ip-runtime")]
     let packet_changed = packet_budget_changed(previous, next) || network_restart;

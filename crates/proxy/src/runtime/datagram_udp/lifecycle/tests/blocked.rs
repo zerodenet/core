@@ -68,6 +68,5 @@ async fn blocked_datagram_finishes_without_publishing_a_live_response_mapping() 
     assert_eq!(completed[0].outcome, zero_engine::SessionOutcome::Blocked);
     assert!(!dispatch.contains_session(completed[0].id));
     assert!(dispatch.finish_all().is_empty());
-    drop(dispatch);
     running.shutdown().await.unwrap();
 }
