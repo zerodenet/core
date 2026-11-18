@@ -64,24 +64,30 @@ impl PendingOpen {
         let transferred = pending
             .iter()
             .filter(|original| {
-                original.retained_driver().is_some_and(|proof| {
-                    proof.retains(original)
-                        && proof
-                            .adoption()
-                            .is_some_and(|actual| actual.same_slot(original))
-                        && proof
-                            .owner()
-                            .is_some_and(|owner| owner.matches_adoption(original))
-                        && self.valid_owned(original)
-                }) || original.retained_preparation_job().is_some_and(|proof| {
-                    proof.retains(original)
-                        && proof
-                            .owner()
-                            .is_some_and(|owner| owner.matches_adoption(original))
-                        && self.valid_owned(original)
-                }) || loans.iter().any(|(receiver, proof)| {
-                    !receiver.same_slot(original) && proof.retains(original)
-                })
+                // This donor can have no driver of its own: the actual
+                // installed receiver owns its input control and cached driver.
+                // Its preparation row may already have been reclaimed.
+                original.retained_loan_receiver().is_some()
+                    || original.retained_driver().is_some_and(|proof| {
+                        proof.retains(original)
+                            && proof
+                                .adoption()
+                                .is_some_and(|actual| actual.same_slot(original))
+                            && proof
+                                .owner()
+                                .is_some_and(|owner| owner.matches_adoption(original))
+                            && self.valid_owned(original)
+                    })
+                    || original.retained_preparation_job().is_some_and(|proof| {
+                        proof.retains(original)
+                            && proof
+                                .owner()
+                                .is_some_and(|owner| owner.matches_adoption(original))
+                            && self.valid_owned(original)
+                    })
+                    || loans.iter().any(|(receiver, proof)| {
+                        !receiver.same_slot(original) && proof.retains(original)
+                    })
             })
             .cloned()
             .collect::<Vec<_>>();

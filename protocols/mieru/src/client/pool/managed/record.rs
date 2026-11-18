@@ -60,6 +60,7 @@ impl CarrierRecord {
                 installed
                     .as_ref()
                     .is_some_and(|proof| proof.retains(pending))
+                    || pending.retained_loan_receiver().is_some()
                     || pending.retained_driver().is_some_and(|proof| {
                         proof.retains(pending)
                             && cleanup.as_ref().is_some_and(|(provider, binding)| {

@@ -276,9 +276,10 @@ impl Transfer {
         }) {
             return false;
         }
-        original
-            .retained_driver()
-            .is_some_and(|proof| proof.retains(original))
+        original.retained_loan_receiver().is_some()
+            || original
+                .retained_driver()
+                .is_some_and(|proof| proof.retains(original))
             || original.retained_preparation_job().is_some_and(|proof| {
                 proof.retains(original)
                     && proof

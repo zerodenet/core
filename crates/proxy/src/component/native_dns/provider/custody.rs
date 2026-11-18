@@ -102,7 +102,8 @@ impl Provider {
                                 })
                             })
                     });
-                actual_pool_driver
+                entry.original.retained_loan_receiver().is_some()
+                    || actual_pool_driver
                     || actual_job
                     || loans.iter().any(|(receiver, proof)| {
                         !receiver.same_slot(&entry.original) && proof.retains(&entry.original)
