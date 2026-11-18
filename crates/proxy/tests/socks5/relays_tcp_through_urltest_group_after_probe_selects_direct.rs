@@ -219,8 +219,8 @@ async fn relays_tcp_through_urltest_group_after_probe_selects_direct() {
     ))
     .expect("parse config without urltest");
     outer_handle
-        .engine()
-        .reload_config(config_without_urltest)
+        .apply_runtime_config_and_wait(config_without_urltest, Duration::from_secs(5))
+        .await
         .expect("reload config without urltest");
     wait_for("removed urltest trigger to be cleared", || {
         outer_handle

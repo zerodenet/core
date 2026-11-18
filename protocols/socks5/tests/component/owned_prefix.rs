@@ -122,6 +122,11 @@ async fn dropped_carrier_handshake_retains_the_same_prefix_controller_for_cleanu
     borrowed(true, true).await;
 }
 async fn borrowed(cancel: bool, carrier: bool) {
+    for finite in [true, false] {
+        borrowed_with_deadline(cancel, carrier, finite).await;
+    }
+}
+async fn borrowed_with_deadline(cancel: bool, carrier: bool, finite: bool) {
     tokio::time::timeout(std::time::Duration::from_secs(10),async {
         let suffix=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();let address=suffix.local_addr().unwrap();
         let donor_listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();let donor_address=donor_listener.local_addr().unwrap();
@@ -138,7 +143,9 @@ async fn borrowed(cancel: bool, carrier: bool) {
         let mut donor=Installed::new(10,endpoint(donor_address)).await;let mut receiver=Installed::new(20,endpoint(address)).await;
         let pending=Arc::new(AtomicBool::new(false));
         let prefix=Arc::new(Prefix {role:donor.instance.roles.stream.as_ref().unwrap().clone(),root:donor.root(donor_address),selected:binding(vec![donor.role]),endpoint:endpoint(address),original:Mutex::new(None),pending:pending.clone()});
-        let ctx=context(UpstreamTransport::new(prefix.selected.clone(),prefix.clone()));let cancellation=ctx.cancel.clone();
+        let mut ctx=context(UpstreamTransport::new(prefix.selected.clone(),prefix.clone()));
+        if !finite { ctx.deadline=None; }
+        let cancellation=ctx.cancel.clone();
         let role=receiver.instance.roles.stream.as_ref().unwrap();
         let open=async {
             if carrier {

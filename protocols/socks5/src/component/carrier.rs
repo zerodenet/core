@@ -21,9 +21,9 @@ impl Outbound {
         let request =
             wire::build_connect_request(&request.destination.address, request.destination.port)
                 .map_err(|source| reject(Reason::InvalidConfig).with_source(source))?;
-        context
-            .deadline
-            .ok_or_else(|| reject(Reason::InvalidConfig))?;
+        // A real retained Service caller can have no business deadline. The
+        // same finite original owner and cancellation still govern acquisition
+        // and handshake; a timer is not an ownership requirement.
         let (io, view, mut attempt) = self.acquire_original(&context, None, true).await?;
         let loan = io.into_stream_loan(view)?;
         context
