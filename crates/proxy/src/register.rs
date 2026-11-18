@@ -771,9 +771,17 @@ pub(crate) fn compiled_registries_with_network(
                 },
             )
             .expect("unique canonical WireGuard outbound registration");
-        components.set_candidate_acceptance(
-            "wireguard",
-            move |outbound, candidate| match &outbound.protocol {
+        components.set_candidate_acceptance("wireguard", move |outbound, candidate| {
+            // Use the same endpoint admission as device preparation. A
+            // disabled endpoint owns no outbound peer graph or alias;
+            // previous actual slots still retire through the host plan.
+            if candidate.is_some_and(|candidate| {
+                !zero_engine::EndpointAdmission::from_config(candidate)
+                    .device_enabled(outbound.tag())
+            }) {
+                return false;
+            }
+            match &outbound.protocol {
                 zero_config::OutboundProtocolConfig::Wireguard {
                     outer_udp_proxy: None,
                     ..
@@ -795,8 +803,8 @@ pub(crate) fn compiled_registries_with_network(
                     })
                 }
                 _ => false,
-            },
-        );
+            }
+        });
         registry.register_standard_protocol(adapter);
     }
     #[cfg(feature = "mixed")]
