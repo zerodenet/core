@@ -40,7 +40,21 @@ pub(crate) async fn start(
         .unwrap();
     let registry = proxy.inbound_owners.clone();
     let (stop, mut shutdown) = watch::channel(false);
-    let installed = registry.install(&tag, &proxy.protocols, 2, stop).unwrap();
+    let limits = super::limits::RawIpSourceLimits {
+        tcp: 0,
+        udp: 8,
+        dns: 8,
+        icmp: 0,
+        tcp_dns: 0,
+    };
+    let installed = registry
+        .install(
+            &tag,
+            &proxy.protocols,
+            limits.task_limit(false).unwrap(),
+            stop,
+        )
+        .unwrap();
     let owner = installed.owner();
     owner.prepare_packet_source_pause();
     let host = installed.tasks();

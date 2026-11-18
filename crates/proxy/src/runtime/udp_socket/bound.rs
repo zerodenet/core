@@ -115,8 +115,13 @@ impl DirectUdpSockets {
             return Err(denied(Reason::StalePlan).into());
         }
         let isolation = self.isolated_sessions.get(&session).copied();
+        // A cached loopback socket in this family is not permission to send a
+        // different, unavailable peer through it. Drive that peer through the
+        // same actual provider's acquire instead of guessing settlement here.
+        let connectable = selection.ensure_connectable().is_ok();
         let matches = |entry: &DirectUdpSocket| {
-            !entry.retired
+            connectable
+                && !entry.retired
                 && entry.socket.bound_id() == Some(&bound.id)
                 && entry.binding.policy == *policy
                 && entry.binding.ipv6 == target.is_ipv6()

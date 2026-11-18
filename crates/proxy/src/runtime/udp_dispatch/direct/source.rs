@@ -217,7 +217,9 @@ impl DatagramBindingAuthorization for DirectSocketSource {
         self.check_current(expected)?;
         let selection = self
             .egress
-            .select_for_peer_with_policy(peer, &self.policy)
+            // Let the actual bound provider record an unavailable route as a
+            // failed native acquisition, with its same-owner no-native receipt.
+            .describe_for_peer_with_policy(peer, &self.policy)
             .map_err(|cause| {
                 error(Reason::Io, "host Direct egress selection failed").with_source(cause)
             })?;

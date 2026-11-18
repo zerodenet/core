@@ -10,11 +10,26 @@ impl EgressInterfaceControl {
         peer: SocketAddr,
         policy: &DialPolicy,
     ) -> io::Result<EgressSelection> {
+        let selection = self.describe_for_peer_with_policy(peer, policy)?;
+        selection.ensure_connectable()?;
+        Ok(selection)
+    }
+
+    /// Preserve an unavailable route as a fact for an original native provider.
+    /// This grants no I/O: its actual acquisition must still enforce the route
+    /// and issue its own known-no-native outcome before a caller can retry.
+    pub fn describe_for_peer_with_policy(
+        &self,
+        peer: SocketAddr,
+        policy: &DialPolicy,
+    ) -> io::Result<EgressSelection> {
         let peer = policy.normalize_peer(peer).map_err(invalid_policy)?;
         let interfaces = inventory_for(policy)?;
         let mut selection = self.select_for_peer(peer);
-        selection.ensure_connectable()?;
         selection.dial_policy = Some(policy.clone());
+        if selection.binding_reason == EgressBindingReason::TunEgressUnavailable {
+            return Ok(selection);
+        }
         if policy.interface.is_none() && policy.source_ip.is_none() {
             selection.dial_source_address =
                 crate::dial::capture_source(peer, policy, &selection, &interfaces)?;

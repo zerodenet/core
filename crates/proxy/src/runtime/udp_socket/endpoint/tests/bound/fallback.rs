@@ -19,20 +19,25 @@ struct BoundFixture {
 }
 impl BoundFixture {
     async fn new(attempts: usize, invalid_v6_interface: bool) -> Self {
-        let live = LiveDirectSource::new().await;
-        if invalid_v6_interface {
-            live.runtime
-                .services()
-                .upstream()
-                .egress_control()
-                .replace_for(
+        Self::configured(attempts, move |egress| {
+            if invalid_v6_interface {
+                egress.replace_for(
                     true,
                     Some(
                         EgressInterface::new("invalid-device-name-over-the-native-limit", u32::MAX)
                             .unwrap(),
                     ),
                 );
-        }
+            }
+        })
+        .await
+    }
+    async fn configured(
+        attempts: usize,
+        configure: impl FnOnce(&zero_platform_tokio::EgressInterfaceControl),
+    ) -> Self {
+        let live = LiveDirectSource::new().await;
+        configure(live.runtime.services().upstream().egress_control());
         let one = NonZeroUsize::new(1).unwrap();
         let ((bridge, driver, resources), authority) = live
             .context
@@ -101,6 +106,9 @@ impl BoundFixture {
         (id, handle)
     }
 }
+
+#[path = "fallback/unavailable.rs"]
+mod unavailable;
 fn candidates(peer: SocketAddr) -> [SocketAddr; 2] {
     // Nonloopback retains the configured invalid IPv6 interface. Loopback
     // intentionally bypasses interface binding in the real selector.
