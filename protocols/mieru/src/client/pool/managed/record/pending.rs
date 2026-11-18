@@ -33,12 +33,18 @@ impl PendingCarriers {
         Ok(())
     }
     pub(crate) fn current_receiver(&self, setup: &TaskJoinWitness) -> Option<TaskJoinWitness> {
+        let receiver = self.cleanup_receiver(setup)?;
+        receiver
+            .native_task_id()
+            .is_some_and(|id| Some(id) == tokio::task::try_id())
+            .then_some(receiver)
+    }
+    /// Cleanup callbacks can run in a real donor's own setup Scope. They still
+    /// belong to this exact retained auxiliary/driver; this grants no IO or
+    /// caller impersonation. Executable packet callbacks use current_receiver.
+    pub(crate) fn cleanup_receiver(&self, setup: &TaskJoinWitness) -> Option<TaskJoinWitness> {
         let original = self.record.adoption()?;
-        let native = tokio::task::try_id();
-        if original.matches_auxiliary(setup)
-            && !setup.is_joined()
-            && setup.native_task_id().is_some_and(|id| Some(id) == native)
-        {
+        if original.matches_auxiliary(setup) && !setup.is_joined() {
             return Some(setup.clone());
         }
         let retained = original.retained_driver()?;
@@ -47,8 +53,7 @@ impl PendingCarriers {
             && retained
                 .adoption()
                 .is_some_and(|actual| actual.same_slot(&original))
-            && !driver.is_joined()
-            && driver.native_task_id().is_some_and(|id| Some(id) == native))
+            && !driver.is_joined())
         .then(|| driver.clone())
     }
     pub(crate) fn protocols(&self) -> Option<&crate::client::pool::managed::protocols::Children> {

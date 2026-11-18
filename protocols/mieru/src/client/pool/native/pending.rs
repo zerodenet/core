@@ -90,6 +90,17 @@ fn denied(reason: Reason) -> ChannelError {
     error
 }
 impl Pending {
+    fn cleanup_receiver(
+        &self,
+    ) -> Result<zero_platform_tokio::contract::scope::TaskJoinWitness, ChannelError> {
+        let caller = self
+            .caller
+            .as_ref()
+            .ok_or_else(|| denied(Reason::StalePlan))?;
+        self.originals
+            .cleanup_receiver(&caller.witness)
+            .ok_or_else(|| denied(Reason::StalePlan))
+    }
     fn current_receiver(
         &self,
     ) -> Result<zero_platform_tokio::contract::scope::TaskJoinWitness, ChannelError> {
@@ -112,7 +123,7 @@ impl UpstreamOpener for Pending {
         binding: &UpstreamBinding,
         original: zero_platform_tokio::controlled_carrier::ProtocolOriginal,
     ) -> Result<(), ChannelError> {
-        self.current_receiver()?;
+        self.cleanup_receiver()?;
         if self
             .anchor
             .get()
@@ -190,7 +201,7 @@ impl UpstreamOpener for Pending {
             .caller
             .as_ref()
             .map(|caller| {
-                self.current_receiver()
+                self.cleanup_receiver()
                     .map(|receiver| !receiver.same_registration(&caller.witness))
             })
             .transpose()?
