@@ -71,6 +71,26 @@ async fn request(task: &serde_json::Value, body: &[u8]) -> TcpStream {
             header.push_str("\r\n");
         }
     }
+    // Fetch supplies referrer and cookies separately from its allowed headers.
+    // Reproduce the actual browser assignment rather than dropping the padding
+    // carried by Referer and turning the external POST into a 400 response.
+    if let Some(referrer) = task["extra"]["referrer"].as_str() {
+        header.push_str("Referer: ");
+        header.push_str(referrer);
+        header.push_str("\r\n");
+    }
+    if let Some(cookies) = task["extra"]["cookies"].as_object() {
+        header.push_str("Cookie: ");
+        for (index, (name, value)) in cookies.iter().enumerate() {
+            if index != 0 {
+                header.push_str("; ");
+            }
+            header.push_str(name);
+            header.push('=');
+            header.push_str(value.as_str().unwrap());
+        }
+        header.push_str("\r\n");
+    }
     header.push_str("\r\n");
     io.write_all(header.as_bytes()).await.unwrap();
     io.write_all(body).await.unwrap();

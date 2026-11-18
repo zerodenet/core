@@ -70,13 +70,20 @@ fn wildcard_listener_pairs_are_rejected_portably() {
 #[test]
 fn repeated_ephemeral_listeners_do_not_claim_the_same_fixed_port() {
     for (left, right) in [("127.0.0.1", "127.0.0.1"), ("::", "0.0.0.0")] {
-        let config = RuntimeConfig::parse(
-            &json!({
-                "inbounds": [left, right].into_iter().enumerate().map(|(index, address)| json!({
+        let inbounds = [left, right]
+            .into_iter()
+            .enumerate()
+            .map(|(index, address)| {
+                json!({
                     "tag":format!("ephemeral-{index}"),
                     "listen":{"address":address,"port":0},
                     "protocol":{"type":"direct"}
-                })).collect::<Vec<_>>(),
+                })
+            })
+            .collect::<Vec<_>>();
+        let config = RuntimeConfig::parse(
+            &json!({
+                "inbounds": inbounds,
                 "route":{"final":{"type":"direct"}}
             })
             .to_string(),

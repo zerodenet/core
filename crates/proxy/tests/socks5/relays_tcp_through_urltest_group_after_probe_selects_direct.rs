@@ -70,6 +70,7 @@ async fn relays_tcp_through_urltest_group_after_probe_selects_direct() {
             ..EventFilter::default()
         })
         .expect("subscribe to urltest events");
+    let control = zero_proxy::ProxyHandle::new(event_handle, outer_engine.clone());
     let outer_handle = spawn_engine(outer_engine);
 
     wait_for_listener(outer_port).await;
@@ -218,7 +219,7 @@ async fn relays_tcp_through_urltest_group_after_probe_selects_direct() {
         }}"#
     ))
     .expect("parse config without urltest");
-    outer_handle
+    control
         .apply_runtime_config_and_wait(config_without_urltest, Duration::from_secs(5))
         .await
         .expect("reload config without urltest");
