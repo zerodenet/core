@@ -71,6 +71,7 @@ impl PreparedTcpOriginal {
             header,
         )
         .map_err(|(source, _, _)| capacity(source))?;
+        let _ = owners.carrier_owner.set(generation.carrier.registration());
         let _ = owners.protocols.set(
             zero_platform_tokio::controlled_carrier::ProtocolOriginalChildren::new(
                 generation.memory.clone(),

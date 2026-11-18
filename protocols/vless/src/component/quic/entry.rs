@@ -151,6 +151,8 @@ pub(super) struct Owners {
     pub diagnostics: diagnostics::Diagnostics,
     pub protocols:
         std::sync::OnceLock<zero_platform_tokio::controlled_carrier::ProtocolOriginalChildren>,
+    pub carrier_owner:
+        std::sync::OnceLock<zero_platform_tokio::controlled_carrier::CarrierOwnerRegistration>,
     pending: Mutex<
         zero_platform_tokio::contract::component::PacketMetadataVec<
             zero_platform_tokio::controlled_carrier::CarrierAdoption,
@@ -255,6 +257,7 @@ impl Owners {
             actor_changed: Notify::new(),
             diagnostics,
             protocols: std::sync::OnceLock::new(),
+            carrier_owner: std::sync::OnceLock::new(),
             pending: Mutex::new(Default::default()),
         }
     }

@@ -149,6 +149,14 @@ impl CarrierLoanRetained {
 }
 
 impl CarrierOwnerRegistration {
+    /// Custody only, in this exact original owner's existing slots. A child
+    /// protocol's metadata row may already have returned to its real cached
+    /// receiver; the installed LoanOwner and actual live driver still retain
+    /// the donor. This grants no I/O and proves no native or Scope closure.
+    pub fn retains_cached_carrier_loan(&self, input: &CarrierAdoption) -> bool {
+        self.retained_cached_input(input).is_some()
+    }
+
     /// Exact cached receiver of an original that need not have its own driver.
     /// The LoanOwner and the actual cached driver's IO must both still exist in
     /// this registered owner. This is custody transfer, never native closure.
