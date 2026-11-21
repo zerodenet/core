@@ -21,7 +21,11 @@ impl Sender {
         &mut self,
         mut request: http::Request<Body>,
     ) -> io::Result<http::Response<ReceivedBody>> {
-        let group = {
+        let streaming = request
+            .extensions()
+            .get::<super::super::request::StreamRequest>()
+            .is_none_or(|kind| kind.0);
+        let (group, response_use) = {
             let mut usage = self.usage.lock().unwrap();
             if !usage.group.take_request() {
                 *usage = self.pool.select(self.owner.as_ref())?;
@@ -29,15 +33,12 @@ impl Sender {
                     return Err(io::Error::other("xhttp client group unavailable"));
                 }
             }
-            usage.group.clone()
+            let group = usage.group.clone();
+            let response_use = self
+                .owned_kind
+                .map(|_| group::ResponseUse::new(group.clone(), streaming));
+            (group, response_use)
         };
-        let streaming = request
-            .extensions()
-            .get::<super::super::request::StreamRequest>()
-            .is_none_or(|kind| kind.0);
-        let response_use = self
-            .owned_kind
-            .map(|_| group::ResponseUse::new(group.clone(), streaming));
         // Publish this actual response custody before collecting exhausted
         // groups: consuming the last request must not evict its selected idle
         // original before the new session has published its driver work.

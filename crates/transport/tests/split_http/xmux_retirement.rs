@@ -70,6 +70,34 @@ async fn rotating_requests_wait_for_finite_response_return() {
 }
 
 #[tokio::test]
+async fn exhausted_groups_cannot_wait_on_each_others_finite_responses() {
+    let pool = XhttpClientPool::new(SplitHttpXmux {
+        h_max_request_times: SplitHttpRange::new(1, 1),
+        ..Default::default()
+    });
+    let first = pool.select(None).unwrap();
+    assert!(first.group.take_request());
+    let first_response = group::ResponseUse::new(first.group.clone(), false);
+    let second = pool.select(None).unwrap();
+    assert!(second.group.take_request());
+    let _second_response = group::ResponseUse::new(second.group.clone(), false);
+
+    let first_wait = pool.wait_rotating_responses(&first.group, None);
+    let second_wait = pool.wait_rotating_responses(&second.group, None);
+    tokio::pin!(first_wait, second_wait);
+    std::future::poll_fn(|cx| {
+        assert!(first_wait.as_mut().poll(cx).is_ready());
+        assert!(second_wait.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    drop(first_response);
+    tokio::time::timeout(std::time::Duration::from_secs(1), second_wait)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
 async fn rotation_never_waits_for_streaming_or_its_own_response() {
     for streaming in [false, true] {
         let pool = XhttpClientPool::new(SplitHttpXmux {

@@ -10,12 +10,19 @@ impl XhttpClientPool {
         loop {
             let returning = {
                 let state = self.0.state.lock().unwrap();
-                state
+                let Some(index) = state
                     .groups
                     .iter()
+                    .position(|group| std::ptr::eq(&**group, &**selected))
+                else {
+                    return;
+                };
+                // Only predecessors can hold capacity for this rotation. A
+                // later group may already be waiting on this very response.
+                state.groups[..index]
+                    .iter()
                     .find(|group| {
-                        !std::ptr::eq(&***group, &**selected)
-                            && group.matches_owner(owner)
+                        group.matches_owner(owner)
                             && !group.request_reusable()
                             && group.has_only_finite_responses()
                             && !group.connections.has_logical_work()
