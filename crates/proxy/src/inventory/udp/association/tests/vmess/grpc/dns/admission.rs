@@ -44,17 +44,34 @@ async fn ordinary_vmess_grpc_domain_dns_failure_never_dials_tls_or_falls_back_to
                     move |_proxy, source| async move {
                         let mut dispatch = source.new_dispatch("incoming").await.unwrap();
                         let result = dispatch.dispatch(input(53, b"owned")).await;
-                        assert!(result.is_err());
                         dispatch.finish_all();
+                        result.unwrap_err()
                     },
                 )
-                .await;
+                .await
             })
         };
         let request = dns.request().await;
         let query = pending(&proxy).await;
+        let registration = original(&proxy);
+        let observed = registration.observe().unwrap();
+        let [slot] = observed.slots() else {
+            panic!("one actual setup must await the Node DNS response");
+        };
+        assert!(slot.native().is_none() && slot.driver().is_none());
+        let consumer = slot.original().clone();
+        let setup = slot.auxiliary().unwrap().clone();
+        assert!(!setup.is_joined());
         request.answer(false, true);
-        opening.await.unwrap();
+        let failure = opening.await.unwrap();
+        use zero_platform_tokio::contract::{DeliveryState, Reason, Stage};
+        super::super::assert_retained_rejection(
+            &failure,
+            &setup,
+            Stage::Dial,
+            Reason::Io,
+            DeliveryState::NotSubmitted,
+        );
         query.task.wait().await;
         dns_closed(&query);
         endpoint.assert_no_connection().await;
@@ -65,14 +82,19 @@ async fn ordinary_vmess_grpc_domain_dns_failure_never_dials_tls_or_falls_back_to
             .iter()
             .all(|slot| slot.native().is_none()));
         assert!(proxy.engine().active_sessions().is_empty());
-        proxy
+        let retired = proxy
             .tcp_runtime_services()
             .execution()
             .retired_datagrams()
             .wait_closed(Instant::now() + Duration::from_secs(3))
             .await
             .unwrap();
+        assert!(retired.is_complete());
         running.shutdown().await.unwrap();
+        let closed = consumer.closed().expect("same unused carrier closed");
+        assert!(consumer.matches_closed(&closed) && !closed.had_native_acquisition());
+        assert!(registration.closed().unwrap().matches(&registration));
+        assert!(registration.users_closed().unwrap().matches(&registration));
         dns.close().await;
     })
     .await

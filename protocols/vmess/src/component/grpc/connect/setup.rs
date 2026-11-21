@@ -102,13 +102,10 @@ impl Managed {
                 }
                 Err(source) => {
                     let source = Arc::new(source);
-                    if zero_platform_tokio::controlled_carrier::original_connect_error(&source)
-                        .is_some()
-                    {
-                        // This actual failed native attempt is the caller's
-                        // result. Retain the same Arc and original Aux before
-                        // its exit, so its later native/Scope cleanup cannot
-                        // reclassify a consumed candidate as a component fault.
+                    if zero_platform_tokio::controlled_carrier::is_connect_rejection(&source) {
+                        // Preserve the exact request result before the setup
+                        // task exits. The existing receiver matches it to the
+                        // actual joined task during original retirement.
                         result_owner.retain_connect_rejection_result(&caller, source.clone())?;
                     } else if old_root_dns(&source, &upstream, dns_generation) {
                         // The real provider moved to a new network before this

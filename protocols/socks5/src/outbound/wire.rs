@@ -15,6 +15,7 @@ pub(crate) enum Progress {
     Authenticating,
     Submitting,
     Submitted,
+    Rejected,
     Confirmed,
 }
 
@@ -48,7 +49,7 @@ async fn submit<S: AsyncSocket, O: FnMut(Progress) + Send>(
         .await
         .map_err(|_| Error::Io("failed to write SOCKS5 outbound connect request"))?;
     observe(Progress::Submitted);
-    let _ = read_response(stream).await?;
+    let _ = read_response(stream, || observe(Progress::Rejected)).await?;
     observe(Progress::Confirmed);
     Ok(())
 }
@@ -155,7 +156,10 @@ fn validate_outbound_auth(auth: Socks5OutboundAuth<'_>) -> Result<(), Error> {
     validate_credential_part(auth.password, "password")
 }
 
-pub(super) async fn read_response<S>(stream: &mut S) -> Result<(Address, u16), Error>
+pub(super) async fn read_response<S>(
+    stream: &mut S,
+    rejected: impl FnOnce() + Send,
+) -> Result<(Address, u16), Error>
 where
     S: AsyncSocket,
 {
@@ -167,7 +171,7 @@ where
     }
 
     if header[1] != REP_SUCCEEDED {
-        return Err(match header[1] {
+        let error = match header[1] {
             REP_GENERAL_FAILURE => Error::Route("SOCKS5 upstream general failure"),
             REP_CONNECTION_NOT_ALLOWED => Error::Route("SOCKS5 upstream rejected connection"),
             REP_HOST_UNREACHABLE => Error::Route("SOCKS5 upstream host unreachable"),
@@ -177,8 +181,17 @@ where
             REP_ADDRESS_TYPE_NOT_SUPPORTED => {
                 Error::Unsupported("SOCKS5 upstream address type is not supported")
             }
-            _ => Error::Protocol("SOCKS5 upstream returned an unknown reply"),
-        });
+            _ => return Err(Error::Protocol("SOCKS5 upstream returned an unknown reply")),
+        };
+        if header[2] == 0
+            && matches!(
+                header[3],
+                crate::shared::ATYP_IPV4 | crate::shared::ATYP_IPV6 | crate::shared::ATYP_DOMAIN
+            )
+        {
+            rejected();
+        }
+        return Err(error);
     }
 
     let address = read_address(stream, header[3]).await?;

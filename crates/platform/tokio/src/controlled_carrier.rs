@@ -123,6 +123,21 @@ mod tests;
 pub fn original_connect_error(error: &ChannelError) -> Option<&crate::TcpConnectError> {
     original_connect_source(error).map(|source| source.0.as_ref())
 }
+
+/// Qualify a setup result for the existing preparation receiver. Wire
+/// rejections preserve their delivery/retry fields and do not affect native
+/// connect retry selection or permit a cleanup failure to be consumed here.
+pub fn is_connect_rejection(error: &ChannelError) -> bool {
+    original_connect_error(error).is_some()
+        || (error.impact == crate::contract::Impact::Session
+            && error.cleanup_failure_receipt().is_none()
+            && matches!(
+                (error.stage, error.reason, error.delivery),
+                (Stage::Dial, Reason::Io, DeliveryState::NotSubmitted)
+                    | (Stage::Handshake, Reason::Protocol, DeliveryState::Unknown)
+            )
+            && crate::contract::network::UpstreamRejection::present_in(error))
+}
 /// The actual selected native peer of this same preserved failure. A configured
 /// hostname, logical destination or successful endpoint is never inferred here.
 pub fn original_connect_peer(error: &ChannelError) -> Option<std::net::SocketAddr> {

@@ -1430,10 +1430,13 @@ async fn exchange_snapshot(
             ) {
                 Ok((response, parsed))
             } else {
-                Err(io::Error::other(format!(
+                let response = io::Error::other(format!(
                     "DNS backend `{tag}` returned retryable response code {}",
                     parsed.response_code
-                )))
+                ));
+                Err(io::Error::other(
+                    zero_platform_tokio::contract::network::UpstreamRejection::new(response),
+                ))
             }
         }) {
             Ok(response) => {

@@ -168,6 +168,7 @@ impl Outbound {
         let mut socket = socket::Socket::new(io);
 
         let submitting = AtomicBool::new(false);
+        let rejected = AtomicBool::new(false);
         let handshake = wire::connect_prepared(
             &mut socket,
             &request,
@@ -175,6 +176,9 @@ impl Outbound {
             |step| {
                 if matches!(step, Progress::Submitting) {
                     submitting.store(true, Ordering::Release);
+                }
+                if matches!(step, Progress::Rejected) {
+                    rejected.store(true, Ordering::Release);
                 }
                 if let Some(observer) = &context.observer {
                     match step {
@@ -215,10 +219,17 @@ impl Outbound {
                 error.delivery = DeliveryState::NotSubmitted;
                 error.retry = zero_platform_tokio::contract::RetryClass::BeforeSubmission;
             }
-            return Err(error.with_source(error::HandshakeError {
+            let source = error::HandshakeError {
                 wire: source,
                 source: original,
-            }));
+            };
+            return Err(if rejected.load(Ordering::Acquire) {
+                error.with_source(
+                    zero_platform_tokio::contract::network::UpstreamRejection::new(source),
+                )
+            } else {
+                error.with_source(source)
+            });
         }
         Ok(Connected {
             io: socket.into_inner(),

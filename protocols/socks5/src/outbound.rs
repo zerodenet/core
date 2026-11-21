@@ -236,7 +236,7 @@ impl Socks5Outbound {
             .await
             .map_err(|_| Error::Io("failed to write SOCKS5 outbound udp associate request"))?;
 
-        read_response(stream).await
+        read_response(stream, || {}).await
     }
 }
 

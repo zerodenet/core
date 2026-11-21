@@ -78,6 +78,8 @@ pub struct ProcessEndpointDatagramRequest {
 
 mod opener;
 pub use opener::UpstreamOpener;
+mod rejection;
+pub use rejection::UpstreamRejection;
 
 #[derive(Clone)]
 pub struct UpstreamTransport {

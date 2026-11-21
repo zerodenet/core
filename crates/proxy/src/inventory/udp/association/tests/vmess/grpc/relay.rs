@@ -150,12 +150,18 @@ async fn ordinary_vmess_grpc_relay_rejected_prefix_never_bypasses_to_final_or_le
                 let waiting=registration.observe().unwrap();assert_eq!(waiting.retained(),1);
                 assert!(waiting.slots()[0].native().is_none());assert!(waiting.slots()[0].driver().is_none());
                 let consumer=waiting.slots()[0].original().clone();
+                let setup=waiting.slots()[0].auxiliary().unwrap().clone();
+                assert!(!setup.is_joined());
                 let donor=donor_owner(&proxy,"first");let waiting=donor.observe().unwrap();
                 assert_eq!(waiting.retained(),1);assert!(waiting.slots()[0].native().is_some());
                 assert!(waiting.slots()[0].physical_view_live());
                 let native=waiting.slots()[0].original().clone();
                 prefix.release_response();
-                assert!(opening.await.is_err());
+                let failure=opening.await.unwrap_err();
+                use zero_platform_tokio::contract::{DeliveryState, Reason, Stage};
+                super::assert_retained_rejection(
+                    &failure, &setup, Stage::Handshake, Reason::Protocol, DeliveryState::Unknown,
+                );
                 (registration,donor,native,consumer)
                 };
                 assert!(consumer.matches_closed(&consumer.closed().unwrap()));
@@ -178,6 +184,7 @@ async fn ordinary_vmess_grpc_relay_rejected_prefix_never_bypasses_to_final_or_le
                 assert!(donor.closed().unwrap().matches(&donor));
                 assert!(donor.users_closed().unwrap().matches(&donor));
                 assert!(registration.closed().unwrap().matches(&registration));
+                assert!(registration.users_closed().unwrap().matches(&registration));
                 server.finish().await;
             })
             .await;

@@ -2,7 +2,7 @@
 use super::*;
 impl crate::controlled_carrier::CarrierAdoption {
     /// The original ordinary Source consumes the real exit before dispatching
-    /// component faults. Only this initializer's retained native rejection is
+    /// component faults. Only this initializer's retained connect rejection is
     /// an operation result; panics and unrelated task errors remain faults.
     pub fn receive_ordinary_connect_rejection(
         &self,
@@ -72,7 +72,7 @@ impl CarrierPreparation {
                 DeliveryState::Unknown,
             )
         };
-        if crate::controlled_carrier::original_connect_error(&source).is_none()
+        if !crate::controlled_carrier::is_connect_rejection(&source)
             || self.is_published()
             || !self
                 .state
@@ -127,7 +127,7 @@ impl CarrierPreparation {
         }
         Some(source.clone())
     }
-    /// The actual result receiver already owns this exact original native
+    /// The actual result receiver already owns this exact original
     /// connect error. Keep its real failed TaskJoined; only its later duplicate
     /// component-fatal projection is suppressed after full original settlement.
     /// This cannot ACK a Scope, close native IO, publish a view or refund N.
@@ -163,9 +163,7 @@ impl CarrierPreparation {
                 DeliveryState::Unknown,
             )
         };
-        if crate::controlled_carrier::original_connect_error(source).is_none()
-            || self.is_published()
-        {
+        if !crate::controlled_carrier::is_connect_rejection(source) || self.is_published() {
             return Err(fail());
         }
         let auxiliary = self.state.auxiliary.get().ok_or_else(fail)?;
