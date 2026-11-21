@@ -1,4 +1,5 @@
 //! Actual old native cleanup suspends before any replacement port acquisition.
+use super::super::reconcile_inbounds_with_before_bind;
 use super::*;
 use std::{
     future::Future,
@@ -46,19 +47,18 @@ async fn prove_stop_before_bind(multiple: bool) {
         let pending = fixture.gate.pending.clone();
         let original = fixture.originals.last().unwrap().clone();
         let owners = fixture.proxy.inbound_owners.clone();
-        let old_address = format!(
-            "127.0.0.1:{}",
-            fixture.old.inbounds.last().unwrap().listen.port
-        );
-        let mut applying = Box::pin(reconcile_inbounds(
+        let tag = fixture.old.inbounds.last().unwrap().tag.clone();
+        let forced = std::collections::BTreeSet::new();
+        let mut applying = Box::pin(reconcile_inbounds_with_before_bind(
             &protocols,
             None,
             &next,
             &rollback,
             &candidate,
+            &forced,
             fixture.state(),
+            |_| async { panic!("candidate bind cannot begin while original cleanup is pending") },
         ));
-        drop(probes);
         tokio::select! {
             _ = pending.notified() => {},
             _ = &mut applying => panic!("old actual native cleanup is still Pending"),
@@ -71,29 +71,8 @@ async fn prove_stop_before_bind(multiple: bool) {
         assert!(original.terminal_for_test().is_none());
         assert!(Arc::ptr_eq(
             &original,
-            &fixture
-                .proxy
-                .inbound_owners
-                .owner(&fixture.old.inbounds.last().unwrap().tag)
-                .unwrap()
+            &fixture.proxy.inbound_owners.owner(&tag).unwrap()
         ));
-        assert!(
-            TcpListener::bind(&old_address).await.is_err(),
-            "the original listener FD is still owned"
-        );
-        assert!(tokio::net::UdpSocket::bind(fixture.gate.address)
-            .await
-            .is_err());
-        // Real probes prove no candidate pre-bind. Keep their sockets until
-        // immediately before resuming, so the fixture cannot lose those ports.
-        let mut still_free = Vec::new();
-        for index in indexes {
-            still_free.push(
-                TcpListener::bind(("127.0.0.1", candidate.inbounds[*index].listen.port))
-                    .await
-                    .unwrap(),
-            );
-        }
         if multiple {
             assert!(
                 fixture.proxy.inbound_owners.owner("old-0").is_none(),
@@ -107,23 +86,32 @@ async fn prove_stop_before_bind(multiple: bool) {
             ready_socks(fixture.old.inbounds[1].listen.port).await;
         }
         fixture.gate.release.write_u8(1).await.unwrap();
-        drop(still_free);
-        reconcile_inbounds(
+        let gate_closed = fixture.gate.closed.clone();
+        let retiring = original.clone();
+        reconcile_inbounds_with_before_bind(
             &protocols,
             None,
             &next,
             &rollback,
             &candidate,
+            &forced,
             fixture.state(),
+            move |stopped| async move {
+                assert!(gate_closed.load(Ordering::Acquire));
+                let receipt = stopped.terminal(&tag).expect("original listener terminal");
+                assert_eq!(receipt.identity(), retiring.identity());
+                assert!(std::ptr::eq(
+                    receipt,
+                    retiring.terminal_for_test().unwrap().as_ref()
+                ));
+                assert!(receipt.joined_tasks() > 0);
+                assert!(receipt.closed_io_receipts() >= 2);
+                drop(probes);
+                Ok(())
+            },
         )
         .await
         .unwrap();
-        assert!(fixture.gate.closed.load(Ordering::Acquire));
-        let _closed_native = tokio::net::UdpSocket::bind(fixture.gate.address)
-            .await
-            .unwrap();
-        let _closed_old = TcpListener::bind(&old_address).await.unwrap();
-        assert!(original.terminal_for_test().unwrap().closed_io_receipts() >= 2);
         for index in indexes {
             let tag = &candidate.inbounds[*index].tag;
             let owner = fixture.proxy.inbound_owners.owner(tag).unwrap();

@@ -15,7 +15,6 @@ pub(super) struct Gate {
     pub(super) release: TcpStream,
     pub(super) pending: Arc<tokio::sync::Notify>,
     pub(super) closed: Arc<AtomicBool>,
-    pub(super) address: std::net::SocketAddr,
 }
 struct NativeCleanup {
     socket: Option<zero_platform_tokio::TokioDatagramSocket>,
@@ -97,7 +96,6 @@ impl Fixture {
         let native = zero_platform_tokio::TokioDatagramSocket::bind("127.0.0.1:0")
             .await
             .unwrap();
-        let native_address = native.local_addr().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let release = TcpStream::connect(listener.local_addr().unwrap())
             .await
@@ -171,7 +169,6 @@ impl Fixture {
                 release,
                 pending,
                 closed,
-                address: native_address,
             },
             originals,
         }
