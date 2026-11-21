@@ -157,7 +157,7 @@ pub(super) fn assert_standard_relay(proxy: &Proxy) {
             b"test",
             RouteMode::Flow,
         )
-        .unwrap_or_else(|failure| panic!("{}", failure.error));
+        .unwrap_or_else(|failure| panic!("{}: {:?}", failure.stage, failure.error));
     assert!(
         matches!(
             prepared,

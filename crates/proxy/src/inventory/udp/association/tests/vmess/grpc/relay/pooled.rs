@@ -109,18 +109,13 @@ async fn hosted_vmess_grpc_pooled_relay_real_mux_loans_share_original_and_preser
                 vec![b"pooled".to_vec()],
                 2,
                 true,
-                true,
+                false,
                 Box::new(|config| {
                     configure(config, std::slice::from_ref(&pool.node), false);
-                    for node in &mut config.outbounds {
-                        node.dial = serde_json::from_value(
-                            serde_json::json!({"address_family":"only_ipv4"}),
-                        )
-                        .unwrap();
-                    }
                     config.outbounds.push(
                         serde_json::from_value(serde_json::json!({
-                            "tag":"plain", "protocol":{"type":"direct"}
+                            "tag":"plain", "protocol":{"type":"direct"},
+                            "dial":{"address_family":"only_ipv4"}
                         }))
                         .unwrap(),
                     );
@@ -209,7 +204,7 @@ async fn hosted_vmess_grpc_pooled_relay_mixed_prefixes_preserve_nested_original_
             vec![b"pooled".to_vec()],
             1,
             true,
-            true,
+            false,
             Box::new(|config| {
                 configure(
                     config,
