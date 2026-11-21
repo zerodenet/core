@@ -181,19 +181,20 @@ async fn ordinary_vless_trojan_mux_prefix_pending_suffix_replacement_confirms_or
             handle.apply_runtime_config_and_wait((*config).clone(),Duration::from_secs(5)).await.unwrap();
             let plan=proxy.tcp_runtime_services().components.clone().unwrap();let old_role=plan.configured("node").unwrap();let registration=pool_owner(&proxy,"pool");let consumer=original(&proxy);
             let mut flow=BoundDispatch::new(&proxy, "pending").await.unwrap();let pending = flow.operation_observation();
-            let (applying, physical, driver) = {
+            let (applying, physical, driver, suffix) = {
             let opening=flow.dispatch(input(53,b"replace"));tokio::pin!(opening);
             tokio::select!{biased;_=&mut opening=>panic!("actual CONNECT reply is withheld"),_=held.request()=>{}}
             poll_fn(|cx|{assert!(opening.as_mut().poll(cx).is_pending());Poll::Ready(())}).await;
             pending.wait().await;
             let view=registration.observe().unwrap();let physical=view.slots()[0].original().clone();let driver=view.slots()[0].driver().unwrap().1.clone();assert!(view.slots()[0].native().is_some());
-            let view=consumer.observe().unwrap();assert!(view.slots()[0].physical_view_live());assert!(view.slots()[0].driver().is_none());assert!(view.slots()[0].borrowed_origin().unwrap().owner().same_owner(&registration));
+            let suffix=pending_suffix_loan(&proxy,&registration,&consumer);
             let mut candidate=(*config).clone();candidate.outbounds[1]=next_node.clone();candidate.outbounds[2]=ready.outbound("suffix");
             let applying=tokio::spawn(async move{handle.apply_runtime_config_and_wait(candidate,Duration::from_secs(10)).await});assert!(opening.await.is_err());
-            (applying, physical, driver)
+            (applying, physical, driver, suffix)
             };
             flow.finish_all().await;
             applying.await.unwrap().unwrap();
+            assert!(suffix.matches_closed(&suffix.closed().unwrap()));
             assert!(physical.matches_closed(&physical.closed().unwrap()));assert!(driver.is_joined());assert!(registration.closed().unwrap().matches(&registration));assert!(consumer.closed().unwrap().matches(&consumer));
             assert!(old_role.datagram(end()).await.is_err());assert_eq!(pool_owner(&proxy,"pool").observe().unwrap().retained(),0);
             let mut fresh=BoundDispatch::new(&proxy, "fresh").await.unwrap();fresh.dispatch(input(53,b"replace")).await.unwrap();assert_eq!(response(&mut fresh).await.2.as_ref(),b"replace");close_flow(&proxy,fresh).await;

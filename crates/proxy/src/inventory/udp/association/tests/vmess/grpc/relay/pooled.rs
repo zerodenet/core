@@ -67,22 +67,22 @@ async fn ordinary_vmess_grpc_mixed_relay_reuses_real_shadowsocks_replay_scope_an
                     let view = registration.observe().unwrap();
                     assert!(view.slots()[0].native().is_none());
                     let borrowed = view.slots()[0].borrowed_origin().unwrap();
-                    plan.validate_carrier_origin(role.role_id(), borrowed)
+                    let suffix_role = plan.configured("suffix").unwrap();
+                    plan.validate_carrier_origin(suffix_role.role_id(), borrowed)
                         .unwrap();
-                    let donor = donor_owner(&proxy, "shared");
-                    assert!(borrowed.owner().same_owner(&donor));
-                    let held = donor.observe().unwrap();
-                    assert_eq!(held.retained(), 1);
-                    assert!(held.slots()[0].native().is_some());
-                    let root = held.slots()[0].original().clone();
+                    let root_origin = borrowed.parent().expect("SOCKS keeps its real Shadowsocks donor");
+                    plan.validate_carrier_origin(role.role_id(), root_origin).unwrap();
+                    let root = root_origin.native_origin().clone();
+                    plan.validate_carrier_origin(role.role_id(), &root).unwrap();
+                    assert!(root.endpoints().is_some() && root.closed().is_none());
                     let native = view.slots()[0].original().clone();
                     let driver = view.slots()[0].driver().unwrap().1.clone();
                     close_flow(&proxy, flow).await;
                     assert!(driver.is_joined());
                     assert!(native.matches_closed(&native.closed().unwrap()));
                     assert!(!native.closed().unwrap().had_native_acquisition());
-                    assert!(root.matches_closed(&root.closed().unwrap()));
-                    assert!(root.closed().unwrap().had_native_acquisition());
+                    let root_closed = root.closed().unwrap();
+                    assert!(root_closed.matches(&root) && root_closed.had_native_acquisition());
                     server.finish().await;
                     proxy.protocols.shutdown_components(end()).await.unwrap();
                 })
@@ -282,20 +282,21 @@ async fn ordinary_vmess_grpc_pooled_relay_pending_suffix_replacement_waits_for_o
         let plan=proxy.tcp_runtime_services().components.clone().unwrap();let prior=plan.configured("node").unwrap();let registration=pool_owner(&proxy,"pool");let consumer=original(&proxy);
         let mut flow=BoundDispatch::new(&proxy, "pending").await.unwrap();
         let pending = flow.operation_observation();
-        let (applying, physical, driver) = {
+        let (applying, physical, driver, suffix) = {
         let opening=flow.dispatch(input(53,b"owned"));tokio::pin!(opening);
         tokio::select! {biased;_=&mut opening=>panic!("actual CONNECT reply is still withheld"),_=held.request()=>{}}
         poll_fn(|cx| {assert!(opening.as_mut().poll(cx).is_pending());Poll::Ready(())}).await;
         pending.wait().await;
         let observed=registration.observe().unwrap();assert_eq!(observed.retained(),1);assert!(observed.slots()[0].native().is_some());let physical=observed.slots()[0].original().clone();let driver=observed.slots()[0].driver().unwrap().1.clone();
-        let view=consumer.observe().unwrap();assert!(view.slots()[0].physical_view_live());assert!(view.slots()[0].driver().is_none());assert!(view.slots()[0].borrowed_origin().unwrap().owner().same_owner(&registration));assert!(physical.closed().is_none());
+        let suffix=pending_suffix_loan(&proxy,&registration,&consumer);assert!(physical.closed().is_none());
         let mut candidate=(*config).clone();candidate.outbounds[1]=next.node.clone();candidate.outbounds[2]=ready.outbound("suffix");
         let applying=tokio::spawn(async move {handle.apply_runtime_config_and_wait(candidate,Duration::from_secs(10)).await});
         assert!(opening.await.is_err());
-        (applying, physical, driver)
+        (applying, physical, driver, suffix)
         };
         flow.finish_all().await;
         applying.await.unwrap().unwrap();
+        assert!(suffix.matches_closed(&suffix.closed().unwrap()));
         assert!(driver.is_joined());assert!(physical.matches_closed(&physical.closed().unwrap()));assert!(registration.closed().unwrap().matches(&registration));assert!(consumer.closed().unwrap().matches(&consumer));
         let fresh=proxy.tcp_runtime_services().components.clone().unwrap();assert_ne!(fresh.configured("node").unwrap().instance_id(),prior.instance_id());assert!(prior.datagram(end()).await.is_err());assert_eq!(pool_owner(&proxy,"pool").observe().unwrap().retained(),0,"new physical pool starts only on demand after confirmed old close");
         let mut flow=BoundDispatch::new(&proxy, "fresh").await.unwrap();flow.dispatch(input(53,b"owned")).await.unwrap();assert_eq!(response(&mut flow).await.2.as_ref(),b"owned");close_flow(&proxy,flow).await;
