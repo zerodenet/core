@@ -49,8 +49,8 @@ pub struct CarrierOwnerObservation {
     stopped: bool,
     slots: Vec<CarrierSlotObservation>,
 }
-/// Bounded current-slot facts. No historical errors/tasks or user-completion
-/// claims: physical_view_live describes the original carrier view, not business users.
+/// Bounded current-slot facts. A snapshot of either view is independent of
+/// original closure, caller exit and registration release.
 pub struct CarrierSlotObservation {
     borrowed: Option<super::CarrierOrigin>,
     original: CarrierOriginObservation,
@@ -58,6 +58,7 @@ pub struct CarrierSlotObservation {
     opening: bool,
     spawning: bool,
     physical_view_live: bool,
+    user_view_live: bool,
     driver: Option<(TaskId, TaskJoinWitness)>,
     auxiliary: Option<TaskJoinWitness>,
     acquisition_unknown: Option<Arc<ChannelError>>,
@@ -137,6 +138,11 @@ impl CarrierSlotObservation {
     }
     pub fn physical_view_live(&self) -> bool {
         self.physical_view_live
+    }
+    /// The slot's unique user lease is still held. A background pool can hold
+    /// this lease on behalf of its logical users after its physical I/O returns.
+    pub fn user_view_live(&self) -> bool {
+        self.user_view_live
     }
     pub fn driver(&self) -> Option<&(TaskId, TaskJoinWitness)> {
         self.driver.as_ref()
@@ -221,6 +227,7 @@ impl CarrierOwnerRegistration {
                             opening: state.opening,
                             spawning: state.spawning,
                             physical_view_live: state.view_live,
+                            user_view_live: state.users.as_ref().is_some_and(|users| users.live()),
                             driver: state.driver.clone(),
                             auxiliary: state.auxiliary.clone(),
                             // While the synchronous native boundary is still

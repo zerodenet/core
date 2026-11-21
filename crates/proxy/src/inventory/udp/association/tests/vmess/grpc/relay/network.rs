@@ -60,21 +60,51 @@ async fn ordinary_vmess_grpc_relay_native_root_dns_and_network_replacement_wait_
                 let dns_native = query.original.as_ref().unwrap();
                 assert!(dns_native.closed().unwrap().matches(dns_native));
                 let registration = original(&proxy);
-                let old = registration.observe().unwrap().slots()[0]
-                    .original()
-                    .clone();
+                let observed = registration.observe().unwrap();
+                let slot = &observed.slots()[0];
+                let old = slot.original().clone();
+                let driver = slot.driver().unwrap().1.clone();
+                let root = slot.borrowed_origin().unwrap().native_origin().clone();
+                assert!(root.endpoints().is_some());
+                assert!(root.closed().is_none());
+                assert!(slot.user_view_live());
                 proxy.egress_interface_control().invalidate_network();
                 let mut packet = input(53, b"owned");
                 packet.client_session_id = Some(2);
-                assert!(dispatch.dispatch(packet).await.is_err());
-                assert!(old.closed().is_none());
+                let error = dispatch.dispatch(packet).await.unwrap_err();
+                super::super::network::assert_epoch_fenced(error, &registration, &old);
+                let closed = timeout(Duration::from_secs(3), async {
+                    loop {
+                        if let Some(closed) = old.closed() {
+                            break closed;
+                        }
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .expect("same original gRPC carrier close while Datagram remains held");
+                assert!(old.matches_closed(&closed) && !closed.had_native_acquisition());
+                let root_closed = root.closed().expect("same SOCKS native root closed");
+                assert!(root_closed.matches(&root) && root_closed.had_native_acquisition());
+                assert!(driver.matches_joined(&driver.try_joined().unwrap()));
+                let mut packet = input(53, b"owned");
+                packet.client_session_id = Some(3);
+                let error = dispatch.dispatch(packet).await.unwrap_err();
+                super::super::network::assert_epoch_fenced(error, &registration, &old);
                 dns.no_new_request();
                 assert_eq!(first.count.load(std::sync::atomic::Ordering::SeqCst), 1);
+                assert_eq!(server.accepted(), 1);
                 close_flow(&proxy, dispatch).await;
-                assert!(old.matches_closed(&old.closed().unwrap()));
-                let opening = tokio::spawn(open(proxy.clone(), 3));
+                let opening = tokio::spawn(open(proxy.clone(), 4));
                 dns.request().await.answer(false, false);
                 let dispatch = opening.await.unwrap();
+                assert!(driver.try_joined().unwrap().registration_released());
+                assert!(registration
+                    .observe()
+                    .unwrap()
+                    .slots()
+                    .iter()
+                    .all(|slot| !slot.original().same_original(&old)));
                 close_flow(&proxy, dispatch).await;
                 server.finish().await;
                 proxy

@@ -198,7 +198,7 @@ impl Managed {
             };
             let tag = match if let Some(preparation) = &preparation {
                 owner
-                    .prepare_on_scope(&record, preparation, context, acquiring)
+                    .prepare_on_scope(&record, preparation, context, dns_generation, acquiring)
                     .await
             } else {
                 owner.wait(context, Stage::Dial, acquiring).await

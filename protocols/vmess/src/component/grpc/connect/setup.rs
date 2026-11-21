@@ -2,7 +2,7 @@
 use super::{prepare::Prepared, *};
 use std::{future::Future, sync::atomic::Ordering};
 use zero_platform_tokio::{
-    contract::{network::UpstreamTransport, scope::TaskJoinWitness},
+    contract::{dns::DnsGeneration, network::UpstreamTransport, scope::TaskJoinWitness},
     controlled_carrier::{CarrierGrant, CarrierPreparation, CarrierUserView},
 };
 pub(super) struct View {
@@ -71,6 +71,7 @@ impl Managed {
         record: &Arc<Record>,
         preparation: &CarrierPreparation,
         context: &OpenContext,
+        dns_generation: Option<DnsGeneration>,
         operation: impl Future<Output = Result<Prepared, ChannelError>> + Send + 'static,
     ) -> Result<Prepared, ChannelError> {
         let (send, mut receive) = tokio::sync::oneshot::channel();
@@ -79,6 +80,7 @@ impl Managed {
         >();
         let stop = record.stop.clone();
         let result_owner = preparation.clone();
+        let upstream = context.upstream.clone();
         let (_, witness) = record.adoption.spawn_auxiliary(&self.tasks, async move {
             let Ok(caller) = started.await else {
                 return Ok(());
@@ -108,6 +110,13 @@ impl Managed {
                         // its exit, so its later native/Scope cleanup cannot
                         // reclassify a consumed candidate as a component fault.
                         result_owner.retain_connect_rejection_result(&caller, source.clone())?;
+                    } else if old_root_dns(&source, &upstream, dns_generation) {
+                        // The real provider moved to a new network before this
+                        // root dial submitted anything. Deliver the original
+                        // request result as in the stop branch. The DNS query,
+                        // grant and Auxiliary still retire through their owners.
+                        let _ = send.send(Err(source));
+                        return Ok(());
                     }
                     let _ = send.send(Err(source.clone()));
                     Err(ChannelError::retained(source))
@@ -201,4 +210,23 @@ impl Managed {
         debug_assert!(!record.published.load(Ordering::Acquire));
         result.map_err(ChannelError::retained)
     }
+}
+
+fn old_root_dns(
+    error: &ChannelError,
+    upstream: &UpstreamTransport,
+    expected: Option<DnsGeneration>,
+) -> bool {
+    let binding = upstream.binding();
+    error.stage == Stage::Dial
+        && error.reason == Reason::StalePlan
+        && error.delivery == DeliveryState::NotSubmitted
+        && error.impact == zero_platform_tokio::contract::Impact::Session
+        && binding.prefix.is_empty()
+        && expected.is_some_and(|old| {
+            old.network == binding.network_generation
+                && upstream
+                    .carrier_dns_generation()
+                    .is_some_and(|current| current.network.0 > old.network.0)
+        })
 }

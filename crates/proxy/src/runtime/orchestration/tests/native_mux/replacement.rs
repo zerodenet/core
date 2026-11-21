@@ -28,6 +28,9 @@ async fn native_mux_network_epoch_retires_original_and_waits_for_old_logical_io_
             let observation = registration.observe().unwrap();
             let original = observation.slots()[0].original().clone();
             let driver = observation.slots()[0].driver().unwrap().1.clone();
+            assert!(observation.slots()[0].user_view_live());
+            let reopening = connect(&proxy, server.fixture.echo.port());
+            tokio::pin!(reopening);
             {
                 let mut byte = [0];
                 let pending = held.read(&mut byte);
@@ -41,8 +44,6 @@ async fn native_mux_network_epoch_retires_original_and_waits_for_old_logical_io_
                 })
                 .await;
                 proxy.egress_interface_control().invalidate_network();
-                let reopening = connect(&proxy, server.fixture.echo.port());
-                tokio::pin!(reopening);
                 std::future::poll_fn(|cx| {
                     assert!(
                         reopening.as_mut().poll(cx).is_pending(),
@@ -68,19 +69,25 @@ async fn native_mux_network_epoch_retires_original_and_waits_for_old_logical_io_
                     .iter()
                     .find(|slot| slot.original().same_original(&original))
                     .expect("native close must not refund an original with a held logical view");
+                assert!(!retained.physical_view_live());
                 assert!(
-                    retained.physical_view_live(),
-                    "the original unique lease retains the real logical custody"
+                    retained.user_view_live(),
+                    "old logical custody is still held"
                 );
                 let result = timeout(Duration::from_secs(1), &mut pending).await.unwrap();
                 assert!(
                     matches!(result, Ok(0) | Err(_)),
                     "retired MUX I/O cannot stay live"
                 );
+                std::future::poll_fn(|cx| {
+                    assert!(reopening.as_mut().poll(cx).is_pending());
+                    Poll::Ready(())
+                })
+                .await;
                 assert_eq!(server.fixture.connections(), 1);
             }
             drop(held);
-            let mut fresh = connect(&proxy, server.fixture.echo.port()).await.unwrap();
+            let mut fresh = reopening.await.unwrap();
             echo(&mut fresh).await;
             assert_eq!(server.fixture.connections(), 2);
             let next = registration.observe().unwrap();

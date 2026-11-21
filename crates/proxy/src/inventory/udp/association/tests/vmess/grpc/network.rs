@@ -1,4 +1,33 @@
 use super::*;
+use zero_platform_tokio::{
+    contract::{ChannelError, DeliveryState, Reason, Stage},
+    controlled_carrier::{CarrierOriginObservation, CarrierOwnerRegistration},
+};
+
+pub(super) fn assert_epoch_fenced(
+    error: zero_engine::EngineError,
+    owner: &CarrierOwnerRegistration,
+    old: &CarrierOriginObservation,
+) {
+    let zero_engine::EngineError::Io(error) = error else {
+        panic!("expected the original network admission failure: {error:?}");
+    };
+    let failure = error
+        .get_ref()
+        .and_then(|source| source.downcast_ref::<ChannelError>())
+        .unwrap_or_else(|| panic!("expected the original network admission failure: {error:?}"));
+    assert_eq!(failure.component, Some(owner.instance().component));
+    assert_eq!(failure.stage, Stage::Close);
+    assert_eq!(failure.reason, Reason::StalePlan);
+    assert_eq!(failure.delivery, DeliveryState::NotSubmitted);
+    let observed = owner.observe().unwrap();
+    let [slot] = observed.slots() else {
+        panic!("only the old carrier may occupy the owner before return");
+    };
+    assert!(slot.original().same_original(old));
+    assert!(slot.user_view_live());
+}
+
 #[tokio::test]
 async fn ordinary_vmess_grpc_datagram_waits_for_old_original_before_acquiring_on_new_network() {
     timeout(Duration::from_secs(12), async {
