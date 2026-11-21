@@ -82,12 +82,30 @@ async fn actual_packet_source_ready_candidate_drops_business_until_same_snapshot
     let proxy = Proxy::new(config(serde_json::json!([healthy.clone()]))).unwrap();
     drop(reserved);
     let mut state = OrchestrationState::new(&proxy).await.unwrap();
-    let wg = serde_json::json!({"tag":"packet-candidate","listen":{"address":"127.0.0.3","port":0},
+    // The candidate owns the kernel-selected UDP port on the default
+    // loopback address. Other addresses in 127/8 may require an alias.
+    let tag = "packet-candidate";
+    let wg = serde_json::json!({"tag":tag,"listen":{"address":"127.0.0.1","port":0},
         "protocol":{"type":"wireguard","private_key":STANDARD.encode([71;32]),"addresses":["10.0.0.1/32"],
             "peers":[{"public_key":public_key(72),"allowed_ips":["10.0.0.2/32"]}]}});
     let snapshot = pending(&proxy, &mut state, config(serde_json::json!([healthy, wg]))).await;
-    let owner = proxy.inbound_owners.owner("packet-candidate").unwrap();
+    let owner = proxy.inbound_owners.owner(tag).unwrap();
     assert!(owner.is_ready());
+    let input = snapshot
+        .config()
+        .inbounds
+        .iter()
+        .find(|input| input.tag == tag)
+        .unwrap();
+    let original = proxy
+        .inbound_owners
+        .packet_source_origin(input)
+        .unwrap()
+        .expect("the Ready candidate's original UDP provider");
+    assert_eq!(original.owner().instance(), owner.identity());
+    assert!(original.closed().is_none());
+    let main = owner.task_access().source_main_witness().await.unwrap();
+    assert_ne!(main.task_id(), original.driver().task_id());
     let address = *owner.original_listener_address.get().unwrap();
     let private = STANDARD.encode([72; 32]);
     let public = public_key(71);
@@ -137,10 +155,22 @@ async fn actual_packet_source_ready_candidate_drops_business_until_same_snapshot
     let reply = zero_stack::packet::parse_icmp_echo_reply(&reply).unwrap();
     assert_eq!(&reply.message[8..], b"after");
     state.finish(&proxy, Ok(())).await.unwrap();
+    let closed = original
+        .closed()
+        .expect("the original Packet UDP socket closed");
+    assert!(closed.matches(original.owner()) && original.is_retired());
+    for (name, witness) in [("Source Main", &main), ("Packet wire", original.driver())] {
+        let joined = witness
+            .try_joined()
+            .unwrap_or_else(|| panic!("{name} must join"));
+        assert!(witness.matches_joined(&joined) && joined.registration_released());
+        joined.result().unwrap();
+    }
     let terminal = owner
         .terminal_for_test()
         .expect("same actual Packet source physically closed");
     assert_eq!(terminal.identity(), owner.identity());
+    assert!(terminal.failure().is_none());
     assert!(terminal.closed_io_receipts() > 0);
     assert!(terminal.joined_tasks() > 0);
 }
