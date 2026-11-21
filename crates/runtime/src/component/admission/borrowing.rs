@@ -13,6 +13,10 @@ impl HostAdmission {
             view.loan_revision = view.loan_revision.saturating_add(1);
         }
         view.loans.clear();
+        // The catalog calls this only after every original plan has closed.
+        // Its cleared generation tables still fence old roles and any next
+        // Business call until a new plan has successfully published.
+        view.stopping = false;
     }
     pub(in crate::component) fn freeze_loans(self: &Arc<Self>) -> LoanFreeze {
         let mut state = self.0.write().expect("host admission poisoned");

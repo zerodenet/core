@@ -125,9 +125,37 @@ async fn cold_validation_never_grants_admission_and_failed_commit_keeps_current_
             catalog.stop_business();
             assert!(open(&role, &root, true).await.is_err());
             open(&role, &root, false).await.unwrap();
+            catalog.commit(&config, || Ok(())).unwrap();
+            assert!(
+                open(&role, &root, true).await.is_err(),
+                "a commit during stop must keep admission fenced"
+            );
             catalog.shutdown(deadline()).await.unwrap();
             root.confirm_peers_closed().await;
             assert!(open(&role, &root, false).await.is_err());
+
+            catalog.start(config.clone(), deadline()).await.unwrap();
+            let restarted = catalog
+                .prepare(config.clone())
+                .unwrap()
+                .direct(Some("selected"))
+                .unwrap();
+            assert!(!Arc::ptr_eq(&slot, &restarted));
+            let restarted_root = Arc::new(Root::default());
+            restarted_root.track(&restarted);
+            let new_role = restarted.stream(deadline()).await.unwrap();
+            assert!(
+                open(&new_role, &restarted_root, true).await.is_err(),
+                "the new generation still requires publication"
+            );
+            catalog.commit(&config, || Ok(())).unwrap();
+            open(&new_role, &restarted_root, true).await.unwrap();
+            assert!(
+                open(&role, &root, true).await.is_err(),
+                "the old role stays fenced after restart"
+            );
+            catalog.shutdown(deadline()).await.unwrap();
+            restarted_root.confirm_peers_closed().await;
         }))
         .await
         .expect("actual catalog admission operation did not settle");

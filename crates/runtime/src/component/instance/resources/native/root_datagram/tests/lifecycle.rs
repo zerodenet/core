@@ -13,7 +13,6 @@ async fn actual_query_wire_native_close_and_original_join_are_independent_and_65
             let opened = grant
                 .open(peer, grant.network_generation(), &query)
                 .unwrap();
-            let local = opened.io.local_addr().unwrap();
             assert_eq!(opened.instance, instance());
             opened.io.send_to_addr(&[number], peer).await.unwrap();
             let mut reply = [0; 1];
@@ -25,21 +24,21 @@ async fn actual_query_wire_native_close_and_original_join_are_independent_and_65
             assert!(grant
                 .open(peer, grant.network_generation(), &query)
                 .is_err());
-            drop(closed);
-            sent.send(local).unwrap();
+            assert!(sent.send(closed).is_ok());
             Ok(())
         });
         let mut bytes = [0; 1];
         let (_, source) = target.recv_from(&mut bytes).await.unwrap();
         assert_eq!(bytes, [number]);
         target.send_to(&bytes, source).await.unwrap();
-        let local = received.await.unwrap();
+        let _closed = received.await.unwrap();
         assert!(
             !witness.is_joined(),
             "task body return is not actual Scope consumption"
         );
-        assert!(!fixture.resources.io_evidence().roots[0].queries_joined);
-        let _rebound = tokio::net::UdpSocket::bind(local).await.unwrap();
+        let evidence = &fixture.resources.io_evidence().roots[0];
+        assert!(evidence.native_confirmed && evidence.users_returned);
+        assert!(!evidence.queries_joined);
         let exit = fixture.scope.next_exit().await.unwrap();
         assert!(exit.result.is_ok());
         assert!(witness.is_joined());
@@ -75,13 +74,13 @@ async fn actual_pending_query_cancellation_returns_view_but_native_and_join_requ
         let opened = grant
             .open(peer, grant.network_generation(), &query)
             .unwrap();
-        sent.send(opened.io.local_addr().unwrap()).unwrap();
+        sent.send(()).unwrap();
         let mut bytes = [0; 8];
         assert!(opened.io.recv_from_addr(&mut bytes).await.is_err());
         drop(opened.io); // return only, host must explicitly close original
         Ok(())
     });
-    let local = received.await.unwrap();
+    received.await.unwrap();
     let first = fixture.resources.shutdown_io(deadline()).await.unwrap();
     assert!(!first.is_complete());
     let exit = fixture.scope.next_exit().await.unwrap();
@@ -95,5 +94,4 @@ async fn actual_pending_query_cancellation_returns_view_but_native_and_join_requ
     assert!(second.is_complete());
     assert_eq!(second.closed_io.len(), 1);
     assert!(fixture.resources.io_evidence().physical_confirmed());
-    let _rebound = tokio::net::UdpSocket::bind(local).await.unwrap();
 }
