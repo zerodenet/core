@@ -15,7 +15,7 @@ async fn removing_a_pending_urltest_group_retires_its_original_host_probe_and_na
                 headers.push(io.read_u8().await.unwrap());
                 assert!(headers.len()<16384);
             }
-            assert!(headers.starts_with(b"GET /probe "));
+            assert!(headers.starts_with(b"HEAD /probe HTTP/1.1\r\n"));
             let mut byte=[0];let mut read=std::pin::pin!(io.read(&mut byte));
             std::future::poll_fn(|cx| {assert!(read.as_mut().poll(cx).is_pending());Poll::Ready(())}).await;
             opened.send(()).unwrap();

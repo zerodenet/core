@@ -2,6 +2,7 @@
 use super::observation::HostObserver;
 use super::statistics::IngressTraffic;
 use super::*;
+use crate::runtime::raw_ip::tasks::scoped::{ScopedSourceTasks, SourceJoinFailure};
 use std::time::Instant;
 use zero_platform_tokio::contract::{
     context::{HandshakeContext, SessionIdentitySource},
@@ -11,6 +12,26 @@ use zero_platform_tokio::contract::{
 };
 use zero_stack::{OwnedFragmentReassembler, UserNetworkStack};
 mod send;
+#[cfg(test)]
+#[path = "tests/driver_retirement.rs"]
+mod tests;
+
+fn driver_outcome(
+    finished: Option<Result<Result<(), EngineError>, SourceJoinFailure>>,
+    source_stopping: bool,
+    drivers: &ScopedSourceTasks<Result<(), EngineError>>,
+) -> Result<(), EngineError> {
+    match finished {
+        Some(Ok(result)) => result,
+        // Revoking this Source can interrupt the dispatcher's body before it
+        // publishes a result. Its successful original join still has to be
+        // consumed and its registration acknowledged by the host Scope.
+        Some(Err(SourceJoinFailure::Scope { source: None, .. })) if source_stopping => Ok(()),
+        Some(Err(error)) => Err(std::io::Error::other(drivers.remember(error)).into()),
+        None => Err(std::io::Error::other("packet stack drivers ended").into()),
+    }
+}
+
 struct NoBusinessIdentity;
 impl SessionIdentitySource for NoBusinessIdentity {
     fn allocate(&self) -> Result<zero_core::component::SessionId, ChannelError> {
@@ -373,7 +394,7 @@ pub(in crate::runtime) async fn run(
             _=pins.management_changed()=>{route.retain_admitted_packet_pins(&mut pins);pins.expire();}
             _=maintenance.tick()=>{fragments.cleanup_expired(Instant::now());route.retain_admitted_packet_pins(&mut pins);}
             _=cleanup.tick()=>tcp.cleanup_idle(Duration::from_secs(300)).await,
-            finished=tasks.join_next()=>break match finished {Some(Ok(result))=>result,Some(Err(error))=>Err(std::io::Error::other(children.drivers.remember(error)).into()),None=>Err(std::io::Error::other("packet stack drivers ended").into())},
+            finished=tasks.join_next()=>break driver_outcome(finished, cancel.is_cancelled(), &children.drivers),
         }
     }})).await;
     if let Err(error) = &outcome {
