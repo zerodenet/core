@@ -64,6 +64,31 @@ async fn fixture() -> (
 }
 
 #[tokio::test]
+async fn original_drain_waits_for_logical_preparation_to_return() {
+    let metadata = Arc::new(zero_tun::packet_memory::PacketReturnTotals::default());
+    let originals = CarrierOriginalTotals::new(NonZeroUsize::new(1).unwrap());
+    let runtime = Runtime::prepare(
+        originals.buffer_budget(),
+        metadata.driver_metadata_view(),
+        1,
+    )
+    .unwrap();
+    let preparation = runtime.hold_preparation().unwrap();
+    assert!(runtime.has_logical_work());
+    let mut drain = Box::pin(runtime.drain());
+    std::future::poll_fn(|cx| {
+        assert!(drain.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    drop(preparation);
+    tokio::time::timeout(std::time::Duration::from_secs(3), drain)
+        .await
+        .unwrap();
+    assert!(!runtime.has_logical_work());
+}
+
+#[tokio::test]
 async fn normal_http_eof_drains_actual_pending_work_instead_of_cancelling_it() {
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         let (runtime, mut peer, pending, complete) = fixture().await;

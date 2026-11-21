@@ -25,8 +25,8 @@ struct Fixture {
 impl Fixture {
     async fn new(endpoint: std::net::SocketAddr, kind: Kind, business: bool) -> Self {
         let config=zero_config::RuntimeConfig::parse(&serde_json::json!({"outbounds":[{"tag":"node","protocol":{"type":"socks5","server":"127.0.0.1","port":endpoint.port()}}],"route":{"final":{"type":"direct"}}}).to_string()).unwrap();
-        let config = std::sync::Arc::new(config);
-        let proxy = Proxy::new((*config).clone()).unwrap();
+        let proxy = Proxy::new(config).unwrap();
+        let config = proxy.engine().runtime_snapshot().config().clone();
         let end = Instant::now() + Duration::from_secs(5);
         proxy
             .protocols

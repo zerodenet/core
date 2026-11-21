@@ -66,13 +66,13 @@ pub(super) async fn accept(
             accepted=async {
                 match &source_tasks.input {
                     SourceInput::Hosted(admission) => {
-                        let (accepted, acquisition) = crate::runtime::raw_ip::tasks::input::admitted(
+                        let admitted = crate::runtime::raw_ip::tasks::input::admitted(
                             tcp.accept(), admission,
                         ).await.map_err(io::Error::other)?;
-                        Ok::<_, EngineError>((accepted, Some(acquisition)))
+                        Ok::<_, EngineError>(admitted.map(|(accepted, acquisition)| (accepted, Some(acquisition))))
                     }
                     #[cfg(test)]
-                    SourceInput::ExplicitStackFixture => Ok((tcp.accept().await, None)),
+                    SourceInput::ExplicitStackFixture => Ok(Some((tcp.accept().await, None))),
                 }
             }=>accepted?,
             completed=async {dns_tasks.as_mut().expect("declared device DNS receiver").join_next().await},if dns_tasks.as_ref().is_some_and(|tasks|!tasks.is_empty())=>{
@@ -87,7 +87,9 @@ pub(super) async fn accept(
         };
         // Keep the same admission across reserve and actual spawn_bound. A
         // pause cannot ACK between accepted socket dequeue and its real owner.
-        let (accepted, _acquisition) = accepted;
+        let Some((accepted, _acquisition)) = accepted else {
+            return Ok(());
+        };
         let Some((stream, source, destination)) = accepted else {
             return Err(EngineError::Io(io::Error::new(
                 io::ErrorKind::UnexpectedEof,

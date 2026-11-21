@@ -18,7 +18,11 @@ static PORT_LOCK: Mutex<()> = Mutex::new(());
 /// Acquire the global port lock. Tests that spawn zero must hold this lock
 /// from port allocation through process startup confirmation.
 pub fn acquire_port_lock() -> std::sync::MutexGuard<'static, ()> {
-    PORT_LOCK.lock().expect("port lock poisoned")
+    // The lock serializes independent fixtures and protects no state to
+    // recover. A failing child must not prevent the next test from running.
+    PORT_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 pub fn config_path() -> PathBuf {

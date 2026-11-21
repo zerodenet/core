@@ -4,7 +4,7 @@ use crate::transport::extract_tcp_stream;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout_at;
-use zero_core::{Address, Network, ProtocolType, Session};
+use zero_core::{Network, ProtocolType, Session};
 use zero_engine::EngineError;
 impl OutboundProbeRuntime {
     pub(super) async fn run_accepted_probe(
@@ -82,8 +82,8 @@ impl OutboundProbeRuntime {
             let started_at = Instant::now();
             let session = Session::new(
                 0,
-                Address::Domain(request.host.clone()),
-                request.port,
+                request.destination.address.clone(),
+                request.destination.port,
                 Network::Tcp,
                 ProtocolType::UNKNOWN,
             );

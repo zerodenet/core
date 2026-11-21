@@ -169,8 +169,7 @@ impl OutboundProbeError {
 #[derive(Clone)]
 pub(crate) struct OutboundProbeRequest {
     pub(crate) url: String,
-    pub(super) host: String,
-    pub(super) port: u16,
+    pub(super) destination: zero_core::request::Destination,
     pub(super) request: String,
 }
 
@@ -205,8 +204,7 @@ impl OutboundProbeRequest {
             format!("HEAD {path} HTTP/1.1\r\nHost: {host_header}\r\nConnection: close\r\n\r\n");
         Ok(Self {
             url: url.to_owned(),
-            host,
-            port,
+            destination: crate::inventory::service::endpoint(&host, port),
             request,
         })
     }

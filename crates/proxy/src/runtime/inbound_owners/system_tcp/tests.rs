@@ -212,7 +212,7 @@ async fn system_api_cold_input_survives_run_start_and_restart_only_after_origina
                 header.push(io.read_u8().await.unwrap());
                 assert!(header.len() < 4096);
             }
-            assert!(header.starts_with(b"GET /restart "));
+            assert!(header.starts_with(b"HEAD /restart "));
             io.write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")
                 .await
                 .unwrap();

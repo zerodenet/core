@@ -56,6 +56,23 @@ impl Ledger {
         )
         .map_err(|(source, _, _)| io::Error::other(source))
     }
+    pub(super) fn hold_preparation(&self) -> io::Result<Reservation<'_>> {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.sealed {
+            return Err(io::ErrorKind::BrokenPipe.into());
+        }
+        if state.count >= self.limit {
+            return Err(io::ErrorKind::WouldBlock.into());
+        }
+        state.count += 1;
+        Ok(Reservation {
+            ledger: self,
+            active: true,
+        })
+    }
     /// Only the concrete Session and Request constructors can create Work.
     /// All storage is reserved before the node/future allocation is published.
     pub fn push(&self, work: Work) -> io::Result<()> {
@@ -363,7 +380,7 @@ impl PaidFuture {
     }
 }
 
-struct Reservation<'a> {
+pub(in crate::split_http::xmux) struct Reservation<'a> {
     ledger: &'a Ledger,
     active: bool,
 }

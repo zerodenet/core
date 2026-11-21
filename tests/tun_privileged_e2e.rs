@@ -300,8 +300,10 @@ fn privileged_command_managed_tun_publishes_egress_before_capture() {
     std::fs::write(&config_path, fake_ip_doh_config_json(listen_port, false)).unwrap();
 
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        eprintln!("command-managed TUN: waiting for the original process to start idle");
         let mut process = spawn_zero(binary, &config_path, &socket);
         wait_for_tun(binary, &socket, false, false);
+        eprintln!("command-managed TUN: requesting start over the original control channel");
         run_cli(
             binary,
             [
@@ -320,6 +322,7 @@ fn privileged_command_managed_tun_publishes_egress_before_capture() {
                 path(&socket),
             ],
         );
+        eprintln!("command-managed TUN: checking published state and routes");
         assert!(
             try_wait_for_tun(
                 binary,
@@ -332,11 +335,13 @@ fn privileged_command_managed_tun_publishes_egress_before_capture() {
             "timed out waiting for command-managed TUN state"
         );
         let tun_name = assert_tun_os_configured(binary, &socket, false, false);
+        eprintln!("command-managed TUN: probing mixed inbound and Fake-IP egress");
         assert_http_connect_domain_through_mixed_inbound(listen_port, "example.com");
         assert_http_domain_through_fake_ip("example.com");
         assert_dns_underlay_not_captured(binary, &socket);
         assert_active_flows_have_safe_egress(binary, &socket);
 
+        eprintln!("command-managed TUN: requesting stop and checking original cleanup");
         run_cli(binary, ["tun", "stop", "--socket", path(&socket)]);
         wait_for_tun(binary, &socket, false, false);
         assert_tun_os_cleanup(&tun_name);

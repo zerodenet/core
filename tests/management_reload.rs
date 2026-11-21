@@ -13,12 +13,22 @@ struct Kernel(Child, std::path::PathBuf);
 impl Drop for Kernel {
     fn drop(&mut self) {
         if std::thread::panicking() {
+            // Let an already-failing process report its original error before
+            // the fixture sends its own kill and truncates the diagnosis.
+            let deadline = Instant::now() + Duration::from_millis(500);
+            while matches!(self.0.try_wait(), Ok(None)) && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            eprintln!(
+                "kernel exit before fixture cleanup: {:?}",
+                self.0.try_wait()
+            );
             if let Ok(log) = std::fs::read_to_string(&self.1) {
                 eprintln!(
                     "kernel log: {}",
                     log.lines()
                         .rev()
-                        .take(12)
+                        .take(40)
                         .collect::<Vec<_>>()
                         .into_iter()
                         .rev()

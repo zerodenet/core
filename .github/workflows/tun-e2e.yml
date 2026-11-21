@@ -261,7 +261,13 @@ jobs:
           ZERO_TUN_E2E_FAKE_IP_DOMAIN: open.bigmodel.cn
         run: cargo test --all-features --test tun_privileged_e2e privileged_tun_ipv4_fake_ip_doh_direct_domain_does_not_self_capture -- --ignored --exact --nocapture
       - name: Run command-managed egress publication E2E
-        run: cargo test --all-features --test tun_privileged_e2e privileged_command_managed_tun_publishes_egress_before_capture -- --ignored --exact --nocapture
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'zero-native-crashes/command-managed-egress.log'
+          & cargo test --all-features --test tun_privileged_e2e privileged_command_managed_tun_publishes_egress_before_capture -- --ignored --exact --nocapture 2>&1 |
+            Tee-Object -FilePath $log
+          exit $LASTEXITCODE
       - name: Run disabled DNS with TUN system resolver E2E
         run: cargo test --all-features --test tun_privileged_e2e dns_disabled::privileged_tun_without_builtin_dns_preserves_system_resolution -- --ignored --exact --nocapture
       - name: Attempt native Windows route switching and report fixture coverage

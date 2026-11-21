@@ -58,14 +58,19 @@ async fn empty_input_releases_acquisition_but_dequeued_datagram_keeps_it_until_c
         tokio::runtime::Handle::current(),
         NonZeroUsize::new(2).unwrap(),
     );
+    let stop = CancellationToken::new();
     let source = PacketSourcePause::new(
         ComponentInstanceId {
             component: ComponentId(991),
             generation: ResourceGeneration(3),
         },
         scope.registrar().scope_identity(),
-        CancellationToken::new(),
+        stop.clone(),
     );
+    let Err(error) = admitted(std::future::ready(()), &source).await else {
+        panic!("missing live checkpoints must be an admission error");
+    };
+    assert_eq!(error.reason, Reason::Revoked);
     let mut originals = Vec::new();
     for (kind, read) in [
         (PacketPauseParticipant::Main, main_read),
@@ -106,7 +111,7 @@ async fn empty_input_releases_acquisition_but_dequeued_datagram_keeps_it_until_c
         "sealed read preserves the original queued input"
     );
     drop(paused);
-    let (received, acquisition) = input.await.unwrap();
+    let (received, acquisition) = input.await.unwrap().unwrap();
     assert_eq!(received.unwrap().0, b"queued".len());
     assert_eq!(&buffer[..6], b"queued");
     let mut pausing = Box::pin(source.pause(deadline()));
@@ -116,6 +121,14 @@ async fn empty_input_releases_acquisition_but_dequeued_datagram_keeps_it_until_c
     let paused = pausing.await.unwrap();
     paused.validate().unwrap();
     drop(paused);
+    let stopping = admitted(udp.recv_datagram_with_peer(), &source);
+    tokio::pin!(stopping);
+    pending(&mut stopping).await;
+    udp.feed(&frame).await;
+    stop.cancel();
+    assert!(stopping.await.unwrap().is_none());
+    assert!(!udp.quiescent().await);
+    assert!(originals.iter().all(|original| !original.is_joined()));
     main_write.write_all(&[1]).await.unwrap();
     wire_write.write_all(&[2]).await.unwrap();
     scope.next_exit().await.unwrap();

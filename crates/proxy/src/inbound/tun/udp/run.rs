@@ -84,22 +84,24 @@ pub(super) async fn run_inner(
             received = async {
                 #[cfg(feature = "raw-ip-runtime")]
                 if let Some(admission) = &admission {
-                    let (received, acquisition) = crate::runtime::raw_ip::tasks::input::admitted(
+                    let admitted = crate::runtime::raw_ip::tasks::input::admitted(
                         stack.recv_datagram_with_peer(), admission,
                     ).await.map_err(std::io::Error::other)?;
-                    return Ok::<_, EngineError>((received, Some(acquisition)));
+                    return Ok::<_, EngineError>(admitted.map(|(received, acquisition)| (received, Some(acquisition))));
                 }
                 let received = stack.recv_datagram_with_peer().await;
                 #[cfg(feature = "raw-ip-runtime")]
                 let acquisition = None;
                 #[cfg(not(feature = "raw-ip-runtime"))]
                 let acquisition = ();
-                Ok::<_, EngineError>((received, acquisition))
+                Ok::<_, EngineError>(Some((received, acquisition)))
             } => {
                 // Retain the actual dequeue acquisition across reserve and
                 // synchronous spawn_bound/spawn. The same child records own
                 // every admitted datagram before this branch releases it.
-                let (received, _acquisition) = received?;
+                let Some((received, _acquisition)) = received? else {
+                    return Ok(());
+                };
                 let Some(zero_stack::udp::UdpStackDatagram { data: payload, source, destination, peer_identity }) = received else {
                     return Ok(());
                 };

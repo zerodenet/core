@@ -178,6 +178,10 @@ impl PreparedOwnedXhttp {
             .owned_origin()
             .ok_or_else(|| io::Error::from(io::ErrorKind::PermissionDenied))?;
         let driver = connection.retain_driver();
+        // The first GET can exhaust its request group before the upload and
+        // download work is published. Keep its selected original driver
+        // occupied across that gap, including any independent download setup.
+        let preparation = runtime.hold_preparation()?;
         runtime.bind_pool(&upload.sender.pool.0);
         return_initial(&upload, connection);
         if let Some(download) = &mut download {
@@ -204,6 +208,7 @@ impl PreparedOwnedXhttp {
             logical,
         )
         .await?;
+        drop(preparation);
         stream.usages = usages.values;
         stream._owned_driver = Some(driver);
         stream._owned_usage_memory = Some(usages.memory);

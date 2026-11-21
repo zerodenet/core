@@ -12,6 +12,12 @@ impl Drop for PacketSourceAcquisition {
     }
 }
 impl PacketSourcePause {
+    /// Observe the stop request of this original Source, independently of
+    /// checkpoint liveness and without claiming a native or task receipt.
+    pub async fn stopped(&self) {
+        self.cancel.cancelled().await;
+    }
+
     /// Wait for a reversible pause to resume before polling a new Source input.
     /// The actual consumer drops the guard on Pending, and retains it on Ready
     /// until the same original child/native custody has been installed.
@@ -23,7 +29,12 @@ impl PacketSourcePause {
             {
                 let mut state = self.state.lock().unwrap();
                 if !self.live(&state) {
-                    return Err(pause_error(Reason::Revoked));
+                    let reason = if self.cancel.is_cancelled() {
+                        Reason::Cancelled
+                    } else {
+                        Reason::Revoked
+                    };
+                    return Err(pause_error(reason));
                 }
                 if state.request.is_none() {
                     state.acquiring = state
@@ -36,7 +47,7 @@ impl PacketSourcePause {
                 }
             }
             tokio::select! { biased;
-                _ = self.cancel.cancelled() => return Err(pause_error(Reason::Revoked)),
+                _ = self.stopped() => return Err(pause_error(Reason::Cancelled)),
                 _ = changed => {},
             }
         }

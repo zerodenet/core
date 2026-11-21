@@ -161,6 +161,12 @@ impl Runtime {
     pub(super) fn has_logical_work(&self) -> bool {
         self.ledger.has_logical_work()
     }
+    pub(super) fn hold_preparation(&self) -> io::Result<ledger::Reservation<'_>> {
+        if self.stopped.is_cancelled() {
+            return Err(io::ErrorKind::BrokenPipe.into());
+        }
+        self.ledger.hold_preparation()
+    }
     pub(crate) fn buffer_book(&self) -> &CarrierBufferBudget {
         &self.book
     }

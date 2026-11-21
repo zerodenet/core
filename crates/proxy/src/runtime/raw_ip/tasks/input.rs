@@ -2,7 +2,7 @@
 use std::{future::Future, sync::Arc, task::Poll};
 use zero_platform_tokio::contract::{
     packet::{PacketSourceAcquisition, PacketSourcePause},
-    ChannelError,
+    ChannelError, Reason,
 };
 
 /// The returned guard stays with the dequeued input until its caller installs
@@ -12,10 +12,10 @@ use zero_platform_tokio::contract::{
 pub(crate) async fn admitted<T>(
     input: impl Future<Output = T>,
     source: &Arc<PacketSourcePause>,
-) -> Result<(T, PacketSourceAcquisition), ChannelError> {
+) -> Result<Option<(T, PacketSourceAcquisition)>, ChannelError> {
     tokio::pin!(input);
     let mut entering = Box::pin(source.enter());
-    std::future::poll_fn(|cx| {
+    let pending_input = std::future::poll_fn(|cx| {
         let acquisition = match entering.as_mut().poll(cx) {
             Poll::Pending => return Poll::Pending,
             Poll::Ready(Err(source)) => return Poll::Ready(Err(source)),
@@ -29,8 +29,15 @@ pub(crate) async fn admitted<T>(
                 Poll::Pending
             }
         }
-    })
-    .await
+    });
+    tokio::select! { biased;
+        _ = source.stopped() => Ok(None),
+        result = pending_input => match result {
+            Ok(input) => Ok(Some(input)),
+            Err(error) if error.reason == Reason::Cancelled => Ok(None),
+            Err(error) => Err(error),
+        },
+    }
 }
 
 #[cfg(test)]

@@ -2,7 +2,33 @@ use std::io;
 
 use zero_engine::EngineError;
 
-use super::OutboundProbeError;
+use super::{OutboundProbeError, OutboundProbeRequest};
+
+#[test]
+fn probe_preserves_literal_address_and_http_authority() {
+    use zero_core::Address;
+    for (authority, address, port) in [
+        ("198.51.100.2", Address::Ipv4([198, 51, 100, 2]), 80),
+        (
+            "[::1]:8080",
+            Address::Ipv6(std::net::Ipv6Addr::LOCALHOST.octets()),
+            8080,
+        ),
+        (
+            "node.example:81",
+            Address::Domain("node.example".into()),
+            81,
+        ),
+    ] {
+        let probe = OutboundProbeRequest::parse(&format!("http://{authority}/probe")).unwrap();
+        assert_eq!(probe.destination.address, address);
+        assert_eq!(probe.destination.port, port);
+        assert!(probe.request.starts_with("HEAD /probe HTTP/1.1\r\n"));
+        assert!(probe
+            .request
+            .contains(&format!("\r\nHost: {authority}\r\n")));
+    }
+}
 
 #[test]
 fn local_egress_and_dns_failures_are_inconclusive() {
