@@ -213,6 +213,22 @@ async fn actual_direct_tcp_udp_ready_candidate_cannot_forward_before_commit() {
     drop(tcp);
     commit(&proxy, snapshot.clone()).await;
     assert!(snapshot.configuration_publication().is_committed());
+    let direct = proxy
+        .tcp_runtime_services()
+        .components
+        .as_ref()
+        .unwrap()
+        .direct(None)
+        .unwrap()
+        .original_carrier_owner(0)
+        .unwrap();
+    let previous = direct
+        .observe()
+        .unwrap()
+        .slots()
+        .iter()
+        .map(|slot| slot.ordinal())
+        .max();
     let mut tcp = TcpStream::connect(address).await.unwrap();
     tcp.write_all(b"after-tcp").await.unwrap();
     let (mut accepted, _) = tokio::time::timeout(Duration::from_secs(3), target.accept())
@@ -228,13 +244,47 @@ async fn actual_direct_tcp_udp_ready_candidate_cannot_forward_before_commit() {
         .unwrap()
         .unwrap();
     assert_eq!(&packet[..size], b"after-udp");
-    drop(tcp);
-    drop(accepted);
-    state.finish(&proxy, Ok(())).await.unwrap();
+    // Shutdown starts with real relay I/O still pending on this original.
+    assert_pending(tcp.read(&mut [0; 1])).await;
+    let observed = direct.observe().unwrap();
+    let slot = observed
+        .slots()
+        .iter()
+        .find(|slot| previous.is_none_or(|previous| slot.ordinal() > previous))
+        .expect("the post-commit Direct TCP original");
+    assert!(slot.physical_view_live() && slot.user_view_live());
+    let outbound = slot.original().clone();
+    assert!(outbound.closed().is_none());
+    let peer_tasks = owner.peer_tasks_for_test();
+    assert!(!peer_tasks.preflight_quiescent());
+    let scope = owner
+        .task_access()
+        .peer_registrar()
+        .retirement_observation()
+        .unwrap();
+    #[cfg(feature = "raw-ip-runtime")]
+    let main = owner.task_access().source_main_witness().await.unwrap();
+    // Production keeps the host's retained carrier cleanup polled while
+    // finish waits for the listener observers and their accepted children.
+    proxy
+        .protocols
+        .drive_component_supervision(Box::pin(state.finish(&proxy, Ok(()))))
+        .await
+        .unwrap();
+    let closed = outbound.closed().expect("same Direct TCP carrier closed");
+    assert!(outbound.matches_closed(&closed) && closed.had_native_acquisition());
+    assert!(scope.is_drained());
+    assert!(peer_tasks.physically_closed());
+    #[cfg(feature = "raw-ip-runtime")]
+    {
+        let joined = main.try_joined().expect("same Source Main joined");
+        assert!(main.matches_joined(&joined) && joined.registration_released());
+    }
     let terminal = owner
         .terminal_for_test()
         .expect("actual original owner physically closed");
     assert_eq!(terminal.identity(), owner.identity());
+    assert!(terminal.failure().is_none());
     assert!(terminal.closed_io_receipts() > 0);
     assert!(terminal.joined_tasks() > 0);
 }
