@@ -217,7 +217,20 @@ async fn callback_datagram_parent_and_additional_cancel_wake_original_pending_re
                 originals.iter().all(|original| original.closed().is_none()),
                 "cancellation alone cannot close retained unique views"
             );
-            drop(channel);
+            let zero_platform_tokio::contract::datagram::DatagramSession {
+                tx,
+                rx,
+                mut control,
+                ..
+            } = channel;
+            drop(tx);
+            drop(rx);
+            let report = control
+                .wait_closed(Instant::now() + Duration::from_secs(5))
+                .await
+                .unwrap();
+            assert!(report.is_complete());
+            drop(control);
             peer.await.unwrap();
             fixture.finish(originals).await;
         }

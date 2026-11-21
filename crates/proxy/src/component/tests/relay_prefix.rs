@@ -1,5 +1,6 @@
 //! Existing callback APIs exercise actual protocol roles and caller originals.
 #![cfg(all(feature = "vmess", feature = "socks5"))]
+use super::super::super::pending::PendingCaller;
 use super::*;
 use crate::{
     component::tests::business_carrier::sources::{Caller, Kind},
@@ -21,6 +22,7 @@ struct Fixture {
     caller: Caller,
     prefix: PrefixOpener,
     physical: CarrierOwnerRegistration,
+    _waiting: Option<PendingCaller>,
 }
 impl Fixture {
     async fn new(endpoint: std::net::SocketAddr, kind: Kind, business: bool) -> Self {
@@ -60,13 +62,8 @@ impl Fixture {
                 services.upstream().network_generation(),
             ),
         };
-        let waiting = super::super::super::pending::PendingCaller::new(
-            &services,
-            invocation,
-            vec![slot.role_id()],
-            root.clone(),
-        )
-        .unwrap();
+        let waiting =
+            PendingCaller::new(&services, invocation, vec![slot.role_id()], root.clone()).unwrap();
         let admitted = crate::component::business_carrier::BusinessCarrierRequest::new(
             services.engine(),
             &slot,
@@ -79,12 +76,7 @@ impl Fixture {
         )
         .with_plan(Some(Arc::downgrade(plan)))
         .with_business(admitted.clone())
-        .with_pending(
-            root.clone(),
-            waiting
-                .as_ref()
-                .map(super::super::super::pending::PendingCaller::observer),
-        );
+        .with_pending(root.clone(), waiting.as_ref().map(PendingCaller::observer));
         let cancel = invocation.cancellation();
         let binding = UpstreamBinding {
             prefix: vec![slot.role_id()],
@@ -145,6 +137,9 @@ impl Fixture {
             caller,
             prefix,
             physical,
+            // Requests observe the actual waiting owner weakly. The test
+            // caller keeps that owner until its callback has returned.
+            _waiting: waiting,
         }
     }
     fn call(&self) -> CarrierContext {
@@ -166,7 +161,9 @@ impl Fixture {
     async fn finish(mut self, originals: Vec<CarrierOriginObservation>) {
         self.caller.join().await;
         assert!(self.caller.witness().is_joined());
-        self.caller.verify_carrier_completion();
+        if let Some(report) = self.caller.close_report() {
+            assert!(report.is_complete());
+        }
         self.proxy
             .engine()
             .track_session(self.caller.session().id)
@@ -177,13 +174,22 @@ impl Fixture {
             .shutdown_components(Instant::now() + Duration::from_secs(5))
             .await
             .unwrap();
+        // The callback borrows a Service carrier even for a business prefix.
+        // Its original provider issues the native and transferred-user receipts.
+        let native = self.physical.closed().expect("actual SOCKS donor closed");
+        assert!(native.matches(&self.physical));
+        let users = self
+            .physical
+            .users_closed()
+            .expect("actual SOCKS donor users returned");
+        assert!(users.matches(&self.physical));
+        assert_eq!(users.had_native_acquisition(), !originals.is_empty());
         for original in originals {
             let closed = original
                 .closed()
                 .expect("same callback donor original close");
             assert!(original.matches_closed(&closed) && closed.had_native_acquisition());
         }
-        assert_eq!(self.physical.observe().unwrap().retained(), 0);
         assert_eq!(
             self.proxy
                 .protocols

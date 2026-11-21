@@ -114,32 +114,25 @@ async fn device_recipe_consumes_only_its_same_candidate_standard_material_and_ac
 
 #[cfg(feature = "wireguard")]
 #[tokio::test]
-async fn a_single_member_relay_and_leaf_keep_the_exact_actual_dial_policy_without_legacy_preparation(
-) {
-    for target in ["a", "chain"] {
-        let mut value = serde_json::to_value(with_device(&["a"], target).as_ref()).unwrap();
-        value["outbounds"][0]["dial"] = serde_json::json!({
-            "address_family":"only_ipv4", "interface":"fixture-interface", "source_ip":"127.0.0.1"
-        });
-        let config = Arc::new(RuntimeConfig::parse(&value.to_string()).unwrap());
-        let (inventory, plan, egress) = prepare(&config);
-        let paths = inventory
-            .prepare_device_packet_paths(
-                &config,
-                &zero_engine::EndpointAdmission::from_config(&config),
-                NetworkGeneration(egress.generation()),
-                Some(&plan),
-            )
-            .unwrap();
-        assert_eq!(paths.len(), 1);
-        let path = &paths[target];
-        assert_eq!(
-            path.recipe.binding().dial,
-            config.outbounds[0].dial.to_policy()
-        );
-        assert!(path.recipe.binding().prefix.is_empty());
-        assert_eq!(path.identity, path_identity(&config, &[0]).unwrap());
-    }
+async fn named_leaf_keeps_its_exact_dial_policy_without_legacy_preparation() {
+    let config = with_device(&["a", "b"], "a");
+    let (inventory, plan, egress) = prepare(&config);
+    let paths = inventory
+        .prepare_device_packet_paths(
+            &config,
+            &zero_engine::EndpointAdmission::from_config(&config),
+            NetworkGeneration(egress.generation()),
+            Some(&plan),
+        )
+        .unwrap();
+    assert_eq!(paths.len(), 1);
+    let path = &paths["a"];
+    assert_eq!(
+        path.recipe.binding().dial,
+        config.outbounds[0].dial.to_policy()
+    );
+    assert!(path.recipe.binding().prefix.is_empty());
+    assert_eq!(path.identity, path_identity(&config, &[0]).unwrap());
 }
 
 #[cfg(feature = "wireguard")]

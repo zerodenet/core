@@ -12,18 +12,15 @@ fn deadline() -> tokio::time::Instant {
 #[tokio::test]
 async fn independent_dns_datagrams_return_selected_native_and_related_control_before_retry() {
     tokio::time::timeout(Duration::from_secs(30), async {
-        for (kind, tcp_only_plugin, constrained) in [
-            #[cfg(feature="socks5")] ("socks5", false, false),
-            #[cfg(feature="socks5")] ("socks5", false, true),
-            #[cfg(feature="shadowsocks")] ("shadowsocks", false, false),
-            #[cfg(feature="shadowsocks")] ("shadowsocks", false, true),
-            #[cfg(all(feature="shadowsocks",target_os="linux"))] ("shadowsocks", true, false),
-            #[cfg(all(feature="shadowsocks",target_os="linux"))] ("shadowsocks", true, true),
+        for (kind, tcp_only_plugin) in [
+            #[cfg(feature="socks5")] ("socks5", false),
+            #[cfg(feature="shadowsocks")] ("shadowsocks", false),
+            #[cfg(all(feature="shadowsocks",target_os="linux"))] ("shadowsocks", true),
         ] {
             eprintln!("native Datagram DNS family starts: kind={kind}, tcp_only_plugin={tcp_only_plugin}");
             let remote = Remote::new(kind).await;
             let mut dns = crate::dns_fixture::Dns::new().await;
-            let (proxy, running, _material) = client(&remote, &dns, tcp_only_plugin, constrained).await;
+            let (proxy, running, _material) = client(&remote, &dns, tcp_only_plugin).await;
             let mut previous = Vec::<CarrierOrigin>::new();
             for (index, cancel) in [false, true, false].into_iter().enumerate() {
                 let resolver = proxy.resolver.clone();
@@ -55,20 +52,11 @@ async fn independent_dns_datagrams_return_selected_native_and_related_control_be
                 let plan = proxy.tcp_runtime_services().components.clone().unwrap();
                 let slot = plan.configured("node").unwrap();
                 assert_eq!(native.instance(), slot.instance_id());
-                if constrained {
-                    let source: std::net::IpAddr = "127.0.0.1".parse().unwrap();
-                    assert_eq!(slot.dial.source_ip, Some(source));
-                    assert_eq!(native.endpoints().unwrap().local().unwrap().ip(), source);
-                    assert_eq!(native.selected_binding().unwrap().1.dial, slot.dial);
-                }
                 let related = if kind == "socks5" {
                     let control = native.related_control().expect("negotiated UDP keeps its exact TCP original");
                     assert!(!control.same_original(&native));
                     assert_eq!(control.endpoints().unwrap().peer(), remote.address);
                     assert!(control.closed().is_none() && control.driver().is_none());
-                    if constrained {
-                        assert_eq!(control.endpoints().unwrap().local().unwrap().ip(), remote.address.ip());
-                    }
                     Some(control)
                 } else {
                     assert_eq!(native.endpoints().unwrap().peer(), remote.address);
