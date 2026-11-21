@@ -1,7 +1,7 @@
 //! Public SOCKS Source -> actual standard Datagram Flow -> original MUX provider.
 use super::*;
 use tokio::net::{TcpStream, UdpSocket};
-async fn associate(
+pub(super) async fn associate(
     front: std::net::SocketAddr,
     client: &UdpSocket,
 ) -> (TcpStream, std::net::SocketAddr) {
@@ -27,7 +27,7 @@ async fn associate(
         (ip, u16::from_be_bytes([reply[8], reply[9]])).into(),
     )
 }
-async fn send(
+pub(super) async fn send(
     client: &UdpSocket,
     relay: std::net::SocketAddr,
     target: std::net::SocketAddr,
@@ -38,7 +38,7 @@ async fn send(
     frame.extend_from_slice(payload);
     assert_eq!(client.send_to(&frame, relay).await.unwrap(), frame.len());
 }
-async fn reply(client: &UdpSocket, target: std::net::SocketAddr, payload: &[u8]) {
+pub(super) async fn reply(client: &UdpSocket, target: std::net::SocketAddr, payload: &[u8]) {
     let mut frame = vec![0; 65535];
     let (length, _) = client.recv_from(&mut frame).await.unwrap();
     assert_eq!(&frame[..8], &[0, 0, 0, 1, 127, 0, 0, 1]);
@@ -56,17 +56,26 @@ async fn exercise(protocol: &str, stop_pending: bool, ingress: &str) {
         let proxy=Proxy::new(zero_config::RuntimeConfig::parse(&value.to_string()).unwrap()).unwrap();let running=start_components(&proxy).await;
         let source=proxy.inbound_owners.owner("front").unwrap();source.wait_ready().await.unwrap();let front=*source.original_listener_address.get().unwrap();
         let client=UdpSocket::bind("127.0.0.1:0").await.unwrap();let (mut control,relay)=associate(front,&client).await;
+        let responses = timeout(Duration::from_secs(3), async {
+            loop {
+                if let Some(actual) = source.accepted_responses_for_test() {
+                    break actual;
+                }
+                tokio::task::yield_now().await;
+            }
+        }).await.unwrap();
         let mut peers=Vec::new();
+        let mut readers = Vec::new();
         for (socket,payload) in [(&first,b"first".as_slice()),(&second,b"second".as_slice())]{
             let target=socket.local_addr().unwrap();send(&client,relay,target,payload).await;
             let mut bytes=[0;65535];let (size,peer)=socket.recv_from(&mut bytes).await.unwrap();assert_eq!(&bytes[..size],payload);peers.push(peer);
             socket.send_to(&bytes[..size],peer).await.unwrap();reply(&client,target,payload).await;
             // Establish the first real RX as Pending before another inbound
             // target wins select and drops that outer response wait.
-            timeout(Duration::from_secs(3),async{loop{let actual=source.native_response_readers_for_test();if actual.len()==peers.len()&&actual.iter().all(|reader|reader.pending_for_test()){break;}tokio::task::yield_now().await;}}).await.unwrap();
+            readers = timeout(Duration::from_secs(3),async{loop{let actual=responses.native_readers_for_test();if actual.len()==peers.len()&&actual.iter().all(|reader|reader.pending_for_test()){break actual;}tokio::task::yield_now().await;}}).await.unwrap();
         }
-        let readers=timeout(Duration::from_secs(3),async{loop{let readers=source.native_response_readers_for_test();if readers.len()==2&&readers.iter().all(|reader|reader.pending_for_test()){break readers;}tokio::task::yield_now().await;}}).await.unwrap();
-        let books=source.response_books_for_test();assert!(!books.is_empty());assert!(books.iter().all(|book|!book.compatibility_created_for_test()),"ordinary standard RX never creates a private response JoinSet");
+        assert_eq!(readers.len(), 2);
+        assert!(!responses.compatibility_created_for_test(),"ordinary standard RX never creates a private response JoinSet");
         assert!(readers[0].original.same_registration(&readers[1].original),"both real standard RX operations run in the same original association driver");
         assert!(readers.iter().all(|reader|reader.session_for_test()!=0));assert_ne!(readers[0].session_for_test(),readers[1].session_for_test());
         let actual_caller=readers[0].original.clone();assert!(!actual_caller.is_joined());
@@ -82,12 +91,15 @@ async fn exercise(protocol: &str, stop_pending: bool, ingress: &str) {
         // The runtime itself requests Source stop and consumes its original
         // full observer. Real Pending RX is established above, never by delay.
         running.shutdown().await.unwrap();
-        assert!(books.iter().all(|book|!book.compatibility_created_for_test()));
+        assert!(responses.is_closed());
+        assert!(!responses.compatibility_created_for_test());
         assert!(readers.iter().all(|reader|reader.complete()),"the original exclusive dispatcher lease returned these exact RX views");
         let joined=actual_caller.try_joined().expect("same actual caller Scope consumed its join");assert!(actual_caller.matches_joined(&joined));
         assert!(driver.is_joined());let closed=original.closed().expect("same physical provider close receipt");assert!(original.matches_closed(&closed));
         let terminal=source.terminal_for_test().unwrap();assert!(terminal.closed_io_receipts()>0&&terminal.joined_tasks()>0);assert!(terminal.failure().is_none()&&terminal.task_failures().is_empty()&&terminal.native_bound_failures().is_empty());
-        assert_eq!(registration.observe().unwrap().retained(),0);drop(readers);
+        assert!(registration.closed().unwrap().matches(&registration));
+        assert!(registration.users_closed().unwrap().matches(&registration));
+        drop(readers);
         assert_eq!(proxy.protocols.runtime_host().original_budgets().carrier.snapshot().charged,0);
         server.close().await;
     }).await.unwrap();

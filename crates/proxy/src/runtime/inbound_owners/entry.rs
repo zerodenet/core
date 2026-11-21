@@ -35,6 +35,12 @@ mod acquisition;
 mod client_failures;
 #[cfg(feature = "managed-stream-runtime")]
 mod service;
+#[cfg(all(
+    test,
+    feature = "managed-stream-runtime",
+    feature = "managed-datagram-runtime"
+))]
+pub(in crate::runtime) use acquisition::Acquisition;
 pub(in crate::runtime) use acquisition::AcquisitionPause;
 mod cleanup_fault;
 #[cfg(feature = "managed-datagram-runtime")]
@@ -428,41 +434,6 @@ impl InboundOwner {
             cleanup_failures: Default::default(),
         }));
         Ok(())
-    }
-    #[cfg(all(
-        test,
-        feature = "managed-stream-runtime",
-        feature = "managed-datagram-runtime"
-    ))]
-    pub(crate) fn native_response_readers_for_test(
-        &self,
-    ) -> Vec<
-        zero_traits::packet_metadata::PacketMetadataArc<
-            crate::runtime::udp_flow::registered::NativeResponseReceiver,
-        >,
-    > {
-        let groups = self.peers.lock().unwrap().clone();
-        groups
-            .iter()
-            .flat_map(|group| group.bindings_for_test())
-            .filter_map(|binding| binding.responses_for_test())
-            .flat_map(|owner| owner.native_readers_for_test())
-            .collect()
-    }
-    #[cfg(all(
-        test,
-        feature = "managed-stream-runtime",
-        feature = "managed-datagram-runtime"
-    ))]
-    pub(crate) fn response_books_for_test(
-        &self,
-    ) -> Vec<Arc<crate::runtime::udp_flow::response_join::ResponseSetOwner>> {
-        let groups = self.peers.lock().unwrap().clone();
-        groups
-            .iter()
-            .flat_map(|group| group.bindings_for_test())
-            .filter_map(|binding| binding.responses_for_test())
-            .collect()
     }
     #[cfg(all(test, feature = "managed-datagram-runtime"))]
     pub(crate) fn peer_tasks_for_test(&self) -> Arc<super::InboundPeerTasks> {

@@ -16,6 +16,13 @@ pub(crate) struct InboundRouteRuntime {
     pub(in crate::runtime) continuity:
         Option<std::sync::Arc<super::source::DatagramContinuityHost>>,
     accepted_tasks: Option<zero_platform_tokio::AcceptedTasks>,
+    #[cfg(all(
+        test,
+        feature = "managed-stream-runtime",
+        feature = "managed-datagram-runtime"
+    ))]
+    pub(in crate::runtime) accepted_observer:
+        Option<std::sync::Weak<crate::runtime::inbound_owners::Acquisition>>,
     #[cfg(feature = "managed-stream-runtime")]
     pub(in crate::runtime) service_sniffing: Option<crate::runtime::sniff::SniffingPolicy>,
     pub(super) connection: Option<zero_platform_tokio::contract::context::InboundConnectionFacts>,
@@ -96,6 +103,12 @@ impl InboundRouteRuntime {
             #[cfg(feature = "managed-datagram-runtime")]
             continuity: None,
             accepted_tasks: None,
+            #[cfg(all(
+                test,
+                feature = "managed-stream-runtime",
+                feature = "managed-datagram-runtime"
+            ))]
+            accepted_observer: None,
             #[cfg(feature = "managed-stream-runtime")]
             service_sniffing: None,
             connection: None,

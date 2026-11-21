@@ -77,17 +77,6 @@ impl std::fmt::Debug for InboundPeerTasks {
 }
 impl InboundPeerTasks {
     #[cfg(test)]
-    pub(crate) fn bindings_for_test(&self) -> Vec<Arc<HostPeerBinding>> {
-        self.state
-            .lock()
-            .unwrap()
-            .active
-            .values()
-            .cloned()
-            .collect()
-    }
-
-    #[cfg(test)]
     pub(crate) fn diagnose_actual_retirement(&self) {
         let (preparing, children, claiming, fault, bindings) = {
             let state = self.state.lock().unwrap();

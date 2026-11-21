@@ -154,6 +154,17 @@ impl UdpDispatch {
         self.finish_retaining_io().0
     }
 
+    #[cfg(all(
+        test,
+        feature = "managed-stream-runtime",
+        feature = "managed-datagram-runtime"
+    ))]
+    pub(crate) fn response_owner_for_test(
+        &self,
+    ) -> std::sync::Arc<crate::runtime::udp_flow::response_join::ResponseSetOwner> {
+        self.flow_state.response_owner()
+    }
+
     /// The standard accepted owner retains the exact native set/response Set
     /// after finishing flows. Cancellation never discards their close ledgers.
     pub(crate) fn finish_retaining_io(

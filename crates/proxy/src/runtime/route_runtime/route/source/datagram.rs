@@ -196,6 +196,18 @@ async fn drive_inner(
     } = io;
     state.control = Some(control); // Persist before dispatcher preparation/await.
     let dispatch = udp.new_dispatch(runtime.inbound_tag()).await?;
+    #[cfg(all(
+        test,
+        feature = "managed-stream-runtime",
+        feature = "managed-datagram-runtime"
+    ))]
+    if let Some(observer) = runtime
+        .accepted_observer
+        .as_ref()
+        .and_then(std::sync::Weak::upgrade)
+    {
+        observer.observe_accepted_responses(&dispatch.response_owner_for_test());
+    }
     state.dispatch = Some(dispatch);
     let owner::State {
         dispatch, control, ..

@@ -109,6 +109,12 @@ pub(in crate::runtime) async fn run(
                     let facts = pending.connection_facts().cloned().ok_or_else(|| std::io::Error::other(
                         "TCP source omitted actual connection facts"))?;
                     let route = factory.for_connection(facts.effective_source).with_local_addr(facts.local_endpoint);
+                    #[cfg(all(test, feature = "managed-stream-runtime", feature = "managed-datagram-runtime"))]
+                    let route = {
+                        let mut route = route;
+                        route.accepted_observer = acquisition.as_ref().map(std::sync::Arc::downgrade);
+                        route
+                    };
                     let accepted_cancel = cancel.clone();
                     let tag = factory.inbound_tag().to_owned();
                     let spawned = pending.spawn(TaskClass::Auxiliary, move |pending, tasks| async move {

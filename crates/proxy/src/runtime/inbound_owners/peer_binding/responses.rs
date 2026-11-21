@@ -9,15 +9,6 @@ pub(super) struct ResponseOwner {
     packet_failure: Option<zero_platform_tokio::contract::RetainedError>,
 }
 impl HostPeerBinding {
-    #[cfg(test)]
-    pub(crate) fn responses_for_test(&self) -> Option<Arc<ResponseSetOwner>> {
-        self.responses
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|entry| entry.owner.clone())
-    }
-
     /// Install the actual dispatcher's original Set before its first response
     /// spawn. This is not another child-resource claim or a caller-join proof.
     pub(crate) fn install_response_owner(

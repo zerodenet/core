@@ -14,6 +14,13 @@ pub(in crate::runtime) struct Acquisition {
             zero_platform_tokio::AcceptedTcpClosed,
         )>,
     >,
+    #[cfg(all(
+        test,
+        feature = "managed-stream-runtime",
+        feature = "managed-datagram-runtime"
+    ))]
+    accepted_responses:
+        Mutex<std::sync::Weak<crate::runtime::udp_flow::response_join::ResponseSetOwner>>,
     peer_dirty: AtomicBool,
     peer_changed: tokio::sync::Notify,
 }
@@ -45,6 +52,17 @@ impl Drop for AcquisitionPause {
     }
 }
 impl Acquisition {
+    #[cfg(all(
+        test,
+        feature = "managed-stream-runtime",
+        feature = "managed-datagram-runtime"
+    ))]
+    pub(in crate::runtime) fn observe_accepted_responses(
+        &self,
+        responses: &Arc<crate::runtime::udp_flow::response_join::ResponseSetOwner>,
+    ) {
+        *self.accepted_responses.lock().unwrap() = Arc::downgrade(responses);
+    }
     #[cfg(test)]
     pub(in crate::runtime) fn record_accepted_closed(
         &self,
@@ -152,6 +170,20 @@ impl Acquisition {
     }
 }
 impl InboundOwner {
+    #[cfg(all(
+        test,
+        feature = "managed-stream-runtime",
+        feature = "managed-datagram-runtime"
+    ))]
+    pub(crate) fn accepted_responses_for_test(
+        &self,
+    ) -> Option<Arc<crate::runtime::udp_flow::response_join::ResponseSetOwner>> {
+        self.acquisition
+            .accepted_responses
+            .lock()
+            .unwrap()
+            .upgrade()
+    }
     #[cfg(test)]
     pub(crate) fn accepted_closed_for_test(
         &self,
