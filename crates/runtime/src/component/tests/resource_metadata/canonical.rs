@@ -168,9 +168,21 @@ async fn actual_slot_start_grants_the_canonical_original_scope_but_does_not_forg
     assert!(std::net::UdpSocket::bind(address).is_err());
     let report = fixture.shutdown().await;
     assert!(!report.is_complete());
-    let retained = std::net::UdpSocket::bind(address).unwrap();
+    let original = fixture.resources().io_evidence();
+    assert_eq!(original.metadata[0].main.confirmed_closed, 0);
+    assert_eq!(original.metadata[0].unconfirmed_users(), Some(1));
+    assert_eq!(grant.tx.local_addr().unwrap(), address);
     assert!(!grant.scope.registration_open());
-    drop(retained);
+    let returned = grant.return_unstarted().ok().unwrap();
+    let receipt = returned.try_closed().unwrap();
+    fixture.confirm_users(receipt, &tasks).unwrap();
+    assert!(fixture.shutdown().await.is_complete());
+    assert_eq!(
+        fixture.resources().io_evidence().metadata[0]
+            .main
+            .confirmed_closed,
+        1
+    );
 }
 
 #[tokio::test]

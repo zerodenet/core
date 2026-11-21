@@ -46,6 +46,18 @@ impl Caller {
             )),
         }
     }
+    pub(in crate::component) async fn run<F, Fut, T>(&self, job: F) -> T
+    where
+        F: FnOnce(Invocation) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = T> + Send + 'static,
+        T: Send + 'static,
+    {
+        match self {
+            Self::Accepted(caller) => caller.run(job).await,
+            #[cfg(feature = "raw-ip-runtime")]
+            Self::Raw(caller) => caller.run(job).await,
+        }
+    }
     pub(in crate::component) fn session(&self) -> &Session {
         match self {
             Self::Accepted(caller) => &caller.session,

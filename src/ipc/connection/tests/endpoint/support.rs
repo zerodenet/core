@@ -19,10 +19,15 @@ pub struct Fixture {
     pub running: RunningProxy,
     pub config: Value,
     pub port: u16,
+    pub budget: Arc<zero_runtime::configuration::ControlBudget>,
 }
 
 impl Fixture {
     pub async fn new() -> Self {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_test_writer()
+            .try_init();
         let _ = rustls::crypto::ring::default_provider().install_default();
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         let port = socket.local_addr().unwrap().port();
@@ -36,10 +41,15 @@ impl Fixture {
                     "endpoint":"127.0.0.1:9","allowed_ips":["10.0.0.0/24"]}]}
         }],"route":{"rules":[],"final":{"type":"direct"}}});
         let proxy = Proxy::new(RuntimeConfig::parse(&config.to_string()).unwrap()).unwrap();
+        let budget = proxy.application_control_budget();
         let handle = ProxyHandle::new(EngineHandle::new(proxy.engine().clone()), proxy.clone());
         drop(socket);
         let running = proxy.clone().spawn();
-        let mut ipc = Ipc::new(handle.clone());
+        running
+            .wait_ready(tokio::time::Instant::now() + Duration::from_secs(5))
+            .await
+            .unwrap();
+        let mut ipc = Ipc::new(handle.clone(), budget.clone());
         timeout(Duration::from_secs(5), async {
             loop {
                 if ipc.endpoint().await["state"] == "running" {
@@ -56,6 +66,7 @@ impl Fixture {
             running,
             config,
             port,
+            budget,
         }
     }
 }
@@ -67,23 +78,54 @@ pub struct Ipc {
 }
 
 impl Ipc {
-    pub fn with_auth(handle: ProxyHandle, auth: zero_api::AuthContext) -> Self {
-        let (client, server) = UnixStream::pair().unwrap();
-        let task = tokio::spawn(crate::ipc::connection::handle_ipc_connection_with_auth(
-            server, handle, auth,
-        ));
-        Self {
-            stream: BufReader::new(client),
-            task,
-            next_id: 0,
-        }
+    pub fn with_auth(
+        handle: ProxyHandle,
+        auth: zero_api::AuthContext,
+        budget: Arc<zero_runtime::configuration::ControlBudget>,
+    ) -> Self {
+        Self::start(handle, Some(auth), budget)
     }
 
-    pub fn new(handle: ProxyHandle) -> Self {
+    pub fn new(
+        handle: ProxyHandle,
+        budget: Arc<zero_runtime::configuration::ControlBudget>,
+    ) -> Self {
+        Self::start(handle, None, budget)
+    }
+
+    fn start(
+        handle: ProxyHandle,
+        auth: Option<zero_api::AuthContext>,
+        budget: Arc<zero_runtime::configuration::ControlBudget>,
+    ) -> Self {
         let (client, server) = UnixStream::pair().unwrap();
-        let task = tokio::spawn(crate::ipc::connection::handle_ipc_connection(
-            server, handle,
-        ));
+        let original = budget
+            .reserve(zero_runtime::configuration::ControlCharge::Connection)
+            .unwrap();
+        let local = original.connection_budget().unwrap();
+        let registration = local.clone();
+        let (begin, started) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            let _original = original;
+            started.await.map_err(std::io::Error::other)?;
+            let stop = zero_platform_tokio::contract::CancellationToken::new();
+            match auth {
+                Some(auth) => {
+                    crate::ipc::connection::handle_ipc_connection_with_auth_until(
+                        server, handle, auth, stop, budget, local,
+                    )
+                    .await
+                }
+                None => {
+                    crate::ipc::connection::handle_ipc_connection_with_connection_until(
+                        server, handle, stop, budget, local,
+                    )
+                    .await
+                }
+            }
+        });
+        assert!(registration.register_command_task(task.abort_handle()));
+        begin.send(()).unwrap();
         Self {
             stream: BufReader::new(client),
             task,
@@ -150,6 +192,12 @@ impl Ipc {
             .unwrap()
             .unwrap()
             .unwrap();
+    }
+    pub fn disconnect(self) -> tokio::task::JoinHandle<std::io::Result<()>> {
+        // Lose the actual client's read/write side while retaining the server's
+        // original command receiver and cleanup task, as a real disconnect does.
+        drop(self.stream);
+        self.task
     }
 }
 

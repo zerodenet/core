@@ -14,7 +14,7 @@ fn prepared_recipe() -> (
             1420,
             0,
             endpoint,
-            Default::default(),
+            crate::runtime::raw_ip::test_memory::source(Default::default(), 1420),
         )
         .unwrap(),
         packets,

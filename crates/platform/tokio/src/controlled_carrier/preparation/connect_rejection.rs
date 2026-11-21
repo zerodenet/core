@@ -180,8 +180,7 @@ impl CarrierPreparation {
             return Err(fail());
         }
         let state = slot.state();
-        if state.closed
-            || (settled && !state.auxiliary_accepted)
+        if (settled && !state.auxiliary_accepted)
             || !state
                 .auxiliary
                 .as_ref()
@@ -197,6 +196,20 @@ impl CarrierPreparation {
                 .as_ref()
                 .is_some_and(|actual| auxiliary.matches_joined(actual))
         {
+            return Err(fail());
+        }
+        // Native retirement may complete between this original's two actual
+        // result receivers. Receiving the same retained failed join again is
+        // idempotent; it grants no IO, ACK, close or replacement permission.
+        // Every original source, owner, task and settled ACK check still runs.
+        if let Some(received) = self.state.connect_rejection.get() {
+            return if auxiliary.matches_joined(received) {
+                Ok(())
+            } else {
+                Err(fail())
+            };
+        }
+        if state.closed {
             return Err(fail());
         }
         drop(state);

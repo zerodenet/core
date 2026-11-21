@@ -1,6 +1,50 @@
 //! Opaque identity from the actual installed accepted handler, never a witness setter.
 use super::*;
 impl TcpRuntimeServices {
+    /// Restore the exact original UDP flow invocation. This copies no plan or
+    /// configuration, and proves no new admission or native permission.
+    pub(crate) fn resume_business_identity(
+        mut self,
+        session: &zero_core::Session,
+        original: &crate::component::direct_bridge::Invocation,
+    ) -> Result<Self, zero_engine::EngineError> {
+        let zero_platform_tokio::contract::context::RequestIdentity::Business(facts) =
+            &original.identity
+        else {
+            return Err(
+                std::io::Error::other("retained UDP invocation is not a business request").into(),
+            );
+        };
+        if facts.session.0 != session.id {
+            return Err(std::io::Error::other(
+                "retained UDP invocation belongs to another session",
+            )
+            .into());
+        }
+        original
+            .admitted
+            .as_ref()
+            .ok_or_else(|| {
+                std::io::Error::other("retained UDP invocation has no original admission")
+            })?
+            .check(self.engine(), facts.session)?;
+        if let Some(current) = self
+            .execution
+            .invocation
+            .as_ref()
+            .filter(|call| call.admitted.is_some())
+        {
+            if !matches!(&current.identity, zero_platform_tokio::contract::context::RequestIdentity::Business(current) if std::sync::Arc::ptr_eq(current, facts))
+            {
+                return Err(std::io::Error::other(
+                    "UDP continuation cannot replace another admitted invocation",
+                )
+                .into());
+            }
+        }
+        self.execution.invocation = Some(original.clone());
+        Ok(self)
+    }
     pub(crate) fn with_accepted_caller(
         mut self,
         caller: Option<zero_platform_tokio::AcceptedCaller>,

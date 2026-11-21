@@ -359,8 +359,9 @@ impl Entry {
     }
     fn close(&self) -> Result<DatagramCloseReceipt, Arc<std_io::Error>> {
         self.retire_io();
-        let _claim =
-            NativeCloseClaim::acquire(&self.close_running).ok_or_else(|| self.uncertain.clone())?;
+        let _claim = NativeCloseClaim::acquire(&self.close_running)
+            .ok_or_else(|| self.uncertain.clone())?
+            .notify_on_release(&self.source_changed);
         self.close_locked(self.lock())
     }
     /// None is an actual in-progress native gate/close lease, never a receipt.
@@ -372,7 +373,8 @@ impl Entry {
         {
             return None;
         }
-        let _claim = NativeCloseClaim::acquire(&self.close_running)?;
+        let _claim =
+            NativeCloseClaim::acquire(&self.close_running)?.notify_on_release(&self.source_changed);
         let native = match self.native.try_lock() {
             Ok(native) => native,
             Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
@@ -453,7 +455,10 @@ impl Entry {
 
 /// One real native-close operation, including the unlocked OS call. If that
 /// call unwinds, Unknown remains in Entry and the operation lease is released.
-struct NativeCloseClaim<'a>(&'a std::sync::atomic::AtomicBool);
+struct NativeCloseClaim<'a> {
+    flag: &'a std::sync::atomic::AtomicBool,
+    changed: Option<&'a tokio::sync::Notify>,
+}
 impl<'a> NativeCloseClaim<'a> {
     fn acquire(flag: &'a std::sync::atomic::AtomicBool) -> Option<Self> {
         flag.compare_exchange(
@@ -463,12 +468,24 @@ impl<'a> NativeCloseClaim<'a> {
             std::sync::atomic::Ordering::Acquire,
         )
         .ok()
-        .map(|_| Self(flag))
+        .map(|_| Self {
+            flag,
+            changed: None,
+        })
+    }
+    fn notify_on_release(mut self, changed: &'a tokio::sync::Notify) -> Self {
+        self.changed = Some(changed);
+        self
     }
 }
 impl Drop for NativeCloseClaim<'_> {
     fn drop(&mut self) {
-        self.0.store(false, std::sync::atomic::Ordering::Release);
+        self.flag.store(false, std::sync::atomic::Ordering::Release);
+        // The operation lease must end before an original waiter is woken.
+        // Report-only claims deliberately do not generate progress events.
+        if let Some(changed) = self.changed {
+            changed.notify_waiters();
+        }
     }
 }
 

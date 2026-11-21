@@ -29,3 +29,6 @@ mod listening;
 
 #[path = "endpoint_contracts/lifecycle.rs"]
 mod lifecycle;
+
+#[path = "endpoint_contracts/small_stack.rs"]
+mod small_stack;

@@ -2061,13 +2061,6 @@ fn rejects_recursive_or_unsupported_dns_detours() {
         ),
         (
             r#"{
-                "bootstrap": { "type": "udp", "host": "1.1.1.1", "detour": "dns-out" },
-                "proxy": { "type": "udp", "host": "8.8.8.8", "detour": "dns-out" }
-            }"#,
-            r#"{ "node_server": "bootstrap" }"#,
-        ),
-        (
-            r#"{
                 "bootstrap": { "type": "udp", "host": "1.1.1.1" },
                 "proxy": { "type": "doq", "host": "8.8.8.8", "detour": "dns-out" }
             }"#,
@@ -3682,3 +3675,15 @@ fn native_mux_carrier_limit_defaults_without_changing_export_and_rejects_invalid
 
 #[path = "config_parse/control_messages.rs"]
 mod control_messages;
+
+#[test]
+fn node_dns_detour_preserves_independent_direct_carrier_selection() {
+    let config = RuntimeConfig::parse(r#"{
+        "runtime":{"dns":{"servers":{"node":{"type":"udp","host":"192.0.2.53","detour":"dns-out"}},"default_server":"node","policy":{"node_server":"node"}}},
+        "outbounds":[{"tag":"dns-out","protocol":{"type":"direct"}}],
+        "route":{"final":{"type":"direct"}}
+    }"#).unwrap();
+    let dns = config.runtime.dns.unwrap();
+    assert_eq!(dns.policy.node_server.as_deref(), Some("node"));
+    assert_eq!(dns.servers["node"].detour(), Some("dns-out"));
+}

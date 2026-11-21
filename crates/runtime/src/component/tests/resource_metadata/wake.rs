@@ -44,7 +44,6 @@ async fn original_pending_receive_wake_can_reenter_host_observation_and_shutdown
         .listen_metadata_datagram(request(loopback()))
         .await
         .unwrap();
-    let local = grant.tx.local_addr().unwrap();
     let callback = Arc::new(Reenter {
         host: Arc::downgrade(&host),
         wakes: AtomicUsize::new(0),
@@ -64,13 +63,29 @@ async fn original_pending_receive_wake_can_reenter_host_observation_and_shutdown
         .is_pending());
     let report = host.shutdown_io(deadline()).await.unwrap();
     assert!(!report.is_complete());
+    assert_eq!(callback.wakes.load(Ordering::SeqCst), 0);
+    assert_eq!(host.io_evidence().metadata[0].main.confirmed_closed, 0);
+    // Exercise the same original provider's native callback boundary directly,
+    // including adversarial native retirement with an outstanding raw RX view.
+    // Ordinary host cleanup above correctly waits for its real user receipt.
+    let close = {
+        let native = host.metadata.entries[&0].state.lock().unwrap();
+        native.prepare_close()
+    };
+    assert!(close.try_close().is_none());
     assert!(callback.wakes.load(Ordering::SeqCst) > 0);
     assert!(callback.unconfirmed.load(Ordering::SeqCst));
     let actual = host.io_evidence();
     assert_eq!(actual.metadata[0].main.confirmed_closed, 1);
     assert_eq!(actual.metadata[0].main.live, 0);
     assert!(actual.metadata[0].main.unknown.is_empty());
-    let retained = std::net::UdpSocket::bind(local).unwrap();
+    let std::task::Poll::Ready(Err(retired)) = grant.rx.poll_recv(
+        &mut Context::from_waker(&waker),
+        &mut buffers,
+        &mut metadata,
+    ) else {
+        panic!("the same original RX was not retired");
+    };
+    assert_eq!(retired.kind(), std::io::ErrorKind::NotConnected);
     assert!(scope.shutdown(deadline()).await.is_complete());
-    drop(retained);
 }

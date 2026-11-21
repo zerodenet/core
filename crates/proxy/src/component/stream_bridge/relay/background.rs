@@ -13,12 +13,6 @@ pub(crate) struct BackgroundPath<'a> {
     pub(crate) call: CarrierContext,
 }
 impl BackgroundPath<'_> {
-    pub(crate) async fn select(
-        self,
-        services: &TcpExecutionServices,
-    ) -> Result<UpstreamTransport, ChannelError> {
-        self.select_observed(services, None).await
-    }
     pub(crate) async fn select_observed(
         self,
         services: &TcpExecutionServices,

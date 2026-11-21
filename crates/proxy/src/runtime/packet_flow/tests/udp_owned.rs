@@ -54,8 +54,14 @@ async fn dropping_packet_udp_requests_exit_but_only_the_original_scope_joins_the
     let (_publication, endpoint) = watch::channel(packets);
     let device = graph
         .start(
-            EndpointStackRecipe::prepare(vec![ip(LOCAL)], 1420, 0, endpoint, Default::default())
-                .unwrap(),
+            EndpointStackRecipe::prepare(
+                vec![ip(LOCAL)],
+                1420,
+                0,
+                endpoint,
+                crate::runtime::raw_ip::test_memory::source(Default::default(), 1420),
+            )
+            .unwrap(),
         )
         .unwrap();
     let users = device.flow_users().unwrap();
@@ -116,8 +122,14 @@ async fn actual_udp_worker_capacity_rejection_preserves_the_original_spawn_sourc
     let (_publication, endpoint) = watch::channel(packets);
     let device = graph
         .start(
-            EndpointStackRecipe::prepare(vec![ip(LOCAL)], 1420, 0, endpoint, Default::default())
-                .unwrap(),
+            EndpointStackRecipe::prepare(
+                vec![ip(LOCAL)],
+                1420,
+                0,
+                endpoint,
+                crate::runtime::raw_ip::test_memory::source(Default::default(), 1420),
+            )
+            .unwrap(),
         )
         .unwrap();
     let error = match PacketUdpFlow::open(

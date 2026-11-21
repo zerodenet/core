@@ -10,7 +10,10 @@ use zero_traits::packet_metadata::{PacketMetadataArc, PacketMetadataCredit};
 // variant has a prepaid actual Arc and needs no additional wrapper Box.
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum UdpFlowSession {
-    Existing(Session),
+    Existing(
+        Session,
+        Option<PacketMetadataArc<crate::component::direct_bridge::Invocation>>,
+    ),
     Source(PacketMetadataArc<SourceSession>),
 }
 impl std::fmt::Debug for UdpFlowSession {
@@ -18,11 +21,24 @@ impl std::fmt::Debug for UdpFlowSession {
         std::fmt::Debug::fmt(&**self, f)
     }
 }
-#[derive(Debug)]
+impl UdpFlowSession {
+    pub(crate) fn invocation(&self) -> Option<&crate::component::direct_bridge::Invocation> {
+        match self {
+            Self::Existing(_, invocation) => invocation.as_deref(),
+            Self::Source(value) => value.invocation.as_ref(),
+        }
+    }
+}
 pub(crate) struct SourceSession {
     value: Session,
+    invocation: Option<crate::component::direct_bridge::Invocation>,
     // The actual Session fields are freed before their address credits.
     _memory: UdpDomainMemory,
+}
+impl std::fmt::Debug for SourceSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self.value, f)
+    }
 }
 impl SourceSession {
     pub(super) fn target(&self) -> &Address {
@@ -31,14 +47,14 @@ impl SourceSession {
 }
 impl From<Session> for UdpFlowSession {
     fn from(value: Session) -> Self {
-        Self::Existing(value)
+        Self::Existing(value, None)
     }
 }
 impl Deref for UdpFlowSession {
     type Target = Session;
     fn deref(&self) -> &Session {
         match self {
-            Self::Existing(value) => value,
+            Self::Existing(value, _) => value,
             Self::Source(value) => &value.value,
         }
     }
@@ -47,6 +63,8 @@ pub(crate) struct PreparedUdpSession {
     value: Session,
     memory: Option<UdpDomainMemory>,
     header: Option<PacketMetadataCredit>,
+    invocation: Option<crate::component::direct_bridge::Invocation>,
+    existing_invocation: Option<PacketMetadataArc<crate::component::direct_bridge::Invocation>>,
 }
 impl PreparedUdpSession {
     pub(crate) fn new(
@@ -66,7 +84,50 @@ impl PreparedUdpSession {
             value,
             memory,
             header,
+            invocation: None,
+            existing_invocation: None,
         })
+    }
+    /// Keep the original successful admission and caller, without a kernel,
+    /// configuration snapshot or upstream opener. Resume never re-admits by ID.
+    pub(crate) fn retain_invocation(
+        &mut self,
+        execution: &crate::protocol_registry::TcpExecutionServices,
+    ) -> Result<(), EngineError> {
+        let Some(invocation) = execution
+            .invocation
+            .as_ref()
+            .filter(|call| call.admitted.is_some())
+        else {
+            return Ok(());
+        };
+        if self.memory.is_some() {
+            // Its real SourceSession header was prepaid before admission.
+            self.invocation = Some(invocation.clone());
+            return Ok(());
+        }
+        let actual = invocation.caller_accepted.is_some() || invocation.caller_probe.is_some();
+        #[cfg(feature = "raw-ip-runtime")]
+        let actual = actual || invocation.caller_native.is_some();
+        if !actual {
+            return Ok(());
+        }
+        let Some((memory, _)) = crate::component::stream_bridge::actual_protocol_caller(execution)
+            .map_err(|source| EngineError::Io(std::io::Error::other(source)))?
+        else {
+            return Ok(());
+        };
+        let header = memory
+            .reserve(
+                PacketMetadataArc::<crate::component::direct_bridge::Invocation>::layout()
+                    .map_err(failure)?,
+            )
+            .map_err(failure)?;
+        self.existing_invocation = Some(
+            PacketMetadataArc::from_prepaid(invocation.clone(), header)
+                .unwrap_or_else(|_| panic!("actual invocation header already reserved")),
+        );
+        Ok(())
     }
     pub(crate) fn sniffed_sni(&mut self, use_route: bool) -> Result<(), EngineError> {
         let target = if use_route {
@@ -99,13 +160,14 @@ impl PreparedUdpSession {
                 PacketMetadataArc::from_prepaid(
                     SourceSession {
                         value: self.value,
+                        invocation: self.invocation,
                         _memory: memory,
                     },
                     header,
                 )
                 .unwrap_or_else(|_| unreachable!("same prepaid actual Source session")),
             ),
-            (None, None) => UdpFlowSession::Existing(self.value),
+            (None, None) => UdpFlowSession::Existing(self.value, self.existing_invocation),
             _ => unreachable!("same prepared Source metadata state"),
         }
     }

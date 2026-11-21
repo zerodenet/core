@@ -32,7 +32,11 @@ async fn actual_accepted_caller_retires_pending_service_native_after_its_real_vi
         let carrier=fixture.transport.prepare_controlled_stream(fixture.destination.clone(),context(),grant).unwrap().open(deadline()).await.unwrap();
         let (mut peer,_)=fixture.listener.accept().await.unwrap();let (io,_)=carrier.into_parts();
         let loan=io.into_stream_loan(view).unwrap();let mut control=loan.owner;
+        let completed=Arc::new(std::sync::atomic::AtomicUsize::new(0));let counted=completed.clone();
+        control.observe_closed(Box::new(move || {counted.fetch_add(1,std::sync::atomic::Ordering::SeqCst);})).unwrap();
+        assert!(control.observe_closed(Box::new(||panic!("a second observer must not replace the original"))).is_err());
         send.send(loan.io).unwrap_or_else(|_|panic!("real source still alive"));pending.notified().await;
+        assert_eq!(completed.load(std::sync::atomic::Ordering::SeqCst),0);
         assert!(!witness.is_joined());assert!(adoption.closed().is_none());
         assert_eq!(fixture.grants.reserve().err().unwrap().reason,Reason::Capacity);
         caller_graph.revoke(crate::contract::CloseReason::Cancelled);
@@ -44,6 +48,9 @@ async fn actual_accepted_caller_retires_pending_service_native_after_its_real_vi
         assert!(adoption.users_closed().unwrap().caller_exit().is_none(),"actual accepted source join is independent of Service transferred custody");
         assert_eq!(peer.read(&mut [0;1]).await.unwrap(),0);
         assert!(control.try_close().unwrap().is_complete());assert!(control.closed().unwrap().matches(&control));
+        assert_eq!(completed.load(std::sync::atomic::Ordering::SeqCst),1);
+        assert!(control.try_close().unwrap().is_complete());
+        assert_eq!(completed.load(std::sync::atomic::Ordering::SeqCst),1,"actual native return shortcuts notify once too");
         drop(fixture.grants.reserve().unwrap());
         let report=caller_graph.shutdown(deadline()).await.unwrap();assert!(report.is_complete(),"{report:?}");assert_eq!(report.closed_io.len(),1);
         assert!(caller_graph.shutdown(deadline()).await.unwrap().closed_io.is_empty());

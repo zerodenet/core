@@ -1,11 +1,9 @@
 //! Execute an actual standard Datagram role, independent of protocol wire state.
-mod control;
 use super::contract::DatagramAssociationTarget;
 use crate::{
     protocol_registry::{TcpExecutionServices, UdpAssociationObserver},
     runtime::udp_flow::registered::{UpstreamAssociationCloseReason, UpstreamAssociationTransport},
 };
-use control::ObservedControl;
 use std::{
     pin::Pin,
     sync::{
@@ -23,7 +21,6 @@ use zero_core::{
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::{
     datagram::{recv, send, DatagramLimits, DatagramRequest, DatagramRx, DatagramTx},
-    lifecycle::erase_control,
     ChannelError, CloseReason, Impact, Reason, Stage,
 };
 pub(super) struct NativeAssociation {
@@ -86,11 +83,7 @@ impl UpstreamAssociationTransport<DatagramAssociationTarget> for NativeAssociati
         .map_err(legacy)?;
         let channel = opened.channel;
         let reason = Arc::new(AtomicU8::new(0));
-        let actual = erase_control(ObservedControl::new(
-            channel.control,
-            observer,
-            reason.clone(),
-        ));
+        let actual = observer.observe_control(channel.control, reason.clone());
         let control = opening.adopt(actual);
         Ok(Self {
             tx: Mutex::new(Some(channel.tx)),

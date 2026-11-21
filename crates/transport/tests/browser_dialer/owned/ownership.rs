@@ -43,12 +43,14 @@ async fn actual_pending_header_cancel_keeps_the_original_until_host_ack_and_nati
             !original.is_returned(),
             "body exit and view return cannot substitute for actual host ACK/native close"
         );
-        assert!(!actual
-            .source
-            .shutdown(deadline())
-            .await
-            .unwrap()
-            .is_complete());
+        {
+            let retiring = actual.source.shutdown(deadline());
+            tokio::pin!(retiring);
+            assert!(
+                futures_util::poll!(retiring.as_mut()).is_pending(),
+                "Source shutdown must wait for the actual original registration"
+            );
+        }
         assert!(
             !original.is_returned(),
             "shutdown still retains the exact unacknowledged original"

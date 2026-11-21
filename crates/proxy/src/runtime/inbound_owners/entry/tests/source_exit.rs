@@ -63,9 +63,19 @@ async fn eof(stopping: bool) {
         assert!(owner.failure.lock().unwrap().is_none());
     } else {
         assert!(result.is_err());
+        let failure = owner.failure.lock().unwrap().clone().unwrap();
+        let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&failure);
+        let mut unexpected_exit = false;
+        while let Some(actual) = source {
+            unexpected_exit |= matches!(
+                actual.downcast_ref::<zero_engine::EngineError>(),
+                Some(zero_engine::EngineError::InboundTaskExited)
+            );
+            source = actual.source();
+        }
         assert!(
-            format!("{:?}", owner.failure.lock().unwrap().as_ref().unwrap())
-                .contains("InboundTaskExited")
+            unexpected_exit,
+            "same actual unexpected Source exit remains in its error chain"
         );
     }
     assert!(metadata.original().is_none());

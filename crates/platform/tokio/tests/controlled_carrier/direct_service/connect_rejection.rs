@@ -37,6 +37,9 @@ async fn only_received_native_connect_rejection_avoids_duplicate_component_fault
                 let failed=native.prepare_controlled_stream(&binding,endpoint,call,grant).unwrap().open(deadline()).await;
                 let source=Arc::new(failed.err().expect("real kernel rejects broadcast TCP connect"));
                 assert!(crate::controlled_carrier::original_connect_error(&source).is_some());
+                assert_eq!(source.delivery, DeliveryState::NotSubmitted);
+                assert!(source.retry_permitted(), "the same failed native original was confirmed closed before protocol submission");
+                assert_eq!(crate::controlled_carrier::original_connect_peer(&source),Some(std::net::SocketAddr::from(([255,255,255,255],peer.port()))));
                 if mode=="retained_cleanup" || mode=="retained_panic" {
                     producer.retain_connect_rejection_result(&actual,source.clone()).unwrap();
                 }
@@ -72,6 +75,7 @@ async fn only_received_native_connect_rejection_avoids_duplicate_component_fault
             drop(view);
             let report=original.retire(deadline()).await.unwrap();
             assert!(report.is_complete()&&report.exited_tasks.contains(&joined.id()));
+            assert_eq!(report.closed_io.len(), 1, "early native confirmation must leave the original close receipt for its actual owner");
             if mode=="received" || mode=="received_before_ack" || mode=="retained_cleanup" {
                 assert!(report.failed_tasks.is_empty());
                 if mode=="retained_cleanup" {
@@ -86,6 +90,15 @@ async fn only_received_native_connect_rejection_avoids_duplicate_component_fault
             assert!(original.closed().unwrap().matches(&original));
             assert!(original.users_closed().unwrap().matches(&original));
             assert!(joined.registration_released());
+            if mode=="received" || mode=="received_before_ack" {
+                let source=delivered.as_ref().unwrap();
+                let repeated=original.accept_auxiliary_connect_rejection(source).await.unwrap().unwrap();
+                assert!(actual.matches_joined(&repeated)&&repeated.result().is_err());
+                preparation.receive_connect_rejection(source).unwrap();
+                let foreign=Arc::new(ChannelError::new(Stage::Dial,Reason::Io,Impact::Component));
+                assert!(preparation.receive_connect_rejection(&foreign).is_err(),"closed originals still reject another error source");
+                assert!(original.retire(deadline()).await.unwrap().is_complete());
+            }
             let next=fixture.grants.reserve().unwrap();let next_original=next.adoption();drop(next);
             assert!(next_original.retire(deadline()).await.unwrap().is_complete());
             assert!(fixture.owner.shutdown(deadline()).await.unwrap().is_complete());

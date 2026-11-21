@@ -1,5 +1,13 @@
 //! Actual ordinary catalog relay selection, wire, accounting and original custody.
 use super::*;
+#[path = "relay/source.rs"]
+mod source;
+use source::Dispatch as BoundDispatch;
+async fn response(
+    dispatch: &mut BoundDispatch,
+) -> (Address, u16, zero_traits::PacketBuffer, Option<u64>) {
+    dispatch.response().await
+}
 #[path = "relay/fixtures.rs"]
 mod fixtures;
 use fixtures::*;
@@ -52,10 +60,7 @@ async fn ordinary_vmess_grpc_relay_datagram_preserves_stream_prefixes_tls_modes_
             proxy
                 .protocols
                 .drive_component_supervision(async {
-                    let mut dispatch = UdpIngressRuntime::new(proxy.tcp_runtime_services())
-                        .new_dispatch("incoming")
-                        .await
-                        .unwrap();
+                    let mut dispatch = BoundDispatch::new(&proxy, "incoming").await.unwrap();
                     let mut session_id = None;
                     for payload in &payloads {
                         let id = dispatch.dispatch(input(53, payload)).await.unwrap();
@@ -65,14 +70,7 @@ async fn ordinary_vmess_grpc_relay_datagram_preserves_stream_prefixes_tls_modes_
                         session_id = Some(id);
                         let packet = response(&mut dispatch).await;
                         assert_eq!(packet.2.as_ref(), payload);
-                        crate::runtime::udp_delivery::record_chain_udp_response_parts(
-                            &proxy.udp_runtime_services(),
-                            &dispatch,
-                            packet.0,
-                            packet.1,
-                            packet.2,
-                            packet.3,
-                        );
+                        dispatch.record(packet).await;
                     }
                     let sessions = proxy.engine().active_sessions();
                     let session = sessions
@@ -95,6 +93,9 @@ async fn ordinary_vmess_grpc_relay_datagram_preserves_stream_prefixes_tls_modes_
                     let observed = registration.observe().unwrap();
                     assert_eq!(observed.retained(), 1);
                     let native = observed.slots()[0].original().clone();
+                    let setup = observed.slots()[0].auxiliary().unwrap();
+                    let joined = setup.try_joined().unwrap();
+                    assert!(setup.matches_joined(&joined) && joined.registration_released());
                     let driver = observed.slots()[0].driver().unwrap().1.clone();
                     close_flow(&proxy, dispatch).await;
                     assert!(driver.is_joined());
@@ -135,8 +136,7 @@ async fn ordinary_vmess_grpc_relay_rejected_prefix_never_bypasses_to_final_or_le
         proxy
             .protocols
             .drive_component_supervision(async {
-                let mut dispatch = UdpIngressRuntime::new(proxy.tcp_runtime_services())
-                    .new_dispatch("incoming")
+                let mut dispatch = BoundDispatch::new(&proxy, "incoming")
                     .await
                     .unwrap();
                 let (registration,donor,native,consumer) = {
@@ -167,7 +167,7 @@ async fn ordinary_vmess_grpc_relay_rejected_prefix_never_bypasses_to_final_or_le
                     "the bound final listener must receive no direct connection"
                 );
                 assert_eq!(registration.observe().unwrap().retained(),0,"rejected unused consumer is reclaimed");
-                dispatch.finish_all();
+                dispatch.finish_all().await;
                 proxy
                     .protocols
                     .shutdown_components(Instant::now() + Duration::from_secs(3))
@@ -217,10 +217,7 @@ async fn ordinary_vmess_grpc_relay_revoked_prefix_cannot_reopen_through_legacy_o
                     .await
                     .unwrap()
                     .is_complete());
-                let mut dispatch = UdpIngressRuntime::new(proxy.tcp_runtime_services())
-                    .new_dispatch("incoming")
-                    .await
-                    .unwrap();
+                let mut dispatch = BoundDispatch::new(&proxy, "incoming").await.unwrap();
                 assert!(dispatch
                     .dispatch(input(53, b"must-not-send"))
                     .await
@@ -232,7 +229,7 @@ async fn ordinary_vmess_grpc_relay_revoked_prefix_cannot_reopen_through_legacy_o
                     0,
                     "reject before acquiring an original"
                 );
-                dispatch.finish_all();
+                dispatch.finish_all().await;
                 proxy
                     .protocols
                     .shutdown_components(Instant::now() + Duration::from_secs(3))
@@ -273,10 +270,7 @@ async fn ordinary_vmess_grpc_relay_udp_policy_rejects_before_any_prefix_or_final
         proxy
             .protocols
             .drive_component_supervision(async {
-                let mut dispatch = UdpIngressRuntime::new(proxy.tcp_runtime_services())
-                    .new_dispatch("incoming")
-                    .await
-                    .unwrap();
+                let mut dispatch = BoundDispatch::new(&proxy, "incoming").await.unwrap();
                 let donor = donor_owner(&proxy, "first");
                 let consumer = original(&proxy);
                 assert_eq!(donor.observe().unwrap().retained(), 0);
@@ -288,7 +282,7 @@ async fn ordinary_vmess_grpc_relay_udp_policy_rejects_before_any_prefix_or_final
                 assert_eq!(prefix.count.load(std::sync::atomic::Ordering::SeqCst), 0);
                 assert_eq!(server.accepted(), 0);
                 assert_eq!(original(&proxy).observe().unwrap().retained(), 0);
-                dispatch.finish_all();
+                dispatch.finish_all().await;
                 proxy
                     .protocols
                     .shutdown_components(Instant::now() + Duration::from_secs(3))

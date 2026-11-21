@@ -126,6 +126,10 @@ impl UdpDispatch {
             .await?;
         let mut session_handle = runtime.track_session(session.id);
         let runtime = runtime.with_admission(&session, admission)?;
+        let execution = runtime
+            .runtime_services()
+            .datagram_execution(&self.inbound_tag, &session)?;
+        session.retain_invocation(&execution)?;
         if let Err(error) = target_resolution {
             crate::runtime::target::finish_target_recovery_failure(
                 &mut session_handle,

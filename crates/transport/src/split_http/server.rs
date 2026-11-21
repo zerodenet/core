@@ -15,6 +15,7 @@ pub(super) mod exchange;
 mod http1;
 mod packet;
 mod scoped;
+mod upload;
 pub use scoped::accept as accept_xhttp_connection_scoped;
 
 pub struct XhttpIncoming {

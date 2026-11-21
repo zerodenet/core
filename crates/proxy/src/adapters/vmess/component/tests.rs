@@ -123,9 +123,12 @@ fn grpc_ca_production_projection_keeps_candidate_directory_and_file_budget() {
     config.runtime.file_read_max_bytes = Some(12345);
     config.outbounds.push(raw.clone());
     assert!(grpc::eligible(&raw));
-    let options = super::super::VmessAdapter::default()
-        .standard_options_for(&raw, Some(&config))
-        .unwrap();
+    let options = super::super::VmessAdapter {
+        native_node_dns: true,
+        ..Default::default()
+    }
+    .standard_options_for(&raw, Some(&config))
+    .unwrap();
     let spec = grpc::Factory.describe(&options);
     assert!(
         matches!(&spec.resources[..],[ResourceDeclaration::File{path,max_bytes:12345},ResourceDeclaration::ControlledNodeStream{..},ResourceDeclaration::ControlledServiceStream{..}] if path==std::path::Path::new("/not-opened/config/../ca.pem"))
@@ -141,7 +144,10 @@ fn grpc_domain_selection_requires_native_node_dns_and_keeps_invalid_credentials_
     *server = "node.test".into();
     let mut candidate =
         zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap();
-    assert!(!grpc::selected(&hostname, Some(&candidate), true));
+    assert!(
+        grpc::selected(&hostname, Some(&candidate), true),
+        "implicit System Node DNS has its actual standard provider"
+    );
     candidate.runtime.dns = Some(zero_config::DnsConfig {
         servers: std::collections::BTreeMap::from([(
             "native".into(),

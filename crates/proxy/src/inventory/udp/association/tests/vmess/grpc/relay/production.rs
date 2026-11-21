@@ -32,30 +32,19 @@ async fn ordinary_vmess_grpc_mux_prefix_uses_one_hosted_original_for_two_real_h2
                     .roles
                     .contains(&zero_platform_tokio::contract::component::RoleKind::Stream));
                 assert!(
-                    !slot
-                        .recipe
+                    slot.recipe
                         .spec()
                         .roles
                         .contains(&zero_platform_tokio::contract::component::RoleKind::Datagram),
-                    "keep the established compatible packet codec"
+                    "the actual standard Datagram role preserves the protocol packet codec"
                 );
                 let registration = pool_owner(&proxy, "pool");
                 assert_eq!(registration.limit().get(), 2);
-                let mut first = UdpIngressRuntime::new(proxy.tcp_runtime_services())
-                    .new_dispatch("first")
-                    .await
-                    .unwrap();
+                let mut first = BoundDispatch::new(&proxy, "first").await.unwrap();
                 let id = first.dispatch(input(53, b"ordinary")).await.unwrap();
                 let packet = response(&mut first).await;
                 assert_eq!(packet.2.as_ref(), b"ordinary");
-                crate::runtime::udp_delivery::record_chain_udp_response_parts(
-                    &proxy.udp_runtime_services(),
-                    &first,
-                    packet.0,
-                    packet.1,
-                    packet.2,
-                    packet.3,
-                );
+                first.record(packet).await;
                 let session = proxy
                     .engine()
                     .active_sessions()
@@ -78,10 +67,7 @@ async fn ordinary_vmess_grpc_mux_prefix_uses_one_hosted_original_for_two_real_h2
                     .owner()
                     .same_owner(&registration));
                 let loan = view.slots()[0].original().clone();
-                let mut second = UdpIngressRuntime::new(proxy.tcp_runtime_services())
-                    .new_dispatch("second")
-                    .await
-                    .unwrap();
+                let mut second = BoundDispatch::new(&proxy, "second").await.unwrap();
                 second.dispatch(input(53, b"ordinary")).await.unwrap();
                 assert_eq!(response(&mut second).await.2.as_ref(), b"ordinary");
                 assert_eq!(registration.observe().unwrap().retained(), 1);
@@ -126,14 +112,19 @@ async fn ordinary_vmess_grpc_mux_prefix_compat_udp_uses_actual_pool_without_bloc
                 }
             })).await;
         proxy.protocols.drive_component_supervision(async {
-            let plan=proxy.tcp_runtime_services().components.clone().unwrap();
-            assert!(plan.configured("legacy").is_none());
+            let actual = proxy.tcp_runtime_services().components.clone().unwrap();
+                let migrated = actual.configured("legacy").expect("actual standard protocol provider");
+                for role in [zero_platform_tokio::contract::component::RoleKind::Stream, zero_platform_tokio::contract::component::RoleKind::Datagram] {
+                    assert!(migrated.recipe.spec().roles.contains(&role));
+                }
+                let _stream = migrated.stream(end()).await.unwrap();
+                let _datagram = migrated.datagram(end()).await.unwrap();
             let registration=pool_owner(&proxy,"pool");assert_eq!(registration.limit().get(),4);
-            let mut business=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch("business").await.unwrap();
+            let mut business=BoundDispatch::new(&proxy, "business").await.unwrap();
             business.dispatch(input(53,b"shared")).await.unwrap();assert_eq!(response(&mut business).await.2.as_ref(),b"shared");
             let view=registration.observe().unwrap();let original=view.slots()[0].original().clone();let driver=view.slots()[0].driver().unwrap().1.clone();
             for tag in ["legacy","pool"] {
-                let mut dispatch=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch(tag).await.unwrap();
+                let mut dispatch=BoundDispatch::new(&proxy, tag).await.unwrap();
                 // Darwin's real UDP send buffer rejects 16 KiB by default;
                 // use the same 8 KiB wire baseline as existing native MUX tests.
                 let mut sent=0_u64;let mut received=0_u64;
@@ -145,7 +136,7 @@ async fn ordinary_vmess_grpc_mux_prefix_compat_udp_uses_actual_pool_without_bloc
                     assert_eq!(snapshot.outbound_tag.as_deref(),Some(tag));
 
                     let packet=response(&mut dispatch).await;assert_eq!(packet.2.as_ref(),payload);
-                    crate::runtime::udp_delivery::record_chain_udp_response_parts(&proxy.udp_runtime_services(),&dispatch,packet.0,packet.1,packet.2,packet.3);
+                    dispatch.record(packet).await;
                     let session=proxy.engine().active_sessions().into_iter().find(|s|s.id==id).unwrap();
                     sent+=payload.len() as u64+9;received+=payload.len() as u64;
                     assert_eq!(session.outbound_tx_bytes,sent);

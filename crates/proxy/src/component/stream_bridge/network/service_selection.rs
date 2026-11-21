@@ -47,6 +47,10 @@ impl NodeOpener {
                 .with_plan(self.plan.clone())
                 .with_pending(binding.clone(), waiting)
                 .with_service_call(call);
+            // Selection changes the Service demand, not the physical root.
+            // The actual native endpoint observer must publish to that same
+            // root so the caller can consume the original connection facts.
+            selected.evidence = self.evidence.clone();
             selected.carrier_owner = self.carrier_owner;
             Ok(UpstreamTransport::new(binding, Arc::new(selected)))
         })

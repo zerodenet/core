@@ -178,3 +178,6 @@ async fn cancelling_a_suspended_observer_cannot_consume_the_real_failure_notific
     let state = owner.owner.lock().await;
     assert!(std::error::Error::source(&state.failure.as_ref().unwrap().error).is_some());
 }
+
+#[path = "apply_owner/restart.rs"]
+mod restart;

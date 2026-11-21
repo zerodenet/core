@@ -7,7 +7,6 @@ use tokio::sync::mpsc;
 use zero_config::RuntimeConfig;
 use zero_core::Address;
 use zero_stack::{packet, UserNetworkStack};
-use zero_traits::UdpStack;
 
 #[path = "tests/fixtures.rs"]
 pub(crate) mod fixtures;
@@ -81,7 +80,7 @@ async fn direct_loopback() {
         echo_addr.port(),
         b"through-kernel",
     );
-    udp.feed(&request).await;
+    task.feed(&request).await;
 
     let response = tokio::time::timeout(std::time::Duration::from_secs(2), packets.recv())
         .await
@@ -135,7 +134,7 @@ async fn tun_udp_port_conflict_falls_back_without_accepting_an_unregistered_send
     )
     .await;
     let source_ip = Ipv4Addr::new(10, 0, 0, 2);
-    udp.feed(&packet::build_udp(
+    task.feed(&packet::build_udp(
         IpAddr::V4(source_ip),
         echo_addr.ip(),
         source_port,
@@ -194,7 +193,7 @@ async fn tun_udp_direct_dispatch_supports_ipv6_targets_and_responses() {
     )
     .await;
     let source_ip = "fd00::2".parse().expect("source IPv6");
-    udp.feed(&packet::build_udp(
+    task.feed(&packet::build_udp(
         IpAddr::V6(source_ip),
         echo_addr.ip(),
         53001,
@@ -252,7 +251,7 @@ async fn repeated_tun_udp_destination_reuses_flow_and_records_real_source() {
     let source_port = 53_002;
 
     for payload in [b"first".as_slice(), b"second".as_slice()] {
-        udp.feed(&packet::build_udp(
+        task.feed(&packet::build_udp(
             IpAddr::V4(source_ip),
             echo_addr.ip(),
             source_port,
@@ -317,7 +316,7 @@ async fn tun_udp_block_route_prevents_stun_network_leak() {
         sink_addr.port(),
         &stun_binding_request(),
     );
-    udp.feed(&request).await;
+    task.feed(&request).await;
 
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
@@ -398,7 +397,7 @@ async fn tun_dns_hijack_answers_with_fake_ip_without_reaching_destination() {
         53,
         &dns_query("webrtc.example"),
     );
-    udp.feed(&request).await;
+    task.feed(&request).await;
 
     let response = tokio::time::timeout(std::time::Duration::from_secs(1), packets.recv())
         .await

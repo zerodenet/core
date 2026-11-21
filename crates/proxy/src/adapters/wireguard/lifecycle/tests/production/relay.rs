@@ -89,11 +89,12 @@ async fn stream_only_outer_donor_and_codec_tail_deliver_wire_and_retire_original
         assert!(!originals.is_empty());
         assert!(originals.iter().all(|origin| origin.closed().is_none()));
         let old = devices(&proxy).remove(0);
+        let old_workers = worker_census(&old);
         handle(&proxy)
             .apply_runtime_config_and_wait(changed(candidate), Duration::from_secs(10))
             .await
             .unwrap();
-        joined(&old);
+        joined(&old, &old_workers);
         for original in originals {
             let closed = original
                 .closed()

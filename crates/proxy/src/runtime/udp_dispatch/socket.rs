@@ -32,27 +32,6 @@ impl DispatchDirectSockets {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn close_originals(
-        &mut self,
-    ) -> zero_platform_tokio::contract::lifecycle::CloseReport {
-        match self {
-            #[cfg(test)]
-            Self::Legacy(socket) => {
-                socket.close_all_native();
-                socket.take_native_close_report()
-            }
-            #[cfg(feature = "managed-datagram-runtime")]
-            Self::Bound(_) => zero_platform_tokio::contract::lifecycle::CloseReport {
-                unfinished: vec![
-                    zero_platform_tokio::contract::lifecycle::Unfinished::Resource(
-                        "bound UDP originals require their real peer owner".into(),
-                    ),
-                ],
-                ..Default::default()
-            },
-        }
-    }
     pub(crate) async fn new(
         runtime: &UdpIngressRuntime,
         preferred_port: Option<u16>,

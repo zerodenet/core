@@ -105,7 +105,7 @@ pub(crate) fn actual_protocol_caller(
         }
     }
     let witness = match &caller {
-        Caller::Accepted(actual) => actual.task_join_witness(),
+        Caller::Accepted(actual) => Some(actual.current_protocol_caller()?),
         Caller::Probe(actual) => actual.witness(),
         #[cfg(feature = "raw-ip-runtime")]
         Caller::Raw(actual) => Some(actual.current_protocol_caller()?),

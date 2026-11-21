@@ -9,7 +9,8 @@ async fn actual_confirmed_device_transaction_starts_resolved_graph_and_joins_its
     let pending = recipe.pending();
     let guard = install(&adapter, &recipe);
     let request = demand(&recipe);
-    let catalog = ComponentCatalog::with_factories(crate::register::component_registry());
+    let actual_host = software_host(&adapter);
+    let catalog = actual_host.components();
     let config = Arc::new(proxy_config());
     let mut invocation = None;
     let mut actual_id = None;
@@ -34,6 +35,7 @@ async fn actual_confirmed_device_transaction_starts_resolved_graph_and_joins_its
         .await
         .is_err());
     assert!(pending.peer_stack(0).unwrap().device().is_none());
+    let _source = bind_software_source(&adapter, &pending);
     catalog.start(config.clone(), deadline()).await.unwrap();
     let resolved = invocation
         .unwrap()

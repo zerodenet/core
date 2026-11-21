@@ -69,6 +69,7 @@ async fn earlier_main_fault_preserves_same_cleanup_payload_and_ack_before_origin
         assert_eq!(first.stage, Stage::Prepare);
         assert!(Arc::ptr_eq(
             first
+                .as_ref()
                 .source()
                 .unwrap()
                 .downcast_ref::<Arc<std::io::Error>>()
@@ -89,6 +90,7 @@ async fn earlier_main_fault_preserves_same_cleanup_payload_and_ack_before_origin
                 .same_receipt(&receipt));
             assert!(Arc::ptr_eq(
                 fault
+                    .as_ref()
                     .source()
                     .unwrap()
                     .downcast_ref::<Arc<std::io::Error>>()

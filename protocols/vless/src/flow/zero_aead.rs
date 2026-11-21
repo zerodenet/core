@@ -98,34 +98,43 @@ where
 
     let mut salt = [0u8; 8];
     read_exact(stream, &mut salt).await?;
-    let mut buf = Vec::with_capacity(320);
-    ensure_read(stream, &mut buf, 1).await?;
-
-    let pad_len = buf[0] as usize;
-    if pad_len > 31 {
-        return Err(Error::Protocol("VLESS flow: invalid padding length"));
-    }
-    ensure_read(stream, &mut buf, 1 + pad_len + 2).await?;
-    let plain_len = u16::from_be_bytes([buf[1 + pad_len], buf[2 + pad_len]]) as usize;
-    if plain_len > 300 {
-        return Err(Error::Protocol("VLESS flow: invalid plain block length"));
-    }
-
-    let total_payload = 1 + pad_len + 2 + plain_len + AEAD_TAG_LEN;
-    ensure_read(stream, &mut buf, total_payload).await?;
-    let mut encrypted = buf[..total_payload].to_vec();
+    // The legacy wire encrypts both padding and command lengths, so no
+    // ciphertext byte is a trustworthy frame length. Authenticate bounded
+    // candidate ends before interpreting that header. Keep the exact original
+    // 31-byte padding / 300-byte command bounds and never consume payload.
+    const MIN_BLOCK: usize = 1 + 2 + AEAD_TAG_LEN;
+    const MAX_BLOCK: usize = 1 + 31 + 2 + 300 + AEAD_TAG_LEN;
     let key_bytes = derive_flow_key(uuid, &salt)?;
     let unbound = UnboundKey::new(&AES_128_GCM, &key_bytes)
         .map_err(|_| Error::Protocol("flow key init failed"))?;
     let key = LessSafeKey::new(unbound);
-    let decrypted = key
-        .open_in_place(flow_nonce(&salt), Aad::empty(), &mut encrypted)
-        .map_err(|_| {
-            Error::Protocol("VLESS flow decryption failed - wrong key or corrupted data")
-        })?;
-
-    let plain_offset = 1 + pad_len + 2;
-    parse_plain_block(&decrypted[plain_offset..plain_offset + plain_len])
+    let mut buf = Vec::with_capacity(MAX_BLOCK);
+    let mut encrypted = Vec::with_capacity(MAX_BLOCK);
+    for size in MIN_BLOCK..=MAX_BLOCK {
+        ensure_read(stream, &mut buf, size).await?;
+        encrypted.clone_from(&buf);
+        let Ok(decrypted) = key.open_in_place(flow_nonce(&salt), Aad::empty(), &mut encrypted)
+        else {
+            continue;
+        };
+        let pad_len = decrypted[0] as usize;
+        if pad_len > 31 {
+            return Err(Error::Protocol("VLESS flow: invalid padding length"));
+        }
+        let plain_offset = 1 + pad_len + 2;
+        if decrypted.len() < plain_offset {
+            return Err(Error::Protocol("VLESS flow: truncated plain block"));
+        }
+        let plain_len =
+            u16::from_be_bytes([decrypted[plain_offset - 2], decrypted[plain_offset - 1]]) as usize;
+        if plain_len > 300 || plain_offset + plain_len != decrypted.len() {
+            return Err(Error::Protocol("VLESS flow: invalid plain block length"));
+        }
+        return parse_plain_block(&decrypted[plain_offset..]);
+    }
+    Err(Error::Protocol(
+        "VLESS flow decryption failed - wrong key or corrupted data",
+    ))
 }
 
 fn flow_nonce(salt: &[u8]) -> Nonce {
@@ -175,8 +184,9 @@ where
 {
     while buf.len() < target_len {
         let mut chunk = [0u8; 512];
+        let remaining = (target_len - buf.len()).min(chunk.len());
         let n = stream
-            .read(&mut chunk)
+            .read(&mut chunk[..remaining])
             .await
             .map_err(|_| Error::Io("failed to read flow data"))?;
         if n == 0 {
@@ -238,3 +248,7 @@ where
         _ => Err(Error::Unsupported("VLESS address type is not supported")),
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/flow/read.rs"]
+mod tests;

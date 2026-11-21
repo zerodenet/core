@@ -25,6 +25,7 @@ struct State {
 }
 struct Node {
     ordinal: u64,
+    logical: bool,
     next: Mutex<Option<PacketMetadataArc<Node>>>,
     work: Mutex<Option<Work>>,
 }
@@ -83,9 +84,11 @@ impl Ledger {
             ledger: self,
             active: true,
         };
+        let logical = !matches!(&work, Work::Http2Delegate(_));
         let node = PacketMetadataArc::from_prepaid(
             Node {
                 ordinal,
+                logical,
                 next: Mutex::new(None),
                 work: Mutex::new(Some(work)),
             },
@@ -152,6 +155,27 @@ impl Ledger {
         } else {
             Poll::Pending
         }
+    }
+    pub(super) fn has_logical_work(&self) -> bool {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut cursor = state.head.clone();
+        let mut published = 0;
+        while let Some(node) = cursor {
+            if node.logical {
+                return true;
+            }
+            published += 1;
+            cursor = node
+                .next
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone();
+        }
+        // A prepaid but not yet published reservation is also still occupied.
+        state.count > published
     }
     pub(super) fn is_empty(&self) -> bool {
         self.state

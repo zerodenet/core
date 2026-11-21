@@ -27,7 +27,7 @@ pub(in crate::adapters::wireguard) struct LinkedStackOptions {
     source_worker_limit: Option<usize>,
     source_work_limits: Option<[usize; 4]>,
     tag: String,
-    map: super::super::PendingEndpointMap,
+    map: Arc<dyn super::PendingOwnerLookup>,
     pub(super) pending: Arc<PendingLinkedEndpoint>,
     peers: usize,
     stacks: Mutex<Option<Vec<EndpointStackRecipe>>>,
@@ -223,7 +223,7 @@ impl LinkedStackOptions {
         self.peers
     }
     fn check_current(&self) -> Result<(), EngineError> {
-        LinkedEndpointRecipe::check_owner(&self.map, &self.tag, &self.pending)
+        self.map.check_owner(&self.tag, &self.pending)
     }
     pub(super) fn bind(&self, tasks: WeakTaskRegistrar) -> Result<(), EngineError> {
         self.check_current()?;

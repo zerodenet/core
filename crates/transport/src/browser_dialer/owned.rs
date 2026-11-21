@@ -240,18 +240,20 @@ impl ResourceLifecycle for ScopedBrowserDialer {
     fn revoke(&self, _: CloseReason) {
         self.dialer.close();
     }
-    async fn shutdown(&mut self, _deadline: Instant) -> Result<CloseReport, ChannelError> {
+    async fn shutdown(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.revoke(CloseReason::Shutdown);
         let mut report = CloseReport::default();
         if let Some((id, witness)) = &self.driver {
-            if witness
-                .try_joined()
-                .is_none_or(|joined| !joined.registration_released())
-            {
+            let released =
+                tokio::time::timeout_at(deadline, witness.wait_registration_released()).await;
+            if !released.is_ok_and(|joined| {
+                witness.matches_joined(&joined) && joined.registration_released()
+            }) {
                 report.unfinished.push(Unfinished::Task(*id));
+                return Ok(report);
             }
         }
-        if self.peers.receiver.get().is_some() && !self.peers.reap()? {
+        if self.peers.receiver.get().is_some() && !self.peers.shutdown(deadline).await? {
             report.unfinished.push(Unfinished::Resource(
                 "actual browser accepted originals, users or Scope joins remain pending".into(),
             ));

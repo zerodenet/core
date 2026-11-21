@@ -16,7 +16,7 @@ async fn delivered(
                 assert!(!request.tcp);
                 let original = proxy.resolver.native_query_observations().into_iter().find(|record| record.original.as_ref().and_then(|original| original.endpoints()).is_some_and(|endpoints| endpoints.peer() == node.address)).expect("actual Node bootstrap original");
                 bootstrap.push(original);
-                request.answer_ips(false,false,&[IpAddress::V4([127,0,0,2]),IpAddress::V4([127,0,0,1])]);
+                request.answer_ips(false,false,&[IpAddress::V4([255, 255, 255, 255]),IpAddress::V4([127,0,0,1])]);
             }
             request = dns.request() => break request,
             result = &mut query => panic!("domain VLESS gRPC failed before actual DNS delivery: {result:?}"),
@@ -38,7 +38,10 @@ async fn delivered(
             .closed()
             .is_some_and(|closed| closed.matches(native) && closed.had_native_acquisition()));
     }
-    assert!(request.tcp);
+    assert!(
+        !request.tcp,
+        "configured UDP DNS uses the actual standard Datagram over the shared gRPC original"
+    );
     let caller = pending(proxy).await;
     let child = caller.original.as_ref().unwrap();
     let donor = child.parent().unwrap().clone();
@@ -87,13 +90,6 @@ async fn delivered(
 async fn ordinary_domain_vless_grpc_dns_replaces_the_actual_node_dependency_before_its_next_pool() {
     tokio::time::timeout(Duration::from_secs(20), async {
         let remote = Remote::new(false).await;
-        let refused = tokio::net::TcpSocket::new_v4().unwrap();
-        refused
-            .bind(std::net::SocketAddr::from((
-                [127, 0, 0, 2],
-                remote.address.port(),
-            )))
-            .unwrap();
         let mut dns = crate::dns_fixture::Dns::new().await;
         let mut node = crate::dns_fixture::Dns::new().await;
         let mut next_node = crate::dns_fixture::Dns::new().await;
@@ -139,7 +135,6 @@ async fn ordinary_domain_vless_grpc_dns_replaces_the_actual_node_dependency_befo
         dns.close().await;
         node.close().await;
         next_node.close().await;
-        drop(refused);
     })
     .await
     .unwrap();

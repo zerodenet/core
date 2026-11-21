@@ -246,3 +246,7 @@ impl Drop for RawIpInboundEndpoint {
 
 #[cfg(test)]
 pub(crate) use lifecycle::retained_endpoint as retained_endpoint_for_test;
+
+#[cfg(test)]
+#[path = "raw_ip/tests/tcp_input.rs"]
+pub(crate) mod tcp_input;

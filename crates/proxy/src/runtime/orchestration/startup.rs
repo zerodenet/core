@@ -141,6 +141,22 @@ impl OrchestrationState {
                 tokio::time::Instant::now() + std::time::Duration::from_secs(5),
             )
             .await?;
+        // Old listeners and native component owners have actually retired at
+        // the preceding gates. Reuse the same persistent control owners only
+        // after each confirms its own real Scope/users/ACK receipts.
+        proxy
+            .retired_datagrams
+            .reopen_after_retirement()
+            .map_err(std::io::Error::other)?;
+        proxy
+            .packet_close_owner
+            .reopen_after_retirement()
+            .await
+            .map_err(std::io::Error::other)?;
+        proxy
+            .host
+            .reopen_control_after_retirement(&config.runtime)
+            .await?;
         self.preparing_inbounds.ensure_open()?;
         // A cold diagnostic may have temporarily owned and then closed the
         // initially prepared plan while startup awaited the catalog gate.

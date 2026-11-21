@@ -160,8 +160,15 @@ async fn repeated_system_port_zero_calls_keep_distinct_originals_with_the_same_b
         for entry in endpoints {
             exchange(&peer, entry, entry.ip()).await;
         }
+        assert!(originals
+            .iter()
+            .all(|(_, owner)| !owner.task_access().cancellation().is_cancelled()));
         running.shutdown().await.unwrap();
         for (_, owner) in originals {
+            assert!(
+                owner.task_access().cancellation().is_cancelled(),
+                "the shutdown request reaches every API Source absent from configured listeners"
+            );
             let terminal = owner.terminal_for_test().unwrap();
             assert!(
                 terminal.failure().is_none()

@@ -10,7 +10,7 @@ pub(super) struct Connections {
     state: tokio::sync::Mutex<Option<Connection>>,
     idle: Mutex<IdleConnections>,
     opening: std::sync::atomic::AtomicBool,
-    changed: tokio::sync::Notify,
+    pub(super) changed: tokio::sync::Notify,
 }
 pub(super) struct Connection {
     pub(super) sender: carrier::Sender,
@@ -18,6 +18,9 @@ pub(super) struct Connection {
 }
 pub(in crate::split_http) struct DriverLease {
     _driver: Driver,
+    // A logical stream still needs its original H2 dispatcher after its XMUX
+    // request group rotates. The original lease alone retains no H2 sender.
+    _sender: Option<hyper::client::conn::http2::SendRequest<crate::split_http::body::Body>>,
 }
 enum Driver {
     Legacy(Arc<LegacyDriver>),
@@ -40,9 +43,38 @@ impl Drop for LegacyDriver {
     }
 }
 impl Connection {
+    async fn return_idle_original(self) -> io::Result<()> {
+        // A closed cached sender can precede its original native/Scope ACK.
+        // Existing logical work may still use newer physical connections;
+        // returning that cache reference must not stop or await its own driver.
+        let retirement = if self.has_logical_work() {
+            None
+        } else {
+            match &self._driver {
+                Driver::Owned(original) => Some(original.retirement()),
+                Driver::OwnedTcp(original) => Some(original.retirement()),
+                Driver::Legacy(_) => None,
+            }
+        };
+        if let Some(original) = &retirement {
+            original.request_retirement();
+        }
+        drop(self);
+        if let Some(original) = retirement {
+            original
+                .wait_settled_original()
+                .await
+                .map_err(io::Error::other)?;
+        }
+        Ok(())
+    }
     pub(super) fn retain_driver(&self) -> DriverLease {
         DriverLease {
             _driver: self._driver.clone(),
+            _sender: match &self.sender {
+                carrier::Sender::Http2(sender) => Some(sender.clone()),
+                _ => None,
+            },
         }
     }
     pub(super) fn owned_origin(
@@ -62,6 +94,10 @@ impl Connection {
             Driver::OwnedTcp(original) => Some(original.runtime()),
             _ => None,
         }
+    }
+    fn has_logical_work(&self) -> bool {
+        self.owned_runtime()
+            .is_some_and(|runtime| runtime.has_logical_work())
     }
     fn is_owned(&self) -> bool {
         !matches!(self._driver, Driver::Legacy(_))
@@ -99,6 +135,32 @@ impl Connection {
     }
 }
 impl Connections {
+    pub(super) fn take_returned_idle_original(&self, has_responses: bool) -> Option<Connection> {
+        if let Some(connection) = self.idle.lock().unwrap().take_returned_original() {
+            return Some(connection);
+        }
+        if has_responses {
+            return None;
+        }
+        let Ok(mut state) = self.state.try_lock() else {
+            return None;
+        };
+        if state
+            .as_ref()
+            .is_some_and(|connection| connection.is_owned() && !connection.has_logical_work())
+        {
+            state.take()
+        } else {
+            None
+        }
+    }
+    pub(super) fn has_logical_work(&self) -> bool {
+        let Ok(state) = self.state.try_lock() else {
+            return true;
+        };
+        state.as_ref().is_some_and(Connection::has_logical_work)
+            || self.idle.lock().unwrap().has_logical_work()
+    }
     /// Actual owned group only; return its original Root handle after taking
     /// the one stored connection. Neither mutex removal nor Drop proves close.
     pub(super) async fn retire_owned(

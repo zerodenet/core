@@ -137,6 +137,32 @@ async fn encryption_vision_framed_tcp_and_xudp_use_real_standard_owners() {
             "route":{"final":{"type":"route","outbound":"upstream"}}
         })).await;
         let owner = client.system_tun_source_registry().owner("entry").unwrap();
+        if ["grpc", "split_http"]
+            .iter()
+            .any(|name| carrier.get(name).is_some())
+        {
+            let plan = client.tcp_runtime_services().components.clone().unwrap();
+            let slot = plan.configured("upstream").unwrap();
+            let role = slot.role_id();
+            assert!(
+                plan.has_stream_loan_provider(role),
+                "actual public role reaches its real cached original owner: {carrier}"
+            );
+            assert!(slot
+                .stream(tokio::time::Instant::now() + Duration::from_secs(5))
+                .await
+                .is_ok());
+            let capacity = plan.protocol_original_capacity(&[role]).unwrap();
+            assert!(
+                capacity > 0,
+                "real shared stream originals require quota: {carrier}"
+            );
+            assert_eq!(
+                plan.protocol_original_capacity(&[role, role]).unwrap(),
+                capacity,
+                "repeated path positions share their actual original quota"
+            );
+        }
         let original_remote = remote.system_tun_source_registry().owner("entry").unwrap();
         let original_scope = original_remote.original_scope_for_test();
         let cold = remote

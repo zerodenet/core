@@ -145,10 +145,10 @@ mod tests {
     #[tokio::test]
     async fn actual_native_response_panic_cannot_mask_receiving_the_independent_packet_source() {
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            let bad = tokio::net::TcpSocket::new_v4().unwrap();
-            bad.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+            // Darwin can leave SYN pending on a bound, non-listening socket.
+            // Port zero instead produces a real immediate kernel error.
             let io = Arc::new(
-                tokio::net::TcpStream::connect(bad.local_addr().unwrap())
+                tokio::net::TcpStream::connect("127.0.0.1:0")
                     .await
                     .unwrap_err(),
             );

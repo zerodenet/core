@@ -15,16 +15,46 @@ impl ComponentPlan {
                 "protocol original has no matching actual owning role/provider/Scope",
             )
         };
-        // Observe only this owning role or its exact direct canonical provider.
-        // The installed original/Scope checks below remain mandatory; walking
-        // an arbitrary dependency path never qualifies an anonymous pool.
         let owning = self.role_slot(role).ok_or_else(fail)?;
-        // Browser control and shared authenticated metadata endpoints have
-        // real roleless providers. Both retain their own original controller;
-        // observing setup handoff does not transfer shared retirement.
-        let slot = if (original.accepted().is_some() || original.metadata().is_some())
-            && owning.instance_id() != original.instance()
-        {
+        self.validate_protocol_provider(&owning, original)
+    }
+    /// A real owning component may have no callable role. Observe only its
+    /// own original or its exact declared direct provider, with the same
+    /// installed provider/Scope checks used for an ordinary owning role.
+    pub fn validate_protocol_original_from_component(
+        &self,
+        instance: zero_core::component::ComponentInstanceId,
+        original: &ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        let owning = self
+            .order
+            .iter()
+            .find(|slot| slot.instance_id() == instance)
+            .ok_or_else(|| {
+                invalid(
+                    Reason::StalePlan,
+                    "protocol original owner generation changed",
+                )
+            })?;
+        self.validate_protocol_provider(owning, original)
+    }
+    fn validate_protocol_provider(
+        &self,
+        owning: &Arc<ComponentSlot>,
+        original: &ProtocolOriginal,
+    ) -> Result<(), ChannelError> {
+        let fail = || {
+            invalid(
+                Reason::StalePlan,
+                "protocol original has no matching actual owning role/provider/Scope",
+            )
+        };
+        // Observe only this owner or its exact direct canonical provider.
+        // Walking an arbitrary dependency path never qualifies an anonymous pool.
+        // Accepted, metadata and cached stream originals all retain their real
+        // directly declared roleless provider. Observing setup handoff never
+        // transfers that provider's native retirement or Scope ownership.
+        let slot = if owning.instance_id() != original.instance() {
             if !owning.dependency_instances().contains(&original.instance()) {
                 return Err(fail());
             }
@@ -35,7 +65,7 @@ impl ComponentPlan {
                 })
                 .ok_or_else(fail)?
         } else {
-            &owning
+            owning
         };
         Self::validate_original_slot(slot, original)
     }
@@ -109,21 +139,36 @@ impl ComponentPlan {
             let slot = self
                 .role_slot(*role)
                 .ok_or_else(|| invalid(Reason::StalePlan, "pending owning role changed"))?;
-            for dependency in &slot.recipe.spec().dependencies {
+            for dependency in slot.dependency_instances() {
                 if roles[..index].iter().any(|previous| {
                     self.role_slot(*previous).is_some_and(|previous| {
-                        previous.recipe.spec().dependencies.contains(dependency)
+                        previous.dependency_instances().contains(dependency)
                     })
                 }) {
                     continue;
                 }
                 let Some(provider) = self.order.iter().find(|provider| {
-                    provider.instance_id().component == *dependency
-                        && provider.recipe.spec().roles.is_empty()
+                    provider.instance_id() == *dependency && provider.recipe.spec().roles.is_empty()
                 }) else {
                     continue;
                 };
                 for (ordinal, declaration) in provider.recipe.spec().resources.iter().enumerate() {
+                    if let R::ControlledCarrierPool {
+                        max_sockets,
+                        datagram: false,
+                        ..
+                    } = declaration
+                    {
+                        if cached::installed(provider) {
+                            capacity =
+                                capacity.checked_add(max_sockets.get()).ok_or_else(|| {
+                                    invalid(
+                                        Reason::Capacity,
+                                        "pending cached stream original capacity overflow",
+                                    )
+                                })?;
+                        }
+                    }
                     if let R::ControlledMetadataCarrier { max_origins, .. } = declaration {
                         if provider.original_metadata_owner(ordinal).is_some() {
                             capacity =

@@ -16,7 +16,11 @@ async fn ordinary_trojan_carriers_drain_large_half_closed_tcp_and_real_datagrams
             std::fs::write(&key_path, cert.signing_key.serialize_pem()).unwrap();
             let remote = server(kind, &cert_path, &key_path).await;
             let client = client(kind, remote.address).await;
-            let (owner, original) = echo(&client).await;
+            let (owner, original) = if kind == "ws" {
+                echo_websocket(&client).await
+            } else {
+                echo(&client).await
+            };
             wait_returned(&owner, &original).await;
             let (udp_owner, udp_original) = datagrams(&client, &remote, false).await;
             assert!(owner.same_owner(&udp_owner));

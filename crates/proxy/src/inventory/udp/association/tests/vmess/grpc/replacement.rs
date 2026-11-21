@@ -33,10 +33,7 @@ async fn ordinary_vmess_grpc_datagram_real_apply_waits_for_old_users_driver_and_
             if let Ok(length)=read.await {assert_eq!(length,0);}
             finished.await.unwrap();incoming.close();
         });
-        let runtime=UdpIngressRuntime::new(proxy.tcp_runtime_services());
-        let mut dispatch=runtime.new_dispatch("incoming").await.unwrap();
-        dispatch.dispatch(input(53,b"held")).await.unwrap();
-        assert_eq!(response(&mut dispatch).await.2.as_ref(),b"held");
+        let dispatch=crate::inventory::udp::association::vmess_tests::grpc::flow::open(proxy.clone(),0,b"held").await;
         ready.await.unwrap();
         let registration=original(&proxy);let observed=registration.observe().unwrap();
         let original=observed.slots()[0].original().clone();
@@ -53,7 +50,7 @@ async fn ordinary_vmess_grpc_datagram_real_apply_waits_for_old_users_driver_and_
         assert!(registration.closed().is_none());
         assert!(old.datagram(Instant::now()+Duration::from_secs(3)).await.is_err());
         let retired=proxy.tcp_runtime_services().execution().retired_datagrams();
-        dispatch.finish_all();
+        dispatch.finish_all().await;
         let report=proxy.protocols.drive_component_supervision(retired.progress_retired(Instant::now()+Duration::from_secs(3))).await.unwrap();
         assert!(report.is_complete(),"{report:?}");
         replacing.await.unwrap().unwrap();

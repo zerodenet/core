@@ -34,10 +34,15 @@ async fn fixture() -> (
     let complete = Arc::new(AtomicBool::new(false));
     let waiting = pending.clone();
     let finished = complete.clone();
+    let in_poll = PacketMetadataArc::downgrade(&runtime);
     let work = async move {
         let read = socket.read_u8();
         tokio::pin!(read);
         let byte = std::future::poll_fn(|cx| {
+            assert!(
+                in_poll.upgrade().unwrap().ledger.has_logical_work(),
+                "in-poll work remains original custody"
+            );
             let result = read.as_mut().poll(cx);
             if result.is_pending() {
                 waiting.store(true, Ordering::Release);
@@ -78,6 +83,7 @@ async fn normal_http_eof_drains_actual_pending_work_instead_of_cancelling_it() {
         drain.await;
         assert!(complete.load(Ordering::Acquire));
         assert!(runtime.ledger.is_empty());
+        assert!(!runtime.ledger.has_logical_work());
         assert!(!runtime.stopped.is_cancelled());
     })
     .await

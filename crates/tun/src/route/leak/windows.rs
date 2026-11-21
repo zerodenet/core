@@ -183,8 +183,7 @@ fn install_policy(
         display_name,
         &IpNet::V4(Ipv4Net::new(Ipv4Addr::LOCALHOST, 8).expect("valid IPv4 loopback")),
         "loopback-v4",
-        ALLOW_WEIGHT,
-        FWP_ACTION_PERMIT,
+        (ALLOW_WEIGHT, FWP_ACTION_PERMIT),
     )?;
     add_remote_filter(
         engine.handle,
@@ -193,8 +192,7 @@ fn install_policy(
         display_name,
         &IpNet::V6(Ipv6Net::new(Ipv6Addr::LOCALHOST, 128).expect("valid IPv6 loopback")),
         "loopback-v6",
-        ALLOW_WEIGHT,
-        FWP_ACTION_PERMIT,
+        (ALLOW_WEIGHT, FWP_ACTION_PERMIT),
     )?;
     for address in excluded {
         let prefix = exact_prefix(*address);
@@ -205,8 +203,7 @@ fn install_policy(
             display_name,
             &prefix,
             &format!("exclude:{prefix}"),
-            ALLOW_WEIGHT,
-            FWP_ACTION_PERMIT,
+            (ALLOW_WEIGHT, FWP_ACTION_PERMIT),
         )?;
     }
     for prefix in protected {
@@ -217,8 +214,7 @@ fn install_policy(
             display_name,
             prefix,
             &format!("block:{prefix}"),
-            BLOCK_WEIGHT,
-            FWP_ACTION_BLOCK,
+            (BLOCK_WEIGHT, FWP_ACTION_BLOCK),
         )?;
     }
 
@@ -351,9 +347,9 @@ fn add_remote_filter(
     display_name: &str,
     prefix: &IpNet,
     scope: &str,
-    weight: u64,
-    action: u32,
+    decision: (u64, u32),
 ) -> io::Result<()> {
+    let (weight, action) = decision;
     let spec = FilterSpec {
         key: stable_guid(recovery_key, scope),
         layer: layer_for_prefix(prefix),
@@ -467,7 +463,7 @@ fn owned_filter_inventory(engine: HANDLE, sublayer_key: GUID) -> io::Result<Filt
         FWPM_LAYER_ALE_AUTH_CONNECT_V4,
         FWPM_LAYER_ALE_AUTH_CONNECT_V6,
     ] {
-        let mut template = FWPM_FILTER_ENUM_TEMPLATE0 {
+        let template = FWPM_FILTER_ENUM_TEMPLATE0 {
             providerKey: null_mut(),
             layerKey: layer,
             enumType: FWP_FILTER_ENUM_FULLY_CONTAINED,
@@ -479,8 +475,7 @@ fn owned_filter_inventory(engine: HANDLE, sublayer_key: GUID) -> io::Result<Filt
             calloutKey: null_mut(),
         };
         let mut enum_handle = null_mut();
-        let status =
-            unsafe { FwpmFilterCreateEnumHandle0(engine, &mut template, &mut enum_handle) };
+        let status = unsafe { FwpmFilterCreateEnumHandle0(engine, &template, &mut enum_handle) };
         if status != 0 {
             return Err(wfp_error("enumerate strict-route WFP filters", status));
         }

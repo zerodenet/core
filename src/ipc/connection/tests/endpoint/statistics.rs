@@ -15,9 +15,9 @@ async fn ipc_statistics_reset_waits_for_config_and_endpoint_reconciliation() {
             .handle
             .clone()
             .with_config_apply_reconciler(reconciler.clone());
-        let mut operation = Ipc::new(controlled);
-        let mut reset = Ipc::new(fixture.handle.clone());
-        let mut resource_reset = Ipc::new(fixture.handle.clone());
+        let mut operation = Ipc::new(controlled, fixture.budget.clone());
+        let mut reset = Ipc::new(fixture.handle.clone(), fixture.budget.clone());
+        let mut resource_reset = Ipc::new(fixture.handle.clone(), fixture.budget.clone());
         let before = reset.traffic().await;
         let scope = json!({"kind":"endpoint","endpoint_id":"endpoint:ipc-test"});
         let resource = resource_reset

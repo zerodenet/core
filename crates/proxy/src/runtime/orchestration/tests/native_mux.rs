@@ -128,7 +128,7 @@ fn registration(
         .unwrap()
 }
 #[test]
-fn ordinary_proxy_keeps_unqualified_native_mux_registration_closed() {
+fn ordinary_proxy_keeps_standard_native_mux_factory_with_unselected_migrated_alias() {
     for protocol in ["vless", "vmess", "trojan"] {
         let mut config = config(protocol, 1);
         config.outbounds.push(
@@ -147,13 +147,19 @@ fn ordinary_proxy_keeps_unqualified_native_mux_registration_closed() {
             .unwrap(),
         );
         let proxy = Proxy::new(config).unwrap();
-        assert!(proxy
-            .tcp_runtime_services()
-            .components
-            .as_ref()
-            .unwrap()
-            .configured("a")
-            .is_none());
+        let services = proxy.tcp_runtime_services();
+        let plan = services.components.as_ref().unwrap();
+        let slot = plan.configured("a").expect("actual standard MUX factory");
+        use zero_platform_tokio::contract::component::RoleKind;
+        assert!(slot.recipe.spec().roles.contains(&RoleKind::Stream));
+        assert!(slot.recipe.spec().roles.contains(&RoleKind::Datagram));
+        assert_eq!(slot.dependency_instances().len(), 1);
+        let dependency = slot.dependency_instances()[0];
+        assert_eq!(
+            plan.component(dependency.component).unwrap().instance_id(),
+            dependency,
+            "actual canonical pool dependency, not an invented compatibility owner"
+        );
     }
 }
 #[tokio::test]

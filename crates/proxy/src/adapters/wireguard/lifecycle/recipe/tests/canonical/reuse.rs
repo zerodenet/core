@@ -5,7 +5,8 @@ async fn unchanged_candidate_reuses_actual_factory_peer_owners_and_pending_tcp()
     let proxy = crate::Proxy::new(proxy_config()).unwrap();
     let upstream = proxy.tcp_runtime_services().upstream();
     let adapter = WireguardAdapter::default();
-    let catalog = ComponentCatalog::with_factories(crate::register::component_registry());
+    let actual_host = software_host(&adapter);
+    let catalog = actual_host.components();
     let config = Arc::new(proxy_config());
     let first = recipe(&adapter, "127.0.0.1:51821", upstream.egress_generation());
     let pending = first.pending();
@@ -21,6 +22,7 @@ async fn unchanged_candidate_reuses_actual_factory_peer_owners_and_pending_tcp()
             Ok(std::collections::BTreeSet::from([component]))
         })
         .unwrap();
+    let _source = bind_software_source(&adapter, &pending);
     catalog.start(config.clone(), deadline()).await.unwrap();
     let resolved = first_invocation
         .unwrap()

@@ -77,7 +77,10 @@ async fn hysteria2_cancelled_actual_pending_dial_is_cleaned_before_successful_sa
             let (_,mut stream) = connection.accept_next_tcp_stream().await.unwrap().unwrap();
             connection.response_protocol().send_ok(&mut stream).await.unwrap();
             let mut payload = [0;4];stream.read_exact(&mut payload).await.unwrap();assert_eq!(&payload,b"ping");
-            stream.write_all(&payload).await.unwrap();stream.shutdown().await.unwrap();drop(stream);
+            stream.write_all(&payload).await.unwrap();stream.shutdown().await.unwrap();
+            // Retain the peer receive half through the actual client FIN.
+            assert_eq!(stream.read(&mut [0; 1]).await.unwrap(), 0);
+            drop(stream);
             finished.await.unwrap();
             connection.datagram_source().close(0x100u32.into(),b"pending dial fixture finished");connection.datagram_source().closed().await;
         });

@@ -60,6 +60,7 @@ pub(super) struct Host {
     pub endpoint: SocketAddr,
     pub stop: CancellationToken,
     pub portal: crate::reverse::Portal,
+    prejoined: Vec<zero_platform_tokio::contract::scope::TaskExit>,
     internal_tasks: usize,
     tls_workers: usize,
     reads: Arc<zero_platform_tokio::file::declared::DeclaredFileReads>,
@@ -163,6 +164,7 @@ impl Host {
             endpoint,
             stop,
             portal: runtime.reverse_portal("portal"),
+            prejoined: Vec::new(),
             internal_tasks,
             tls_workers,
             reads,
@@ -216,6 +218,22 @@ impl Host {
             .unwrap();
         (client, accepted)
     }
+    // Retain the actual Scope event, never a synthetic completed-task count.
+    // Used when a protocol Source must drain before its native controller is
+    // revoked; close_at_least still consumes and validates this same event.
+    pub async fn receive_original_task(&mut self) {
+        let exit = self
+            .scope
+            .next_exit()
+            .await
+            .expect("actual original protocol task exit");
+        self.prejoined.push(exit);
+        assert!(
+            self.prejoined.last().unwrap().result.is_ok(),
+            "{:?}",
+            self.prejoined.last().unwrap().result
+        );
+    }
     pub async fn close(self, expected_tasks: usize) {
         self.close_at_least(expected_tasks, Some(expected_tasks))
             .await;
@@ -230,7 +248,11 @@ impl Host {
         let receiver = self.original.accepted_task_receiver().unwrap();
         let mut joined = 0;
         let mut internal_joined = 0;
-        while let Some(exit) = self.scope.next_exit().await {
+        let mut prejoined = std::mem::take(&mut self.prejoined).into_iter();
+        while let Some(exit) = match prejoined.next() {
+            Some(exit) => Some(exit),
+            None => self.scope.next_exit().await,
+        } {
             assert!(exit.result.is_ok(), "{:?}", exit.result);
             if receiver.observe_joined(exit.id).is_none() {
                 assert_eq!(exit.class, TaskClass::Critical);

@@ -232,7 +232,11 @@ async fn expires_idle_upstream_udp_association_and_reestablishes_on_next_packet(
     assert_eq!(stats.udp_upstream.active_associations, 0);
     assert_eq!(stats.udp_upstream.created_associations, 2);
     assert_eq!(stats.udp_upstream.reused_associations, 0);
-    assert_eq!(stats.udp_upstream.closed_associations, 1);
+    assert_eq!(
+        stats.udp_upstream.closed_associations, 1,
+        "final association closure must be recorded: {:?}",
+        stats.udp_upstream
+    );
     assert_eq!(stats.udp_upstream.idle_timeouts, 1);
     assert_eq!(stats.udp_upstream.dropped_associations, 0);
     assert_eq!(stats.udp_upstream.failed_association_attempts, 0);

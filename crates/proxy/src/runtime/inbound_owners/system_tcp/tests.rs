@@ -186,6 +186,12 @@ async fn system_api_cold_input_survives_run_start_and_restart_only_after_origina
         let first = active.terminal_for_test().unwrap();
         assert!(first.closed_io_receipts() > 0 && first.failure().is_none());
         let running = proxy.spawn();
+        // Restart must pass original provider/control retirement before it can
+        // accept another configuration operation; wait for actual run Ready.
+        running
+            .wait_ready(tokio::time::Instant::now() + Duration::from_secs(5))
+            .await
+            .unwrap();
         handle(&proxy)
             .apply_runtime_config_and_wait(config, Duration::from_secs(5))
             .await
@@ -193,6 +199,29 @@ async fn system_api_cold_input_survives_run_start_and_restart_only_after_origina
         let replacement = proxy.inbound_owners.owner(&key("redirect")).unwrap();
         assert_ne!(replacement.identity(), active.identity());
         assert_eq!(*replacement.original_listener_address.get().unwrap(), entry);
+        // The same retained Host Probe owner must work after shutdown as well.
+        let respond = async {
+            let (mut io, _) = peer.accept().await.unwrap();
+            assert_eq!(
+                fixtures::request(&mut io).await,
+                (zero_core::Address::Ipv4([198, 51, 100, 2]), 80)
+            );
+            fixtures::accept(&mut io).await;
+            let mut header = Vec::new();
+            while !header.ends_with(b"\r\n\r\n") {
+                header.push(io.read_u8().await.unwrap());
+                assert!(header.len() < 4096);
+            }
+            assert!(header.starts_with(b"GET /restart "));
+            io.write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+        };
+        let (probe, ()) = tokio::join!(
+            proxy.probe_outbound_single("node", "http://198.51.100.2/restart"),
+            respond
+        );
+        probe.unwrap();
         exchange(&peer, entry, entry.ip()).await;
         running.shutdown().await.unwrap();
         assert!(

@@ -41,40 +41,42 @@ impl DatagramUdpResponder<()> for PendingResponder {
 
 #[tokio::test]
 async fn datagram_loop_reclaims_idle_upstream_without_new_traffic() {
-    let (fixture, mut dispatch) = UpstreamFixture::establish().await;
-    // Complete real socket setup before freezing time. The loop is polled
-    // explicitly so an expired no-op timer cannot strand the test task.
-    tokio::time::pause();
-    dispatch.touch_upstream_idle(IDLE_TIMEOUT);
-    let idle_deadline = dispatch.poll_refs().2.expect("upstream idle deadline");
-    let context = DatagramUdpLoopContext {
-        runtime: &fixture.runtime,
-        auth: None,
-    };
-    let mut responder = PendingResponder { reads: 0 };
-    let mut direct_buf = [0; 1024];
-    let mut upstream_buf = [0; 1024];
-    {
-        let relay = with_upstream::run_loop(
-            &context,
-            &(),
-            &mut responder,
-            &mut dispatch,
-            &mut direct_buf,
-            &mut upstream_buf,
-        );
-        tokio::pin!(relay);
-        assert!(futures_util::poll!(relay.as_mut()).is_pending());
-        assert_eq!(fixture.proxy.stats_snapshot().udp_upstream.idle_timeouts, 0);
-        // Await the same deadline with time paused. Unlike advance(), this
-        // waits for the timer driver to process its millisecond-rounded tick.
-        tokio::time::sleep_until(idle_deadline).await;
-        assert!(futures_util::poll!(relay.as_mut()).is_pending());
-        fixture.confirm_idle_control(relay.as_mut()).await;
-        fixture.assert_idle_closed();
-        assert!(futures_util::poll!(relay.as_mut()).is_pending());
-        fixture.assert_idle_closed();
-    }
-    tokio::time::resume();
-    fixture.assert_reestablishes(dispatch).await;
+    UpstreamFixture::run(|fixture, mut dispatch| async move {
+        // Complete real socket setup before freezing time. The loop is polled
+        // explicitly so an expired no-op timer cannot strand the test task.
+        tokio::time::pause();
+        dispatch.touch_upstream_idle(IDLE_TIMEOUT);
+        let idle_deadline = dispatch.poll_refs().2.expect("upstream idle deadline");
+        let context = DatagramUdpLoopContext {
+            runtime: &fixture.runtime,
+            auth: None,
+        };
+        let mut responder = PendingResponder { reads: 0 };
+        let mut direct_buf = [0; 1024];
+        let mut upstream_buf = [0; 1024];
+        {
+            let relay = with_upstream::run_loop(
+                &context,
+                &(),
+                &mut responder,
+                &mut dispatch,
+                &mut direct_buf,
+                &mut upstream_buf,
+            );
+            tokio::pin!(relay);
+            assert!(futures_util::poll!(relay.as_mut()).is_pending());
+            assert_eq!(fixture.proxy.stats_snapshot().udp_upstream.idle_timeouts, 0);
+            // Await the same deadline with time paused. Unlike advance(), this
+            // waits for the timer driver to process its millisecond-rounded tick.
+            tokio::time::sleep_until(idle_deadline).await;
+            assert!(futures_util::poll!(relay.as_mut()).is_pending());
+            fixture.confirm_idle_control(relay.as_mut()).await;
+            fixture.assert_idle_closed();
+            assert!(futures_util::poll!(relay.as_mut()).is_pending());
+            fixture.assert_idle_closed();
+        }
+        tokio::time::resume();
+        fixture.assert_reestablishes(dispatch).await;
+    })
+    .await;
 }

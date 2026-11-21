@@ -86,7 +86,7 @@ fn error(
     error
 }
 #[derive(Debug)]
-struct ConnectSource(Arc<crate::TcpConnectError>);
+struct ConnectSource(Arc<crate::TcpConnectError>, std::net::SocketAddr);
 impl std::fmt::Display for ConnectSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}", self.0.stage(), self.0.error())
@@ -99,6 +99,7 @@ impl std::error::Error for ConnectSource {
 }
 fn connect_error(
     instance: ComponentInstanceId,
+    peer: std::net::SocketAddr,
     source: Arc<crate::TcpConnectError>,
 ) -> ChannelError {
     let reason = match source.error().kind() {
@@ -110,7 +111,8 @@ fn connect_error(
         }
         _ => Reason::Io,
     };
-    error(instance, Stage::Dial, reason, DeliveryState::Unknown).with_source(ConnectSource(source))
+    error(instance, Stage::Dial, reason, DeliveryState::Unknown)
+        .with_source(ConnectSource(source, peer))
 }
 #[cfg(test)]
 #[path = "../tests/controlled_carrier/mod.rs"]
@@ -119,6 +121,14 @@ mod tests;
 /// Read-only metadata from the preserved original native error object. This
 /// neither reconstructs its OS source nor grants acquisition/closure authority.
 pub fn original_connect_error(error: &ChannelError) -> Option<&crate::TcpConnectError> {
+    original_connect_source(error).map(|source| source.0.as_ref())
+}
+/// The actual selected native peer of this same preserved failure. A configured
+/// hostname, logical destination or successful endpoint is never inferred here.
+pub fn original_connect_peer(error: &ChannelError) -> Option<std::net::SocketAddr> {
+    original_connect_source(error).map(|source| source.1)
+}
+fn original_connect_source(error: &ChannelError) -> Option<&ConnectSource> {
     let mut source = std::error::Error::source(error);
     // Protocol/host forwarding retains the same typed source behind Arc/error
     // wrappers. A generic IO kind/string can never establish this provenance.
@@ -126,7 +136,7 @@ pub fn original_connect_error(error: &ChannelError) -> Option<&crate::TcpConnect
     for _ in 0..64 {
         let current = source?;
         if let Some(original) = current.downcast_ref::<ConnectSource>() {
-            return Some(original.0.as_ref());
+            return Some(original);
         }
         source = current.source();
     }

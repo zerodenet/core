@@ -25,7 +25,7 @@ async fn standard_udp_source_closes_its_original_scopes_and_native_providers() {
         let mut roots=rustls::RootCertStore::empty(); roots.add(certificate.cert.der().clone()).unwrap();
         let connector=tokio_rustls::TlsConnector::from(Arc::new(rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth()));
         let mut client=connector.connect(rustls::pki_types::ServerName::try_from("localhost").unwrap().to_owned(),socket).await.unwrap();
-        let original=proxy.inbound_owners.owner("trojan-in").unwrap();
+        let original=proxy.inbound_owners.owner("trojan-in").unwrap();let original_census = original.task_access().peer_registrar().retirement_observation().expect("same original Scope census"); assert!(!original_census.is_drained());
         let mut request=b"b42338ef718bb33b88d3c2bf0cb6130499a1dc05e5c101b3722b09c7\r\n".to_vec();
         request.extend([3,1,127,0,0,1]);request.extend(address.port().to_be_bytes());request.extend(b"\r\n");
         request.extend([1,127,0,0,1]);request.extend(address.port().to_be_bytes());request.extend([0,1,b'\r',b'\n',b'd']);
@@ -36,7 +36,7 @@ async fn standard_udp_source_closes_its_original_scopes_and_native_providers() {
         running.shutdown().await.unwrap();
         let terminal=original.terminal().expect("same original owner, not a rebound port or task body marker");
         assert!(terminal.failure().is_none());assert!(terminal.task_failures().is_empty());
-        assert_eq!(terminal.joined_tasks(),3,"source, real handler and actual UDP driver Scope joins");
+        assert_eq!(terminal.joined_tasks(),5,"Source, accepted carrier and actual Datagram continuity registrations"); assert!(original_census.is_drained());
         assert_eq!(terminal.closed_io_receipts(),3,"original TCP listener, accepted carrier and peer Direct UDP native close receipts");
     }).await.unwrap();
 }

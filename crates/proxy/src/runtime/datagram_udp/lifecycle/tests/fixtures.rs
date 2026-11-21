@@ -20,7 +20,7 @@ pub(super) const IDLE_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub(super) struct UpstreamFixture {
     pub(super) proxy: Proxy,
-    pub(super) runtime: UdpIngressRuntime,
+    pub(super) runtime: crate::runtime::udp_ingress::test_source::Source,
     listener: TcpListener,
     relay: UdpSocket,
     control: tokio::sync::Mutex<Option<TcpStream>>,
@@ -29,7 +29,11 @@ pub(super) struct UpstreamFixture {
 }
 
 impl UpstreamFixture {
-    pub(super) async fn establish() -> (Self, UdpDispatch) {
+    pub(super) async fn run<F, Fut>(work: F)
+    where
+        F: FnOnce(Self, UdpDispatch) -> Fut + Send + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let upstream_port = listener.local_addr().unwrap().port();
         let relay = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
@@ -57,35 +61,45 @@ impl UpstreamFixture {
             .protocols
             .commit_components(&proxy.engine().config(), || Ok(()))
             .unwrap();
-        let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services());
-        let mut dispatch = runtime.new_dispatch("idle-test").await.unwrap();
-        let packet = inbound_packet();
-        let (sent, mut control) = tokio::time::timeout(Duration::from_secs(2), async {
-            tokio::join!(
-                runtime.dispatch_inbound_packet(&mut dispatch, &packet, None, None),
-                accept_association(&listener, relay_port),
+        crate::runtime::udp_ingress::test_source::run(&proxy, move |proxy, runtime| async move {
+            let mut dispatch = UdpIngressRuntime::new_dispatch(&runtime, "idle-test")
+                .await
+                .unwrap();
+            let packet = inbound_packet();
+            let (sent, mut control) = tokio::time::timeout(Duration::from_secs(2), async {
+                tokio::join!(
+                    runtime.dispatch_inbound_packet(&mut dispatch, &packet, None, None),
+                    accept_association(&listener, relay_port),
+                )
+            })
+            .await
+            .expect("upstream association setup timed out");
+            let session_id = sent.expect("send first upstream packet");
+            receive_packet(&relay).await;
+            // Establish actual control-read suspension before the idle timer. A
+            // delay or a retained socket alone would not prove pending cleanup.
+            assert_control_pending(&mut control).await;
+            assert_eq!(proxy.stats_snapshot().udp_upstream.active_associations, 1);
+            work(
+                Self {
+                    proxy,
+                    runtime,
+                    listener,
+                    relay,
+                    control: tokio::sync::Mutex::new(Some(control)),
+                    idle_control_eof: AtomicBool::new(false),
+                    session_id,
+                },
+                dispatch,
             )
+            .await;
         })
-        .await
-        .expect("upstream association setup timed out");
-        let session_id = sent.expect("send first upstream packet");
-        receive_packet(&relay).await;
-        // Establish actual control-read suspension before the idle timer. A
-        // delay or a retained socket alone would not prove pending cleanup.
-        assert_control_pending(&mut control).await;
-        assert_eq!(proxy.stats_snapshot().udp_upstream.active_associations, 1);
-        (
-            Self {
-                proxy,
-                runtime,
-                listener,
-                relay,
-                control: tokio::sync::Mutex::new(Some(control)),
-                idle_control_eof: AtomicBool::new(false),
-                session_id,
-            },
-            dispatch,
-        )
+        .await;
+        proxy
+            .protocols
+            .shutdown_components(tokio::time::Instant::now() + Duration::from_secs(3))
+            .await
+            .unwrap();
     }
 
     pub(super) async fn confirm_idle_control<F: Future>(&self, mut relay: Pin<&mut F>) {
@@ -169,7 +183,7 @@ impl UpstreamFixture {
         assert_eq!(stats.idle_timeouts, 1);
         assert!(dispatch.poll_refs().2.is_some());
 
-        let completed = dispatch.finish_all();
+        let completed = self.runtime.finish_dispatch(dispatch);
         assert_eq!(completed.len(), 1);
         assert_eq!(completed[0].record.id, self.session_id);
         assert_eq!(

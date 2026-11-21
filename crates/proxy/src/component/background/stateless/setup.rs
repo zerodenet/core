@@ -35,8 +35,11 @@ impl Outbound {
             return operation(None).await;
         };
         let (send, mut receive) = tokio::sync::oneshot::channel();
-        let (begin, started) = tokio::sync::oneshot::channel();
+        let (begin, started) = tokio::sync::oneshot::channel::<
+            zero_platform_tokio::contract::scope::TaskJoinWitness,
+        >();
         let operation_stop = transfer.stop.clone();
+        let result_owner = transfer.preparation.clone();
         let (_, witness) = transfer.adoption.spawn_auxiliary(tasks, async move {
             let Ok(caller) = started.await else {
                 return Ok(());
@@ -47,7 +50,7 @@ impl Outbound {
                         Reason::Cancelled, "original setup cancelled before delivery"))));
                     return Ok(());
                 },
-                result = operation(Some(caller)) => result,
+                result = operation(Some(caller.clone())) => result,
             };
             match outcome {
                 Ok(prepared) => {
@@ -56,6 +59,14 @@ impl Outbound {
                 }
                 Err(source) => {
                     let source = Arc::new(source);
+                    if let Some(owner) = result_owner.as_ref().filter(|_| {
+                        zero_platform_tokio::controlled_carrier::original_connect_error(&source)
+                            .is_some()
+                    }) {
+                        // Retain this same native result before the actual Aux
+                        // exits. Its later ACK and original close remain owed.
+                        owner.retain_connect_rejection_result(&caller, source.clone())?;
+                    }
                     let _ = send.send(Err(source.clone()));
                     Err(ChannelError::retained(source))
                 }

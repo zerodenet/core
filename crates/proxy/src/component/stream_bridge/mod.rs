@@ -233,6 +233,35 @@ pub(super) fn failure_optional(
             }
         }
     }
+    let native = zero_platform_tokio::controlled_carrier::original_connect_error(&error)
+        .filter(|_| matches!(error.reason, Reason::Io | Reason::Timeout));
+    let stage = native.map_or(stage, |native| native.stage());
+    let network = native
+        .zip(zero_platform_tokio::controlled_carrier::original_connect_peer(&error))
+        .map(|(native, peer)| {
+            let endpoint = |address: std::net::SocketAddr| zero_engine::FlowRemoteEndpoint {
+                host: address.ip().to_string(),
+                port: address.port(),
+            };
+            let remote = endpoint(peer);
+            let local = native.local_addr().map(endpoint);
+            Box::new(zero_engine::FlowNetworkObservation {
+                remote_address: Some(remote.clone()),
+                local_address: local.clone(),
+                connect_stage: Some(stage.into()),
+                connection_attempts: vec![zero_engine::FlowConnectionAttemptObservation {
+                    remote_address: remote,
+                    local_address: local,
+                    stage: stage.into(),
+                    outcome: "failed".into(),
+                    interface_bound: native.interface_bound(),
+                    error_kind: Some(format!("{:?}", native.error().kind())),
+                    os_error: native.error().raw_os_error(),
+                    error: Some(native.error().to_string()),
+                }],
+                ..Default::default()
+            })
+        });
     let kind = match error.reason {
         Reason::Timeout => io::ErrorKind::TimedOut,
         Reason::Cancelled | Reason::Revoked | Reason::StalePlan => io::ErrorKind::Interrupted,
@@ -244,6 +273,6 @@ pub(super) fn failure_optional(
         stage,
         error: zero_engine::EngineError::Io(io::Error::new(kind, LegacyError(error))),
         upstream_endpoint: endpoint.map(|endpoint| Box::new(endpoint.clone())),
-        network: None,
+        network,
     }
 }

@@ -35,9 +35,11 @@ impl Outbound {
             .reap_returned(end)
             .await
             .map_err(|error| self.admission.attach(error, session))?;
-        let mut parent = carriers
-            .reserve()
-            .map_err(|error| self.admission.attach(error, session))?;
+        let [mut parent, mut child] = tokio::select! { biased;
+            _ = self.admission.cancelled() => return Err(self.failure(session, Stage::Prepare, Reason::Revoked)),
+            _ = context.cancel.cancelled() => return Err(self.failure(session, Stage::Prepare, Reason::Cancelled)),
+            result = carriers.reserve_pair(end) => result.map_err(|error| self.admission.attach(error, session))?,
+        };
         // reserve has already installed this original in the actual CarrierOwner.
         // Claim its unique view before publishing a protocol cleanup record so
         // a synchronous claim failure cannot leave a record with no users proof.
@@ -82,9 +84,6 @@ impl Outbound {
             .establish_control(Box::pin(io) as BoxStream, &context, session)
             .await?;
 
-        let mut child = carriers
-            .reserve()
-            .map_err(|error| self.admission.attach(error, session))?;
         let child_adoption = child.adoption();
         child.link_related_datagram(&adoption)?;
         let view = child.claim_transferred_view()?;

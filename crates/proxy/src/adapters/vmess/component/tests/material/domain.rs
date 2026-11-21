@@ -1,6 +1,6 @@
-//! One live Business caller retries only a genuinely refused native address.
+//! One live Business caller retries only a kernel-rejected native address.
 use super::fixture;
-use std::{net::SocketAddr, time::Duration};
+use std::time::Duration;
 use zero_platform_tokio::contract::component::ResourceDeclaration;
 use zero_traits::IpAddress;
 #[tokio::test]
@@ -14,8 +14,6 @@ async fn ordinary_grpc_domain_refusal_closes_same_setup_before_next_original_wit
             std::fs::write(&cert, certificate.cert.pem()).unwrap();
             std::fs::write(&key, certificate.signing_key.serialize_pem()).unwrap();
             let remote = fixture::server(kind, &cert, &key).await;
-            let refused = tokio::net::TcpSocket::new_v4().unwrap();
-            refused.bind(SocketAddr::new("127.0.0.2".parse().unwrap(), remote.address.port())).unwrap();
             let mut node = crate::dns_fixture::Dns::new().await;
             let client = fixture::start(serde_json::json!({
                 "runtime":{"vmess_grpc_max_originals":1,"dns":{"servers":{"node":{"type":"udp","host":"127.0.0.1","port":node.address.port()}},"default_server":"node"}},
@@ -72,7 +70,7 @@ async fn ordinary_grpc_domain_refusal_closes_same_setup_before_next_original_wit
                 assert_eq!(kinds, [1,28], "one exact A/AAAA pair for the whole Node resolution");
                 for (query, kind) in [(bootstrap, first_question.query_type), (other, other_question.query_type)] {
                     if kind == 1 {
-                        query.answer_ips(false, false, &[IpAddress::V4([127,0,0,2]), IpAddress::V4([127,0,0,1])]);
+                        query.answer_ips(false, false, &[IpAddress::V4([255, 255, 255, 255]), IpAddress::V4([127,0,0,1])]);
                     } else {
                         query.answer_ips(false, false, &[]);
                     }
@@ -93,7 +91,6 @@ async fn ordinary_grpc_domain_refusal_closes_same_setup_before_next_original_wit
             assert!(owner.users_closed().unwrap().matches(&owner));
             remote.close().await;
             node.close().await;
-            drop(refused);
         }
     }).await.expect("original Domain refusal and complete Business halfclose deadline");
 }

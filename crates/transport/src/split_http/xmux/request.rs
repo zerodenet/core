@@ -31,6 +31,18 @@ impl Sender {
             }
             usage.group.clone()
         };
+        let streaming = request
+            .extensions()
+            .get::<super::super::request::StreamRequest>()
+            .is_none_or(|kind| kind.0);
+        let response_use = self
+            .owned_kind
+            .map(|_| group::ResponseUse::new(group.clone(), streaming));
+        // Publish this actual response custody before collecting exhausted
+        // groups: consuming the last request must not evict its selected idle
+        // original before the new session has published its driver work.
+        // Reap the previous group's returned Usage outside its mutex.
+        self.pool.reap();
         let group_memory = self
             .owner
             .as_ref()
@@ -41,9 +53,11 @@ impl Sender {
                     .map_err(io::Error::other)
             })
             .transpose()?;
-        let response_use = self
-            .owned_kind
-            .map(|_| group::ResponseUse::new(group.clone()));
+        if self.owned_kind.is_some() {
+            self.pool
+                .wait_rotating_responses(&group, self.owner.as_ref())
+                .await;
+        }
         let mut connection = if let Some(kind) = self.owned_kind {
             group
                 .connections

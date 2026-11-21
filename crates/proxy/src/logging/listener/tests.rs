@@ -125,6 +125,15 @@ fn accepted_route_failures_keep_a_stable_stage_across_log_levels() {
         .expect("logs should be UTF-8");
     assert!(logs.contains(" WARN "), "{logs}");
     assert!(logs.contains("DEBUG"), "{logs}");
+    let terminal = logs
+        .lines()
+        .filter(|line| {
+            line.contains("connection failed")
+                || line.contains("connection closed before request completed")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(terminal.len(), 2, "{logs}");
+    let logs = terminal.join("\n");
     assert_eq!(
         logs.matches("stage=\"inbound_accept_route\"").count(),
         2,

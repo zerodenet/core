@@ -33,7 +33,7 @@ impl TcpIngressRuntime {
         if target_resolution.is_ok() {
             self.apply_url_rewrite(session);
         }
-        self.prepare_session(session).await?;
+        let admission = self.prepare_session_with_ticket(session, None).await?;
         if let Err(error) = target_resolution {
             // MUX callers only close their protocol stream on open failure;
             // they do not own a session handle to finish this recovery error.
@@ -46,10 +46,15 @@ impl TcpIngressRuntime {
             );
             return Err(error);
         }
+        let demand = crate::component::business_demand::AdmittedBusinessDemand::new(
+            self.runtime_services().engine(),
+            zero_core::component::SessionId(session.id),
+            admission,
+        )?;
         TcpPipe::new(self)
             .dispatch(TcpPipeInput {
                 session,
-                admitted: None,
+                admitted: Some(demand),
             })
             .await
     }

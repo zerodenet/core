@@ -23,6 +23,7 @@ async fn actual_standard_udp_peer_returns_original_egress_and_joins_before_owner
         lease.bind_tcp().unwrap();
         let (definition, listener, installed) = promote_tcp(lease.finish().unwrap());
         let owner = installed.owner();
+let original_census = owner.task_access().peer_registrar().retirement_observation().expect("same original Scope census"); assert!(!original_census.is_drained());
         let endpoint = listener.local_addr().unwrap();
         let recipe=definition;
         let limit = match recipe.spec().resources[0] {
@@ -49,7 +50,7 @@ async fn actual_standard_udp_peer_returns_original_egress_and_joins_before_owner
             assert_eq!(sender, endpoint);
             assert!(owner.terminal().is_none());
             assert_eq!(owner.peer_tasks_for_test().closed_io_receipts_count(), 0);
-            shutdown.send_replace(true);
+            owner.task_access().request_stop();
         };
         let (result, ()) = tokio::join!(owner.observe_driver(), exercise);
         result.unwrap();
@@ -57,7 +58,7 @@ async fn actual_standard_udp_peer_returns_original_egress_and_joins_before_owner
         let terminal = receipt.terminal();
         assert!(terminal.failure().is_none());
         assert!(terminal.task_failures().is_empty());
-        assert_eq!(terminal.joined_tasks(), 2, "actual source and actual peer Scope joins");
+        assert_eq!(terminal.joined_tasks(), 3, "Source, bound peer and standard Datagram handler Scope joins"); assert!(original_census.is_drained());
         assert_eq!(terminal.closed_io_receipts(), 3, "TCP listener, UDP listener and actual peer Direct egress originals");
         assert_eq!(owner.peer_tasks_for_test().closed_io_receipts_count(), 1, "real retained peer egress close, not view Drop or bind probe");
     }).await.unwrap();

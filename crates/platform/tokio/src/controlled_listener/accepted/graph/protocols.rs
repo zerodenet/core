@@ -53,14 +53,8 @@ impl AcceptedCaller {
         &self,
         original: ProtocolOriginal,
     ) -> Result<(), ChannelError> {
-        self.check_open()?;
+        self.current_protocol_caller()?;
         let caller = self.task_join_witness().ok_or_else(gone)?;
-        if !caller
-            .native_task_id()
-            .is_some_and(|id| Some(id) == tokio::task::try_id())
-        {
-            return Err(gone());
-        }
         let users = self.users.upgrade().ok_or_else(gone)?;
         // A new child may reclaim already handed-off protocol rows. Transfer
         // their exact retained donor loans before discarding that observation.
@@ -71,6 +65,26 @@ impl AcceptedCaller {
         users.logical_dirty.store(true, Ordering::Release);
         users.changed.notify_waiters();
         Ok(())
+    }
+    /// The real primary or an initializer of an original already retained by
+    /// that primary. This is cleanup lineage, never permission to spawn or dial.
+    pub fn current_protocol_caller(&self) -> Result<TaskJoinWitness, ChannelError> {
+        self.check_open()?;
+        let primary = self.task_join_witness().ok_or_else(gone)?;
+        let native = tokio::task::try_id().ok_or_else(gone)?;
+        if primary.native_task_id() == Some(native) {
+            return Ok(primary);
+        }
+        let users = self.users.upgrade().ok_or_else(gone)?;
+        users
+            .current_carrier_initializer(&primary, native)
+            .or_else(|| {
+                users
+                    .protocols
+                    .get()?
+                    .current_initializer_for_caller(&primary)
+            })
+            .ok_or_else(gone)
     }
 }
 impl Users {

@@ -48,6 +48,7 @@ enum Original {
     },
 }
 mod logical_packet;
+mod source_loan;
 pub use logical_packet::LogicalPacketProviderRegistration;
 mod packet;
 pub use packet::{PacketProviderClosed, PacketProviderRegistration};

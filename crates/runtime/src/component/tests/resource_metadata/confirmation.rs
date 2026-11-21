@@ -47,6 +47,16 @@ async fn canonical_private_confirmation_requires_actual_received_join_and_last_l
         .unwrap();
     fixture.drive(pending_rx).await.unwrap(); // Actual original native RX Pending.
     assert!(completion.try_owned_closed().is_none());
+    let partial = fixture
+        .drive(fixture.resources().shutdown_io(deadline()))
+        .await
+        .unwrap();
+    assert!(!partial.is_complete());
+    let original = fixture.resources().io_evidence();
+    assert_eq!(original.metadata[0].main.confirmed_closed, 0);
+    assert_eq!(original.metadata[0].unconfirmed_users(), Some(1));
+    // StopOld fenced acquisition. The same pending native receive must still
+    // complete normally before the actual driver, delivery and user receipt.
     peer.send_to(b"", local).await.unwrap();
     graph.drivers().revoke_registration();
     graph.users().cancellation().cancel();

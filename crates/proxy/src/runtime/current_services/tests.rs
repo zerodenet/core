@@ -16,6 +16,17 @@ fn config(label: &str) -> RuntimeConfig {
 }
 
 #[test]
+fn short_service_call_cannot_keep_the_original_inbound_registry_alive() {
+    let proxy = Proxy::new(config("current")).unwrap();
+    let registry = Arc::downgrade(&proxy.inbound_owners);
+    let source = proxy.current_service_source().upgrade().unwrap();
+    assert!(source.runtime_services().is_ok());
+    drop(proxy);
+    assert!(registry.upgrade().is_none());
+    assert!(source.runtime_services().is_err());
+}
+
+#[test]
 fn retained_native_dns_and_node_service_cannot_keep_engine_config_or_host_source_alive() {
     let proxy = Proxy::new(config("first")).unwrap();
     let config = Arc::downgrade(&proxy.engine().config());

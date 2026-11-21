@@ -1,5 +1,32 @@
 use super::*;
 impl PacketCloseOwner {
+    pub(in crate::runtime) async fn reopen_after_retirement(&self) -> Result<(), String> {
+        if !self.closing.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        let mut owner = self.owner.lock().await;
+        let gate = self
+            .accept_gate
+            .lock()
+            .expect("packet close admission poisoned");
+        owner.result()?;
+        if owner.active != 0
+            || self.completed.load(Ordering::Acquire) != 0
+            || owner
+                .scope
+                .as_ref()
+                .is_some_and(|scope| !scope.registrar().retirement_observation().is_drained())
+        {
+            return Err("packet close original Scope retirement remains unconfirmed".into());
+        }
+        let retired = owner.scope.take();
+        self.closing.store(false, Ordering::Release);
+        drop(gate);
+        drop(owner);
+        drop(retired);
+        Ok(())
+    }
+
     pub(in crate::runtime) fn begin_shutdown(&self) {
         let _accept = self
             .accept_gate

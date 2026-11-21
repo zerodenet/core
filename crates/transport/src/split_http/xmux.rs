@@ -10,6 +10,7 @@ pub(in crate::split_http) use connection::DriverLease;
 mod group;
 pub(in crate::split_http) mod group_body;
 mod owner;
+mod rotation;
 use owner::OwnerKey;
 pub(crate) mod owned;
 mod owned_connect;
@@ -90,12 +91,42 @@ impl XhttpClientPool {
     }
     fn reap_inner(pool: &Inner) {
         loop {
+            let idle = {
+                let state = pool.state.lock().unwrap();
+                state
+                    .groups
+                    .iter()
+                    .filter(|group| !group.request_reusable())
+                    .find_map(|group| {
+                        group
+                            .connections
+                            .take_returned_idle_original(group.has_responses())
+                    })
+            };
+            // Other streams and GET bodies can still occupy an exhausted
+            // group. Return only its completed, idle originals, retaining
+            // any original that actually drives logical work. Its Root still
+            // owns native closure and Scope ACK before N can be reused.
+            match idle {
+                Some(connection) => drop(connection),
+                None => break,
+            }
+        }
+        loop {
             let retired = {
                 let mut state = pool.state.lock().unwrap();
                 state
                     .groups
                     .iter()
-                    .position(|group| !group.reusable())
+                    // Rotation ends reuse, while the original HTTP driver may
+                    // still own a real session that sends through newer groups.
+                    // Keep that original until its actual work has returned.
+                    .position(|group| {
+                        !group.reusable()
+                            && group.active() == 0
+                            && !group.has_responses()
+                            && !group.connections.has_logical_work()
+                    })
                     .map(|index| state.groups.remove(index))
             };
             match retired {
@@ -117,7 +148,7 @@ impl XhttpClientPool {
         let mut chosen = None;
         let mut owner_groups = 0;
         for group in state.groups.iter() {
-            if !group.matches_owner(owner) {
+            if !group.matches_owner(owner) || !group.reusable() {
                 continue;
             }
             owner_groups += 1;
@@ -225,3 +256,7 @@ pub struct XhttpDownload<'a> {
     pub factory: XhttpCarrierFactory,
     pub config: &'a (dyn SplitHttpTransportProfile + Sync),
 }
+
+#[cfg(test)]
+#[path = "../../tests/split_http/xmux_retirement.rs"]
+mod tests;

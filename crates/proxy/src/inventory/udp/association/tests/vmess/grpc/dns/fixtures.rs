@@ -95,6 +95,13 @@ impl Endpoint {
                         false,
                     )
                     .await;
+                    // The real client owner closes its own original first.
+                    // Keep the peer H2/TLS carrier until its actual EOF rather
+                    // than inject an unrelated abort into retirement evidence.
+                    assert!(
+                        incoming.accept().await.is_none(),
+                        "no second logical stream belongs to this original"
+                    );
                     incoming.close();
                 });
             }
@@ -146,39 +153,6 @@ pub(super) fn dns_closed(query: &zero_dns::OwnedDnsQueryObservation) {
         .expect("original native DNS close receipt");
     assert!(closed.matches(original) && closed.had_native_acquisition());
 }
-pub(super) async fn open(
-    proxy: Proxy,
-    identity: u64,
-    payload: &'static [u8],
-) -> crate::runtime::udp_dispatch::UdpDispatch {
-    let mut dispatch = UdpIngressRuntime::new(proxy.tcp_runtime_services())
-        .new_dispatch("incoming")
-        .await
-        .unwrap();
-    let mut packet = input(53, payload);
-    packet.client_session_id = Some(identity);
-    dispatch.dispatch(packet).await.unwrap();
-    let packet = response(&mut dispatch).await;
-    assert_eq!(packet.2.as_ref(), payload);
-    crate::runtime::udp_delivery::record_chain_udp_response_parts(
-        &proxy.udp_runtime_services(),
-        &dispatch,
-        packet.0,
-        packet.1,
-        packet.2,
-        packet.3,
-    );
-    dispatch
-}
-pub(super) async fn retire(proxy: &Proxy, dispatch: crate::runtime::udp_dispatch::UdpDispatch) {
-    let completed = dispatch.finish_all();
-    assert_eq!(completed[0].upstream.as_ref().unwrap().0, NAME);
-    let report = proxy
-        .tcp_runtime_services()
-        .execution()
-        .retired_datagrams()
-        .progress_retired(Instant::now() + Duration::from_secs(3))
-        .await
-        .unwrap();
-    assert!(report.is_complete(), "{report:?}");
-}
+#[path = "fixtures/flow.rs"]
+mod flow;
+pub(super) use flow::{open, retire};

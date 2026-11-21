@@ -57,7 +57,8 @@ async fn one_actual_main_slot_rejects_native_tun_driver_before_any_native_acquis
         "255.255.255.0".parse().unwrap(),
     )];
     let options = SystemTunSourceOptions::new(
-        "budget.tun.original".into(),
+        // Same declaration selected by the real SystemTunSourceLease helper.
+        "system.tun.original".into(),
         PacketDeviceBinding::Create {
             name: None,
             addresses: addresses.clone(),
@@ -100,19 +101,42 @@ async fn one_actual_main_slot_rejects_native_tun_driver_before_any_native_acquis
         "budget-tun".into(),
         None,
     );
-    let owner = lease
-        .start(
+    // Follow the actual macOS preparation path. Its finite helper launch may
+    // exhaust this same single-slot budget even before Main can start; no RPC
+    // or device acquisition occurs before the wire driver is admitted.
+    let prepare = || {
+        #[cfg(target_os = "macos")]
+        state
+            .install_macos_helper(
+                lease.prepare_macos_helper(
+                    proxy
+                        .engine()
+                        .config()
+                        .runtime
+                        .effective_file_read_max_bytes(),
+                    65_536, // Actual no-auto-route request layout used by managed.rs.
+                )?,
+            )
+            .map_err(std::io::Error::other)?;
+        lease.start(
             runtime,
             receiver,
             options.ingress_options(false, Arc::default()),
             None,
         )
-        .unwrap();
+    };
+    let started = prepare();
+    let (owner, failure) = match started {
+        Ok(owner) => {
+            let failure = tokio::time::timeout_at(deadline, owner.wait_ready())
+                .await
+                .unwrap()
+                .unwrap_err();
+            (owner, failure)
+        }
+        Err(failure) => (original.clone(), failure),
+    };
     assert!(Arc::ptr_eq(&owner, &original));
-    let failure = tokio::time::timeout_at(deadline, owner.wait_ready())
-        .await
-        .unwrap()
-        .unwrap_err();
     assert!(
         contains_capacity(&failure),
         "original registration failure: {failure:?}"

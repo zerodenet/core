@@ -55,40 +55,39 @@ async fn ordinary_vmess_datagram_preserves_tls_ws_early_data_and_wss_carriers() 
             };
             echo_io(stream, "aes-128-gcm".into(), 53, vec![b"carrier".to_vec()]).await;
         });
-        let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services());
-        let mut dispatch = runtime.new_dispatch("incoming").await.unwrap();
-        let id = dispatch.dispatch(input(53, b"carrier")).await.unwrap();
-        let (_, tasks, _) = dispatch.poll_sockets();
-        let packet = timeout(Duration::from_secs(3), tasks.join_next_with_id())
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        assert_eq!(packet.2.as_ref(), b"carrier");
-        assert_eq!(
-            proxy
-                .engine()
-                .active_sessions()
-                .iter()
-                .find(|s| s.id == id)
-                .unwrap()
-                .outbound_tx_bytes,
-            16,
-            "carrier establishment is Outer traffic, not Flow TX"
-        );
-        let retired = proxy.tcp_runtime_services().execution().retired_datagrams();
-        let _ = dispatch.finish_all();
-        let report = retired
-            .wait_closed(Instant::now() + Duration::from_secs(3))
-            .await
-            .unwrap();
-        assert!(report.is_complete(), "{report:?}");
+        let originals = crate::runtime::udp_ingress::test_source::run(
+            &proxy,
+            move |proxy, runtime| async move {
+                let runtime = runtime.clone();
+                let mut dispatch = runtime.new_dispatch("incoming").await.unwrap();
+                let id = dispatch.dispatch(input(53, b"carrier")).await.unwrap();
+                let (_, tasks, _) = dispatch.poll_sockets();
+                let packet = timeout(Duration::from_secs(3), tasks.join_next_with_id())
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(packet.2.as_ref(), b"carrier");
+                assert_eq!(
+                    proxy
+                        .engine()
+                        .active_sessions()
+                        .iter()
+                        .find(|s| s.id == id)
+                        .unwrap()
+                        .outbound_tx_bytes,
+                    16,
+                    "carrier establishment is Outer traffic, not Flow TX"
+                );
+                let originals = capture_native_originals(&proxy);
+                assert_eq!(originals.len(), 1);
+                let _ = dispatch.finish_all();
+                originals
+            },
+        )
+        .await;
         server.await.unwrap();
-        proxy
-            .protocols
-            .shutdown_components(Instant::now() + Duration::from_secs(3))
-            .await
-            .unwrap();
+        confirm_native_retirement(&proxy, &originals).await;
     }
 }

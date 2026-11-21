@@ -3,7 +3,19 @@
 use super::*;
 use std::{sync::Arc, time::Duration};
 use tokio::io::AsyncWriteExt;
+use zero_core::component::{
+    ComponentId, InboundId, ResourceGeneration, RoleId, RoleInstanceId, SessionId,
+};
+use zero_platform_tokio::contract::context::SessionIdentitySource;
 use zero_platform_tokio::contract::scope::TaskScope;
+struct Identities(std::sync::atomic::AtomicU64);
+impl SessionIdentitySource for Identities {
+    fn allocate(&self) -> Result<SessionId, ChannelError> {
+        Ok(SessionId(
+            self.0.fetch_add(1, std::sync::atomic::Ordering::AcqRel),
+        ))
+    }
+}
 
 #[tokio::test]
 async fn reverse_control_never_routes_and_metadata_reaches_the_same_standard_request_driver() {
@@ -89,20 +101,47 @@ async fn reverse_control_never_routes_and_metadata_reaches_the_same_standard_req
             !status.load().active,
             "DRAIN was consumed inside the original driver"
         );
-        let VlessInboundMuxOpenedRouteState::Tcp {
-            session: accepted,
-            relay,
-        } = request.route.state
-        else {
+        let connection = Arc::new(std::sync::OnceLock::new());
+        let identities = Arc::new(Identities(std::sync::atomic::AtomicU64::new(37)));
+        let accepted = request
+            .complete(HandshakeContext {
+                accepted: None, // Pure request framing; no native/caller qualification.
+                connection: Some(connection.clone()),
+                inbound: RoleInstanceId {
+                    component: ComponentId(17),
+                    generation: ResourceGeneration(2),
+                    role: RoleId::Inbound(InboundId(9)),
+                },
+                identities: identities.clone(),
+                deadline: tokio::time::Instant::now() + Duration::from_secs(2),
+                cancel: stop.clone(),
+            })
+            .await
+            .unwrap();
+        let AcceptedRequest::Stream(accepted) = accepted else {
             panic!("TCP request")
         };
-        assert_eq!(accepted.target, session.target);
-        assert_eq!(accepted.port, 443);
+        assert_eq!(accepted.facts().session, SessionId(37));
+        assert_eq!(
+            accepted.facts().target.as_ref().unwrap().address,
+            session.target
+        );
+        assert_eq!(accepted.facts().target.as_ref().unwrap().port, 443);
+        let published = connection
+            .get()
+            .expect("host received these same logical facts");
+        assert_eq!(published.original_source, accepted.facts().original_source);
+        assert_eq!(
+            published.effective_source,
+            accepted.facts().effective_source
+        );
+        assert_eq!(published.local_endpoint, accepted.facts().local_endpoint);
+        assert_eq!(identities.0.load(std::sync::atomic::Ordering::Acquire), 38);
         assert!(
             requests.try_recv().is_err(),
             "control frames never enter the route queue"
         );
-        drop(relay);
+        drop(accepted);
         stop.cancel();
         let joined = scope
             .shutdown(tokio::time::Instant::now() + Duration::from_secs(2))

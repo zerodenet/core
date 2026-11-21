@@ -204,20 +204,7 @@ impl Peers {
             }
             match receiver.try_close_if_joined(original)? {
                 Some(closed) if closed.matches(original) => {
-                    let _notifications = self.memory.notifications();
-                    let old = {
-                        let mut rows = self
-                            .rows
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner);
-                        let position = rows
-                            .iter()
-                            .position(|same| PacketMetadataArc::ptr_eq(same, &peer));
-                        position.map(|index| rows.remove(index))
-                    };
-                    drop(old); // callback/credit after the actual row lock
-                    let _ = peer.closed.set(closed);
-                    peer.notify(); // notification follows actual row removal
+                    self.confirm(&peer, closed);
                 }
                 _ => {}
             }
@@ -227,5 +214,64 @@ impl Peers {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .is_empty())
+    }
+
+    /// After the accept driver joins, settle the same peer rows even if the
+    /// last Host ACK or native view return is still in flight.
+    pub(super) async fn shutdown(&self, deadline: Instant) -> Result<bool, ChannelError> {
+        let receiver = self
+            .receiver
+            .get()
+            .ok_or_else(|| failure(Stage::Close, Reason::Revoked))?;
+        loop {
+            let peer = self
+                .rows
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .iter()
+                .next()
+                .cloned();
+            let Some(peer) = peer else { return Ok(true) };
+            if let Some((id, witness)) = peer.task.get() {
+                if tokio::time::timeout_at(deadline, witness.wait())
+                    .await
+                    .is_err()
+                {
+                    return Ok(false);
+                }
+                let _ = receiver.observe_joined_for_claim(&peer.original, *id);
+                let released =
+                    tokio::time::timeout_at(deadline, witness.wait_registration_released()).await;
+                if !released.is_ok_and(|joined| {
+                    witness.matches_joined(&joined) && joined.registration_released()
+                }) {
+                    return Ok(false);
+                }
+            }
+            let Some(closed) = receiver.close(&peer.original, deadline).await? else {
+                return Ok(false);
+            };
+            if !closed.matches(&peer.original) {
+                return Err(failure(Stage::Close, Reason::StalePlan));
+            }
+            self.confirm(&peer, closed);
+        }
+    }
+
+    fn confirm(&self, peer: &PacketMetadataArc<Peer>, closed: AcceptedTcpClosed) {
+        let _notifications = self.memory.notifications();
+        let old = {
+            let mut rows = self
+                .rows
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let position = rows
+                .iter()
+                .position(|same| PacketMetadataArc::ptr_eq(same, peer));
+            position.map(|index| rows.remove(index))
+        };
+        drop(old); // callback/credit after the actual row lock
+        let _ = peer.closed.set(closed);
+        peer.notify();
     }
 }

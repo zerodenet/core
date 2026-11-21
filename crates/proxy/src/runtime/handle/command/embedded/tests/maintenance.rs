@@ -43,7 +43,6 @@ async fn acknowledged_maintenance_keeps_async_ownership_on_a_current_thread_runt
                 ip: None,
             }),
             CommandRequest::FakeIpClear(FakeIpClearCommand::default()),
-            CommandRequest::TunStop(TunStopCommand {}),
         ] {
             let observation = zero_runtime::ApplyObservation::new();
             let result = observation
@@ -58,6 +57,13 @@ async fn acknowledged_maintenance_keeps_async_ownership_on_a_current_thread_runt
             .lookup_fake_ip_domain("maintenance.example")
             .await
             .is_none());
+        let observation = zero_runtime::ApplyObservation::new();
+        let stopped = observation
+            .scope(handle.execute_acknowledged(CommandRequest::TunStop(TunStopCommand {})))
+            .await
+            .expect_err("no native TUN has been acquired");
+        assert!(stopped.message.contains("TUN is not running"));
+        assert!(observation.blocking_outcome().is_none());
         let result = handle
             .execute_acknowledged(CommandRequest::TunRecover(TunRecoverCommand {}))
             .await

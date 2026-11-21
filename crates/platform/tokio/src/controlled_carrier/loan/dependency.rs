@@ -158,12 +158,9 @@ impl CarrierDependencyLoanIssuer {
             || original.selected_binding().is_none_or(|(selected_endpoint, selected_binding)|
                 selected_endpoint != self.endpoint || selected_binding != self.binding)
             || !original.owner().same_owner(donor.registration())
-            || !original.driver().is_some_and(|driver| {
-                donor
-                    .scope_identity()
-                    .same_scope(&driver.scope_identity())
-                    && !driver.is_joined()
-            })
+            || !(original.driver().is_some_and(|driver| {
+                donor.scope_identity().same_scope(&driver.scope_identity()) && !driver.is_joined()
+            }) || original.retains_accepted_stream_loan())
         {
             return false;
         }

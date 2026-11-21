@@ -44,6 +44,16 @@ impl InboundOwner {
             self.identity,
             self.result()
         );
+        let failure = self
+            .failure
+            .lock()
+            .expect("inbound failure poisoned")
+            .clone();
+        let mut source: Option<&(dyn Error + 'static)> = failure.as_ref().map(|source| source as _);
+        while let Some(actual) = source {
+            eprintln!("actual Source failure: {actual:?}");
+            source = actual.source();
+        }
         if let Some(receiver) = self.client_failure_receiver() {
             for failure in receiver.iter() {
                 eprintln!(

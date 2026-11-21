@@ -1,8 +1,8 @@
 use super::*;
 fn config(node: &str, detour: &str) -> RuntimeConfig {
     RuntimeConfig::parse(&serde_json::json!({
-        "runtime":{"dns":{"servers":{"node":{"type":"udp","host":"203.0.113.53","port":53,"detour":detour}},"default_server":"node"}},
-        "outbounds":[{"tag":"donor","protocol":{"type":"socks5","server":node,"port":1080}}],
+        "runtime":{"dns":{"servers":{"node":{"type":"udp","host":"203.0.113.53","port":53,"detour":detour},"bootstrap":{"type":"system"}},"default_server":"node","policy":{"node_server":"node"}}},
+        "outbounds":[{"tag":"direct","protocol":{"type":"direct"}},{"tag":"donor","protocol":{"type":"socks5","server":node,"port":1080}}],
         "outbound_groups":[{"tag":"choice","type":"fallback","outbounds":["direct","donor"]}],
         "route":{"final":{"type":"direct"}}
     }).to_string()).unwrap()
@@ -17,8 +17,10 @@ fn node_detour_reuses_independent_direct_and_literal_donors_in_every_group_branc
             "standalone validation has no host detour provider"
         );
     }
+    let mut recursive = config("requires.node.test", "choice");
+    recursive.runtime.dns.as_mut().unwrap().policy.node_server = Some("node".into());
     assert!(
-        validate(&config("requires.node.test", "choice")).is_err(),
+        validate(&recursive).is_err(),
         "an independent fallback must not hide a recursively bootstrapped donor"
     );
 }
@@ -42,8 +44,8 @@ fn node_detour_cycles_are_reported_before_recursing_or_opening_resources() {
     assert!(error.to_string().contains("cycle"));
 }
 #[cfg(all(feature = "vless", feature = "socks5"))]
-#[test]
-fn domain_vless_with_node_detour_selects_its_actual_factory_without_a_legacy_claim() {
+#[tokio::test]
+async fn domain_vless_with_node_detour_selects_its_actual_factory_without_a_legacy_claim() {
     let mut config = config("127.0.0.1", "direct");
     let node: zero_config::OutboundConfig = serde_json::from_value(serde_json::json!({
         "tag":"consumer","protocol":{"type":"vless","server":"node.actual.test","port":443,
@@ -56,5 +58,29 @@ fn domain_vless_with_node_detour_selects_its_actual_factory_without_a_legacy_cla
     let slot = plan
         .configured("consumer")
         .expect("actual domain gRPC factory");
-    assert!(plan.has_stream_loan_provider(slot.role_id()));
+    let role = slot.role_id();
+    assert!(
+        !plan.has_stream_loan_provider(role),
+        "cold declarations are not installed native providers"
+    );
+    let config = proxy.engine().config();
+    proxy
+        .protocols
+        .start_components(
+            config.clone(),
+            tokio::time::Instant::now() + std::time::Duration::from_secs(3),
+        )
+        .await
+        .unwrap();
+    proxy
+        .protocols
+        .commit_components(&config, || Ok(()))
+        .unwrap();
+    let actual = proxy.tcp_runtime_services().components.clone().unwrap();
+    assert!(actual.has_stream_loan_provider(actual.configured("consumer").unwrap().role_id()));
+    proxy
+        .protocols
+        .shutdown_components(tokio::time::Instant::now() + std::time::Duration::from_secs(3))
+        .await
+        .unwrap();
 }

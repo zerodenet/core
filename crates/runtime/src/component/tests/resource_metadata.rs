@@ -6,7 +6,7 @@ use zero_platform_tokio::{
         component::ResourceAccess,
         scope::{TaskClass, TaskScope},
     },
-    controlled_datagram::metadata::{MetadataReceive, MetadataTransmit},
+    controlled_datagram::metadata::MetadataReceive,
 };
 fn n(value: usize) -> NonZeroUsize {
     NonZeroUsize::new(value).unwrap()
@@ -104,10 +104,19 @@ async fn exact_ordinal_full_limits_start_phase_and_original_scope_are_required_w
     assert!(grant.observation.matches(&grant.rx, &grant.tx));
     let report = host.shutdown_io(deadline()).await.unwrap();
     assert!(!report.is_complete());
-    let original = std::net::UdpSocket::bind(local).unwrap();
-    drop(original);
-    assert!(scope.shutdown(deadline()).await.is_complete());
+    assert_eq!(grant.tx.local_addr().unwrap(), local);
+    assert_eq!(host.io_evidence().metadata[0].main.confirmed_closed, 0);
     assert!(!host.io_evidence().physical_confirmed());
+    let completion = grant.return_unstarted().ok().unwrap();
+    let receipt = completion.try_closed().unwrap();
+    assert!(host
+        .confirm_metadata_users(0, &receipt, &foreign.registrar())
+        .is_err());
+    host.confirm_metadata_users(0, &receipt, &scope.registrar())
+        .unwrap();
+    assert!(host.shutdown_io(deadline()).await.unwrap().is_complete());
+    assert!(scope.shutdown(deadline()).await.is_complete());
+    assert!(host.io_evidence().physical_confirmed());
 }
 
 #[tokio::test]
@@ -135,6 +144,9 @@ async fn actual_metadata_receive_and_original_close_remain_distinct_from_real_sc
     assert_eq!(metadata[0].len, 0);
     assert_eq!(metadata[0].source, peer.local_addr().unwrap());
     let (entered, pending) = tokio::sync::oneshot::channel();
+    let stop = CancellationToken::new();
+    let stopping = stop.clone();
+    let (returned, returning) = tokio::sync::oneshot::channel();
     let (id, witness) = scope
         .registrar()
         .spawn_tracked(TaskClass::Critical, async move {
@@ -142,7 +154,7 @@ async fn actual_metadata_receive_and_original_close_remain_distinct_from_real_sc
             let mut buffers = [IoSliceMut::new(&mut bytes)];
             let mut metadata = [MetadataReceive::default()];
             let mut entered = Some(entered);
-            let error = poll_fn(|cx| {
+            let receive = poll_fn(|cx| {
                 let result = grant.rx.poll_recv(cx, &mut buffers, &mut metadata);
                 if result.is_pending() {
                     if let Some(entered) = entered.take() {
@@ -150,10 +162,12 @@ async fn actual_metadata_receive_and_original_close_remain_distinct_from_real_sc
                     }
                 }
                 result
-            })
-            .await
-            .unwrap_err();
-            assert_eq!(error.kind(), std::io::ErrorKind::NotConnected);
+            });
+            tokio::select! { biased;
+                _ = stopping.cancelled() => {},
+                result = receive => panic!("original receive ended before protocol stop: {result:?}"),
+            }
+            assert!(returned.send(grant).is_ok());
             Ok(())
         })
         .unwrap();
@@ -162,20 +176,28 @@ async fn actual_metadata_receive_and_original_close_remain_distinct_from_real_sc
     assert!(std::net::UdpSocket::bind(local).is_err());
     let report = host.shutdown_io(deadline()).await.unwrap();
     assert!(!report.is_complete());
-    assert_eq!(host.io_evidence().metadata[0].main.confirmed_closed, 1);
+    assert_eq!(host.io_evidence().metadata[0].main.confirmed_closed, 0);
     assert!(
         !witness.is_joined(),
-        "native close does not consume the real TaskExit"
+        "a stop request does not consume the real TaskExit"
     );
-    let retained = std::net::UdpSocket::bind(local).unwrap();
+    stop.cancel();
+    let grant = returning.await.unwrap();
     assert_eq!(scope.next_exit().await.unwrap().id, id);
     assert_eq!(witness.wait().await.id(), id);
     assert!(
         !host.io_evidence().physical_confirmed(),
         "unintegrated user obligation cannot become a whole graph ACK"
     );
+    // No endpoint graph was constructed. Return its real unique views only
+    // after the raw receive task's actual join, then close the original provider.
+    let completion = grant.return_unstarted().ok().unwrap();
+    let receipt = completion.try_closed().unwrap();
+    host.confirm_metadata_users(0, &receipt, &scope.registrar())
+        .unwrap();
+    assert!(host.shutdown_io(deadline()).await.unwrap().is_complete());
+    assert_eq!(host.io_evidence().metadata[0].main.confirmed_closed, 1);
     assert!(scope.shutdown(deadline()).await.is_complete());
-    drop(retained);
 }
 
 #[tokio::test]
@@ -237,7 +259,12 @@ async fn actual_bind_failure_keeps_same_os_source_while_later_native_close_and_r
     assert!(host.listen_metadata_datagram(request(local)).await.is_err());
     assert!(std::net::UdpSocket::bind(local).is_err());
     assert!(!host.shutdown_io(deadline()).await.unwrap().is_complete());
-    let held = std::net::UdpSocket::bind(local).unwrap();
+    assert_eq!(grant.tx.local_addr().unwrap(), local);
+    let completion = grant.return_unstarted().ok().unwrap();
+    let receipt = completion.try_closed().unwrap();
+    host.confirm_metadata_users(0, &receipt, &scope.registrar())
+        .unwrap();
+    assert!(host.shutdown_io(deadline()).await.unwrap().is_complete());
     let proof = host.io_evidence();
     assert_eq!(
         proof.metadata[0].main.confirmed_closed, 2,
@@ -247,29 +274,15 @@ async fn actual_bind_failure_keeps_same_os_source_while_later_native_close_and_r
         &first,
         proof.metadata[0].first_fault.as_ref().unwrap()
     ));
-    assert!(!host.shutdown_io(deadline()).await.unwrap().is_complete());
+    assert!(host.shutdown_io(deadline()).await.unwrap().is_complete());
     let retry = host.io_evidence();
     assert_eq!(retry.metadata[0].main.confirmed_closed, 2);
     assert!(Arc::ptr_eq(
         &first,
         retry.metadata[0].first_fault.as_ref().unwrap()
     ));
-    assert_eq!(
-        grant
-            .tx
-            .try_send(&MetadataTransmit {
-                destination: local,
-                contents: b"x",
-                source_ip: None,
-                ecn: None,
-                segment_size: None
-            })
-            .unwrap_err()
-            .kind(),
-        std::io::ErrorKind::NotConnected
-    );
+    assert_eq!(retry.metadata[0].unconfirmed_users(), Some(0));
     assert!(scope.shutdown(deadline()).await.is_complete());
-    drop(held);
 }
 
 #[path = "resource_metadata/wake.rs"]

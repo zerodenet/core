@@ -60,7 +60,7 @@ fn ordinary_forwarding_uses_default_worker_stack_and_exits_after_parent_eof() {
         log,
     };
     let deadline = Instant::now() + Duration::from_secs(5);
-    let mut client = loop {
+    let client = loop {
         assert!(kernel.child.try_wait().unwrap().is_none());
         if let Ok(client) = TcpStream::connect(("127.0.0.1", port)) {
             break client;
@@ -68,39 +68,48 @@ fn ordinary_forwarding_uses_default_worker_stack_and_exits_after_parent_eof() {
         assert!(Instant::now() < deadline, "inbound did not start");
         std::thread::sleep(Duration::from_millis(10));
     };
-    client
-        .set_read_timeout(Some(Duration::from_secs(3)))
-        .unwrap();
-    client
-        .set_write_timeout(Some(Duration::from_secs(3)))
-        .unwrap();
-    client.write_all(b"echo").unwrap();
-    let (mut accepted, _) = loop {
-        match target.accept() {
-            Ok(accepted) => break accepted,
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                assert!(kernel.child.try_wait().unwrap().is_none());
-                assert!(Instant::now() < deadline, "actual forwarding did not start");
-                std::thread::sleep(Duration::from_millis(10));
+    let mut initial = Some(client);
+    // Both real exchanges use the same child Source on its default worker
+    // stack. The first returned handler must not retire that Source.
+    for _ in 0..2 {
+        let mut client = initial
+            .take()
+            .unwrap_or_else(|| TcpStream::connect(("127.0.0.1", port)).unwrap());
+        client
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        client
+            .set_write_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        client.write_all(b"echo").unwrap();
+        let (mut accepted, _) = loop {
+            match target.accept() {
+                Ok(accepted) => break accepted,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(kernel.child.try_wait().unwrap().is_none());
+                    assert!(Instant::now() < deadline, "actual forwarding did not start");
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("accept: {error}"),
             }
-            Err(error) => panic!("accept: {error}"),
-        }
-    };
-    // BSD accepts inherit the listener's nonblocking flag.
-    accepted.set_nonblocking(false).unwrap();
-    accepted
-        .set_read_timeout(Some(Duration::from_secs(3)))
-        .unwrap();
-    accepted
-        .set_write_timeout(Some(Duration::from_secs(3)))
-        .unwrap();
-    let mut bytes = [0; 4];
-    accepted.read_exact(&mut bytes).unwrap();
-    assert_eq!(&bytes, b"echo");
-    accepted.write_all(&bytes).unwrap();
-    client.read_exact(&mut bytes).unwrap();
-    assert_eq!(&bytes, b"echo");
-    drop((client, accepted, target));
+        };
+        // BSD accepts inherit the listener's nonblocking flag.
+        accepted.set_nonblocking(false).unwrap();
+        accepted
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        accepted
+            .set_write_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let mut bytes = [0; 4];
+        accepted.read_exact(&mut bytes).unwrap();
+        assert_eq!(&bytes, b"echo");
+        accepted.write_all(&bytes).unwrap();
+        client.read_exact(&mut bytes).unwrap();
+        assert_eq!(&bytes, b"echo");
+        drop((client, accepted));
+    }
+    drop(target);
     kernel.child.stdin.take();
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {

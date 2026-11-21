@@ -5,7 +5,7 @@ async fn changed_ech_candidates_wait_for_original_users_and_close_before_next_na
     tokio::time::timeout(Duration::from_secs(20), async {
         let mut first = peer::Peer::cleartext().await;
         let mut second = peer::Peer::cleartext_at(std::net::SocketAddr::from((
-            [127, 0, 0, 2], first.endpoint.port(),
+            crate::socket_fixture::non_loopback_host_ipv4().octets(), first.endpoint.port(),
         ))).await;
         let mut node = crate::dns_fixture::Dns::new().await;
         let endpoint = format!("h2c://endpoint.ech.test:{}/dns-query", first.endpoint.port());
@@ -39,7 +39,7 @@ async fn changed_ech_candidates_wait_for_original_users_and_close_before_next_na
             request = node.request() => request,
             response = &mut next => panic!("new candidate skipped its actual Node bootstrap: {response:?}"),
         };
-        request.answer_ips(false, false, &[IpAddress::V4([127,0,0,2])]);
+        request.answer_ips(false, false, &[IpAddress::V4(crate::socket_fixture::non_loopback_host_ipv4().octets())]);
         assert!(!pending.task.is_joined());
         assert!(old_native.closed().is_none(), "a pending actual logical user retains its native original");
         pending.cancel.cancel();
@@ -49,7 +49,7 @@ async fn changed_ech_candidates_wait_for_original_users_and_close_before_next_na
         loop {
             tokio::select! {
                 wire = second.requests.recv() => { assert_eq!(wire.unwrap(), "next.candidate.ech.test"); break; }
-                request = node.request() => request.answer_ips(false, false, &[IpAddress::V4([127,0,0,2])]),
+                request = node.request() => request.answer_ips(false, false, &[IpAddress::V4(crate::socket_fixture::non_loopback_host_ipv4().octets())]),
                 answer = &mut next, if response.is_none() => { response = Some(answer.unwrap().unwrap()); },
             }
         }

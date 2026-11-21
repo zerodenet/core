@@ -93,10 +93,21 @@ where
     let alive = keepalive::run(ping, profile.clone(), activity, true, active.clone());
     tokio::pin!(alive);
     let mut io_jobs = FuturesUnordered::<BoxFuture<'static, ()>>::new();
+    let mut retiring = false;
     loop {
         let incoming = tokio::select! { biased;
-            _=cancel.cancelled()=>return Ok(()),
-            _=tx.closed()=>return Ok(()),
+            _=cancel.cancelled(), if !retiring => {
+                // Returning the logical Source stops admission. The same H2
+                // connection still owns queued DATA/trailers and the TLS close.
+                retiring = true;
+                conn.graceful_shutdown();
+                continue;
+            },
+            _=tx.closed(), if !retiring => {
+                retiring = true;
+                conn.graceful_shutdown();
+                continue;
+            },
             result=&mut alive=>return result.map_err(|source|failure(flush.fail(source))),
             _=io_jobs.next(),if !io_jobs.is_empty()=>continue,
             incoming=conn.accept()=>incoming,
@@ -115,12 +126,9 @@ where
                 // credit, until the application consumes it or returns its view.
                 drop(conn);
                 drop(tx);
-                while !io_jobs.is_empty() {
-                    tokio::select! { biased;
-                        _ = cancel.cancelled() => return result,
-                        _ = io_jobs.next() => {},
-                    }
-                }
+                // These workers retain their actual decoded/output views.
+                // A stop request cannot stand in for their real return.
+                while io_jobs.next().await.is_some() {}
                 return result;
             }
         };

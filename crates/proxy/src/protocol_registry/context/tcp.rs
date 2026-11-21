@@ -387,26 +387,22 @@ impl TcpRuntimeServices {
         resolved: &'a zero_engine::ResolvedOutbound<'a>,
         mode: zero_engine::RouteMode,
     ) -> Result<crate::inventory::PreparedTcpOutbound, crate::transport::TcpOutboundFailure> {
-        let components = if self.execution.invocation.is_some() {
-            Some(self.execution.components.as_deref().map_err(|source| {
-                crate::transport::TcpOutboundFailure {
-                    stage: "prepare_component",
-                    error: std::io::Error::other(crate::component::instance::retained(
-                        source.clone(),
-                    ))
+        // Selection observes the actual compiled plan without acquiring I/O.
+        // Execution independently requires its real admitted caller or Probe.
+        let components = self.execution.components.as_deref().map_err(|source| {
+            crate::transport::TcpOutboundFailure {
+                stage: "prepare_component",
+                error: std::io::Error::other(crate::component::instance::retained(source.clone()))
                     .into(),
-                    upstream_endpoint: None,
-                    network: None,
-                }
-            })?)
-        } else {
-            None
-        };
+                upstream_endpoint: None,
+                network: None,
+            }
+        })?;
         self.protocols.prepare_tcp_outbound(
             OutboundAdapterContext::new(self.config()),
             resolved,
             mode,
-            components,
+            Some(components),
         )
     }
 }

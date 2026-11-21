@@ -175,11 +175,18 @@ async fn pre_ready_actual_task_panic_preserves_original_join_source_and_never_co
         ),
         "{returned:?}"
     );
-    let source = std::error::Error::source(original.as_ref()).unwrap();
-    let source = std::error::Error::source(source).unwrap();
-    assert!(source
-        .downcast_ref::<tokio::task::JoinError>()
-        .is_some_and(|join| join.is_panic()));
+    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(original.as_ref());
+    let mut panic_join = false;
+    while let Some(actual) = source {
+        panic_join |= actual
+            .downcast_ref::<tokio::task::JoinError>()
+            .is_some_and(|join| join.is_panic());
+        source = actual.source();
+    }
+    assert!(
+        panic_join,
+        "actual native panic JoinError remains in the retained source chain"
+    );
     assert!(proxy
         .inbound_owners
         .shutdown("failed", Instant::now() + Duration::from_secs(2))

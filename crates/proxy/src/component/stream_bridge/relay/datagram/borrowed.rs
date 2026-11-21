@@ -41,6 +41,14 @@ impl Prefix {
                 .map_or(binding.dial.clone(), |next| next.dial.clone()),
             network_generation: binding.network_generation,
         };
+        let pending = services
+            .pending_datagram
+            .as_ref()
+            .and_then(|pending| pending.upgrade());
+        let waiting = match &pending {
+            Some(pending) => pending.observer(selected.clone())?,
+            None => None,
+        };
         let upstream = crate::component::stream_bridge::relay::background::BackgroundPath {
             nodes: nodes[..=index].to_vec(),
             binding: selected,
@@ -53,7 +61,7 @@ impl Prefix {
                 cancel: services.invocation.as_ref().unwrap().cancellation(),
             },
         }
-        .select(services)
+        .select_observed(services, waiting)
         .await?;
         let plan = services
             .components

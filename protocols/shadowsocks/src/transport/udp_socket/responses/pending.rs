@@ -70,11 +70,9 @@ impl Responses {
     ) -> Result<(), ShadowsocksUdpResponse> {
         let waiter = {
             let mut pending = self.pending.lock().unwrap();
-            let Some(index) = pending
-                .entries
-                .iter()
-                .position(|waiter| waiter.target == response.0 && waiter.port == response.1)
-            else {
+            let Some(index) = pending.entries.iter().position(|waiter| {
+                same_target(&waiter.target, &response.0) && waiter.port == response.1
+            }) else {
                 return Err(response);
             };
             pending.entries.remove(index).unwrap()
@@ -126,6 +124,20 @@ impl Drop for ShadowsocksUdpPendingResponse {
 }
 pub(super) fn capacity(limit: usize) -> Arc<Semaphore> {
     Arc::new(Semaphore::new(limit))
+}
+
+// A numeric host may retain its domain wire form in a selected prefix while
+// the authenticated reply contains the equivalent IP address. Resolve no DNS
+// names here: unrelated hosts and ports must keep their separate FIFO waiters.
+fn same_target(left: &Address, right: &Address) -> bool {
+    fn literal(address: &Address) -> Option<std::net::IpAddr> {
+        match address {
+            Address::Domain(host) => zero_core::address::parse_ip_literal(host),
+            Address::Ipv4(ip) => Some(std::net::Ipv4Addr::from(*ip).into()),
+            Address::Ipv6(ip) => Some(std::net::Ipv6Addr::from(*ip).into()),
+        }
+    }
+    left == right || literal(left).is_some_and(|left| Some(left) == literal(right))
 }
 
 impl ShadowsocksUdpPendingResponse {

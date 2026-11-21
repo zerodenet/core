@@ -58,7 +58,7 @@ async fn dns_modes_return_real_wire_answers_through_the_tun_packet_pipeline() {
             port,
             &dns_query("matrix.example"),
         );
-        udp.feed(&request).await;
+        task.feed(&request).await;
         let response = tokio::time::timeout(std::time::Duration::from_secs(3), packets.recv())
             .await
             .unwrap()

@@ -17,7 +17,7 @@ pub struct ProcessProbeClosed {
     had_native_acquisition: bool,
 }
 impl ProcessProbeClosed {
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(super) fn matches_original(&self, original: &Arc<Original>) -> bool {
         self.original.ptr_eq(&Arc::downgrade(original))
     }

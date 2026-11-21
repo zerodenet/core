@@ -207,10 +207,12 @@ async fn native_socks_preserves_existing_rejection_code_message_stage_and_endpoi
             stream.write_all(&[5, 255]).await.unwrap();
         }
     });
-    let (session, native) = request(&proxy);
-    let legacy = proxy.tcp_runtime_services();
     let mut failures = Vec::new();
-    for services in [native, legacy] {
+    for intent in [
+        TcpDispatchIntent::Traffic,
+        TcpDispatchIntent::DiagnosticProbe,
+    ] {
+        let (session, services) = request(&proxy);
         let (resolved, _plan) = proxy
             .engine()
             .resolve_route_decision(RouteDecision::Route("node-0".into()))
@@ -220,7 +222,7 @@ async fn native_socks_preserves_existing_rejection_code_message_stage_and_endpoi
             &session,
             resolved,
             RouteMode::Flow,
-            TcpDispatchIntent::DiagnosticProbe,
+            intent,
         )
         .await
         {

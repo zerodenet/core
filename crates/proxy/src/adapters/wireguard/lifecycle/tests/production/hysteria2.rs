@@ -79,9 +79,9 @@ async fn linked_and_standalone_hy2_outer_use_same_pool_then_close_originals_befo
                 "quic":{"keep_alive_interval_secs":2}
             });
         }
-        candidate["outbounds"][0]["protocol"]["outer_udp_proxy"] = "hy-outer".into();
-        candidate["outbound_groups"] =
-            serde_json::json!([{"tag":"hy-outer","type":"relay","proxies":["hy"]}]);
+        // The actual single HY2 provider is the target; a one-member relay
+        // is invalid configuration and adds no carrier to this production path.
+        candidate["outbounds"][0]["protocol"]["outer_udp_proxy"] = "hy".into();
         let candidate = RuntimeConfig::parse(&candidate.to_string()).unwrap();
         let proxy = crate::Proxy::new(candidate.clone()).unwrap();
         let running = proxy.spawn();
@@ -96,6 +96,7 @@ async fn linked_and_standalone_hy2_outer_use_same_pool_then_close_originals_befo
             .expect("same original native packet/endpoint driver handoff");
         assert!(!receiver.protocol_driver().is_joined());
         let old = devices(&proxy).remove(0);
+        let old_workers = worker_census(&old);
         let old_source = originals(&proxy).remove(0);
         handle(&proxy)
             .apply_runtime_config_and_wait(candidate.clone(), Duration::from_secs(10))
@@ -146,7 +147,7 @@ async fn linked_and_standalone_hy2_outer_use_same_pool_then_close_originals_befo
             .apply_runtime_config_and_wait(replacement, Duration::from_secs(10))
             .await
             .unwrap();
-        joined(&old);
+        joined(&old, &old_workers);
         assert!(old_source.closed().unwrap().matches(&old_source));
         let closed = original
             .closed()

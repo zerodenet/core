@@ -146,14 +146,42 @@ pub(super) fn capture(proxy: &Proxy) -> (CarrierOwnerRegistration, CarrierOrigin
     panic!("actual ordinary Trojan wire must own its same native grant")
 }
 pub(super) async fn echo(client: &Running) -> (CarrierOwnerRegistration, CarrierOriginObservation) {
+    exchange(client, true).await
+}
+/// The existing WS byte stream maps shutdown to its complete Close handshake.
+/// TCP/gRPC and protocol-framed MUX retain the separate half-close regression.
+pub(super) async fn echo_websocket(
+    client: &Running,
+) -> (CarrierOwnerRegistration, CarrierOriginObservation) {
+    exchange(client, false).await
+}
+async fn exchange(
+    client: &Running,
+    half_close: bool,
+) -> (CarrierOwnerRegistration, CarrierOriginObservation) {
     let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = target.local_addr().unwrap().port();
     let payload: Vec<u8> = (0..262144).map(|index| (index % 251) as u8).collect();
     let expected = payload.clone();
     let peer = tokio::spawn(async move {
         let (mut io, _) = target.accept().await.unwrap();
-        let mut body = Vec::new();
-        io.read_to_end(&mut body).await.unwrap();
+        let mut body = if half_close {
+            Vec::new()
+        } else {
+            vec![0; expected.len()]
+        };
+        if half_close {
+            io.read_to_end(&mut body).await.unwrap();
+        } else {
+            io.read_exact(&mut body).await.unwrap();
+            let mut extra = [0; 1];
+            let pending = io.read(&mut extra);
+            tokio::pin!(pending);
+            assert!(
+                futures_util::poll!(pending.as_mut()).is_pending(),
+                "the actual WS transfer returns reverse bytes before whole-stream Close"
+            );
+        }
         assert_eq!(body, expected);
         io.write_all(&body).await.unwrap();
         io.shutdown().await.unwrap();
@@ -174,10 +202,15 @@ pub(super) async fn echo(client: &Running) -> (CarrierOwnerRegistration, Carrier
     io.write_all(&payload).await.unwrap();
     io.flush().await.unwrap();
     let original = capture(&client.proxy);
-    io.shutdown().await.unwrap();
+    if half_close {
+        io.shutdown().await.unwrap();
+    }
     let mut received = Vec::new();
     io.read_to_end(&mut received).await.unwrap();
     assert_eq!(received, payload);
+    if !half_close {
+        io.shutdown().await.unwrap();
+    }
     drop(io);
     peer.await.unwrap();
     original

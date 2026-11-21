@@ -248,10 +248,8 @@ pub(super) fn assert_no_legacy_udp(proxy: &Proxy) {
 pub(super) async fn exercise_datagram(proxy: Proxy, server: Server, payloads: Vec<Vec<u8>>) {
     assert_standard_datagram(&proxy);
     assert_no_legacy_udp(&proxy);
-    proxy
-        .protocols
-        .drive_component_supervision(async {
-            let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services());
+    let (original, native, driver) =
+        crate::runtime::udp_ingress::test_source::run(&proxy, move |proxy, runtime| async move {
             let mut dispatch = runtime.new_dispatch("incoming").await.unwrap();
             let mut ids = vec![];
             for payload in &payloads {
@@ -286,31 +284,37 @@ pub(super) async fn exercise_datagram(proxy: Proxy, server: Server, payloads: Ve
                 "same flow reuses its one real carrier"
             );
             let native = observed.slots()[0].original().clone();
+            let setup = observed.slots()[0]
+                .auxiliary()
+                .expect("actual Source caller setup");
+            let joined = setup
+                .try_joined()
+                .expect("setup joined before H2 publication");
+            assert!(setup.matches_joined(&joined) && joined.registration_released());
             let driver = observed.slots()[0].driver().unwrap().1.clone();
             assert!(native.closed().is_none());
-            let retired = proxy.tcp_runtime_services().execution().retired_datagrams();
             let completed = dispatch.finish_all();
             assert_eq!(completed[0].upstream.as_ref().unwrap().0, "127.0.0.1");
-            let closed = retired
-                .wait_closed(Instant::now() + Duration::from_secs(3))
-                .await
-                .unwrap();
-            assert!(closed.is_complete(), "{closed:?}");
-            assert!(driver.is_joined());
-            assert!(
-                native.matches_closed(&native.closed().expect("actual original native receipt"))
-            );
-            assert!(
-                original.closed().is_none(),
-                "per-flow closure is not whole-owner shutdown"
-            );
-            server.finish().await;
-            proxy
-                .protocols
-                .shutdown_components(Instant::now() + Duration::from_secs(3))
-                .await
-                .unwrap();
-            assert!(original.closed().unwrap().matches(&original));
+            (original, native, driver)
         })
         .await;
+    let retired = proxy.tcp_runtime_services().execution().retired_datagrams();
+    let closed = retired
+        .wait_closed(Instant::now() + Duration::from_secs(3))
+        .await
+        .unwrap();
+    assert!(closed.is_complete(), "{closed:?}");
+    assert!(driver.is_joined());
+    assert!(native.matches_closed(&native.closed().expect("actual original native receipt")));
+    assert!(
+        original.closed().is_none(),
+        "per-flow closure is not whole-owner shutdown"
+    );
+    server.finish().await;
+    proxy
+        .protocols
+        .shutdown_components(Instant::now() + Duration::from_secs(3))
+        .await
+        .unwrap();
+    assert!(original.closed().unwrap().matches(&original));
 }

@@ -36,7 +36,15 @@ async fn native_receipt_survives_cancelled_cleanup_while_actual_file_job_is_stil
     grants.state.lock().unwrap().files.before_read = Some(gate.hook());
     let _access = grants.activate(deadline()).unwrap();
     let view = grants.listen_tcp(destination()).await.unwrap();
-    let actual = view.local_addr().unwrap();
+    let original = grants
+        .state
+        .lock()
+        .unwrap()
+        .tcp
+        .values()
+        .next()
+        .unwrap()
+        .clone();
     let mut read = Box::pin(grants.read_file(path, 4));
     assert!(read
         .as_mut()
@@ -50,8 +58,13 @@ async fn native_receipt_survives_cancelled_cleanup_while_actual_file_job_is_stil
         .is_pending());
     assert_eq!(grants.state.lock().unwrap().io.receipts.closed_io.len(), 1);
     assert_eq!(grants.state.lock().unwrap().files.records.len(), 1);
-    // Native closure already happened even though the other branch is pending.
-    std::net::TcpListener::bind(actual).unwrap();
+    // Observe the same original controller and transferred view while the
+    // file branch remains pending; another process can already reuse its port.
+    assert_eq!(
+        original.try_lock().unwrap().native.confirmed_close_count(),
+        1
+    );
+    assert!(view.local_addr().is_err());
     drop(cleanup);
     gate.release();
     let report = tokio::time::timeout_at(deadline(), grants.shutdown_io(deadline()))
@@ -78,7 +91,6 @@ async fn actual_file_join_receipt_survives_cancelled_cleanup_while_native_owner_
     let grants = setup(path.clone());
     let _access = grants.activate(deadline()).unwrap();
     let view = grants.listen_tcp(destination()).await.unwrap();
-    let actual = view.local_addr().unwrap();
     let gate = Gate::new();
     let _release = gate.release_guard();
     grants.state.lock().unwrap().files.before_read = Some(gate.hook());
@@ -128,14 +140,15 @@ async fn actual_file_join_receipt_survives_cancelled_cleanup_while_native_owner_
             .len(),
         1
     );
-    assert!(std::net::TcpListener::bind(actual).is_err());
+    assert_eq!(native.native.confirmed_close_count(), 0);
     drop(cleanup);
     drop(native);
     let report = grants.shutdown_io(deadline()).await.unwrap();
     assert!(report.is_complete());
     assert_eq!(report.closed_io.len(), 2);
     assert_eq!(report.released_resources.len(), 1);
-    std::net::TcpListener::bind(actual).unwrap();
+    assert_eq!(owner.try_lock().unwrap().native.confirmed_close_count(), 1);
+    assert!(view.local_addr().is_err());
     drop(view);
 }
 

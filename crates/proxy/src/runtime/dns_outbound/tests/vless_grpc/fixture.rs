@@ -141,6 +141,16 @@ async fn start_config(
         .apply_runtime_config_and_wait(config, Duration::from_secs(5))
         .await
         .unwrap();
+    let plan = proxy.tcp_runtime_services().components.clone().unwrap();
+    let selected = plan.configured("grpc").unwrap();
+    assert!(selected
+        .recipe
+        .spec()
+        .roles
+        .contains(&zero_platform_tokio::contract::component::RoleKind::Datagram));
+    // Obtain the actual installed executable role; metadata alone is not a
+    // migrated UDP provider. Opening a DNS association remains the query's job.
+    drop(selected.datagram(deadline()).await.unwrap());
     (proxy, running)
 }
 pub(super) fn query(

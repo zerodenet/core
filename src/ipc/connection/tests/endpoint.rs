@@ -2,13 +2,14 @@ mod statistics;
 mod support;
 
 use serde_json::json;
+use std::time::Duration;
 use support::{applied, conditional, state, Fixture, Ipc, PausedReconciler};
 use tokio::net::UdpSocket;
 
 #[tokio::test]
 async fn ipc_confirms_all_four_endpoint_operations_and_physical_listener_changes() {
     let fixture = Fixture::new().await;
-    let mut ipc = Ipc::new(fixture.handle.clone());
+    let mut ipc = Ipc::new(fixture.handle.clone(), fixture.budget.clone());
     let original = ipc.endpoint().await;
     let params = conditional(
         &original,
@@ -63,7 +64,7 @@ async fn ipc_confirms_all_four_endpoint_operations_and_physical_listener_changes
 #[tokio::test]
 async fn ipc_endpoint_commands_reject_stale_instance_and_intent_without_mutating_state() {
     let fixture = Fixture::new().await;
-    let mut ipc = Ipc::new(fixture.handle.clone());
+    let mut ipc = Ipc::new(fixture.handle.clone(), fixture.budget.clone());
     let original = ipc.endpoint().await;
     for method in [
         "endpoints.set_state",
@@ -112,7 +113,7 @@ async fn ipc_endpoint_commands_reject_stale_instance_and_intent_without_mutating
 #[tokio::test]
 async fn ipc_endpoint_bind_failure_reports_rollback_and_restores_stopped_intent() {
     let fixture = Fixture::new().await;
-    let mut ipc = Ipc::new(fixture.handle.clone());
+    let mut ipc = Ipc::new(fixture.handle.clone(), fixture.budget.clone());
     let stopped = applied(ipc.command("endpoints.set_state", state(false)).await);
     let occupied = UdpSocket::bind(("127.0.0.1", fixture.port)).await.unwrap();
     let response = ipc
@@ -145,20 +146,30 @@ async fn ipc_endpoint_transaction_survives_lost_acknowledgement_and_can_be_queri
         .handle
         .clone()
         .with_config_apply_reconciler(reconciler.clone());
-    let mut ipc = Ipc::new(controlled);
+    let mut ipc = Ipc::new(controlled, fixture.budget.clone());
     ipc.send(json!({"type":"command","method":"endpoints.set_state","params":state(false)}))
         .await;
     reconciler.wait().await;
-    ipc.task.abort();
-    let _ = (&mut ipc.task).await;
-    drop(ipc);
+    let disconnected = ipc.disconnect();
     reconciler.resume.notify_one();
-    let mut recovered = Ipc::new(fixture.handle.clone());
+    let mut recovered = Ipc::new(fixture.handle.clone(), fixture.budget.clone());
     // Idempotent confirmation waits for the detached transaction's lock.
     let stopped = applied(recovered.command("endpoints.set_state", state(false)).await);
     let queried = recovered.endpoint().await;
     assert_eq!(queried["state"], "stopped");
     assert_eq!(queried["intent_revision"], stopped["intent_revision"]);
+    // Consume the real server handler's join. A lost response may fail its
+    // socket write, but must not abandon the original command/Apply receipts.
+    if let Err(error) = tokio::time::timeout(Duration::from_secs(5), disconnected)
+        .await
+        .unwrap()
+        .unwrap()
+    {
+        assert!(matches!(
+            error.kind(),
+            std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+        ));
+    }
     recovered.close().await;
     fixture.running.shutdown().await.unwrap();
 }
@@ -166,14 +177,14 @@ async fn ipc_endpoint_transaction_survives_lost_acknowledgement_and_can_be_queri
 #[tokio::test]
 async fn ipc_endpoint_and_statistics_commands_reject_non_admin_before_execution() {
     let fixture = Fixture::new().await;
-    let mut query = Ipc::new(fixture.handle.clone());
+    let mut query = Ipc::new(fixture.handle.clone(), fixture.budget.clone());
     let original = query.endpoint().await;
     let traffic = query.traffic().await;
     let read_only = zero_api::AuthContext {
         subject: None,
         permissions: vec![zero_api::Permission::Read, zero_api::Permission::Control],
     };
-    let mut denied = Ipc::with_auth(fixture.handle.clone(), read_only);
+    let mut denied = Ipc::with_auth(fixture.handle.clone(), read_only, fixture.budget.clone());
     for (method, params) in [
         ("endpoints.set_state", state(false)),
         (
@@ -210,7 +221,7 @@ async fn ipc_endpoint_and_statistics_commands_reject_non_admin_before_execution(
 #[tokio::test]
 async fn ipc_live_outbound_contraction_preserves_resource_and_checks_stale_intent() {
     let fixture = Fixture::new().await;
-    let mut ipc = Ipc::new(fixture.handle.clone());
+    let mut ipc = Ipc::new(fixture.handle.clone(), fixture.budget.clone());
     let original = ipc.endpoint().await;
     let directions =
         json!({"endpoint_id":"endpoint:ipc-test","directions":{"inbound":true,"outbound":false}});
@@ -285,7 +296,7 @@ async fn ipc_queries_and_confirms_a_packet_route_close_without_changing_endpoint
             state: zero_api::PacketRouteState::Active,
         })
         .unwrap();
-    let mut ipc = Ipc::new(fixture.handle.clone());
+    let mut ipc = Ipc::new(fixture.handle.clone(), fixture.budget.clone());
     let before = ipc.endpoint().await;
     let page = ipc
         .query(json!({"packet_routes":{"offset":0,"limit":100}}))

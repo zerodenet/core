@@ -28,18 +28,16 @@ impl OwnedWintunOwner {
                 if let Some(source) = &state.native_failure {
                     return Err(source.clone());
                 }
-                if state.view_live {
-                } else if state
-                    .prepared_reader
-                    .as_ref()
-                    .is_some_and(|reader| !reader.done)
+                if !state.view_live
+                    && state
+                        .prepared_reader
+                        .as_ref()
+                        .is_none_or(|reader| reader.done)
+                    && state
+                        .reader
+                        .as_ref()
+                        .is_none_or(|reader| reader.is_finished())
                 {
-                } else if state
-                    .reader
-                    .as_ref()
-                    .is_some_and(|reader| !reader.is_finished())
-                {
-                } else {
                     if let Some(reader) = &mut state.prepared_reader {
                         if reader.event_close.is_none() {
                             reader.event_close = Some(reader.control.close());

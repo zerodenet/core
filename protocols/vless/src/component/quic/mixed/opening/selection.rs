@@ -16,7 +16,10 @@ impl Shared {
         ChannelError,
     > {
         let current_up = self.upload.current(context).await?;
-        let up = FactoryClaim::new(self.upload.clone(), current_up.clone())?;
+        // The callable belongs to this logical caller. Freeze no selected
+        // physical parent's stop token: every later miss selects the actual
+        // currently polling driver/receiver again inside Half::open.
+        let up = FactoryClaim::new(self.upload.clone(), context.clone())?;
         let current_down = match &self.download {
             Some(down) => Some(down.current(context).await?),
             None => None,
@@ -25,7 +28,7 @@ impl Shared {
             .download
             .as_ref()
             .zip(current_down.as_ref())
-            .map(|(half, context)| FactoryClaim::new(half.clone(), context.clone()))
+            .map(|(half, _)| FactoryClaim::new(half.clone(), context.clone()))
             .transpose()?;
         let (pool, profile) = self.options.upload.pool();
         let down_options = self.options.download.as_ref().map(options::Half::pool);
@@ -59,9 +62,13 @@ impl Shared {
             )
             .await
             .map_err(|source| error(Stage::Prepare, Reason::Io).with_source(source))?;
-        entry::Table::reap(&self.entries);
-        let [up_position, down_position] =
-            entry::Table::reserve_needed(&self.entries, prepared.needs_originals())?;
+        let [up_position, down_position] = entry::Table::reserve_after_retiring(
+            &self.entries,
+            prepared.needs_originals(),
+            context,
+            &self.cancel,
+        )
+        .await?;
         if let Some(position) = up_position {
             up.install(self.upload.prepare(position, &current_up).await?)?;
         }

@@ -28,13 +28,25 @@ fn capture(client: &Running) -> Originals {
     let node = plan.configured("node").unwrap();
     assert!(node.recipe.spec().resources.is_empty());
     assert!(node.recipe.spec().task_limit.is_none());
-    let mux_slot = plan.component(node.recipe.spec().dependencies[0]).unwrap();
-    assert!(
-        matches!(&mux_slot.recipe.spec().owner, ResourceOwner::Endpoint(name) if name.as_ref() == "shared.stream_pool")
-    );
-    let lower = mux_slot.dependency_instances().iter().filter_map(|id| plan.component(id.component))
-        .find(|slot| matches!(&slot.recipe.spec().owner, ResourceOwner::Endpoint(name) if name.as_ref() == "grpc.client_pool"))
-        .expect("same actual cached gRPC owner, not another inline H2 client");
+    let owning_pool = |slot: &Arc<crate::component::instance::ComponentSlot>| {
+        let owners = slot.dependency_instances().iter().filter_map(|id| {
+            let actual = plan.component(id.component)?;
+            assert_eq!(actual.instance_id(), *id);
+            (actual.recipe.spec().roles.is_empty()
+                && actual.recipe.spec().owner == ResourceOwner::Component
+                && actual.recipe.spec().resources.iter().any(|resource| matches!(resource,
+                    zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { datagram: false, .. })))
+                .then_some(actual)
+        }).collect::<Vec<_>>();
+        assert_eq!(
+            owners.len(),
+            1,
+            "one actual original pool dependency, not an endpoint label or positional guess"
+        );
+        owners[0].clone()
+    };
+    let mux_slot = owning_pool(&node);
+    let lower = owning_pool(&mux_slot);
     let owner = |slot: &Arc<crate::component::instance::ComponentSlot>| {
         (0..slot.recipe.spec().resources.len())
             .find_map(|ordinal| slot.original_carrier_owner(ordinal))

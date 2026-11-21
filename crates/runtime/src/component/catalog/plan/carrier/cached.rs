@@ -93,6 +93,14 @@ pub(super) fn installed(slot: &Arc<ComponentSlot>) -> bool {
         .resources
         .iter()
         .any(|resource| matches!(resource, R::NativeIcmp { .. }));
+    // A single TCP pool hands its one task credit from the real setup Aux
+    // to the persistent driver only after the original Aux join and Host ACK.
+    // Both native gRPC and the shared-stream factory declare N, not 2*N.
+    // The actual registrar still forbids overlap; no join/native receipt is
+    // inferred here. Keep the existing two-half and metadata task minima.
+    if halves == 1 && metadata == 0 {
+        minimum = capacity.map_or(usize::MAX, std::num::NonZeroUsize::get);
+    }
     (1..=2).contains(&halves)
         && (!icmp || metadata > 0)
         && spec

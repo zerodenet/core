@@ -3,48 +3,17 @@
 //! Ordinary kernel TUN execution is exclusively the owned Packet Source.
 use std::io;
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
-use zero_core::{Address, Network, ProtocolType, Session};
 use zero_engine::EngineError;
-use zero_stack::{UserTcpStack, UserTcpStream, UserUdpStack};
+use zero_stack::{UserTcpStack, UserUdpStack};
 use zero_traits::{TcpStack, UdpStack};
-
-use crate::runtime::tcp_ingress::{InboundProtocol, TcpIngressRuntime};
-use crate::transport::ReplayStream;
 
 use super::super::sniff::sniff_tcp_target;
 
-use super::{serve_dns_tcp, MAX_CONCURRENT_DNS_CONNECTIONS};
 type TunTaskResult = (&'static str, Result<(), EngineError>);
-
-struct TunProtocol;
-
-#[async_trait]
-impl InboundProtocol for TunProtocol {
-    type ClientStream = ReplayStream<UserTcpStream>;
-
-    async fn send_ok(&self, _: &mut Self::ClientStream) -> Result<(), EngineError> {
-        Ok(())
-    }
-
-    async fn send_blocked(&self, client: &mut Self::ClientStream) -> Result<(), EngineError> {
-        use tokio::io::AsyncWriteExt;
-        client.shutdown().await.map_err(EngineError::Io)
-    }
-
-    async fn send_upstream_failure(
-        &self,
-        client: &mut Self::ClientStream,
-    ) -> Result<(), EngineError> {
-        use tokio::io::AsyncWriteExt;
-        client.shutdown().await.map_err(EngineError::Io)
-    }
-}
 
 async fn shutdown_tun_tasks(tasks: &mut JoinSet<TunTaskResult>) {
     tasks.abort_all();
@@ -207,87 +176,6 @@ fn should_drop_non_unicast_udp(packet: &[u8], addresses: &[(IpAddr, IpAddr)]) ->
             })
         }
         IpAddr::V6(destination) => destination.is_multicast(),
-    }
-}
-
-async fn accept_tcp(
-    services: crate::protocol_registry::TcpRuntimeServices,
-    tcp: Arc<UserTcpStack>,
-    tag: String,
-    dns_hijack: bool,
-    dns_hijacked_queries: Arc<AtomicU64>,
-) -> Result<(), EngineError> {
-    let services = services.for_inbound(tag.clone());
-    let mut connections = JoinSet::new();
-    let mut dns_connections = JoinSet::new();
-    loop {
-        tokio::select! {
-            accepted = tcp.accept() => {
-                let Some((stream, source, destination)) = accepted else {
-                    return Err(EngineError::Io(io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        "TUN TCP stack closed",
-                    )));
-                };
-                let source_addr = zero_platform_tokio::socket_address_to_socket_addr(source);
-                if dns_hijack && destination.port == 53 {
-                    dns_hijacked_queries.fetch_add(1, Ordering::Relaxed);
-                    if dns_connections.len() >= MAX_CONCURRENT_DNS_CONNECTIONS {
-                        tracing::warn!(
-                            active_dns_connections = dns_connections.len(),
-                            "rejecting TUN DNS TCP connection at the concurrency limit"
-                        );
-                        continue;
-                    }
-                    let resolver = services.resolver_handle();
-                    dns_connections.spawn(async move {
-                        serve_dns_tcp(resolver, stream).await.map_err(EngineError::Io)
-                    });
-                    continue;
-                }
-                let mut session = Session::new(
-                    0,
-                    socket_address_to_address(destination),
-                    destination.port,
-                    Network::Tcp,
-                    ProtocolType::UNKNOWN,
-                );
-                session.transparent_target = true;
-                let runtime = TcpIngressRuntime::new(
-                    services.with_current_snapshot(),
-                    tag.clone(),
-                    Some(source_addr),
-                );
-                connections.spawn(async move {
-                    let (session, stream) = sniff_tcp_target(session, stream).await;
-                    runtime.serve(session, stream, &TunProtocol).await
-                });
-            }
-            Some(completed) = connections.join_next(), if !connections.is_empty() => {
-                match completed {
-                    Ok(Ok(())) => {}
-                    // The session runtime already emits the structured,
-                    // rate-limited failure record. Keep this join result at
-                    // debug so one client error cannot produce two warnings.
-                    Ok(Err(error)) => tracing::debug!(error = %error, "TUN TCP connection failed"),
-                    Err(error) => tracing::warn!(error = %error, "TUN TCP connection task panicked"),
-                }
-            }
-            Some(completed) = dns_connections.join_next(), if !dns_connections.is_empty() => {
-                match completed {
-                    Ok(Ok(())) => {}
-                    Ok(Err(error)) => tracing::warn!(error = %error, "TUN DNS TCP connection failed"),
-                    Err(error) => tracing::warn!(error = %error, "TUN DNS TCP task panicked"),
-                }
-            }
-        }
-    }
-}
-
-fn socket_address_to_address(address: zero_traits::SocketAddress) -> Address {
-    match address.ip {
-        zero_traits::IpAddress::V4(ip) => Address::Ipv4(ip),
-        zero_traits::IpAddress::V6(ip) => Address::Ipv6(ip),
     }
 }
 

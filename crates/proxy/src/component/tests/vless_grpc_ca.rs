@@ -253,6 +253,11 @@ async fn ordinary_new_candidate_with_the_same_ca_path_and_profile_reads_the_rota
             let mut first = loan(&proxy).await;
             echo(&mut first).await;
             let prior = first.owner.original().clone();
+            let plan = proxy.tcp_runtime_services().components.clone().unwrap();
+            let prior_slot = plan.component(prior.instance().component).unwrap();
+            let prior_identity = prior_slot.recipe.spec().static_identity.clone();
+            let prior_namespace = prior_slot.recipe.spec().owner.clone();
+            drop(plan);
             std::fs::write(&path, &peer.replacement_pem).unwrap();
             peer.rotate_authority();
             echo(&mut first).await;
@@ -275,7 +280,19 @@ async fn ordinary_new_candidate_with_the_same_ca_path_and_profile_reads_the_rota
             let mut fresh = loan(&proxy).await;
             echo(&mut fresh).await;
             let current = fresh.owner.original().clone();
-            assert_eq!(current.instance().component, prior.instance().component);
+            let plan = proxy.tcp_runtime_services().components.clone().unwrap();
+            let current_slot = plan.component(current.instance().component).unwrap();
+            assert_eq!(current_slot.recipe.spec().owner, prior_namespace);
+            assert_ne!(
+                current_slot.recipe.spec().static_identity,
+                prior_identity,
+                "rotated real trust material changes the canonical complete description"
+            );
+            assert_ne!(
+                current.instance().component,
+                prior.instance().component,
+                "changed canonical material is a new identity in the same owning namespace"
+            );
             assert_ne!(current.instance(), prior.instance());
             assert_eq!(peer.accepts.load(Ordering::SeqCst), 2);
             returned(fresh).await;

@@ -138,6 +138,30 @@ impl AcceptedCaller {
     }
 }
 impl Users {
+    pub(super) fn current_carrier_initializer(
+        &self,
+        primary: &TaskJoinWitness,
+        native: tokio::task::Id,
+    ) -> Option<TaskJoinWitness> {
+        // Query native owners outside the accepted graph gate. Scope identity
+        // alone is insufficient: the exact original and primary must match.
+        let originals = self.state().carriers.clone();
+        originals
+            .iter()
+            .filter(|record| record.caller.same_registration(primary))
+            .find_map(|record| {
+                let initializer = record.slot.initializer_registration()?;
+                let bound = record.owner.bound()?;
+                (!initializer.is_joined()
+                    && initializer.native_task_id() == Some(native)
+                    && initializer.scope_identity().resource_open()
+                    && bound
+                        .scope_identity()
+                        .same_scope(&initializer.scope_identity())
+                    && record.owner.matches_adoption(&record.slot))
+                .then_some(initializer)
+            })
+    }
     pub(super) fn revoke_carriers(&self) {
         self.transfer_installed_carriers();
         if let Some(children) = self.protocols.get() {

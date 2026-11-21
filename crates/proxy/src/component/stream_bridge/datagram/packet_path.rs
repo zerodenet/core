@@ -48,6 +48,17 @@ impl StandardPacketPath {
 fn failure(error: ChannelError) -> EngineError {
     EngineError::Io(std::io::Error::other(error))
 }
+// Count only a successfully opened actual session. Its retained original
+// controller records completion once, including after the Path view returns.
+fn observe_association(
+    execution: &crate::protocol_registry::TcpExecutionServices,
+    control: zero_platform_tokio::contract::lifecycle::BoxChannelControl,
+) -> zero_platform_tokio::contract::lifecycle::BoxChannelControl {
+    let observer = crate::protocol_registry::UdpAssociationObserver::from_execution(execution);
+    let control = observer.observe_control(control, Arc::new(std::sync::atomic::AtomicU8::new(0)));
+    observer.record_created();
+    control
+}
 impl StandardPacketPath {
     async fn open(
         &self,
@@ -161,7 +172,7 @@ impl StandardPacketPath {
                 )))
             }
         };
-        session.control = reservation.adopt(session.control);
+        session.control = reservation.adopt(observe_association(&execution, session.control));
         Ok(Arc::new(Path::new(session, association, stop, handoff)) as Arc<dyn PacketPathCarrier>)
     }
 }

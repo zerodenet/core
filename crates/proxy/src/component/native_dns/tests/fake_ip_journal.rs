@@ -131,7 +131,10 @@ async fn ordinary_default_journal_is_cold_bounded_and_replaced_only_after_origin
             .await
             .unwrap();
         let (fresh, same_node) = instances(&proxy, &path, 8192);
-        assert_eq!(fresh.component, old.component);
+        assert_ne!(
+            fresh.component, old.component,
+            "a different canonical journal capacity selects a new shared identity"
+        );
         assert_ne!(fresh, old);
         assert_eq!(
             same_node, node,

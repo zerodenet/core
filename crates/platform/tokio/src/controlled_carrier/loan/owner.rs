@@ -18,6 +18,7 @@ pub struct LoanOwner {
     pub(super) receiver: std::sync::OnceLock<Arc<super::receiver::Observation>>,
     first_close_failure: Option<Arc<ChannelError>>,
     pub(super) related: Option<Box<super::related::Cleanup>>,
+    close_observer: Option<Box<dyn FnOnce() + Send + Sync>>,
 }
 /// Same logical loan only. No native-close or task-exit claim is made here.
 #[derive(Clone)]
@@ -43,6 +44,7 @@ impl LoanOwner {
             receiver: Default::default(),
             first_close_failure: None,
             related: None,
+            close_observer: None,
         }
     }
     /// Same logical LoanState, accessible only to this loan's concrete delegate.
@@ -55,6 +57,29 @@ impl LoanOwner {
     }
     pub fn original(&self) -> &CarrierOrigin {
         &self.original
+    }
+    /// Observe confirmed logical completion without replacing its controller,
+    /// lineage, view barrier or native/Scope obligations. Drop never notifies.
+    pub fn observe_closed(
+        &mut self,
+        observer: Box<dyn FnOnce() + Send + Sync>,
+    ) -> Result<(), ChannelError> {
+        if self.closed || self.close_observer.is_some() {
+            return Err(crate::controlled_carrier::error(
+                self.original.instance(),
+                crate::contract::Stage::Prepare,
+                crate::contract::Reason::StalePlan,
+                crate::contract::DeliveryState::NotSubmitted,
+            ));
+        }
+        self.close_observer = Some(observer);
+        Ok(())
+    }
+    fn confirm_closed(&mut self) {
+        self.closed = true;
+        if let Some(observer) = self.close_observer.take() {
+            observer();
+        }
     }
     /// The actual logical owner retains this stable fault record independently
     /// of a cancelled close waiter and of positive native/Scope observations.
@@ -107,7 +132,7 @@ impl LoanOwner {
     pub fn try_close(&mut self) -> Result<CloseReport, ChannelError> {
         self.cancel(CloseReason::Shutdown);
         if self.closed().is_some() {
-            self.closed = true;
+            self.confirm_closed();
             return Ok(Default::default());
         }
         if !self.state.returned.load(Ordering::Acquire) {
@@ -154,18 +179,21 @@ impl LoanOwner {
                 ));
             }
             related.pending.append(report);
-            self.closed = true;
-            return Ok(std::mem::take(&mut related.pending));
+            let report = std::mem::take(&mut related.pending);
+            self.confirm_closed();
+            return Ok(report);
         }
         let result = self.control.try_close();
         let report = self.receive_close_result(result)?;
-        self.closed = report.is_complete();
+        if report.is_complete() {
+            self.confirm_closed();
+        }
         Ok(report)
     }
     pub async fn close(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
         self.cancel(CloseReason::Shutdown);
         if self.closed().is_some() {
-            self.closed = true;
+            self.confirm_closed();
             return Ok(CloseReport::default());
         }
         let returned = async {
@@ -224,12 +252,15 @@ impl LoanOwner {
                 ));
             }
             related.pending.append(report);
-            self.closed = true;
-            return Ok(std::mem::take(&mut related.pending));
+            let report = std::mem::take(&mut related.pending);
+            self.confirm_closed();
+            return Ok(report);
         }
         let result = self.control.wait_closed(deadline).await;
         let report = self.receive_close_result(result)?;
-        self.closed = report.is_complete();
+        if report.is_complete() {
+            self.confirm_closed();
+        }
         Ok(report)
     }
 }

@@ -94,6 +94,9 @@ async fn actual_fixed_direct_handler_keeps_source_join_and_native_close_separate
             stage(2); // wait for first accepted original EOF
             assert_eq!(rejected.read(&mut [0]).await.unwrap(), 0);
             stage(3); // first native EOF has actually arrived
+            if !owner.is_running() {
+                owner.diagnose_datagram_failures_for_test();
+            }
             assert!(
                 owner.is_running(),
                 "ordinary upstream refusal must not stop listener"

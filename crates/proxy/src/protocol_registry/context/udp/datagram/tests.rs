@@ -9,7 +9,8 @@ async fn completion_observer_does_not_retain_the_actual_host_or_retirement_owner
     let services = UdpRuntimeServices::new(proxy.tcp_runtime_services());
     let retirement = std::sync::Arc::downgrade(&services.tcp.execution().retired_datagrams());
     let observer = services.association_observer();
-    assert!(observer.host.ptr_eq(&host));
+    let counter_host: std::sync::Weak<dyn AssociationMetrics> = host.clone();
+    assert!(observer.host.ptr_eq(&counter_host));
     drop(services);
     drop(proxy);
     assert!(host.upgrade().is_none());

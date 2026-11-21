@@ -81,14 +81,14 @@ async fn metadata_shrink_retains_real_old_tcp_and_native_owner_until_history_and
     let baseline = root.driver_metadata().occupied;
     let history_layout = PacketMetadataArc::<[u8; 4096]>::layout().unwrap();
     let history = PacketMetadataArc::from_prepaid(
-        [3; 4096],
+        [3u8; 4096],
         root.reserve_driver_metadata(history_layout).unwrap(),
     )
     .ok()
     .unwrap();
     let header_layout = PacketMetadataArc::<[u8; 2048]>::layout().unwrap();
     let header = PacketMetadataArc::from_prepaid(
-        [4; 2048],
+        [4u8; 2048],
         root.reserve_driver_metadata(header_layout).unwrap(),
     )
     .ok()

@@ -18,6 +18,7 @@ use zero_platform_tokio::contract::{
 };
 
 mod observation;
+mod restart;
 pub use observation::{
     ApplyObservation, ApplyObservationGuard, BlockingCommandOutcome, CommandCleanupAccepted,
     CommandCleanupKind, CommandInvocationFault, CommandInvocationFaults,

@@ -94,7 +94,7 @@ async fn run_inner(
                 .map(|source| source.to_string());
         }
         match request(original, |done| {
-            Job::Reconcile(original.proxy.engine().config(), done)
+            Job::Reconcile(original.engine.config(), done)
         })
         .await
         {
@@ -197,16 +197,16 @@ fn publish(original: &Shared, snapshot: &Snapshot, trigger: ReconcileTrigger) {
         .unwrap_or_else(|error| error.into_inner());
     let spec = &native.spec;
     if snapshot.healthy && trigger.invalidates_network(snapshot.changed) {
-        let before = original.proxy.egress_interface.generation();
-        original.proxy.egress_interface.invalidate_network();
+        let before = original.egress_interface.generation();
+        original.egress_interface.invalidate_network();
         crate::inbound::tun::log_tun_generation_change(
-            &original.proxy.egress_interface,
+            &original.egress_interface,
             before,
             "source_route_reconcile",
             Some(snapshot.changed),
         );
     }
-    let mut info = original.proxy.tun_info.lock().unwrap();
+    let mut info = original.tun_info.lock().unwrap();
     let Some(info) = info.as_mut().filter(|info| info.id == spec.id) else {
         return;
     };
@@ -223,7 +223,7 @@ fn publish(original: &Shared, snapshot: &Snapshot, trigger: ReconcileTrigger) {
     if spec.strict_route && !snapshot.healthy {
         let (v4, v6) = spec.managed_families();
         if v4 {
-            original.proxy.egress_interface.mark_unavailable_for(
+            original.egress_interface.mark_unavailable_for(
                 false,
                 snapshot
                     .error
@@ -232,7 +232,7 @@ fn publish(original: &Shared, snapshot: &Snapshot, trigger: ReconcileTrigger) {
             );
         }
         if v6 {
-            original.proxy.egress_interface.mark_unavailable_for(
+            original.egress_interface.mark_unavailable_for(
                 true,
                 snapshot
                     .error

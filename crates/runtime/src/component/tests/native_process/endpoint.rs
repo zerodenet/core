@@ -29,7 +29,9 @@ async fn host_process_endpoint_charges_same_job_before_native_reservation_and_ke
                 process_ordinal: 0,
                 spec: ProcessEndpointSpec {
                     stream: true,
-                    datagram: true,
+                    // This fixture tests the process job/pre-child TCP handoff.
+                    // Paired native UDP originals have their own endpoint tests.
+                    datagram: false,
                     ipv6: false,
                     network_generation: zero_core::component::NetworkGeneration(0),
                 },

@@ -45,18 +45,15 @@ async fn ordinary_vmess_datagram_host_reclaims_last_original_without_stopping_ad
             eof_tx.send(()).unwrap();
             release_rx.await.unwrap();
             stream.shutdown().await.unwrap();
+            drop(stream);
+            let (fresh, _) = listener.accept().await.unwrap();
+            echo_stream(fresh, "aes-128-gcm".into(), 53, vec![b"fresh".to_vec()]).await;
         });
-        let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services());
-        let mut dispatch = runtime.new_dispatch("incoming").await.unwrap();
-        let id = dispatch.dispatch(input(53, b"retire")).await.unwrap();
-        {
-            let (_, tasks, _) = dispatch.poll_sockets();
-            let packet = tasks.join_next_with_id().await.unwrap().unwrap().unwrap();
-            assert_eq!(packet.2.as_ref(), b"retire");
-        }
+        let mut flow = super::grpc::flow::open(proxy.clone(), 1, b"retire").await;
+        let originals = capture_native_originals(&proxy);
+        assert_eq!(originals.len(), 1);
         let retired = proxy.tcp_runtime_services().execution().retired_datagrams();
-        // Fill only real admission reservations, not sockets or dummy controls.
-        // Thus only the original VMess controller can free the missing slot.
+        // Fill only actual host reservations, never dummy sockets or controls.
         let mut metadata = Vec::new();
         let mut bounded = false;
         for _ in 0..10000 {
@@ -69,34 +66,51 @@ async fn ordinary_vmess_datagram_host_reclaims_last_original_without_stopping_ad
                 }
             }
         }
-        assert!(bounded, "the actual host owner must have a finite budget");
-        proxy.engine().close_flow(&id.to_string()).unwrap();
-        assert!(!dispatch.finish_pending_cancellations());
+        assert!(bounded, "the actual host owner has a finite budget");
+        proxy
+            .engine()
+            .close_flow(&flow.session().to_string())
+            .unwrap();
+        assert!(!flow.finish_pending_cancellations().await);
         assert!(proxy.engine().active_sessions().is_empty());
         assert_eq!(retired.reserve().err().unwrap().reason, Reason::Capacity);
-        let _ = dispatch.finish_all();
-        // No UDP dispatcher/receiver remains. This is the same Proxy/host,
-        // with its existing orchestration task, not a second protocol instance.
-        let running = proxy.spawn();
-        eof_rx.await.unwrap();
+        flow.retire().await;
+        assert!(originals.iter().all(|original| original.closed().is_none()));
         assert_eq!(
             retired.reserve().err().unwrap().reason,
             Reason::Capacity,
-            "shutdown and returned views cannot substitute for the original report"
+            "the still-live original Source/RX keeps its actual custody debt"
         );
+        let running = proxy.spawn();
+        let returned = tokio::spawn(flow.finish_all());
+        eof_rx.await.unwrap();
         release_tx.send(()).unwrap();
-        let replacement = loop {
-            match retired.reserve() {
-                Ok(reservation) => break reservation,
-                Err(error) => {
-                    assert_eq!(error.reason, Reason::Capacity);
-                    tokio::task::yield_now().await;
-                }
-            }
-        };
-        // Normal progress consumed the actual control's completed report. It
-        // did not call the global stopping path or manufacture native evidence.
+        returned.await.unwrap();
+        for original in &originals {
+            let closed = original
+                .closed()
+                .expect("same original native close before admission refund");
+            assert!(original.matches_closed(&closed) && closed.had_native_acquisition());
+        }
+        let replacement = retired
+            .reserve()
+            .expect("actual owner consumed its same original report");
         drop(replacement);
+        // Admission remains running under the same filled host budget. Prove
+        // the refunded position with another real wire exchange, not a counter alone.
+        let fresh = super::grpc::flow::open(proxy.clone(), 2, b"fresh").await;
+        let fresh_originals = capture_native_originals(&proxy);
+        assert_eq!(fresh_originals.len(), 1);
+        assert!(originals
+            .iter()
+            .all(|old| !old.same_original(&fresh_originals[0])));
+        fresh.finish_all().await;
+        for original in fresh_originals {
+            let closed = original
+                .closed()
+                .expect("same fresh native controller closed");
+            assert!(original.matches_closed(&closed) && closed.had_native_acquisition());
+        }
         drop(metadata);
         server.await.unwrap();
         running.shutdown().await.unwrap();

@@ -54,7 +54,9 @@ async fn physically_closed_doh_panic_keeps_original_faults_and_recovers_the_actu
         // The same original Host constructs the actual fresh query generation.
         // Its exact changed Scope excludes the failed backend from reuse.
         proxy.protocols.start_components(config.clone(), end()).await.unwrap();
-        let fresh_plan = proxy.tcp_runtime_services().components.clone().unwrap();
+        // start_components prepares the actual candidate; ordinary current
+        // services correctly retain the old publication until the commit below.
+        let fresh_plan = proxy.protocols.prepare_components(config.clone()).unwrap();
         let fresh = fresh_plan.component(canonical.id).unwrap();
         assert_ne!(fresh.instance_id(), canonical.instance_id());
         let snapshot = proxy.engine().runtime_snapshot();

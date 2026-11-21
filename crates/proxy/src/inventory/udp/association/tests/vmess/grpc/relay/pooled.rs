@@ -38,26 +38,23 @@ async fn ordinary_vmess_grpc_mixed_relay_reuses_real_shadowsocks_replay_scope_an
                 .drive_component_supervision(async {
                     let plan = proxy.tcp_runtime_services().components.clone().unwrap();
                     let role = plan.configured("shared").unwrap();
-                    assert_eq!(
-                        role.dependency_instances().len(),
-                        usize::from(cipher.starts_with("2022")),
-                        "the role must retain the actual adapter-scoped replay dependency"
-                    );
-                    let mut flow = UdpIngressRuntime::new(proxy.tcp_runtime_services())
-                        .new_dispatch("ordinary")
-                        .await
-                        .unwrap();
+                    let dependencies = role.dependency_instances().iter().map(|instance| {
+                        let actual = plan.component(instance.component).unwrap();
+                        assert_eq!(actual.instance_id(), *instance);
+                        actual
+                    }).collect::<Vec<_>>();
+                    let cache = dependencies.iter().filter(|actual| matches!(&actual.recipe.spec().owner,
+                        zero_platform_tokio::contract::component::ResourceOwner::Endpoint(name) if name.as_ref() == "shadowsocks.udp.cache")).count();
+                    let replay = dependencies.iter().filter(|actual| matches!(&actual.recipe.spec().owner,
+                        zero_platform_tokio::contract::component::ResourceOwner::Endpoint(name) if name.as_ref() == "shadowsocks.tcp2022.replay")).count();
+                    assert_eq!(cache, 1, "the same actual standard UDP cache dependency");
+                    assert_eq!(replay, usize::from(cipher.starts_with("2022")), "retain the actual adapter-scoped TCP2022 replay dependency beside UDP");
+                    assert_eq!(dependencies.len(), cache + replay);
+                    let mut flow = BoundDispatch::new(&proxy, "ordinary").await.unwrap();
                     let id = flow.dispatch(input(53, b"mixed")).await.unwrap();
                     let packet = response(&mut flow).await;
                     assert_eq!(packet.2.as_ref(), b"mixed");
-                    crate::runtime::udp_delivery::record_chain_udp_response_parts(
-                        &proxy.udp_runtime_services(),
-                        &flow,
-                        packet.0,
-                        packet.1,
-                        packet.2,
-                        packet.3,
-                    );
+                    flow.record(packet).await;
                     let session = proxy
                         .engine()
                         .active_sessions()
@@ -141,21 +138,11 @@ async fn hosted_vmess_grpc_pooled_relay_real_mux_loans_share_original_and_preser
                 .protocols
                 .drive_component_supervision(async {
                     let registration = pool_owner(&proxy, "pool");
-                    let mut first = UdpIngressRuntime::new(proxy.tcp_runtime_services())
-                        .new_dispatch("one")
-                        .await
-                        .unwrap();
+                    let mut first = BoundDispatch::new(&proxy, "one").await.unwrap();
                     let id = first.dispatch(input(53, b"pooled")).await.unwrap();
                     let packet = response(&mut first).await;
                     assert_eq!(packet.2.as_ref(), b"pooled");
-                    crate::runtime::udp_delivery::record_chain_udp_response_parts(
-                        &proxy.udp_runtime_services(),
-                        &first,
-                        packet.0,
-                        packet.1,
-                        packet.2,
-                        packet.3,
-                    );
+                    first.record(packet).await;
                     let session = proxy
                         .engine()
                         .active_sessions()
@@ -178,10 +165,7 @@ async fn hosted_vmess_grpc_pooled_relay_real_mux_loans_share_original_and_preser
                         .owner()
                         .same_owner(&registration));
                     let first_control = consumer_view.slots()[0].original().clone();
-                    let mut second = UdpIngressRuntime::new(proxy.tcp_runtime_services())
-                        .new_dispatch("two")
-                        .await
-                        .unwrap();
+                    let mut second = BoundDispatch::new(&proxy, "two").await.unwrap();
                     second.dispatch(input(53, b"pooled")).await.unwrap();
                     assert_eq!(response(&mut second).await.2.as_ref(), b"pooled");
                     assert_eq!(
@@ -243,10 +227,7 @@ async fn hosted_vmess_grpc_pooled_relay_mixed_prefixes_preserve_nested_original_
         proxy
             .protocols
             .drive_component_supervision(async {
-                let mut flow = UdpIngressRuntime::new(proxy.tcp_runtime_services())
-                    .new_dispatch("mixed")
-                    .await
-                    .unwrap();
+                let mut flow = BoundDispatch::new(&proxy, "mixed").await.unwrap();
                 flow.dispatch(input(53, b"pooled")).await.unwrap();
                 assert_eq!(response(&mut flow).await.2.as_ref(), b"pooled");
                 assert_eq!(first.count.load(std::sync::atomic::Ordering::SeqCst), 1);
@@ -304,18 +285,25 @@ async fn ordinary_vmess_grpc_pooled_relay_pending_suffix_replacement_waits_for_o
         let handle=crate::ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()),proxy.clone());
         handle.apply_runtime_config_and_wait((*config).clone(),Duration::from_secs(5)).await.unwrap();
         let plan=proxy.tcp_runtime_services().components.clone().unwrap();let prior=plan.configured("node").unwrap();let registration=pool_owner(&proxy,"pool");let consumer=original(&proxy);
-        let mut flow=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch("pending").await.unwrap();
+        let mut flow=BoundDispatch::new(&proxy, "pending").await.unwrap();
+        let pending = flow.operation_observation();
+        let (applying, physical, driver) = {
         let opening=flow.dispatch(input(53,b"owned"));tokio::pin!(opening);
         tokio::select! {biased;_=&mut opening=>panic!("actual CONNECT reply is still withheld"),_=held.request()=>{}}
         poll_fn(|cx| {assert!(opening.as_mut().poll(cx).is_pending());Poll::Ready(())}).await;
+        pending.wait().await;
         let observed=registration.observe().unwrap();assert_eq!(observed.retained(),1);assert!(observed.slots()[0].native().is_some());let physical=observed.slots()[0].original().clone();let driver=observed.slots()[0].driver().unwrap().1.clone();
         let view=consumer.observe().unwrap();assert!(view.slots()[0].physical_view_live());assert!(view.slots()[0].driver().is_none());assert!(view.slots()[0].borrowed_origin().unwrap().owner().same_owner(&registration));assert!(physical.closed().is_none());
         let mut candidate=(*config).clone();candidate.outbounds[1]=next.node.clone();candidate.outbounds[2]=ready.outbound("suffix");
         let applying=tokio::spawn(async move {handle.apply_runtime_config_and_wait(candidate,Duration::from_secs(10)).await});
-        assert!(opening.await.is_err());applying.await.unwrap().unwrap();
+        assert!(opening.await.is_err());
+        (applying, physical, driver)
+        };
+        flow.finish_all().await;
+        applying.await.unwrap().unwrap();
         assert!(driver.is_joined());assert!(physical.matches_closed(&physical.closed().unwrap()));assert!(registration.closed().unwrap().matches(&registration));assert!(consumer.closed().unwrap().matches(&consumer));
         let fresh=proxy.tcp_runtime_services().components.clone().unwrap();assert_ne!(fresh.configured("node").unwrap().instance_id(),prior.instance_id());assert!(prior.datagram(end()).await.is_err());assert_eq!(pool_owner(&proxy,"pool").observe().unwrap().retained(),0,"new physical pool starts only on demand after confirmed old close");
-        let mut flow=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch("fresh").await.unwrap();flow.dispatch(input(53,b"owned")).await.unwrap();assert_eq!(response(&mut flow).await.2.as_ref(),b"owned");close_flow(&proxy,flow).await;
+        let mut flow=BoundDispatch::new(&proxy, "fresh").await.unwrap();flow.dispatch(input(53,b"owned")).await.unwrap();assert_eq!(response(&mut flow).await.2.as_ref(),b"owned");close_flow(&proxy,flow).await;
         server.finish().await;running.shutdown().await.unwrap();old.close().await;next.close().await;held.close().await;ready.close().await;
     }).await.unwrap();
 }

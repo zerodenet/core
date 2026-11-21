@@ -9,8 +9,18 @@ pub(super) struct IdleConnections {
     memory: Option<PacketDriverMetadataView>,
 }
 impl IdleConnections {
+    pub(super) fn has_logical_work(&self) -> bool {
+        self.values.iter().any(Connection::has_logical_work)
+    }
     pub(super) fn pop(&mut self) -> Option<Connection> {
         self.values.pop()
+    }
+    pub(super) fn take_returned_original(&mut self) -> Option<Connection> {
+        let index = self
+            .values
+            .iter()
+            .position(|connection| connection.is_owned() && !connection.has_logical_work())?;
+        Some(self.values.remove(index))
     }
     pub(super) fn push(
         &mut self,

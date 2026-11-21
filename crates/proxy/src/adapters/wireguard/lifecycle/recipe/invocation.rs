@@ -206,15 +206,11 @@ impl ResolvedLinkedInvocation {
         }
         self.recipe.pending.install(link.clone())?;
         self.demand.validate()?;
-        LinkedEndpointRecipe::check_owner(
-            &self
-                .recipe
-                .map
-                .upgrade()
-                .ok_or_else(|| invalid("linked candidate actual map was released"))?,
-            &self.recipe.tag,
-            &self.recipe.pending,
-        )?;
+        self.recipe
+            .map
+            .upgrade()
+            .ok_or_else(|| invalid("linked candidate actual map was released"))?
+            .check_owner(&self.recipe.tag, &self.recipe.pending)?;
         if self.egress.generation() != self.recipe.binding.network_generation.0 {
             return Err(invalid(
                 "linked candidate network changed during installation",

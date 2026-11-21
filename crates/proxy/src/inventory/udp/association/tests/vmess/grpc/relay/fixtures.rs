@@ -166,8 +166,8 @@ pub(super) fn assert_standard_relay(proxy: &Proxy) {
         "the actual route must bypass claim/prepared relay operations"
     );
 }
-pub(super) async fn close_flow(proxy: &Proxy, dispatch: crate::runtime::udp_dispatch::UdpDispatch) {
-    dispatch.finish_all();
+pub(super) async fn close_flow(proxy: &Proxy, dispatch: BoundDispatch) {
+    dispatch.finish_all().await;
     let report = proxy
         .tcp_runtime_services()
         .execution()
@@ -182,6 +182,7 @@ pub(super) fn donor_owner(
     proxy: &Proxy,
     tag: &str,
 ) -> zero_platform_tokio::controlled_carrier::CarrierOwnerRegistration {
+    use zero_platform_tokio::contract::component::ResourceDeclaration;
     let plan = proxy.tcp_runtime_services().components.clone().unwrap();
     let slot = plan.configured(tag).unwrap();
     let ordinal = slot
@@ -190,8 +191,11 @@ pub(super) fn donor_owner(
         .resources
         .iter()
         .position(|resource| {
-            matches!(resource,
-        zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool{..})
+            matches!(
+                resource,
+                ResourceDeclaration::ControlledAssociationPool { .. }
+                    | ResourceDeclaration::ControlledCarrierPool { .. }
+            )
         })
         .unwrap();
     slot.original_carrier_owner(ordinal).unwrap()

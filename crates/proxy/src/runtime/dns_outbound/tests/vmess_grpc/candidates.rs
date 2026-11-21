@@ -1,28 +1,27 @@
 //! A failed record cannot reset this actual DNS caller to its first candidate.
 use super::*;
+use futures_util::FutureExt;
 
 #[tokio::test]
 async fn domain_vmess_grpc_dns_retires_failed_originals_before_trying_each_actual_node_candidate() {
     tokio::time::timeout(Duration::from_secs(20), async {
         let peer = Peer::new(false).await;
-        // Keep both real refused endpoints bound without listening. Their
-        // original sockets remain reserved throughout the candidate attempts.
-        let refused = [[127, 0, 0, 2], [127, 0, 0, 3]].map(|ip| {
-            let socket = tokio::net::TcpSocket::new_v4().unwrap();
-            socket.bind(std::net::SocketAddr::from((ip, peer.address.port()))).unwrap();
-            socket
-        });
+        // TCP cannot connect to broadcast or multicast destinations. Both
+        // attempts fail in the kernel before protocol bytes, even on Darwin.
         let mut wire = crate::dns_fixture::Dns::new().await;
         let mut node = crate::dns_fixture::Dns::new().await;
         let (proxy, running, _) = start(config(peer.address, false, &wire, Some(&node))).await;
         let mut query = query(&proxy, "ordered-candidates.grpc.dns.test");
         let bootstrap = tokio::select! {
-            request = node.request() => request,
+            request = std::panic::AssertUnwindSafe(node.request()).catch_unwind() => match request {
+                Ok(request)=>request,
+                Err(fault)=>{original_preparation_diagnostic(&proxy);std::panic::resume_unwind(fault)},
+            },
             result = &mut query => panic!("gRPC failed before actual Node candidate lookup: {result:?}"),
         };
         let node_caller = pending(&proxy).await;
         bootstrap.answer_ips(false, false, &[
-            IpAddress::V4([127, 0, 0, 2]), IpAddress::V4([127, 0, 0, 3]), IpAddress::V4([127, 0, 0, 1]),
+            IpAddress::V4([255, 255, 255, 255]), IpAddress::V4([224, 0, 0, 1]), IpAddress::V4([127, 0, 0, 1]),
         ]);
         tokio::time::timeout_at(deadline(), node_caller.task.wait()).await.unwrap();
         let bootstrap_native = node_caller.original.as_ref().unwrap();
@@ -59,6 +58,51 @@ async fn domain_vmess_grpc_dns_retires_failed_originals_before_trying_each_actua
         peer.close().await;
         wire.close().await;
         node.close().await;
-        drop(refused);
     }).await.unwrap();
+}
+
+// Preserve the original failure and its original deadline. Read-only evidence
+// identifies the setup error that may otherwise be hidden by retained cleanup.
+fn original_preparation_diagnostic(proxy: &Proxy) {
+    for query in proxy.resolver.native_query_observations() {
+        eprintln!(
+            "actual DNS query: task={:?} joined={} io_pending={} original={}",
+            query.task,
+            query.task.is_joined(),
+            query.io_pending,
+            query.original.is_some()
+        );
+    }
+    let services = proxy.tcp_runtime_services();
+    let plan = services.components.as_ref().unwrap();
+    let slot = plan.configured("grpc").unwrap();
+    for ordinal in 0..slot.recipe.spec().resources.len() {
+        let Some(owner) = slot.original_carrier_owner(ordinal) else {
+            continue;
+        };
+        let Some(observed) = owner.observe() else {
+            continue;
+        };
+        for original in observed.slots() {
+            eprintln!(
+                "actual DNS setup: component={:?} declaration={} ordinal={} native={} closed={}",
+                slot.instance_id(),
+                ordinal,
+                original.ordinal(),
+                original.native().is_some(),
+                original.original().closed().is_some()
+            );
+            let Some(joined) = original.auxiliary().and_then(|task| task.try_joined()) else {
+                continue;
+            };
+            let result = joined.result();
+            if let Some(error) = result.as_ref().err() {
+                let mut next: Option<&(dyn std::error::Error + 'static)> = Some(error);
+                while let Some(cause) = next {
+                    eprintln!("actual DNS setup original cause: {cause}");
+                    next = cause.source();
+                }
+            }
+        }
+    }
 }

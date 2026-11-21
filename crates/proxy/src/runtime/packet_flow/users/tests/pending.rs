@@ -51,7 +51,7 @@ async fn pending_packet_connect_retires_its_view_but_waits_for_the_original_busi
                 1420,
                 0,
                 endpoint,
-                Default::default(),
+                crate::runtime::raw_ip::test_memory::source(Default::default(), 1420),
             )
             .unwrap(),
         )

@@ -137,6 +137,11 @@ impl Pool {
         let entries: Vec<_> = self.state().entries.values().cloned().collect();
         let mut first = None;
         for entry in entries {
+            if entry.state().phase == Phase::Waiting {
+                // A pending accept has no native child. Let its actual caller
+                // return the reservation after admission was revoked.
+                continue;
+            }
             if let Some(users) = &entry.users {
                 // Cancellation reaches the same I/O and all registered tasks.
                 // The real host Scope consumes joins concurrently with this wait.
@@ -144,9 +149,51 @@ impl Pool {
                     continue;
                 }
             }
-            match self.close(&AcceptedTcpClaim { entry }, deadline).await {
+            let claim = AcceptedTcpClaim { entry };
+            match self.close(&claim, deadline).await {
                 Err(error) if first.is_none() => first = Some(error),
+                Ok(Some(_)) => {
+                    // Native closure and user joins can precede the original
+                    // Host registration ACK. Wait for that exact registration
+                    // before taking a final retained-entry census. Returning
+                    // an immediate unfinished snapshot races the Host and can
+                    // turn ordinary shutdown into a synthetic Timeout.
+                    if let Some(users) = &claim.entry.users {
+                        for witness in users.original_acks() {
+                            match tokio::time::timeout_at(
+                                deadline,
+                                witness.wait_registration_released(),
+                            )
+                            .await
+                            {
+                                Ok(joined)
+                                    if witness.matches_joined(&joined)
+                                        && joined.registration_released() => {}
+                                _ => break,
+                            }
+                        }
+                    }
+                    // The existing exact native/user/ACK predicates remain
+                    // authoritative after cancellation or a real deadline.
+                    self.confirm(&claim.entry);
+                }
                 _ => {}
+            }
+        }
+        // Closing the listener wakes an in-flight accept, but that future may
+        // still own a known no-native reservation when this branch runs.
+        // Wait for its removal before the owner takes the final census.
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            let waiting = self
+                .state()
+                .entries
+                .values()
+                .any(|entry| entry.state().phase == Phase::Waiting);
+            if !waiting || tokio::time::timeout_at(deadline, changed).await.is_err() {
+                break;
             }
         }
         first

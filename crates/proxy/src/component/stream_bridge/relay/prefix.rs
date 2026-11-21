@@ -36,6 +36,8 @@ pub(crate) struct PrefixOpener {
     pub(super) network: UpstreamConnectServices,
     pub(super) observer: Option<Arc<dyn zero_traits::IoObserver>>,
     pub(super) health: Option<FirstHopHealth>,
+    #[cfg(feature = "udp-runtime")]
+    pub(super) associations: crate::protocol_registry::UdpAssociationObserver,
 }
 impl PrefixOpener {
     pub(crate) fn for_service(
@@ -66,6 +68,10 @@ impl PrefixOpener {
             network: services.upstream(),
             observer,
             health: None,
+            #[cfg(feature = "udp-runtime")]
+            associations: crate::protocol_registry::UdpAssociationObserver::from_execution(
+                services,
+            ),
             // Weak identity supplies no I/O grant. Datagram execution still
             // requires this exact current role and its original provider.
             datagram_slot: Some(crate::inventory::StreamRoleRef::new(&node.slot)),

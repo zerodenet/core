@@ -105,11 +105,6 @@ async fn ordinary_direct_first_relay_uses_same_native_owner_and_real_node_loan_f
             std::fs::write(&cert,certificate.cert.pem()).unwrap();std::fs::write(&key,certificate.signing_key.serialize_pem()).unwrap();
             let remote=fixture::server(transport,&cert,&key).await;
             let node_dns = if domain { Some(super::domain::Node::start().await) } else { None };
-            let refused = if domain {
-                let socket=tokio::net::TcpSocket::new_v4().unwrap();
-                socket.bind(std::net::SocketAddr::new("127.0.0.2".parse().unwrap(),remote.address.port())).unwrap();
-                Some(socket)
-            } else { None };
             let mut node=serde_json::json!({"tag":"node","protocol":{"type":"vless","server":"127.0.0.1","port":remote.address.port(),"id":ID,"tls":{"server_name":"localhost","ca_cert_path":cert,"client_fingerprint":null}}});
             if domain { node["protocol"]["server"] = serde_json::json!("node.example"); }
             node["protocol"][transport]=serde_json::json!({"host":"front.test","path":"/original"});
@@ -154,7 +149,6 @@ async fn ordinary_direct_first_relay_uses_same_native_owner_and_real_node_loan_f
                 assert_eq!(node_dns.queries.load(std::sync::atomic::Ordering::SeqCst),1,"one whole Direct demand uses one actual Node answer");
                 node_dns.close().await;
             }
-            drop(refused);
           }
         }
     }).await.expect("original ordinary Direct/node half-close deadline");

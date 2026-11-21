@@ -18,7 +18,7 @@ pub(super) struct Opener {
     pub(super) borrowed: Option<super::borrowed::Prefix>,
     pub(super) health: Arc<crate::component::stream_bridge::relay::health::FirstHopHealth>,
     pub(super) observed: Arc<std::sync::atomic::AtomicBool>,
-    root: Destination,
+    root: Option<Destination>,
     pub(super) endpoint: Destination,
     pub(super) binding: UpstreamBinding,
     pub(super) business: BusinessCarrierRequest,
@@ -114,7 +114,7 @@ impl Opener {
             borrowed: borrowing,
             health,
             observed,
-            root: first.endpoint.clone().unwrap(),
+            root: first.endpoint.clone(),
             endpoint,
             binding,
             business,
@@ -161,10 +161,18 @@ impl Opener {
             {
                 return Err(invalid(Reason::StalePlan, "relay binding changed"));
             }
+            // Borrowed virtual providers have no native dial endpoint. Only
+            // this real native acquisition path needs the fixed physical root.
+            let root = self.root.as_ref().ok_or_else(|| {
+                invalid(
+                    Reason::StalePlan,
+                    "native relay acquisition has no physical root",
+                )
+            })?;
             let ticket = self.business.authorize(&destination, &binding, &grant)?;
             let mut resolved = self.resolved.lock().await;
             if resolved.is_none() {
-                let (service, generation, peers) = match &self.root.address {
+                let (service, generation, peers) = match &root.address {
                     Address::Domain(name) => {
                         let service = self.network.native_node_dns();
                         let generation = service.generation();
@@ -187,22 +195,18 @@ impl Opener {
                                         zero_traits::IpAddress::V4(v) => std::net::IpAddr::from(v),
                                         zero_traits::IpAddress::V6(v) => std::net::IpAddr::from(v),
                                     },
-                                    self.root.port,
+                                    root.port,
                                 )
                             })
                             .collect();
                         (Some(service), Some(generation), peers)
                     }
-                    Address::Ipv4(ip) => (
-                        None,
-                        None,
-                        vec![SocketAddr::new((*ip).into(), self.root.port)],
-                    ),
-                    Address::Ipv6(ip) => (
-                        None,
-                        None,
-                        vec![SocketAddr::new((*ip).into(), self.root.port)],
-                    ),
+                    Address::Ipv4(ip) => {
+                        (None, None, vec![SocketAddr::new((*ip).into(), root.port)])
+                    }
+                    Address::Ipv6(ip) => {
+                        (None, None, vec![SocketAddr::new((*ip).into(), root.port)])
+                    }
                 };
                 *resolved = Some(Resolved {
                     service,
@@ -220,7 +224,7 @@ impl Opener {
             let dns = resolved.service.clone().zip(resolved.generation);
             let prepared = NativeCarrierOpener::business_relay(
                 ticket,
-                self.root.clone(),
+                root.clone(),
                 peer,
                 dns,
                 Arc::new(self.network.egress_control()),
@@ -239,6 +243,34 @@ impl Opener {
     }
 }
 impl UpstreamOpener for Opener {
+    fn has_tracked_business_caller(&self) -> bool {
+        self.business.has_tracked_caller()
+    }
+    fn packet_caller(
+        &self,
+        binding: &UpstreamBinding,
+        identity: &zero_platform_tokio::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<zero_platform_tokio::contract::scope::TaskJoinWitness, ChannelError> {
+        if binding != &self.binding
+            || binding.network_generation.0 != self.network.network_generation()
+        {
+            return Err(invalid(Reason::StalePlan, "relay caller binding changed"));
+        }
+        self.business.packet_caller(identity, call)
+    }
+    fn packet_driver_custody(
+        &self,
+        binding: &UpstreamBinding,
+        identity: &zero_platform_tokio::contract::context::RequestIdentity,
+        call: &CarrierContext,
+    ) -> Result<
+        Option<zero_platform_tokio::contract::component::PacketDriverCallRetained>,
+        ChannelError,
+    > {
+        self.packet_caller(binding, identity, call)?;
+        Ok(None)
+    }
     fn acquire_controlled_stream(
         &self,
         binding: &UpstreamBinding,
@@ -272,7 +304,10 @@ impl UpstreamOpener for Opener {
     }
 
     fn carrier_dns_generation(&self) -> Option<DnsGeneration> {
-        matches!(self.root.address, Address::Domain(_)).then(|| self.network.dns_generation())
+        self.root
+            .as_ref()
+            .is_some_and(|root| matches!(root.address, Address::Domain(_)))
+            .then(|| self.network.dns_generation())
     }
     fn open_stream(
         &self,

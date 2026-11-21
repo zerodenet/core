@@ -13,13 +13,7 @@ pub(super) fn run(original: PacketMetadataArc<Shared>) -> Result<(), ChannelErro
                 "same route worker input was already consumed",
             )
         })?;
-    let route_memory = original
-        .proxy
-        .protocols
-        .runtime_host()
-        .original_budgets()
-        .packet
-        .driver_metadata_view();
+    let route_memory = original.route_memory.clone();
     #[cfg(target_os = "macos")]
     let mut helper: Option<zero_tun::MacosHelperLease> = None;
     #[cfg(target_os = "macos")]
@@ -97,7 +91,7 @@ pub(super) fn run(original: PacketMetadataArc<Shared>) -> Result<(), ChannelErro
                                 .install(
                                     name,
                                     &prepared.route_exclusions,
-                                    &original.proxy.egress_interface,
+                                    &original.egress_interface,
                                 )
                                 .map_err(Arc::new);
                             drop(notifications);
@@ -127,7 +121,7 @@ pub(super) fn run(original: PacketMetadataArc<Shared>) -> Result<(), ChannelErro
                             .native
                             .lock()
                             .unwrap_or_else(|error| error.into_inner())
-                            .reconcile(&prepared.route_exclusions, &original.proxy.egress_interface)
+                            .reconcile(&prepared.route_exclusions, &original.egress_interface)
                             .map_err(Arc::new);
                         drop(notifications);
                         result

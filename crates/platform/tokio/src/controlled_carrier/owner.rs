@@ -19,6 +19,7 @@ pub(super) struct Shared {
     // The existing Root scan owns cleanup progress even before any slot was
     // cancelled. This is one fixed wake registration for this actual owner.
     pub(super) retirement_waker: Mutex<Option<std::task::Waker>>,
+    pub(super) capacity_changed: tokio::sync::Notify,
 }
 #[derive(Default)]
 pub(super) struct State {
@@ -53,6 +54,7 @@ impl CarrierOwner {
             totals: Default::default(),
             completion: Arc::new(super::registration::Completion::default()),
             retirement_waker: Mutex::new(None),
+            capacity_changed: tokio::sync::Notify::new(),
         }))
     }
     pub fn registration(&self) -> super::CarrierOwnerRegistration {

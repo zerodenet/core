@@ -33,7 +33,7 @@ async fn ordinary_vless_grpc_dns_success_cancel_and_reuse_keep_the_same_physical
             for (index,cancel) in [false,true,false].into_iter().enumerate() {
                 let mut query=query(&proxy,&format!("{multi}-{index}.vless.grpc.dns.test"));
                 let request=tokio::select! {request=dns.request()=>request,result=&mut query=>panic!("ordinary VLESS gRPC failed before actual DNS delivery: {result:?}")};
-                assert!(request.tcp);
+                assert!(!request.tcp, "configured UDP DNS uses the actual standard Datagram over the shared gRPC original");
                 let caller=pending(&proxy).await;
                 let child=caller.original.clone().unwrap();
                 let donor=child.parent().expect("actual same-pool donor");

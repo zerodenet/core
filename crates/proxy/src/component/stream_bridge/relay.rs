@@ -17,7 +17,7 @@ use std::{sync::Arc, time::Duration};
 use zero_core::{component::NetworkGeneration, request::Destination, Address, Session};
 use zero_platform_tokio::contract::{
     context::OpenContext,
-    network::{UpstreamBinding, UpstreamTransport},
+    network::{CarrierContext, UpstreamBinding, UpstreamTransport},
     stream::ConnectRequest,
     ChannelError, Reason,
 };
@@ -138,7 +138,12 @@ pub(crate) async fn connect(
                     waiting
                         .as_ref()
                         .map(super::pending::PendingCaller::observer),
-                ),
+                )
+                .with_service_call(CarrierContext {
+                    session: invocation.identity.session(),
+                    deadline: invocation.deadline,
+                    cancel: invocation.cancellation(),
+                }),
             );
             (
                 Some(RootEvidence::Node(root.clone())),
@@ -159,7 +164,9 @@ pub(crate) async fn connect(
                     first_slot,Arc::downgrade(plan),services.upstream_observed(&first.tag),destination(target),binding,
                     crate::component::direct_bridge::background::Caller {
                         business:crate::component::business_carrier::BusinessCarrierRequest::new(services.engine(),first_slot,&invocation).map_err(normalize)?,
-                        call:None,waiting:waiting.as_ref().map(super::pending::PendingCaller::observer),
+                        call:invocation.identity.session().is_none().then(|| CarrierContext {
+                            session:None,deadline:invocation.deadline,cancel:invocation.cancellation(),
+                        }),waiting:waiting.as_ref().map(super::pending::PendingCaller::observer),
                     },
                 ).map_err(normalize)?;
                 (Some(RootEvidence::Direct(root)),upstream)
@@ -266,6 +273,10 @@ pub(crate) async fn connect(
         upstream = UpstreamTransport::new(
             binding.clone(),
             Arc::new(PrefixOpener {
+                #[cfg(feature = "udp-runtime")]
+                associations: crate::protocol_registry::UdpAssociationObserver::from_execution(
+                    services,
+                ),
                 service_identity: None,
                 role,
                 business,

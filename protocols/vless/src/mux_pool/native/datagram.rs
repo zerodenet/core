@@ -114,6 +114,10 @@ impl Drop for DatagramIo {
     }
 }
 
+#[cfg(test)]
+#[path = "../../../tests/mux_pool/reverse_datagram.rs"]
+mod tests;
+
 impl DatagramIo {
     /// Target-free runtime control owns real VLESS wire fields, not a fabricated
     /// kernel AssociationId/Session. It uses this same bounded physical FIFO.

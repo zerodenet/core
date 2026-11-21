@@ -6,7 +6,7 @@ use futures_util::{stream::FuturesUnordered, StreamExt};
 use zero_engine::EngineError;
 use zero_platform_tokio::contract::{
     context::AcceptContext, inbound::DynInboundSource, lifecycle::TaskClass, CancellationToken,
-    ChannelError, Impact, Reason, Stage,
+    ChannelError, DeliveryState, Impact, Reason, Stage,
 };
 
 pub(in crate::runtime) async fn run(
@@ -16,15 +16,20 @@ pub(in crate::runtime) async fn run(
     limit: std::num::NonZeroUsize,
     protocol: &'static str,
 ) -> Result<(), EngineError> {
-    let cancel = CancellationToken::new();
+    let source_host = runtime.host_control();
+    // The actual Host revokes native acceptance before its watch notification
+    // can be observed on another worker. The Source follows that same original
+    // stop token; its child guard never cancels the containing Host.
+    let cancel = source_host
+        .map(|host| host.cancellation().child_token())
+        .unwrap_or_default();
     let _stop = cancel.clone().drop_guard();
     let factory = runtime.route_factory();
-    let source_host = runtime.host_control();
     let acquisition = source_host.map(|host| host.acquisition());
     let mut closing = FuturesUnordered::new();
     let work = async {
         loop {
-            if *shutdown.borrow() {
+            if cancel.is_cancelled() || *shutdown.borrow() {
                 return Ok(());
             }
             let idle =
@@ -33,6 +38,7 @@ pub(in crate::runtime) async fn run(
                 acquisition.observe_idle(idle);
             }
             tokio::select! { biased;
+                _ = cancel.cancelled() => return Ok(()),
                 changed = shutdown.changed() => {
                     if changed.is_err() || *shutdown.borrow() { return Ok(()); }
                 }
@@ -50,6 +56,7 @@ pub(in crate::runtime) async fn run(
                     acquisition.acknowledge(request,idle);
                     loop {
                         tokio::select! { biased;
+                            _ = cancel.cancelled() => return Ok(()),
                             changed=shutdown.changed()=>if changed.is_err() || *shutdown.borrow() {return Ok(());},
                             _=acquisition.resumed(request)=>break,
                             result=closing.next(),if !closing.is_empty()=>{if let Some(result)=result {result?;}},
@@ -58,7 +65,16 @@ pub(in crate::runtime) async fn run(
                 }
                 _ = async { match &acquisition { Some(acquisition) => acquisition.peer_cleanup_changed().await, None => std::future::pending().await } } => {},
                 pending = source.next(AcceptContext { deadline: None, cancel: cancel.clone() }), if closing.len() < limit.get() => {
-                    let Some(pending) = pending.map_err(std::io::Error::other)? else { return Ok(()); };
+                    let pending = match pending {
+                        Ok(pending) => pending,
+                        Err(source) if stopped_receive(&source, &cancel, &shutdown) => return Ok(()),
+                        Err(source) => return Err(std::io::Error::other(source).into()),
+                    };
+                    let Some(pending) = pending else { return Ok(()); };
+                    if cancel.is_cancelled() || *shutdown.borrow() {
+                        drop(pending); // Custody return only; original cleanup still follows.
+                        return Ok(());
+                    }
                     #[cfg(feature = "raw-ip-runtime")]
                     if pending.packet_listener().is_some() || pending.packet_device().is_some() {
                         let context=runtime.take_packet_source().ok_or_else(||std::io::Error::other("packet source lacks actual original context"))?;
@@ -68,12 +84,24 @@ pub(in crate::runtime) async fn run(
                     }
                     #[cfg(feature = "managed-datagram-runtime")]
                     if pending.carrier_facts().is_some() {
-                        peer::spawn_carrier(&runtime,&factory,pending,cancel.clone())?;
+                        if let Err(source) = peer::spawn_carrier(&runtime,&factory,pending,cancel.clone()) {
+                            if crate::transport::channel_failure(&source)
+                                .is_some_and(|error| stopped_admission(error, &cancel, &shutdown)) {
+                                return Ok(());
+                            }
+                            return Err(source);
+                        }
                         continue;
                     }
                     #[cfg(feature = "managed-datagram-runtime")]
                     if pending.datagram_peer().is_some() {
-                        peer::spawn(&runtime, &factory, pending, cancel.clone())?;
+                        if let Err(source) = peer::spawn(&runtime, &factory, pending, cancel.clone()) {
+                            if crate::transport::channel_failure(&source)
+                                .is_some_and(|error| stopped_admission(error, &cancel, &shutdown)) {
+                                return Ok(());
+                            }
+                            return Err(source);
+                        }
                         continue;
                     }
                     let (claim, receiver) = pending.accepted_tcp().ok_or_else(|| std::io::Error::other(
@@ -81,11 +109,11 @@ pub(in crate::runtime) async fn run(
                     let facts = pending.connection_facts().cloned().ok_or_else(|| std::io::Error::other(
                         "TCP source omitted actual connection facts"))?;
                     let route = factory.for_connection(facts.effective_source).with_local_addr(facts.local_endpoint);
-                    let cancel = cancel.clone();
+                    let accepted_cancel = cancel.clone();
                     let tag = factory.inbound_tag().to_owned();
-                    let (_, witness) = pending.spawn(TaskClass::Auxiliary, move |pending, tasks| async move {
+                    let spawned = pending.spawn(TaskClass::Auxiliary, move |pending, tasks| async move {
                         let route = route.with_accepted_tasks(tasks)?;
-                        let result = route.complete_request(pending, cancel).await;
+                        let result = route.complete_request(pending, accepted_cancel).await;
                         if let Err(error) = &result {
                             tracing::debug!(?error,"standard inbound accepted request failed");
                             crate::logging::log_listener_connection_error(
@@ -93,7 +121,12 @@ pub(in crate::runtime) async fn run(
                                 &facts.effective_source, error);
                         }
                         result.map_err(|source| ChannelError::new(Stage::Receive, Reason::Io, Impact::Session).with_source(source))
-                    }).map_err(std::io::Error::other)?;
+                    });
+                    let (_, witness) = match spawned {
+                        Ok(spawned) => spawned,
+                        Err(source) if stopped_admission(&source, &cancel, &shutdown) => return Ok(()),
+                        Err(source) => return Err(std::io::Error::other(source).into()),
+                    };
                     #[cfg(test)]
                     let accepted_original = acquisition.clone();
                     closing.push(async move {
@@ -138,3 +171,37 @@ pub(in crate::runtime) async fn run(
     }
     result
 }
+
+// This only classifies a rejected admission while the same Source is stopping.
+// Close/IO errors, submitted work and unrelated revocations remain failures.
+// The caller still drains original users and the containing Host consumes every
+// actual native and Scope receipt; this grants no retirement completion.
+fn stopped_admission(
+    error: &ChannelError,
+    cancel: &CancellationToken,
+    shutdown: &tokio::sync::watch::Receiver<bool>,
+) -> bool {
+    (cancel.is_cancelled() || *shutdown.borrow())
+        && error.stage == Stage::Prepare
+        && matches!(error.reason, Reason::Revoked | Reason::Cancelled)
+        && error.delivery == DeliveryState::NotSubmitted
+}
+
+// Only next() may report an expected receive cancellation after a real stop.
+// This ends acquisition, not an accepted request, native close or Scope debt.
+fn stopped_receive(
+    error: &ChannelError,
+    cancel: &CancellationToken,
+    shutdown: &tokio::sync::watch::Receiver<bool>,
+) -> bool {
+    stopped_admission(error, cancel, shutdown)
+        || ((cancel.is_cancelled() || *shutdown.borrow())
+            && error.stage == Stage::Receive
+            && error.reason == Reason::Cancelled
+            && error.impact == Impact::Component
+            && error.session.is_none())
+}
+
+#[cfg(test)]
+#[path = "source/tests/stop.rs"]
+mod stop_tests;

@@ -57,6 +57,28 @@ impl<A> RuntimeHost<A> {
 }
 
 impl<A> RuntimeHost<A> {
+    /// Called by the exclusive runtime startup after original listeners and
+    /// the prior component graph have passed their own native/Scope retirement.
+    /// Each persistent control owner still checks its own actual completion.
+    pub async fn reopen_control_after_retirement(
+        &self,
+        runtime: &zero_config::RuntimeOptionsConfig,
+    ) -> std::io::Result<()> {
+        if !self.apply.is_closing() {
+            return Ok(());
+        }
+        self.control_budget.reopen_for_runtime(
+            crate::configuration::ControlBudgetLimits::from_runtime(runtime),
+        )?;
+        self.embedded_commands.reopen_after_retirement()?;
+        self.probes
+            .reopen_after_retirement()
+            .map_err(std::io::Error::other)?;
+        self.apply
+            .reopen_after_retirement()
+            .await
+            .map_err(std::io::Error::other)
+    }
     pub fn control_budget(&self) -> Arc<crate::configuration::ControlBudget> {
         self.control_budget.clone()
     }

@@ -223,81 +223,86 @@ async fn standard_hysteria2_proxy_tcp_udp_empty_multitarget_share_actual_authent
         let mut response = [0; 4];
         stream.read_exact(&mut response).await.unwrap();
         assert_eq!(&response, b"ping");
-        let returns = Arc::new(crate::component::datagram_retirement::DatagramReturns::default());
-        let runtime =
-            crate::runtime::udp_ingress::UdpIngressRuntime::new(proxy.tcp_runtime_services())
-                .with_datagram_returns(returns.clone());
-        let mut dispatch = runtime.new_dispatch("incoming").await.unwrap();
-        let mut flow_bytes = HashMap::new();
-        for (target, payload) in [
-            (Address::Ipv4([203, 0, 113, 1]), Vec::new()),
-            (Address::Ipv4([203, 0, 113, 1]), b"flow".to_vec()),
-            (Address::Ipv4([203, 0, 113, 2]), vec![7; 1600]),
-        ] {
-            let id = dispatch
-                .dispatch(crate::runtime::pipe::UdpPipeInput {
-                    peer_identity: None,
-                    target: target.clone(),
-                    port: 53,
-                    payload: &payload,
-                    route_target: None,
-                    sniffed_original_target: None,
-                    sniffed_host_source: None,
-                    skip_fake_ip_restore: false,
-                    protocol: ProtocolType::new("test"),
-                    auth: None,
-                    source_addr: None,
-                    client_session_id: None,
-                    transparent_target: false,
-                    transparent_original_target: None,
-                    transparent_host_source: None,
-                    domain_memory: None,
-                })
-                .await
-                .unwrap();
-            let (_, tasks, _) = dispatch.poll_sockets();
-            let packet = tasks.join_next_with_id().await.unwrap().unwrap().unwrap();
-            assert_eq!(
-                (&packet.0, packet.1, packet.2.as_ref()),
-                (&target, 53, payload.as_slice())
-            );
-            crate::runtime::udp_delivery::record_chain_udp_response_parts(
-                &proxy.udp_runtime_services(),
-                &dispatch,
-                packet.0,
-                packet.1,
-                packet.2,
-                packet.3,
-            );
-            let active = proxy
-                .engine()
-                .active_sessions()
-                .into_iter()
-                .find(|session| session.id == id)
-                .unwrap();
-            assert_eq!(active.outbound_tag.as_deref(), Some("hy"));
-            let expected = flow_bytes.entry(target.clone()).or_insert(0u64);
-            *expected += payload.len() as u64;
-            assert_eq!(
-                active.outbound_tx_bytes, *expected,
-                "HY2 Flow TX preserves payload-only accounting"
-            );
-            assert!(
-                server.wire.lock().unwrap()[&(target.clone(), 53)] > *expected,
-                "real framed bytes remain distinct from payload Flow"
-            );
-        }
-        assert_eq!(
+        let (server, returns) = crate::runtime::udp_ingress::test_source::run(
+            &proxy,
+            move |proxy, runtime| async move {
+                let returns =
+                    Arc::new(crate::component::datagram_retirement::DatagramReturns::default());
+                let runtime = runtime.with_datagram_returns(returns.clone());
+                let mut dispatch = runtime.new_dispatch("incoming").await.unwrap();
+                let mut flow_bytes = HashMap::new();
+                for (target, payload) in [
+                    (Address::Ipv4([203, 0, 113, 1]), Vec::new()),
+                    (Address::Ipv4([203, 0, 113, 1]), b"flow".to_vec()),
+                    (Address::Ipv4([203, 0, 113, 2]), vec![7; 1600]),
+                ] {
+                    let id = dispatch
+                        .dispatch(crate::runtime::pipe::UdpPipeInput {
+                            peer_identity: None,
+                            target: target.clone(),
+                            port: 53,
+                            payload: &payload,
+                            route_target: None,
+                            sniffed_original_target: None,
+                            sniffed_host_source: None,
+                            skip_fake_ip_restore: false,
+                            protocol: ProtocolType::new("test"),
+                            auth: None,
+                            source_addr: None,
+                            client_session_id: None,
+                            transparent_target: false,
+                            transparent_original_target: None,
+                            transparent_host_source: None,
+                            domain_memory: None,
+                        })
+                        .await
+                        .unwrap();
+                    let (_, tasks, _) = dispatch.poll_sockets();
+                    let packet = tasks.join_next_with_id().await.unwrap().unwrap().unwrap();
+                    assert_eq!(
+                        (&packet.0, packet.1, packet.2.as_ref()),
+                        (&target, 53, payload.as_slice())
+                    );
+                    crate::runtime::udp_delivery::record_chain_udp_response_parts(
+                        &proxy.udp_runtime_services(),
+                        &dispatch,
+                        packet.0,
+                        packet.1,
+                        packet.2,
+                        packet.3,
+                    );
+                    let active = proxy
+                        .engine()
+                        .active_sessions()
+                        .into_iter()
+                        .find(|session| session.id == id)
+                        .unwrap();
+                    assert_eq!(active.outbound_tag.as_deref(), Some("hy"));
+                    let expected = flow_bytes.entry(target.clone()).or_insert(0u64);
+                    *expected += payload.len() as u64;
+                    assert_eq!(
+                        active.outbound_tx_bytes, *expected,
+                        "HY2 Flow TX preserves payload-only accounting"
+                    );
+                    assert!(
+                        server.wire.lock().unwrap()[&(target.clone(), 53)] > *expected,
+                        "real framed bytes remain distinct from payload Flow"
+                    );
+                }
+                assert_eq!(
             server.authenticated.load(Ordering::SeqCst),
             1,
             "TCP, business UDP and packet carrier use the same real authenticated connection"
         );
-        stream.shutdown().await.unwrap();
-        drop(stream);
-        let (_, mut sockets, responses) = dispatch.finish_retaining_io();
-        let receipt = responses.shutdown(end()).await.unwrap();
-        assert!(receipt.matches(&responses));
-        assert!(sockets.close_originals().is_complete());
+                stream.shutdown().await.unwrap();
+                drop(stream);
+                dispatch.finish_all();
+                // This same Source consumes the actual returned native/response set
+                // only after its original accepted caller has joined.
+                (server, returns)
+            },
+        )
+        .await;
         let retired = proxy.tcp_runtime_services().execution().retired_datagrams();
         assert!(retired
             .wait_returns(&returns, end())

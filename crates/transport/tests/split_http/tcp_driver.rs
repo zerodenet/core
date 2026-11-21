@@ -96,6 +96,10 @@ async fn completed_h2_dispatcher_releases_wire_delegate_before_original_join() {
             body.collect().await.unwrap();
             observed.wait_for(|pending| *pending).await.unwrap();
             assert!(prepared.state.delegates.load(Ordering::Acquire) > 0);
+            assert!(
+                !prepared.state.runtime.has_logical_work(),
+                "a real H2 wire delegate is not a logical session"
+            );
             drop(sender);
             prepared.stop();
         };

@@ -84,7 +84,7 @@ async fn same_wire_driver_and_client_tasks_join_in_scope_with_authenticated_sour
             sent: sent.clone(),
             changed: changed.clone(),
         }),
-        Default::default(),
+        crate::runtime::raw_ip::test_memory::source(Default::default(), 1420),
     )
     .unwrap();
     let device = owner.start_wire(recipe).unwrap();

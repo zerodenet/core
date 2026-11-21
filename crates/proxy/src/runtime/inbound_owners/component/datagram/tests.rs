@@ -66,6 +66,7 @@ async fn paired_udp_provider_uses_actual_tcp_endpoint_and_consumes_original_clos
     }
     let report = provider
         .close(Instant::now() + Duration::from_secs(1))
+        .await
         .unwrap();
     assert!(report.is_complete());
     assert_eq!(

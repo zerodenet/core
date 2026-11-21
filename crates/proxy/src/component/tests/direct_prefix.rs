@@ -66,7 +66,18 @@ async fn exercise(reject: bool) {
                             }
                         });
                     }
-                    let result=crate::component::stream_bridge::connect_relay(&execution,&session,prepared,true).await;
+                    let providers: Vec<_> = tags.iter().flat_map(|tag| {
+                        let slot = execution.components.as_ref().unwrap().configured(tag).unwrap();
+                        (0..slot.recipe.spec().resources.len()).filter_map(|ordinal| slot.original_carrier_owner(ordinal)).collect::<Vec<_>>()
+                    }).collect();
+                    assert!(!providers.is_empty(), "the selected chain retains its actual native providers");
+                    let result=proxy.protocols.drive_component_supervision(caller.run({
+                        let execution=execution.clone(); let session=session.clone();
+                        move |invocation| async move {
+                            let mut execution=execution;execution.invocation=Some(invocation);
+                            crate::component::stream_bridge::connect_relay(&execution,&session,prepared,true).await
+                        }
+                    })).await;
                     if reject {
                         let error=result.err().expect("actual handshake rejection");let original=crate::transport::channel_failure(&error.error).unwrap();
                         assert_eq!(original.reason,zero_platform_tokio::contract::Reason::Protocol);
@@ -87,10 +98,26 @@ async fn exercise(reject: bool) {
                             assert_eq!((outer.tx_bytes,outer.rx_bytes),(Some(remaining*13+(remaining-1)*6+7),Some(remaining*12+7)),"same original carrier accounting for {tag}");
                         }
                     }
+                    // Failed preparation can still retain a real controller
+                    // in this caller's pending ledger. Join that same caller
+                    // before requiring the peer to observe native EOF.
+                    proxy.protocols.drive_component_supervision(caller.join()).await;
+                    assert!(witness.is_joined());
                     while let Some(peer)=peers.join_next().await {peer.unwrap();}
-                    caller.join().await;assert!(witness.is_joined());caller.verify_carrier_completion();
                     proxy.engine().track_session(session.id).finish(zero_engine::SessionOutcome::Cancelled).unwrap();
                     proxy.protocols.shutdown_components(end()).await.unwrap();
+                    // Prefix loans use the donors' original native controllers,
+                    // not a business-native acquisition in the raw caller. The
+                    // host must consume every donor's native/users/Scope proof.
+                    let mut acquired = false;
+                    for provider in providers {
+                        let closed = provider.closed().expect("original donor native close");
+                        assert!(closed.matches(&provider));
+                        let users = provider.users_closed().expect("original donor users close");
+                        assert!(users.matches(&provider));
+                        acquired |= users.had_native_acquisition();
+                    }
+                    assert!(acquired, "the wire exchange closed actual native I/O");
                     assert_eq!(proxy.protocols.runtime_host().original_budgets().carrier.snapshot().charged,0);
                 }
             }

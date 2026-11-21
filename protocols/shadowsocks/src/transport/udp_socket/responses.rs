@@ -7,6 +7,9 @@ pub(crate) mod admission;
 pub(crate) mod budget;
 pub use budget::ShadowsocksUdpPendingLimits;
 mod pending;
+#[cfg(test)]
+#[path = "../../../tests/udp_session/response_targets.rs"]
+mod tests;
 pub use pending::ShadowsocksUdpPendingResponse;
 pub(super) struct Responses {
     pending: Mutex<pending::Pending>,

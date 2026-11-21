@@ -16,3 +16,7 @@ pub(crate) fn tcp_udp_on(
     }
     panic!("no shared TCP/UDP fixture address after 16 actual bind attempts")
 }
+
+#[path = "../tests/support/host.rs"]
+mod host;
+pub(crate) use host::non_loopback_host_ipv4;

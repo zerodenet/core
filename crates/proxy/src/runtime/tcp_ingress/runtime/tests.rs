@@ -55,11 +55,7 @@ async fn active_tcp_relay_is_not_closed_at_absolute_idle_timeout() {
         .commit_components(&proxy.engine().config(), || Ok(()))
         .unwrap();
     let engine = proxy.engine().clone();
-    let runtime = TcpIngressRuntime::new(
-        proxy.tcp_runtime_services(),
-        "test-inbound".to_owned(),
-        None,
-    );
+
     let session = Session::new(
         1,
         Address::Ipv4([127, 0, 0, 1]),
@@ -68,9 +64,14 @@ async fn active_tcp_relay_is_not_closed_at_absolute_idle_timeout() {
         ProtocolType::UNKNOWN,
     );
     let (proxy_side, mut app_side) = tokio::io::duplex(64);
+    let actual = proxy.clone();
     let serve_task = tokio::spawn(async move {
-        let protocol = crate::runtime::tcp_ingress::NoClientResponseStreamProtocol::new();
-        runtime.serve(session, proxy_side, &protocol).await
+        crate::runtime::udp_ingress::test_source::run(&actual, move |_proxy, source| async move {
+            let runtime = source.tcp_runtime("test-inbound");
+            let protocol = crate::runtime::tcp_ingress::NoClientResponseStreamProtocol::new();
+            runtime.serve(session, proxy_side, &protocol).await
+        })
+        .await
     });
 
     for byte in 0_u8..5 {
@@ -101,6 +102,11 @@ async fn active_tcp_relay_is_not_closed_at_absolute_idle_timeout() {
         .await
         .expect("upstream should observe relay close")
         .expect("upstream task should join");
+    proxy
+        .protocols
+        .shutdown_components(tokio::time::Instant::now() + Duration::from_secs(2))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

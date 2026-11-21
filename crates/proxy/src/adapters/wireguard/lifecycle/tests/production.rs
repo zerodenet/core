@@ -62,10 +62,32 @@ fn devices(proxy: &crate::Proxy) -> Vec<Arc<SharedRawIpDevice>> {
         .protocols
         .test_outbound_devices(proxy.engine().config().as_ref())
 }
-fn joined(device: &SharedRawIpDevice) {
-    assert!(device.is_closed());
+fn worker_census(
+    device: &SharedRawIpDevice,
+) -> Vec<zero_platform_tokio::contract::scope::TaskJoinWitness> {
+    assert!(!device.is_closed());
     let tasks = device.test_original_worker_witnesses();
-    assert!(tasks.len() >= 3);
+    let driver = device
+        .test_original_driver_witness()
+        .expect("the actual endpoint driver was installed");
+    assert!(tasks.iter().any(|task| task.same_registration(&driver)));
+    assert!(tasks.iter().all(|task| !task.is_joined()));
+    tasks
+}
+fn joined(
+    device: &SharedRawIpDevice,
+    tasks: &[zero_platform_tokio::contract::scope::TaskJoinWitness],
+) {
+    assert!(device.is_closed());
+    let driver = device
+        .test_original_driver_witness()
+        .expect("the actual wire driver was installed");
+    assert!(
+        tasks.iter().any(|task| task.same_registration(&driver)),
+        "the census must include that exact original wire registration"
+    );
+    // Capture the actual census before retirement reclaims current records.
+    // TCP workers start on demand; every captured registration must join and ACK.
     for task in tasks {
         let receipt = task.try_joined().expect("same original worker exit");
         assert!(task.matches_joined(&receipt) && receipt.registration_released());
@@ -96,6 +118,7 @@ async fn standalone_actual_host_reuses_unchanged_original_then_replaces_and_rest
         .await
         .unwrap();
     let old = devices(&proxy).remove(0);
+    let old_workers = worker_census(&old);
     let original = originals(&proxy).remove(0);
     assert!(original.closed().is_none());
     handle(&proxy)
@@ -107,15 +130,16 @@ async fn standalone_actual_host_reuses_unchanged_original_then_replaces_and_rest
         .apply_runtime_config_and_wait(changed(config.clone()), Duration::from_secs(5))
         .await
         .unwrap();
-    joined(&old);
+    joined(&old, &old_workers);
     assert!(original.closed().unwrap().matches(&original));
     let replacement = devices(&proxy).remove(0);
+    let replacement_workers = worker_census(&replacement);
     assert!(!Arc::ptr_eq(&old, &replacement));
     handle(&proxy)
         .apply_runtime_config_and_wait(config, Duration::from_secs(5))
         .await
         .unwrap();
-    joined(&replacement);
+    joined(&replacement, &replacement_workers);
     assert!(!Arc::ptr_eq(&old, &devices(&proxy)[0]));
     running.shutdown().await.unwrap();
 }
@@ -146,6 +170,7 @@ async fn linked_and_standalone_outer_replacement_consumes_old_scope_and_same_nat
             .await
             .unwrap();
         let old = devices(&proxy).remove(0);
+        let old_workers = worker_census(&old);
         let original = originals(&proxy).remove(0);
         let plan = proxy.tcp_runtime_services().components.clone().unwrap();
         let lower = plan.configured("outer").unwrap();
@@ -167,7 +192,7 @@ async fn linked_and_standalone_outer_replacement_consumes_old_scope_and_same_nat
             .apply_runtime_config_and_wait(changed(config), Duration::from_secs(5))
             .await
             .unwrap();
-        joined(&old);
+        joined(&old, &old_workers);
         assert!(!original.same_original(&originals(&proxy)[0]));
         for origin in physical {
             let closed = origin
@@ -207,6 +232,7 @@ async fn actual_source_reconnect_keeps_the_wire_and_closes_previous_native_befor
         .unwrap();
     let original = originals(&proxy).remove(0);
     let device = devices(&proxy).remove(0);
+    let device_workers = worker_census(&device);
     let plan = proxy.tcp_runtime_services().components.clone().unwrap();
     let lower = plan.configured("outer").unwrap();
     let owners = (0..lower.recipe.spec().resources.len())
@@ -277,6 +303,6 @@ async fn actual_source_reconnect_keeps_the_wire_and_closes_previous_native_befor
         .any(|fresh| fresh.closed().is_none()
             && previous.iter().all(|old| !old.same_original(fresh))));
     running.shutdown().await.unwrap();
-    joined(&device);
+    joined(&device, &device_workers);
     replacement_running.shutdown().await.unwrap();
 }

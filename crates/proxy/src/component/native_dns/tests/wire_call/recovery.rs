@@ -40,20 +40,23 @@ async fn physically_closed_failed_dns_owner_reports_original_faults_then_restart
         let received = proxy.protocols.drive_component_supervision(canonical.shutdown(end())).await.unwrap();
         assert!(received.is_complete(), "actual original closure: {received:?}");
         let query_joined = actual.task.try_joined().unwrap();
-        let query_error = query_joined.result().unwrap_err();
-        for (joined, source) in [(&failed_joined, &panic), (&query_joined, &query_error)] {
-            assert!(received.failed_tasks.iter().any(|fault| fault.id == joined.id()
-                && fault.class == joined.class()
-                && contains_source(&fault.error, source)), "original TaskId/class/Arc must be handed off: {received:?}");
-        }
+        // The injected worker is a separate real registration. Cancelling
+        // this query delivers its operation result; it must not borrow that
+        // unrelated worker panic and fabricate a failed Query TaskExit.
+        query_joined.result().unwrap();
+        assert!(received.failed_tasks.iter().any(|fault| fault.id == failed_joined.id()
+            && fault.class == failed_joined.class()
+            && contains_source(&fault.error, &panic)),"original worker TaskId/class/Arc must be handed off: {received:?}");
+        assert!(received.failed_tasks.iter().all(|fault|fault.id!=query_joined.id()));
         assert!(native.closed().unwrap().matches(&native));
         assert!(native.owner().closed().unwrap().matches(native.owner()));
         assert!(native.owner().users_closed().unwrap().matches(native.owner()));
         assert!(!actual.task.scope_identity().resource_open());
         let closed = call.wait_closed(end()).await.unwrap();
         assert!(closed.matches(&call) && closed.failure_accepted() && closed.cleanup_failure_accepted());
-        assert!(Arc::ptr_eq(closed.failure().unwrap(), &query_error));
-        assert!(has_original_io_source(query_error.as_ref(), closed.cleanup_failure().unwrap()));
+        assert!(closed.failure().is_none() && closed.cleanup_failure().is_none());
+        assert!(closed.query().unwrap().same_registration(&actual.task));
+        assert!(actual.task.matches_joined(closed.joined().unwrap()));
         assert!(failed_joined.registration_released());
         assert!(actual.task.try_joined().unwrap().registration_released());
         // A previously delivered fault cannot make protocol_closed false on

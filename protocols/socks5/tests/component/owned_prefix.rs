@@ -1,6 +1,8 @@
 //! Real Service/prefix acquisition retains originals before protocol handoff.
 #[path = "owned_prefix/fixtures.rs"]
 mod fixtures;
+#[path = "owned_prefix/rotation.rs"]
+mod rotation;
 use fixtures::*;
 use std::future::Future;
 use std::sync::{

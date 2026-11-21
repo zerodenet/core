@@ -210,8 +210,8 @@ async fn actual_source_write_failure_restores_original_snapshot_dns_and_native_o
     assert!(closed.joined_tasks() > 0);
 }
 
-#[test]
-fn public_from_path_preserves_load_only_scope_with_the_original_initial_document_closed() {
+#[tokio::test]
+async fn public_from_path_preserves_load_only_scope_with_the_original_initial_document_closed() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("zero.json");
     let original = br#"{"route":{"final":{"type":"direct"}}}"#;
@@ -224,10 +224,18 @@ fn public_from_path_preserves_load_only_scope_with_the_original_initial_document
         .configuration_source()
         .confirm_original_io_closed()
         .unwrap();
-    proxy
-        .engine()
-        .reload_config(RuntimeConfig::parse(r#"{"route":{"final":{"type":"reject"}}}"#).unwrap())
+    // A Proxy-bound Source uses its actual Host budget, including load-only
+    // sources. The standalone Engine reload API cannot bypass that owner.
+    let running = proxy.spawn();
+    let handle = ProxyHandle::new(EngineHandle::new(proxy.engine().clone()), proxy.clone());
+    handle
+        .apply_runtime_config_and_wait(
+            RuntimeConfig::parse(r#"{"route":{"final":{"type":"reject"}}}"#).unwrap(),
+            Duration::from_secs(5),
+        )
+        .await
         .unwrap();
     assert_eq!(std::fs::read(&path).unwrap(), original);
     assert!(!directory.path().join("zero.json.zero-recovery").exists());
+    running.shutdown().await.unwrap();
 }

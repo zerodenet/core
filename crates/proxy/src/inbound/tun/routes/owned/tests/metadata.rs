@@ -6,6 +6,7 @@ async fn route_source_known_owned_arrays_and_last_weak_header_remain_on_the_actu
         zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap(),
     )
     .unwrap();
+    let host = Arc::downgrade(&proxy.protocols.runtime_host());
     let root = proxy
         .protocols
         .runtime_host()
@@ -62,6 +63,10 @@ async fn route_source_known_owned_arrays_and_last_weak_header_remain_on_the_actu
     );
     assert!(actual.0.worker.get().is_none());
     assert!(actual.0.monitor.get().is_none());
+    // No native I/O has been acquired in this cold owner. Retaining its real
+    // metadata/root controls must not retain the entire component host.
+    drop(proxy);
+    assert!(host.upgrade().is_none());
     let weak = PacketMetadataArc::downgrade(&actual.0);
     drop(actual);
     assert!(weak.upgrade().is_none());

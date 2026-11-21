@@ -28,7 +28,7 @@ impl UdpDispatch {
         managed: ManagedUdpFlowRef,
         payload: &[u8],
     ) -> Result<usize, EngineError> {
-        let services = self.runtime.runtime_services();
+        let services = self.runtime.runtime_services().resume_flow(&flow.session)?;
         let upstream = flow
             .outbound
             .upstream()

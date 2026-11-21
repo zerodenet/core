@@ -26,6 +26,7 @@ async fn standard_native_source_confirms_originals_before_replacement_and_closes
         };
         original.wait_ready().await.unwrap();
         let identity = original.identity();
+let original_census = original.task_access().peer_registrar().retirement_observation().expect("same original Scope census"); assert!(!original_census.is_drained());
         let target = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let address = target.local_addr().unwrap();
         let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
@@ -52,7 +53,7 @@ async fn standard_native_source_confirms_originals_before_replacement_and_closes
         handle.apply_runtime_config_and_wait(candidate, Duration::from_secs(5)).await.unwrap();
         let closed = original.terminal().expect("original native provider receipts before apply ACK");
         assert!(closed.failure().is_none()); assert!(closed.task_failures().is_empty());
-        assert_eq!(closed.joined_tasks(), 2, "source and actual UDP peer driver");
+        assert_eq!(closed.joined_tasks(), 3, "Source, bound peer and standard Datagram handler"); assert!(original_census.is_drained());
         assert_eq!(closed.closed_io_receipts(), 3, "original TCP/UDP listeners and Direct UDP provider");
         let completed = proxy.completed_sessions();
         assert_eq!(completed.len(), 1, "one actual UDP flow, no listener-only business session");

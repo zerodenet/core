@@ -208,5 +208,9 @@ async fn reuses_upstream_udp_association_within_single_client_session() {
 
     let final_stats = outer_probe.stats_snapshot();
     assert_eq!(final_stats.udp_upstream.active_associations, 0);
-    assert_eq!(final_stats.udp_upstream.closed_associations, 1);
+    assert_eq!(
+        final_stats.udp_upstream.closed_associations, 1,
+        "final association closure must be recorded: {:?}",
+        final_stats.udp_upstream
+    );
 }

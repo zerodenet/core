@@ -72,23 +72,9 @@ fn validate_node_detour_isolation(dns: &DnsConfig) -> Result<(), ConfigError> {
         ));
     }
 
-    let node_servers = dns
-        .policy
-        .node_server
-        .iter()
-        .chain(dns.policy.node_fallback_servers.iter());
-    for tag in node_servers {
-        if dns
-            .servers
-            .get(tag)
-            .and_then(DnsServerConfig::detour)
-            .is_some()
-        {
-            return Err(ConfigError::InvalidDns(format!(
-                "node DNS server `{tag}` must not use a detour"
-            )));
-        }
-    }
+    // A selected Node server can use an independently bootstrapped carrier.
+    // The owning adapter validates its actual donor graph before preparation;
+    // config cannot reject every detour as if it implied recursive resolution.
     Ok(())
 }
 

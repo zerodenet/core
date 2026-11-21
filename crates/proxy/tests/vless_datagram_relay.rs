@@ -159,8 +159,15 @@ async fn run_with_prefix(carrier: &str, binary: Option<&str>, layers: usize, str
             echo.await.unwrap();
         }
         let port = free_udp_port();
-        let echo = spawn_udp_echo_count(port, 3).await;
-        let packets: &[&[u8]] = &[b"first", &[0x52; 1600], b"last"];
+        // The pinned Xray VLESS UDP writer discards empty frames (addons.go).
+        // Keep real empty-datagram coverage on every native carrier/prefix;
+        // reference interoperability exercises the peer's supported frames.
+        let packets: &[&[u8]] = if binary.is_some() {
+            &[b"first", &[0x52; 1600], b"last"]
+        } else {
+            &[b"first", b"", &[0x52; 1600], b"last"]
+        };
+        let echo = spawn_udp_echo_count(port, packets.len()).await;
         assert_eq!(
             socks5_udp_echo_sequence(socks, port, packets).await,
             packets

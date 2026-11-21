@@ -48,6 +48,8 @@ async fn browser_mux_reuses_one_physical_original_for_two_streams_and_consumes_e
             let plan = client.proxy.tcp_runtime_services().components.clone().unwrap();
             let node = plan.configured("node").unwrap(); assert!(node.original_carrier_owner(0).is_none());
             let pool = plan.component(node.dependency_instances()[0].component).unwrap();
+            assert!(pool.recipe.spec().roles.is_empty(), "the actual shared MUX owner has no callable role");
+            assert!(plan.role_slot(pool.role_id()).is_none(), "a fabricated role cannot name this original owner");
             let pool_owner = pool.original_carrier_owner(0).unwrap(); let physical = pool_owner.observe().unwrap();
             assert_eq!(physical.retained(), 1, "both business streams reuse the original physical MUX");
             let original = physical.slots()[0].original().clone(); let driver = physical.slots()[0].driver().unwrap().1.clone();

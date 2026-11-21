@@ -160,9 +160,8 @@ where
                 Ok::<(), io::Error>(())
             };
             let result = tokio::select! {
-                result = stream_upload(request.into_body(), &session) => result,
+                result = super::upload::stream_upload(request.into_body(), &session) => result,
                 result = keepalive => result,
-                _ = life.cancelled() => Ok(()),
             };
             guard.finish(result.is_ok());
             if let Err(error) = result {
@@ -220,8 +219,9 @@ where
         .map_err(|_| io::Error::other("xhttp accept capacity exhausted"))?;
     let (mut reader, mut writer) = tokio::io::split(net);
     let (sender, receiver) = mpsc::channel(8);
+    let errors = sender.downgrade();
     let state = life.clone();
-    let task = super::super::body::spawn(caller.as_ref(), async move {
+    let task = super::super::body::spawn_result(caller.as_ref(), async move {
         let _permit = permit;
         let upload = async {
             match session {
@@ -231,17 +231,13 @@ where
                     }
                 }
                 None => {
-                    let mut body = request.into_body();
-                    while let Some(frame) = body.frame().await {
-                        if let Ok(bytes) = frame.map_err(io::Error::other)?.into_data() {
-                            writer.write_all(&bytes).await?;
-                        }
-                    }
+                    super::upload::stream_one_upload(request.into_body(), &mut writer, &state)
+                        .await?;
                 }
             }
             writer.shutdown().await
         };
-        let download = async {
+        let download = async move {
             let mut buffer = vec![0; 16 * 1024];
             loop {
                 let size = reader.read(&mut buffer).await?;
@@ -256,16 +252,35 @@ where
         };
         // Upload EOF is a half-close. Keep download alive until the route ends.
         let transfer = async {
+            if stream_one {
+                // The response sender ends with download EOF. Its actual
+                // worker still drains the original request body before join.
+                tokio::try_join!(upload, download)?;
+                return Ok::<(), io::Error>(());
+            }
             tokio::pin!(download);
             tokio::select! {
                 result = upload => { result?; download.await }
                 result = &mut download => result,
             }
         };
-        tokio::select! {
-            result = transfer => { if let Err(error) = result { state.fail(&error); let _ = sender.send(Err(error)).await; } }
-            _ = state.cancelled() => {}
+        let result = if stream_one {
+            transfer.await
+        } else {
+            tokio::select! {
+                result = transfer => result,
+                _ = state.cancelled() => Ok(()),
+            }
+        };
+        if let Err(error) = result {
+            state.fail(&error);
+            let error = Arc::new(error);
+            if let Some(sender) = errors.upgrade() {
+                let _ = sender.send(Err(io::Error::other(error.clone()))).await;
+            }
+            return Err(io::Error::other(error));
         }
+        Ok(())
     })?;
     admission.complete = true;
     Ok(response(Body {
@@ -275,29 +290,6 @@ where
         progress: None,
     }))
 }
-async fn stream_upload<B>(mut body: B, session: &Session) -> io::Result<()>
-where
-    B: hyper::body::Body<Data = Bytes> + Unpin,
-    B::Error: std::error::Error + Send + Sync + 'static,
-{
-    let mut sequence = 0u64;
-    while let Some(frame) = body.frame().await {
-        if let Ok(bytes) = frame.map_err(io::Error::other)?.into_data() {
-            // Bound individual frames as well as total queue capacity.
-            for chunk in bytes.chunks(64 * 1024) {
-                session
-                    .push_stream(sequence, Bytes::copy_from_slice(chunk))
-                    .await?;
-                sequence = sequence
-                    .checked_add(1)
-                    .ok_or_else(|| io::Error::other("xhttp sequence exhausted"))?;
-            }
-        }
-    }
-    session.finish();
-    Ok(())
-}
-
 #[cfg(test)]
 #[path = "../../../tests/xhttp_server/authority.rs"]
 mod tests;

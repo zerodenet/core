@@ -13,7 +13,10 @@ async fn query(
         node,
         server,
         name,
-        &[IpAddress::V4([127, 0, 0, 2]), IpAddress::V4([127, 0, 0, 1])],
+        &[
+            IpAddress::V4([255, 255, 255, 255]),
+            IpAddress::V4([127, 0, 0, 1]),
+        ],
         2,
     )
     .await
@@ -95,13 +98,6 @@ async fn query_with_addresses(
 async fn actual_domain_ech_joins_node_bootstrap_retries_candidates_and_replaces_its_source() {
     tokio::time::timeout(Duration::from_secs(20), async {
         let mut peer = peer::Peer::cleartext().await;
-        let refused = tokio::net::TcpSocket::new_v4().unwrap();
-        refused
-            .bind(std::net::SocketAddr::from((
-                [127, 0, 0, 2],
-                peer.endpoint.port(),
-            )))
-            .unwrap();
         let endpoint = format!("h2c://endpoint.ech.test:{}/dns-query", peer.endpoint.port());
         let mut first = crate::dns_fixture::Dns::new().await;
         let mut second = crate::dns_fixture::Dns::new().await;
@@ -128,7 +124,10 @@ async fn actual_domain_ech_joins_node_bootstrap_retries_candidates_and_replaces_
         let native = original.original.as_ref().unwrap();
         for (index, addresses) in [
             vec![IpAddress::V4([127, 0, 0, 1])],
-            vec![IpAddress::V4([127, 0, 0, 2]), IpAddress::V4([127, 0, 0, 1])],
+            vec![
+                IpAddress::V4([255, 255, 255, 255]),
+                IpAddress::V4([127, 0, 0, 1]),
+            ],
             vec![IpAddress::V4([127, 0, 0, 1])],
         ]
         .into_iter()
@@ -170,7 +169,6 @@ async fn actual_domain_ech_joins_node_bootstrap_retries_candidates_and_replaces_
         peer.finish().await;
         first.close().await;
         second.close().await;
-        drop(refused);
     })
     .await
     .unwrap();

@@ -139,6 +139,11 @@ impl Slot {
         });
         let actually_removed = removed.is_some();
         drop(removed);
+        if actually_removed {
+            if let Some(owner) = self.owner.upgrade() {
+                owner.capacity_changed.notify_waiters();
+            }
+        }
         self.removed
             .store(true, std::sync::atomic::Ordering::Release);
         let protocol = self.state().protocol.clone();

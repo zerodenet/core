@@ -7,6 +7,28 @@ use crate::component::{
 use std::{future::Future, task::Poll};
 use zero_core::component::ResourceGeneration;
 
+fn software_host(adapter: &WireguardAdapter) -> zero_runtime::RuntimeHost<()> {
+    let packet = adapter
+        .packet_return_totals
+        .get_or_init(Default::default)
+        .clone();
+    zero_runtime::RuntimeHost::with_original_budgets(
+        crate::register::component_registry(),
+        Arc::new(zero_runtime::HostOriginalBudgets::with_packet_root(packet)),
+    )
+}
+fn bind_software_source(
+    adapter: &WireguardAdapter,
+    pending: &PendingLinkedEndpoint,
+) -> zero_tun::packet_memory::NativeReadGrant {
+    let source = software_source(adapter);
+    pending
+        .actual_graph()
+        .expect("actual prepared canonical graph")
+        .install_source_memory(source.memory_view().unwrap())
+        .unwrap();
+    source
+}
 fn slot(
     catalog: &ComponentCatalog,
     recipe: LinkedEndpointRecipe,
@@ -65,13 +87,15 @@ async fn same_canonical_slot_registers_the_original_workers_and_confirms_them_be
     let proxy = crate::Proxy::new(proxy_config()).unwrap();
     let upstream = proxy.tcp_runtime_services().upstream();
     let adapter = WireguardAdapter::default();
-    let catalog = ComponentCatalog::with_factories(crate::register::component_registry());
+    let actual_host = software_host(&adapter);
+    let catalog = actual_host.components();
     let recipe = recipe(&adapter, "127.0.0.1:51821", upstream.egress_generation());
     let pending = recipe.pending();
     let guard = install(&adapter, &recipe);
     let request = demand(&recipe);
-    let (slot, invocation) = slot(&catalog, recipe);
-    let host = TestContext::new([slot.as_ref()]);
+    let (slot, invocation) = slot(catalog, recipe);
+    let host = TestContext::with_original_budgets([slot.as_ref()], actual_host.original_budgets());
+    let _source = bind_software_source(&adapter, &pending);
     let resolved = invocation.resolve(&upstream, request).await.unwrap();
     assert!(pending.peer_stack(0).unwrap().device().is_none());
     host.drive(slot.start(deadline())).await.unwrap();
@@ -121,7 +145,7 @@ async fn same_canonical_slot_registers_the_original_workers_and_confirms_them_be
             outer: None,
             identity: link.state.lock().unwrap().identity,
             network_generation: NetworkGeneration(upstream.egress_generation()),
-            stacks: vec![Default::default()],
+            stacks: vec![software_options(&adapter)],
             dependencies: Vec::new(),
         },
     )
@@ -130,9 +154,11 @@ async fn same_canonical_slot_registers_the_original_workers_and_confirms_them_be
     let next_pending = next.pending();
     let next_guard = install(&adapter, &next);
     let request = demand(&next);
-    let (next_slot, invocation) = self::slot(&catalog, next);
+    let (next_slot, invocation) = self::slot(catalog, next);
     assert_ne!(next_slot.instance_id(), slot.instance_id());
-    let next_host = TestContext::new([next_slot.as_ref()]);
+    let next_host =
+        TestContext::with_original_budgets([next_slot.as_ref()], actual_host.original_budgets());
+    let _next_source = bind_software_source(&adapter, &next_pending);
     let resolved = invocation.resolve(&upstream, request).await.unwrap();
     next_host.drive(next_slot.start(deadline())).await.unwrap();
     let next_link = resolved.install(None).unwrap();
@@ -154,7 +180,8 @@ async fn interrupted_slot_cleanup_retains_the_original_graph_until_the_same_inli
     let proxy = crate::Proxy::new(proxy_config()).unwrap();
     let upstream = proxy.tcp_runtime_services().upstream();
     let adapter = WireguardAdapter::default();
-    let catalog = ComponentCatalog::with_factories(crate::register::component_registry());
+    let actual_host = software_host(&adapter);
+    let catalog = actual_host.components();
     let recipe = recipe(&adapter, "127.0.0.1:51821", upstream.egress_generation());
     let pending = recipe.pending();
     let guard = install(&adapter, &recipe);
@@ -166,8 +193,9 @@ async fn interrupted_slot_cleanup_retains_the_original_graph_until_the_same_inli
         .unwrap()
         .clone();
     let request = demand(&recipe);
-    let (slot, invocation) = slot(&catalog, recipe);
-    let host = TestContext::new([slot.as_ref()]);
+    let (slot, invocation) = slot(catalog, recipe);
+    let host = TestContext::with_original_budgets([slot.as_ref()], actual_host.original_budgets());
+    let _source = bind_software_source(&adapter, &pending);
     let resolved = invocation.resolve(&upstream, request).await.unwrap();
     host.drive(slot.start(deadline())).await.unwrap();
     let witnesses = pending.peer_stack(0).unwrap().test_original_witnesses();

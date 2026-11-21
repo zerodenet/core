@@ -115,22 +115,16 @@ impl BackgroundCarrier {
         if original.instance() == self.instance && original.binding().prefix == binding.prefix {
             return plan.validate_owned_protocol_original(self.instance, original);
         }
-        // A Browser control Source is an exact direct dependency of this
-        // actual owning role, rather than another physical prefix role. This
-        // observes metadata only; admission/IO still uses the sealed issuer.
-        if original.accepted().is_some() && original.binding().prefix == binding.prefix {
-            if let Some(owning) = plan
-                .component(self.instance.component)
-                .filter(|owning| owning.instance_id() == self.instance)
-            {
-                if owning.dependency_instances().contains(&original.instance())
-                    && plan
-                        .validate_protocol_original(owning.role_id(), original)
-                        .is_ok()
-                {
-                    return Ok(());
-                }
-            }
+        // The actual owning component can borrow either an accepted Source
+        // or a Stream original from its exact declared direct provider. The
+        // plan validates that provider's installed native owner and Scope;
+        // this observation grants no admission, I/O or retirement authority.
+        if original.binding().prefix == binding.prefix
+            && plan
+                .validate_protocol_original_from_component(self.instance, original)
+                .is_ok()
+        {
+            return Ok(());
         }
         if binding.prefix.iter().enumerate().any(|(index, role)| {
             original.binding().prefix == binding.prefix[..index]

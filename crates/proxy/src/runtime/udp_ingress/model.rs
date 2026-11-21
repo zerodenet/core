@@ -140,6 +140,10 @@ impl UdpIngressRuntime {
                 })?)
                 .with_admitted_business_identity(session, demand)?
                 .with_accepted_caller(self.accepted_caller.clone())?;
+        #[cfg(feature = "raw-ip-runtime")]
+        {
+            self.tcp_services = self.tcp_services.with_caller_native(self.native.clone())?;
+        }
         self.services = UdpRuntimeServices::new(self.tcp_services.clone());
         Ok(self)
     }

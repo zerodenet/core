@@ -14,6 +14,15 @@ pub(crate) struct Listener {
     pub worker: JoinHandle<Result<(), zero_engine::EngineError>>,
     pub owner: Arc<InboundOwner>,
 }
+// Read the existing runtime-installed original; this grants no new Source,
+// Scope or provider and keeps registry visibility inside its owning module.
+pub(crate) fn original_owner(proxy: &Proxy, tag: &str) -> Arc<InboundOwner> {
+    proxy
+        .inbound_owners
+        .owner(tag)
+        .expect("actual installed Source owner")
+}
+
 pub(crate) async fn start(proxy: &Proxy, inbound: zero_config::InboundConfig) -> Listener {
     start_with_handoff(proxy, inbound, || {}).await
 }

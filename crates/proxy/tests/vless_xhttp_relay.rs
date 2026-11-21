@@ -35,7 +35,9 @@ fn xhttp_udp_return_drains_original_uploads_without_cancelling_pending_tcp_on_tw
                 .unwrap();
             runtime.block_on(async {
                 for tls in [false, true] {
-                    Box::pin(relay_case_with_pending("stream-up", tls, false, true)).await;
+                    for mode in ["stream-up", "packet-up", "stream-one"] {
+                        Box::pin(relay_case_with_pending(mode, tls, false, true)).await;
+                    }
                 }
             });
         })
@@ -48,6 +50,7 @@ async fn relay_case(mode: &str, tls: bool, nested: bool) {
 }
 
 async fn relay_case_with_pending(mode: &str, tls: bool, nested: bool, pending: bool) {
+    support::interop::init_logs("zero_proxy=warn,zero_transport=debug,vless=debug");
     let first_port = free_port();
     let final_port = free_port();
     let outer_port = free_port();
@@ -163,10 +166,39 @@ async fn relay_case_with_pending(mode: &str, tls: bool, nested: bool, pending: b
             socks5_tcp_echo_once(outer_port, echo_port, &payload),
         )
         .await
-        .expect("relay TCP deadline")
-        .expect("relay TCP exchange");
+        .unwrap_or_else(|source| panic!("relay TCP deadline mode={mode} tls={tls} nested={nested} sequence={sequence}: {source}"))
+        .unwrap_or_else(|source| panic!("relay TCP exchange mode={mode} tls={tls} nested={nested} sequence={sequence}: {source}"));
         assert_eq!(result, payload, "mode={mode} tls={tls}");
         echo.await.unwrap();
+        wait_for("actual relay session completion", || {
+            outer.completed_sessions().iter().any(|session| {
+                session.network == zero_core::Network::Tcp && session.port == echo_port
+            })
+        })
+        .await;
+        let completed = outer.completed_sessions();
+        let session = completed
+            .iter()
+            .find(|session| session.network == zero_core::Network::Tcp && session.port == echo_port)
+            .unwrap();
+        // Relay exposes selected-hop facts here; native socket evidence is
+        // checked by execution before it returns the connected stream.
+        assert_eq!(session.path.remote.as_ref().unwrap().port, first_port);
+        let expected = if nested {
+            vec![("first", "socks5"), ("middle", "vless"), ("final", "vless")]
+        } else {
+            vec![("first", "socks5"), ("final", "vless")]
+        };
+        assert_eq!(
+            session
+                .path
+                .relay_chain
+                .iter()
+                .map(|(tag, protocol)| (tag.as_str(), protocol.as_str()))
+                .collect::<Vec<_>>(),
+            expected,
+            "the public path keeps the actual relay order"
+        );
     }
     let udp_port = free_udp_port();
     let udp_echo = spawn_udp_echo_count(udp_port, 2).await;

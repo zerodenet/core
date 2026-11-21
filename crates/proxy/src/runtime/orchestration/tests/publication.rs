@@ -109,7 +109,11 @@ async fn actual_direct_tcp_udp_ready_candidate_cannot_forward_before_commit() {
     drop(reserved);
     let mut state = OrchestrationState::new(&proxy).await.unwrap();
     let healthy_owner = proxy.inbound_owners.owner("healthy").unwrap();
-    let (candidate, reserved) = direct("candidate", "127.0.0.2", target.local_addr().unwrap());
+    let (candidate, reserved) = direct(
+        "candidate",
+        &crate::socket_fixture::non_loopback_host_ipv4().to_string(),
+        target.local_addr().unwrap(),
+    );
     drop(reserved);
     let snapshot = pending(
         &proxy,

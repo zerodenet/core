@@ -3,7 +3,6 @@ use zero_core::{
     request::{Destination, ServicePurpose},
     Address,
 };
-use zero_platform_tokio::contract::{network::CarrierContext, CancellationToken};
 #[cfg(feature = "trojan")]
 pub(super) const PASSWORD: &str = "native-password";
 #[cfg(any(feature = "vmess", feature = "vless"))]
@@ -39,36 +38,87 @@ pub(super) fn profile(cipher: &str) -> vmess::inbound::VmessInboundProfile {
     )
     .unwrap()])
 }
-pub(super) async fn connect(
+pub(super) async fn exchange(
     proxy: &crate::Proxy,
     tag: &str,
-) -> zero_platform_tokio::contract::stream::BoxStream {
-    let services = proxy.tcp_runtime_services();
-    let target = services.snapshot().plan().target_id(tag).unwrap();
-    let (resolved, _) = services
-        .engine()
-        .resolve_target_id_in_snapshot(services.snapshot(), target)
-        .unwrap();
-    let plan =
-        crate::runtime::tcp_dispatch::service::prepare(services.protocols(), &services, &resolved)
-            .unwrap_or_else(|failure| {
-                panic!("prepare Service at {}: {}", failure.stage, failure.error)
-            })
-            .expect("whole selected relay must be native");
-    crate::runtime::tcp_dispatch::service::connect(
-        services.execution(),
-        destination(),
-        plan,
+    server: tokio::task::JoinHandle<()>,
+    prefix: tokio::task::JoinHandle<()>,
+) -> Vec<u8> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let config = proxy.engine().config();
+    let actual = proxy.clone();
+    let tag = tag.to_owned();
+    let end = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    let host = proxy.protocols.runtime_host();
+    let work = host.run_probe(
+        &config,
+        None,
+        zero_runtime::reserve_probe().await.unwrap(),
         ServicePurpose::DiagnosticProbe,
-        CarrierContext {
-            session: None,
-            deadline: Some(tokio::time::Instant::now() + std::time::Duration::from_secs(5)),
-            cancel: CancellationToken::new(),
+        end,
+        move |call| async move {
+            let original = call.witness().unwrap();
+            let services = actual.tcp_runtime_services().with_service_invocation(
+                crate::component::direct_bridge::ServiceInvocation {
+                    deadline: call.deadline(),
+                    purpose: ServicePurpose::DiagnosticProbe,
+                    caller: Some(call),
+                },
+            );
+            let (resolved, _) = actual
+                .engine()
+                .resolve_route_decision(zero_engine::RouteDecision::Route(tag))
+                .unwrap();
+            assert!(matches!(
+                services
+                    .prepare_tcp_outbound(&resolved, zero_engine::RouteMode::Flow)
+                    .unwrap_or_else(|failure| panic!("{}", failure.error)),
+                crate::inventory::PreparedTcpOutbound::NativeRelay(_)
+            ));
+            let target = destination();
+            let session = zero_core::Session::new(
+                0,
+                target.address,
+                target.port,
+                zero_core::Network::Tcp,
+                zero_core::ProtocolType::UNKNOWN,
+            );
+            let connected = crate::runtime::tcp_dispatch::dispatch_tcp_outbound(
+                services,
+                &session,
+                resolved,
+                zero_engine::RouteMode::Flow,
+                crate::runtime::tcp_dispatch::TcpDispatchIntent::DiagnosticProbe,
+            )
+            .await
+            .unwrap_or_else(|failure| panic!("{}: {}", failure.stage, failure.error));
+            let mut connected = crate::transport::extract_tcp_stream(connected).unwrap();
+            connected
+                .upstream
+                .write_all(b"HEAD /native HTTP/1.1\r\nHost: native.example\r\n\r\n")
+                .await
+                .unwrap();
+            connected.upstream.flush().await.unwrap();
+            connected.upstream.shutdown().await.unwrap();
+            let mut response = Vec::new();
+            connected.upstream.read_to_end(&mut response).await.unwrap();
+            // Both real peer directions finish before the selected view returns.
+            server.await.unwrap();
+            prefix.await.unwrap();
+            drop(connected);
+            assert!(actual.engine().active_sessions().is_empty());
+            (response, original)
         },
-    )
-    .await
-    .unwrap()
-    .stream
+    );
+    let (response, original) = proxy
+        .protocols
+        .drive_component_supervision(work)
+        .await
+        .unwrap();
+    let receipt = original.try_joined().unwrap();
+    assert!(receipt.registration_released());
+    receipt.result().unwrap();
+    response
 }
 
 #[cfg(feature = "vless")]

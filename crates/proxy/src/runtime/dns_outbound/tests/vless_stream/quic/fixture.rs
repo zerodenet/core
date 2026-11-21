@@ -23,7 +23,7 @@ impl Material {
 pub(super) struct Source {
     pub address: std::net::SocketAddr,
     running: crate::RunningProxy,
-    original: Arc<crate::runtime::inbound_owners::InboundOwner>,
+    pub(super) original: Arc<crate::runtime::inbound_owners::InboundOwner>,
 }
 impl Source {
     pub async fn start(document: serde_json::Value, tag: &str) -> Self {
@@ -95,8 +95,29 @@ pub(super) async fn client_with_mode(
     peer: std::net::SocketAddr,
     ca: &std::path::Path,
     prefix: Option<&Source>,
+    backend: zero_config::DnsServerConfig,
+    h3: Option<&str>,
+) -> (Proxy, crate::RunningProxy) {
+    // The borrowed SOCKS association owns a real TCP control plus a related
+    // UDP original. One credit remains a tested pre-I/O Capacity rejection;
+    // the positive wire fixture declares exactly those two actual originals.
+    client_with_original_limit(
+        peer,
+        ca,
+        prefix,
+        backend,
+        h3,
+        if prefix.is_some() { 2 } else { 1 },
+    )
+    .await
+}
+pub(super) async fn client_with_original_limit(
+    peer: std::net::SocketAddr,
+    ca: &std::path::Path,
+    prefix: Option<&Source>,
     mut backend: zero_config::DnsServerConfig,
     h3: Option<&str>,
+    originals: usize,
 ) -> (Proxy, crate::RunningProxy) {
     let detour = if prefix.is_some() { "chain" } else { "node" };
     match &mut backend {
@@ -120,7 +141,7 @@ pub(super) async fn client_with_mode(
     if let Some(prefix) = prefix {
         nodes.insert(0, serde_json::json!({"tag":"prefix","protocol":{"type":"socks5","server":"127.0.0.1","port":prefix.address.port()}}));
     }
-    let mut document = serde_json::json!({"runtime":{"native_stream_max_originals":1,"native_dns_max_originals":1,"dns":{"servers":{"node":{"type":"system"},"query":backend},"default_server":"query","policy":{"node_server":"node","address_family":"ipv4_only"}}},"outbounds":nodes,"route":{"final":{"type":"direct"}}});
+    let mut document = serde_json::json!({"runtime":{"native_stream_max_originals":originals,"native_dns_max_originals":1,"dns":{"servers":{"node":{"type":"system"},"query":backend},"default_server":"query","policy":{"node_server":"node","address_family":"ipv4_only"}}},"outbounds":nodes,"route":{"final":{"type":"direct"}}});
     if prefix.is_some() {
         document["outbound_groups"] =
             serde_json::json!([{"tag":"chain","type":"relay","proxies":["prefix","node"]}]);

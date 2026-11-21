@@ -103,9 +103,13 @@ impl Half {
                 let prepared = match prepared {
                     Some(Prepared::Tcp(prepared)) => prepared,
                     None => {
-                        entry::Table::reap(&generation.entries);
-                        let [position, _] =
-                            entry::Table::reserve_needed(&generation.entries, [true, false])?;
+                        let [position, _] = entry::Table::reserve_after_retiring(
+                            &generation.entries,
+                            [true, false],
+                            &context,
+                            &generation.cancel,
+                        )
+                        .await?;
                         tcp::prepared::PreparedTcpOriginal::new(
                             generation,
                             position.unwrap(),

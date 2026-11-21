@@ -100,3 +100,31 @@ fn groups_with_no_executable_candidates_fail_resolution() {
             .is_none());
     }
 }
+
+#[test]
+fn selected_nested_relays_keep_order_and_allow_reusing_a_leaf_after_its_branch_returns() {
+    let engine = engine(
+        vec![
+            json!({"tag":"prefix","type":"relay","proxies":["primary","alternate"]}),
+            json!({"tag":"whole","type":"relay","proxies":["prefix","primary"]}),
+            json!({"tag":"choice","type":"selector","outbounds":["whole","alternate"],"selected":"whole"}),
+        ],
+        "choice",
+    );
+    for _ in 0..2 {
+        let (resolved, _) = engine
+            .resolve_route_decision(RouteDecision::Route("choice".into()))
+            .unwrap();
+        let ResolvedOutbound::Relay { chain } = resolved else {
+            panic!("selected actual serial chain");
+        };
+        let actual: Vec<_> = chain
+            .into_iter()
+            .map(|leaf| match leaf {
+                ResolvedLeafOutbound::Proxy { identity } => identity.config_index(),
+                _ => panic!("only configured relay leaves"),
+            })
+            .collect();
+        assert_eq!(actual, [0, 1, 0]);
+    }
+}

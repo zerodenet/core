@@ -111,6 +111,21 @@ fn fake_ip_clear_rejects_multiple_selectors_before_execution() {
     assert_eq!(error.code, ApiErrorCode::InvalidArgument);
 }
 
+#[test]
+fn fake_ip_clear_rejects_invalid_address_before_requiring_an_executor() {
+    let config = RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap();
+    let proxy = Proxy::new(config).unwrap();
+    let handle = ProxyHandle::new(EngineHandle::new(proxy.engine().clone()), proxy);
+    let error = handle
+        .execute(CommandRequest::FakeIpClear(FakeIpClearCommand {
+            domain: None,
+            ip: Some("not-an-ip".into()),
+        }))
+        .unwrap_err();
+    assert_eq!(error.code, ApiErrorCode::InvalidArgument);
+    assert!(error.message.contains("not-an-ip"));
+}
+
 #[tokio::test]
 async fn acknowledged_dns_lookup_runs_from_async_control_plane() {
     let config = RuntimeConfig::parse(

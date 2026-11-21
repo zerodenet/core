@@ -28,6 +28,8 @@ pub(super) struct Installed {
     pub(super) identity: ComponentInstanceId,
     pub(super) failures: zero_platform_tokio::AcceptedTaskFailures,
     pub(super) continuity: Arc<crate::runtime::route_runtime::DatagramContinuityHost>,
+    pub(super) lookup_root:
+        std::sync::Weak<zero_platform_tokio::controlled_carrier::CarrierOriginalTotals>,
 }
 impl NativeServiceOperation {
     pub(super) fn install(
@@ -129,6 +131,7 @@ impl NativeServiceOperation {
             identity,
             failures,
             continuity,
+            lookup_root: Arc::downgrade(&services.service_original_budgets().carrier),
         })
     }
 }
@@ -139,6 +142,7 @@ impl NativeServiceOperation {
             identity,
             failures,
             continuity,
+            lookup_root,
         } = context.native;
         let shared = context.ingress.clone();
         let publication = shared.configuration_publication();
@@ -234,11 +238,20 @@ impl NativeServiceOperation {
                 &original,
             )
             .map_err(std::io::Error::other)?;
+            // Retain the actual graph even if a subsequent binding fails.
+            context.retained.install_group(graph.clone(), witness);
             graph
                 .bind_task_failure_registration(&original_fault)
                 .map_err(std::io::Error::other)?;
-            // Strong graph custody precedes publication and all Rvs I/O.
-            context.retained.install_group(graph.clone(), witness);
+            graph
+                .bind_process_lookup_totals(
+                    identity,
+                    &registrar,
+                    &lookup_root.upgrade().ok_or_else(|| {
+                        std::io::Error::other("actual active Source Host root retired")
+                    })?,
+                )
+                .map_err(std::io::Error::other)?;
             publish.send(graph).map_err(|_| {
                 std::io::Error::other("actual active primary exited before publication")
             })?;

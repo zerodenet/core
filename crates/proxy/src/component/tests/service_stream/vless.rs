@@ -82,17 +82,8 @@ async fn relay(vision: bool) {
         let running = proxy.spawn();
         let handle = ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()), proxy.clone());
         handle.apply_runtime_config_and_wait(config, Duration::from_secs(5)).await.unwrap();
-        let mut stream=connect(&proxy,"chain").await;
-        stream.write_all(b"HEAD /native HTTP/1.1\r\nHost: native.example\r\n\r\n").await.unwrap();
-        stream.flush().await.unwrap();
-        stream.shutdown().await.unwrap();
-        let mut response=Vec::new();stream.read_to_end(&mut response).await.unwrap();
+        let response = exchange(&proxy, "chain", server, prefix).await;
         assert!(response.starts_with(b"HTTP/1.1 204"));
-        // Keep the actual client carrier alive until both raw-copy directions
-        // have observed EOF; only then retire its owner and runtime.
-        server.await.unwrap();
-        prefix.await.unwrap();
-        drop(stream);
         assert!(proxy.engine().active_sessions().is_empty(), "service requests must not create fake business sessions");
         running.shutdown().await.unwrap();
     }).await.unwrap();

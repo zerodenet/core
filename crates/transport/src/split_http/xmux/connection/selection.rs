@@ -36,7 +36,7 @@ impl Connections {
                             kind,
                         });
                     }
-                    drop(connection);
+                    connection.return_idle_original().await?;
                 }
                 return Ok(ConnectionClaim {
                     group: group.clone(),
@@ -45,7 +45,7 @@ impl Connections {
                     kind,
                 });
             }
-            let state = self.state.lock().await;
+            let mut state = self.state.lock().await;
             if let Some(connection) = state.as_ref().and_then(Connection::multiplexed_clone) {
                 if !connection.is_owned() {
                     return Err(io::ErrorKind::PermissionDenied.into());
@@ -58,13 +58,18 @@ impl Connections {
                 });
             }
             if !self.opening.swap(true, Ordering::AcqRel) {
+                let previous = state.take();
                 drop(state);
-                return Ok(ConnectionClaim {
+                let claim = ConnectionClaim {
                     group: group.clone(),
                     cached: None,
                     opening: true,
                     kind,
-                });
+                };
+                if let Some(previous) = previous {
+                    previous.return_idle_original().await?;
+                }
+                return Ok(claim);
             }
             drop(state);
             changed.await;

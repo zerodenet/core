@@ -43,6 +43,10 @@ pub(super) struct OrchestrationState {
 
 impl OrchestrationState {
     pub(super) fn propagate_shutdown(&self) {
+        // Dynamic API Sources share the actual observer set but have no
+        // configured listener stop sender. Fence/notify every original before
+        // waiting on that set, including interrupted orchestration cleanup.
+        self.inbound_runtime_factory.owners().request_stop_all();
         #[cfg(feature = "raw-ip-runtime")]
         self.outbound_devices.request_device_shutdown();
         self.orchestration_ready.send_replace(false);

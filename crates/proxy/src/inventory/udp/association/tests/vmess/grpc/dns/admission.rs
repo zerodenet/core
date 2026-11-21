@@ -39,13 +39,16 @@ async fn ordinary_vmess_grpc_domain_dns_failure_never_dials_tls_or_falls_back_to
         let opening = {
             let proxy = proxy.clone();
             tokio::spawn(async move {
-                let mut dispatch = UdpIngressRuntime::new(proxy.tcp_runtime_services())
-                    .new_dispatch("incoming")
-                    .await
-                    .unwrap();
-                let result = dispatch.dispatch(input(53, b"owned")).await;
-                assert!(result.is_err());
-                dispatch.finish_all();
+                crate::runtime::udp_ingress::test_source::run(
+                    &proxy,
+                    move |_proxy, source| async move {
+                        let mut dispatch = source.new_dispatch("incoming").await.unwrap();
+                        let result = dispatch.dispatch(input(53, b"owned")).await;
+                        assert!(result.is_err());
+                        dispatch.finish_all();
+                    },
+                )
+                .await;
             })
         };
         let request = dns.request().await;
@@ -106,7 +109,7 @@ async fn ordinary_vmess_grpc_domain_system_node_dns_uses_the_actual_blocking_own
         assert_eq!(observed.retained(), 1);
         let original = observed.slots()[0].original().clone();
         let driver = observed.slots()[0].driver().unwrap().1.clone();
-        let completed = dispatch.finish_all();
+        let completed = dispatch.finish_all().await;
         assert_eq!(completed[0].upstream.as_ref().unwrap().0, "localhost");
         assert!(proxy
             .tcp_runtime_services()

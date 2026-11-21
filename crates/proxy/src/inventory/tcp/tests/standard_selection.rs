@@ -39,7 +39,15 @@ async fn standard_outbound_cached_native_relay_releases_every_retired_actual_own
         unreachable!()
     };
     let expected = chain.nodes[0].slot.instance().component;
-    let (next_proxy, session, next_services, next_listeners) = fixtures::setup(3).await;
+    let (next_proxy, mut session, next_services, next_listeners) = fixtures::setup(3).await;
+    next_proxy
+        .engine()
+        .prepare_session(&mut session, "incoming")
+        .unwrap();
+    let next_services = next_services
+        .for_inbound("incoming".into())
+        .with_business_identity(&session)
+        .unwrap();
     let failure = match crate::component::stream_bridge::connect_relay(
         &next_services.execution(),
         &session,
@@ -65,6 +73,11 @@ async fn standard_outbound_cached_native_relay_releases_every_retired_actual_own
         let mut context = std::task::Context::from_waker(std::task::Waker::noop());
         assert!(listener.poll_accept(&mut context).is_pending());
     }
+    next_proxy
+        .engine()
+        .track_session(session.id)
+        .finish(zero_engine::SessionOutcome::Cancelled)
+        .unwrap();
     next_proxy
         .protocols
         .shutdown_components(tokio::time::Instant::now() + Duration::from_secs(3))
@@ -117,7 +130,7 @@ fn protocols() -> Vec<serde_json::Value> {
     protocols.push(serde_json::json!({"type":"shadowsocks", "cipher":"2022-blake3-aes-128-gcm", "password":"AAAAAAAAAAAAAAAAAAAAAA=="}));
     #[cfg(feature = "trojan")]
     for mux in [false, true] {
-        let mut protocol = serde_json::json!({"type":"trojan", "password":"test-password", "tls":{"insecure":true}});
+        let mut protocol = serde_json::json!({"type":"trojan", "password":"test-password", "sni":"localhost", "insecure":true});
         if mux {
             protocol["mux_concurrency"] = 4.into();
         }

@@ -7,8 +7,6 @@ async fn ordinary_vmess_and_trojan_domain_dns_consumes_each_failed_original_befo
     tokio::time::timeout(Duration::from_secs(20),async {
         for (protocol,kind) in CASES {
             let remote=Remote::for_protocol(protocol,kind).await;
-            let refused=tokio::net::TcpSocket::new_v4().unwrap();
-            refused.bind(std::net::SocketAddr::from(([127,0,0,2],remote.address.port()))).unwrap();
             let mut dns=crate::dns_fixture::Dns::new().await;
             let mut node=crate::dns_fixture::Dns::new().await;
             let (proxy,running)=start_with_node(&remote,kind,dns.server(),&node).await;
@@ -22,7 +20,7 @@ async fn ordinary_vmess_and_trojan_domain_dns_consumes_each_failed_original_befo
             let bootstrap_call=pending(&proxy).await;
             let bootstrap_native=bootstrap_call.original.as_ref().unwrap();
             assert_eq!(bootstrap_native.endpoints().unwrap().peer(),node.address);
-            bootstrap.answer_ips(false,false,&[IpAddress::V4([127,0,0,2]),IpAddress::V4([127,0,0,1])]);
+            bootstrap.answer_ips(false,false,&[IpAddress::V4([255, 255, 255, 255]),IpAddress::V4([127,0,0,1])]);
             tokio::time::timeout_at(deadline(),bootstrap_call.task.wait()).await.unwrap().result().unwrap();
             native_closed(bootstrap_native);
             let request=tokio::select! {
@@ -50,7 +48,7 @@ async fn ordinary_vmess_and_trojan_domain_dns_consumes_each_failed_original_befo
             running.shutdown().await.unwrap();
             assert!(owner.closed().unwrap().matches(&owner)&&owner.users_closed().unwrap().matches(&owner));
             assert!(proxy.engine().active_sessions().is_empty()&&proxy.engine().completed_sessions().is_empty());
-            remote.close().await;dns.close().await;node.close().await;drop(refused);
+            remote.close().await;dns.close().await;node.close().await;
         }
     }).await.unwrap();
 }

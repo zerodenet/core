@@ -136,31 +136,6 @@ where
     handle_ipc_connection_with_auth_until(stream, handle, auth_ctx, stop, budget, local).await
 }
 
-#[cfg(all(test, unix, feature = "wireguard"))]
-async fn handle_ipc_connection_with_auth<S>(
-    stream: S,
-    handle: ProxyHandle,
-    auth_ctx: AuthContext,
-) -> io::Result<()>
-where
-    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
-{
-    let budget = ControlBudget::new(ControlBudgetLimits::from_runtime(
-        &zero_config::RuntimeOptionsConfig::default(),
-    ));
-    let original = budget.reserve(ControlCharge::Connection)?;
-    let local = original.connection_budget().unwrap();
-    handle_ipc_connection_with_auth_until(
-        stream,
-        handle,
-        auth_ctx,
-        CancellationToken::new(),
-        budget,
-        local,
-    )
-    .await
-}
-
 /// Return true if the I/O error is from a routine client disconnect.
 pub(crate) fn is_transient_disconnect(error: &io::Error) -> bool {
     matches!(

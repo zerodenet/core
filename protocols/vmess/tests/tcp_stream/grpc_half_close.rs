@@ -145,12 +145,19 @@ async fn actual_grpc_request_end_precedes_full_reverse_vmess_eof_on_single_and_m
                 let mut client = VmessAeadStream::outbound(carrier, state)
                     .unwrap()
                     .with_grpc_request_end();
+                let source_exit = caller.clone();
                 let transfer = async {
                     // There is deliberately no concurrent application read.
                     client.write_all(&payload(262144)).await.unwrap();
                     client.shutdown().await.unwrap();
                     assert!(client.native_shutdown.result.as_ref().unwrap().is_ok());
                     assert!(!matches!(client.read_state, ReadState::Eof));
+                    // The real protocol caller has returned and dropped its
+                    // incoming Source before the application drains reverse.
+                    // Its original H2 driver must still finish DATA/trailers
+                    // and native shutdown, independently of this caller join.
+                    let exited = source_exit.wait().await;
+                    assert!(source_exit.matches_joined(&exited) && exited.result().is_ok());
                     let mut response = Vec::new();
                     client.read_to_end(&mut response).await.unwrap();
                     let mut expected = payload(262144);

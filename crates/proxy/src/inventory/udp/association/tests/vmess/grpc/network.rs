@@ -11,11 +11,10 @@ async fn ordinary_vmess_grpc_datagram_waits_for_old_original_before_acquiring_on
             2,
         )
         .await;
-        proxy
-            .protocols
-            .drive_component_supervision(async {
-                let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services());
-                let mut dispatch = runtime.new_dispatch("incoming").await.unwrap();
+        let (registration, first) = crate::runtime::udp_ingress::test_source::run(
+            &proxy,
+            move |proxy, source| async move {
+                let mut dispatch = source.new_dispatch("incoming").await.unwrap();
                 dispatch.dispatch(input(53, b"network")).await.unwrap();
                 assert_eq!(response(&mut dispatch).await.2.as_ref(), b"network");
                 let registration = original(&proxy);
@@ -31,33 +30,40 @@ async fn ordinary_vmess_grpc_datagram_waits_for_old_original_before_acquiring_on
                 );
                 assert!(first.closed().is_none());
                 assert_eq!(registration.observe().unwrap().slots().len(), 1);
-                let retired = proxy.tcp_runtime_services().execution().retired_datagrams();
                 dispatch.finish_all();
-                let closed = retired
-                    .progress_retired(Instant::now() + Duration::from_secs(3))
-                    .await
-                    .unwrap();
-                assert!(closed.is_complete(), "{closed:?}");
-                assert!(first.matches_closed(&first.closed().unwrap()));
-                let mut dispatch = runtime.new_dispatch("incoming").await.unwrap();
-                let mut packet = input(53, b"network");
-                packet.client_session_id = Some(10);
-                dispatch.dispatch(packet).await.unwrap();
-                assert_eq!(response(&mut dispatch).await.2.as_ref(), b"network");
-                dispatch.finish_all();
-                assert!(retired
-                    .progress_retired(Instant::now() + Duration::from_secs(3))
-                    .await
-                    .unwrap()
-                    .is_complete());
-                server.finish().await;
-                proxy
-                    .protocols
-                    .shutdown_components(Instant::now() + Duration::from_secs(3))
-                    .await
-                    .unwrap();
-            })
-            .await;
+                (registration, first)
+            },
+        )
+        .await;
+        // End the actual old association's Source, consume its joins and
+        // native close before a new association may use that same role owner.
+        assert!(first.matches_closed(&first.closed().unwrap()));
+        let retained_registration = registration.clone();
+        crate::runtime::udp_ingress::test_source::run(&proxy, move |proxy, source| async move {
+            assert!(original(&proxy).same_owner(&retained_registration));
+            let mut dispatch = source.new_dispatch("incoming").await.unwrap();
+            let mut packet = input(53, b"network");
+            packet.client_session_id = Some(10);
+            dispatch.dispatch(packet).await.unwrap();
+            assert_eq!(response(&mut dispatch).await.2.as_ref(), b"network");
+            dispatch.finish_all();
+        })
+        .await;
+        assert!(proxy
+            .tcp_runtime_services()
+            .execution()
+            .retired_datagrams()
+            .progress_retired(Instant::now() + Duration::from_secs(3))
+            .await
+            .unwrap()
+            .is_complete());
+        server.finish().await;
+        proxy
+            .protocols
+            .shutdown_components(Instant::now() + Duration::from_secs(3))
+            .await
+            .unwrap();
+        assert!(registration.closed().unwrap().matches(&registration));
     })
     .await
     .unwrap();

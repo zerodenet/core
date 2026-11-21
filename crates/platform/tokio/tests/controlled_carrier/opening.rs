@@ -182,7 +182,8 @@ async fn controlled_carrier_real_refused_error_source_survives_until_original_cl
             .err()
             .unwrap();
         assert_eq!(failure.reason, Reason::Io);
-        assert_eq!(failure.delivery, DeliveryState::Unknown);
+        assert_eq!(failure.delivery, DeliveryState::NotSubmitted);
+        assert!(failure.retry_permitted());
         let mut source: &(dyn std::error::Error + 'static) = &failure;
         let original = loop {
             if let Some(io) = source.downcast_ref::<std::io::Error>() {

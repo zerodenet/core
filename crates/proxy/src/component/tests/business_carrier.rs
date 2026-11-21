@@ -225,6 +225,7 @@ impl Fixture {
             .clone()
     }
 }
+mod jobs;
 mod rejection;
 mod wire;
 

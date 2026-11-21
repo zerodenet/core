@@ -194,6 +194,9 @@ jobs:
         uses: ./.github/actions/setup-protoc
         with:
           version: "35.0"
+      - name: Enable original Windows crash capture
+        shell: pwsh
+        run: ./scripts/capture-native-windows.ps1 -Mode Enable -OutputDirectory "$env:RUNNER_TEMP/zero-native-crashes"
       - name: Stage pinned Wintun runtime
         shell: pwsh
         run: |
@@ -297,6 +300,19 @@ jobs:
           name: windows-tun-packets-${{ github.run_attempt }}
           path: ${{ runner.temp }}/tun-packets
           retention-days: 7
+
+      - name: Collect original Windows crash image and stacks
+        if: always()
+        shell: pwsh
+        run: ./scripts/capture-native-windows.ps1 -Mode Collect -OutputDirectory "$env:RUNNER_TEMP/zero-native-crashes"
+      - name: Retain original Windows crash evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-native-crashes-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/zero-native-crashes
+          retention-days: 3
+          if-no-files-found: warn
 
   result:
     name: TUN E2E result

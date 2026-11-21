@@ -2,6 +2,8 @@
 use super::*;
 #[path = "grpc/fixtures.rs"]
 mod fixtures;
+#[path = "grpc/flow.rs"]
+pub(super) mod flow;
 #[path = "grpc/network.rs"]
 mod network;
 #[path = "grpc/ownership.rs"]

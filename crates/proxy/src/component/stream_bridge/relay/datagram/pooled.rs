@@ -13,6 +13,9 @@ struct Selected {
     remote: std::sync::Mutex<Option<std::net::SocketAddr>>,
 }
 impl UpstreamOpener for Selected {
+    fn has_tracked_business_caller(&self) -> bool {
+        self.upstream.has_tracked_business_caller()
+    }
     fn validate_pending_carrier(
         &self,
         binding: &UpstreamBinding,

@@ -37,7 +37,9 @@ impl KeyTarget {
     pub(super) fn from_session(session: &super::super::UdpFlowSession) -> Self {
         match session {
             super::super::UdpFlowSession::Source(value) => Self::Session(value.clone()),
-            super::super::UdpFlowSession::Existing(value) => Self::Existing(value.target.clone()),
+            super::super::UdpFlowSession::Existing(value, _) => {
+                Self::Existing(value.target.clone())
+            }
         }
     }
 }

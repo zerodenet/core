@@ -24,12 +24,16 @@ impl UpstreamOpener for Observer {
             .upgrade()
             .ok_or_else(|| admission_error(Reason::Revoked))?;
         let caller = pending.caller.as_ref().ok_or_else(fail)?;
-        if pending.stop.is_cancelled()
-            || caller.is_joined()
-            || !caller
-                .native_task_id()
-                .is_some_and(|id| Some(id) == tokio::task::try_id())
-        {
+        // A nested physical original is prepared by the actual initializer of
+        // an original already retained by this same association. Keep its real
+        // primary lineage; Scope membership alone grants no callback custody.
+        let current = caller
+            .native_task_id()
+            .is_some_and(|id| Some(id) == tokio::task::try_id())
+            || pending.protocols.as_ref().is_some_and(|protocols| {
+                protocols.current_initializer_for_caller(caller).is_some()
+            });
+        if pending.stop.is_cancelled() || caller.is_joined() || !current {
             return Err(fail());
         }
         let plan = pending.plan.upgrade().ok_or_else(fail)?;
@@ -46,6 +50,10 @@ impl UpstreamOpener for Observer {
         {
             return Err(fail());
         }
+        // A handed-off child may reclaim its protocol observation below.
+        // Transfer its actual donor LoanOwner custody before that row disappears,
+        // as the accepted-caller and protocol-owner ledgers already do.
+        pending.transfer_installed();
         pending
             .protocols
             .as_ref()

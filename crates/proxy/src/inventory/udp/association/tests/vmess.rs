@@ -75,89 +75,87 @@ async fn ordinary_vmess_datagram_dispatch_preserves_framing_empty_packets_and_fl
             prepared,
             PreparedUdpOutbound::Single(PreparedUdpLeafCandidate::DatagramFlow(_))
         ));
-        let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services());
-        let mut dispatch = runtime.new_dispatch("incoming").await.unwrap();
-        let mut ids = vec![];
-        for payload in &payloads {
-            ids.push(dispatch.dispatch(input(53, payload)).await.unwrap());
-            let (_, tasks, _) = dispatch.poll_sockets();
-            let packet = timeout(Duration::from_secs(3), tasks.join_next_with_id())
-                .await
-                .unwrap()
-                .unwrap()
-                .unwrap()
-                .unwrap();
-            assert_eq!(
-                packet,
-                (
-                    Address::Ipv4([203, 0, 113, 9]),
-                    53,
-                    payload.clone().into(),
-                    Some(ids[0])
-                )
-            );
-            let (target, port, payload, id) = packet;
-            let response = crate::runtime::udp_delivery::record_chain_udp_response_parts(
-                &proxy.udp_runtime_services(),
-                &dispatch,
-                target,
-                port,
-                payload,
-                id,
-            );
-            assert_eq!(response.payload.as_ref(), payloads[ids.len() - 1]);
-        }
-        assert!(ids.iter().all(|id| *id == ids[0]));
-        assert_eq!(
-            proxy
-                .engine()
-                .active_sessions()
-                .iter()
-                .find(|s| s.id == ids[0])
-                .unwrap()
-                .outbound_tx_bytes,
-            12 + 9 + 37009
-        );
-        assert_eq!(
-            proxy
-                .engine()
-                .active_sessions()
-                .iter()
-                .find(|s| s.id == ids[0])
-                .unwrap()
-                .outbound_rx_bytes,
-            37003
-        );
-        let active = proxy.engine().active_sessions();
-        let remote = active
-            .iter()
-            .find(|s| s.id == ids[0])
-            .unwrap()
-            .path
-            .remote
-            .as_ref()
-            .expect("keep the existing upstream observation");
-        assert_eq!(remote.host, "127.0.0.1");
-        assert_eq!(remote.port, upstream_port);
-        let retired = proxy.tcp_runtime_services().execution().retired_datagrams();
-        let completed = dispatch.finish_all();
-        assert_eq!(
-            completed[0].upstream,
-            Some(("127.0.0.1".into(), upstream_port)),
-            "completion logs retain their actual upstream"
-        );
-        let report = retired
-            .wait_closed(Instant::now() + Duration::from_secs(3))
-            .await
-            .unwrap();
-        assert!(report.is_complete(), "{report:?}");
-        assert!(!report.closed_io.is_empty());
+        let originals = crate::runtime::udp_ingress::test_source::run(
+            &proxy,
+            move |proxy, runtime| async move {
+                let runtime = runtime.clone();
+                let mut dispatch = runtime.new_dispatch("incoming").await.unwrap();
+                let mut ids = vec![];
+                for payload in &payloads {
+                    ids.push(dispatch.dispatch(input(53, payload)).await.unwrap());
+                    let (_, tasks, _) = dispatch.poll_sockets();
+                    let packet = timeout(Duration::from_secs(3), tasks.join_next_with_id())
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(
+                        packet,
+                        (
+                            Address::Ipv4([203, 0, 113, 9]),
+                            53,
+                            payload.clone().into(),
+                            Some(ids[0])
+                        )
+                    );
+                    let (target, port, payload, id) = packet;
+                    let response = crate::runtime::udp_delivery::record_chain_udp_response_parts(
+                        &proxy.udp_runtime_services(),
+                        &dispatch,
+                        target,
+                        port,
+                        payload,
+                        id,
+                    );
+                    assert_eq!(response.payload.as_ref(), payloads[ids.len() - 1]);
+                }
+                assert!(ids.iter().all(|id| *id == ids[0]));
+                assert_eq!(
+                    proxy
+                        .engine()
+                        .active_sessions()
+                        .iter()
+                        .find(|s| s.id == ids[0])
+                        .unwrap()
+                        .outbound_tx_bytes,
+                    12 + 9 + 37009
+                );
+                assert_eq!(
+                    proxy
+                        .engine()
+                        .active_sessions()
+                        .iter()
+                        .find(|s| s.id == ids[0])
+                        .unwrap()
+                        .outbound_rx_bytes,
+                    37003
+                );
+                let active = proxy.engine().active_sessions();
+                let remote = active
+                    .iter()
+                    .find(|s| s.id == ids[0])
+                    .unwrap()
+                    .path
+                    .remote
+                    .as_ref()
+                    .expect("keep the existing upstream observation");
+                assert_eq!(remote.host, "127.0.0.1");
+                assert_eq!(remote.port, upstream_port);
+                let originals = capture_native_originals(&proxy);
+                assert_eq!(originals.len(), 1);
+                let completed = dispatch.finish_all();
+                assert_eq!(
+                    completed[0].upstream,
+                    Some(("127.0.0.1".into(), upstream_port)),
+                    "completion logs retain their actual upstream"
+                );
+                originals
+            },
+        )
+        .await;
         server.await.unwrap();
-        proxy
-            .protocols
-            .shutdown_components(Instant::now() + Duration::from_secs(3))
-            .await
-            .unwrap();
+        confirm_native_retirement(&proxy, &originals).await;
     }
 }
 
@@ -194,39 +192,36 @@ async fn ordinary_vmess_datagram_flows_keep_separate_carriers_and_reuse_their_ow
             "a repeated flow must reuse its own carrier"
         );
     });
-    let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services());
-    let mut dispatch = runtime.new_dispatch("incoming").await.unwrap();
-    let mut ids = vec![];
-    for (port, payload) in [
-        (53, b"first".as_slice()),
-        (54, b"second".as_slice()),
-        (53, b"again".as_slice()),
-    ] {
-        ids.push(dispatch.dispatch(input(port, payload)).await.unwrap());
-        let (_, tasks, _) = dispatch.poll_sockets();
-        let packet = timeout(Duration::from_secs(3), tasks.join_next_with_id())
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        assert_eq!(packet.1, port);
-        assert_eq!(packet.2.as_ref(), payload);
-        assert_eq!(packet.3, Some(*ids.last().unwrap()));
-    }
-    assert_eq!(ids[0], ids[2]);
-    assert_ne!(ids[0], ids[1]);
-    let retired = proxy.tcp_runtime_services().execution().retired_datagrams();
-    let _ = dispatch.finish_all();
-    assert!(retired
-        .wait_closed(Instant::now() + Duration::from_secs(3))
-        .await
-        .unwrap()
-        .is_complete());
+    let originals =
+        crate::runtime::udp_ingress::test_source::run(&proxy, move |proxy, runtime| async move {
+            let runtime = runtime.clone();
+            let mut dispatch = runtime.new_dispatch("incoming").await.unwrap();
+            let mut ids = vec![];
+            for (port, payload) in [
+                (53, b"first".as_slice()),
+                (54, b"second".as_slice()),
+                (53, b"again".as_slice()),
+            ] {
+                ids.push(dispatch.dispatch(input(port, payload)).await.unwrap());
+                let (_, tasks, _) = dispatch.poll_sockets();
+                let packet = timeout(Duration::from_secs(3), tasks.join_next_with_id())
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(packet.1, port);
+                assert_eq!(packet.2.as_ref(), payload);
+                assert_eq!(packet.3, Some(*ids.last().unwrap()));
+            }
+            assert_eq!(ids[0], ids[2]);
+            assert_ne!(ids[0], ids[1]);
+            let originals = capture_native_originals(&proxy);
+            assert_eq!(originals.len(), 2);
+            let _ = dispatch.finish_all();
+            originals
+        })
+        .await;
     server.await.unwrap();
-    proxy
-        .protocols
-        .shutdown_components(Instant::now() + Duration::from_secs(3))
-        .await
-        .unwrap();
+    confirm_native_retirement(&proxy, &originals).await;
 }

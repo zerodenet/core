@@ -1,7 +1,7 @@
 use crate::{
     inventory::{PreparedUdpLeafCandidate, PreparedUdpOutbound},
     protocol_registry::UdpAdapterContext,
-    runtime::{pipe::UdpPipeInput, udp_ingress::UdpIngressRuntime},
+    runtime::pipe::UdpPipeInput,
     Proxy,
 };
 use tokio::{
@@ -144,91 +144,94 @@ async fn ordinary_socks_datagram_dispatch_needs_no_claim_and_preserves_wire_tx_a
             udp.send_to(&buf[..len], from).await.unwrap();
         }
     });
-    let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services());
-    let mut dispatch = runtime.new_dispatch("incoming").await.unwrap();
-    let mut ids = Vec::new();
-    for (port, payload) in [
-        (53, b"one".as_slice()),
-        (54, b"two".as_slice()),
-        (53, b"".as_slice()),
-    ] {
-        ids.push(dispatch.dispatch(input(port, payload)).await.unwrap());
-        let mut buf = [0; 1024];
-        let (_, upstream, _, _, _) = dispatch.poll_refs();
-        let response = timeout(Duration::from_secs(3), upstream.recv_response(&mut buf))
+    crate::runtime::udp_ingress::test_source::run(&proxy, move |proxy, runtime| async move {
+        let runtime = runtime.clone();
+        let mut dispatch = runtime.new_dispatch("incoming").await.unwrap();
+        let mut ids = Vec::new();
+        for (port, payload) in [
+            (53, b"one".as_slice()),
+            (54, b"two".as_slice()),
+            (53, b"".as_slice()),
+        ] {
+            ids.push(dispatch.dispatch(input(port, payload)).await.unwrap());
+            let mut buf = [0; 1024];
+            let (_, upstream, _, _, _) = dispatch.poll_refs();
+            let response = timeout(Duration::from_secs(3), upstream.recv_response(&mut buf))
+                .await
+                .unwrap()
+                .unwrap();
+            let (target, response_port, response_payload) = response.into_parts();
+            assert_eq!(target, Address::Ipv4([203, 0, 113, 9]));
+            assert_eq!(response_port, port);
+            assert_eq!(response_payload, payload);
+        }
+        assert_eq!(ids[0], ids[2]);
+        assert_ne!(ids[0], ids[1]);
+        let acquired = owner.observe().unwrap();
+        assert_eq!(
+            acquired.slots().len(),
+            2,
+            "both business targets reuse the same actual TCP control and negotiated UDP original"
+        );
+        let originals: Vec<_> = acquired
+            .slots()
+            .iter()
+            .map(|slot| {
+                assert!(
+                    slot.driver().is_none(),
+                    "the poll-based codec invents no driver"
+                );
+                assert!(
+                    slot.native().is_some(),
+                    "each slot owns its actual native controller"
+                );
+                slot.original().clone()
+            })
+            .collect();
+        let sessions = proxy.engine().active_sessions();
+        assert_eq!(
+            sessions
+                .iter()
+                .find(|s| s.id == ids[0])
+                .unwrap()
+                .outbound_tx_bytes,
+            13 + 13 + 10
+        );
+        assert_eq!(
+            sessions
+                .iter()
+                .find(|s| s.id == ids[1])
+                .unwrap()
+                .outbound_tx_bytes,
+            13
+        );
+        echoes.await.unwrap();
+        let retired = proxy.tcp_runtime_services().execution().retired_datagrams();
+        let _ = dispatch.finish_all();
+        let report = retired
+            .wait_closed(Instant::now() + Duration::from_secs(3))
             .await
-            .unwrap()
             .unwrap();
-        let (target, response_port, response_payload) = response.into_parts();
-        assert_eq!(target, Address::Ipv4([203, 0, 113, 9]));
-        assert_eq!(response_port, port);
-        assert_eq!(response_payload, payload);
-    }
-    assert_eq!(ids[0], ids[2]);
-    assert_ne!(ids[0], ids[1]);
-    let acquired = owner.observe().unwrap();
-    assert_eq!(
-        acquired.slots().len(),
-        2,
-        "both business targets reuse the same actual TCP control and negotiated UDP original"
-    );
-    let originals: Vec<_> = acquired
-        .slots()
-        .iter()
-        .map(|slot| {
-            assert!(
-                slot.driver().is_none(),
-                "the poll-based codec invents no driver"
-            );
-            assert!(
-                slot.native().is_some(),
-                "each slot owns its actual native controller"
-            );
-            slot.original().clone()
-        })
-        .collect();
-    let sessions = proxy.engine().active_sessions();
-    assert_eq!(
-        sessions
-            .iter()
-            .find(|s| s.id == ids[0])
-            .unwrap()
-            .outbound_tx_bytes,
-        13 + 13 + 10
-    );
-    assert_eq!(
-        sessions
-            .iter()
-            .find(|s| s.id == ids[1])
-            .unwrap()
-            .outbound_tx_bytes,
-        13
-    );
-    echoes.await.unwrap();
-    let retired = proxy.tcp_runtime_services().execution().retired_datagrams();
-    let _ = dispatch.finish_all();
-    let report = retired
-        .wait_closed(Instant::now() + Duration::from_secs(3))
-        .await
-        .unwrap();
-    assert!(report.is_complete());
-    for original in &originals {
-        let closed = original
-            .closed()
-            .expect("that exact TCP/UDP original is closed");
-        assert!(original.matches_closed(&closed));
-    }
-    assert!(
-        !report.closed_io.is_empty(),
-        "consume the retained original close report"
-    );
-    control.await.unwrap();
-    proxy
-        .protocols
-        .shutdown_components(Instant::now() + Duration::from_secs(3))
-        .await
-        .unwrap();
-    assert!(owner.closed().unwrap().matches(&owner));
+        assert!(report.is_complete());
+        for original in &originals {
+            let closed = original
+                .closed()
+                .expect("that exact TCP/UDP original is closed");
+            assert!(original.matches_closed(&closed));
+        }
+        assert!(
+            !report.closed_io.is_empty(),
+            "consume the retained original close report"
+        );
+        control.await.unwrap();
+        proxy
+            .protocols
+            .shutdown_components(Instant::now() + Duration::from_secs(3))
+            .await
+            .unwrap();
+        assert!(owner.closed().unwrap().matches(&owner));
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -246,32 +249,35 @@ async fn revoked_socks_datagram_never_dials_a_legacy_fallback() {
         .await
         .unwrap();
     slot.revoke();
-    let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services());
-    let mut dispatch = runtime.new_dispatch("incoming").await.unwrap();
-    let error = dispatch.dispatch(input(53, b"query")).await.unwrap_err();
-    let channel = crate::transport::channel_failure(&error).unwrap();
-    // The actual host fence rejects the retired generation before invoking the
-    // protocol role. Preserve that stronger, pre-I/O admission failure.
-    assert_eq!(
-        channel.reason,
-        zero_platform_tokio::contract::Reason::StalePlan
-    );
-    assert_eq!(channel.stage, zero_platform_tokio::contract::Stage::Prepare);
-    assert_eq!(
-        channel.delivery,
-        zero_platform_tokio::contract::DeliveryState::NotSubmitted
-    );
-    assert_eq!(channel.component, Some(slot.id));
-    assert!(channel.session.is_some());
-    assert!(timeout(Duration::from_millis(30), listener.accept())
-        .await
-        .is_err());
-    let _ = dispatch.finish_all();
-    proxy
-        .protocols
-        .shutdown_components(Instant::now() + Duration::from_secs(3))
-        .await
-        .unwrap();
+    crate::runtime::udp_ingress::test_source::run(&proxy, move |proxy, runtime| async move {
+        let runtime = runtime.clone();
+        let mut dispatch = runtime.new_dispatch("incoming").await.unwrap();
+        let error = dispatch.dispatch(input(53, b"query")).await.unwrap_err();
+        let channel = crate::transport::channel_failure(&error).unwrap();
+        // The actual host fence rejects the retired generation before invoking the
+        // protocol role. Preserve that stronger, pre-I/O admission failure.
+        assert_eq!(
+            channel.reason,
+            zero_platform_tokio::contract::Reason::Revoked
+        );
+        assert_eq!(channel.stage, zero_platform_tokio::contract::Stage::Prepare);
+        assert_eq!(
+            channel.delivery,
+            zero_platform_tokio::contract::DeliveryState::NotSubmitted
+        );
+        assert_eq!(channel.component, Some(slot.id));
+        assert!(channel.session.is_some());
+        assert!(timeout(Duration::from_millis(30), listener.accept())
+            .await
+            .is_err());
+        let _ = dispatch.finish_all();
+        proxy
+            .protocols
+            .shutdown_components(Instant::now() + Duration::from_secs(3))
+            .await
+            .unwrap();
+    })
+    .await;
 }
 
 #[tokio::test]

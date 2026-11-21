@@ -116,9 +116,6 @@ impl InboundListenerRuntimeFactory {
         self.restart_sources = true;
         self
     }
-    pub(crate) fn source_network_restart(&self) -> bool {
-        self.restart_sources
-    }
     pub(crate) fn with_prepared_components(&self) -> Result<Self, zero_engine::EngineError> {
         let mut factory = self.clone();
         factory.shared = self.shared.with_prepared_components()?;

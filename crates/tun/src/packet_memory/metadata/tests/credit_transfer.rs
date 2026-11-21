@@ -28,13 +28,23 @@ fn same_counter_absorb_and_prepared_split_preserve_held_units_and_original_handl
     assert_eq!(left.layout(), one);
     assert_eq!(counter.snapshot().occupied, held);
     let too_large = two.checked_add(one).unwrap();
+    struct Wake(std::sync::atomic::AtomicUsize);
+    impl std::task::Wake for Wake {
+        fn wake(self: std::sync::Arc<Self>) {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    let notified = std::sync::Arc::new(Wake(std::sync::atomic::AtomicUsize::new(0)));
+    let original_wake = std::task::Waker::from(notified.clone());
     let (reason, wake) = split
-        .split_prepared(too_large, std::task::Waker::noop().clone())
+        .split_prepared(too_large, original_wake.clone())
         .err()
         .unwrap();
     assert_eq!(reason, PacketMemoryError::Capacity);
     assert_eq!(split.layout(), one);
-    assert!(wake.will_wake(std::task::Waker::noop()));
+    assert!(wake.will_wake(&original_wake));
+    wake.wake_by_ref();
+    assert_eq!(notified.0.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert_eq!(counter.snapshot().occupied, held);
     drop(wake);
     drop(split);

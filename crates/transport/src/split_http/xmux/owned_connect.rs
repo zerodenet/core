@@ -37,9 +37,10 @@ impl XhttpClientPool {
                 let mut state = self.0.state.lock().unwrap();
                 let index = state.groups.iter().position(|group| {
                     group.same_factory(owner.instance, &owner.scope)
-                        && !group.matches_owner(Some(owner))
+                        && (!group.matches_owner(Some(owner)) || !group.reusable())
                         && group.active() == 0
                         && !group.has_responses()
+                        && !group.connections.has_logical_work()
                 });
                 index.map(|index| state.groups.remove(index))
             };

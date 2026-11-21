@@ -1,5 +1,4 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -10,9 +9,7 @@ use zero_config::RuntimeConfig;
 use zero_stack::{packet, UserNetworkStack, UserTcpStack};
 use zero_traits::{TcpStack, UdpStack};
 
-use super::{
-    accept_tcp, feed_packets, should_drop_non_unicast_udp, shutdown_tun_tasks, sniff_tcp_target,
-};
+use super::{feed_packets, should_drop_non_unicast_udp, shutdown_tun_tasks, sniff_tcp_target};
 
 #[tokio::test]
 async fn tun_task_shutdown_waits_until_owned_resources_are_dropped() {
@@ -411,13 +408,12 @@ async fn tun_tcp_uses_kernel_direct_route_and_records_traffic() {
         .commit_components(&proxy.engine().config(), || Ok(()))
         .unwrap();
     let (tcp, mut outbound) = new_stack();
-    let runtime = tokio::spawn(accept_tcp(
-        proxy.tcp_runtime_services(),
+    let runtime = crate::runtime::inbound_operation::raw_ip::tcp_input::start(
+        &proxy,
         Arc::clone(&tcp),
-        "tun-test".to_owned(),
-        false,
-        Arc::new(AtomicU64::new(0)),
-    ));
+        "tun-test",
+    )
+    .await;
 
     complete_handshake(&tcp, &mut outbound, destination).await;
     let payload = b"through-kernel";
@@ -450,7 +446,12 @@ async fn tun_tcp_uses_kernel_direct_route_and_records_traffic() {
     assert!(stats.bytes_up >= payload.len() as u64);
     assert!(stats.bytes_down >= payload.len() as u64);
 
-    runtime.abort();
+    runtime.shutdown().await;
+    proxy
+        .protocols
+        .shutdown_components(tokio::time::Instant::now() + Duration::from_secs(3))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -468,13 +469,12 @@ async fn tun_tcp_block_route_never_opens_the_destination() {
     .expect("parse block config");
     let proxy = crate::runtime::Proxy::new(config).expect("create proxy");
     let (tcp, mut outbound) = new_stack();
-    let runtime = tokio::spawn(accept_tcp(
-        proxy.tcp_runtime_services(),
+    let runtime = crate::runtime::inbound_operation::raw_ip::tcp_input::start(
+        &proxy,
         Arc::clone(&tcp),
-        "tun-test".to_owned(),
-        false,
-        Arc::new(AtomicU64::new(0)),
-    ));
+        "tun-test",
+    )
+    .await;
 
     complete_handshake(&tcp, &mut outbound, destination).await;
     wait_for_stat(|| proxy.engine().stats_snapshot().blocked_sessions == 1).await;
@@ -487,7 +487,12 @@ async fn tun_tcp_block_route_never_opens_the_destination() {
     );
     assert_eq!(proxy.engine().stats_snapshot().active_sessions, 0);
 
-    runtime.abort();
+    runtime.shutdown().await;
+    proxy
+        .protocols
+        .shutdown_components(tokio::time::Instant::now() + Duration::from_secs(3))
+        .await
+        .unwrap();
 }
 
 fn new_stack() -> (Arc<UserTcpStack>, mpsc::Receiver<Vec<u8>>) {

@@ -51,8 +51,16 @@ fn prepare(proxy: &Proxy, services: &TcpRuntimeServices) -> PreparedNativeTcpRel
 #[tokio::test]
 async fn mixed_retired_stream_role_blocks_the_real_prefix_before_any_socket_opens() {
     for revoked in [1, 2] {
-        let (proxy, session, services, listeners) = fixtures::setup(3).await;
+        let (proxy, mut session, services, listeners) = fixtures::setup(3).await;
         let prepared = prepare(&proxy, &services);
+        proxy
+            .engine()
+            .prepare_session(&mut session, "incoming")
+            .unwrap();
+        let services = services
+            .for_inbound("incoming".into())
+            .with_business_identity(&session)
+            .unwrap();
         let slot = services
             .execution()
             .components
@@ -89,6 +97,11 @@ async fn mixed_retired_stream_role_blocks_the_real_prefix_before_any_socket_open
             let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
             assert!(listener.poll_accept(&mut cx).is_pending());
         }
+        proxy
+            .engine()
+            .track_session(session.id)
+            .finish(zero_engine::SessionOutcome::Cancelled)
+            .unwrap();
         proxy
             .protocols
             .shutdown_components(tokio::time::Instant::now() + Duration::from_secs(2))

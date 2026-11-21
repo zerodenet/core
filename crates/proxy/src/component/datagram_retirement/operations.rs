@@ -1,6 +1,20 @@
 //! State mutation and protocol callbacks have separate, explicit boundaries.
 use super::*;
 impl RetiredDatagrams {
+    pub(crate) fn reopen_after_retirement(&self) -> Result<(), ChannelError> {
+        let mut state = self.state.lock().expect("Datagram owner poisoned");
+        if !state.stopping {
+            return Ok(());
+        }
+        // Reserved, Unknown, active and awaiting-receipt rows all block reuse.
+        // Only existing original close/return consumers can remove them.
+        if !state.entries.is_empty() {
+            return Err(admission_error(Reason::Revoked));
+        }
+        state.stopping = false;
+        Ok(())
+    }
+
     pub(super) fn entries(&self) -> Vec<(u64, Arc<Mutex<Entry>>)> {
         self.state
             .lock()

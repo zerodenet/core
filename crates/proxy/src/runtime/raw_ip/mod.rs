@@ -34,3 +34,7 @@ pub(crate) use statistics::RawIpTraffic;
 pub(crate) mod timer;
 
 pub(crate) mod tasks;
+
+#[cfg(test)]
+#[path = "tests/memory.rs"]
+pub(crate) mod test_memory;

@@ -27,6 +27,17 @@ fn ordinary_domain_taskless_owners_bind_actual_node_dns_without_discarding_repla
             .map(|id| plan.component(*id).unwrap())
             .collect::<Vec<_>>();
         let nodes=dependencies.iter().filter(|slot|matches!(&slot.recipe.spec().owner,ResourceOwner::Endpoint(name) if name.as_ref()=="proxy.dns_node_queries")).collect::<Vec<_>>();
+        if tag == "literal-socks" {
+            // This literal Stream has no hostname to resolve. Dynamic UDP BND
+            // uses the separate real Host Node query provider, exercised by
+            // the actual domain-BND wire regression, not an invented Stream edge.
+            assert!(nodes.is_empty());
+            assert!(dependencies.is_empty());
+            for ordinal in 0..slot.recipe.spec().resources.len() {
+                assert!(slot.original_carrier_owner(ordinal).is_none());
+            }
+            continue;
+        }
         assert_eq!(
             nodes.len(),
             1,
@@ -42,7 +53,8 @@ fn ordinary_domain_taskless_owners_bind_actual_node_dns_without_discarding_repla
         }
         if tag == "ss" {
             assert!(dependencies.iter().any(|slot|matches!(&slot.recipe.spec().owner,ResourceOwner::Endpoint(name) if name.as_ref()=="shadowsocks.tcp2022.replay")),"adding Node must retain the original security history/maintenance dependency");
-            assert_eq!(dependencies.len(), 2);
+            assert!(dependencies.iter().any(|slot|matches!(&slot.recipe.spec().owner,ResourceOwner::Endpoint(name) if name.as_ref()=="shadowsocks.udp.cache")),"the real UDP cache owner remains distinct from replay and Node DNS");
+            assert_eq!(dependencies.len(), 3);
         } else {
             assert_eq!(dependencies.len(), 1);
         }

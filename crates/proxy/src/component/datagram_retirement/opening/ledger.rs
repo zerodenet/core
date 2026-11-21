@@ -46,7 +46,7 @@ impl PendingOpen {
         state.pending.push(adoption);
         Ok(())
     }
-    fn transfer_installed(&self) {
+    pub(super) fn transfer_installed(&self) {
         let pending = self.state.lock().unwrap().pending.clone();
         let loans = pending
             .iter()
@@ -68,6 +68,10 @@ impl PendingOpen {
                 // installed receiver owns its input control and cached driver.
                 // Its preparation row may already have been reclaimed.
                 original.retained_loan_receiver().is_some()
+                    || self
+                        .protocols
+                        .as_ref()
+                        .is_some_and(|children| children.retains_carrier_loan(original))
                     || original.retained_driver().is_some_and(|proof| {
                         proof.retains(original)
                             && proof

@@ -3,6 +3,55 @@ use super::*;
 use zero_platform_tokio::contract::{
     component::GrantedPacketServiceCaller, ChannelError, Impact, Reason, Stage,
 };
+
+#[cfg(feature = "datagram-route-runtime")]
+type PacketDriverCandidate = Option<(
+    Arc<zero_config::RuntimeConfig>,
+    Arc<crate::component::catalog::ComponentPlan>,
+)>;
+
+// Unsizing the same registry's weak reference stops the type dependency from
+// background factories through service lookup back into retained Source owners.
+// Both queries still consume that original registry's identity/native checks.
+#[cfg(feature = "datagram-route-runtime")]
+pub(super) trait PacketSourceLookup: Send + Sync {
+    fn packet_driver_candidate(
+        &self,
+        protocols: &ProtocolInventory,
+        grant: &GrantedPacketServiceCaller,
+    ) -> Result<PacketDriverCandidate, ChannelError>;
+
+    fn packet_carrier_source(
+        &self,
+        input: &zero_config::InboundConfig,
+        plan: &crate::component::catalog::ComponentPlan,
+        native: &zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+        memory: &zero_platform_tokio::contract::packet::PacketSourceMemory,
+    ) -> Result<zero_platform_tokio::controlled_carrier::CarrierOrigin, zero_engine::EngineError>;
+}
+
+#[cfg(feature = "datagram-route-runtime")]
+impl PacketSourceLookup for crate::runtime::inbound_owners::InboundOwnerRegistry {
+    fn packet_driver_candidate(
+        &self,
+        protocols: &ProtocolInventory,
+        grant: &GrantedPacketServiceCaller,
+    ) -> Result<PacketDriverCandidate, ChannelError> {
+        Self::packet_driver_candidate(self, protocols, grant)
+    }
+
+    fn packet_carrier_source(
+        &self,
+        input: &zero_config::InboundConfig,
+        plan: &crate::component::catalog::ComponentPlan,
+        native: &zero_platform_tokio::controlled_datagram::provider::NativeDatagramOrigin,
+        memory: &zero_platform_tokio::contract::packet::PacketSourceMemory,
+    ) -> Result<zero_platform_tokio::controlled_carrier::CarrierOrigin, zero_engine::EngineError>
+    {
+        Self::packet_carrier_source(self, input, plan, native, memory)
+    }
+}
+
 impl CurrentServiceSource {
     pub(crate) fn packet_driver_services(
         self: &Arc<Self>,

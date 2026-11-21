@@ -69,6 +69,7 @@ async fn real_start_failure_retains_original_os_source_and_closes_native_after_i
     assert_eq!(first.reason, Reason::Io);
     assert!(Arc::ptr_eq(
         first
+            .as_ref()
             .source()
             .unwrap()
             .downcast_ref::<Arc<std::io::Error>>()
@@ -79,16 +80,21 @@ async fn real_start_failure_retains_original_os_source_and_closes_native_after_i
         let faults = owner.task_failures.lock().unwrap();
         let task = &faults[owner.driver.get().unwrap()];
         assert_eq!(task.class, TaskClass::Critical);
-        assert!(std::ptr::eq::<zero_platform_tokio::contract::ChannelError>(
-            (task
-                .source
-                .source()
-                .unwrap()
+        let mut source: Option<&(dyn Error + 'static)> = Some(task.source.as_ref());
+        let mut same_original = false;
+        while let Some(actual) = source {
+            same_original |= actual
+                .downcast_ref::<ChannelError>()
+                .is_some_and(|error| std::ptr::eq(error, first.as_ref()));
+            same_original |= actual
                 .downcast_ref::<SharedError>()
-                .unwrap())
-            .as_ref(),
-            first.as_ref()
-        ));
+                .is_some_and(|error| std::ptr::eq(error.as_ref(), first.as_ref()));
+            source = actual.source();
+        }
+        assert!(
+            same_original,
+            "actual task exit retains the exact original start-failure allocation"
+        );
     }
     let receipt = proxy
         .inbound_owners

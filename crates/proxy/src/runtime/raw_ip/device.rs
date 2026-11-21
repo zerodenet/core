@@ -77,6 +77,13 @@ impl SharedRawIpDevice {
         self.task.test_original_witnesses()
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_original_driver_witness(
+        &self,
+    ) -> Option<zero_platform_tokio::contract::scope::TaskJoinWitness> {
+        self.task.driver_witness()
+    }
+
     pub(crate) fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)
     }

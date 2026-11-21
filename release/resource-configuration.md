@@ -145,7 +145,7 @@ formatted directly with the workspace's Rust 2021 edition and
 a successful workspace-format or code-test claim.
 
 
-## Workspace acceptance follow-up (2026-11-17, in progress)
+## Workspace acceptance follow-up (2026-11-17, historical checkpoint)
 
 The user authorized full code-level checks and tests. The working checkout now
 includes the nonconflicting upstream nightly version `0.0.3-dev.202611170228`.
@@ -169,3 +169,79 @@ standard DNS borrowing, Connector retries and accepted-resource limits. Those
 binaries precede the latest cleanup and nightly merge. Their original provider
 receipts remain separate from process exits; they are not proof for the current
 working source. TEMP-WG-OUTER-UDP-01 remains open.
+
+
+## Correction checkpoint (2026-11-20)
+
+This is an open readiness record for the main develop checkout at
+`b32c41b7938af75bd8af258573d4fe062b8aa2ff` plus uncommitted changes.
+The local manifest `candidate-batch156.local.json` freezes 6954 input files;
+Cargo.lock SHA-256 is
+`6fe7ce863b07342c4299425eba2ed2a94f80f0eb94feb7db4a205994d316d25d`.
+The manifest, source archive, bounded patch and original logs are separate local
+evidence, not build or CI dependencies. This documentation update follows that
+frozen run without changing Rust, Cargo inputs or workflows. Private design/work
+logs retain the existing ignore policy. The refactor is not complete.
+
+The bounded production fixes retain the matching first-hop physical carrier
+through later logical relay origins and correct ordinary Source shutdown:
+
+- After actual TCP native closure and user joins, wait for the exact original
+  Host registration ACK before the final accepted-entry census. Cancellation
+  retains the same entry and positive native receipt for a later retry.
+- When another real operation holds the same UDP original's native close lease,
+  wait for its actual completion notification without holding the owner mutex,
+  then inspect the same controller's report. A notification is no close proof;
+  report-only leases do not produce progress notifications.
+- Treat component-level, sessionless Receive/Cancelled from Source next() as
+  expected only on that Source's actual stop. Close/Io and session failures
+  remain failures. Ending acquisition does not settle native/User/Scope debt.
+
+No stack, resource limit or shutdown deadline is increased in this batch; the
+original native/User/Scope/join/ACK completion predicates remain authoritative.
+Temporary close diagnostics were removed. Deterministic regressions retain real
+pending I/O, the actual original close operation and non-cloneable Host ACKs,
+including cancellation and retry. Earlier real failures remain in the evidence;
+physical completion never erases their recorded failure outcomes.
+
+Current frozen-source local results, Rust 1.100.0, workspace/all features:
+
+| Check | Result |
+| --- | --- |
+| Platform original-provider tests | 445 passed / 0 failed / 12 ignored |
+| kernel_process | 22 passed / 0 failed |
+| proxy_dispatch | 116 passed / 0 failed |
+| proxy_vless | 53 passed / 0 failed / 2 ignored |
+| Real quiet CLI default-stack exit stress | 200 consecutive passes; child removes RUST_MIN_STACK |
+| Full workspace, including doctests | 5400 passed / 139 failed / 181 ignored |
+| Workspace check | Passed |
+| Strict Clippy, all targets, -D warnings | Passed |
+| Workspace release build and version smoke | Passed |
+| Formatting, layout and whitespace | Passed |
+
+Full totals take each Cargo target's outer result once: 156 target results,
+160 raw markers, with four passing child-harness markers excluded. The prior
+complete run on snapshot147 normalizes to 5375/161/181 under the same rule;
+22 old failed cases now pass, no new failed case names appear, and three new
+regressions pass. These are test-case counts, not independent root causes.
+Snapshot156 only adds a missed await in an existing test to snapshot155;
+production sources and all four CLI/selected-test binary hashes are identical.
+The earlier snapshot155 test compilation failure is retained separately.
+
+The 139 remaining failures span eight existing triage groups: cached carrier /
+MUX / Browser (61), Packet / WireGuard / TUN (22), Mieru pool/bootstrap (12),
+Source retirement (12), HY2 hop/custody (6), DNS/network (4), configuration /
+publication (4), and other unresolved cases (18). A sibling native UDP cleanup
+entry has separate ordering and remains an audit obligation; static similarity
+alone was not used to add another ownership patch. This bounded fix does not
+close the whole Source, compatibility or resource domains.
+
+The source inventory still has 119 runtime fields, 112 effective getters with
+literal consumers and 17 resource domains. Allocation, failure retention,
+cancellation, original retirement, hot updates, control/metering consumers and
+actual GUI/panel combinations remain separate qualification obligations.
+Current full workspace green, Actions, platform/performance and consumer
+qualification remain open. No commit, push or Actions run was performed for
+this correction. macOS plugins use the local backend without a VM or Apple
+Developer prerequisite. TEMP-WG-OUTER-UDP-01 runtime acceptance remains deferred
+and OPEN.

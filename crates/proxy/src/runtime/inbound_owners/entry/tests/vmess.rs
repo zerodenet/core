@@ -69,14 +69,14 @@ async fn standard_sources_confirm_udp_originals_before_replacement_and_join_actu
         let state=::vmess::outbound::VmessOutbound.establish_udp_packet_session(&mut carrier,&request,&::vmess::parse_uuid(USER).unwrap(),::vmess::VmessCipher::Chacha20Poly1305).await.unwrap();
         let mut client=::vmess::stream::VmessAeadStream::outbound(carrier,state).unwrap();
         client.write_all(b"one").await.unwrap();client.flush().await.unwrap();let mut bytes=[0;32];let (size,peer)=target.recv_from(&mut bytes).await.unwrap();assert_eq!(&bytes[..size],b"one");target.send_to(b"one",peer).await.unwrap();let mut reply=[0;3];client.read_exact(&mut reply).await.unwrap();assert_eq!(&reply,b"one");
-        let original=proxy.inbound_owners.owner("vmess-in").unwrap();let original_id=original.identity();assert!(original.terminal().is_none());
+        let original=proxy.inbound_owners.owner("vmess-in").unwrap();let original_id=original.identity();let original_census = original.task_access().peer_registrar().retirement_observation().expect("same original Scope census"); assert!(!original_census.is_drained());assert!(original.terminal().is_none());
         { let mut byte=[0];let read=client.read(&mut byte);tokio::pin!(read);std::future::poll_fn(|cx| { assert!(std::future::Future::poll(read.as_mut(),cx).is_pending());Poll::Ready(()) }).await; }
         let next=TcpListener::bind("127.0.0.1:0").await.unwrap();let replacement=next.local_addr().unwrap();
         let mut candidate=(*proxy.engine().config()).clone();candidate.inbounds[0].listen.port=replacement.port();
         let handle=crate::ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()),proxy.clone());drop(next);
         handle.apply_runtime_config_and_wait(candidate,Duration::from_secs(5)).await.unwrap();
-        let closed=original.terminal().expect("same old owner must be confirmed before replacement ACK");assert!(closed.failure().is_none());assert!(closed.task_failures().is_empty());assert_eq!(closed.joined_tasks(),3 + usize::from(grpc));assert_eq!(closed.closed_io_receipts(),3,"original listener, accepted TLS carrier and Direct UDP native provider");
-        let current=proxy.inbound_owners.owner("vmess-in").unwrap();assert_ne!(current.identity(),original_id);assert!(current.is_running());
+        let closed=original.terminal().expect("same old owner must be confirmed before replacement ACK");assert!(closed.failure().is_none());assert!(closed.task_failures().is_empty());assert_eq!(closed.joined_tasks(),5 + usize::from(grpc)); assert!(original_census.is_drained());assert_eq!(closed.closed_io_receipts(),3,"original listener, accepted TLS carrier and Direct UDP native provider");
+        let current=proxy.inbound_owners.owner("vmess-in").unwrap();let current_census = current.task_access().peer_registrar().retirement_observation().expect("same original Scope census"); assert!(!current_census.is_drained());assert_ne!(current.identity(),original_id);assert!(current.is_running());
         let target_tcp=TcpListener::bind("127.0.0.1:0").await.unwrap();let tcp_address=target_tcp.local_addr().unwrap();
         let carrier=connect(&connector,replacement,grpc).await;
         let request=zero_core::Session::new(902,zero_core::Address::Domain("v1.mux.cool".into()),666,zero_core::Network::Tcp,zero_core::ProtocolType::new("client"));
@@ -87,7 +87,7 @@ async fn standard_sources_confirm_udp_originals_before_replacement_and_join_actu
         { let mut byte=[0];let read=mux.read(&mut byte);tokio::pin!(read);std::future::poll_fn(|cx| { assert!(std::future::Future::poll(read.as_mut(),cx).is_pending());Poll::Ready(()) }).await; }
         assert!(current.terminal().is_none());running.shutdown().await.unwrap();
         let closed=current.terminal().expect("same new source, no task marker or port probe");assert!(closed.failure().is_none());assert!(closed.task_failures().is_empty());
-        assert_eq!(closed.joined_tasks(),7 + usize::from(grpc),"source, original accepted task, actual MUX reader/writer, TCP logical task, UDP logical task and UDP driver");
+        assert_eq!(closed.joined_tasks(),9 + usize::from(grpc),"Source, original accepted task, MUX reader/writer, TCP/UDP logical tasks, UDP driver and two continuity registrations"); assert!(current_census.is_drained());
         assert_eq!(closed.closed_io_receipts(),4,"original listener, accepted TLS carrier, real TCP carrier and Direct UDP original provider");
         }
     }).await.unwrap();

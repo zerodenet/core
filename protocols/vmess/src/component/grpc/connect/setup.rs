@@ -74,12 +74,15 @@ impl Managed {
         operation: impl Future<Output = Result<Prepared, ChannelError>> + Send + 'static,
     ) -> Result<Prepared, ChannelError> {
         let (send, mut receive) = tokio::sync::oneshot::channel();
-        let (begin, started) = tokio::sync::oneshot::channel();
+        let (begin, started) = tokio::sync::oneshot::channel::<
+            zero_platform_tokio::contract::scope::TaskJoinWitness,
+        >();
         let stop = record.stop.clone();
+        let result_owner = preparation.clone();
         let (_, witness) = record.adoption.spawn_auxiliary(&self.tasks, async move {
-            if started.await.is_err() {
+            let Ok(caller) = started.await else {
                 return Ok(());
-            }
+            };
             let result = tokio::select! { biased;
                 _ = stop.cancelled() => {
                     let _ = send.send(Err(Arc::new(ChannelError::new(
@@ -97,6 +100,15 @@ impl Managed {
                 }
                 Err(source) => {
                     let source = Arc::new(source);
+                    if zero_platform_tokio::controlled_carrier::original_connect_error(&source)
+                        .is_some()
+                    {
+                        // This actual failed native attempt is the caller's
+                        // result. Retain the same Arc and original Aux before
+                        // its exit, so its later native/Scope cleanup cannot
+                        // reclassify a consumed candidate as a component fault.
+                        result_owner.retain_connect_rejection_result(&caller, source.clone())?;
+                    }
                     let _ = send.send(Err(source.clone()));
                     Err(ChannelError::retained(source))
                 }
@@ -106,7 +118,7 @@ impl Managed {
         if let Some(observer) = context.upstream.observed_pending_carrier() {
             preparation.bind_pending_observer(observer)?;
         }
-        let _ = begin.send(());
+        let _ = begin.send(witness.clone());
         let session = context.session_identity()?;
         let received = self
             .wait(context, Stage::Prepare, async {

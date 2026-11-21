@@ -68,6 +68,36 @@ pub fn wait_for_child_port(child: &mut Child, port: u16, output: &Path) {
     );
 }
 
+/// Observe the real startup after all configured Sources bind. Connecting to
+/// an early control listener can otherwise consume a still-unbound configured
+/// inbound port as the probe's ephemeral client port on Darwin.
+/// This is startup evidence only, never a task/native close receipt.
+pub fn wait_for_child_started(child: &mut Child, output: &Path) {
+    for _ in 0..120 {
+        if let Some(status) = child.try_wait().expect("inspect actual zero startup") {
+            panic!(
+                "zero exited before Source startup: {status}; output {}:\n{}",
+                output.display(),
+                fs::read_to_string(output).unwrap_or_default()
+            );
+        }
+        if fs::read_to_string(output)
+            .unwrap_or_default()
+            .contains("zero-proxy started")
+        {
+            return;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    let _ = child.kill();
+    let status = child.wait().expect("join zero after startup timeout");
+    panic!(
+        "Sources did not start in time; zero stopped: {status}; output {}:\n{}",
+        output.display(),
+        fs::read_to_string(output).unwrap_or_default()
+    );
+}
+
 pub fn http_get(port: u16, path: &str) -> String {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect status port");
     let request =

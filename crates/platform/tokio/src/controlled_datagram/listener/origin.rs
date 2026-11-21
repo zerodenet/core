@@ -35,6 +35,39 @@ impl ControlledDatagramListenerControl {
     }
 }
 impl DatagramListenerIdentity {
+    /// Wait only for this original's in-flight native operation. This is not a
+    /// close receipt: the retained owner must still inspect its actual result.
+    pub async fn wait_native_operation(&self, deadline: tokio::time::Instant) -> bool {
+        let Some(shared) = self.0.upgrade() else {
+            return false;
+        };
+        let original = Arc::downgrade(&shared.socket.entry);
+        let changed = shared.socket.entry.source_changed.clone();
+        drop(shared);
+        tokio::time::timeout_at(deadline, async {
+            loop {
+                let notified = changed.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                let Some(entry) = original.upgrade() else {
+                    return false;
+                };
+                let pending = entry
+                    .close_running
+                    .load(std::sync::atomic::Ordering::Acquire)
+                    || entry
+                        .creation_running
+                        .load(std::sync::atomic::Ordering::Acquire);
+                drop(entry);
+                if !pending {
+                    return true;
+                }
+                notified.await;
+            }
+        })
+        .await
+        .unwrap_or(false)
+    }
     pub fn provider(&self) -> Option<ListenerProviderRegistration> {
         self.0.upgrade()?.socket.entry.provider.get().cloned()
     }
@@ -50,3 +83,7 @@ impl ListenerProviderRegistration {
 #[cfg(test)]
 #[path = "../../../tests/controlled_datagram/listener_origin.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../tests/controlled_datagram/listener_native_close.rs"]
+mod native_close_tests;

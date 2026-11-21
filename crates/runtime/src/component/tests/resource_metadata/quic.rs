@@ -2,10 +2,7 @@
 //! The remote TLS peer is a real socket fixture, not a substitute protocol.
 use super::canonical::CanonicalMetadata;
 use super::*;
-use std::{
-    io,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::Notify;
 use zero_dns::DnsSystem;
 use zero_transport::quic::owned::{
@@ -242,13 +239,13 @@ async fn cancelling_actual_pending_doq_read_releases_users_without_faking_native
         );
         let partial = fixture.shutdown().await;
         assert!(!partial.is_complete());
-        assert_eq!(
-            retained.local_addr().unwrap_err().kind(),
-            io::ErrorKind::NotConnected
-        );
+        assert!(retained.local_addr().is_ok());
+        let native = fixture.resources().io_evidence();
+        assert_eq!(native.metadata[0].main.confirmed_closed, 0);
+        assert_eq!(native.metadata[0].unconfirmed_users(), Some(1));
         assert!(
             completion.try_owned_closed().is_none(),
-            "actual FD close is no users/view receipt"
+            "native retirement waits for the actual outstanding TX view"
         );
         drop(retained);
         let receipt = completion.try_owned_closed().unwrap();

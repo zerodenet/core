@@ -56,12 +56,32 @@ async fn standard_grpc_keeps_multiple_real_streams_in_the_original_h2_scope() {
             stream.flush().await.unwrap();
             client.read_exact(&mut payload).await.unwrap();
             assert_eq!(&payload, expected);
+            // Finish both actual logical halves before retiring their shared
+            // H2 Source. Dropping live halves sends resets instead of EOF.
+            client.shutdown().await.unwrap();
+            assert_eq!(stream.read(&mut [0; 1]).await.unwrap(), 0);
+            stream.shutdown().await.unwrap();
+            assert_eq!(client.read(&mut [0; 1]).await.unwrap(), 0);
             drop(stream);
         }
         drop(first);
         drop(second);
-        pool.retire();
+        // Request graceful H2 admission stop while its real client transport
+        // is still alive. Retain the exact original driver exit before native
+        // cancellation; Source exhaustion alone is not a driver join.
+        let original_caller = context
+            .accepted
+            .as_ref()
+            .unwrap()
+            .task_join_witness()
+            .unwrap();
         drop(source);
+        host.receive_original_task().await;
+        assert!(
+            !original_caller.is_joined(),
+            "the same original caller stays live while its H2 child drains"
+        );
+        pool.retire();
         host.close(2).await;
     })
     .await

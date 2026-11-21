@@ -11,7 +11,7 @@ async fn rejected_pre_admission_metadata_waits_actual_caller_join_without_poison
     let registry = Arc::new(InboundOwnerRegistry::default());
     let (stop, _) = watch::channel(false);
     let installed = registry
-        .install("metadata-source", &proxy.protocols, 2, stop)
+        .install("metadata-source", &proxy.protocols, 1, stop)
         .unwrap();
     let group = installed.child_tasks(NonZeroUsize::MIN).unwrap();
     let host = installed.tasks();

@@ -30,10 +30,7 @@ async fn ordinary_vmess_grpc_relay_native_root_dns_and_network_replacement_wait_
             .protocols
             .drive_component_supervision(async {
                 let open = |proxy: Proxy, identity| async move {
-                    let mut dispatch = UdpIngressRuntime::new(proxy.tcp_runtime_services())
-                        .new_dispatch("incoming")
-                        .await
-                        .unwrap();
+                    let mut dispatch = BoundDispatch::new(&proxy, "incoming").await.unwrap();
                     let mut packet = input(53, b"owned");
                     packet.client_session_id = Some(identity);
                     dispatch.dispatch(packet).await.unwrap();
@@ -104,11 +101,11 @@ async fn ordinary_vmess_grpc_relay_delegates_final_domain_to_prefix_and_preserve
         }).await;
         assert_standard_relay(&proxy);
         proxy.protocols.drive_component_supervision(async {
-            let mut dispatch=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch("incoming").await.unwrap();dispatch.dispatch(input(53,b"owned")).await.unwrap();assert_eq!(response(&mut dispatch).await.2.as_ref(),b"owned");
+            let mut dispatch=BoundDispatch::new(&proxy, "incoming").await.unwrap();dispatch.dispatch(input(53,b"owned")).await.unwrap();assert_eq!(response(&mut dispatch).await.2.as_ref(),b"owned");
             let target=prefix.request().await;assert_eq!(target.address,Address::Domain("final.relay.test".into()));
             dns.no_new_request();assert!(proxy.resolver.native_query_observations().is_empty(),"the final proxy name is resolved by the selected prefix, not by a root DNS escape");
             let registration=original(&proxy);let native=registration.observe().unwrap().slots()[0].original().clone();
-            let completed=dispatch.finish_all();assert_eq!(completed[0].upstream.as_ref().unwrap().0,"final.relay.test");
+            let completed=dispatch.finish_all().await;assert_eq!(completed[0].upstream.as_ref().unwrap().0,"final.relay.test");
             assert!(proxy.tcp_runtime_services().execution().retired_datagrams().progress_retired(Instant::now()+Duration::from_secs(3)).await.unwrap().is_complete());
             assert!(native.matches_closed(&native.closed().unwrap()));server.finish().await;proxy.protocols.shutdown_components(Instant::now()+Duration::from_secs(3)).await.unwrap();
         }).await;prefix.close().await;dns.close().await;

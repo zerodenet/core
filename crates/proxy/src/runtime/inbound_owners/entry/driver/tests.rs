@@ -123,14 +123,14 @@ async fn work_panic_closes_same_original_then_resumes_in_the_same_registered_tas
         let failures = owner.task_failures.lock().unwrap();
         let fault = &failures[owner.driver.get().unwrap()];
         assert_eq!(fault.class, TaskClass::Critical);
-        let original = fault
-            .source
-            .source()
-            .unwrap()
-            .source()
-            .unwrap()
-            .downcast_ref::<tokio::task::JoinError>()
-            .unwrap();
+        let mut source: Option<&(dyn Error + 'static)> = Some(fault.source.as_ref());
+        let original = loop {
+            let actual = source.expect("original native JoinError survives retained wrappers");
+            if let Some(join) = actual.downcast_ref::<tokio::task::JoinError>() {
+                break join;
+            }
+            source = actual.source();
+        };
         assert!(original.is_panic());
         assert_eq!(original.id(), native_id.lock().unwrap().unwrap());
     }

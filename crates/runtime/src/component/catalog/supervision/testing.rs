@@ -8,6 +8,19 @@ pub struct TestContext<'a> {
     originals: Arc<crate::original_budgets::HostOriginalBudgets>,
 }
 impl<'a> TestContext<'a> {
+    /// An explicit fixture host supplies its actual roots before any slot starts.
+    /// Reused slots retain the same original-root identity checks as production.
+    pub fn with_original_budgets(
+        slots: impl IntoIterator<Item = &'a ComponentSlot>,
+        originals: Arc<crate::HostOriginalBudgets>,
+    ) -> Self {
+        let slots: Vec<_> = slots.into_iter().collect();
+        for slot in &slots {
+            slot.bind_original_budgets(originals.clone());
+        }
+        Self::new(slots)
+    }
+
     pub fn new(slots: impl IntoIterator<Item = &'a ComponentSlot>) -> Self {
         let slots: Vec<_> = slots.into_iter().collect();
         let admission = slots

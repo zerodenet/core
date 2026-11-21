@@ -148,6 +148,14 @@ impl PrefixOpener {
             health.observe(&attempt);
         }
         let mut loan = attempt?;
+        #[cfg(feature = "udp-runtime")]
+        {
+            let observer = self.associations.clone();
+            loan.owner.observe_closed(Box::new(move || {
+                observer.record_close(crate::protocol_registry::UdpAssociationCloseKind::Closed);
+            }))?;
+            self.associations.record_created();
+        }
         loan.io.set_observer(self.observer.clone());
         if call.cancel.is_cancelled()
             || binding.network_generation.0 != self.network.network_generation()

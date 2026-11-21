@@ -40,6 +40,9 @@ async fn ordinary_named_and_builtin_direct_use_original_provider_with_halfclose_
             let decision=if named {RouteDecision::Route("named".into())}else{RouteDecision::Direct};
             let (resolved,_)=proxy.engine().resolve_route_decision(decision).unwrap();
             let ResolvedOutbound::Single(_leaf)=resolved.clone() else {unreachable!()};
+            assert!(services.invocation.is_none(), "metadata selection requires no fabricated request identity");
+            let original_provider = slot.original_carrier_owner(0).unwrap();
+            assert_eq!(original_provider.observe().unwrap().retained(), 0);
             for mode in [RouteMode::Auto,RouteMode::Flow,RouteMode::Translate] {
                 let selected=services.prepare_tcp_outbound(&resolved,mode).unwrap_or_else(|failure|panic!("{}: {}",failure.stage,failure.error));
                 let PreparedTcpOutbound::Single(selected)=selected else {unreachable!()};
@@ -47,6 +50,8 @@ async fn ordinary_named_and_builtin_direct_use_original_provider_with_halfclose_
                 assert_eq!(actual.instance(),slot.instance_id());
             }
             assert_eq!(services.prepare_tcp_outbound(&resolved,RouteMode::Packet).err().unwrap().stage,"data_plane_route");
+            assert_eq!(original_provider.observe().unwrap().retained(), 0,
+                "selecting actual role generations cannot acquire native I/O");
             if named {
                 let (group,_)=proxy.engine().resolve_route_decision(RouteDecision::Route("ordered".into())).unwrap();
                 let PreparedTcpOutbound::Fallback(selected)=services.prepare_tcp_outbound(&group,RouteMode::Flow)
@@ -119,25 +124,27 @@ async fn retired_direct_plan_never_rebinds_a_cached_candidate_to_a_new_owner() {
 #[tokio::test]
 async fn ordinary_direct_probe_retains_the_original_os_cause_without_a_raw_connector() {
     timeout(Duration::from_secs(10),async {
-        // Keep a real bound, non-listening native endpoint for deterministic
-        // refusal; it is never freed for another process to claim as a server.
-        let refusing=tokio::net::TcpSocket::new_v4().unwrap();
-        refusing.bind("127.0.0.1:0".parse().unwrap()).unwrap();
-        let endpoint=refusing.local_addr().unwrap();
+        // TCP cannot connect to broadcast. Compare the original controlled
+        // failure to the real native kernel cause on this platform.
+        let endpoint = "255.255.255.255:9";
+        let expected = TcpStream::connect(endpoint).await.unwrap_err();
+        assert!(expected.raw_os_error().is_some());
         let config=zero_config::RuntimeConfig::parse(r#"{"outbounds":[{"tag":"named","protocol":{"type":"direct"}}],"route":{"final":{"type":"direct"}}}"#).unwrap();
         let proxy=Proxy::new(config.clone()).unwrap();let running=proxy.spawn();
         ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()),proxy.clone())
             .apply_runtime_config_and_wait(config,Duration::from_secs(5)).await.unwrap();
-        let runtime=crate::runtime::outbound_probe::OutboundProbeRuntime::new(proxy.tcp_runtime_services());
-        let request=crate::runtime::outbound_probe::OutboundProbeRequest::parse(&format!("http://{endpoint}/actual")).unwrap();
-        let error=runtime.probe_target_tag("named",&request).await.expect_err("same actual controlled connect refusal");
+        // Use the public diagnostic entry so the same Host retains its real
+        // Probe caller and original controller through failure and cleanup.
+        let error=proxy.probe_outbound_single("named", &format!("http://{endpoint}/actual"))
+            .await.expect_err("same actual controlled connect rejection");
         let mut pending=vec![&error as &(dyn std::error::Error+'static)];let mut found=false;
         let mut inspected=0;
         while let Some(source)=pending.pop() {
             inspected+=1;assert!(inspected<128,"bounded original error chain");
             if let Some(channel)=source.downcast_ref::<zero_platform_tokio::contract::ChannelError>() {
                 if let Some(actual)=zero_platform_tokio::controlled_carrier::original_connect_error(channel) {
-                    assert_eq!(actual.error().kind(),std::io::ErrorKind::ConnectionRefused);
+                    assert_eq!(actual.error().kind(),expected.kind());
+                    assert_eq!(actual.error().raw_os_error(),expected.raw_os_error());
                     assert!(actual.error().raw_os_error().is_some());
                     assert_eq!(actual.stage(),"connect_socket");found=true;break;
                 }
@@ -149,7 +156,7 @@ async fn ordinary_direct_probe_retains_the_original_os_cause_without_a_raw_conne
             if let Some(next)=source.source() {pending.push(next);}
         }
         assert!(found,"diagnostics must preserve the actual native provider cause");
-        running.shutdown().await.unwrap();drop(refusing);
+        running.shutdown().await.unwrap();
     }).await.unwrap();
 }
 

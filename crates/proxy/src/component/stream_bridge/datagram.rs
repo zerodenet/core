@@ -25,6 +25,10 @@ struct Opener {
     datagram: NodeOpener,
 }
 impl UpstreamOpener for Opener {
+    fn has_tracked_business_caller(&self) -> bool {
+        self.control.has_tracked_business_caller()
+    }
+
     fn select_background_carrier_observed(
         &self,
         binding: Option<UpstreamBinding>,

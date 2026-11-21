@@ -4,6 +4,8 @@ use zero_platform_tokio::controlled_carrier::CarrierOriginOwner;
 #[path = "quic/fixture.rs"]
 mod fixture;
 use fixture::*;
+#[path = "quic/capacity.rs"]
+mod capacity;
 #[path = "quic/datagram.rs"]
 mod datagram;
 #[path = "quic/h3_returned.rs"]
@@ -61,7 +63,7 @@ async fn ordinary_quic_native_and_borrowed_doh_use_the_same_real_query_and_endpo
                 result=&mut second=>panic!("actual shared DoH stream failed before wire: {result:?}"),
             };
             let handle = crate::ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()), proxy.clone());
-            let mut target = (*proxy.engine().config()).clone(); target.runtime.native_stream_max_originals = Some(2);
+            let mut target = (*proxy.engine().config()).clone(); target.runtime.native_stream_max_originals = Some(if borrowed { 3 } else { 2 });
             assert!(handle.apply_runtime_config_and_wait(target.clone(), Duration::from_secs(5)).await.is_err(), "a budget replacement cannot cancel either actual pending DNS request");
             assert!(!actual.task.is_joined() && donor.closed().is_none());
             first.abort(); assert!(first.await.unwrap_err().is_cancelled()); drop(answer);

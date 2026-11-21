@@ -25,7 +25,12 @@ type SourceError = Arc<io::Error>;
 #[derive(Clone)]
 pub(in crate::inbound::tun) struct OwnedRoutes(zero_tun::packet_memory::PacketMetadataArc<Shared>);
 struct Shared {
-    proxy: Proxy,
+    // Keep only these same live controls and the original prepaid metadata
+    // authority. A retained route controller must not keep every Proxy pool alive.
+    engine: zero_engine::Engine,
+    egress_interface: zero_platform_tokio::EgressInterfaceControl,
+    tun_info: Arc<Mutex<Option<crate::runtime::TunInfo>>>,
+    route_memory: zero_tun::packet_memory::PacketDriverMetadataView,
     metadata: Arc<crate::inbound::tun::source::SystemTunSourceState>,
     native: Mutex<native::Native>,
     observed: Mutex<Observed>,

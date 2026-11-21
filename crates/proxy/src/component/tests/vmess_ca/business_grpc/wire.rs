@@ -76,8 +76,12 @@ async fn real_engine_host_file_and_same_vm_actor_preserve_two_fresh_business_tls
                 let demand=BusinessCarrierRequest::new(proxy.engine(),&slot,&invocation).unwrap();
                 let endpoint=Destination::new(Address::Ipv4([127,0,0,1]),peer.port());
                 let opener=Arc::new(NodeOpener::new(upstream.clone().with_observer(Some(observations.clone())),endpoint).with_business(demand));
-                let mut connected=host.drive(role.connect(ConnectRequest {destination:destination()},OpenContext {
-                    identity:invocation.identity.clone(),deadline:None,cancel:invocation.cancellation(),observer:Some(observations.clone()),upstream:UpstreamTransport::new(binding.clone(),opener.clone()),
+                let actual_role=role.clone();let actual_opener=opener.clone();
+                let actual_observations=observations.clone();let actual_binding=binding.clone();
+                let mut connected=host.drive(caller.run(move |invocation| async move {
+                    actual_role.connect(ConnectRequest {destination:destination()},OpenContext {
+                        identity:invocation.identity.clone(),deadline:None,cancel:invocation.cancellation(),observer:Some(actual_observations),upstream:UpstreamTransport::new(actual_binding,actual_opener),
+                    }).await
                 })).await.unwrap();
                 assert_eq!(connected.peer_confirmation,PeerConfirmation::Deferred);
                 assert!(opener.take_evidence().is_some());
@@ -96,7 +100,7 @@ async fn real_engine_host_file_and_same_vm_actor_preserve_two_fresh_business_tls
                 assert!(exit.result().is_ok());
                 {
                     assert!(!caller.witness().is_joined(), "transport exit is not caller completion");
-                    caller.join().await;
+                    host.drive(caller.join()).await;
                 }
                 assert!(actual.closed().is_none());
                 proxy.engine().track_session(session.id).finish(zero_engine::SessionOutcome::DirectRelayed).unwrap();

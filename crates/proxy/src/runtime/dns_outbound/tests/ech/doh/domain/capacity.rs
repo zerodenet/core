@@ -5,7 +5,7 @@ async fn two_actual_ech_slots_deliver_a_new_peer_while_the_old_query_remains_pen
     tokio::time::timeout(Duration::from_secs(20), async {
         let mut first = peer::Peer::cleartext().await;
         let mut second = peer::Peer::cleartext_at(std::net::SocketAddr::from((
-            [127, 0, 0, 2], first.endpoint.port(),
+            crate::socket_fixture::non_loopback_host_ipv4().octets(), first.endpoint.port(),
         ))).await;
         let mut node = crate::dns_fixture::Dns::new().await;
         let endpoint = format!("h2c://endpoint.ech.test:{}/dns-query", first.endpoint.port());
@@ -18,7 +18,7 @@ async fn two_actual_ech_slots_deliver_a_new_peer_while_the_old_query_remains_pen
         let proxy = Proxy::new(config.clone()).unwrap(); let running = proxy.spawn();
         let handle = crate::ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()), proxy.clone());
         handle.apply_runtime_config_and_wait(config, Duration::from_secs(3)).await.unwrap();
-        let addresses = [IpAddress::V4([127,0,0,1]), IpAddress::V4([127,0,0,2])];
+        let addresses = [IpAddress::V4([127,0,0,1]), IpAddress::V4(crate::socket_fixture::non_loopback_host_ipv4().octets())];
         let old = query_with_addresses(&proxy, &mut node, &endpoint, "warm.parallel.ech.test", &addresses, 1).await;
         assert_eq!(first.requests.recv().await.unwrap(), "warm.parallel.ech.test");
         let old_native = old.original.as_ref().unwrap();
@@ -38,7 +38,7 @@ async fn two_actual_ech_slots_deliver_a_new_peer_while_the_old_query_remains_pen
         loop {
             tokio::select! {
                 wire = second.requests.recv() => { assert_eq!(wire.unwrap(), "parallel.next.ech.test"); break; }
-                request = node.request() => request.answer_ips(false, false, &[IpAddress::V4([127,0,0,2])]),
+                request = node.request() => request.answer_ips(false, false, &[IpAddress::V4(crate::socket_fixture::non_loopback_host_ipv4().octets())]),
                 answer = &mut next, if response.is_none() => { response = Some(answer.unwrap().unwrap()); },
             }
         }

@@ -102,6 +102,10 @@ async fn cancelled_ack_keeps_the_actual_two_part_receipt_and_releases_apply_lock
         .shutdown(Instant::now() + Duration::from_millis(5))
         .await
         .is_err());
+    assert!(
+        owner.reopen_after_retirement().await.is_err(),
+        "original response-pump receipt is still missing"
+    );
     control.responses_stopped();
     owner
         .shutdown(Instant::now() + Duration::from_secs(2))
@@ -158,8 +162,8 @@ async fn full_receipt_scope_rejects_before_claiming_another_real_route() {
     assert!(owner
         .close(
             engine.clone(),
-            second_request,
-            serial,
+            second_request.clone(),
+            serial.clone(),
             Duration::from_millis(5)
         )
         .await
@@ -168,9 +172,32 @@ async fn full_receipt_scope_rejects_before_claiming_another_real_route() {
         !second_control.is_closed(),
         "stopped owner cannot reopen admission"
     );
+    owner.reopen_after_retirement().await.unwrap();
+    assert!(owner
+        .close(
+            engine.clone(),
+            second_request,
+            serial,
+            Duration::from_millis(5)
+        )
+        .await
+        .is_err());
+    assert_eq!(
+        owner.owner.lock().await.active,
+        1,
+        "same new Scope retains the real pending route receipt"
+    );
     drop(second);
     second_control.responses_stopped();
-    assert_eq!(closed(&engine), 1);
+    owner
+        .shutdown(Instant::now() + Duration::from_secs(2))
+        .await
+        .unwrap();
+    assert_eq!(
+        closed(&engine),
+        2,
+        "both actual route receipts arrived in their own admitted Scope generation"
+    );
 }
 
 #[tokio::test]

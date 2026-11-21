@@ -22,6 +22,7 @@ pub(in crate::component) struct Caller {
     registry: Arc<InboundOwnerRegistry>,
     registration: NativeRegistration,
     complete: Option<oneshot::Sender<()>>,
+    jobs: super::jobs::Sender,
     parent: Option<oneshot::Sender<()>>,
     pub(in crate::component) session: Session,
     pub(in crate::component) invocation: Invocation,
@@ -62,7 +63,8 @@ impl Caller {
                 Ok(())
             })
             .unwrap();
-        let (complete, completed) = oneshot::channel();
+        let (complete, mut completed) = oneshot::channel();
+        let (jobs, mut pending_jobs) = super::jobs::channel();
         let (send, receive) = oneshot::channel();
         let engine = proxy.engine().clone();
         let services = proxy.tcp_runtime_services().for_inbound("in".into());
@@ -91,9 +93,17 @@ impl Caller {
                     .execution()
                     .invocation
                     .unwrap();
-                send.send((session, invocation))
+                send.send((session, invocation.clone()))
                     .unwrap_or_else(|_| panic!("actual caller invocation receiver"));
-                completed.await.map_err(std::io::Error::other)?;
+                loop {
+                    tokio::select! {
+                        done = &mut completed => { done.map_err(std::io::Error::other)?; break; }
+                        job = pending_jobs.recv() => {
+                            let job = job.expect("original caller command sender");
+                            job(invocation.clone()).await;
+                        }
+                    }
+                }
                 Ok(())
             })
             .unwrap();
@@ -108,10 +118,19 @@ impl Caller {
             registry,
             registration,
             complete: Some(complete),
+            jobs,
             parent: Some(parent),
             session,
             invocation,
         }
+    }
+    pub(in crate::component) async fn run<F, Fut, T>(&self, job: F) -> T
+    where
+        F: FnOnce(Invocation) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = T> + Send + 'static,
+        T: Send + 'static,
+    {
+        self.jobs.run(job).await
     }
     pub(in crate::component) fn witness(&self) -> TaskJoinWitness {
         self.registration.caller_witness().unwrap()
@@ -147,4 +166,65 @@ impl Caller {
             "caller exit and transport exit alone cannot mint native closure"
         );
     }
+}
+
+#[tokio::test]
+async fn raw_udp_admission_keeps_the_actual_registered_caller_and_source_metadata() {
+    let proxy = Proxy::new(
+        zero_config::RuntimeConfig::parse(r#"{"route":{"final":{"type":"direct"}}}"#).unwrap(),
+    )
+    .unwrap();
+    let mut caller = Caller::new(&proxy).await;
+    let witness = caller.witness();
+    let actual = proxy.clone();
+    let session = caller
+        .run(move |invocation| async move {
+            let native = invocation.caller_native.unwrap();
+            let runtime =
+                crate::runtime::udp_ingress::UdpIngressRuntime::new(actual.tcp_runtime_services())
+                    .with_native(Some(native.clone()));
+            let mut session = Session::new(
+                0,
+                Address::Ipv4([203, 0, 113, 9]),
+                53,
+                Network::Udp,
+                ProtocolType::new("actual-raw-udp"),
+            );
+            let admission = runtime
+                .prepare_udp_session(&mut session, "in")
+                .await
+                .unwrap();
+            let runtime = runtime.with_admission(&session, admission).unwrap();
+            let execution = runtime
+                .runtime_services()
+                .datagram_execution("in", &session)
+                .unwrap();
+            let retained = execution
+                .invocation
+                .as_ref()
+                .unwrap()
+                .caller_native
+                .as_ref()
+                .unwrap();
+            assert!(retained.same_slot(&native));
+            let (memory, original) =
+                crate::component::stream_bridge::actual_protocol_caller(&execution)
+                    .unwrap()
+                    .unwrap();
+            assert!(original.same_registration(&witness));
+            assert!(memory.same_root(&native.protocol_metadata().unwrap()));
+            session
+        })
+        .await;
+    proxy
+        .engine()
+        .track_session(session.id)
+        .finish(zero_engine::SessionOutcome::Cancelled)
+        .unwrap();
+    proxy
+        .engine()
+        .track_session(caller.session.id)
+        .finish(zero_engine::SessionOutcome::Cancelled)
+        .unwrap();
+    caller.join().await;
 }

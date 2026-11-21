@@ -46,7 +46,10 @@ impl Session {
             tokio::select! {
                 writer = &mut writer => break writer,
                 _ = &mut space => {},
-                _ = self.life.cancelled() => return Err(io::Error::other("xhttp session closed")),
+                _ = self.life.cancelled() => {
+                    self.life.error()?;
+                    return Err(io::Error::other(SessionClosed));
+                },
             }
         };
         loop {
@@ -55,7 +58,7 @@ impl Session {
             space.as_mut().enable();
             self.life.error()?;
             if self.life.is_closed() {
-                return Err(io::Error::other("xhttp session closed"));
+                return Err(io::Error::other(SessionClosed));
             }
             {
                 let mut state = self.state.lock().unwrap();
@@ -86,7 +89,10 @@ impl Session {
             }
             tokio::select! {
                 _ = &mut space => {},
-                _ = self.life.cancelled() => return Err(io::Error::other("xhttp session closed")),
+                _ = self.life.cancelled() => {
+                    self.life.error()?;
+                    return Err(io::Error::other(SessionClosed));
+                },
             }
         }
     }

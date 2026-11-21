@@ -24,7 +24,7 @@ fn recipe() -> crate::runtime::raw_ip::EndpointStackRecipe {
         1420,
         0,
         endpoint,
-        Default::default(),
+        crate::runtime::raw_ip::test_memory::source(Default::default(), 1420),
     )
     .unwrap()
 }

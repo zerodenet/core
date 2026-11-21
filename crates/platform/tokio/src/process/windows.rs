@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 use std::mem::size_of;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 
 use windows_sys::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, NO_ERROR};
 use windows_sys::Win32::NetworkManagement::IpHelper::{

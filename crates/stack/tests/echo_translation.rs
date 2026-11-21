@@ -109,7 +109,24 @@ fn time_exceeded_and_mtu_errors_restore_the_quoted_request_for_both_families() {
             } else {
                 packet::build_icmp_time_exceeded_response(&probe, router, 576).unwrap()
             };
+            assert_eq!(
+                packet::packet_return_key(&error),
+                packet::packet_conversation_key(&probe),
+                "a validated quote retains the translated conversation and identifier"
+            );
+            let mut corrupt = error.clone();
+            *corrupt.last_mut().unwrap() ^= 1;
+            assert_ne!(
+                packet::packet_return_key(&corrupt),
+                packet::packet_conversation_key(&probe),
+                "a bad ICMP checksum cannot authorize the original conversation"
+            );
             let (_, restored) = adapter.response(&error, now).unwrap();
+            assert_eq!(
+                packet::packet_return_key(&restored),
+                packet::packet_conversation_key(&original),
+                "standard admission matches the original ingress after restoration"
+            );
             assert_eq!(packet::ip_destination(&restored), Some(source));
             assert_eq!(packet::ip_source(&restored), packet::ip_source(&error));
             let offset = if v6 { 40 } else { 20 };

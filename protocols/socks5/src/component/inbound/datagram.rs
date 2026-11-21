@@ -96,6 +96,7 @@ impl DatagramReply for Reply {
                     io: Some(Input {
                         tcp: io,
                         udp: grant.rx,
+                        caller: self.caller,
                         session,
                         cancel: cancel.clone(),
                         buffer: vec![0; 65536],
@@ -253,8 +254,17 @@ struct Input {
     buffer: alloc::vec::Vec<u8>,
     tcp: MeteredStream<BoxStream>,
     udp: ControlledDatagramListenerRx,
+    caller: AcceptedCaller,
     session: Arc<Mutex<Socks5InboundUdpAssociationSession>>,
     cancel: zero_platform_tokio::contract::CancellationToken,
+}
+impl Input {
+    fn retired_receive(&self, source: &std::io::Error) -> bool {
+        matches!(
+            source.kind(),
+            std::io::ErrorKind::ConnectionAborted | std::io::ErrorKind::NotConnected
+        ) && self.caller.check_open().is_err()
+    }
 }
 type PendingInput = BoxFuture<'static, (Input, Result<Option<InboundDatagramEvent>, ChannelError>)>;
 
@@ -276,9 +286,23 @@ impl DatagramRx<InboundDatagramEvent> for Rx {
                 loop {
                     tokio::select! { biased;
                         _ = io.cancel.cancelled() => return (io, Ok(None)),
-                        control = tokio::io::AsyncReadExt::read(&mut io.tcp, &mut probe) => { return (io, control.map(|_| None).map_err(|source| io_failure(Stage::Receive, source))); },
+                        control = tokio::io::AsyncReadExt::read(&mut io.tcp, &mut probe) => {
+                            // The original host can revoke this accepted TCP
+                            // before its logical Datagram control is cancelled.
+                            // End that view on actual accepted-entry retirement;
+                            // native controllers and joins remain with the host.
+                            let result = match control {
+                                Err(source) if io.retired_receive(&source) => Ok(None),
+                                result => result.map(|_| None).map_err(|source| io_failure(Stage::Receive, source)),
+                            };
+                            return (io, result);
+                        },
                         received = io.udp.recv_from_addr(&mut io.buffer) => {
-                            let (read, sender) = match received { Ok(packet) => packet, Err(source) => return (io, Err(io_failure(Stage::Receive, source))) };
+                            let (read, sender) = match received {
+                                Ok(packet) => packet,
+                                Err(source) if io.retired_receive(&source) => return (io, Ok(None)),
+                                Err(source) => return (io, Err(io_failure(Stage::Receive, source))),
+                            };
                             let event = io.session.lock().unwrap().decode_datagram_event(zero_platform_tokio::socket_addr_to_socket_address(sender), &io.buffer[..read]);
                             match event {
                                 Ok(Some(event)) => return (io, Ok(Some(event))),

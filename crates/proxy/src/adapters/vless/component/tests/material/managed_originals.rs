@@ -55,13 +55,25 @@ fn receiver(client: &Running, grpc: bool) -> TaskJoinWitness {
         .clone()
         .unwrap();
     let node = plan.configured("node").unwrap();
-    let mux = plan.component(node.recipe.spec().dependencies[0]).unwrap();
-    let owner = if grpc {
-        mux.dependency_instances().iter().filter_map(|id|plan.component(id.component))
-            .find(|slot|matches!(&slot.recipe.spec().owner,zero_platform_tokio::contract::component::ResourceOwner::Endpoint(name) if name.as_ref()=="grpc.client_pool")).unwrap()
-    } else {
-        mux
+    let owning_pool = |slot: &std::sync::Arc<crate::component::instance::ComponentSlot>| {
+        let owners = slot.dependency_instances().iter().filter_map(|id| {
+            let actual = plan.component(id.component)?;
+            assert_eq!(actual.instance_id(), *id);
+            (actual.recipe.spec().roles.is_empty()
+                && actual.recipe.spec().owner == zero_platform_tokio::contract::component::ResourceOwner::Component
+                && actual.recipe.spec().resources.iter().any(|resource| matches!(resource,
+                    zero_platform_tokio::contract::component::ResourceDeclaration::ControlledCarrierPool { datagram: false, .. })))
+                .then_some(actual)
+        }).collect::<Vec<_>>();
+        assert_eq!(
+            owners.len(),
+            1,
+            "one actual component-owned cached stream dependency"
+        );
+        owners[0].clone()
     };
+    let mux = owning_pool(&node);
+    let owner = if grpc { owning_pool(&mux) } else { mux };
     let registration = (0..owner.recipe.spec().resources.len())
         .find_map(|ordinal| owner.original_carrier_owner(ordinal))
         .unwrap();

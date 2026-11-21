@@ -6,6 +6,7 @@ use crate::{
 use std::sync::Arc;
 use tokio::time::Instant;
 use zero_core::component::NetworkGeneration;
+mod rejection;
 /// The persistent owner already holds the original native control. Dropping an
 /// unpolled or pending open retires the slot; it never drops the sole control.
 pub type CarrierStreamPreparation = Arc<
@@ -163,11 +164,15 @@ impl PreparedCarrier {
                 None => std::future::pending::<()>().await,
             }
         };
+        let peer = self.pending.selected_peer();
         let socket = tokio::select! {biased;
             _ = cancelled => return Err(error(self.slot.instance, Stage::Dial, Reason::Cancelled, DeliveryState::Unknown)),
             _ = revoked => return Err(error(self.slot.instance, Stage::Dial, Reason::Revoked, DeliveryState::Unknown)),
             _ = self.cancel.cancelled() => return Err(error(self.slot.instance, Stage::Dial, Reason::Cancelled, DeliveryState::Unknown)),
-            result = self.pending.connect(end) => result.map_err(|source|connect_error(self.slot.instance, source))?,
+            result = self.pending.connect(end) => match result {
+                Ok(socket) => socket,
+                Err(source) => return Err(rejection::reject_connect(&self.slot, peer, source, end).await),
+            },
         };
         if self.slot.cancel.is_cancelled()
             || self.cancel.is_cancelled()

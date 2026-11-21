@@ -82,6 +82,8 @@ impl PrefixOpener {
                 plan: self.plan.clone(),
                 health: self.health.clone(),
                 business: None,
+                #[cfg(feature = "udp-runtime")]
+                associations: self.associations.clone(),
             };
             Ok(UpstreamTransport::new(binding, Arc::new(selected)))
         })

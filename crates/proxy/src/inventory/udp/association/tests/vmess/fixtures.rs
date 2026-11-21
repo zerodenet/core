@@ -208,3 +208,51 @@ pub(super) fn assert_standard_datagram(proxy: &Proxy) {
         PreparedUdpOutbound::Single(PreparedUdpLeafCandidate::DatagramFlow(_))
     ));
 }
+
+/// Retain the actual installed native observations, never port availability or Drop.
+pub(super) fn capture_native_originals(
+    proxy: &Proxy,
+) -> Vec<zero_platform_tokio::controlled_carrier::CarrierOriginObservation> {
+    let plan = proxy.tcp_runtime_services().components.clone().unwrap();
+    let slot = plan.configured("node").unwrap();
+    let originals = (0..slot.recipe.spec().resources.len())
+        .filter_map(|ordinal| slot.original_carrier_owner(ordinal))
+        .flat_map(|owner| {
+            owner
+                .observe()
+                .unwrap()
+                .slots()
+                .iter()
+                .filter(|slot| slot.native().is_some())
+                .map(|slot| slot.original().clone())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    assert!(!originals.is_empty(), "the actual native wire was acquired");
+    originals
+}
+pub(super) async fn confirm_native_retirement(
+    proxy: &Proxy,
+    originals: &[zero_platform_tokio::controlled_carrier::CarrierOriginObservation],
+) {
+    // The original Source has joined and consumed its real response owner first.
+    for original in originals {
+        let closed = original
+            .closed()
+            .expect("same native controller's close receipt");
+        assert!(original.matches_closed(&closed) && closed.had_native_acquisition());
+    }
+    let report = proxy
+        .tcp_runtime_services()
+        .execution()
+        .retired_datagrams()
+        .wait_closed(Instant::now() + Duration::from_secs(3))
+        .await
+        .unwrap();
+    assert!(report.is_complete(), "{report:?}");
+    proxy
+        .protocols
+        .shutdown_components(Instant::now() + Duration::from_secs(3))
+        .await
+        .unwrap();
+}

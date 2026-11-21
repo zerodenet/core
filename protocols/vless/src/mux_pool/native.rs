@@ -320,7 +320,7 @@ pub(crate) fn reverse_datagram(
             }
         }
     }
-    let mut reserved = Reserved {
+    let reserved = Reserved {
         connection: connection.clone(),
         sid: Some(sid),
     };
@@ -333,6 +333,9 @@ pub(crate) fn reverse_datagram(
         },
     );
     async move {
+        // Move the whole guard into the future. Capturing only its sid field
+        // drops the outer guard and releases the real stream before admission.
+        let mut reserved = reserved;
         let writer = connection
             .native_udp_tx
             .writer_when_ready(encode_mux_end_frame(sid)?)

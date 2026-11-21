@@ -128,3 +128,107 @@ async fn direct_dependency_prefix_loan_requires_exact_actual_owner_binding_slot_
         }
     }).await.expect("same actual native and all driver/Scope cleanup");
 }
+
+#[tokio::test]
+async fn driverless_native_tcp_cannot_impersonate_a_transferred_accepted_source_dependency() {
+    timeout(Duration::from_secs(5), async {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let endpoint = destination(address);
+        let one = NonZeroUsize::MIN;
+        let host = Arc::new(CancellationToken::new());
+        let mut scope = TaskScope::new(tokio::runtime::Handle::current(), one);
+        let declaration = ResourceDeclaration::ControlledCarrierPool {
+            endpoint: endpoint.clone(),
+            dial: Default::default(),
+            datagram: false,
+            max_sockets: one,
+        };
+        let mut donor = CarrierOwner::new(instance(), one, &host);
+        donor
+            .registration()
+            .bind_declared(&declaration, &scope.registrar(), &host)
+            .unwrap();
+        donor.start(deadline()).await.unwrap();
+        let egress = Arc::new(crate::EgressInterfaceControl::default());
+        let binding = UpstreamBinding {
+            prefix: vec![],
+            dial: Default::default(),
+            network_generation: NetworkGeneration(egress.generation()),
+        };
+        let mut grant = donor.grants().reserve().unwrap();
+        let donor_original = grant.adoption();
+        let view = grant.claim_transferred_view().unwrap();
+        let io = NativeCarrierOpener::new(instance(), binding.clone(), address, egress, None)
+            .unwrap()
+            .prepare_controlled_stream(&binding, endpoint.clone(), context(), grant)
+            .unwrap()
+            .open(deadline())
+            .await
+            .unwrap()
+            .into_parts()
+            .0;
+        let (mut peer, _) = listener.accept().await.unwrap();
+        let mut loan = io.into_stream_loan(view).unwrap();
+        assert!(
+            loan.owner.original().driver().is_none() && loan.owner.original().parent().is_none()
+        );
+        let mut receiver = CarrierOwner::new(
+            ComponentInstanceId {
+                component: ComponentId(773),
+                ..instance()
+            },
+            one,
+            &host,
+        );
+        receiver
+            .registration()
+            .bind_declared(&declaration, &scope.registrar(), &host)
+            .unwrap();
+        receiver.start(deadline()).await.unwrap();
+        let mut grant = receiver.grants().reserve().unwrap();
+        let original = grant.adoption();
+        let view = grant.claim_transferred_view().unwrap();
+        let issuer = receiver
+            .registration()
+            .bound()
+            .unwrap()
+            .dependency_stream_loan_issuer(
+                &host,
+                &grant,
+                &donor.registration(),
+                &endpoint,
+                &binding,
+            )
+            .unwrap();
+        let observation = loan.receiver_observation();
+        let error = match grant.adopt_dependency_stream_loan(
+            &binding,
+            endpoint,
+            &context(),
+            loan,
+            issuer,
+        ) {
+            Ok(_) => panic!(
+                "a raw native socket has neither its real driver nor an accepted Source parent"
+            ),
+            Err(error) => error,
+        };
+        assert_eq!(error.reason, crate::contract::Reason::StalePlan);
+        assert!(observation.retained().unwrap().retains(&donor_original));
+        assert!(original.closed().is_none() && donor_original.closed().is_none());
+        drop(view);
+        assert!(original.retire(deadline()).await.unwrap().is_complete());
+        assert!(donor_original.closed().unwrap().matches(&donor_original));
+        assert!(donor_original
+            .users_closed()
+            .unwrap()
+            .matches(&donor_original));
+        assert_eq!(peer.read(&mut [0; 1]).await.unwrap(), 0);
+        assert!(receiver.shutdown(deadline()).await.unwrap().is_complete());
+        assert!(donor.shutdown(deadline()).await.unwrap().is_complete());
+        assert!(scope.shutdown(deadline()).await.is_complete());
+    })
+    .await
+    .unwrap();
+}

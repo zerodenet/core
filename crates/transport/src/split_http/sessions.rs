@@ -15,6 +15,14 @@ pub(in crate::split_http) use maintenance::Source;
 #[cfg(test)]
 const MAX_POSTS: usize = 30;
 const MAX_BYTES: usize = 16 * 1024 * 1024;
+#[derive(Debug)]
+pub(super) struct SessionClosed;
+impl std::fmt::Display for SessionClosed {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        output.write_str("xhttp session closed")
+    }
+}
+impl std::error::Error for SessionClosed {}
 pub(super) struct Queued {
     pub(super) data: Bytes,
     _budget: OwnedSemaphorePermit,

@@ -60,11 +60,12 @@ async fn tcp_plugin_outer_uses_actual_udp_owner_without_starting_or_fabricating_
         assert_eq!(size, 148);
         assert_eq!(&packet[..4], &[1, 0, 0, 0]);
         let old = devices(&proxy).remove(0);
+        let old_workers = worker_census(&old);
         handle(&proxy)
             .apply_runtime_config_and_wait(changed(candidate), Duration::from_secs(5))
             .await
             .unwrap();
-        joined(&old);
+        joined(&old, &old_workers);
         running.shutdown().await.unwrap();
         while peer.try_recv_from(&mut packet).is_ok() {}
     }

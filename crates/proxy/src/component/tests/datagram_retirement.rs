@@ -40,6 +40,23 @@ async fn reservation_bounds_active_and_retiring_and_drop_cannot_claim_native_udp
         .close()
         .unwrap();
     assert_eq!(owner.reserve().err().unwrap().reason, Reason::Revoked);
+    owner.reopen_after_retirement().unwrap();
+    let next = owner.reserve().unwrap();
+    let socket = TokioDatagramSocket::bind("127.0.0.1:0").await.unwrap();
+    let mut channel = socket.into_fixed_datagram_session(
+        AssociationId(32),
+        peer.local_addr().unwrap(),
+        CancellationToken::new(),
+    );
+    channel.control = next.adopt(channel.control);
+    drop(channel.control);
+    let closed = owner.wait_closed(deadline()).await.unwrap();
+    assert!(closed.is_complete());
+    assert_eq!(
+        closed.closed_io.len(),
+        1,
+        "actual second original provider close after reopening"
+    );
 }
 #[tokio::test]
 async fn unadopted_open_stays_unfinished_until_its_actual_reservation_is_released() {
@@ -55,6 +72,10 @@ async fn unadopted_open_stays_unfinished_until_its_actual_reservation_is_release
         .unwrap();
     assert!(!report.is_complete());
     assert!(report.closed_io.is_empty());
+    assert!(
+        owner.reopen_after_retirement().is_err(),
+        "actual reserved original still blocks reopening"
+    );
     drop(opening);
     assert!(owner.wait_closed(deadline()).await.unwrap().is_complete());
 }

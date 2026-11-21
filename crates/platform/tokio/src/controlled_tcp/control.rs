@@ -57,6 +57,13 @@ impl ControlledTcpCloseObserver {
         })
     }
 }
+#[cfg_attr(
+    windows,
+    expect(
+        clippy::large_enum_variant,
+        reason = "keep the original Windows socket and close custody inline without an unmetered allocation during failure cleanup"
+    )
+)]
 enum CloseAction<'a> {
     Closed,
     Unfinished,
@@ -193,6 +200,28 @@ impl ChannelControl for ControlledTcpControl {
         self.shared.cancel.cancel();
     }
     async fn wait_closed(&mut self, deadline: Instant) -> Result<CloseReport, ChannelError> {
+        if !self.close_without_receipt(deadline).await? {
+            return Ok(CloseReport {
+                unfinished: vec![Unfinished::Io(self.shared.label.clone())],
+                ..Default::default()
+            });
+        }
+        let mut report = CloseReport::default();
+        if !self.reported {
+            report.closed_io.push(self.shared.label.clone());
+            self.reported = true;
+        }
+        Ok(report)
+    }
+}
+impl ControlledTcpControl {
+    /// Drive this same native original without consuming its close report.
+    /// Failed connect preparation can prove non-submission while its retained
+    /// owner still owes the original report, user return and Scope joins.
+    pub(crate) async fn close_without_receipt(
+        &mut self,
+        deadline: Instant,
+    ) -> Result<bool, ChannelError> {
         self.cancel(CloseReason::Shutdown);
         loop {
             match self.shared.close_action(deadline) {
@@ -200,19 +229,9 @@ impl ChannelControl for ControlledTcpControl {
                     if let Some(fault) = self.shared.unreceived_close_fault() {
                         return Err(fault);
                     }
-                    let mut report = CloseReport::default();
-                    if !self.reported {
-                        report.closed_io.push(self.shared.label.clone());
-                        self.reported = true;
-                    }
-                    return Ok(report);
+                    return Ok(true);
                 }
-                CloseAction::Unfinished => {
-                    return Ok(CloseReport {
-                        unfinished: vec![Unfinished::Io(self.shared.label.clone())],
-                        ..Default::default()
-                    })
-                }
+                CloseAction::Unfinished => return Ok(false),
                 CloseAction::Fault(source) => {
                     return Err(self.shared.close_fault(source));
                 }

@@ -39,9 +39,9 @@ fn returns_none_when_every_physical_default_route_is_unusable() {
 }
 
 fn default_route(interface_index: u32, metric: u32) -> MIB_IPFORWARD_ROW2 {
-    let mut route = MIB_IPFORWARD_ROW2::default();
-    route.InterfaceIndex = interface_index;
-    route.DestinationPrefix.PrefixLength = 0;
-    route.Metric = metric;
-    route
+    MIB_IPFORWARD_ROW2 {
+        InterfaceIndex: interface_index,
+        Metric: metric,
+        ..Default::default()
+    }
 }

@@ -41,6 +41,9 @@ async fn source_relative_tcp_preparation_reuses_the_actual_authenticated_pool() 
                 assert_eq!(&bytes,b"ping");
                 stream.write_all(&bytes).await.unwrap();
                 stream.shutdown().await.unwrap();
+                // Keep the real receive half until the client FIN arrives.
+                // Dropping it earlier sends STOP_SENDING and races shutdown.
+                assert_eq!(stream.read(&mut [0; 1]).await.unwrap(), 0);
             }
             wait_done.await.unwrap();
             connection.close("test complete");

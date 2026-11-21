@@ -34,23 +34,14 @@ pub(crate) async fn setup(count: usize) -> (Proxy, Session, TcpRuntimeServices, 
         .protocols
         .commit_components(&config, || Ok(()))
         .unwrap();
-    let mut session = Session::new(
+    let session = Session::new(
         0,
         Address::Ipv4([203, 0, 113, 9]),
         443,
         Network::Tcp,
         ProtocolType::new("test"),
     );
-    proxy
-        .engine()
-        .prepare_session(&mut session, "incoming")
-        .unwrap();
-    assert_ne!(session.id, 0);
-    let services = proxy
-        .tcp_runtime_services()
-        .for_inbound("incoming".into())
-        .with_business_identity(&session)
-        .unwrap();
+    let services = proxy.tcp_runtime_services();
     (proxy, session, services, listeners)
 }
 

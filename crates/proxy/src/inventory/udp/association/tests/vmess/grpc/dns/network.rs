@@ -11,13 +11,16 @@ async fn ordinary_vmess_grpc_domain_network_replaces_pending_dns_and_blocks_new_
         let old = {
             let proxy = proxy.clone();
             tokio::spawn(async move {
-                let mut dispatch = UdpIngressRuntime::new(proxy.tcp_runtime_services())
-                    .new_dispatch("old")
-                    .await
-                    .unwrap();
-                let result = dispatch.dispatch(input(53, b"owned")).await;
-                assert!(result.is_err());
-                dispatch.finish_all();
+                crate::runtime::udp_ingress::test_source::run(
+                    &proxy,
+                    move |_proxy, source| async move {
+                        let mut dispatch = source.new_dispatch("old").await.unwrap();
+                        let result = dispatch.dispatch(input(53, b"owned")).await;
+                        assert!(result.is_err());
+                        dispatch.finish_all();
+                    },
+                )
+                .await;
             })
         };
         let old_request = dns.request().await;
@@ -44,9 +47,7 @@ async fn ordinary_vmess_grpc_domain_network_replaces_pending_dns_and_blocks_new_
         let observed = registration.observe().unwrap();
         let native = observed.slots()[0].original().clone();
         proxy.egress_interface_control().invalidate_network();
-        let mut packet = input(53, b"owned");
-        packet.client_session_id = Some(3);
-        assert!(dispatch.dispatch(packet).await.is_err());
+        assert!(dispatch.send(3, b"owned").await.is_err());
         dns.no_new_request();
         assert!(native.closed().is_none());
         retire(&proxy, dispatch).await;

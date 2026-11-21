@@ -41,6 +41,7 @@ async fn native_peer_routes_tcp_udp_and_replaces_only_after_original_scope_and_i
         drop(reserved);
         let running = proxy.spawn();
         let owner = original(&proxy).await;
+let original_census = owner.task_access().peer_registrar().retirement_observation().expect("same original Scope census"); assert!(!original_census.is_drained());
         let connection = client(endpoint, USER, PASSWORD).await;
         let mut stalled = connection.open().await.unwrap();
         stalled.write_all(&[5]).await.unwrap(); stage("stalled logical flush", stalled.flush()).await.unwrap();
@@ -66,7 +67,7 @@ async fn native_peer_routes_tcp_udp_and_replaces_only_after_original_scope_and_i
         handle.apply_runtime_config_and_wait(candidate, Duration::from_secs(5)).await.unwrap();
         let closed = owner.terminal().expect("old original peer closure precedes replacement ACK");
         assert!(closed.failure().is_none()); assert!(closed.task_failures().is_empty());
-        assert_eq!(closed.joined_tasks(), 7, "one source, real peer, physical driver, three logical tasks and original UDP response driver");
+        assert_eq!(closed.joined_tasks(), 9, "Source, real peer, physical driver, three logical tasks, original UDP response driver and two continuity registrations"); assert!(original_census.is_drained());
         assert_eq!(closed.closed_io_receipts(), 3, "original UDP listener, TCP carrier, UDP egress; no invented accepted TCP original");
         assert_eq!(target.read(&mut bytes).await.unwrap(), 0);
         let current = original(&proxy).await; assert_ne!(current.identity(), owner.identity());

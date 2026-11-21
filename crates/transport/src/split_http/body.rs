@@ -31,6 +31,15 @@ pub(super) fn spawn(
     caller: Option<&Caller>,
     work: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> io::Result<Task> {
+    spawn_result(caller, async move {
+        work.await;
+        Ok(())
+    })
+}
+pub(super) fn spawn_result(
+    caller: Option<&Caller>,
+    work: impl std::future::Future<Output = io::Result<()>> + Send + 'static,
+) -> io::Result<Task> {
     match caller {
         None => Ok(Task::Legacy(tokio::spawn(work).abort_handle())),
         Some(caller) => {
@@ -41,8 +50,16 @@ pub(super) fn spawn(
                 .spawn(
                     zero_platform_tokio::contract::lifecycle::TaskClass::Auxiliary,
                     move |_| async move {
-                        tokio::select! {biased;_=stopped.cancelled()=>{},_=work=>{}}
-                        Ok(())
+                        tokio::select! {biased;
+                            _=stopped.cancelled()=>Ok(()),
+                            result=work=>result.map_err(|source| {
+                                zero_platform_tokio::contract::ChannelError::new(
+                                    zero_platform_tokio::contract::Stage::Receive,
+                                    zero_platform_tokio::contract::Reason::Io,
+                                    zero_platform_tokio::contract::Impact::Session,
+                                ).with_source(source)
+                            }),
+                        }
                     },
                 )
                 .map_err(io::Error::other)?;
@@ -105,8 +122,12 @@ impl hyper::body::Body for Body {
 }
 impl Drop for Body {
     fn drop(&mut self) {
-        if let Some(task) = &self.task {
-            task.abort();
+        // Natural response EOF can precede the same worker's request-body
+        // drain. Its original caller Scope still owns that actual task/join.
+        if !(self.receiver.is_closed() && self.receiver.is_empty()) {
+            if let Some(task) = &self.task {
+                task.abort();
+            }
         }
         if let Some(life) = &self.life {
             tracing::debug!(state = ?life.as_ptr(), "XHTTP response ownership ended");

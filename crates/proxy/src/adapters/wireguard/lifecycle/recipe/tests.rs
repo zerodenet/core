@@ -20,6 +20,25 @@ fn inputs(endpoint: &str) -> (OutboundConfig, InboundConfig) {
     .unwrap();
     (outbound, inbound)
 }
+// Software-only packet Source memory; no listener/device IO or close claim.
+fn software_options(adapter: &WireguardAdapter) -> RawIpStackOptions {
+    RawIpStackOptions::from_config_with_packet_root(
+        &Default::default(),
+        adapter
+            .packet_return_totals
+            .get_or_init(Default::default)
+            .clone(),
+    )
+    .with_packet_wire_memory(zero_stack::packet_output::memory::PacketWireMemory::Native)
+}
+fn software_source(adapter: &WireguardAdapter) -> zero_tun::packet_memory::NativeReadGrant {
+    adapter
+        .packet_return_totals
+        .get()
+        .expect("original software Source root")
+        .native_grant(1420)
+        .unwrap()
+}
 fn recipe(adapter: &WireguardAdapter, endpoint: &str, generation: u64) -> LinkedEndpointRecipe {
     let (outbound, inbound) = inputs(endpoint);
     let plan = Arc::new(WireguardRawIpPlan::from_protocol(&outbound.protocol).unwrap());
@@ -33,7 +52,7 @@ fn recipe(adapter: &WireguardAdapter, endpoint: &str, generation: u64) -> Linked
             outer: None,
             identity,
             network_generation: NetworkGeneration(generation),
-            stacks: vec![Default::default()],
+            stacks: vec![software_options(adapter)],
             dependencies: Vec::new(),
         },
     )
@@ -60,6 +79,18 @@ fn install(adapter: &WireguardAdapter, recipe: &LinkedEndpointRecipe) -> Pending
     .unwrap()
 }
 #[test]
+fn cold_recipe_does_not_retain_its_original_candidate_map() {
+    assert!(tokio::runtime::Handle::try_current().is_err());
+    let adapter = WireguardAdapter::default();
+    let map = Arc::downgrade(&adapter.pending_endpoints);
+    let retained = recipe(&adapter, "127.0.0.1:51821", 0);
+    drop(adapter);
+    assert!(map.upgrade().is_none());
+    assert!(retained.check_staged().is_err());
+    assert!(!retained.pending().needs_cleanup());
+}
+
+#[test]
 fn linked_recipe_is_cold_and_preserves_actual_crypto_seed_across_port_move() {
     assert!(tokio::runtime::Handle::try_current().is_err());
     let adapter = WireguardAdapter::default();
@@ -80,7 +111,7 @@ fn linked_recipe_is_cold_and_preserves_actual_crypto_seed_across_port_move() {
             outer: None,
             identity: first.identity,
             network_generation: NetworkGeneration(egress.generation()),
-            stacks: vec![Default::default()],
+            stacks: vec![software_options(&adapter)],
             dependencies: Vec::new(),
         },
     )
@@ -102,8 +133,14 @@ async fn actual_candidate_must_be_installed_before_build_and_cannot_revive_retir
     );
     scope.enable_registration().unwrap();
     let registrar = scope.registrar();
+    let source = software_source(&adapter);
     assert!(uninstalled
-        .start(&upstream, &registrar, request)
+        .start(
+            &upstream,
+            &registrar,
+            request,
+            source.memory_view().unwrap()
+        )
         .await
         .is_err());
     let recipe = recipe(&adapter, "127.0.0.1:51821", upstream.egress_generation());
@@ -111,7 +148,15 @@ async fn actual_candidate_must_be_installed_before_build_and_cannot_revive_retir
     let live = pending.live();
     let guard = install(&adapter, &recipe);
     let request = demand(&recipe);
-    let link = recipe.start(&upstream, &registrar, request).await.unwrap();
+    let link = recipe
+        .start(
+            &upstream,
+            &registrar,
+            request,
+            source.memory_view().unwrap(),
+        )
+        .await
+        .unwrap();
     assert!(Arc::ptr_eq(&link.live, &live));
     assert!(Arc::ptr_eq(&pending.ready().unwrap(), &link));
     let device = link.state.lock().unwrap().devices[0].clone();
@@ -179,7 +224,13 @@ async fn pending_dns_cancel(cancel_caller: bool) {
     );
     scope.enable_registration().unwrap();
     let registrar = scope.registrar();
-    let mut starting = Box::pin(recipe.start(&upstream, &registrar, request));
+    let source = software_source(&adapter);
+    let mut starting = Box::pin(recipe.start(
+        &upstream,
+        &registrar,
+        request,
+        source.memory_view().unwrap(),
+    ));
     let mut query = [0; 512];
     tokio::select! {
         received = peer.recv_from(&mut query) => { assert!(received.unwrap().0 >= 12); },

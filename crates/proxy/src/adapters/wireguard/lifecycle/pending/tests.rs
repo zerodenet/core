@@ -98,7 +98,7 @@ async fn same_candidate_consumes_real_stack_reports_without_a_native_slot_placeh
         1420,
         0,
         endpoint,
-        Default::default(),
+        crate::runtime::raw_ip::test_memory::source(Default::default(), 1420),
     )
     .unwrap();
     let stack = pending.peer_stack(0).unwrap();
@@ -182,7 +182,7 @@ async fn owned_candidate_cannot_install_an_unrelated_legacy_stack_as_its_origina
         1420,
         0,
         endpoint,
-        Default::default(),
+        crate::runtime::raw_ip::test_memory::source(Default::default(), 1420),
     )
     .unwrap();
     let device = other.start(recipe).unwrap();

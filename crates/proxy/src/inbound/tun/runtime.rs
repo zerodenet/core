@@ -1,43 +1,18 @@
-//! Shared TUN TCP DNS behavior; production Source tasks use the original host.
+//! TUN TCP DNS runs in the original Source host and retains each DNS call.
+#[cfg(feature = "raw-ip-runtime")]
 use std::{io, sync::Arc};
+#[cfg(feature = "raw-ip-runtime")]
 use zero_stack::UserTcpStream;
-#[cfg(test)]
-pub(super) const MAX_CONCURRENT_DNS_CONNECTIONS: usize = 256;
 #[cfg(test)]
 #[path = "runtime/tests/stack_fixture.rs"]
 mod stack_fixture;
 
-#[cfg(test)]
-pub(crate) async fn serve_dns_tcp(
-    resolver: Arc<zero_dns::DnsSystem>,
-    stream: UserTcpStream,
-) -> io::Result<()> {
-    serve_dns_tcp_inner(
-        resolver,
-        stream,
-        #[cfg(feature = "raw-ip-runtime")]
-        None,
-    )
-    .await
-}
-
 #[cfg(feature = "raw-ip-runtime")]
 pub(crate) async fn serve_dns_tcp_owned(
     resolver: Arc<zero_dns::DnsSystem>,
-    stream: UserTcpStream,
+    mut stream: UserTcpStream,
     native: crate::runtime::inbound_operation::raw_ip::native_obligations::NativeObligations,
     caller: zero_platform_tokio::contract::scope::TaskJoinWitness,
-) -> io::Result<()> {
-    serve_dns_tcp_inner(resolver, stream, Some((native, caller))).await
-}
-
-async fn serve_dns_tcp_inner(
-    resolver: Arc<zero_dns::DnsSystem>,
-    mut stream: UserTcpStream,
-    #[cfg(feature = "raw-ip-runtime")] owned: Option<(
-        crate::runtime::inbound_operation::raw_ip::native_obligations::NativeObligations,
-        zero_platform_tokio::contract::scope::TaskJoinWitness,
-    )>,
 ) -> io::Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -58,41 +33,32 @@ async fn serve_dns_tcp_inner(
         let mut query = resolver.prepare_wire_input(length)?;
         stream.read_exact(query.as_mut_slice()).await?;
         let (call, work) = resolver.prepare_tcp_query(&query);
-        #[cfg(feature = "raw-ip-runtime")]
         let mut at_capacity = false;
-        #[cfg(feature = "raw-ip-runtime")]
-        let _original = match &owned {
-            Some((owner, caller)) => {
-                match owner.reserve_reclaimed(
-                    crate::runtime::inbound_operation::raw_ip::native_obligations::ChildKind::Dns,
-                    tokio::time::Instant::now() + std::time::Duration::from_secs(5),
-                ).await {
-                    Ok(mut original) => {
-                        original.bind_dns_call(call,
-                            crate::runtime::inbound_operation::raw_ip::native_obligations::DnsSourceCaller::TcpConnection(caller.clone()),
-                        ).map_err(io::Error::other)?;
-                        Some(original)
-                    }
-                    Err(source) if crate::runtime::raw_ip::tasks::capacity::before_work(&source) => {
-                        at_capacity = true;
-                        None
-                    }
-                    Err(source) => return Err(io::Error::other(source)),
-                }
+        let _original = match native
+            .reserve_reclaimed(
+                crate::runtime::inbound_operation::raw_ip::native_obligations::ChildKind::Dns,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+            )
+            .await
+        {
+            Ok(mut original) => {
+                original.bind_dns_call(call,
+                    crate::runtime::inbound_operation::raw_ip::native_obligations::DnsSourceCaller::TcpConnection(caller.clone()),
+                ).map_err(io::Error::other)?;
+                Some(original)
             }
-            None => None, // Explicit stack library/test executor only.
+            Err(source) if crate::runtime::raw_ip::tasks::capacity::before_work(&source) => {
+                at_capacity = true;
+                None
+            }
+            Err(source) => return Err(io::Error::other(source)),
         };
-        #[cfg(not(feature = "raw-ip-runtime"))]
-        let _ = call;
-        #[cfg(feature = "raw-ip-runtime")]
         let response = if at_capacity {
             drop(work); // This exact answer future was never polled/submitted.
             resolver.busy_response(&query)?
         } else {
             work.await?
         };
-        #[cfg(not(feature = "raw-ip-runtime"))]
-        let response = work.await?;
         let response_length: u16 = response.len().try_into().map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidData,

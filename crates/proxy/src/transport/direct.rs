@@ -546,7 +546,16 @@ impl DirectConnector {
     ) -> Result<SocketAddr, Error> {
         match address {
             Address::Domain(domain) => {
-                resolve_node_host_addresses(domain, port, resolver, error_message).await
+                // Keep the native DNS operation's state out of every caller's
+                // poll frame, including literal endpoint preparation. It still
+                // runs under the same caller, deadline and allocation view.
+                Box::pin(resolve_node_host_addresses(
+                    domain,
+                    port,
+                    resolver,
+                    error_message,
+                ))
+                .await
             }
             Address::Ipv4(bytes) => Ok(vec![SocketAddr::new(
                 IpAddr::V4(Ipv4Addr::from(*bytes)),

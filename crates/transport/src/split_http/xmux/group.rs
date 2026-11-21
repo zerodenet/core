@@ -7,6 +7,7 @@ pub(super) struct Group {
     owner: Option<OwnerKey>,
     usage: AtomicUsize,
     responses: AtomicUsize,
+    streaming_responses: AtomicUsize,
     remaining_uses: AtomicI64,
     remaining_requests: AtomicI64,
     expires: Option<Instant>,
@@ -25,6 +26,7 @@ impl Group {
             owner,
             usage: AtomicUsize::new(0),
             responses: AtomicUsize::new(0),
+            streaming_responses: AtomicUsize::new(0),
             remaining_uses: AtomicI64::new(if uses == 0 { -1 } else { uses as i64 }),
             remaining_requests: AtomicI64::new(if requests == 0 {
                 i64::MAX
@@ -65,6 +67,9 @@ impl Group {
     }
     pub(super) fn has_responses(&self) -> bool {
         self.responses.load(Ordering::Acquire) != 0
+    }
+    pub(super) fn has_only_finite_responses(&self) -> bool {
+        self.has_responses() && self.streaming_responses.load(Ordering::Acquire) == 0
     }
     pub(super) fn active(&self) -> usize {
         self.usage.load(Ordering::Acquire)
@@ -112,17 +117,29 @@ impl Drop for Usage {
 
 // A real HTTP body pins its own original even after request/age rotation moves
 // a logical Usage to another group. This is not a second logical concurrency.
-pub(super) struct ResponseUse(GroupRef);
+pub(super) struct ResponseUse {
+    group: GroupRef,
+    streaming: bool,
+}
 impl ResponseUse {
-    pub fn new(group: GroupRef) -> Self {
+    pub fn new(group: GroupRef, streaming: bool) -> Self {
+        if streaming {
+            group.streaming_responses.fetch_add(1, Ordering::AcqRel);
+        }
         group.responses.fetch_add(1, Ordering::AcqRel);
-        Self(group)
+        Self { group, streaming }
     }
 }
 impl Drop for ResponseUse {
     fn drop(&mut self) {
-        if self.0.responses.fetch_sub(1, Ordering::AcqRel) == 1 && self.0.active() == 0 {
-            *self.0.idle_since.lock().unwrap() = Instant::now();
+        if self.group.responses.fetch_sub(1, Ordering::AcqRel) == 1 && self.group.active() == 0 {
+            *self.group.idle_since.lock().unwrap() = Instant::now();
         }
+        if self.streaming {
+            self.group
+                .streaming_responses
+                .fetch_sub(1, Ordering::AcqRel);
+        }
+        self.group.connections.changed.notify_waiters();
     }
 }

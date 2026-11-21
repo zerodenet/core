@@ -5,6 +5,8 @@ async fn logs_selected_leaf_and_actual_dial_address_when_selector_node_refuses_c
     let buffer = init_test_tracing();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let node_port = listener.local_addr().unwrap().port();
+    // This is deliberately an absent receiver, not a listener worker. Darwin
+    // parks SYNs to a retained bound socket instead of returning refusal.
     drop(listener);
     let proxy_port = free_port();
     let config = RuntimeConfig::parse(&format!(r#"{{
@@ -19,24 +21,34 @@ async fn logs_selected_leaf_and_actual_dial_address_when_selector_node_refuses_c
     let probe = engine.clone();
     let handle = spawn_engine(engine);
     wait_for_listener(proxy_port).await;
-    let mut client = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
-    client.write_all(&[5, 1, 0]).await.unwrap();
-    let mut auth = [0; 2];
-    client.read_exact(&mut auth).await.unwrap();
-    client
-        .write_all(&[5, 1, 0, 1, 192, 0, 2, 100, 1, 187])
-        .await
-        .unwrap();
-    let mut response = [0; 10];
-    client.read_exact(&mut response).await.unwrap();
-    assert_ne!(response[1], 0);
-    wait_for("diagnostic failure record", || {
-        probe
-            .completed_sessions()
-            .iter()
-            .any(|record| record.inbound_tag.as_deref() == Some("diagnostic-in"))
-    })
-    .await;
+    // Both attempts must retain their actual native refusal and failure facts.
+    for expected_completed in 1..=2 {
+        let mut client = TcpStream::connect(("127.0.0.1", proxy_port))
+            .await
+            .unwrap_or_else(|source| {
+                let logs = String::from_utf8_lossy(&buffer.lock().unwrap()).into_owned();
+                panic!("request {expected_completed}: {source}; original host log:\n{logs}")
+            });
+        client.write_all(&[5, 1, 0]).await.unwrap();
+        let mut auth = [0; 2];
+        client.read_exact(&mut auth).await.unwrap();
+        client
+            .write_all(&[5, 1, 0, 1, 192, 0, 2, 100, 1, 187])
+            .await
+            .unwrap();
+        let mut response = [0; 10];
+        client.read_exact(&mut response).await.unwrap();
+        assert_ne!(response[1], 0);
+        wait_for("diagnostic failure record", || {
+            probe
+                .completed_sessions()
+                .iter()
+                .filter(|record| record.inbound_tag.as_deref() == Some("diagnostic-in"))
+                .count()
+                == expected_completed
+        })
+        .await;
+    }
     handle.shutdown().await.unwrap();
     let logs = String::from_utf8(buffer.lock().unwrap().clone()).unwrap();
     let failure = logs
@@ -56,6 +68,20 @@ async fn logs_selected_leaf_and_actual_dial_address_when_selector_node_refuses_c
     assert!(
         failure.contains(&format!("dial_port={node_port}")),
         "{failure}"
+    );
+    let native_code: i32 = failure
+        .split("os_error=")
+        .nth(1)
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_eq!(
+        io::Error::from_raw_os_error(native_code).kind(),
+        io::ErrorKind::ConnectionRefused,
+        "an occupied or filtered endpoint cannot substitute for native refusal"
     );
     assert!(!logs.contains("diagnostic-secret-not-for-logs"));
     let records = probe.completed_sessions();

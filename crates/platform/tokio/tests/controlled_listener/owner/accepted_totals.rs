@@ -4,6 +4,115 @@ use crate::contract::{
     scope::{TaskClass, TaskScope},
     ChannelError, Impact, Stage,
 };
+
+#[tokio::test]
+async fn listener_shutdown_waits_for_the_original_host_ack_after_native_and_user_return() {
+    timeout(Duration::from_secs(5), async {
+        let roots =
+            crate::controlled_carrier::CarrierOriginalTotals::new(NonZeroUsize::new(2).unwrap());
+        let mut scope =
+            TaskScope::suspended_hosted(tokio::runtime::Handle::current(), NonZeroUsize::new(1));
+        scope.enable_registration().unwrap();
+        let address = "127.0.0.1:0".parse().unwrap();
+        let mut original = ControlledTcpListenerOwner::new_with_accepted_graph(
+            &declaration(address, 1),
+            NonZeroUsize::new(1).unwrap(),
+            CancellationToken::new(),
+            NonZeroUsize::new(1).unwrap(),
+            NonZeroUsize::new(1).unwrap(),
+            &scope.registrar(),
+        )
+        .unwrap();
+        let instance = super::totals::instance(1);
+        let metadata = Arc::new(zero_tun::packet_memory::PacketReturnTotals::default());
+        let failures = crate::AcceptedTaskFailures::prepare(
+            instance,
+            &scope.registrar(),
+            &metadata.driver_metadata_view(),
+        )
+        .unwrap();
+        original.bind_task_failure_receiver(&failures).unwrap();
+        original
+            .bind_original_totals(instance, &scope.registrar(), &roots)
+            .unwrap();
+        let mut listener = original.bind_listener(address).unwrap();
+        let receiver = original.accepted_task_receiver().unwrap();
+        let (peer, accepted) = tokio::join!(
+            TcpStream::connect(listener.local_addr().unwrap()),
+            listener.accept_owned()
+        );
+        let mut peer = peer.unwrap();
+        let (accepted, _) = accepted.unwrap();
+        let claim = accepted.claim();
+        let lineage = receiver.carrier_origin(&claim).unwrap();
+        let (entered, pending) = tokio::sync::oneshot::channel();
+        let (id, witness) = accepted
+            .spawn_handler(
+                &scope.registrar(),
+                TaskClass::Auxiliary,
+                |mut io, _| async move {
+                    let mut byte = [0];
+                    let mut read = Box::pin(io.read_exact(&mut byte));
+                    poll_fn(|cx| {
+                        assert!(read.as_mut().poll(cx).is_pending());
+                        Poll::Ready(())
+                    })
+                    .await;
+                    entered.send(()).unwrap();
+                    read.await.map_err(|source| {
+                        ChannelError::new(Stage::Receive, Reason::Io, Impact::Session)
+                            .with_source(source)
+                    })?;
+                    Ok(())
+                },
+            )
+            .unwrap();
+        pending.await.unwrap();
+        peer.write_all(&[7]).await.unwrap();
+        let receipt = scope.next_receipt().await.unwrap();
+        assert_eq!(receipt.id(), id);
+        assert!(receiver.observe_joined(id).unwrap().result().is_ok());
+        let closed = receiver.close(&claim, deadline()).await.unwrap().unwrap();
+        assert!(closed.matches(&claim));
+        assert!(lineage.native_closed().unwrap().matches(&claim));
+        assert!(lineage.closed().is_none());
+        assert!(!witness.try_joined().unwrap().registration_released());
+        assert_eq!(original.accepted_evidence().unwrap().retained, 1);
+
+        let mut closing = Box::pin(original.wait_closed(deadline()));
+        poll_fn(|cx| {
+            assert!(
+                closing.as_mut().poll(cx).is_pending(),
+                "an outstanding original Host ACK is pending, not an immediate unfinished result"
+            );
+            Poll::Ready(())
+        })
+        .await;
+        drop(closing);
+        assert_eq!(original.accepted_evidence().unwrap().retained, 1);
+        assert!(lineage.closed().is_none());
+        let mut closing = Box::pin(original.wait_closed(deadline()));
+        poll_fn(|cx| {
+            assert!(closing.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        scope.acknowledge(&receipt).unwrap();
+        let report = closing.await.unwrap();
+        assert!(report.is_complete());
+        assert_eq!(
+            report.closed_io.len(),
+            2,
+            "original listener and accepted native receipts"
+        );
+        assert!(lineage.closed().unwrap().matches(&claim));
+        assert_eq!(original.accepted_evidence().unwrap().retained, 0);
+        scope.begin_shutdown();
+        assert!(scope.is_drained());
+    })
+    .await
+    .unwrap();
+}
 #[tokio::test]
 async fn same_live_source_accepts_again_only_after_original_native_users_and_host_ack() {
     timeout(Duration::from_secs(5), async {

@@ -175,7 +175,13 @@ async fn process_endpoint_udp_uses_sameport_real_original_and_foreign_grant_is_r
         .unwrap();
     packet.send(b"udp").await.unwrap();
     let mut bytes = [0; 3];
-    assert_eq!(packet.receive(&mut bytes).await.unwrap(), 3);
+    assert_eq!(
+        tokio::time::timeout_at(end(), packet.receive(&mut bytes))
+            .await
+            .expect("actual child UDP echo must complete within the existing endpoint deadline")
+            .unwrap(),
+        3
+    );
     assert_eq!(&bytes, b"udp");
     drop(packet);
     drop(view);

@@ -267,6 +267,8 @@ mod accepted_totals;
 #[path = "owner/totals.rs"]
 mod totals;
 
+#[path = "owner/accepted_pending.rs"]
+mod accepted_pending;
 #[path = "owner/accepted_source_lost.rs"]
 mod accepted_source_lost;
 

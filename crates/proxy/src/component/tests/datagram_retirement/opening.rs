@@ -35,6 +35,8 @@ async fn cancelled_native_association_preparation_retires_the_same_early_origina
         .protocols
         .commit_components(&config, || Ok(()))
         .unwrap();
+    let (original, reservations, physical, peer, session) = crate::runtime::udp_ingress::test_source::run(
+        &proxy, move |_proxy, runtime| async move {
     let mut session = zero_core::Session::new(
         0,
         Address::Ipv4([203, 0, 113, 9]),
@@ -42,16 +44,10 @@ async fn cancelled_native_association_preparation_retires_the_same_early_origina
         zero_core::Network::Udp,
         zero_core::ProtocolType::new("test"),
     );
-    proxy
-        .engine()
-        .prepare_session(&mut session, "incoming")
-        .unwrap();
-    let services = proxy
-        .tcp_runtime_services()
-        .for_inbound("incoming".into())
-        .with_business_identity(&session)
-        .unwrap();
-    let execution = services.execution();
+    let admission = runtime.prepare_udp_session(&mut session, "incoming").await.unwrap();
+    let runtime = crate::runtime::udp_ingress::UdpIngressRuntime::clone(&runtime).with_admission(&session, admission).unwrap();
+    let services = runtime.runtime_services();
+    let execution = services.datagram_execution("incoming", &session).unwrap();
     let slot = execution
         .components
         .as_ref()
@@ -85,6 +81,7 @@ async fn cancelled_native_association_preparation_retires_the_same_early_origina
         tcp.shutdown().await.unwrap();
     });
     let original;
+    let reservations;
     {
         let mut operation = Box::pin(crate::component::stream_bridge::datagram::open(
             &execution,
@@ -106,31 +103,47 @@ async fn cancelled_native_association_preparation_retires_the_same_early_origina
         let mut cx = Context::from_waker(std::task::Waker::noop());
         assert!(operation.as_mut().poll(&mut cx).is_pending());
         let actual = physical.observe().unwrap();
-        assert_eq!(
-            actual.slots().len(),
-            1,
-            "no UDP original before actual BND response"
-        );
-        assert!(actual.slots()[0].physical_view_live());
-        assert!(actual.slots()[0].native().is_some());
-        assert!(actual.slots()[0].driver().is_none());
-        original = actual.slots()[0].original().clone();
+        assert_eq!(actual.slots().len(),2,"the actual association reserves both originals");
+        let acquired=actual.slots().iter().filter(|slot|slot.native().is_some()).collect::<Vec<_>>();
+        assert_eq!(acquired.len(),1,"UDP is reserved but not acquired before the actual BND response");
+        let control=acquired[0];
+        assert!(control.physical_view_live());
+        assert!(control.driver().is_none());
+        original=control.original().clone();
+        reservations=actual.slots().iter().map(|slot|slot.original().clone()).collect::<Vec<_>>();
         assert!(original.closed().is_none());
         // The same pending open future drops here, returning its actual view.
     }
     drop(opening);
-    let retired = execution.retired_datagrams();
+    (original, reservations, physical, peer, session)
+    }).await;
+    let retired = proxy.tcp_runtime_services().execution().retired_datagrams();
     let report = retired.progress_retired(end).await.unwrap();
     assert!(report.is_complete(), "{report:?}");
     let closed = original
         .closed()
         .expect("the original FD controller completed");
     assert!(original.matches_closed(&closed));
+    for reserved in reservations {
+        let closed = reserved
+            .closed()
+            .expect("same original reservation retired");
+        assert!(reserved.matches_closed(&closed));
+        assert_eq!(
+            closed.had_native_acquisition(),
+            reserved.same_original(&original)
+        );
+    }
     assert!(
         report.exited_tasks.is_empty(),
         "taskless ownership invents no join"
     );
     peer.await.unwrap();
+    proxy
+        .engine()
+        .track_session(session.id)
+        .finish(zero_engine::SessionOutcome::Cancelled)
+        .unwrap();
     proxy.protocols.shutdown_components(end).await.unwrap();
     assert!(physical.closed().unwrap().matches(&physical));
 }

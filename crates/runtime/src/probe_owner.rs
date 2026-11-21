@@ -329,6 +329,16 @@ impl ProbeOwner {
             Ok(())
         }
     }
+    pub(crate) fn reopen_after_retirement(&self) -> Result<(), ChannelError> {
+        let entries = lock(&self.entries);
+        // Entries leave only after their original users, cleanup, joins and
+        // actual registration ACK. Never discard a busy or faulted original.
+        if !entries.is_empty() {
+            return Err(failure(Reason::Revoked));
+        }
+        self.stopping.store(false, Ordering::Release);
+        Ok(())
+    }
     pub(crate) fn begin_shutdown(&self) {
         self.stopping.store(true, Ordering::Release);
         self.cancel_all();

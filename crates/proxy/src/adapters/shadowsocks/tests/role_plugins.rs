@@ -42,12 +42,21 @@ async fn udp_only_plugin_keeps_real_standard_tcp_without_starting_a_process() {
             assert!(slot.recipe.spec().roles.contains(&RoleKind::Datagram),"the actual deferred Process dependency supplies the standard UDP role");
             assert_eq!(proxy.protocols.runtime_host().original_budgets().process.snapshot().charged_jobs,0,"TCP must not start the UDP-only plugin");
             let listener=TcpListener::bind("127.0.0.1:0").await.unwrap();let target=listener.local_addr().unwrap();
-            let peer=tokio::spawn(async move {let(mut io,_)=listener.accept().await.unwrap();let mut bytes=[0;4];io.read_exact(&mut bytes).await.unwrap();assert_eq!(&bytes,b"wire");io.write_all(&bytes).await.unwrap();io.shutdown().await.unwrap();});
+            let (release,read_original)=tokio::sync::oneshot::channel();
+            let peer=tokio::spawn(async move {let(mut io,_)=listener.accept().await.unwrap();let mut bytes=[0;4];io.read_exact(&mut bytes).await.unwrap();assert_eq!(&bytes,b"wire");io.write_all(&bytes).await.unwrap();io.flush().await.unwrap();read_original.await.unwrap();io.shutdown().await.unwrap();});
             let mut client=TcpStream::connect(entry).await.unwrap();client.write_all(&[5,1,0]).await.unwrap();let mut auth=[0;2];client.read_exact(&mut auth).await.unwrap();assert_eq!(auth,[5,0]);
             let mut request=vec![5,1,0,1,127,0,0,1];request.extend_from_slice(&target.port().to_be_bytes());client.write_all(&request).await.unwrap();let mut response=[0;10];client.read_exact(&mut response).await.unwrap();assert_eq!(&response[..2],&[5,0]);
             client.write_all(b"wire").await.unwrap();let mut bytes=[0;4];client.read_exact(&mut bytes).await.unwrap();assert_eq!(&bytes,b"wire");
-            let owner=slot.original_carrier_owner(0).expect("same standard Stream original provider");
+            // The protocol's UDP declaration precedes the appended stateless
+            // Stream carrier. Select the actual granted TCP declaration rather
+            // than attributing this TCP exchange to an idle UDP original.
+            let ordinal=slot.recipe.spec().resources.iter().position(|resource| matches!(resource,
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeCarrier { .. }
+            )).expect("actual standard Stream native declaration");
+            let owner=slot.original_carrier_owner(ordinal).expect("same standard Stream original provider");
             let observed=owner.observe().unwrap();assert_eq!(observed.slots().len(),1);let original=observed.slots()[0].original().clone();
+            assert!(original.closed().is_none(),"the actual target still retains the live carrier");
+            release.send(()).unwrap();
             client.shutdown().await.unwrap();let mut tail=Vec::new();client.read_to_end(&mut tail).await.unwrap();drop(client);peer.await.unwrap();
             let source=proxy.system_tun_source_registry().owner("entry").unwrap();let inbound=remote.system_tun_source_registry().owner("entry").unwrap();
             running.shutdown().await.unwrap();remote_running.shutdown().await.unwrap();

@@ -21,7 +21,7 @@ async fn actual_direct_role_recovers_business_dns_under_same_host_scope_and_clos
             assert_eq!(description.task_limit, Some(one()));
             assert_eq!(
                 description.resources,
-                vec![ResourceDeclaration::ControlledDirectStream {
+                vec![ResourceDeclaration::ControlledDirectCarrier {
                     dial: policy.clone(),
                     max_sockets: NonZeroUsize::new(4).unwrap()
                 }]
@@ -120,19 +120,21 @@ async fn actual_direct_role_recovers_business_dns_under_same_host_scope_and_clos
                 )
                 .with_business(demand),
             );
-            let mut connected = host
-                .drive(role.connect(
+            let role = role.clone();
+            let original_opener = opener.clone();
+            let original_facts = facts.clone();
+            let mut connected = host.drive(caller.run(move |invocation| async move {
+                role.connect(
                     ConnectRequest { destination },
                     OpenContext {
                         identity: invocation.identity.clone(),
                         deadline: None,
                         cancel: invocation.cancellation(),
-                        observer: Some(facts.clone()),
-                        upstream: UpstreamTransport::new(binding, opener.clone()),
+                        observer: Some(original_facts),
+                        upstream: UpstreamTransport::new(binding, original_opener),
                     },
-                ))
-                .await
-                .unwrap();
+                ).await
+            })).await.unwrap();
             assert_eq!(connected.peer_confirmation, PeerConfirmation::Confirmed);
             let evidence = opener
                 .take_evidence()
@@ -213,7 +215,7 @@ async fn actual_direct_role_recovers_business_dns_under_same_host_scope_and_clos
             );
             assert!(joined.result().is_ok());
             drop(connected);
-            caller.join().await;
+            host.drive(caller.join()).await;
             assert!(actual.closed().is_none());
             proxy
                 .engine()

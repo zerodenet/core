@@ -499,12 +499,12 @@ fn default_interface(ipv6: bool, tun_index: u32) -> io::Result<WindowsInterface>
     })
 }
 
-fn select_usable_default_route<'a>(
-    routes: &'a [MIB_IPFORWARD_ROW2],
+fn select_usable_default_route(
+    routes: &[MIB_IPFORWARD_ROW2],
     tun_index: u32,
     mut is_usable: impl FnMut(u32) -> bool,
     mut metric: impl FnMut(&MIB_IPFORWARD_ROW2) -> u64,
-) -> Option<&'a MIB_IPFORWARD_ROW2> {
+) -> Option<&MIB_IPFORWARD_ROW2> {
     routes
         .iter()
         .filter(|route| route.InterfaceIndex != tun_index)

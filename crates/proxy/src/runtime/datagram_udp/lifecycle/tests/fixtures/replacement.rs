@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn standard_datagram_replacement_waits_for_original_control_eof_after_cancellation() {
-    let (fixture, mut dispatch) = UpstreamFixture::establish().await;
+    UpstreamFixture::run(|fixture, mut dispatch| async move {
     let original_session = fixture.session_id;
     assert!(dispatch.drop_upstream_association().is_some());
     assert!(dispatch.upstream_association_view().is_none());
@@ -90,7 +90,7 @@ async fn standard_datagram_replacement_waits_for_original_control_eof_after_canc
     assert_eq!(stats.created_associations, 2);
     assert_eq!(stats.active_associations, 1);
     assert_eq!(stats.dropped_associations, 1);
-    assert_eq!(dispatch.finish_all().len(), 1);
+    assert_eq!(fixture.runtime.finish_dispatch(dispatch).len(), 1);
     let retired = fixture
         .runtime
         .services()
@@ -116,4 +116,5 @@ async fn standard_datagram_replacement_waits_for_original_control_eof_after_canc
             .active_associations,
         0
     );
+    }).await;
 }

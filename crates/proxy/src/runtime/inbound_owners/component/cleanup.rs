@@ -132,10 +132,7 @@ impl ResourceLifecycle for Lifecycle {
         );
         #[cfg(feature = "managed-datagram-runtime")]
         if let Some(udp) = &self.resources.udp {
-            collected
-                .lock()
-                .unwrap()
-                .record("datagram", udp.close(deadline));
+            retain(collected, "datagram", udp.close(deadline)).await;
         }
         self.collected.lock().unwrap().report()
     }

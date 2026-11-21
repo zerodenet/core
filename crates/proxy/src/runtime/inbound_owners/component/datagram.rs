@@ -92,11 +92,26 @@ impl DatagramResource {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .revoke();
     }
-    pub(super) fn close(&self, deadline: Instant) -> Result<CloseReport, ChannelError> {
-        self.native
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .shutdown(deadline)
+    pub(super) async fn close(&self, deadline: Instant) -> Result<CloseReport, ChannelError> {
+        loop {
+            let report = self
+                .native
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .shutdown(deadline)?;
+            if report.is_complete() || Instant::now() >= deadline {
+                return Ok(report);
+            }
+            let Some(original) = self.identity.get() else {
+                return Ok(report);
+            };
+            // Same controller, same deadline. Another actual native close can
+            // own the operation lease while this snapshot remains incomplete.
+            // Wait without an owner lock, then consume the original outcome.
+            if !original.wait_native_operation(deadline).await {
+                return Ok(report);
+            }
+        }
     }
 }
 #[derive(Clone)]

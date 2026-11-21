@@ -158,6 +158,9 @@ impl Runtime {
             }
         }
     }
+    pub(super) fn has_logical_work(&self) -> bool {
+        self.ledger.has_logical_work()
+    }
     pub(crate) fn buffer_book(&self) -> &CarrierBufferBudget {
         &self.book
     }

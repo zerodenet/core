@@ -11,14 +11,15 @@ pub use control::{OwnedWintunReadControl, OwnedWintunReadPause};
 use std::sync::atomic::Ordering;
 use tokio::sync::mpsc;
 pub(super) struct PreparedReader {
-    pub(super) grant: NativeReadGrant,
+    // Retain the same admission until this saved reader owner retires.
+    _grant: NativeReadGrant,
     pub(super) receiver: Option<mpsc::Receiver<zero_traits::PacketBuffer>>,
     pub(super) done: bool,
     #[cfg(test)]
     pub(super) waiting_session: bool,
     pub(super) control: OwnedWintunReadControl,
     pub(super) acquire_queued: bool,
-    pub(super) acquisition: Option<Acquisition>,
+    acquisition: Option<Acquisition>,
     pub(super) event_close: Option<Result<(), Arc<io::Error>>>,
 }
 pub struct OwnedWintunReadWork {
@@ -75,7 +76,7 @@ impl OwnedWintunOwner {
             )
         })?;
         state.prepared_reader = Some(PreparedReader {
-            grant: grant.clone(),
+            _grant: grant.clone(),
             receiver: Some(receiver),
             done: false,
             #[cfg(test)]

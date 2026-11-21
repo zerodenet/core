@@ -90,7 +90,7 @@ pub(super) async fn open_root(
     // The protocol controller is retained in the same pre-I/O Entry before
     // either TX/RX can escape. Cancellation keeps that Entry pollable by Root.
     let mut session = opened.channel;
-    session.control = opening.adopt(session.control);
+    session.control = opening.adopt(observe_association(execution, session.control));
     Ok(Arc::new(Path::new_business(
         session,
         association,
@@ -182,7 +182,7 @@ pub(super) async fn open_selected_associated(
         )
         .await
         .map_err(failure)?;
-    session.control = opening.adopt(session.control);
+    session.control = opening.adopt(observe_association(&execution, session.control));
     Ok(Arc::new(Path::new_business(
         session,
         association,

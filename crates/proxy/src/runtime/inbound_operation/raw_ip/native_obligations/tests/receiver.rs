@@ -13,7 +13,10 @@ async fn actual_udp_receiver_is_unique_and_retains_its_own_real_failed_exit_befo
         let registry = Arc::new(InboundOwnerRegistry::default());
         let (stop, _) = watch::channel(false);
         let installed = registry
-            .install("actual-response-caller", &proxy.protocols, 1, stop)
+            // One bound primary and its distinct real UDP receiver share this
+            // original Scope beside the Source main. The logical child group
+            // remains exactly one; its second receiver must still be rejected.
+            .install("actual-response-caller", &proxy.protocols, 2, stop)
             .unwrap();
         let group = installed
             .child_tasks(NonZeroUsize::new(1).unwrap())

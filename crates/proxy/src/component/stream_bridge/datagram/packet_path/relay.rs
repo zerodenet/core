@@ -97,7 +97,7 @@ impl StandardPacketPath {
             handoff.request_retirement();
             return Err(failure(source));
         }
-        session.control = reservation.adopt(session.control);
+        session.control = reservation.adopt(observe_association(&execution, session.control));
         Ok(
             Arc::new(Path::new(session, association, stop, Some(handoff)))
                 as Arc<dyn PacketPathCarrier>,

@@ -76,7 +76,14 @@ async fn real_vless_trojan_vmess_sources_rotate_certificate_and_keep_proxy_wire(
                 let actual=owner(&remote,"entry").await;let original_scope=actual.original_scope_for_test();
                 let (verifier,_)=fixture::client(vec![first.cert.der().clone(),second.cert.der().clone()]);
                 assert_eq!(fixture::peek(endpoint,&verifier,"localhost").await,first.cert.der().as_ref());
-                let mut outbound=json!({"type":kind,"server":"127.0.0.1","port":endpoint.port(),"tls":{"server_name":"localhost","ca_cert_path":roots}});
+                // Trojan's public config has sni/insecure, not the VLESS/VMess TLS ADT.
+                // The independent verifier above still validates the actual leaf
+                // against both pinned roots before and after certificate rotation.
+                let mut outbound=if kind=="trojan" {
+                    json!({"type":kind,"server":"127.0.0.1","port":endpoint.port(),"sni":"localhost","insecure":true})
+                } else {
+                    json!({"type":kind,"server":"127.0.0.1","port":endpoint.port(),"tls":{"server_name":"localhost","ca_cert_path":roots}})
+                };
                 outbound[if kind=="trojan" {"password"}else{"id"}]=json!("11111111-2222-3333-4444-555555555555");
                 let (client,local_running,socks)=fixture::start(json!({"inbounds":[{"tag":"entry","listen":{"address":"127.0.0.1","port":0},"protocol":{"type":"socks5"}}],"outbounds":[{"tag":"tls","protocol":outbound}],"route":{"final":{"type":"route","outbound":"tls"}}})).await;
                 fixture::exercise(socks).await;

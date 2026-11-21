@@ -71,7 +71,10 @@ impl OwnedRoutes {
             .driver_metadata_view();
         PacketMetadataArc::from_prepaid(
             Shared {
-                proxy,
+                engine: proxy.engine().clone(),
+                egress_interface: proxy.egress_interface.clone(),
+                tun_info: proxy.tun_info.clone(),
+                route_memory: native_memory.clone(),
                 metadata,
                 native: Mutex::new(native::Native::from_prepaid(
                     spec,

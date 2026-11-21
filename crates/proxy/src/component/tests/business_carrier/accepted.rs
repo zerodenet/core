@@ -43,6 +43,7 @@ pub(in crate::component) struct Caller {
     source: AcceptedCaller,
     witness: TaskJoinWitness,
     complete: Option<oneshot::Sender<()>>,
+    jobs: super::jobs::Sender,
     close_report: Option<CloseReport>,
     pub(in crate::component) session: Session,
     pub(in crate::component) invocation: Invocation,
@@ -81,6 +82,21 @@ impl Caller {
             &scope.registrar(),
         )
         .unwrap();
+        let instance = proxy.protocols.allocate_resource_identity().unwrap();
+        let roots = proxy.protocols.runtime_host().original_budgets();
+        scope
+            .bind_task_budget(roots.component_tasks.clone())
+            .unwrap();
+        let failures = zero_platform_tokio::AcceptedTaskFailures::prepare(
+            instance,
+            &scope.registrar(),
+            &roots.packet.driver_metadata_view(),
+        )
+        .unwrap();
+        owner.bind_task_failure_receiver(&failures).unwrap();
+        owner
+            .bind_original_totals(instance, &scope.registrar(), &roots.carrier)
+            .unwrap();
         let mut listener = owner.bind_listener("127.0.0.1:0".parse().unwrap()).unwrap();
         let address = listener.local_addr().unwrap();
         scope.enable_registration().unwrap();
@@ -89,10 +105,14 @@ impl Caller {
         let (accepted, remote) = accepted.unwrap();
         assert_eq!(peer.local_addr().unwrap(), remote);
         let claim = accepted.claim();
-        let (complete, completed) = oneshot::channel();
+        let (complete, mut completed) = oneshot::channel();
+        let (jobs, mut pending_jobs) = super::jobs::channel();
         let (send, receive) = oneshot::channel();
         let engine = proxy.engine().clone();
-        let services = proxy.tcp_runtime_services();
+        let services = proxy
+            .tcp_runtime_services()
+            .for_inbound("in".into())
+            .with_inbound_instance(instance);
         let (_, witness) = accepted
             .spawn_handler(
                 &scope.registrar(),
@@ -150,9 +170,17 @@ impl Caller {
                         .task_join_witness()
                         .unwrap();
                     assert!(actual.same_registration(&caller.task_join_witness().unwrap()));
-                    send.send((session, invocation, caller))
+                    send.send((session, invocation.clone(), caller))
                         .unwrap_or_else(|_| panic!("actual accepted caller receiver"));
-                    completed.await.map_err(failure)?;
+                    loop {
+                        tokio::select! {
+                            done = &mut completed => { done.map_err(failure)?; break; }
+                            job = pending_jobs.recv() => {
+                                let job = job.expect("original caller command sender");
+                                job(invocation.clone()).await;
+                            }
+                        }
+                    }
                     drop(socket);
                     Ok(())
                 },
@@ -171,10 +199,19 @@ impl Caller {
             source,
             witness,
             complete: Some(complete),
+            jobs,
             close_report: None,
             session,
             invocation,
         }
+    }
+    pub(in crate::component) async fn run<F, Fut, T>(&self, job: F) -> T
+    where
+        F: FnOnce(Invocation) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = T> + Send + 'static,
+        T: Send + 'static,
+    {
+        self.jobs.run(job).await
     }
     pub(in crate::component) fn witness(&self) -> TaskJoinWitness {
         self.witness.clone()

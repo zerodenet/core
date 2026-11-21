@@ -16,9 +16,17 @@ impl Outbound {
             deadline: context.deadline,
             cancel: context.cancel.clone(),
         };
-        if let Some(end) = context.deadline {
-            carriers.reap_returned(end).await?;
-        }
+        // Cached physical drivers have no business deadline. They still need
+        // the same original-close maintenance as finite callers before N can
+        // be reused, under the existing association maintenance bound.
+        let end = context
+            .deadline
+            .unwrap_or_else(|| tokio::time::Instant::now() + std::time::Duration::from_secs(15));
+        tokio::select! { biased;
+            _ = self.admission.cancelled() => return Err(self.admission.error(session, Stage::Prepare, Reason::Revoked, DeliveryState::NotSubmitted)),
+            _ = context.cancel.cancelled() => return Err(self.admission.error(session, Stage::Prepare, Reason::Cancelled, DeliveryState::NotSubmitted)),
+            result = carriers.reap_returned(end) => result.map_err(|error| self.admission.attach(error, session))?,
+        };
         let mut grant = carriers.reserve()?;
         let view = if transferred {
             grant.claim_transferred_view()?

@@ -73,9 +73,7 @@ async fn ordinary_vmess_grpc_ca_apply_waits_for_originals_before_loading_new_tru
             }
             while let Some(result)=tasks.join_next().await {result.unwrap();}
         });
-        let runtime=UdpIngressRuntime::new(proxy.tcp_runtime_services());
-        let mut dispatch=runtime.new_dispatch("incoming").await.unwrap();
-        dispatch.dispatch(input(53,b"held")).await.unwrap();assert_eq!(response(&mut dispatch).await.2.as_ref(),b"held");ready.await.unwrap();
+        let dispatch=crate::inventory::udp::association::vmess_tests::grpc::flow::open(proxy.clone(),0,b"held").await;ready.await.unwrap();
         let registration=original(&proxy);let observed=registration.observe().unwrap();
         let native=observed.slots()[0].original().clone();let driver=observed.slots()[0].driver().unwrap().1.clone();
         let plan=proxy.tcp_runtime_services().components.clone().unwrap();let old=plan.configured("node").unwrap();
@@ -89,7 +87,7 @@ async fn ordinary_vmess_grpc_ca_apply_waits_for_originals_before_loading_new_tru
         assert!(registration.closed().is_none());
         assert!(old.datagram(Instant::now()+Duration::from_secs(3)).await.is_err());
         std::fs::write(dir.path().join("next.pem"),new_ca).unwrap();
-        let retired=proxy.tcp_runtime_services().execution().retired_datagrams();dispatch.finish_all();
+        let retired=proxy.tcp_runtime_services().execution().retired_datagrams();dispatch.finish_all().await;
         let report=proxy.protocols.drive_component_supervision(retired.progress_retired(Instant::now()+Duration::from_secs(3))).await.unwrap();assert!(report.is_complete(),"{report:?}");
         replacing.await.unwrap().unwrap();
         assert!(native.matches_closed(&native.closed().unwrap()));
@@ -99,10 +97,9 @@ async fn ordinary_vmess_grpc_ca_apply_waits_for_originals_before_loading_new_tru
         let plan=proxy.tcp_runtime_services().components.clone().unwrap();let new=plan.configured("node").unwrap();assert_ne!(old.instance_id(),new.instance_id());
         assert_eq!(original(&proxy).observe().unwrap().retained(),0);
         std::fs::remove_file(dir.path().join("next.pem")).unwrap();
-        let mut fresh=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch("new").await.unwrap();
-        fresh.dispatch(input(53,b"new-trust")).await.unwrap();assert_eq!(response(&mut fresh).await.2.as_ref(),b"new-trust");
+        let fresh=crate::inventory::udp::association::vmess_tests::grpc::flow::open(proxy.clone(),0,b"new-trust").await;
         let replacement=original(&proxy);let native=replacement.observe().unwrap().slots()[0].original().clone();
-        fresh.finish_all();assert!(retired.wait_closed(Instant::now()+Duration::from_secs(3)).await.unwrap().is_complete());
+        fresh.finish_all().await;assert!(retired.wait_closed(Instant::now()+Duration::from_secs(3)).await.unwrap().is_complete());
         assert!(native.matches_closed(&native.closed().unwrap()));
         drop(historical);release.send_replace(true);server.await.unwrap();running.shutdown().await.unwrap();
         assert!(replacement.closed().unwrap().matches(&replacement));

@@ -35,14 +35,28 @@ async fn actual_engine_current_slot_and_registered_owner_preserve_business_id_no
         assert_eq!(carrier.endpoints().local(), Some(actual_local));
         assert!(opener.take_evidence().is_some());
         let (io, adoption) = carrier.into_parts();
+        let (ready, pending) = tokio::sync::oneshot::channel();
         let (_, witness) = adoption
             .spawn_driver(
                 &fixture.tasks(),
                 TaskClass::Auxiliary,
                 io.into_driver(),
-                |mut io| async move {
+                move |mut io| async move {
                     let mut request = [0; 4];
-                    io.read_exact(&mut request).await.map_err(io_error)?;
+                    let reading = io.read_exact(&mut request);
+                    tokio::pin!(reading);
+                    let mut ready = Some(ready);
+                    std::future::poll_fn(|cx| {
+                        let result = std::future::Future::poll(reading.as_mut(), cx);
+                        if result.is_pending() {
+                            if let Some(ready) = ready.take() {
+                                ready.send(()).unwrap();
+                            }
+                        }
+                        result
+                    })
+                    .await
+                    .map_err(io_error)?;
                     assert_eq!(&request, b"ping");
                     io.write_all(b"pong").await.map_err(io_error)?;
                     io.shutdown().await.map_err(io_error)?;
@@ -50,6 +64,12 @@ async fn actual_engine_current_slot_and_registered_owner_preserve_business_id_no
                 },
             )
             .unwrap();
+        host.drive(pending).await.unwrap();
+        assert!(!witness.is_joined());
+        assert!(
+            adoption.closed().is_none(),
+            "the actual pending native read keeps its original open"
+        );
         host.drive(async {
             peer.write_all(b"ping").await.unwrap();
             peer.shutdown().await.unwrap();
@@ -96,10 +116,6 @@ async fn actual_engine_current_slot_and_registered_owner_preserve_business_id_no
             (Some(4096), Some(8192), Some(1), Some(64), Some(7))
         );
         assert!(fixture.registration().closed().is_none());
-        assert!(
-            adoption.closed().is_none(),
-            "actual join does not mint native close"
-        );
         assert!(host
             .drive(adoption.retire(deadline()))
             .await

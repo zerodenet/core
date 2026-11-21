@@ -7,14 +7,14 @@ use zero_platform_tokio::contract::{
     lifecycle::{ChannelControl, CloseReport},
     ChannelError, CloseReason,
 };
-pub(super) struct ObservedControl {
+pub(crate) struct ObservedControl {
     actual: zero_platform_tokio::contract::lifecycle::BoxChannelControl,
     observer: UdpAssociationObserver,
     reason: Arc<AtomicU8>,
     reported: bool,
 }
 impl ObservedControl {
-    pub(super) fn new(
+    pub(crate) fn new(
         actual: zero_platform_tokio::contract::lifecycle::BoxChannelControl,
         observer: UdpAssociationObserver,
         reason: Arc<AtomicU8>,

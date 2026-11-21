@@ -134,6 +134,10 @@ impl Fixture {
             network: services.upstream(),
             observer: None,
             health: None,
+            #[cfg(feature = "udp-runtime")]
+            associations: crate::protocol_registry::UdpAssociationObserver::from_execution(
+                &services,
+            ),
         };
         let physical = slot.original_carrier_owner(0).unwrap();
         Self {

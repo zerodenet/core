@@ -8,7 +8,7 @@ use std::{
     },
     time::Duration,
 };
-use tokio::net::{TcpSocket, UdpSocket};
+use tokio::net::UdpSocket;
 pub(super) struct Node {
     pub(super) address: SocketAddr,
     pub(super) queries: Arc<AtomicUsize>,
@@ -62,7 +62,7 @@ impl Node {
                 answer.extend_from_slice(&[0, 0, 0, 0]);
                 answer.extend_from_slice(&query[12..offset + 4]);
                 if kind == 1 {
-                    for address in [[127, 0, 0, 2], [127, 0, 0, 1]] {
+                    for address in [[255, 255, 255, 255], [127, 0, 0, 1]] {
                         answer.extend_from_slice(&[0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4]);
                         answer.extend_from_slice(&address);
                     }
@@ -95,8 +95,6 @@ async fn ordinary_h2_and_upgrade_retry_real_refused_first_address_with_one_live_
             std::fs::write(&key_path, cert.signing_key.serialize_pem()).unwrap();
             std::fs::write(&ca_path, cert.cert.pem()).unwrap();
             let remote = server(kind, &cert_path, &key_path).await;
-            let bad = TcpSocket::new_v4().unwrap();
-            bad.bind(SocketAddr::new("127.0.0.2".parse().unwrap(), remote.address.port())).unwrap();
             let node = Node::start().await;
             let mut outbound = serde_json::json!({"tag":"node","protocol":{"type":"vless","server":"node.example","port":remote.address.port(),"id":"11111111-2222-3333-4444-555555555555","tls":{"server_name":"localhost","ca_cert_path":ca_path,"client_fingerprint":null,"options":{"backend":"rustls"}}}});
             outbound["protocol"][kind] = serde_json::json!({"host":"front.test","path":"/original"});
@@ -105,7 +103,7 @@ async fn ordinary_h2_and_upgrade_retry_real_refused_first_address_with_one_live_
                 let snapshot = owner.observe().unwrap();
                 assert_eq!(snapshot.retained(), 1, "failed original already genuinely retired");
                 let actual = snapshot.slots().iter().find(|slot| slot.original().same_original(original)).unwrap();
-                assert_eq!(actual.ordinal(), 2, "one true refused native attempt, then the good address");
+                assert_eq!(actual.ordinal(), 2, "one kernel-rejected native attempt, then the good address");
                 assert!(actual.driver().is_none());
                 let auxiliary = actual.auxiliary().unwrap();
                 let joined = auxiliary.try_joined().unwrap();
@@ -116,7 +114,7 @@ async fn ordinary_h2_and_upgrade_retry_real_refused_first_address_with_one_live_
             client.close().await;
             assert!(owner.closed().unwrap().matches(&owner));
             assert!(owner.users_closed().unwrap().matches(&owner));
-            remote.close().await; drop(bad); node.close().await;
+            remote.close().await; node.close().await;
         }
     }).await.unwrap();
 }

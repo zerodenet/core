@@ -177,11 +177,11 @@ impl NativeCarrierOpener {
             Err(source) => {
                 let no_handle = source.stage() == "validate_dial_policy";
                 let source = Arc::new(source);
-                let failure = connect_error(grant.instance(), source.clone());
+                let failure = connect_error(grant.instance(), self.peer, source.clone());
                 grant.slot.state().unknown = if no_handle {
                     None
                 } else {
-                    Some(Arc::new(connect_error(grant.instance(), source)))
+                    Some(Arc::new(connect_error(grant.instance(), self.peer, source)))
                 };
                 return Err(failure);
             }

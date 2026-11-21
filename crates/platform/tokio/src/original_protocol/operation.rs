@@ -139,6 +139,10 @@ impl Phase {
                     return true;
                 }
                 changed.await;
+                // A controller may wake while its real join remains Pending.
+                // Return to the same supervisor so it can consume that join;
+                // an already-notified observer must not inline-poll forever.
+                tokio::task::yield_now().await;
             }
         };
         // This observer owns no protocol fault. Timeout returns false while

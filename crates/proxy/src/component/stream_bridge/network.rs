@@ -384,14 +384,34 @@ impl UpstreamOpener for NodeOpener {
         {
             return false;
         }
-        let authority = control.as_ref().unwrap_or(root);
-        let Some((endpoint, binding)) = authority.selected_binding() else {
+        // The selected logical provider owns the Node binding. Its physical
+        // ancestor supplies socket facts and can be an accepted Browser Source
+        // (which has no outbound binding), or an earlier relay hop. Native I/O
+        // was already authorized by the original grant/loan issuer; observing
+        // it must not require that ancestor to impersonate the selected Node.
+        let selected = match &control {
+            // A negotiated UDP peer still reports its real TCP Node control.
+            Some(control) => control.selected_binding(),
+            // A later logical hop can carry another Node binding. Preserve
+            // the exact physical root when it already names this Node; only
+            // an accepted/different root needs this selected logical origin.
+            None => root
+                .selected_binding()
+                .filter(|(endpoint, binding)| {
+                    endpoint == &self.endpoint
+                        && binding.prefix.is_empty()
+                        && binding.network_generation.0 == self.generation
+                })
+                .or_else(|| origin.selected_binding()),
+        };
+        let Some((endpoint, binding)) = selected else {
             return false;
         };
         if endpoint != self.endpoint
             || !binding.prefix.is_empty()
             || binding.network_generation.0 != self.generation
             || self.services.network_generation() != self.generation
+            || origin.is_retired()
             || root.is_retired()
         {
             return false;

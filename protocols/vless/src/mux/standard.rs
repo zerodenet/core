@@ -134,6 +134,14 @@ struct Request {
 }
 impl InboundHandshake for Request {
     async fn complete(self, context: HandshakeContext) -> Result<AcceptedRequest, ChannelError> {
+        // A reverse frame may carry per-request source/local facts. Publish
+        // those same facts while retaining its physical original; the host
+        // still validates the original carrier and actual business identity.
+        if let Some(connection) = &context.connection {
+            connection.set(self.facts.clone()).map_err(|_| {
+                ChannelError::new(Stage::Handshake, Reason::StalePlan, Impact::Session)
+            })?;
+        }
         match self.route.state {
             VlessInboundMuxOpenedRouteState::Tcp { session, relay } => {
                 let facts = self.facts.request(

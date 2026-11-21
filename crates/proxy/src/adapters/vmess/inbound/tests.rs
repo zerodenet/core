@@ -24,7 +24,7 @@ fn candidate() -> (tempfile::TempDir, zero_config::RuntimeConfig) {
     (directory, config)
 }
 #[tokio::test]
-async fn candidate_prepare_drop_and_tls_failure_never_publish_live_users_but_build_does() {
+async fn cold_tls_paths_and_candidate_drop_never_publish_live_users_but_build_does() {
     let (directory, config) = candidate();
     let adapter = VmessAdapter::default();
     let InboundProtocolConfig::Vmess { users, .. } = &config.inbounds[0].protocol else {
@@ -43,7 +43,9 @@ async fn candidate_prepare_drop_and_tls_failure_never_publish_live_users_but_bui
         unreachable!()
     };
     tls.as_mut().unwrap().key_path = "does-not-exist.key".into();
-    assert!(adapter.inbound_options(&invalid, None).is_err());
+    let unread = adapter.inbound_options(&invalid, None).unwrap();
+    // Missing files are real start failures, not cold decoding side effects.
+    drop(unread);
     assert_eq!(old.user_count(), 1);
     let options = std::sync::Arc::new(adapter.inbound_options(&config.inbounds[0], None).unwrap());
     assert_eq!(old.user_count(), 1);

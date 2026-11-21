@@ -1,6 +1,8 @@
 #![cfg(feature = "socks5")]
 use super::*;
 use zero_platform_tokio::contract::{ChannelError, Impact, Reason, Stage};
+#[path = "tests/continuation.rs"]
+mod continuation;
 
 #[cfg(feature = "mieru")]
 #[tokio::test]

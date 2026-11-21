@@ -141,7 +141,11 @@ fn resolve_target_kind<'a>(
                 )?;
                 match resolved {
                     ResolvedOutbound::Single(leaf) => chain.push(leaf),
-                    _ => return None,
+                    // A deterministic relay member has the same serial wire
+                    // semantics as listing its leaves here in their order.
+                    // Fallback alternatives still cannot form one relay hop.
+                    ResolvedOutbound::Relay { chain: nested } => chain.extend(nested),
+                    ResolvedOutbound::Fallback { .. } => return None,
                 }
             }
             Some(ResolvedOutbound::Relay { chain })

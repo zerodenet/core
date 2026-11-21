@@ -17,16 +17,24 @@ use zero_platform_tokio::{
     controlled_carrier::loan::StreamLoan,
 };
 use zero_traits::packet_metadata::PacketMetadataWeak;
+type Slots = HashMap<Vec<u8>, Arc<dyn SlotAccess>>;
 #[derive(Clone, Default)]
-pub(crate) struct Registry(Arc<Mutex<HashMap<Vec<u8>, Arc<Slot>>>>);
+pub(crate) struct Registry(Arc<Mutex<Slots>>);
 struct Registered {
     owner: binding::WeakOwner,
     closed: PacketMetadataArc<std::sync::atomic::AtomicBool>,
 }
 struct Slot(Mutex<Option<Registered>>);
+// The same cold slot exposes only its typed binding operations. Its view must
+// not expand Options -> slot -> installed owner -> Options in every consumer.
+trait SlotAccess: Send + Sync {
+    fn install(&self, generation: binding::Owner) -> Result<(), ChannelError>;
+    fn owner(&self) -> Option<binding::WeakOwner>;
+    fn reclaimable(&self) -> bool;
+}
 #[derive(Clone)]
 pub struct TransportCarrier {
-    slot: Arc<Slot>,
+    slot: Arc<dyn SlotAccess>,
     endpoint: Destination,
 }
 impl std::fmt::Debug for Registry {
@@ -50,12 +58,7 @@ impl Registry {
         let mut slots = self.0.lock().unwrap();
         let reclaimable = slots
             .iter()
-            .filter(|(_, slot)| {
-                Arc::strong_count(slot) == 1
-                    && slot.0.lock().unwrap().as_ref().is_none_or(|record| {
-                        record.closed.load(std::sync::atomic::Ordering::Acquire)
-                    })
-            })
+            .filter(|(_, slot)| Arc::strong_count(slot) == 1 && slot.reclaimable())
             .map(|(key, _)| key.clone())
             .collect::<Vec<_>>();
         let retired = reclaimable
@@ -63,7 +66,7 @@ impl Registry {
             .filter_map(|key| slots.remove(&key))
             .collect::<Vec<_>>();
         let slot = slots.get(identity).cloned().unwrap_or_else(|| {
-            let slot = Arc::new(Slot(Mutex::new(None)));
+            let slot: Arc<dyn SlotAccess> = Arc::new(Slot(Mutex::new(None)));
             slots.insert(identity.to_vec(), slot.clone());
             slot
         });
@@ -72,18 +75,9 @@ impl Registry {
         TransportCarrier { slot, endpoint }
     }
 }
-impl TransportCarrier {
-    pub fn endpoint(&self) -> &Destination {
-        &self.endpoint
-    }
-    pub(super) fn install(
-        &self,
-        generation: &PacketMetadataArc<entry::Generation>,
-    ) -> Result<(), ChannelError> {
-        self.install_owner(binding::Owner::Packet(generation.clone()))
-    }
-    fn install_owner(&self, generation: binding::Owner) -> Result<(), ChannelError> {
-        let mut slot = self.slot.0.lock().unwrap();
+impl SlotAccess for Slot {
+    fn install(&self, generation: binding::Owner) -> Result<(), ChannelError> {
+        let mut slot = self.0.lock().unwrap();
         if let Some(previous) = &*slot {
             if previous.owner.same_target(&generation.downgrade()) {
                 return Ok(());
@@ -100,12 +94,39 @@ impl TransportCarrier {
         drop(previous);
         Ok(())
     }
+
+    fn owner(&self) -> Option<binding::WeakOwner> {
+        self.0
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|record| record.owner.clone())
+    }
+
+    fn reclaimable(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_none_or(|record| record.closed.load(std::sync::atomic::Ordering::Acquire))
+    }
+}
+impl TransportCarrier {
+    pub fn endpoint(&self) -> &Destination {
+        &self.endpoint
+    }
+    pub(super) fn install(
+        &self,
+        generation: &PacketMetadataArc<entry::Generation>,
+    ) -> Result<(), ChannelError> {
+        self.install_owner(binding::Owner::Packet(generation.clone()))
+    }
+    fn install_owner(&self, generation: binding::Owner) -> Result<(), ChannelError> {
+        self.slot.install(generation)
+    }
     fn generation(&self, expected: ComponentInstanceId) -> Result<binding::Owner, ChannelError> {
-        let original = {
-            let slot = self.slot.0.lock().unwrap();
-            slot.as_ref().map(|record| record.owner.clone())
-        };
-        original
+        self.slot
+            .owner()
             .and_then(|owner| owner.upgrade())
             .filter(|g| g.instance() == expected && !g.cancelled() && !g.closed())
             .ok_or_else(|| error(Stage::Prepare, Reason::Revoked))
@@ -209,6 +230,10 @@ impl TransportCarrier {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/component/quic_carrier.rs"]
+mod tests;
 
 /// Additional weak-handle reuse fence. It is never a native/user/Scope close
 /// receipt: the actual Host transaction must still confirm every original.

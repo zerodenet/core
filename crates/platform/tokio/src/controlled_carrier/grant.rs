@@ -7,6 +7,7 @@ use crate::contract::{ChannelError, DeliveryState, Reason, Stage};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 use zero_core::component::ComponentInstanceId;
+mod pair;
 /// Cloneable finite admission; it cannot declare native I/O closed.
 #[derive(Clone)]
 pub struct CarrierGrants(pub(super) Arc<Shared>);

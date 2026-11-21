@@ -172,6 +172,14 @@ async fn run(middles: &[Carrier], final_carrier: Carrier) {
     assert!(!saw_any_target(&first, echo_port));
 
     let accounting = client.engine().clone();
+    assert!(
+        accounting
+            .stats_snapshot()
+            .udp_upstream
+            .created_associations
+            > 0,
+        "real borrowed Datagram associations must be counted before original cleanup"
+    );
     client.shutdown().await.unwrap();
     tokio::time::timeout(std::time::Duration::from_secs(25), async {
         while accounting.stats_snapshot().udp_upstream.active_associations != 0 {

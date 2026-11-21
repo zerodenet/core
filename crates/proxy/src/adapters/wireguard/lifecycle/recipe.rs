@@ -22,6 +22,8 @@ use zero_platform_tokio::contract::network::UpstreamBinding;
 use zero_platform_tokio::contract::scope::TaskRegistrar;
 
 pub(super) const SHARED_NAMESPACE: &str = "actual.assembly.wireguard.linked.peers";
+mod pending_owner;
+use pending_owner::PendingOwnerLookup;
 
 pub(super) struct LinkedRecipeSettings {
     pub(super) identity: [u8; 32],
@@ -33,7 +35,7 @@ pub(super) struct LinkedRecipeSettings {
 }
 pub(super) struct LinkedEndpointRecipe {
     tag: String,
-    map: std::sync::Weak<super::super::PendingEndpointMapState>,
+    map: std::sync::Weak<dyn PendingOwnerLookup>,
     pending: Arc<PendingLinkedEndpoint>,
     identity: [u8; 32],
     binding: UpstreamBinding,
@@ -220,7 +222,10 @@ impl LinkedEndpointRecipe {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
             tag: inbound.tag.clone(),
-            map: Arc::downgrade(&adapter.pending_endpoints),
+            map: {
+                let original: Arc<dyn PendingOwnerLookup> = adapter.pending_endpoints.clone();
+                Arc::downgrade(&original)
+            },
             pending,
             identity: settings.identity,
             binding: UpstreamBinding {
@@ -268,10 +273,10 @@ impl LinkedEndpointRecipe {
             .map
             .upgrade()
             .ok_or_else(|| invalid("linked candidate actual owner was released"))?;
-        Self::check_owner(&map, &self.tag, &self.pending)
+        map.check_owner(&self.tag, &self.pending)
     }
     fn check_owner(
-        owner: &super::PendingEndpointMap,
+        owner: &super::super::PendingEndpointMapState,
         tag: &str,
         pending: &Arc<PendingLinkedEndpoint>,
     ) -> Result<(), EngineError> {
@@ -300,9 +305,11 @@ impl LinkedEndpointRecipe {
         upstream: &UpstreamConnectServices,
         registrar: &TaskRegistrar,
         demand: LinkedBuildContext,
+        source_memory: zero_tun::packet_memory::PacketMemoryView,
     ) -> Result<Arc<inbound::LinkedEndpoint>, EngineError> {
         let (graph, invocation) = self.into_parts()?;
         graph.bind(registrar.downgrade())?;
+        graph.install_source_memory(source_memory)?;
         let resolved = invocation.resolve(upstream, demand).await?;
         graph.start_graph()?;
         resolved.install(None)

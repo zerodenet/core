@@ -49,6 +49,21 @@ pub fn packet_return_key(packet: &[u8]) -> Option<PacketConversationKey> {
             transport_identity: Some((error.quoted_source.port, error.quoted_destination.port)),
         });
     }
+    // Echo errors carry the originating identifier in their validated quote.
+    // Retain the original destination even when a different router sent the
+    // error, so standard return admission can match the actual conversation.
+    if let Some((source, destination, identifier)) = super::echo_response_key(packet) {
+        return Some(PacketConversationKey {
+            source,
+            destination,
+            protocol: if source.is_ipv4() {
+                IPPROTO_ICMP
+            } else {
+                IPPROTO_ICMPV6
+            },
+            transport_identity: Some((identifier, 0)),
+        });
+    }
     let mut key = packet_conversation_key(packet)?;
     std::mem::swap(&mut key.source, &mut key.destination);
     if matches!(key.protocol, IPPROTO_TCP | IPPROTO_UDP) {

@@ -86,6 +86,7 @@ async fn tcp_source_routes_tcp_udp_beside_stalled_handshake_and_confirms_origina
         let running = proxy.spawn();
         let owner = original(&proxy).await;
         let id = owner.identity();
+let original_census = owner.task_access().peer_registrar().retirement_observation().expect("same original Scope census"); assert!(!original_census.is_drained());
         let connection = tcp_client(endpoint).await;
         let mut stalled = connection.open().await.unwrap();
         stalled.write_all(&[5]).await.unwrap();
@@ -149,9 +150,10 @@ async fn tcp_source_routes_tcp_udp_beside_stalled_handshake_and_confirms_origina
         assert!(closed.task_failures().is_empty());
         assert_eq!(
             closed.joined_tasks(),
-            7,
-            "source, parent, physical driver, three logical tasks and original UDP driver"
+            9,
+            "Source, parent, physical driver, three logical tasks, original UDP driver and two continuity registrations"
         );
+        assert!(original_census.is_drained());
         assert_eq!(
             closed.closed_io_receipts(),
             4,

@@ -34,6 +34,12 @@ pub struct PendingTcpConnect {
     waiter: Arc<super::WaitTarget>,
 }
 impl PendingTcpConnect {
+    /// Actual selected native destination, even before a failed connect.
+    /// This observation grants no socket, retry or closure authority.
+    pub(crate) fn selected_peer(&self) -> SocketAddr {
+        self.peer
+    }
+
     pub(crate) fn from_socket(
         socket: TcpStream,
         peer: SocketAddr,

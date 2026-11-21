@@ -394,6 +394,9 @@ fn local_status_commands_endpoint_selects_policy() {
     let output = std::fs::File::create(&output_path).expect("create startup diagnostics");
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_zero"))
+        // This fixture observes the real INFO startup publication. Do not
+        // inherit a caller's warn/off filter and mistake silence for no Source.
+        .env("RUST_LOG", "info")
         .args([
             "run",
             "--status-listen",
@@ -405,8 +408,9 @@ fn local_status_commands_endpoint_selects_policy() {
         .spawn()
         .expect("spawn zero run");
 
-    support::wait_for_child_port(&mut child, status_port, &output_path);
-    support::wait_for_child_port(&mut child, socks_port, &output_path);
+    // Wait for the existing actual startup publication before opening any TCP
+    // probe. The earlier control bind alone precedes the business Source bind.
+    support::wait_for_child_started(&mut child, &output_path);
 
     let command = r#"{
         "method": "policies.select",
@@ -472,6 +476,7 @@ fn configured_control_api_requires_api_key() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_zero"))
         .args(["run", config_path.to_str().expect("utf-8 config path")])
         .env("ZERO_NODE_API_KEY", "node-secret")
+        .env("RUST_LOG", "info")
         .stdout(output.try_clone().expect("clone startup diagnostics"))
         .stderr(output)
         .spawn()

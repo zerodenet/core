@@ -26,7 +26,7 @@ async fn configured_direct_node_udp_retains_originals_and_joins_on_response_and_
 }
 #[cfg(feature = "socks5")]
 #[tokio::test]
-async fn node_tcp_detour_borrows_actual_socks_original_and_cannot_dial_dns_directly() {
+async fn node_udp_tc_fallback_borrows_actual_socks_tcp_original_and_cannot_dial_dns_directly() {
     tokio::time::timeout(Duration::from_secs(25), async {
         for cancelled in [false, true] {
             run(true, cancelled).await;
@@ -51,7 +51,7 @@ async fn run(socks: bool, cancelled: bool) {
     };
     let config = zero_config::RuntimeConfig::parse(&serde_json::json!({
         "runtime":{"native_dns_max_originals":4,"dns":{"servers":{
-            "node":{"type":if socks {"tcp"} else {"udp"},"host":destination,"port":port,"detour":"donor"},
+            "node":{"type":"udp","host":destination,"port":port,"detour":"donor"},
             "unused":{"type":"system"}},"default_server":"unused","policy":{"node_server":"node"}}},
         "outbounds":[outbound],"route":{"final":{"type":"direct"}}
     }).to_string()).unwrap();
@@ -82,6 +82,39 @@ async fn run(socks: bool, cancelled: bool) {
     let (answer, delivered) = tokio::sync::oneshot::channel::<Option<Vec<u8>>>();
     let peer = tokio::spawn(async move {
         if socks {
+            // UDP is the configured grammar. A real truncated datagram must
+            // retire its original control/UDP pair before TCP fallback starts.
+            let (socket, _) = tcp.accept().await.unwrap();
+            let mut control = zero_platform_tokio::TokioSocket::new(socket);
+            assert!(matches!(
+                socks5::Socks5Inbound
+                    .accept_command(&mut control)
+                    .await
+                    .unwrap(),
+                socks5::Socks5Request::UdpAssociate(_)
+            ));
+            let relay = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            socks5::Socks5Inbound
+                .send_success_response_with_bound(
+                    &mut control,
+                    &zero_core::Address::Ipv4([127, 0, 0, 1]),
+                    relay.local_addr().unwrap().port(),
+                )
+                .await
+                .unwrap();
+            let mut packet = [0u8; 512];
+            let (length, source) = relay.recv_from(&mut packet).await.unwrap();
+            assert!(length > 10);
+            assert_eq!(&packet[..10], &[0, 0, 0, 1, 203, 0, 113, 53, 0, 53]);
+            let first_query = packet[10..length].to_vec();
+            let mut truncated = zero_dns::udp::build_dns_response(&first_query, &[]);
+            truncated[2] |= 0x02;
+            let mut response = packet[..10].to_vec();
+            response.extend_from_slice(&truncated);
+            relay.send_to(&response, source).await.unwrap();
+            assert_eq!(control.read(&mut [0; 1]).await.unwrap(), 0);
+            drop(control);
+            drop(relay);
             let (mut stream, _) = tcp.accept().await.unwrap();
             let mut greeting = [0; 2];
             stream.read_exact(&mut greeting).await.unwrap();
@@ -100,6 +133,10 @@ async fn run(socks: bool, cancelled: bool) {
             let size = stream.read_u16().await.unwrap() as usize;
             let mut query = vec![0; size];
             stream.read_exact(&mut query).await.unwrap();
+            assert_eq!(
+                query, first_query,
+                "fallback retains the original DNS question"
+            );
             bytes.send(query).unwrap();
             if let Some(response) = delivered.await.unwrap() {
                 stream.write_u16(response.len() as u16).await.unwrap();
@@ -204,7 +241,7 @@ async fn actual_node_udp_domain_bnd_cycle_closes_its_original_control_without_re
     tokio::time::timeout(Duration::from_secs(15), async {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let config = zero_config::RuntimeConfig::parse(&serde_json::json!({
-            "runtime":{"dns":{"servers":{"node":{"type":"udp","host":"203.0.113.53","port":53,"detour":"donor"}},"default_server":"node","policy":{"address_family":"ipv4_only"}}},
+            "runtime":{"dns":{"servers":{"node":{"type":"udp","host":"203.0.113.53","port":53,"detour":"donor"}},"default_server":"node","policy":{"node_server":"node","address_family":"ipv4_only"}}},
             "outbounds":[{"tag":"donor","protocol":{"type":"socks5","server":"127.0.0.1","port":listener.local_addr().unwrap().port()}}],
             "route":{"final":{"type":"direct"}}
         }).to_string()).unwrap();
@@ -228,9 +265,12 @@ async fn actual_node_udp_domain_bnd_cycle_closes_its_original_control_without_re
         };
         let owner=proxy.tcp_runtime_services().components.as_ref().unwrap().configured("donor").unwrap().original_carrier_owner(0).unwrap();
         let actual=owner.observe().unwrap();
-        assert_eq!(actual.slots().len(),1,"the real TCP control is installed before BND can require Node resolution");
-        let original=actual.slots()[0].original().clone();
-        assert!(actual.slots()[0].native().is_some() && original.closed().is_none());
+        assert_eq!(actual.slots().len(),2,"the actual association reserves its TCP control and UDP original");
+        let native_slots=actual.slots().iter().filter(|slot|slot.native().is_some()).collect::<Vec<_>>();
+        assert_eq!(native_slots.len(),1,"only the real TCP control is acquired before BND resolution");
+        let original=native_slots[0].original().clone();
+        let originals=actual.slots().iter().map(|slot|slot.original().clone()).collect::<Vec<_>>();
+        assert!(original.closed().is_none());
         poll_fn(|cx| {assert!(work.as_mut().poll(cx).is_pending());Poll::Ready(())}).await;
         socks5::Socks5Inbound.send_success_response_with_bound(&mut control,&zero_core::Address::Domain("recursive.bound.test".into()),53).await.unwrap();
         let error=tokio::select! {
@@ -249,6 +289,11 @@ async fn actual_node_udp_domain_bnd_cycle_closes_its_original_control_without_re
         assert!(original.matches_closed(&closed) && closed.had_native_acquisition());
         assert!(owner.closed().unwrap().matches(&owner));
         assert!(owner.users_closed().unwrap().matches(&owner));
+        for retained in originals {
+            let closed=retained.closed().expect("every original reservation is explicitly retired");
+            assert!(retained.matches_closed(&closed));
+            assert_eq!(closed.had_native_acquisition(), retained.same_original(&original));
+        }
         assert_eq!(proxy.protocols.runtime_host().original_budgets().carrier.snapshot().charged,0);
     }).await.unwrap();
 }

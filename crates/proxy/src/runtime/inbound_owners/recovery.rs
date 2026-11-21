@@ -71,6 +71,32 @@ impl InboundOwnerRegistry {
         entries.remove(&receipt.tag);
         Ok(result)
     }
+    /// Stop every actual Source, including API registrations absent from the
+    /// configuration's listener map. Native/Scope proof remains with the same
+    /// registry and its full observer; this request releases no ownership.
+    pub(in crate::runtime) fn request_stop_all(&self) {
+        self.close_bind_admission();
+        let mut owners = self
+            .entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        owners.extend(
+            self.reservations
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .entries
+                .values()
+                .cloned(),
+        );
+        // Waking an original driver must not run under either registry lock.
+        for owner in owners {
+            owner.request_stop();
+        }
+    }
+
     pub(crate) async fn shutdown_all_reported(
         &self,
         deadline: Instant,

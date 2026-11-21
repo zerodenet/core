@@ -45,6 +45,10 @@ async fn body_and_actual_join_do_not_refund_the_same_probe_before_host_ack() {
                 "actual global credit has not returned"
             );
         }
+        assert!(
+            owner.reopen_after_retirement().is_err(),
+            "same original hosted join without ACK still blocks reuse"
+        );
         scope.acknowledge(&receipt).unwrap();
         let result = poll_fn(|cx| {
             target.register(cx);

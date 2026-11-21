@@ -114,30 +114,26 @@ where
         .await?;
     let stopped = plan.stop_old(rollback_runtime_factory, &mut state).await?;
     before_bind(stopped).await?;
-    // A Source restart may have changed the actual network generation while
-    // BuildNew remained sealed. Read its exact retained plan, preserving the
-    // candidate's original publication gate and ingress bookkeeping.
-    let refreshed;
-    let runtime_factory = if runtime_factory.source_network_restart() {
-        refreshed = runtime_factory.with_prepared_components()?;
-        &refreshed
-    } else {
-        runtime_factory
-    };
+    if plan.candidates.is_empty() {
+        return Ok(());
+    }
+    // StopOld and the resource transaction may install fresh dependencies even
+    // when endpoint intent changes retain the same configuration Arc. New Sources
+    // must bind to that exact retained candidate, never the retired published
+    // plan. Established Sources keep their existing publication fence.
+    let runtime_factory = runtime_factory.with_prepared_components()?;
     for mut candidate in plan.candidates {
-        if runtime_factory.source_network_restart() {
-            if let Some(prepared) = candidate.prepared.take() {
-                candidate.prepared = Some(prepared.refresh_dependencies(
-                    runtime_factory.listener_config(&candidate.inbound),
-                    source_dir,
-                )?);
-            }
+        if let Some(prepared) = candidate.prepared.take() {
+            candidate.prepared = Some(prepared.refresh_dependencies(
+                runtime_factory.listener_config(&candidate.inbound),
+                source_dir,
+            )?);
         }
         apply::apply_candidate(
             candidate,
             protocols,
             source_dir,
-            runtime_factory,
+            &runtime_factory,
             rollback_runtime_factory,
             &mut state,
         )

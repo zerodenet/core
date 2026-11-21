@@ -3,6 +3,8 @@
 use super::*;
 #[path = "users/driver.rs"]
 mod driver;
+#[path = "users/protocol_initializer.rs"]
+mod protocol_initializer;
 
 #[tokio::test]
 async fn caller_join_logical_view_return_driver_join_and_native_close_are_distinct_and_cancel_safe()

@@ -6,9 +6,18 @@ use crate::contract::{
     scope::TaskJoinWitness,
     BoxFuture, ChannelError,
 };
-use std::{future::Future, sync::OnceLock, task::Poll};
+use std::{
+    future::Future,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        OnceLock,
+    },
+    task::Poll,
+};
 
 struct Protocol {
+    polls: Arc<AtomicUsize>,
+    wake_pending: bool,
     stop: CancellationToken,
     driver: Arc<OnceLock<TaskJoinWitness>>,
 }
@@ -22,7 +31,19 @@ impl DynChannelControl for Protocol {
                 .driver
                 .get()
                 .expect("original driver registered before retirement");
-            let joined = witness.wait().await;
+            let waiting = witness.wait();
+            tokio::pin!(waiting);
+            let joined = std::future::poll_fn(|cx| {
+                let result = waiting.as_mut().poll(cx);
+                if result.is_pending() {
+                    let count = self.polls.fetch_add(1, Ordering::SeqCst);
+                    if self.wake_pending && count < 64 {
+                        cx.waker().wake_by_ref();
+                    }
+                }
+                result
+            })
+            .await;
             assert!(witness.matches_joined(&joined));
             joined.result().map_err(ChannelError::retained)?;
             Ok(CloseReport::default()) // Protocol only; no fabricated native receipt.
@@ -32,6 +53,13 @@ impl DynChannelControl for Protocol {
 
 #[tokio::test]
 async fn original_protocol_tcp_flushes_its_tail_after_host_and_scope_stop_before_native_close() {
+    run(false).await;
+}
+#[tokio::test]
+async fn self_waking_protocol_close_yields_to_its_original_scope_join() {
+    run(true).await;
+}
+async fn run(wake_pending: bool) {
     timeout(Duration::from_secs(5), async {
         let mut fixture = Fixture::cold(1).await;
         let mut scope = TaskScope::new(tokio::runtime::Handle::current(), NonZeroUsize::MIN);
@@ -48,8 +76,9 @@ async fn original_protocol_tcp_flushes_its_tail_after_host_and_scope_stop_before
         fixture.owner.start(deadline()).await.unwrap();
         let stop = CancellationToken::new();
         let driver = Arc::new(OnceLock::new());
+        let polls = Arc::new(AtomicUsize::new(0));
         let (mut grant, _retirement) = fixture.grants.reserve_stream_protocol_original(
-            &tasks, Box::new(Protocol { stop: stop.clone(), driver: driver.clone() }).into(),
+            &tasks, Box::new(Protocol { polls: polls.clone(), wake_pending, stop: stop.clone(), driver: driver.clone() }).into(),
         ).unwrap();
         let view = grant.claim_driver_view().unwrap();
         let carrier = fixture.transport.prepare_controlled_stream(fixture.destination.clone(), context(), grant).unwrap().open(deadline()).await.unwrap();
@@ -81,6 +110,15 @@ async fn original_protocol_tcp_flushes_its_tail_after_host_and_scope_stop_before
         fixture.owner.revoke();
         assert!(!witness.is_joined());
         assert!(original.closed().is_none());
+        let mut first_poll = 0;
+        if wake_pending {
+            std::future::poll_fn(|cx| {
+                let (_, fault) = registration.poll_cancelled_retirements(cx, Duration::from_secs(3));
+                assert!(fault.is_none());
+                Poll::Ready(())
+            }).await;
+            first_poll = polls.load(Ordering::SeqCst);
+        }
         let (report, ()) = tokio::join!(fixture.owner.shutdown(deadline()), async {
             let exit = scope.next_exit().await.unwrap();
             assert_eq!(exit.id, task_id);
@@ -94,5 +132,9 @@ async fn original_protocol_tcp_flushes_its_tail_after_host_and_scope_stop_before
         assert_eq!(native.driver_exit().unwrap().id(), task_id);
         assert!(registration.closed().unwrap().matches(&registration));
         assert!(original.users_closed().unwrap().matches(&original));
+        if wake_pending {
+            assert!(first_poll > 0, "the actual original driver join must still be Pending");
+            assert!(first_poll <= 2, "the supervisor inline-polled the same Pending original {first_poll} times before it could consume the actual Scope join");
+        }
     }).await.unwrap();
 }

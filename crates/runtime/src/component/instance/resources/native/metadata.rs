@@ -143,6 +143,13 @@ impl MetadataDeclarations {
                     continue;
                 };
                 native.closing = true;
+                // Fence acquisition now, but keep the original wire usable
+                // until its actual consumer/driver graph has returned its
+                // sealed receipt. Revoking it earlier faults a still-draining
+                // QUIC driver and loses the original close outcome.
+                if native.users.pending() != 0 {
+                    continue;
+                }
                 native.prepare_close()
             };
             let _original_failure = close.try_close();

@@ -28,9 +28,18 @@ fn actual_start_deny_allow_and_end_wire_use_new_originals_and_matching_native_cl
         let mut requests = Vec::new();
         for index in 0..3 {
             let (mut stream, _) = listener.accept().unwrap();
-            stream
-                .set_read_timeout(Some(Duration::from_secs(3)))
-                .unwrap();
+            if let Err(error) = stream.set_read_timeout(Some(Duration::from_secs(3))) {
+                // Darwin rejects SO_RCVTIMEO after a one-way peer has already
+                // closed. Do not infer closure from that error: the same stream
+                // below must still deliver its complete frame and actual EOF.
+                assert!(
+                    cfg!(target_os = "macos")
+                        && index == 2
+                        && error.kind() == std::io::ErrorKind::InvalidInput,
+                    "original accepted socket timeout failed at exchange {index}: {error}"
+                );
+                stream.set_nonblocking(true).unwrap();
+            }
             let mut line = String::new();
             BufReader::new(&mut stream).read_line(&mut line).unwrap();
             assert!(line.ends_with('\n'));

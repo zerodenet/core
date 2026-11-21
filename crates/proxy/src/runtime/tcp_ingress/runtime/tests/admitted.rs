@@ -51,16 +51,24 @@ async fn actual_ticketed_ingress_keeps_full_auth_and_one_settlement_through_the_
         auth.quota_remaining_bytes = Some(1024);
         auth.policy_revision = Some(7);
         session.apply_auth(auth.clone());
-        let runtime = TcpIngressRuntime::new(proxy.tcp_runtime_services(), "in".into(), None);
         let (client, mut app) = tokio::io::duplex(64);
+        let actual = proxy.clone();
         let serving = tokio::spawn(async move {
-            let protocol = crate::runtime::tcp_ingress::NoClientResponseStreamProtocol::new();
-            super::super::super::lifecycle::serve::serve_with_identity(
-                &runtime,
-                session,
-                client,
-                &protocol,
-                Some(&identity),
+            crate::runtime::udp_ingress::test_source::run(
+                &actual,
+                move |_proxy, source| async move {
+                    let runtime = source.tcp_runtime("in");
+                    let protocol =
+                        crate::runtime::tcp_ingress::NoClientResponseStreamProtocol::new();
+                    super::super::super::lifecycle::serve::serve_with_identity(
+                        &runtime,
+                        session,
+                        client,
+                        &protocol,
+                        Some(&identity),
+                    )
+                    .await
+                },
             )
             .await
         });
@@ -83,6 +91,11 @@ async fn actual_ticketed_ingress_keeps_full_auth_and_one_settlement_through_the_
         });
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].payload["flow_id"], id.0.to_string());
+        proxy
+            .protocols
+            .shutdown_components(tokio::time::Instant::now() + std::time::Duration::from_secs(2))
+            .await
+            .unwrap();
     })
     .await
     .unwrap();

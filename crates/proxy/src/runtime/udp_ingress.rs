@@ -8,3 +8,7 @@ mod session;
 mod tests;
 
 pub(crate) use model::UdpIngressRuntime;
+
+#[cfg(test)]
+#[path = "udp_ingress/tests/source.rs"]
+pub(crate) mod test_source;

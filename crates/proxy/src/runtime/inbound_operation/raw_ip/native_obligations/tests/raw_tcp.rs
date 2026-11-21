@@ -216,7 +216,9 @@ async fn actual_raw_tcp_accept_serve_refusal_does_not_stop_the_next_admitted_wir
             assert!(record.carrier_owner.is_some(), "the production opener retained its actual physical owner");
             record.carrier.clone().expect("the native refusal used a controlled carrier")
         };
-        assert!(original_carrier.closed().is_none(), "a returned connect failure alone cannot close the original socket");
+        let refused_native = original_carrier.closed().expect("the real native refusal cleanup retained its original close receipt");
+        assert!(refused_native.matches(&original_carrier) && refused_native.had_native_acquisition());
+        assert!(native.0.lock().unwrap().records.contains_key(&registration.id), "actual native close alone cannot release the original caller/Source obligation");
 
         assert!(Arc::ptr_eq(
             &source,

@@ -146,7 +146,7 @@ async fn ordinary_vmess_grpc_domain_route_only_apply_reuses_owner_and_keeps_live
         );
         assert_eq!(registration.observe().unwrap().retained(), 2);
         // Retire both views before waiting on the shared retirement queue.
-        first.finish_all();
+        first.finish_all().await;
         retire(&proxy, second).await;
         assert!(old.matches_closed(&old.closed().unwrap()));
         server.await.unwrap();

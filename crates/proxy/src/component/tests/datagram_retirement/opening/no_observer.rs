@@ -20,11 +20,15 @@ mod rejection;
 #[tokio::test]
 async fn abandoned_direct_socks_service_role_closes_its_original_without_observer_next_dial_or_shutdown(
 ) {
+    exercise_original_budget(1).await;
+    exercise_original_budget(2).await;
+}
+async fn exercise_original_budget(originals: usize) {
     tokio::time::timeout(Duration::from_secs(3), async {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = Destination::new(Address::Ipv4([127, 0, 0, 1]), listener.local_addr().unwrap().port());
         let config = zero_config::RuntimeConfig::parse(&serde_json::json!({
-            "runtime":{"native_stream_max_originals":1},
+            "runtime":{"native_stream_max_originals":originals},
             "outbounds":[{"tag":"node","protocol":{"type":"socks5","server":"127.0.0.1","port":endpoint.port}}],
             "route":{"final":{"type":"direct"}}
         }).to_string()).unwrap();
@@ -54,6 +58,27 @@ async fn abandoned_direct_socks_service_role_closes_its_original_without_observe
             upstream:UpstreamTransport::new(binding, Arc::new(opener)),
         };
         assert!(context.upstream.observed_pending_carrier().is_none());
+        if originals == 1 {
+            // SOCKS UDP declares two actual originals: TCP control and UDP.
+            // An undersized native budget must reject before either is acquired.
+            let failure = role.open(DatagramRequest {
+                association:AssociationId(71),
+                targets:DatagramTargets::Fixed(Destination::new(Address::Ipv4([203,0,113,9]),53)),
+            }, context).await.err().expect("one native position cannot fund the actual pair");
+            assert_eq!(failure.reason, zero_platform_tokio::contract::Reason::Capacity);
+            assert!(physical.observe().unwrap().slots().is_empty());
+            let accepting = listener.accept();
+            tokio::pin!(accepting);
+            std::future::poll_fn(|cx| {
+                assert!(accepting.as_mut().poll(cx).is_pending());
+                std::task::Poll::Ready(())
+            }).await;
+            drop(role);
+            running.shutdown().await.unwrap();
+            assert!(physical.closed().unwrap().matches(&physical));
+            assert!(physical.users_closed().unwrap().matches(&physical));
+            return;
+        }
         let (seen, greeting) = oneshot::channel();
         let peer = tokio::spawn(async move {
             let (mut tcp, _) = listener.accept().await.unwrap();
@@ -68,6 +93,7 @@ async fn abandoned_direct_socks_service_role_closes_its_original_without_observe
             tcp.shutdown().await.unwrap();
         });
         let original;
+        let reservations;
         {
             let operation = role.open(DatagramRequest {
                 association:AssociationId(71),
@@ -79,11 +105,14 @@ async fn abandoned_direct_socks_service_role_closes_its_original_without_observe
                 result = greeting => result.unwrap(),
             }
             let actual = physical.observe().unwrap();
-            assert_eq!(actual.slots().len(), 1);
-            assert!(actual.slots()[0].physical_view_live());
-            assert!(actual.slots()[0].native().is_some());
-            assert!(actual.slots()[0].driver().is_none(), "a taskless direct role invents no task join");
-            original = actual.slots()[0].original().clone();
+            assert_eq!(actual.slots().len(),2,"both original positions are reserved");
+            let acquired=actual.slots().iter().filter(|slot|slot.native().is_some()).collect::<Vec<_>>();
+            assert_eq!(acquired.len(),1,"the UDP reservation has no native socket before BND response");
+            let control=acquired[0];
+            assert!(control.physical_view_live());
+            assert!(control.driver().is_none(),"a taskless role invents no task join");
+            original=control.original().clone();
+            reservations=actual.slots().iter().map(|slot|slot.original().clone()).collect::<Vec<_>>();
             assert!(original.closed().is_none());
             // Only this real role future drops. No caller cancellation, next
             // acquire, external RetiredDatagrams pump or Host shutdown follows.
@@ -96,6 +125,11 @@ async fn abandoned_direct_socks_service_role_closes_its_original_without_observe
             tokio::task::yield_now().await;
         };
         assert!(original.matches_closed(&receipt) && receipt.had_native_acquisition());
+        for reserved in reservations {
+            let closed=reserved.closed().expect("actual reserved original retired without an observer");
+            assert!(reserved.matches_closed(&closed));
+            assert_eq!(closed.had_native_acquisition(),reserved.same_original(&original));
+        }
         assert!(physical.observe().unwrap().slots().is_empty(), "same N refunded only after real close");
         peer.await.unwrap();
         drop(role);

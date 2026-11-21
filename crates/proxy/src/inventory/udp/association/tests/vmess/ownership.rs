@@ -9,6 +9,7 @@ async fn ordinary_vmess_datagram_retains_original_control_until_actual_peer_eof(
     )
     .await;
     let (eof_tx, eof_rx) = tokio::sync::oneshot::channel();
+    let (pending, read_pending) = tokio::sync::oneshot::channel();
     let (release_tx, release_rx) = tokio::sync::oneshot::channel();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
@@ -37,46 +38,40 @@ async fn ordinary_vmess_datagram_retains_original_control_until_actual_peer_eof(
         stream.write_all(&body).await.unwrap();
         stream.flush().await.unwrap();
         let mut byte = [0];
-        assert_eq!(stream.read(&mut byte).await.unwrap(), 0);
+        {
+            let read = stream.read(&mut byte);
+            tokio::pin!(read);
+            std::future::poll_fn(|cx| {
+                assert!(std::future::Future::poll(read.as_mut(), cx).is_pending());
+                std::task::Poll::Ready(())
+            })
+            .await;
+            pending.send(()).unwrap();
+            assert_eq!(read.await.unwrap(), 0);
+        }
         eof_tx.send(()).unwrap();
         release_rx.await.unwrap();
         stream.shutdown().await.unwrap();
     });
-    let runtime = UdpIngressRuntime::new(proxy.tcp_runtime_services());
-    let mut dispatch = runtime.new_dispatch("incoming").await.unwrap();
-    dispatch.dispatch(input(53, b"probe")).await.unwrap();
-    let (_, tasks, _) = dispatch.poll_sockets();
-    timeout(Duration::from_secs(3), tasks.join_next_with_id())
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap()
-        .unwrap();
+    let mut flow = super::grpc::flow::open(proxy.clone(), 1, b"probe").await;
+    read_pending.await.unwrap();
+    let originals = capture_native_originals(&proxy);
+    assert_eq!(originals.len(), 1);
     let retired = proxy.tcp_runtime_services().execution().retired_datagrams();
-    let _ = dispatch.finish_all();
+    flow.retire().await;
     let incomplete = retired
         .wait_closed(Instant::now() + Duration::from_millis(30))
         .await
         .unwrap();
-    assert!(
-        !incomplete.is_complete(),
-        "cancellation and dropping data views cannot close the original"
-    );
+    assert!(!incomplete.is_complete(),"returned business views cannot close the original while its real Source/RX still retains it");
+    assert!(originals.iter().all(|original| original.closed().is_none()));
+    let closed = tokio::spawn(flow.finish_all());
     timeout(Duration::from_secs(3), eof_rx)
         .await
         .unwrap()
         .unwrap();
     release_tx.send(()).unwrap();
-    let closed = retired
-        .wait_closed(Instant::now() + Duration::from_secs(3))
-        .await
-        .unwrap();
-    assert!(closed.is_complete());
-    assert!(!closed.closed_io.is_empty());
+    closed.await.unwrap();
     server.await.unwrap();
-    proxy
-        .protocols
-        .shutdown_components(Instant::now() + Duration::from_secs(3))
-        .await
-        .unwrap();
+    confirm_native_retirement(&proxy, &originals).await;
 }

@@ -146,7 +146,7 @@ impl SourceCustody for Original {
         owner.source_settled() && self.users.pending() == 0 && self.scope.is_drained()
     }
     fn poll_retirement(&self, cx: &mut Context<'_>) -> bool {
-        if self.stop.is_cancelled() || self.scope.is_drained() {
+        if (self.stop.is_cancelled() || self.scope.is_drained()) && self.users.pending() == 0 {
             let close = try_owner(&self.owner).map(|owner| owner.prepare_native_close());
             if let Some(close) = close {
                 // Native deregistration may invoke arbitrary IO wakers. No

@@ -108,10 +108,6 @@ async fn actual_unbuilt_source_refresh_reuses_exact_formatter_family_and_accepte
                     .devices
                     .source_component_dependencies(&actual.config, resources)?,
             )?;
-            let aliases = actual
-                .devices
-                .device_alias_overrides(&actual.config, resources)?;
-            resources.set_device_alias_overrides(aliases)?;
             Ok(deferred)
         })
         .await

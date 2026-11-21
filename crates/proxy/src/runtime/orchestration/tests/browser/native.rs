@@ -27,7 +27,11 @@ async fn custom_browser_profiles_preserve_native_tls_ws_and_retire_the_original_
             let mut io = super::mux::connect(client.address, port).await;
             io.write_all(b"retained-profiles").await.unwrap();let mut got=[0;17];io.read_exact(&mut got).await.unwrap();assert_eq!(&got,b"retained-profiles");
             let plan=client.proxy.tcp_runtime_services().components.clone().unwrap();let node=plan.configured("node").unwrap();
-            let owner=node.original_carrier_owner(0).unwrap();let observed=owner.observe().unwrap();assert_eq!(observed.retained(),1);
+            // The real CA File declaration can precede the native Stream.
+            let ordinal=node.recipe.spec().resources.iter().position(|resource|matches!(resource,
+                zero_platform_tokio::contract::component::ResourceDeclaration::ControlledNodeCarrier{..}
+            )).expect("selected native TLS/WS carrier declaration");
+            let owner=node.original_carrier_owner(ordinal).unwrap();let observed=owner.observe().unwrap();assert_eq!(observed.retained(),1);
             let original=observed.slots()[0].original().clone();assert!(observed.slots()[0].native().is_some());
             io.shutdown().await.unwrap();drop(io);echo.await.unwrap();let roots=client.proxy.protocols.runtime_host().original_budgets();client.close().await;
             assert!(owner.closed().unwrap().matches(&owner));assert!(original.matches_closed(&original.closed().unwrap()));assert_eq!(roots.carrier.snapshot().charged,0);
