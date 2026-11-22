@@ -151,7 +151,10 @@ async fn ordinary_vless_trojan_mux_prefix_udp_keeps_actual_pool_accounting_and_s
                 let mut promoted=(**proxy.engine().runtime_snapshot().config()).clone();
                 let zero_config::OutboundGroupKind::Relay{proxies}=&mut promoted.outbound_groups.iter_mut().find(|g|g.tag=="chain").unwrap().group else {unreachable!()};proxies[0]="legacy".into();
                 let cold=proxy.protocols.prepare_components(std::sync::Arc::new(promoted)).unwrap();
-                assert!(cold.configured("legacy").is_none(),"logical close/cache reuse cannot adopt an already exposed legacy pool");drop(cold);
+                let alias = cold.configured("legacy").expect("the selected standard alias remains qualified");
+                assert_eq!(alias.instance_id(), migrated.instance_id());
+                assert_eq!(alias.dependency_instances(), migrated.dependency_instances());
+                drop(cold);
                 assert_eq!(registration.observe().unwrap().retained(),1,"no compatibility physical pool may be started");assert!(physical.closed().is_none());
                 close_flow(&proxy,business).await;server.finish().await;proxy.protocols.shutdown_components(end()).await.unwrap();
                 assert!(physical.matches_closed(&physical.closed().unwrap()));assert!(driver.is_joined());assert!(registration.closed().unwrap().matches(&registration));

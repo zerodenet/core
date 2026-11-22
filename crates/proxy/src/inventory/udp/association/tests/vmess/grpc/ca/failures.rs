@@ -78,12 +78,13 @@ async fn ordinary_vmess_grpc_ca_untrusted_peer_fails_real_tls_before_udp_submiss
             assert!(zero_transport::tls::accept_tls_handshake(&acceptor,zero_platform_tokio::TokioSocket::new(stream)).await.is_err());
         });
         let registration=original(&proxy);
-        proxy.protocols.drive_component_supervision(async {
-            let mut dispatch=UdpIngressRuntime::new(proxy.tcp_runtime_services()).new_dispatch("untrusted").await.unwrap();
+        crate::runtime::udp_ingress::test_source::run(&proxy, |_, source| async move {
+            let mut dispatch=source.new_dispatch("untrusted").await.unwrap();
             assert!(dispatch.dispatch(input(53,b"must-not-submit")).await.is_err());
-            dispatch.finish_all();server.await.unwrap();
-            proxy.protocols.shutdown_components(Instant::now()+Duration::from_secs(3)).await.unwrap();
+            dispatch.finish_all();
         }).await;
+        server.await.unwrap();
+        proxy.protocols.shutdown_components(Instant::now()+Duration::from_secs(3)).await.unwrap();
         assert!(registration.closed().unwrap().matches(&registration));
     }).await.unwrap();
 }
