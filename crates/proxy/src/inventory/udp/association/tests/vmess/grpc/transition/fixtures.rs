@@ -45,7 +45,7 @@ impl Peer {
                         None,
                     )])
                     .unwrap();
-                    let (_, mut io) = profile
+                    let (facts, mut io) = profile
                         .accept_request_stream(
                             vmess::inbound::VmessInbound,
                             zero_platform_tokio::TcpRelayStream::new(io),
@@ -53,6 +53,19 @@ impl Peer {
                         .await
                         .unwrap();
                     let echo = async {
+                        if facts.destination.port == 53 {
+                            while let Ok(length) = io.read_u16().await {
+                                let mut data = vec![0; length as usize];
+                                io.read_exact(&mut data).await.unwrap();
+                                assert_eq!(&data[..7], &[1, 203, 0, 113, 9, 0, 53]);
+                                assert_eq!(&data[7..], b"live");
+                                io.write_u16(length).await.unwrap();
+                                io.write_all(&data).await.unwrap();
+                                io.flush().await.unwrap();
+                            }
+                            return;
+                        }
+                        assert_eq!(facts.destination.port, 443);
                         loop {
                             let mut data = [0; 4];
                             if io.read_exact(&mut data).await.is_err() {
@@ -87,14 +100,27 @@ impl Peer {
         self.worker.await.unwrap();
     }
 }
-pub(super) fn config(peer: &Peer, relay: bool) -> zero_config::RuntimeConfig {
-    zero_config::RuntimeConfig::parse(&serde_json::json!({
+pub(super) fn config(peer: &Peer, compatibility: bool) -> zero_config::RuntimeConfig {
+    let mut config = serde_json::json!({
         "outbounds":[
-            {"tag":"node","protocol":{"type":"vmess","server":"127.0.0.1","port":peer.address.port(),"id":ID,"cipher":"aes-128-gcm","grpc":{"service_names":["mode/Tun"]}}},
-            {"tag":"other","protocol":{"type":"socks5","server":"127.0.0.1","port":1}}
-        ],"outbound_groups":if relay {serde_json::json!([{"tag":"unused","type":"relay","proxies":["node","other"]}])}else{serde_json::json!([])},
+            {"tag":"node","protocol":{"type":"vmess","server":"127.0.0.1","port":peer.address.port(),"id":ID,"cipher":"aes-128-gcm","grpc":{"service_names":["mode/Tun"]}}}
+        ],
         "route":{"final":{"type":"route","outbound":"node"}}
-    }).to_string()).unwrap()
+    });
+    if compatibility {
+        // This Node DNS detour would itself need Node resolution. The domain
+        // peer makes the full configuration ineligible for a native Stream
+        // role, while the literal peer still has its standard Datagram role.
+        config["outbounds"].as_array_mut().unwrap().extend([
+            serde_json::json!({"tag":"domain-node","protocol":{"type":"vmess","server":"vpn.example","port":443,"id":ID,"cipher":"aes-128-gcm","grpc":{"service_names":["mode/Tun"]}}}),
+            serde_json::json!({"tag":"bootstrap","protocol":{"type":"socks5","server":"localhost","port":1080}}),
+        ]);
+        config["runtime"] = serde_json::json!({"dns":{
+            "servers":{"remote":{"type":"udp","host":"127.0.0.1","detour":"bootstrap"}},
+            "default_server":"remote","policy":{"node_server":"remote"}
+        }});
+    }
+    zero_config::RuntimeConfig::parse(&config.to_string()).unwrap()
 }
 pub(super) async fn start(
     config: zero_config::RuntimeConfig,
@@ -111,10 +137,10 @@ pub(super) async fn start(
         .unwrap();
     (proxy, running, handle)
 }
-pub(super) async fn open(
+async fn open_tcp(
     proxy: &Proxy,
     tag: &str,
-) -> zero_platform_tokio::contract::stream::BoxStream {
+) -> Result<crate::transport::EstablishedTcpOutbound, crate::transport::TcpOutboundFailure> {
     let session = Session::new(
         0,
         Address::Ipv4([203, 0, 113, 9]),
@@ -142,10 +168,26 @@ pub(super) async fn open(
         crate::runtime::tcp_dispatch::TcpDispatchIntent::DiagnosticProbe,
     )
     .await
-    .unwrap_or_else(|failure| panic!("{}: {}", failure.stage, failure.error))
-    .into_stream()
-    .unwrap()
 }
+
+pub(super) async fn open(
+    proxy: &Proxy,
+    tag: &str,
+) -> zero_platform_tokio::contract::stream::BoxStream {
+    open_tcp(proxy, tag)
+        .await
+        .unwrap_or_else(|failure| panic!("{}: {}", failure.stage, failure.error))
+        .into_stream()
+        .unwrap()
+}
+
+pub(super) async fn assert_tcp_unavailable(proxy: &Proxy) {
+    let Err(error) = open_tcp(proxy, "node").await else {
+        panic!("unqualified TCP must not open a compatibility carrier");
+    };
+    assert_eq!(error.stage, "data_plane_route");
+}
+
 pub(super) async fn echo(io: &mut zero_platform_tokio::contract::stream::BoxStream) {
     io.write_all(b"live").await.unwrap();
     io.flush().await.unwrap();

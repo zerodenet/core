@@ -95,6 +95,7 @@ async fn ordinary_vmess_grpc_domain_route_only_apply_reuses_owner_and_keeps_live
         let endpoint = Endpoint::new().await;
         let config = endpoint.config(&dns, false);
         let (proxy, running, handle) = start_domain(config.clone()).await;
+        endpoint.remove_ca_file();
         let server = endpoint.serve(false, 2, vec![b"owned".to_vec()]);
         let opening = tokio::spawn(open(proxy.clone(), 1, b"owned"));
         dns.request().await.answer(false, false);
@@ -108,9 +109,9 @@ async fn ordinary_vmess_grpc_domain_route_only_apply_reuses_owner_and_keeps_live
             .unwrap()
             .instance_id();
         let registration = original(&proxy);
-        let old = registration.observe().unwrap().slots()[0]
-            .original()
-            .clone();
+        let observed = registration.observe().unwrap();
+        let old = observed.slots()[0].original().clone();
+        let driver = observed.slots()[0].driver().unwrap().1.clone();
         let mut candidate = config;
         candidate.outbound_groups = serde_json::from_value(
             serde_json::json!([{"tag":"choice","type":"selector","outbounds":["node"]}]),
@@ -137,6 +138,7 @@ async fn ordinary_vmess_grpc_domain_route_only_apply_reuses_owner_and_keeps_live
             "unchanged DNS and node retain their actual role owner"
         );
         assert!(old.closed().is_none());
+        assert!(!driver.is_joined());
         let opening = tokio::spawn(open(proxy.clone(), 2, b"owned"));
         dns.request().await.answer(false, false);
         let second = opening.await.unwrap();
@@ -149,6 +151,7 @@ async fn ordinary_vmess_grpc_domain_route_only_apply_reuses_owner_and_keeps_live
         first.finish_all().await;
         retire(&proxy, second).await;
         assert!(old.matches_closed(&old.closed().unwrap()));
+        assert!(driver.matches_joined(&driver.try_joined().unwrap()));
         server.await.unwrap();
         running.shutdown().await.unwrap();
         dns.close().await;

@@ -7,6 +7,32 @@ use zero_config::OutboundProtocolConfig;
 use zero_core::component::ResourceGeneration;
 use zero_platform_tokio::contract::component::RoleKind;
 
+/// A routing edit keeps the material already loaded from the same source.
+/// A fresh apply with identical settings can still refresh files at the same path.
+fn routing_only_change(previous: &RuntimeConfig, candidate: &RuntimeConfig) -> bool {
+    let RuntimeConfig {
+        schema_version,
+        endpoints,
+        inbounds,
+        outbounds,
+        outbound_groups,
+        runtime,
+        mode,
+        route,
+        api,
+        source_dir,
+    } = candidate;
+    (previous.route != *route || previous.outbound_groups != *outbound_groups)
+        && previous.schema_version == *schema_version
+        && previous.endpoints == *endpoints
+        && previous.inbounds == *inbounds
+        && previous.outbounds == *outbounds
+        && previous.runtime == *runtime
+        && previous.mode == *mode
+        && previous.api == *api
+        && previous.source_dir == *source_dir
+}
+
 impl ComponentCatalog {
     pub(super) fn prepare_plan(
         &self,
@@ -174,9 +200,9 @@ impl ComponentCatalog {
             .with_candidate(config)
             .with_primary_factories(self.factories())
             .with_previous_named(previous.map(|(_, plan)| &plan.outbounds))
-            .with_same_source_as_previous(
-                previous.is_some_and(|(source, _)| std::ptr::eq(config, source.as_ref())),
-            )
+            .with_same_source_as_previous(previous.is_some_and(|(source, _)| {
+                std::ptr::eq(config, source.as_ref()) || routing_only_change(source, config)
+            }))
             .with_previous_slots(
                 previous
                     .map(|(_, plan)| plan.order.as_slice())

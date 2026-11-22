@@ -79,5 +79,6 @@ mod relay;
 #[path = "grpc/stream.rs"]
 mod stream;
 
+#[cfg(feature = "socks5")]
 #[path = "grpc/transition.rs"]
 mod transition;

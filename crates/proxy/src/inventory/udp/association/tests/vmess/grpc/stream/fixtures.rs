@@ -69,48 +69,42 @@ pub(super) async fn server(listener: TcpListener, mut release: tokio::sync::watc
     let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
     assert!(listener.poll_accept(&mut cx).is_pending());
 }
-pub(super) async fn business(proxy: &Proxy) -> zero_platform_tokio::contract::stream::BoxStream {
-    let mut session = Session::new(
-        0,
-        Address::Ipv4([203, 0, 113, 9]),
-        443,
-        Network::Tcp,
-        ProtocolType::new("test"),
-    );
-    let receipt = proxy
-        .engine()
-        .prepare_session_admitted(&mut session, "incoming")
-        .unwrap();
-    let demand = crate::component::business_demand::AdmittedBusinessDemand::new(
-        proxy.engine(),
-        zero_core::component::SessionId(session.id),
-        receipt,
-    )
-    .unwrap();
-    let services = proxy
-        .tcp_runtime_services()
-        .for_inbound("incoming".into())
-        .with_admitted_business_identity(&session, demand)
-        .unwrap();
-    let (resolved, _) = proxy
-        .engine()
-        .resolve_route_decision(RouteDecision::Route("node".into()))
-        .unwrap();
-    let crate::inventory::PreparedTcpOutbound::Single(prepared) = services
-        .prepare_tcp_outbound(&resolved, RouteMode::Flow)
-        .unwrap_or_else(|error| panic!("{}", error.error))
-    else {
-        panic!("single native owner")
-    };
-    let crate::inventory::PreparedTcpCandidateExecution::Native(slot) = &prepared.execution else {
-        panic!("new TCP cannot use compatibility execution")
-    };
-    let slot = slot.slot().unwrap();
-    crate::component::stream_bridge::connect(&services.execution(), &session, &slot, &prepared)
-        .await
-        .unwrap_or_else(|error| panic!("{}: {}", error.stage, error.error))
-        .into_stream()
-        .unwrap()
+pub(super) async fn business(
+    proxy: &Proxy,
+) -> (
+    tokio::sync::oneshot::Sender<()>,
+    tokio::task::JoinHandle<()>,
+) {
+    use tokio::sync::oneshot;
+
+    let (ready, opened) = oneshot::channel();
+    let (retire, retired) = oneshot::channel();
+    let proxy = proxy.clone();
+    let worker = tokio::spawn(async move {
+        crate::runtime::udp_ingress::test_source::run(&proxy, |_, source| async move {
+            let mut session = Session::new(
+                0,
+                Address::Ipv4([203, 0, 113, 9]),
+                443,
+                Network::Tcp,
+                ProtocolType::new("test"),
+            );
+            let runtime = source.tcp_runtime("incoming");
+            let mut route = runtime.open_tcp_upstream(&mut session).await.unwrap();
+            assert_eq!(route.outbound_tag, "node");
+            exchange(&mut route.upstream).await;
+            ready.send(()).unwrap();
+            retired.await.unwrap();
+            drop(route);
+            assert!(runtime
+                .track_session(session.id)
+                .finish(zero_engine::SessionOutcome::ChainedRelayed)
+                .is_some());
+        })
+        .await;
+    });
+    opened.await.unwrap();
+    (retire, worker)
 }
 pub(super) async fn service(proxy: &Proxy) -> zero_platform_tokio::contract::stream::BoxStream {
     use zero_platform_tokio::contract::{network::CarrierContext, CancellationToken};

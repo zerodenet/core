@@ -41,6 +41,9 @@ impl Endpoint {
             "route":{"final":{"type":"route","outbound":"node"}}
         }).to_string(),Some(self.material.path().to_path_buf())).unwrap()
     }
+    pub(super) fn remove_ca_file(&self) {
+        std::fs::remove_file(self.material.path().join("cert.pem")).unwrap();
+    }
     pub(super) async fn assert_no_connection(&self) {
         use std::{
             future::{poll_fn, Future},

@@ -1,71 +1,47 @@
-//! Actual legacy/native admission never treats removal of a recipe as closure.
+//! Changes to Stream eligibility keep both the actual role and original-close gates.
 use super::*;
 #[path = "transition/fixtures.rs"]
 mod fixtures;
 use fixtures::{config, echo, open, Peer};
 #[tokio::test]
-async fn ordinary_vmess_grpc_legacy_to_native_reload_rejects_before_stopping_old_tcp_or_opening_new_originals(
-) {
+async fn ordinary_vmess_grpc_datagram_only_to_native_stream_waits_for_live_udp_original_return() {
     timeout(Duration::from_secs(20), async {
         let peer = Peer::new().await;
         let initial = config(&peer, true);
-        let (proxy, running, handle) = fixtures::start(initial.clone()).await;
-        let mut old = open(&proxy, "node").await;
-        echo(&mut old).await;
-        let slot = proxy
-            .tcp_runtime_services()
-            .components
-            .as_ref()
-            .unwrap()
-            .configured("node")
-            .unwrap();
-        assert!(!slot
-            .recipe
-            .spec()
-            .roles
-            .contains(&zero_platform_tokio::contract::component::RoleKind::Stream));
-        assert_eq!(
-            original(&proxy).observe().unwrap().retained(),
-            0,
-            "legacy TCP is not in Datagram native users"
-        );
-        let revision = proxy.config_revision();
+        let (proxy, running, handle) = fixtures::start(initial).await;
+        assert_standard_datagram(&proxy);
+        fixtures::assert_tcp_unavailable(&proxy).await;
+        assert_eq!(peer.count(), 0);
+
+        let registration = original(&proxy);
+        let flow = flow::open(proxy.clone(), 1, b"live").await;
+        let observed = registration.observe().unwrap();
+        let native = observed.slots()[0].original().clone();
+        let driver = observed.slots()[0].driver().unwrap().1.clone();
         let promoted = config(&peer, false);
-        let error = handle
-            .apply_runtime_config_and_wait(promoted.clone(), Duration::from_secs(5))
+        let applying = tokio::spawn(async move {
+            handle
+                .apply_runtime_config_and_wait(promoted, Duration::from_secs(10))
+                .await
+        });
+        timeout(Duration::from_secs(3), driver.wait())
             .await
-            .unwrap_err();
-        assert!(error.contains("legacy TCP originals"), "{error}");
-        assert_eq!(proxy.config_revision(), revision);
-        assert_eq!(
-            proxy.engine().runtime_snapshot().config().as_ref(),
-            &initial
-        );
-        assert_eq!(
-            slot.instance_id(),
-            proxy
-                .tcp_runtime_services()
-                .components
-                .as_ref()
-                .unwrap()
-                .configured("node")
-                .unwrap()
-                .instance_id()
-        );
-        echo(&mut old).await;
+            .unwrap();
+        assert!(!applying.is_finished());
+        assert!(registration.closed().is_none());
         assert_eq!(peer.count(), 1);
-        drop(old);
-        // There is no actual legacy native/driver receipt. Drop cannot clear
-        // the exposure debt or authorize a new executor.
-        assert!(handle
-            .apply_runtime_config_and_wait(promoted, Duration::from_secs(5))
-            .await
-            .unwrap_err()
-            .contains("legacy TCP originals"));
-        let mut retained = open(&proxy, "node").await;
-        echo(&mut retained).await;
+
+        flow.finish_all().await;
+        applying.await.unwrap().unwrap();
+        assert!(native.matches_closed(&native.closed().unwrap()));
+        assert!(registration.closed().unwrap().matches(&registration));
+        assert!(registration.users_closed().unwrap().matches(&registration));
+        assert_ne!(original(&proxy).instance(), registration.instance());
+
+        let mut tcp = open(&proxy, "node").await;
+        echo(&mut tcp).await;
         assert_eq!(peer.count(), 2);
-        drop(retained);
+        drop(tcp);
         running.shutdown().await.unwrap();
         peer.close().await;
     })
@@ -73,8 +49,7 @@ async fn ordinary_vmess_grpc_legacy_to_native_reload_rejects_before_stopping_old
     .unwrap();
 }
 #[tokio::test]
-async fn ordinary_vmess_grpc_native_to_legacy_reload_preserves_tcp_until_explicit_removal_confirms_original_close(
-) {
+async fn ordinary_vmess_grpc_native_to_datagram_only_reload_preserves_tcp_until_original_close() {
     timeout(Duration::from_secs(25), async {
         let peer = Peer::new().await;
         let initial = config(&peer, false);
@@ -125,15 +100,17 @@ async fn ordinary_vmess_grpc_native_to_legacy_reload_preserves_tcp_until_explici
         assert!(original.matches_closed(&original.closed().unwrap()));
         assert!(registration.closed().unwrap().matches(&registration));
         assert!(registration.users_closed().unwrap().matches(&registration));
-        // Only that positive original cleanup permits a later legacy candidate.
+        // Only confirmed original cleanup permits installing the candidate
+        // without Stream. Its actual Datagram role can still serve traffic.
         handle
             .apply_runtime_config_and_wait(config(&peer, true), Duration::from_secs(5))
             .await
             .unwrap();
-        let mut next = open(&proxy, "node").await;
-        echo(&mut next).await;
+        fixtures::assert_tcp_unavailable(&proxy).await;
+        assert_eq!(peer.count(), 1);
+        let flow = flow::open(proxy.clone(), 2, b"live").await;
         assert_eq!(peer.count(), 2);
-        drop(next);
+        flow.finish_all().await;
         running.shutdown().await.unwrap();
         peer.close().await;
     })
