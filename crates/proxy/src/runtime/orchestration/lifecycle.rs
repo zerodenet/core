@@ -241,7 +241,6 @@ where
                         error = %error,
                         "proxy orchestration observed configured TUN termination"
                     );
-                    state.propagate_shutdown();
                     return Err(error);
                 }
             }

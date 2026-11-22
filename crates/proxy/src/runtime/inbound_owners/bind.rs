@@ -232,7 +232,7 @@ impl InboundOwnerRegistry {
         reserved.closing = false;
         Ok(())
     }
-    pub(super) fn close_bind_admission(&self) {
+    pub(in crate::runtime) fn close_bind_admission(&self) {
         self.reservations
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)

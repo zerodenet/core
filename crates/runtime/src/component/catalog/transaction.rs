@@ -408,29 +408,29 @@ impl ComponentCatalog {
     pub async fn shutdown(&self, deadline: tokio::time::Instant) -> Result<(), ChannelError> {
         self.drive_supervised(self.shutdown_inner(deadline)).await
     }
+    pub(super) fn shutdown_plans(&self) -> Vec<Arc<ComponentPlan>> {
+        let state = self.state.lock().expect("component catalog poisoned");
+        state
+            .staged
+            .iter()
+            .chain(state.current.iter())
+            .map(|entry| entry.ready().clone())
+            .chain(state.retired.iter().cloned())
+            .chain(
+                state
+                    .replacement
+                    .iter()
+                    .flat_map(|pending| pending.owned_plans().cloned()),
+            )
+            .collect()
+    }
     async fn shutdown_inner(&self, deadline: tokio::time::Instant) -> Result<(), ChannelError> {
         let _transition = tokio::time::timeout_at(deadline, self.transition.lock())
             .await
             .map_err(|_| invalid(Reason::Timeout, "component transition remains owned"))?;
         self.admission.close();
-        let plans = {
-            let state = self.state.lock().expect("component catalog poisoned");
-            state
-                .staged
-                .iter()
-                .chain(state.current.iter())
-                .map(|entry| entry.ready().clone())
-                .chain(state.retired.iter().cloned())
-                .chain(
-                    state
-                        .replacement
-                        .iter()
-                        .flat_map(|pending| pending.owned_plans().cloned()),
-                )
-                .collect::<Vec<_>>()
-        };
         let mut failure = None;
-        for plan in plans {
+        for plan in self.shutdown_plans() {
             if let Err(error) = plan.shutdown(deadline).await {
                 failure.get_or_insert(error);
             }

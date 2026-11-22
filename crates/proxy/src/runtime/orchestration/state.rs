@@ -21,6 +21,8 @@ pub(super) struct OrchestrationState {
     pub(super) device_retry_delay: std::time::Duration,
     #[cfg(feature = "raw-ip-runtime")]
     pub(super) outbound_devices: crate::inventory::ProtocolInventory,
+    #[cfg(feature = "raw-ip-runtime")]
+    pub(super) draining_device_borrowers: bool,
     pub(super) engine: zero_engine::Engine,
     pub(super) finished: bool,
     pub(super) orchestration_ready: watch::Sender<bool>,

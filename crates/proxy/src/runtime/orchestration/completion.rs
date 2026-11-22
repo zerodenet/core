@@ -61,6 +61,25 @@ impl OrchestrationState {
             }
         }
         self.publish_stopping();
+        #[cfg(feature = "raw-ip-runtime")]
+        {
+            self.draining_device_borrowers = true;
+            self.orchestration_ready.send_replace(false);
+            proxy.inbound_owners.close_bind_admission();
+            if let Err(source) = proxy
+                .host
+                .components()
+                .shutdown_device_borrowers(tokio::time::Instant::now() + Duration::from_secs(5))
+                .await
+            {
+                let error = std::io::Error::other(source);
+                tracing::warn!(%error, "device shutdown is waiting for its original borrowers");
+                self.publish_terminal(Some(&error.to_string()));
+                self.finished = true;
+                return result.and(Err(error.into()));
+            }
+            self.draining_device_borrowers = false;
+        }
         self.propagate_shutdown();
         if let Err(error) = proxy.stop_tun_if_running().await {
             cleanup_errors.push(format!("TUN shutdown failed: {error}"));
@@ -342,12 +361,16 @@ impl Drop for OrchestrationState {
         // Panic/cancellation cannot await cleanup. Report failed, never a
         // confirmed stopped state; normal completion disarms this guard.
         if !self.finished {
-            self.propagate_shutdown();
             self.publish_terminal(Some(
                 "orchestration interrupted before shutdown confirmation",
             ));
+            #[cfg(feature = "raw-ip-runtime")]
+            if self.draining_device_borrowers {
+                // The catalog still owns the interrupted close; its device
+                // donors must stay live until that close has been confirmed.
+                return;
+            }
+            self.propagate_shutdown();
         }
-        #[cfg(feature = "raw-ip-runtime")]
-        self.outbound_devices.request_device_shutdown();
     }
 }

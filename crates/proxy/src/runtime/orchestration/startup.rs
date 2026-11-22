@@ -53,6 +53,8 @@ impl OrchestrationState {
             device_retry_delay: std::time::Duration::from_secs(1),
             #[cfg(feature = "raw-ip-runtime")]
             outbound_devices: proxy.protocols.clone(),
+            #[cfg(feature = "raw-ip-runtime")]
+            draining_device_borrowers: false,
             engine: proxy.engine.clone(),
             finished: false,
             orchestration_ready: proxy.orchestration_ready.clone(),

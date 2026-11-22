@@ -116,8 +116,12 @@ async fn ordinary_root_device_prefix_uses_real_setup_caller_and_one_mieru_pool_f
                 "route":{"final":{"type":"route","outbound":"chain"}}
             }).to_string()).unwrap();
             if udp {let zero_config::OutboundProtocolConfig::Mieru {transport,..}=&mut config.outbounds.iter_mut().find(|node|node.tag=="pool").unwrap().protocol else {unreachable!()};*transport=zero_config::MieruTransport::Udp;}
+            let source_tag = config.inbounds.iter().find(|inbound| {
+                matches!(inbound.protocol, zero_config::InboundProtocolConfig::Wireguard { .. })
+            }).unwrap().tag.clone();
             let proxy=Proxy::new(config.clone()).unwrap();let running=proxy.spawn();
             ProxyHandle::new(zero_engine::EngineHandle::new(proxy.engine().clone()),proxy.clone()).apply_runtime_config_and_wait(config,Duration::from_secs(5)).await.unwrap();
+            let source = proxy.system_tun_source_registry().owner(&source_tag).unwrap();
             let mut first=open(&proxy).await;echo(&mut first).await;
             let original=first.owner.original().clone();
             assert_eq!(original.owner().limit().get(),1);
@@ -137,8 +141,12 @@ async fn ordinary_root_device_prefix_uses_real_setup_caller_and_one_mieru_pool_f
             }).await;
             assert_eq!(server.accepts.load(Ordering::SeqCst),1,"ordinary TCP and UDP must share the same physical pool");
             echo(&mut second).await;returned(second).await;
-            running.shutdown().await.unwrap();let joined=driver.wait_registration_released().await;assert!(driver.matches_joined(&joined)&&joined.registration_released());
+            running.shutdown().await.unwrap();
+            let joined=driver.wait_registration_released().await;
+            assert!(driver.matches_joined(&joined)&&joined.result().is_ok()&&joined.registration_released());
             assert!(original.closed().unwrap().matches(&original));assert!(original.owner().closed().unwrap().matches(original.owner()));
+            let terminal = source.terminal_for_test().unwrap();
+            assert!(terminal.failure().is_none() && terminal.closed_io_receipts() > 0);
             peer.close().await;server.close().await;
         }
     }).await.unwrap();

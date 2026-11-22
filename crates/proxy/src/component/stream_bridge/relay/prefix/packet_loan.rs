@@ -119,7 +119,22 @@ impl PrefixOpener {
         // already selected shorter path with the actual pending-original ledger;
         // never let a pool retain that business request's upstream authority.
         let waiting = self.context.upstream.observed_pending_carrier();
-        let upstream = if waiting.is_some() || self.context.session_identity()?.is_some() {
+        let business = self.context.session_identity()?.is_some();
+        let upstream = if !business
+            && waiting.is_some()
+            && shorter.prefix.is_empty()
+            && slot
+                .recipe
+                .spec()
+                .roles
+                .contains(&zero_platform_tokio::contract::component::RoleKind::Packet)
+        {
+            // The selected Packet root already holds this setup caller's
+            // original observer. Confirm it for the exact Service invocation
+            // before passing it on to the Datagram role.
+            self.context.upstream.packet_caller(&identity, &call)?;
+            self.context.upstream.clone()
+        } else if waiting.is_some() || business {
             self.select_shorter(&call, waiting).await?
         } else {
             self.context.upstream.clone()

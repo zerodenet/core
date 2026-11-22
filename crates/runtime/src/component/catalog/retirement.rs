@@ -6,7 +6,72 @@ use futures_util::{stream::FuturesUnordered, StreamExt};
 use std::collections::BTreeSet;
 use zero_core::component::ComponentInstanceId;
 
+#[cfg(feature = "raw-ip-runtime")]
+impl ComponentCatalog {
+    /// Published device originals can also be retained by an external
+    /// Source or the device inventory. Close their catalog borrowers before
+    /// those owners receive the global stop request.
+    pub async fn shutdown_device_borrowers(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), ChannelError> {
+        self.drive_supervised(async {
+            let _transition = tokio::time::timeout_at(deadline, self.transition.lock())
+                .await
+                .map_err(|_| invalid(Reason::Timeout, "component transition remains owned"))?;
+            self.admission.freeze_loans().retain();
+            for plan in self.shutdown_plans() {
+                plan.shutdown_device_borrowers(deadline).await?;
+            }
+            Ok(())
+        })
+        .await
+    }
+}
+
 impl ComponentPlan {
+    #[cfg(feature = "raw-ip-runtime")]
+    async fn shutdown_device_borrowers(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<(), ChannelError> {
+        let loans = self.borrowing.loan_snapshot().1;
+        // A loan edge to a deferred device was recorded only after its
+        // actual carrier provider admitted the generation.
+        let mut consumers = loans
+            .iter()
+            .filter(|(_, donor)| {
+                self.deferred_devices.contains(&donor.component)
+                    && self.order.iter().any(|slot| slot.instance_id() == *donor)
+            })
+            .map(|(consumer, _)| *consumer)
+            .filter(|consumer| {
+                self.order
+                    .iter()
+                    .any(|slot| slot.instance_id() == *consumer)
+            })
+            .collect::<BTreeSet<_>>();
+        if consumers.is_empty() {
+            return Ok(());
+        }
+        loop {
+            let before = consumers.len();
+            for slot in &self.order {
+                if self
+                    .retirement_dependencies(slot)
+                    .iter()
+                    .any(|dependency| consumers.contains(dependency))
+                {
+                    consumers.insert(slot.instance_id());
+                }
+            }
+            if consumers.len() == before {
+                break;
+            }
+        }
+        self.confirm_instances(&consumers, deadline).await
+    }
+
     /// The slot combines actual protocol/task receipts with declaration-wide
     /// provider evidence before returning a complete report. Unknown native or
     /// transferred users therefore remain charged here.
