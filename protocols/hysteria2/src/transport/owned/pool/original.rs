@@ -142,7 +142,11 @@ impl Entry {
             // Never hold Entry state while its Root-held controller needs that
             // same state. This drives the existing persistent phase inline.
             if !origin.retire_protocol(&tasks, end).await? {
-                return Err(error(Stage::Close, Reason::Timeout));
+                return Err(error(Stage::Close, Reason::Timeout).with_source(
+                    std::io::Error::other(
+                        "original Hysteria2 endpoint protocol retirement remained pending",
+                    ),
+                ));
             }
         }
         let mut state = tokio::time::timeout_at(end, self.state.lock())

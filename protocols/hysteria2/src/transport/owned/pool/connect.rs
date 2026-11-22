@@ -72,6 +72,12 @@ impl Generation {
                 .collect::<Vec<_>>();
             candidates.sort_by_key(|(_, _, touched)| *touched);
             for (old, entry, _) in candidates {
+                // The same entry gate also owns initialization and maintenance.
+                // A competing pressure request must drain a different idle
+                // original, or leave the current owner's charged slot intact.
+                let Ok(_initialization) = entry.initialization.try_lock() else {
+                    continue;
+                };
                 if entry.close_if_idle(end).await? {
                     self.remove_entry(&old, &entry).await?;
                     break;
