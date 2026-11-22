@@ -154,6 +154,17 @@ async fn hysteria2_actual_node_candidates_fall_back_and_concurrent_users_share_t
         config.runtime.dns = Some(dns.config());
         let proxy = Proxy::new(config).unwrap();
         start(&proxy).await;
+        let plan = proxy.tcp_runtime_services().execution().components.unwrap();
+        let role = plan.configured("hy").unwrap();
+        let metadata = role
+            .dependency_instances()
+            .iter()
+            .find_map(|dependency| {
+                let provider = plan.component(dependency.component)?;
+                (0..provider.recipe.spec().resources.len())
+                    .find_map(|ordinal| provider.original_metadata_owner(ordinal))
+            })
+            .expect("the standard role's actual Metadata provider");
         let exchanges = async { tokio::join!(connect(&proxy, "hy"), connect(&proxy, "hy")) };
         tokio::pin!(exchanges);
         let request = tokio::select! {
@@ -173,8 +184,26 @@ async fn hysteria2_actual_node_candidates_fall_back_and_concurrent_users_share_t
             _ = &mut exchanges => panic!("the first actual candidate was skipped"),
         };
         assert_eq!(server.authenticated.load(Ordering::SeqCst), 0);
+        let refused_original = metadata.current_original().expect("first native candidate");
+        let initializer = refused_original.initializer_registration().unwrap();
+        let receiver = refused_original.retained_protocol_receiver().unwrap();
+        assert!(!initializer.is_joined());
+        assert!(refused_original.closed().is_none());
         incoming.refuse();
         let (first, second) = exchanges.await;
+        let survivor = metadata
+            .current_original()
+            .expect("second native candidate");
+        assert!(!survivor.same_original(&refused_original));
+        assert!(refused_original.closed().is_some_and(
+            |closed| closed.matches(&refused_original) && closed.had_native_acquisition()
+        ));
+        for original in [&initializer, receiver.protocol_driver()] {
+            let joined = original
+                .try_joined()
+                .expect("first candidate's original task");
+            assert!(original.matches_joined(&joined) && joined.registration_released());
+        }
         assert_eq!(
             server.authenticated.load(Ordering::SeqCst),
             1,
